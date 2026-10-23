@@ -39,6 +39,7 @@ import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { RuinsView, type ShownRuin } from "../render/ruins-view";
+import type { RuinOnMap } from "./map-markers";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
 import { archFloors, bridgeLevels, findCrossings, styleCrossings, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape } from "../landscape";
 import type { Prop, PropPose } from "../props/store";
@@ -362,7 +363,21 @@ export class Game {
       this.invalidate();
       if (this.ruinsView.lastBuilt > 0) console.info(`Woodrail: ruins built (${this.ruinsView.lastBuilt} tile(s), last ${this.ruinsView.lastBuildMs.toFixed(1)} ms)`);
     }
+    // (The map view's ruin markers are made again only when the ruins shown change: `ruinsVersion`.)
+    // (The markers copy what they show of a site, so the same ruins in a new world, the same places, are the same.)
+    this.ruinsShown = shown.map((r) => ({ site: r.site, around: r.stub }));
+    const sig = shown.map((r) => `${r.site.id}${r.site.role}@${r.site.centre.x},${r.site.centre.z}${r.stub ? "+" : ""}`).join(";");
+    if (sig !== this.ruinsSig) {
+      this.ruinsSig = sig;
+      this.ruinsVersion++;
+    }
   }
+
+  private ruinsSig = "";
+  /** The standing ruins drawn now (on the land and the land around), for the map view's markers. */
+  ruinsShown: readonly RuinOnMap[] = [];
+  /** Goes up whenever `ruinsShown` changes (a ruin cleared, restored or back, land bought, the land around shown). */
+  ruinsVersion = 0;
 
   /**
    * Buy a plot beside the land (see `unlockPlot`): it joins the world and is drawn, with its towns' stations and its

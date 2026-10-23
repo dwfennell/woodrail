@@ -3,12 +3,20 @@ import { pilesOf } from "../economy/economy";
 import type { TownStatus } from "./towns";
 import type { DepotRole } from "../economy";
 import { DEPOT_NAMES, depotName, type World } from "./world";
+import { SITE_ROLES, type MapSite, type SiteRole } from "../landscape";
+import { SITE_NAMES, siteBlueprint } from "./map-sites";
 
 /** One thing the map view points out: where it is, what it's called, and a line about it. */
 export interface MapMarker {
-  /** Unique within a map: "town:3", "depot:1", "site:7" (an industry the player put down). */
+  /** Unique within a map: "town:3", "depot:1", "site:7" (an industry the player put down), "ruin:2" / "ruin-around:…". */
   key: string;
-  kind: "town" | Exclude<DepotRole, "town">;
+  kind: "town" | "ruin" | Exclude<DepotRole, "town">;
+  /** A ruin's: its icon by role, shown alone in a small round badge (no label). */
+  icon?: string;
+  /** A ruin's: its blueprint isn't learned yet (a lock on its badge). */
+  locked?: boolean;
+  /** A ruin on the player's land (a site id): tapped, its card opens. Unset on the land around (not tappable there). */
+  ruin?: number;
   x: number;
   z: number;
   title: string;
@@ -50,6 +58,51 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
     // (A school's goods go into its research: it has no piles to list.)
     const stock = (d.role === "school" ? [] : pilesOf(d.role)).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${d.piles[CARGO[k].index]}`).join(" · ");
     out.push({ key: `site:${d.id}`, kind: d.role, x: piece.pose.x, z: piece.pose.z, title, detail: stock });
+  }
+  return out;
+}
+
+/** A ruin's icon on the map, by what it was: its goods (stone, ore), or what it stands by. */
+export const RUIN_ICON: Record<SiteRole, string> = { farm: "🌾", quarry: "🪨", mine: "⛏️", harbour: "⚓" };
+
+/** A standing ruin the world shows: on the player's land (`around` false) or on the land around (`around` true). */
+export interface RuinOnMap {
+  site: MapSite;
+  around: boolean;
+}
+
+/** What the ruins' markers are made from: the ruins shown (by version) and which of their blueprints are learned. */
+export function ruinMarkersKey(version: number, learned: (id: string) => boolean): string {
+  return `${version}|` + SITE_ROLES.map((r) => (ruinLocked(r, learned) ? "1" : "0")).join("");
+}
+
+const ruinLocked = (role: SiteRole, learned: (id: string) => boolean) => {
+  const bp = siteBlueprint(role);
+  return !!bp && !learned(bp.id);
+};
+
+/**
+ * The map view's ruin markers: one per standing ruin (on the player's land and on the land around shown), its icon by
+ * role and a lock while its blueprint isn't learned. Restored and cleared ruins aren't shown (they aren't standing).
+ * Tapped, one on the player's land opens its card (`ruin`).
+ */
+export function ruinMarkers(ruins: readonly RuinOnMap[], learned: (id: string) => boolean): MapMarker[] {
+  const out: MapMarker[] = [];
+  for (const { site, around } of ruins) {
+    if (site.cleared) continue;
+    const locked = ruinLocked(site.role, learned);
+    // (A site on the land around is numbered in its own plot's land: keyed by its plot too.)
+    out.push({
+      key: around ? `ruin-around:${site.plot.px},${site.plot.pz}:${site.id}` : `ruin:${site.id}`,
+      kind: "ruin",
+      x: site.centre.x,
+      z: site.centre.z,
+      title: `Old ${SITE_NAMES[site.role]}`,
+      detail: "",
+      icon: RUIN_ICON[site.role],
+      locked,
+      ...(around ? {} : { ruin: site.id }),
+    });
   }
   return out;
 }

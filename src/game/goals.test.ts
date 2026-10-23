@@ -3,11 +3,15 @@ import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
 import { siteWhy } from "./industries";
-import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
+import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, OPEN_INDUSTRY_GOALS, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
 import mainSrc from "../main.ts?raw";
 import panelSrc from "../ui/workshop-panel.ts?raw";
 import { Crafting, keepsForOrder } from "./crafting";
-import { buildStarterWorld, createWorld, STARTER_SEED, syncIndustries, type World } from "./world";
+import { buildStarterWorld, createWorld, fixedPieces, plotsForSale, STARTER_SEED, syncIndustries, unlockPlot, type World } from "./world";
+import { Editor } from "../editor/editor";
+import type { MapSite, SiteRole } from "../landscape";
+import { restoredType } from "./map-sites";
+import { restoreRuin } from "./restore";
 import { CARGO } from "../economy/cargo";
 import { Progress } from "./progress";
 import { pick } from "./research";
@@ -623,5 +627,96 @@ describe("goals after a blueprint pre-pick its research", () => {
     expect(showMePick(p, goal("build-bridge").blueprint, true)).toBe("bridges");
     p.learned.add("bridges");
     expect(showMePick(p, goal("build-bridge").blueprint, true)).toBeNull();
+  });
+});
+
+describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
+  const ROLES = [
+    { id: "open-quarry", role: "quarry", bp: "quarries", title: "Open a quarry", hint: "Restore an old quarry, or build one by a hillside." },
+    { id: "open-mine", role: "mine", bp: "mines", title: "Open a mine", hint: "Restore an old mine, or build one by a hillside." },
+    { id: "open-harbour", role: "harbour", bp: "harbours", title: "Open a harbour", hint: "Restore an old harbour, or build one by the sea." },
+  ] as const;
+
+  /** A Game map with the ring of plots round its start bought (its ruins standing): the first of these with 2 ruins of `role`. */
+  const worlds = new Map<number, World>();
+  function withTwo(role: SiteRole): { w: World; a: MapSite; b: MapSite } {
+    for (const seed of [7, 1, 2, 3, 42, 99, 1234, 2027]) {
+      let w = worlds.get(seed);
+      if (!w) {
+        w = createWorld(seed, true);
+        for (const p of plotsForSale(w.landscape)) unlockPlot(w, p.px, p.pz);
+        worlds.set(seed, w);
+      }
+      const ruins = (w.landscape.sites ?? []).filter((s) => s.role === role && !s.cleared);
+      if (ruins.length >= 2) return { w, a: ruins[0], b: ruins[1] };
+    }
+    throw new Error(`no map with two old ${role}s`);
+  }
+
+  it("come after the passing loop, before Connect every town; each needs its blueprint; Open a farm is where it was", () => {
+    const ids = GOALS.map((g) => g.id);
+    expect(GOALS).toHaveLength(22);
+    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "open-quarry", "open-mine", "open-harbour", "join-all"]);
+    for (const r of ROLES) expect(goal(r.id)).toMatchObject({ title: r.title, hint: r.hint, needs: [r.bp] });
+    expect(goal("open-farm")).toMatchObject({ title: "Open a farm", hint: "Restore an old farm, or build a farm yard by some fields.", needs: ["farming"] });
+    expect(OPEN_INDUSTRY_GOALS).toEqual(["open-farm", "open-quarry", "open-mine", "open-harbour"]);
+  });
+
+  it("each shows once its blueprint is learned (hidden and not counted till then), and learning it names the goal", () => {
+    const w = buildStarterWorld();
+    const before = GOALS.filter((g) => !ROLES.some((r) => r.id === g.id) && g.id !== "join-all").map((g) => g.id);
+    for (const r of ROLES) {
+      const t = new GoalTracker(before);
+      t.update(w, { learned: new Set(["signals", "farming"]) });
+      expect(t.current()?.id).toBe("join-all");
+      expect(t.total).toBe(GOALS.length - 3);
+      expect(t.lockedCount).toBe(3);
+      expect(t.openedBy(r.bp, new Set([r.bp])).map((g) => g.title)).toEqual([r.title]);
+      t.update(w, { learned: new Set(["signals", "farming", r.bp]) });
+      expect(t.current()?.id).toBe(r.id);
+      expect(t.total).toBe(GOALS.length - 2);
+    }
+  });
+
+  for (const r of ROLES) {
+    it(`${r.title}: Show me picks the old ${r.role} nearest the line (its card), and it's done once one is restored or built`, () => {
+      const { w, a, b } = withTwo(r.role);
+      const g = goal(r.id);
+      // A bit of the player's track beside each ruin in turn: the line is there, so the nearest ruin is that one.
+      for (const near of [a, b]) {
+        const piece = w.layout.addPiece("straight-216", { x: near.centre.x + 400, z: near.centre.z, heading: 0 });
+        const guide = g.guide(w);
+        expect(guide.ruin).toBe(near.id);
+        expect(guide.marks).toEqual([near.centre]);
+        expect(guide.points[0]).toEqual(near.centre);
+        w.layout.removePiece(piece);
+      }
+      expect(g.check(w).done).toBe(false);
+      // Restored: done.
+      const fixed = fixedPieces(w);
+      const editor = new Editor(w.layout, w.sim, () => {}, (id) => fixed.has(id));
+      const done = restoreRuin(w, editor, a.id);
+      if (!("pieceId" in done)) throw new Error(done.why);
+      syncIndustries(w);
+      expect(g.check(w).done).toBe(true);
+      // Undone, not; one of the player's own built anywhere, done again.
+      editor.undo();
+      syncIndustries(w);
+      expect(g.check(w).done).toBe(false);
+      const own = w.layout.addPiece(restoredType(r.role), { x: -30000, z: -30000, heading: 0 });
+      syncIndustries(w);
+      expect(g.check(w).done).toBe(true);
+      w.layout.removePiece(own);
+      syncIndustries(w);
+    });
+  }
+
+  it("with no ruin of that kind on the land, Show me falls back to a spot for a new one (the Industries tab)", () => {
+    const w = buildStarterWorld();
+    for (const r of ROLES) {
+      const guide = goal(r.id).guide(w);
+      expect(guide.ruin).toBeUndefined();
+      expect(guide).toMatchObject({ tab: "industries", shelf: "Industries" });
+    }
   });
 });

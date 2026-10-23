@@ -26,7 +26,7 @@ import { plotPrice } from "./game/towns";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
-import { mapMarkers, type MapMarker } from "./game/map-markers";
+import { mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
@@ -2995,11 +2995,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const marks = goalMarks(game.scene, [{ x: m.x, y: i < 0 ? 0 : game.landscape.grid.groundY(i), z: m.z }]);
       if (marks) game.flourishes.add(marks);
     }
+    // An old industry's ruin on the player's land: its card, as a tap on the ruin opens it (on the land around, a ruin
+    // isn't tappable: it's only gone to).
+    if (m.ruin !== undefined) openRuin(m.ruin);
+  }
+
+  /** The ruins' markers, made again only when the ruins shown or which of their blueprints are learned change. */
+  let ruinMarks: { key: string; markers: MapMarker[] } = { key: "", markers: [] };
+  function mapRuinMarkers(): MapMarker[] {
+    const learned = (id: string) => progress.learned.has(id);
+    const key = ruinMarkersKey(game.ruinsVersion, learned);
+    if (key !== ruinMarks.key) ruinMarks = { key, markers: ruinMarkers(game.ruinsShown, learned) };
+    return ruinMarks.markers;
   }
 
   function refreshMap(): void {
     mapRefreshedAt = performance.now();
-    mapView.show(mapMarkers(game.world, (id) => townLife.status(id)));
+    mapView.show([...mapMarkers(game.world, (id) => townLife.status(id)), ...mapRuinMarkers()]);
     placeMap();
   }
 

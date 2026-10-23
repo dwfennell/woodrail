@@ -5,6 +5,8 @@ export interface LabelBox {
   w: number;
   h: number;
   priority: number;
+  /** Kept where it is (not nudged): hidden if its spot is taken. */
+  pinned?: boolean;
 }
 
 export interface LabelSpot {
@@ -24,7 +26,8 @@ const hits = (a: LabelBox, ay: number, b: LabelBox, by: number): boolean =>
 /**
  * Keep map labels from covering one another. Labels are settled in priority order (ties: the order given); each
  * takes the smallest vertical offset (0, then down, then up, a label height at a time) that clears the labels already
- * settled, and is hidden when none does. Returns one spot per input, in input order. O(n^2 * steps), n = labels.
+ * settled (a pinned one only 0), and is hidden when none does. Returns one spot per input, in input order.
+ * O(n^2 * steps), n = labels.
  */
 export function declutterLabels(boxes: readonly LabelBox[]): LabelSpot[] {
   const order = boxes.map((_, i) => i).sort((a, b) => boxes[b].priority - boxes[a].priority || a - b);
@@ -33,7 +36,7 @@ export function declutterLabels(boxes: readonly LabelBox[]): LabelSpot[] {
   for (const i of order) {
     const b = boxes[i];
     let found = false;
-    for (let s = 0; s <= MAX_STEPS * 2 && !found; s++) {
+    for (let s = 0; s <= (b.pinned ? 0 : MAX_STEPS * 2) && !found; s++) {
       const dy = s === 0 ? 0 : (s % 2 === 1 ? 1 : -1) * Math.ceil(s / 2) * (b.h + GAP);
       if (placed.every((j) => !hits(b, b.y + dy, boxes[j], boxes[j].y + out[j].dy))) {
         out[i].dy = dy;

@@ -11,6 +11,8 @@
 //   old sites; bought, it brings them (the ruins' stubs become track pieces, fixed);
 // - idle: no frames drawn in 30 s (the ruins cost nothing while nothing changes).
 // - a phone on its side (667×375): the ruin card's Restore and Clear fully in view above the tray, and tappable.
+// - the map view (390×844, step 3): the old farm's marker (🌾, a lock), none over a town's or station's label; idle
+//   there, no frames; Farming learned, the lock goes; tapped, the ruin's card opens; restored, its marker goes.
 //
 // Usage: npm run e2e:sites [-- <out dir>]   (default out: e2e-out/sites)
 // Starts its own dev server (on 5384, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -552,6 +554,135 @@ const lToast = await L.evaluate(async () => {
   return document.querySelector(".toast")?.textContent;
 });
 check("667×375: a tap on Restore lands", lToast === "Restoring takes planks from your workshop. Place it first", lToast);
+
+// 15. The map view (390×844, a fresh game): the old farm's marker, locked; idle there costs nothing; Farming learned,
+// the lock goes; tapped, the ruin's card opens; restored, the marker goes.
+const M = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+M.on("pageerror", (e) => errors.push(e.message));
+M.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
+await M.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+await M.goto(PAGE);
+await M.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+await M.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await M.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+await M.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+await M.keyboard.press("Escape");
+// (The land around made ready, its ruins with it.)
+await M.waitForFunction(() => window.woodrail.ruinsShown.some((r) => r.around), null, { timeout: 120000, polling: 500 }).catch(() => {});
+await M.waitForTimeout(2000);
+const mTap = async (x, y) => {
+  await M.touchscreen.tap(x, y);
+  await M.waitForTimeout(600);
+};
+const openMapView = async () => {
+  const r = await M.evaluate(() => {
+    // (Its title is its tooltip's, `data-tip`, after the first tap on it.)
+    const b = document.querySelector("button[title^='Map'], button[data-tip^='Map']");
+    const q = b?.getBoundingClientRect();
+    return q && { x: q.x + q.width / 2, y: q.y + q.height / 2 };
+  });
+  if (r) await mTap(r.x, r.y);
+  // (Till the glide up has ended: no frame drawn for a second, so the labels are where they'll stay.)
+  await M.evaluate(async () => {
+    const w = window.woodrail;
+    for (let k = 0; k < 30; k++) {
+      const f0 = w.framesDrawn;
+      await new Promise((r) => setTimeout(r, 1000));
+      if (w.framesDrawn === f0) return;
+    }
+  });
+};
+const mFarm = await M.evaluate(() => window.woodrail.world.landscape.sites.find((s) => s.role === "farm").id);
+/** The map's markers as shown: each ruin's badge (shown or not, locked or not) and the labels, with their boxes. */
+const mapState = () =>
+  M.evaluate(() => {
+    const box = (e) => {
+      const r = e.getBoundingClientRect();
+      return { l: r.left, t: r.top, r: r.right, b: r.bottom };
+    };
+    const shown = (e) => !e.classList.contains("off");
+    const all = [...document.querySelectorAll(".map-marker")];
+    return {
+      open: !document.querySelector(".map-view").hidden,
+      ruins: all.filter((e) => e.classList.contains("kind-ruin")).map((e) => ({ key: e.dataset.key, shown: shown(e), locked: !!e.querySelector(".map-ruin-lock"), icon: e.querySelector(".map-ruin-icon")?.textContent, box: box(e) })),
+      labels: all.filter((e) => !e.classList.contains("kind-ruin") && shown(e)).map((e) => ({ key: e.dataset.key, box: box(e) })),
+    };
+  });
+const overlaps = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
+await openMapView();
+const map1 = await mapState();
+const farmMark = map1.ruins.find((r) => r.key === `ruin:${mFarm}`);
+check("map view: the old farm's marker, 🌾 with a lock", map1.open && farmMark?.shown && farmMark.icon === "🌾" && farmMark.locked, JSON.stringify(farmMark));
+check("…the land around's ruins marked too (by role)", map1.ruins.filter((r) => r.key.startsWith("ruin-around:")).length > 0, JSON.stringify(map1.ruins.map((r) => [r.key, r.icon, r.shown, r.shown ? [Math.round(r.box.l), Math.round(r.box.t)] : null])));
+const clashes = map1.ruins.filter((r) => r.shown).flatMap((r) => map1.labels.filter((l) => overlaps(r.box, l.box)).map((l) => `${r.key}×${l.key}`));
+check("…no ruin marker over a town's or a station's label", clashes.length === 0, clashes.join(", "));
+await M.screenshot({ path: `${OUT}/15-map-markers.png` }).catch(() => {});
+// Idle in the map view, markers shown: no frames.
+const mcdp = await M.context().newCDPSession(M);
+await mcdp.send("Performance.enable");
+const mbusy = async () => (await mcdp.send("Performance.getMetrics")).metrics.find((m) => m.name === "TaskDuration").value;
+// (The map view draws a frame every 3 s or so for its first 15-25 s, the camera creeping to rest after the glide up, as
+// it does without ruin markers: measured once still for 8 s.)
+const mStill = await M.evaluate(async () => {
+  const w = window.woodrail;
+  const t0 = performance.now();
+  let f = w.framesDrawn;
+  let since = performance.now();
+  while (performance.now() - t0 < 90000 && performance.now() - since < 8000) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (w.framesDrawn !== f) [f, since] = [w.framesDrawn, performance.now()];
+  }
+  return Math.round(performance.now() - t0);
+});
+console.log(`  (map view still after ${mStill} ms)`);
+const mb0 = await mbusy();
+const mapIdle = await M.evaluate(async () => {
+  const w = window.woodrail;
+  const f0 = w.framesDrawn;
+  const t0 = performance.now();
+  await new Promise((r) => setTimeout(r, 30000));
+  return { frames: w.framesDrawn - f0, seconds: Math.round((performance.now() - t0) / 100) / 10 };
+});
+mapIdle.busyMs = Math.round(((await mbusy()) - mb0) * 1000);
+mapIdle.cpu = `${((mapIdle.busyMs / (mapIdle.seconds * 1000)) * 100).toFixed(2)}%`;
+check("idle in the map view with ruin markers: no frames drawn in 30 s", mapIdle.frames === 0, JSON.stringify(mapIdle));
+// Farming learned (as a research finishing does it): the farm's lock goes, at once.
+await M.evaluate(() => window.woodrail.learn("farming"));
+// (The map's markers are looked at again each second; learning is a busy moment in swiftshader.)
+await M.waitForFunction((key) => !document.querySelector(`.map-marker[data-key='${key}'] .map-ruin-lock`), `ruin:${mFarm}`, { timeout: 20000, polling: 250 }).catch(() => {});
+await M.screenshot({ path: `${OUT}/15-map-learned.png` }).catch(() => {});
+const map2 = await mapState();
+const farmMark2 = map2.ruins.find((r) => r.key === `ruin:${mFarm}`);
+check("…Farming learned: the farm's lock goes (the others' stay)", farmMark2?.shown && !farmMark2.locked && map2.ruins.filter((r) => r.icon !== "🌾").every((r) => r.locked), JSON.stringify(map2.ruins.map((r) => [r.key, r.icon, r.locked])));
+// Tap it: the map closes, and the ruin's card opens (Restore on it).
+await M.evaluate(async () => {
+  const w = window.woodrail;
+  const { CARGO } = await import("/src/economy/cargo.ts");
+  w.progress().coins = 100;
+  const s1 = w.world.landscape.towns[1].station;
+  w.editor().place("depot-workshop", { x: Math.round(s1.x / 18) * 18, z: Math.round((s1.z + 500) / 18) * 18, heading: 0 }, 0, false);
+  w.economy.allDepots().find((x) => x.role === "workshop").piles[CARGO.planks.index] = 10;
+});
+await M.waitForTimeout(1500);
+const map3 = await mapState();
+const farmMark3 = map3.ruins.find((r) => r.key === `ruin:${mFarm}`);
+if (farmMark3?.shown) await mTap((farmMark3.box.l + farmMark3.box.r) / 2, (farmMark3.box.t + farmMark3.box.b) / 2);
+await M.waitForTimeout(1500);
+const mCard = await M.evaluate(() => {
+  const c = document.querySelector(".ruin-card");
+  return { map: !document.querySelector(".map-view").hidden, card: c && !c.hidden ? { title: c.querySelector(".card-title").textContent, buttons: [...c.querySelectorAll(".card-row button")].filter((b) => !b.hidden).map((b) => b.textContent) } : null };
+});
+check("…tapped: the map closes and the old farm's card opens, Restore on it", !mCard.map && mCard.card?.title === "Old farm" && mCard.card.buttons[0] === "Restore · 3🪵 45🪙", JSON.stringify(mCard));
+await M.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 15000))]));
+await M.screenshot({ path: `${OUT}/15-marker-card.png` }).catch(() => {});
+// Restore it: back on the map, its marker is gone.
+await M.evaluate(() => document.querySelector(".ruin-card .ruin-restore")?.click());
+await M.waitForTimeout(1500);
+const mRestored = await M.evaluate((id) => !!window.woodrail.world.landscape.sites[id].restored, mFarm);
+await openMapView();
+const map4 = await mapState();
+check("…restored: its marker is gone from the map (the others stay)", mRestored && map4.open && map4.ruins.length > 0 && !map4.ruins.some((r) => r.key === `ruin:${mFarm}`), JSON.stringify({ mRestored, open: map4.open, ruins: map4.ruins.map((r) => r.key) }));
+await M.screenshot({ path: `${OUT}/15-map-restored.png` }).catch(() => {});
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
