@@ -315,6 +315,9 @@ after 22–40 pieces, trace on seed 2027), so the harness builds a new farm yard
 the branch at 040cd60 (where the tables below were measured) only coins moved: 60 more from some point between minute 45 and 180 on
 every seed (main's changes since), and seed 9's City★ came at 164 (was 166) with a 10.8-minute stall (was 11.1).
 Without ruins (`BALANCE_NORUINS=1`) it's the same table; at 040cd60 every placement below gave it row for row.
+After `map-sites-3` (2026-10-23: Clear an undo step, harbours wanting 5, the card's pinned buttons, the opening view's
+slide) the bands' run gives this table row for row on all 9 seeds (City 62/61/73/80/80/73/67/69/82, researched
+14/15/15/14/14/15/17/14/14, coins at 180 as above): the harness never buys land and leaves the old farm be.
 
 | seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/45/60/75/180 | researched | farm | bands |
 |---|---|---|---|---|---|---|---|---|---|
