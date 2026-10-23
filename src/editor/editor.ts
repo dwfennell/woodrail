@@ -30,6 +30,11 @@ interface Command {
   moves?: number[];
   /** Pieces this command put down: joint play near them is taken up afterwards (part of the same undo step). */
   seats?: () => number[];
+  /**
+   * The pieces put down were fitted to each other and to what they close onto already (a drawn line, as its ghosts
+   * showed it): their play isn't spread again (only a near miss they leave is pulled shut).
+   */
+  fitted?: boolean;
   /** Changes only props (not the track): undo and redo skip the track's work and tell `onPropsChange`. */
   props?: boolean;
   /** Changes the land (squares' heights): undo and redo tell `onLandChange` the plots to redraw. */
@@ -195,8 +200,11 @@ export class Editor {
     return id;
   }
 
-  /** Place a run of pieces (a drawn line), in order, as one undo step. Returns their ids. */
-  placeRun(pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean }[]): number[] {
+  /**
+   * Place a run of pieces (a drawn line), in order, as one undo step. Returns their ids. `fitted`: they go down where
+   * they are, their joint play already taken up (a drawn line, as its ghosts showed: see `DrawLine.closedOnto`).
+   */
+  placeRun(pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean }[], fitted = false): number[] {
     const ids: number[] = [];
     this.run({
       do: () => {
@@ -209,6 +217,7 @@ export class Editor {
         for (let i = ids.length - 1; i >= 0; i--) this.layout.removePiece(ids[i]);
       },
       seats: () => [...ids],
+      fitted,
     });
     return ids;
   }
@@ -593,6 +602,8 @@ export class Editor {
         this.layout.nudgePieces(before);
       }
     }
+    // (Fitted already, as shown: what goes down stays where it was shown.)
+    if (c.fitted) return c;
     const after = relaxJoints(this.layout, seeds, pinned);
     if (after.size === 0) return c;
     const before = posesOf(after.keys());

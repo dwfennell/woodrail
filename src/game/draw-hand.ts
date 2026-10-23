@@ -293,11 +293,13 @@ export class DrawHand {
     if (!line) return;
     // (Read at the height the line has got to: see `DrawLine.addSeen`.)
     const before = line.pieces.length;
-    const { p, changed } = line.addSeen((h) => this.hooks.planeAt(x, y, h));
+    const { p } = line.addSeen((h) => this.hooks.planeAt(x, y, h));
     if (!p) return;
     // (Kept only while a branch's line has laid nothing, and no more than a stroke's worth.)
     if (this.branchStart && before === 0 && this.branchStroke.length < 2048) this.branchStroke.push({ x: p.x, z: p.z });
-    if (changed) this.sync(line.pieces.length > before);
+    // (The ghosts are what lifting now would put down, the line's last stretch too: see `DrawLine.preview`. Worked out
+    // again only when the stroke or the line changed.)
+    this.sync(line.pieces.length > before);
     this.showMerge();
     this.goOnAcross();
     // Stuck behind the finger (a corner no piece can turn, a circle too tight, or no piece left that fits): say why,
@@ -378,7 +380,7 @@ export class DrawHand {
       if (say) this.hooks.toast(say);
       return;
     }
-    const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces) : this.editor().placeRun(plan.pieces);
+    const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces) : this.editor().placeRun(plan.pieces, line.fitted);
     const closed = line.stopped === "closed" || !!merge;
     // Down, and its end left facing a station's (or other track's) end it didn't join: why, rather than buffers facing
     // each other and nothing said (QA: a line drawn into Fernhill's end stopped just short of it).
@@ -785,15 +787,20 @@ export class DrawHand {
     return best;
   }
 
-  /** Bring the ghosts in line with the line's pieces: new ones added (with a tick), ones taken off removed. */
+  /**
+   * Bring the ghosts in line with what lifting the finger now would put down (`DrawLine.preview`): new ones added (with
+   * a tick when the line itself grew), ones taken off removed. Drawn only if one changed.
+   */
   private sync(grew: boolean): void {
     const g = this.game;
-    const pieces = this.line?.pieces ?? [];
+    const pieces = this.line?.preview() ?? [];
     let i = 0;
+    let changed = this.ghosts.length > pieces.length;
     for (; i < pieces.length; i++) {
       const p = pieces[i];
       const key = `${p.type}|${p.flipped}|${p.pose.x.toFixed(1)}|${p.pose.z.toFixed(1)}|${p.pose.heading.toFixed(3)}|${p.y}|${p.blocked}`;
       if (this.ghosts[i]?.key === key) continue;
+      changed = true;
       if (this.ghosts[i]) g.scene.remove(this.ghosts[i].mesh);
       // A bridge (or a ramp up off the ground) on its arches. (Its arches all the way down: arches cut short over a
       // hill's edge are another geometry, built on the move that needed it, up to 36 ms in QA's replay; the piece put
@@ -812,7 +819,12 @@ export class DrawHand {
     }
     for (const gh of this.ghosts.splice(i)) g.scene.remove(gh.mesh);
     if (grew) this.hooks.onGrow();
-    g.invalidate();
+    if (changed) g.invalidate();
+  }
+
+  /** The pieces the ghosts show now (for the tests: what goes down on the lift must be exactly these). */
+  shown(): { type: PieceTypeId; flipped: boolean; x: number; z: number; heading: number; y: number; blocked: boolean }[] {
+    return (this.line?.preview() ?? []).map((p) => ({ type: p.type, flipped: p.flipped, x: p.pose.x, z: p.pose.z, heading: p.pose.heading, y: p.y, blocked: !!p.blocked }));
   }
 
   private drawTrail(): void {

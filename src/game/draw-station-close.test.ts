@@ -15,7 +15,11 @@ import { createWorld, fixedPieces } from "./world";
  * Drawn here as DrawHand draws (its options, Sandbox's pieces) and put down through the game's editor, stations and
  * depots fixed. The sweeps say how often a stroke into a station's or depot's end closes (of those that came to it,
  * closed or left facing it): before the fix, the Fernhill strokes over the bridge 64 of 70, strokes into seed 7's ends
- * 312 of 385, station to station 194 of 234; after, 79 of 79, 424 of 432 and 287 of 291.
+ * 312 of 385, station to station 194 of 234; after, 79 of 79, 424 of 432 and 287 of 291; with the bends checked again
+ * (a few had bent a curve into a house) and the close made while drawing, 73 of 73, 414 of 429 and 281 of 289.
+ *
+ * In every sweep, what goes down is what the ghosts showed as the finger lifted (`DrawLine.preview`): before, 944 of
+ * the 1,788 strokes, the rest laying more pieces on the lift (714) or moving them (130); now all of them.
  */
 
 /** A smooth stroke from (sx, sz) setting off at `hs` to (tx, tz) arriving at `ht`, then `over` mm on: points 4 mm apart. */
@@ -45,17 +49,42 @@ function drawInto(seed: number, ref: number, start: DrawEnd, pts: readonly { x: 
   const editor = new Editor(world.layout, world.sim, () => {}, (id) => fixed.has(id));
   const at = { ...start, y: looseHeight(world.landscape, world.layout, "straight-54", false, start, -1) };
   const line = new DrawLine(at, drawOptions(world, startHeld));
-  for (const p of pts) line.addPoint(p.x, p.z);
+  // (DrawHand shows the ghosts after each move, a few mm of stroke apart: see `DrawLine.preview`.)
+  pts.forEach((p, i) => {
+    line.addPoint(p.x, p.z);
+    if (i % 5 === 4) line.preview();
+  });
+  // The ghosts as the finger lifts: what goes down must be exactly these (QA: a straight shown at z −846 went down at −900).
+  const shown = line.preview();
+  const ghosts = shown.slice(0, (shown.findIndex((p) => p.blocked) + 1 || shown.length + 1) - 1).map((p) => ({ type: p.type, flipped: p.flipped, pose: { ...p.pose }, y: p.y }));
   line.finish();
   const placed = line.placeable();
   const describe = `${line.pieces.map((p) => p.type + (p.blocked ? `[${p.blocked}]` : "")).join(" ")} (${line.stopped})`;
-  if (placed.length === 0) return { outcome: "elsewhere" as Outcome, describe, world, homes };
-  editor.placeRun(placed);
+  if (placed.length === 0) return { outcome: "elsewhere" as Outcome, describe, world, homes, shift: ghosts.length ? Infinity : 0, clear: true };
+  // Every piece passes the checks where it goes down, bent to close or not (QA: a bend wasn't checked again, and could
+  // put a curve into a house beside the station).
+  const fresh = drawOptions(world, startHeld);
+  const clear = placed.every((p, i) => !fresh.check!({ ...p, length: 0 }, placed.slice(0, i)));
+  const ids = editor.placeRun(placed, line.fitted);
+  // How far what went down is from the ghosts (mm, a degree counted as a mm), or Infinity if not the same pieces.
+  let shift = ghosts.length === ids.length ? 0 : Infinity;
+  for (let i = 0; i < ids.length && shift < Infinity; i++) {
+    const q = world.layout.getPiece(ids[i])!;
+    const g = ghosts[i];
+    if (q.type !== g.type || q.flipped !== g.flipped || q.y !== g.y) shift = Infinity;
+    else shift = Math.max(shift, Math.hypot(q.pose.x - g.pose.x, q.pose.z - g.pose.z), (Math.abs(normalizeAngle(q.pose.heading - g.pose.heading)) * 180) / Math.PI);
+  }
   const e = world.layout.worldConnector(ref, createWorldConnector());
   const last = placed[placed.length - 1].end;
   const facing = Math.hypot(last.x - e.x, last.z - e.z) < 150 && Math.abs(normalizeAngle(last.heading - e.heading - Math.PI)) < (12 * Math.PI) / 180;
   const outcome: Outcome = world.layout.joinedConnector(ref) !== -1 ? "closed" : facing ? "open" : "elsewhere";
-  return { outcome, describe, world, homes };
+  return { outcome, describe, world, homes, shift, clear };
+}
+
+/** What went down is what the ghosts showed (within 1 mm and 1°, the same pieces), every piece clear where it went. */
+function expectAsShown(r: ReturnType<typeof drawInto>, why: string): void {
+  expect(r.shift, why).toBeLessThanOrEqual(1);
+  expect(r.clear, why).toBe(true);
 }
 
 /** Every joint within the joint's play, and the stations and depots where the map put them. */
@@ -95,6 +124,7 @@ describe("QA: drawing into a station's end closes", () => {
         expect(r.describe, why).toMatch(/bridge/);
         expect(r.outcome, why).toBe("closed");
         expectSnug(r, why);
+        expectAsShown(r, why);
       }
   });
 
@@ -111,6 +141,7 @@ describe("QA: drawing into a station's end closes", () => {
           const r = drawInto(SEED, ref, { x: sx, z: sz, heading: hs, y: 0, kind: "peg" }, stroke(sx, sz, hs, end.x, end.z + off, 0, 0), false);
           // (Only the lines that went over the river.)
           if (!/bridge/.test(r.describe)) continue;
+          expectAsShown(r, r.describe);
           outcomes.push(r.outcome);
           if (r.outcome === "open") left.push(`(${sx}, ${sz}) ${off}: ${r.describe}`);
           if (r.outcome === "closed") expectSnug(r, r.describe);
@@ -142,6 +173,7 @@ describe("QA: drawing into a station's end closes", () => {
               const tz = e.z + off * Math.cos(e.heading);
               const r = drawInto(7, ref, { x: sx, z: sz, heading: hs, y: 0, kind: "peg" }, stroke(sx, sz, hs, tx, tz, e.heading + Math.PI, over), false);
               outcomes.push(r.outcome);
+              expectAsShown(r, `end ${ref} at ${theta}°, ${dh}° off, ${off} mm, ${over} mm on: ${r.describe}`);
               const why = `end ${ref} at ${theta}°, ${dh}° off, ${off} mm, ${over} mm on: ${r.describe}`;
               if (r.outcome === "open") left.push(why);
               if (r.outcome === "closed") expectSnug(r, why);
@@ -170,6 +202,7 @@ describe("QA: drawing into a station's end closes", () => {
               const tz = B.e.z + off * Math.cos(B.e.heading);
               const r = drawInto(seed, B.ref, { x: A.e.x, z: A.e.z, heading: A.e.heading, y: A.e.y, kind: A.e.kind }, stroke(A.e.x, A.e.z, A.e.heading, tx, tz, B.e.heading + Math.PI, over), true);
               outcomes.push(r.outcome);
+              expectAsShown(r, `seed ${seed}, ${A.ref} to ${B.ref}, ${off} mm, ${over} mm on: ${r.describe}`);
               const why = `seed ${seed}, ${A.ref} to ${B.ref}, ${off} mm, ${over} mm on: ${r.describe}`;
               if (r.outcome === "open") left.push(why);
               if (r.outcome === "closed") expectSnug(r, why);
@@ -180,6 +213,23 @@ describe("QA: drawing into a station's end closes", () => {
     expect(t.closed + t.open).toBeGreaterThan(150);
     expect(t.rate, `${t.closed}/${t.closed + t.open}\n${left.join("\n")}`).toBeGreaterThanOrEqual(0.97);
   }, 120_000);
+
+  it("a bend that would put a piece into a house beside the station isn't made (QA: bends weren't checked again)", () => {
+    // Seed 7, Larkfield's east end, from 30° off its line: the line's best fit bends its wide curve into a house (main
+    // put it down so: s216 s54 s54 wide s108, the curve refused "That's a house" where it went); now that bend is
+    // refused, and what goes down is clear.
+    const proto = createWorld(7, true);
+    const ref = 9;
+    const e = proto.layout.worldConnector(ref, createWorldConnector());
+    expect([e.x, e.z]).toEqual([-432, 108]);
+    const a = e.heading + Math.PI / 6;
+    const sx = Math.round((e.x + 620 * Math.cos(a)) / 18) * 18;
+    const sz = Math.round((e.z + 620 * Math.sin(a)) / 18) * 18;
+    const hs = Math.round((a + Math.PI) / (Math.PI / 4)) * (Math.PI / 4);
+    const r = drawInto(7, ref, { x: sx, z: sz, heading: hs, y: 0, kind: "peg" }, stroke(sx, sz, hs, e.x, e.z, e.heading + Math.PI, 0), false);
+    expect(r.clear, r.describe).toBe(true);
+    expectAsShown(r, r.describe);
+  });
 
   it("a line left facing a station's end it couldn't join says why", () => {
     const n = new DrawNotice((t) => `Out of ${t}`, (t) => t);

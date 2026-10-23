@@ -1680,6 +1680,17 @@ export class Interaction {
         this.togglePin(m.press.pieceId);
         return;
       }
+      // Out of reach, a line's body only branches (see `far`): a tap or a long press there that drew no branch is one
+      // on the floor, as with Draw off (it lets go of what's selected), not one on the piece (QA: it opened the piece's
+      // card from 4 m off, and a long press left it open).
+      if (m.far) {
+        this.lastTap = null;
+        if (!this.picking) {
+          this.hud.hideCards();
+          this.clearSelection();
+        }
+        return;
+      }
       // (Cargo is tapped again and again, a unit a tap: never a double tap.)
       // (A lever taken by a fingertip's slack is a tap on the grass too: a second tap there zooms. See `onCanvasDown`.)
       if (m.press.kind === "lever" && m.press.slack !== undefined) {
