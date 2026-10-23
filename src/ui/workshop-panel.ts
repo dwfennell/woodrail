@@ -87,6 +87,14 @@ export class WorkshopPanel {
 
   hide(): void {
     this.root.hidden = true;
+    this.forget();
+  }
+
+  /**
+   * Forget what was drawn, leaving the box alone: another card has it now (it's shared with a town's ledger, a
+   * depot's notes), and hiding it would hide what that card just drew there.
+   */
+  forget(): void {
     this.shownKey = "";
     this.bar = null;
   }

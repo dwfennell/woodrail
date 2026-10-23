@@ -2073,7 +2073,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const id = mode === "game" ? interaction.openDepotId : -1;
     const open = id !== -1 && game.economy.depot(id)?.role === "workshop";
     if (!open) {
-      if (workshopShown !== -1) workshopPanel.hide();
+      // (Its card was closed, or another opened in its place, which cleared the shared box and may have drawn there.)
+      if (workshopShown !== -1) workshopPanel.forget();
       workshopShown = -1;
       return;
     }

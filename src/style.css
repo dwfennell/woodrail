@@ -256,8 +256,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
   /* And its title and ✕ at the top (the ✕ first, laid over the title's right end); focus scrolls clear of both. */
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 72px; }
-  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: -12px -14px 0; padding: 12px 48px 6px; text-align: center; background: #faf3e6; box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
-  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -64px 0; }
+  /* (The ✕ comes first and takes no room: its margins cancel its height and the gap after it, so the title starts where
+     it sticks, at the card's top edge. Pulled up further, the sticky title stayed put and the ledger ran up under it.) */
+  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: 0 -14px; padding: 12px 48px 6px; text-align: center; background: #faf3e6; box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
+  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -54px 0; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
