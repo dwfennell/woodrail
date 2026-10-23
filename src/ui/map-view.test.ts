@@ -68,6 +68,19 @@ describe("layoutMarkers (the map view's boxes)", () => {
     }
   });
 
+  it("a ruin on the player's land keeps its badge, a town's label nudged off it; one on the land around gives way", () => {
+    const own = { ...marker("ruin:4", "ruin"), ruin: 4 };
+    const m = [marker("town:1", "town"), own, marker("town:2", "town"), marker("ruin-around:1,1:0", "ruin")];
+    const pts = [{ x: 100, y: 300 }, { x: 150, y: 310 }, { x: 100, y: 500 }, { x: 150, y: 510 }];
+    const spots = layoutMarkers(m, pts, m.map((x) => (x.kind === "ruin" ? BADGE : LABEL)), 390, 72, 760);
+    expect(spots[1]).toEqual({ x: 136, y: 296, w: 28, h: 28, flip: false });
+    expect(spots[0]).not.toBeNull();
+    expect(spots[0]!.y).not.toBe(286);
+    expect(spots[2]).toMatchObject({ x: 86, y: 486 });
+    expect(spots[3]).toBeNull();
+    expectClear(spots, 390, 72, 760);
+  });
+
   it("a ruin's badge stays on its ruin: under a bar or past the edge it isn't shown", () => {
     const m = [marker("ruin:1", "ruin"), marker("ruin:2", "ruin"), marker("ruin:3", "ruin")];
     const spots = layoutMarkers(m, [{ x: 100, y: 60 }, { x: 3, y: 200 }, { x: 100, y: 200 }], m.map(() => BADGE), 390, 72, 700);

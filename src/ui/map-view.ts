@@ -5,15 +5,26 @@ export interface MapViewHandlers {
   /** A marker was tapped: go and look at it. */
   go(marker: MapMarker): void;
   close(): void;
+  /**
+   * A finger (or the mouse) put down on a marker has moved off as a drag: this press, where it went down, is handed to
+   * the map (the canvas) so the drag pans it, as one from the ground does.
+   */
+  handoff?(down: PointerEvent): void;
 }
 
+/** How far (px) a press on a marker moves before it's a drag of the map, not a tap on the marker. */
+const DRAG_PX = 8;
+
 /**
- * Which labels keep their spot when they'd cover one another: the player's own industries, then towns, then the map's
- * depots. A ruin's badge comes last and stays on its ruin (`pinned`, never nudged off it): one that would cover a label
- * (or another ruin) is hidden, so it never clashes with a town's or a station's label.
+ * Which labels keep their spot when they'd cover one another: the player's own industries, then the ruins on the
+ * player's land, then towns, then the map's depots. A ruin's badge stays on its ruin (`pinned`, never nudged off it):
+ * one on the player's land (its card a tap away) keeps it, and towns' and depots' labels are nudged off it (QA: on a
+ * big map, upright, the towns' labels covered every ruin, and moved with them when panned, so none could be got at);
+ * one on the land around comes last, hidden where it would cover a label or another badge. Either way no badge is
+ * ever under a label.
  */
 function markerRank(m: MapMarker): { priority: number; pinned?: boolean } {
-  if (m.kind === "ruin") return { priority: -1, pinned: true };
+  if (m.kind === "ruin") return { priority: m.ruin !== undefined ? 1.5 : -1, pinned: true };
   return { priority: m.key.startsWith("site:") ? 2 : m.kind === "town" ? 1 : 0 };
 }
 
@@ -110,9 +121,41 @@ export class MapView {
     });
     bar.appendChild(back);
     this.root.append(this.layer, bar);
+    // A drag that starts on a label or a badge pans the map, as one on the ground does; only a tap goes to the place
+    // (QA: on a big map, upright, the labels cover much of the screen, and a drag from one did nothing, so the coast
+    // couldn't be got to). Its press is handed to the canvas once it has moved `DRAG_PX`, where it went down.
+    const downs = new Map<number, { x: number; y: number; handed: boolean }>();
+    let dragged = false;
+    this.layer.addEventListener("pointerdown", (e) => {
+      if (!(e.target as HTMLElement).closest(".map-marker")) return;
+      if (downs.size === 0) dragged = false;
+      downs.set(e.pointerId, { x: e.clientX, y: e.clientY, handed: false });
+    });
+    // (Before the camera's own listener sees this move: handed over first, the move then pans.)
+    window.addEventListener(
+      "pointermove",
+      (e) => {
+        if (downs.size === 0) return;
+        const d = downs.get(e.pointerId);
+        if (!d || d.handed || Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_PX) return;
+        d.handed = true;
+        dragged = true;
+        handlers.handoff?.(new PointerEvent("pointerdown", { pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: e.isPrimary, clientX: d.x, clientY: d.y, button: 0, buttons: 1, bubbles: true }));
+      },
+      { capture: true },
+    );
+    const lift = (e: PointerEvent) => downs.delete(e.pointerId);
+    window.addEventListener("pointerup", lift);
+    window.addEventListener("pointercancel", lift);
     this.layer.addEventListener("click", (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>(".map-marker");
       const m = b && this.markers.find((x) => x.key === b.dataset.key);
+      // (A drag from it panned the map: not a tap.)
+      if (m && dragged) {
+        dragged = false;
+        e.stopPropagation();
+        return;
+      }
       if (m) {
         e.stopPropagation();
         handlers.go(m);
@@ -166,6 +209,17 @@ export class MapView {
   }
 
   /**
+   * Where markers may go on screen (client px, top to bottom): between the top bar and the Map / Back bar (one under
+   * either can't be tapped). Only meaningful while open.
+   */
+  band(): { top: number; bottom: number } {
+    return {
+      top: Math.round(document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0) + 8,
+      bottom: Math.round(this.bar.getBoundingClientRect().top || window.innerHeight) - 8,
+    };
+  }
+
+  /**
    * Put each marker over its place: `project` gives screen px, or null when it's off screen. Labels that would cover
    * one another are nudged apart vertically (towns keep their spot over depots), and hidden if they still would.
    */
@@ -175,9 +229,7 @@ export class MapView {
       const e = this.els.get(m.key);
       return { w: e?.offsetWidth ?? 0, h: e?.offsetHeight ?? 0 };
     });
-    // Labels stay between the top bar and the Map / Back bar (one under either can't be tapped).
-    const lo = Math.round(document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0) + 8;
-    const hi = Math.round(this.bar.getBoundingClientRect().top || window.innerHeight) - 8;
+    const { top: lo, bottom: hi } = this.band();
     const pts = this.markers.map((m) => project(m.x, m.z));
     const key = pts.map((p, k) => (p ? `${Math.round(p.x)},${Math.round(p.y)},${sizes[k].w},${sizes[k].h}` : "-")).join(";") + `@${window.innerWidth},${lo},${hi}`;
     if (key === this.placedKey) return;

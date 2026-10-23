@@ -523,7 +523,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-view { position: absolute; inset: 0; pointer-events: none; }
 .map-view > * { pointer-events: auto; }
 .map-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.map-marker { position: absolute; left: 0; top: 0; pointer-events: auto; display: flex; align-items: center; gap: 6px; margin: -14px 0 0 -14px; padding: 5px 10px 5px 6px; border: 0; border-radius: 12px; background: rgba(251, 243, 228, 0.94); box-shadow: 0 3px 12px rgba(40, 25, 10, 0.25); font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; max-width: 210px; }
+.map-marker { position: absolute; left: 0; top: 0; pointer-events: auto; touch-action: none; display: flex; align-items: center; gap: 6px; margin: -14px 0 0 -14px; padding: 5px 10px 5px 6px; border: 0; border-radius: 12px; background: rgba(251, 243, 228, 0.94); box-shadow: 0 3px 12px rgba(40, 25, 10, 0.25); font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; max-width: 210px; }
 .map-marker.off { visibility: hidden; pointer-events: none; }
 .map-marker:hover { filter: brightness(1.04); }
 .map-marker.flip { flex-direction: row-reverse; margin-left: 14px; padding: 5px 6px 5px 10px; text-align: right; }
