@@ -26,3 +26,28 @@ export function eraseRefusal(told: ReadonlyMap<EraseRefusal, string>): string | 
 /** The order the kinds are named in (the ones a player most likely meant to clear first), and how many at most. */
 const ERASE_REFUSAL_ORDER: readonly EraseRefusal[] = ["train", "station", "house", "road", "tree"];
 const ERASE_NAMED = 3;
+
+/**
+ * Where a sweep looks along the way the pointer came (`way`: where it was, then each point since): evenly by distance
+ * along it, one look every `step` px, but at most `most` (then further apart, still reaching the way's end). None if
+ * it hasn't moved.
+ */
+export function sweepLooks(way: readonly { x: number; y: number }[], step: number, most: number): { x: number; y: number }[] {
+  const lengths = [0];
+  for (let i = 1; i < way.length; i++) lengths.push(lengths[i - 1] + Math.hypot(way[i].x - way[i - 1].x, way[i].y - way[i - 1].y));
+  const total = lengths[lengths.length - 1];
+  if (!(total > 0)) return [];
+  const count = Math.min(most, Math.max(1, Math.ceil(total / step)));
+  const out: { x: number; y: number }[] = [];
+  let seg = 1;
+  for (let k = 1; k <= count; k++) {
+    const at = (total * k) / count;
+    while (seg < way.length - 1 && lengths[seg] < at) seg++;
+    const a = way[seg - 1];
+    const b = way[seg];
+    const span = lengths[seg] - lengths[seg - 1];
+    const t = span > 0 ? (at - lengths[seg - 1]) / span : 1;
+    out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  }
+  return out;
+}
