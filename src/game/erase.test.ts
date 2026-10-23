@@ -16,7 +16,7 @@ describe("what a clearing sweep says of what stays (once, on lift)", () => {
       ["train", "Trains stay: take one off from its card"],
       ["house", "The town's houses stay"],
     ]);
-    expect(eraseRefusal(told)).toBe("Some things stay: trains, stations and depots, the town's houses");
+    expect(eraseRefusal(told)).toBe("Some things stay: trains and their track, stations and depots, the town's houses");
   });
 
   it("roads and the map's trees are among them", () => {
@@ -31,8 +31,8 @@ describe("what a clearing sweep says of what stays (once, on lift)", () => {
     const a = new Map<EraseRefusal, string>([["tree", "t"], ["station", "s"]]);
     const b = new Map<EraseRefusal, string>([["station", "s"], ["tree", "t"]]);
     expect(eraseRefusal(a)).toBe(eraseRefusal(b));
-    const all = new Map<EraseRefusal, string>([["tree", "t"], ["road", "r"], ["house", "h"], ["station", "s"], ["train", "x"], ["busy", "b"]]);
-    expect(eraseRefusal(all)).toBe("Some things stay: track a train is on, trains, stations and depots, and 3 more");
+    const all = new Map<EraseRefusal, string>([["tree", "t"], ["road", "r"], ["house", "h"], ["station", "s"], ["train", "x"]]);
+    expect(eraseRefusal(all)).toBe("Some things stay: trains and their track, stations and depots, the town's houses, and 2 more");
     expect(eraseRefusal(new Map<EraseRefusal, string>([["tree", "Trees stay: the Land tab moves them"]]))).toBe("Trees stay: the Land tab moves them");
   });
 });
