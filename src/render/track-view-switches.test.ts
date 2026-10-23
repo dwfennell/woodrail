@@ -11,7 +11,7 @@ vi.mock("./track-geometry", async (importOriginal) => {
 import { Flourishes } from "./flourishes";
 import { createSample, getPieceDef, Layout, pathLength, samplePath, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { ARROW_FAR_SCALES, arrowEnds, BURN_GAP, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { ARROW_FAR_SCALES, arrowEnds, BURN_GAP, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_BURN_FAR, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -259,8 +259,12 @@ describe("switch chevrons", () => {
     expect(new Vector3(0, 0, 1).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeCloseTo(1, 5);
     // Still on the set route, pointing away from the trunk.
     for (const a of arrowsOf(view)) expect(Math.sign(a.z)).toBe(Math.sign(getPieceDef("switch", false).connectors[2].pose.z));
+    // (Further out, a deeper char: the grain doesn't show from there, the arrows must. Pinned stays red.)
+    const tones = () => arrowsOf(view).map((a) => a.colour);
+    expect(new Set(tones())).toEqual(new Set([SWITCH_ARROW_BURN_FAR]));
     view.setArrowScale(1);
     expect(mesh.geometry).toBe(near);
+    expect(new Set(tones())).toEqual(new Set([SWITCH_ARROW_BURN]));
   });
 
   it("a step in the zoom places them cheaply: the clearances are worked out once a route, whatever the size (QA, sc3)", () => {

@@ -418,7 +418,7 @@ interface BurnSize {
 export const BURN_SIZES: readonly BurnSize[] = [
   { half: ARROW.half, wide: ARROW.wide, arm: 2.4, singe: 0.8 },
   { half: 5.4, wide: 8.2, arm: 2.5, singe: 0.4 },
-  { half: 11.2, wide: 8.6, arm: 4.4, singe: 0.7 },
+  { half: 10.8, wide: 8.6, arm: 5.0, singe: 0.7 },
 ];
 /**
  * How far (mm) a chevron's middle stands from the centre line of any other track through the switch: clear of that
@@ -426,14 +426,17 @@ export const BURN_SIZES: readonly BurnSize[] = [
  */
 export const SWITCH_ARROW_CLEAR = 24;
 /**
- * Chevron burns: what each multiplies the wood under it by (the wood's own grain, light and shadow show through). A
- * scorched brown, dark enough to read as a mark of its own from the usual high camera (QA N1: a mark must stand well off
- * the birch there) but light enough that the grain still reads through it (QA on switch-burned: at #4a2a14 the wood
- * went near black, its grain lost); a pinned switch's is a red brand, strongly red, so it differs by hue and lightness.
+ * Chevron burns: what each multiplies the wood under it by (the wood's own grain, light and shadow show through). Close
+ * to, a scorched brown light enough that the grain reads through it (QA on switch-burned: at #4a2a14 the wood went near
+ * black, its grain lost). Drawn bigger further out, where no grain shows anyway, a deeper char, so the arrows still
+ * stand well off the birch from the usual high camera (QA N1; QA on switch-burned-3: at the lighter brown the default
+ * zoom's arrows nearly vanished). A pinned switch's is a red brand at every size, strongly red, told apart by hue.
  */
 export const SWITCH_ARROW_BURN = "#7a5340";
+export const SWITCH_ARROW_BURN_FAR = "#4a2a14";
 export const SWITCH_ARROW_PINNED = "#ff2a0c";
 const arrowBurn = new Color(SWITCH_ARROW_BURN);
+const arrowBurnFar = new Color(SWITCH_ARROW_BURN_FAR);
 const arrowPinned = new Color(SWITCH_ARROW_PINNED);
 /** How long a lever takes to swing over (and the chevrons to slide across), s. */
 export const SWITCH_SWING_S = 0.12;
@@ -1415,7 +1418,7 @@ export class TrackView {
     mesh.geometry = this.arrowGeometries[ARROW_FAR_SCALES.indexOf(this.arrowScale as (typeof ARROW_FAR_SCALES)[number]) + 1];
     for (const [id, s] of this.shown) {
       if (s.first === -1) continue;
-      const tone = s.pinned ? arrowPinned : arrowBurn;
+      const tone = s.pinned ? arrowPinned : this.arrowScale === 1 ? arrowBurn : arrowBurnFar;
       for (let i = 0; i < s.arrows.length / 3; i++) mesh.setColorAt(s.first + i, tone);
       this.placeArrows(id);
     }
