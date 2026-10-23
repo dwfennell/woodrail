@@ -164,7 +164,9 @@ export class Editor {
 
   /**
    * Make the edits `edit` makes (track, props, land, roads: each done as it's made) one undo step: undo takes them back
-   * together, the last first (the eraser's sweep). True if any was made.
+   * together, the last first (the eraser's sweep). True if any was made. (The step it makes ignores its parts'
+   * `refuse`: fine while a sweep can't take in a ruin's edits, the only ones that refuse (`restore.ts`); pass it on if
+   * one can.)
    */
   group(edit: () => void): boolean {
     const outer = this.grouped;
@@ -268,11 +270,13 @@ export class Editor {
    * Take up `covers` and put `pieces` down, in one undo step: a drawn line with the switch it swaps into the line it
    * leaves or meets (and the plain straights either side of it). A switch put down starts unpinned, unless it takes the
    * place of a pinned one (`pinOf`: a switch swapped for a three-way, set the same way). Undone, the covers go back as
-   * they were (their switch states and pins too). The ids of the pieces put down, in order.
+   * they were (their switch states and pins too). The ids of the pieces put down, in order. `fitted`: as for `placeRun`
+   * (QA: a loop drawn off a straight and merged back went down 2.5 to 3.8 mm and 0.84° off its ghosts, spread).
    */
   replaceRun(
     covers: readonly number[],
     pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean; state?: number; pinOf?: number }[],
+    fitted = false,
   ): number[] {
     const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
     const pinned = new Set(covers.filter((id) => this.layout.isPinned(id)));
@@ -296,6 +300,7 @@ export class Editor {
         for (const r of recs) this.restore(r);
       },
       seats: () => [...ids],
+      fitted,
     });
     return ids;
   }
@@ -559,15 +564,13 @@ export class Editor {
     return false;
   }
 
-  /** The pieces a train (on the rails) stands on, or null for none. */
+  /** The pieces a train (on the rails) is on, under a wheel or a car between them, or null for none. */
   private underTrains(): PieceRecord[] | null {
     let out: PieceRecord[] | null = null;
     for (const t of this.sim.trainIds()) {
-      const train = this.sim.getTrain(t)!;
-      if (train.derailed) continue;
-      for (const b of train.bogies) {
-        if (out?.some((r) => r.id === b.pieceId)) continue;
-        const r = this.record(b.pieceId);
+      for (const id of this.sim.piecesUnder(t)) {
+        if (out?.some((r) => r.id === id)) continue;
+        const r = this.record(id);
         if (r) (out ??= []).push(r);
       }
     }

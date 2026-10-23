@@ -9,6 +9,12 @@
  */
 
 export type CameraStep = "move" | "zoom" | "turn" | "tilt";
+
+/**
+ * A camera change this long after the player's last pointer, wheel or key is theirs (a glide or Show me starting later
+ * isn't). Generous for a slow phone, whose frames, and the moves they draw, come a while after the touch (QA).
+ */
+const OWN_INPUT_MS = 1200;
 export const CAMERA_STEPS: readonly CameraStep[] = ["move", "zoom", "turn", "tilt"];
 
 /** The view as the tutorial reads it: where it looks (ground), how far, and from which way (radians). */
@@ -178,11 +184,11 @@ export class ControlsTutorial {
     const now = this.view();
     const prev = this.last;
     this.last = now;
-    // The player's: while they use the pointer, wheel or keys (and 0.7 s on), or as a move of theirs eases to a stop
+    // The player's: while they use the pointer, wheel or keys (and OWN_INPUT_MS on), or as a move of theirs eases to a stop
     // (a key let go turns on a little, a fling glides): a change following one of theirs within 1.5 s, the camera not
     // gliding on its own (Show me). On a slow phone those tails come a frame or two at a time, long after the keys.
     const t = performance.now();
-    const own = this.keys.size > 0 || t - this.inputAt <= 700 || (this.ownAt !== null && t - this.ownAt < 1500 && !this.gliding());
+    const own = this.keys.size > 0 || t - this.inputAt <= OWN_INPUT_MS || (this.ownAt !== null && t - this.ownAt < 1500 && !this.gliding());
     this.ownAt = own ? t : null;
     if (!prev || !own) return;
     if (this.steps.feed(prev, now).length === 0) return;

@@ -29,7 +29,7 @@ import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
-import { eraseRefusal, type EraseRefusal } from "./erase";
+import { eraseRefusal, sweepLooks, type EraseRefusal } from "./erase";
 import { branchesOff } from "./draw-junctions";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
@@ -134,6 +134,8 @@ const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
 const TAP_REACH = 80;
 /** A clearing sweep looks under the pointer this often along its way (px): a fast sweep doesn't jump a piece. */
 const ERASE_STEP_PX = 8;
+/** …but at most this many looks a move (a raycast each): a far flick on a phone is looked along more sparsely. */
+const ERASE_LOOKS = 24;
 /** At most this many squares of roads and trees a sweep passed over are outlined (each is a line drawn). */
 const ERASE_STAY_MARKS = 48;
 /** How high a held piece floats above where it would land (mm). */
@@ -3058,13 +3060,21 @@ export class Interaction {
    */
   private sweepErase(m: Mode & { kind: "erase" }, e: PointerEvent): void {
     const before = m.pieces.size + m.props.size + m.stays.size;
-    for (const c of coalesced(e)) {
-      const steps = Math.min(64, Math.ceil(Math.hypot(c.clientX - m.x, c.clientY - m.y) / ERASE_STEP_PX));
-      for (let i = 1; i <= steps; i++) this.eraseAt(m, m.x + ((c.clientX - m.x) * i) / steps, m.y + ((c.clientY - m.y) * i) / steps);
-      m.x = c.clientX;
-      m.y = c.clientY;
+    // Along the whole way the pointer came (every point a slow frame gathered), evenly: one look every ERASE_STEP_PX,
+    // but at most ERASE_LOOKS a move, spread further apart over a long one so its far end is looked at too.
+    const way = [{ x: m.x, y: m.y }, ...coalesced(e).map((c) => ({ x: c.clientX, y: c.clientY }))];
+    for (const p of sweepLooks(way, ERASE_STEP_PX, ERASE_LOOKS)) this.eraseAt(m, p.x, p.y);
+    m.x = e.clientX;
+    m.y = e.clientY;
+    // Marked track a train has rolled onto since stays, and loses its mark now (not when the finger's lifted).
+    let rolledOnto = false;
+    for (const id of m.pieces) {
+      if (!this.game.sim.pieceOccupied(id)) continue;
+      m.pieces.delete(id);
+      rolledOnto = true;
     }
-    if (m.pieces.size + m.props.size + m.stays.size !== before) this.showErase(m);
+    if (rolledOnto && !m.told.has("train")) m.told.set("train", TRAIN_ON_TRACK);
+    if (rolledOnto || m.pieces.size + m.props.size + m.stays.size !== before) this.showErase(m);
   }
 
   /** Mark what's under (x, y) to be cleared, if it may be; note why something may not (said on lift: `eraseRefusal`). */
@@ -3090,7 +3100,7 @@ export class Interaction {
       if (m.pieces.has(id)) return;
       const fixed = this.fixedLabel(id);
       if (fixed) note("station", `${fixed} stays`);
-      else if (this.game.sim.pieceOccupied(id)) note("busy", TRAIN_ON_TRACK);
+      else if (this.game.sim.pieceOccupied(id)) note("train", TRAIN_ON_TRACK);
       else m.pieces.add(id);
     } else if (hit.kind === "prop") {
       if (m.props.has(hit.propId)) return;
@@ -3179,7 +3189,7 @@ export class Interaction {
     this.showErase(null);
     // (Track a train rolled onto while the sweep was on its way stays too, and is said with the rest.)
     const free = [...m.pieces].filter((id) => g.layout.getPiece(id) && !g.sim.pieceOccupied(id));
-    if (free.length < [...m.pieces].filter((id) => g.layout.getPiece(id)).length && !m.told.has("busy")) m.told.set("busy", TRAIN_ON_TRACK);
+    if (free.length < [...m.pieces].filter((id) => g.layout.getPiece(id)).length && !m.told.has("train")) m.told.set("train", TRAIN_ON_TRACK);
     const why = eraseRefusal(m.told);
     if (why) this.hud.toast(why);
     const ids = this.keepCarryingStands(this.withRisers(free)).filter((id) => !this.liftHeld(id));

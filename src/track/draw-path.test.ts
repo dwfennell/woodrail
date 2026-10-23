@@ -630,13 +630,17 @@ describe("draw path", () => {
         return { x: s * Math.cos(a) - v * Math.sin(a), z: s * Math.sin(a) + v * Math.cos(a) };
       });
     }
-    // The slowest few moves are left out of `worst`: a loaded machine stalls a move now and then (the scheduler, a
-    // collection), but a slow step comes back on every stroke that takes it, so the fifth slowest still catches it.
+    // (A timing guard on a loaded machine: warmed up, then the best of up to six runs counts. The mean is what a real
+    // slowdown moves first, and it still fails one ten times as slow; the fifth slowest move, a slow step that comes back
+    // on every stroke taking it, has a generous bound, since a full run stalls a move now and then: 23 ms once.)
     const SPARED = 4;
+    const MEAN_BOUND = 0.03;
+    const TAIL_BOUND = 30;
     const run = () => {
       const slowest: number[] = [];
       let most = 0;
       let moves = 0;
+      let total = 0;
       for (const pts of strokes) {
         const line = new DrawLine(START);
         for (const p of pts) {
@@ -644,6 +648,7 @@ describe("draw path", () => {
           const t0 = performance.now();
           line.addPoint(p.x, p.z);
           const t = performance.now() - t0;
+          total += t;
           if (slowest.length <= SPARED || t > slowest[SPARED]) {
             slowest.push(t);
             slowest.sort((a, b) => b - a);
@@ -654,19 +659,24 @@ describe("draw path", () => {
         }
         line.finish();
       }
-      return { worst: slowest[Math.min(SPARED, slowest.length - 1)] ?? 0, most, moves };
+      return { worst: slowest[Math.min(SPARED, slowest.length - 1)] ?? 0, mean: total / moves, most, moves };
     };
     run(); // warm up
-    const { worst: first, most, moves } = run();
-    expect(moves).toBeGreaterThan(20000);
+    const first = run();
+    expect(first.moves).toBeGreaterThan(20000);
     // At most a piece a move (the rest come on the moves after) ...
-    expect(most).toBe(1);
-    // ... and no move slow: about 0.3 ms at worst in Node, 4 to 5 ms when one laid 20 pieces (generous, for a slow CI).
-    // And the best of up to five runs counts.
-    let worst = first;
-    for (let k = 0; k < 4 && worst >= 8; k++) worst = Math.min(worst, run().worst);
-    expect(worst).toBeLessThan(8);
-  });
+    expect(first.most).toBe(1);
+    // ... and no move slow: a mean of 0.005 to 0.0075 ms and a fifth slowest of 0.8 to 0.9 ms here (4 to 5 ms when one
+    // laid 20 pieces, which `most` catches).
+    let best = first;
+    for (let k = 1; k < 6 && (best.mean >= MEAN_BOUND || best.worst >= TAIL_BOUND); k++) {
+      const r = run();
+      if (r.mean < best.mean) best = r;
+    }
+    if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.DRAW_BENCH) console.log(`no move slow: mean ${best.mean.toFixed(4)} ms, fifth slowest ${best.worst.toFixed(3)} ms`);
+    expect(best.mean, `mean ${best.mean.toFixed(4)} ms`).toBeLessThan(MEAN_BOUND);
+    expect(best.worst, `fifth slowest ${best.worst.toFixed(3)} ms`).toBeLessThan(TAIL_BOUND);
+  }, 60_000);
 
   it("the stroke ahead of the line moves when it's seen at another height (the line went up a level), and runs on from there", () => {
     const line = new DrawLine(START);

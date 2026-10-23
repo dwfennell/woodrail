@@ -5,7 +5,7 @@ import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
 import { describe as describeGoods } from "../economy/goods";
 import { craftNow, craftShort, Crafting, keepsForOrder, lacking, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
-import { GOALS, GoalTracker } from "../game/goals";
+import { GOALS, GoalTracker, OPEN_INDUSTRY_GOALS } from "../game/goals";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
@@ -1430,9 +1430,10 @@ class Playthrough {
     const P = this.p;
     const w = P.w;
     const s = P.progress;
-    // The goal the player works on, in the goals' order. "Open a farm" (map sites step 2) is passed over: the farm comes
-    // by its own rule below, as it did before there was a goal for it, so the goals after it come when they did.
-    const goal = GOALS.find((x) => x.id !== "open-farm" && !P.goals.isDone(x.id) && (x.needs ?? []).every((id) => s.learned.has(id)))?.id;
+    // The goal the player works on, in the goals' order. "Open a farm" (map sites step 2), and a quarry, a mine and a
+    // harbour (step 3), are passed over: those industries come by their own rules below, as they did before there were
+    // goals for them, so the goals after them come when they did.
+    const goal = GOALS.find((x) => !OPEN_INDUSTRY_GOALS.includes(x.id) && !P.goals.isDone(x.id) && (x.needs ?? []).every((id) => s.learned.has(id)))?.id;
     const g = w.landscape.grid;
 
     // The school (the first village's present), as soon as it's in the box: on the straight of the line beside a

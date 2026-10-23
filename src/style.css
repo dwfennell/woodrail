@@ -532,6 +532,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-marker.kind-sawmill .map-dot { background: #d8961f; border-radius: 4px; }
 /* An industry the player put down (a workshop): a square, in its own colour. */
 .map-marker:not(.kind-town):not(.kind-forest):not(.kind-sawmill) .map-dot { background: #7a5ab8; border-radius: 4px; }
+/* An old industry's ruin: its icon in a small round badge of weathered grey (no label), a lock while it's locked. Its
+   box is 28 px centred on the ruin (the label's margin), its tap area a little larger, under the labels (a tap at
+   their edge is theirs). */
+.map-marker { z-index: 1; }
+.map-marker.kind-ruin { z-index: 0; width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; background: rgba(214, 208, 197, 0.95); box-shadow: 0 0 0 2px rgba(251, 243, 228, 0.9), 0 2px 8px rgba(40, 25, 10, 0.25); }
+.map-marker.kind-ruin::before { content: ""; position: absolute; inset: -8px; }
+.map-ruin-icon { font-size: 16px; line-height: 1; }
+.map-marker.kind-ruin.locked .map-ruin-icon { filter: grayscale(0.6); opacity: 0.85; }
+.map-ruin-lock { position: absolute; right: -6px; bottom: -5px; font-size: 11px; line-height: 1; }
 .map-text { display: flex; flex-direction: column; min-width: 0; }
 .map-text b { font-size: 14px; line-height: 1.15; }
 .map-text span { font-size: 12px; font-weight: 700; color: #6a5340; line-height: 1.25; }
@@ -1008,8 +1017,12 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .coach-art.mouse.tilt .m { animation: coach-nod 1.6s ease-in-out 4; }
 .coach-art.mouse.move .m { animation: coach-drift 1.8s ease-in-out 4; }
 .coach-art .caps { display: grid; grid-template-columns: repeat(2, 15px); gap: 2px; }
+/* (The Move card's mouse and four keys fit its 64 px box: smaller keys, closer. QA: the D stood 8 px out.) */
+.coach-art.mouse.move { gap: 3px; }
+.coach-art.move .caps { gap: 1px; }
+.coach-art.move kbd { width: 12px; height: 12px; font-size: 8px; }
 /* (W over A S D, as on a keyboard.) */
-.coach-art.move .caps { grid-template-columns: repeat(3, 15px); }
+.coach-art.move .caps { grid-template-columns: repeat(3, 12px); }
 .coach-art.move .caps kbd:first-child { grid-column: 2; }
 .coach-art.move .caps kbd:nth-child(2) { grid-column: 1; }
 .coach-art kbd { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 3px; background: #fff; box-shadow: 0 1.5px 0 #b08a5c; font: 800 9px/1 inherit; color: #3a2a1c; animation: coach-key 2s 4; animation-delay: calc(var(--i) * 0.5s); }

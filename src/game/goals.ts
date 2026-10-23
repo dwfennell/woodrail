@@ -332,6 +332,20 @@ export function secondEngineTip(free: number, owned: number): string {
   return "";
 }
 
+/** Does an industry of this kind stand on the map (restored from a ruin or built new)? */
+const hasIndustry = (w: World, role: SiteRole) => w.economy.allDepots().some((d) => d.role === role && !!w.layout.getPiece(d.pieceId));
+
+/**
+ * "Open a farm" (a quarry, a mine, a harbour): shown once its blueprint is learned, done when one stands on the map.
+ * Show me is `guideIndustry`: the nearest old one on the player's land (its card opened), else a spot for a new one.
+ */
+function openIndustry(role: SiteRole, blueprint: string, title: string, hint: string): Goal {
+  return { id: `open-${role}`, title, hint, needs: [blueprint], check: (w) => ({ done: hasIndustry(w, role) }), guide: (w) => guideIndustry(w, role) };
+}
+
+/** The "Open a …" goals' ids (the balance harness passes over them: its industries come by its own rules). */
+export const OPEN_INDUSTRY_GOALS: readonly string[] = ["open-farm", "open-quarry", "open-mine", "open-harbour"];
+
 export const GOALS: readonly Goal[] = [
   {
     id: "join-two",
@@ -477,15 +491,8 @@ export const GOALS: readonly Goal[] = [
     check: (w) => ({ done: hasPiece(w, (type, flipped) => getPieceDef(type, flipped).isSwitch) }),
     guide: (w) => guideTrains(w, "track", "Switch"),
   },
-  {
-    // Once Farming is learned: the old farm by the start to restore (Show me opens its card), or a farm yard of one's own.
-    id: "open-farm",
-    title: "Open a farm",
-    hint: "Restore an old farm, or build a farm yard by some fields.",
-    needs: ["farming"],
-    check: (w) => ({ done: w.economy.allDepots().some((d) => d.role === "farm" && !!w.layout.getPiece(d.pieceId)) }),
-    guide: (w) => guideIndustry(w, "farm"),
-  },
+  // Once Farming is learned: the old farm by the start to restore (Show me opens its card), or a farm yard of one's own.
+  openIndustry("farm", "farming", "Open a farm", "Restore an old farm, or build a farm yard by some fields."),
   {
     id: "build-bridge",
     blueprint: "bridges",
@@ -532,6 +539,11 @@ export const GOALS: readonly Goal[] = [
     },
     guide: (w) => guideTrains(w, "trains", "Engines"),
   },
+  // The other old industries, each once its blueprint is learned (well after Farming: Quarries after Mills, Mines and
+  // Harbours after Quarries), so after the passing loop. Open goals: ticked off as soon as one stands.
+  openIndustry("quarry", "quarries", "Open a quarry", "Restore an old quarry, or build one by a hillside."),
+  openIndustry("mine", "mines", "Open a mine", "Restore an old mine, or build one by a hillside."),
+  openIndustry("harbour", "harbours", "Open a harbour", "Restore an old harbour, or build one by the sea."),
   {
     id: "join-all",
     title: "Connect every town",

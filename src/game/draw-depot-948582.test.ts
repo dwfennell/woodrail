@@ -137,7 +137,8 @@ describe("the player's line from Puddleby into the sawmill (seed 948582)", () =>
     expect(open).toBeLessThanOrEqual(48);
     expect(odd).toBeLessThanOrEqual(85);
     expect(bent).toBeLessThanOrEqual(45);
-  });
+    // (294 strokes, each drawn into the sawmill on a fresh map: about 4 s, 9 s on a loaded machine.)
+  }, 60_000);
 
   it("no tree stands on the track: the trees by the line stand clear of it, each at least its clearance from the track", () => {
     // (The two trees that seemed to stand on the straight are ball trees at (−973, −240) and (−1109, −256), where they

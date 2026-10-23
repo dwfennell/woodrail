@@ -218,6 +218,12 @@ if (process.env.E2E_ONLY === "terrace-repeat") {
   await finishRun();
 }
 
+/** Only QA's own script for terrace 2 (E2E_ONLY=terrace-qa): a part of qa-slant, quick on its own. */
+if (process.env.E2E_ONLY === "terrace-qa") {
+  await terraceQA();
+  await finishRun();
+}
+
 /** Only the phone on its side, a straight swipe off the grid (E2E_ONLY=phone): step 7b on its own. */
 if (process.env.E2E_ONLY === "phone") {
   await phoneSwipe();
@@ -1008,7 +1014,7 @@ async function qaReplay() {
     await ctx.close();
   }
   await terraceRepeat();
-
+  await terraceQA();
 }
 
 /**
@@ -1329,6 +1335,8 @@ async function ghostMatch() {
     const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t0 + 0.016 * ti++, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
     await touch("touchStart", pts[0][0], pts[0][1]);
     for (const [x, y] of pts.slice(1)) await touch("touchMove", x, y);
+    // (The finger resting a moment: the ghosts are worked out a slice a frame, and catch up within a frame or two.)
+    await q.waitForFunction(() => window.woodrail.interaction.draw.ghostsCaughtUp ?? true, null, { timeout: 10000 }).catch(() => {});
     // (The ghosts' pieces: `shown`, or on a build before it, the line's own pieces, which were all its ghosts showed.)
     const shown = await q.evaluate(() => {
       const d = window.woodrail.interaction.draw;
@@ -1376,6 +1384,110 @@ async function finishRun() {
  * strokes on one page, undoing between. The same line each time; a toast about the hill only if the first said it
  * too. (It was a tie between two plans that a camera a hair off after the undo broke the other way: see `best`.)
  */
+/**
+ * QA's own script for terrace 2 (scratchpad qa-ghost/README.md, "Terrace 2: QA's exact script"): a 390 × 844 phone,
+ * Draw switched on by its chip, the world line x −1764 − d (d 0 to 480, every 15 mm) at z −1620 seen on each square's
+ * ground with QA's camera, resampled every 10 px on the screen, each touch stamped 16 ms after the last and the lift
+ * 16 or 300 ms after; with the point past the map's edge and without. On main (2fc79a3) it laid s54 s54 curve-small
+ * and said "That's past the edge of the map", 8 runs out of 8: seen from the west, the terrace's top hides most of its
+ * lower step, and the finger over it was read past the hill (see `DrawLine.onGround`). Both ramps now, what the ghosts
+ * showed as the finger lifted; past the edge said only if the finger went past it.
+ */
+async function terraceQA() {
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+  await ctx.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  const q = await ctx.newPage();
+  q.on("pageerror", (e) => errors.push(e.message));
+  const cdp = await ctx.newCDPSession(q);
+  await q.goto(URL, { timeout: 180000 });
+  await q.waitForFunction(() => !!window.woodrail && [...document.querySelectorAll("button")].some((b) => /let.s play/i.test(b.textContent ?? "")), null, { timeout: 180000 });
+  await q.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
+  await q.waitForFunction(() => document.querySelector(".tray-draw") !== null && window.woodrail.layout.pieceCount > 0, null, { timeout: 120000 });
+  await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 }).catch(() => {});
+  await settled(q);
+  await q.evaluate(() => {
+    const w = window.woodrail;
+    window.__toasts = [];
+    const orig = w.hud.toast.bind(w.hud);
+    w.hud.toast = (m, ...a) => (window.__toasts.push(m), orig(m, ...a));
+    if (!w.interaction.isDrawing) document.querySelector(".tray-draw")?.click();
+  });
+  await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 120000 }).catch(() => {});
+  const path = () =>
+    q.evaluate(() => {
+      const w = window.woodrail;
+      const V = w.camera.position.constructor;
+      w.director.cancel?.();
+      w.lookAt(new V(-2004, 0, -1620), 3662.2, 0.95, -1.1659);
+      w.camera.updateMatrixWorld();
+      const G = w.landscape.grid;
+      const r = w.canvas.getBoundingClientRect();
+      const pts = [];
+      for (let d = 0; d <= 480; d += 15) {
+        const x = -1764 - d;
+        const c = G.cellAtWorld(x, -1620);
+        const v = new V(x, c === -1 ? 0 : G.groundY(c), -1620).project(w.camera);
+        pts.push({ cell: c, s: [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height] });
+      }
+      return pts;
+    });
+  let clock = 0;
+  for (const off of [true, false])
+    for (const endAfter of [16, 300]) {
+      const all = await path();
+      const pts = (off ? all : all.filter((p) => p.cell !== -1)).map((p) => p.s);
+      // QA's resampling: a point every 10 px along the screen line (carried over each corner), and the last.
+      const res = [pts[0]];
+      let carry = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const [ax, ay] = pts[i - 1];
+        const [bx, by] = pts[i];
+        const L = Math.hypot(bx - ax, by - ay);
+        let t = 10 - carry;
+        for (; t <= L; t += 10) res.push([ax + ((bx - ax) * t) / L, ay + ((by - ay) * t) / L]);
+        carry = L - (t - 10);
+      }
+      const last = pts[pts.length - 1];
+      const lr = res[res.length - 1];
+      if (Math.hypot(last[0] - lr[0], last[1] - lr[1]) > 0.5) res.push(last);
+      await settled(q);
+      const before = await q.evaluate(() => (window.__toasts.splice(0), [...window.woodrail.layout.pieceIds()]));
+      clock = Math.max(clock + 0.5, Date.now() / 1000);
+      const tp = (x, y) => [{ x, y, radiusX: 1, radiusY: 1, force: 1, id: 1 }];
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: tp(...res[0]), timestamp: clock });
+      for (const p of res.slice(1)) {
+        clock += 0.016;
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: tp(...p), timestamp: clock });
+      }
+      clock += endAfter / 1000;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [], timestamp: clock });
+      await settled(q);
+      const got = await q.evaluate((before) => {
+        const w = window.woodrail;
+        const old = new Set(before);
+        const ids = [...w.layout.pieceIds()].filter((id) => !old.has(id));
+        const laid = ids.map((id) => w.layout.getPiece(id));
+        const shown = w.interaction.draw.liftShown ?? [];
+        let off = 0;
+        laid.forEach((p, i) => {
+          const g = shown[i];
+          off = Math.max(off, !g || g.type !== p.type ? Infinity : Math.hypot(g.x - p.pose.x, g.z - p.pose.z));
+        });
+        return { types: laid.map((p) => `${p.type}@${p.y}`), toasts: window.__toasts.splice(0), off, shown: shown.length };
+      }, before);
+      const what = `${got.types.join(" ")} | ${got.toasts.join(" / ")} | ghosts ${got.off.toFixed(2)} mm off`;
+      const name = `QA's terrace 2 script, the off-map point ${off ? "kept" : "dropped"}, lifted after ${endAfter} ms`;
+      check(`${name}: climbs both levels, no curve`, got.types.filter((t) => t.startsWith("ramp")).length === 2 && got.types.at(-1) !== "ramp@0" && !got.types.some((t) => t.startsWith("curve")), what);
+      check(`${name}: what went down is what the ghosts showed`, got.off < 0.05, what);
+      check(`${name}: past the edge said only if the finger went past it`, off || !got.toasts.some((t) => /past the edge/.test(t)), what);
+      if (got.types.length) {
+        await q.evaluate(() => window.woodrail.interaction.undo());
+        await settled(q);
+      }
+    }
+  await ctx.close();
+}
+
 async function terraceRepeat() {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
@@ -1610,9 +1722,29 @@ async function loopOffStraight() {
     for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
     modes.push(await mode());
   }
+  // (QA: a loop merged back went down 2.5 to 3.8 mm and 0.84° off its ghosts.)
   await touch("touchEnd", 0, 0);
   await settled(q);
   await shot(q, `${OUT}/draw-10-loop.png`);
+  // The line's own pieces as they went down (not the swaps: the switches and the straights either side of them),
+  // against its ghosts as the finger lifted.
+  const offGhosts = await q.evaluate(() => {
+    const w = window.woodrail;
+    const d = w.interaction.draw;
+    let mm = 0;
+    let deg = 0;
+    d.liftLaid.forEach((id, i) => {
+      const p = w.layout.getPiece(id);
+      const g = d.liftShown[i];
+      if (!p || !g || g.type !== p.type || g.flipped !== p.flipped) {
+        mm = Infinity;
+        return;
+      }
+      mm = Math.max(mm, Math.hypot(g.x - p.pose.x, g.z - p.pose.z));
+      deg = Math.max(deg, (Math.abs(Math.atan2(Math.sin(g.heading - p.pose.heading), Math.cos(g.heading - p.pose.heading))) * 180) / Math.PI);
+    });
+    return { n: d.liftLaid.length, ghosts: d.liftShown.length, mm, deg };
+  });
   const got = await q.evaluate(() => {
     const w = window.woodrail;
     return { switches: [...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id).type.startsWith("switch")).length, pieces: w.layout.pieceCount, toasts: window.__toasts.splice(0) };
@@ -1620,6 +1752,11 @@ async function loopOffStraight() {
   const what = `${got.switches - view.switches} switches, ${got.pieces - view.pieces} pieces more · ${view.pxPerMm.toFixed(2)} px/mm · modes ${modes.join(" > ")} · press at ${corners[0].map(Math.round)}${got.toasts.length ? " · " + got.toasts.join(" | ") : ""}`;
   check("passing loop off the straight: a switch out, the run beside it, a switch back in", got.switches - view.switches === 2 && got.pieces > view.pieces, what);
   check("…and no 'Turn it to fit' while drawing", !got.toasts.some((t) => /turn it to fit/i.test(t)), what);
+  check(
+    "…and the loop's pieces went down where its last ghosts were",
+    offGhosts.n > 0 && offGhosts.mm < 0.05 && offGhosts.deg < 0.01,
+    `${offGhosts.n} of the line's pieces against its ${offGhosts.ghosts} ghosts as it lifted: worst ${offGhosts.mm.toFixed(2)} mm, ${offGhosts.deg.toFixed(3)}°`,
+  );
   // Out of reach (QA: the camera 4000 mm off; at 740 px tall reach lasts to about 3700 mm), Draw on: a tap on the
   // line's body, or a long press, only lets go of what's selected, as with Draw off; no card opens (QA: a tap opened
   // the straight's card, and a 650 ms press left it open).
