@@ -1329,6 +1329,8 @@ async function ghostMatch() {
     const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t0 + 0.016 * ti++, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
     await touch("touchStart", pts[0][0], pts[0][1]);
     for (const [x, y] of pts.slice(1)) await touch("touchMove", x, y);
+    // (The finger resting a moment: the ghosts are worked out a slice a frame, and catch up within a frame or two.)
+    await q.waitForFunction(() => window.woodrail.interaction.draw.ghostsCaughtUp ?? true, null, { timeout: 10000 }).catch(() => {});
     // (The ghosts' pieces: `shown`, or on a build before it, the line's own pieces, which were all its ghosts showed.)
     const shown = await q.evaluate(() => {
       const d = window.woodrail.interaction.draw;
@@ -1612,6 +1614,7 @@ async function loopOffStraight() {
     modes.push(await mode());
   }
   // The line's ghosts as the finger lifts (QA: a loop merged back went down 2.5 to 3.8 mm and 0.84° off them).
+  await q.waitForFunction(() => window.woodrail.interaction.draw.ghostsCaughtUp ?? true, null, { timeout: 10000 }).catch(() => {});
   const ghostsShown = await q.evaluate(() => window.woodrail.interaction.draw.shown());
   await touch("touchEnd", 0, 0);
   await settled(q);

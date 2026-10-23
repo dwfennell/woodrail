@@ -496,24 +496,6 @@ function remembered(options: DrawOptions): DrawOptions {
   };
 }
 
-/** A line's state as `DrawLine.preview` keeps it (what finishing changes). */
-interface LineState {
-  pieces: DrawnPiece[];
-  progress: number;
-  stopped: "blocked" | "closed" | null;
-  refused: PieceTypeId | null;
-  crossing: { heading: number; phase: "turn" | "run" | "over"; bridges: number } | null;
-  offBand: boolean;
-  wanted: PieceTypeId | null;
-  retreating: boolean;
-  backlog: boolean;
-  runFrom: number | null;
-  tailAt: number;
-  tail: number;
-  headingTrueAt: number;
-  loop: boolean;
-}
-
 /** A run of track following a stroke: points go in as the finger moves; pieces come out behind it. */
 export class DrawLine {
   readonly pieces: DrawnPiece[] = [];
@@ -612,6 +594,7 @@ export class DrawLine {
       const s = this.start;
       if ((x - s.x) * Math.cos(s.heading) + (z - s.z) * Math.sin(s.heading) < STEP) return false;
     }
+    this.rev++;
     const before = this.pieces.length;
     // (Closing can lay the last piece or two again another way, or bend them, as many as before: see `closeBack`.)
     const lastBefore = this.pieces[before - 1];
@@ -647,87 +630,95 @@ export class DrawLine {
   finish(): boolean {
     const before = this.pieces.length;
     const lastBefore = this.pieces[before - 1];
-    // As the ghosts showed it, if nothing has changed since (see `preview`).
-    if (this.previewed && this.previewFor === this.inputs()) this.restore(this.previewed);
-    else this.finishNow();
+    // As the ghosts showed it, if nothing has changed since (see `preview`): the preview worked out to the end.
+    this.preview();
+    this.adopt(this.previewed!);
     this.previewed = null;
+    this.job = null;
+    this.rev++;
     return this.pieces.length !== before || this.pieces[this.pieces.length - 1] !== lastBefore;
-  }
-
-  private finishNow(): void {
-    // Pieces already due while drawing go down as they would have then, and then the line grows to the stroke's end.
-    if (this.backlog) this.grow(false, Infinity);
-    this.grow(true);
   }
 
   /**
    * What lifting the finger now would lay (`finish`), the line left as it is: the ghosts show these, and lifting the
    * finger then lays exactly them (`finish` takes this outcome as it is). (QA: the line grew its last stretch, or closed
    * onto a station's end another way, only once the finger lifted, so what went down wasn't what the ghosts showed.)
-   * Worked out again only when the stroke or the line has changed since.
+   *
+   * Worked out on a copy of the line (`copy`), so nothing of it leaks back into the line; again only when the line has
+   * changed since (`rev`). `budget` (ms): worked on for about that long and no more (a piece at least; none at 0),
+   * carrying on where it left off on the next call (`previewDone` says whether it's caught up); until then it's the last
+   * one worked out. (QA: worked out whole on every move, a move took 0.6 to 0.9 ms in the browser where it had taken 0.1 to
+   * 0.2, and a fast flick far ahead of the line up to 32 ms: the line laid its backlog afresh on every move.) The answer
+   * doesn't depend on how it was cut up (see `grow`'s `resumed`).
    */
-  preview(): readonly DrawnPiece[] {
-    if (this.previewed && this.previewFor === this.inputs()) return this.previewed.pieces;
-    const before = this.state();
-    this.finishNow();
-    this.previewed = this.state();
-    this.restore(before);
-    this.previewFor = this.inputs();
+  preview(budget = Infinity): readonly DrawnPiece[] {
+    if (this.previewed && this.previewFor === this.rev) return this.previewed.pieces;
+    if (budget <= 0) return this.previewed?.pieces ?? this.pieces;
+    if (!this.job || this.job.for !== this.rev) {
+      const line = this.copy();
+      this.job = { line, for: this.rev, phase: line.backlog ? 0 : 1, resumed: false, steps: 0 };
+    }
+    const job = this.job;
+    const until = budget === Infinity ? Infinity : performance.now() + budget;
+    // (A piece at a time, at least one a call: pieces already due while drawing go down as they would have then, and
+    // then the line grows to the stroke's end.)
+    do {
+      const finishing = job.phase === 1;
+      job.line.grow(finishing, budget === Infinity ? Infinity : 1, job.resumed);
+      job.resumed = true;
+      if (!job.line.backlog || ++job.steps >= MAX_PIECES) {
+        job.resumed = false;
+        job.steps = 0;
+        job.phase++;
+      }
+    } while (job.phase < 2 && performance.now() < until);
+    if (job.phase < 2) return this.previewed?.pieces ?? this.pieces;
+    this.previewed = job.line;
+    this.previewFor = this.rev;
+    this.job = null;
     return this.previewed.pieces;
   }
 
-  /** The finished line `preview` worked out, and for which inputs (`inputs`). */
-  private previewed: LineState | null = null;
-  private previewFor = "";
-
-  /** What the line's outcome depends on: its stroke and where it has got to. */
-  private inputs(): string {
-    const last = this.pieces[this.pieces.length - 1];
-    if (last !== this.inputsLast) {
-      this.inputsLast = last;
-      this.inputsRev++;
-    }
-    return `${this.xs.length}|${this.strokeLength}|${this.pieces.length}|${this.inputsRev}|${this.progress}|${this.stopped}|${this.retreating}|${this.backlog}`;
+  /** Has `preview` caught up with the line as it is now (what it returns is what lifting now would lay)? */
+  get previewDone(): boolean {
+    return !!this.previewed && this.previewFor === this.rev;
   }
 
-  private inputsLast: DrawnPiece | undefined = undefined;
-  private inputsRev = 0;
+  /** The finished line `preview` last worked out, and for which `rev`. */
+  private previewed: DrawLine | null = null;
+  private previewFor = -1;
+  /** A preview being worked out (see `preview`): on a copy of the line as it was at `rev` `for`. */
+  private job: { line: DrawLine; for: number; phase: number; resumed: boolean; steps: number } | null = null;
+  /** Counts the line's changes: its stroke or its pieces (see `preview`). */
+  private rev = 0;
 
-  private state(): LineState {
-    return {
-      pieces: this.pieces.slice(),
-      progress: this.progress,
-      stopped: this.stopped,
-      refused: this.refused,
-      crossing: this.crossing && { ...this.crossing },
-      offBand: this.offBand,
-      wanted: this.wanted,
-      retreating: this.retreating,
-      backlog: this.backlog,
-      runFrom: this.runFrom,
-      tailAt: this.tailAt,
-      tail: this.tail,
-      headingTrueAt: this.headingTrueAt,
-      loop: this.loop,
-    };
+  /** A copy of the line, to work on without changing it: its own stroke, pieces and state; the same options and caches. */
+  private copy(): DrawLine {
+    const c = Object.create(DrawLine.prototype) as DrawLine;
+    Object.assign(c, this);
+    const w = c as unknown as Record<string, unknown>;
+    w.pieces = this.pieces.slice();
+    w.xs = this.xs.slice();
+    w.zs = this.zs.slice();
+    w.ss = this.ss.slice();
+    w.unclosed = { of: this.unclosed.of, keys: new Set(this.unclosed.keys) };
+    w.chord = { ...this.chord };
+    w.crossing = this.crossing && { ...this.crossing };
+    w.previewed = null;
+    w.job = null;
+    return c;
   }
 
-  private restore(s: LineState): void {
-    this.pieces.length = 0;
-    this.pieces.push(...s.pieces);
-    this.progress = s.progress;
-    this.stopped = s.stopped;
-    this.refused = s.refused;
-    this.crossing = s.crossing && { ...s.crossing };
-    this.offBand = s.offBand;
-    this.wanted = s.wanted;
-    this.retreating = s.retreating;
-    this.backlog = s.backlog;
-    this.runFrom = s.runFrom;
-    this.tailAt = s.tailAt;
-    this.tail = s.tail;
-    this.headingTrueAt = s.headingTrueAt;
-    this.loop = s.loop;
+  /** Take on a copy's state (see `copy`), as if this line had done what it did. */
+  private adopt(c: DrawLine): void {
+    const pieces = this.pieces;
+    const { previewed, previewFor, job, rev } = this;
+    Object.assign(this, c);
+    const w = this as unknown as Record<string, unknown>;
+    w.pieces = pieces;
+    pieces.length = 0;
+    for (const p of c.pieces) pieces.push(p);
+    Object.assign(this, { previewed, previewFor, job, rev });
   }
 
   /** The pieces that may go down (up to the first one that can't). */
@@ -805,6 +796,7 @@ export class DrawLine {
       const now = this.onGround(read, e.y);
       if (was && now) this.shiftAhead(now.x - was.x, now.z - was.z);
       this.seen = e.y;
+      this.rev++;
     }
     const p = this.onGround(read, this.seen);
     return { p, changed: p ? this.addPoint(p.x, p.z) : false };
@@ -842,6 +834,7 @@ export class DrawLine {
    * so the stroke runs on without a jump in it.
    */
   shiftAhead(dx: number, dz: number): void {
+    this.rev++;
     const n = this.xs.length;
     let k = n;
     while (k > 1 && this.ss[k - 1] > this.progress) k--;
@@ -905,8 +898,11 @@ export class DrawLine {
     return false;
   }
 
-  /** Lay pieces along the stroke, up to `budget` of them (while drawing: see `GROW_PER_MOVE`). */
-  private grow(finishing: boolean, budget = Infinity): void {
+  /**
+   * Lay pieces along the stroke, up to `budget` of them (while drawing: see `GROW_PER_MOVE`). `resumed`: carrying on
+   * from a call whose budget ran out (`preview`'s slices), as if it were the same call.
+   */
+  private grow(finishing: boolean, budget = Infinity, resumed = false): void {
     this.backlog = false;
     if (this.retreating) return;
     for (let guard = 0; guard < MAX_PIECES && !this.stopped && this.pieces.length < MAX_PIECES; guard++) {
@@ -916,7 +912,7 @@ export class DrawLine {
       if (left < (finishing ? (over ? -Infinity : STEP) : DRAW_LOOKAHEAD)) {
         // While drawing, short of the look-ahead, the finger come to other track's free end: closed onto it now, so
         // the ghosts show the line as it will go down (QA: it closed only on the lift, another way than shown).
-        if (!finishing && !this.crossing && guard === 0) this.closeHere(this.end, true);
+        if (!finishing && !this.crossing && guard === 0 && !resumed) this.closeHere(this.end, true);
         return;
       }
       if (guard >= budget) {
