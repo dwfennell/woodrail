@@ -61,7 +61,7 @@ describe("a station's other end after track closed on it (QA: Millbrook)", () =>
     const { layout, sim, landscape } = world;
     // (Plus a piece standing in for the rest of a loop that can't give: the run's far end.)
     const held = new Set<number>();
-    const fixed = (id: number) => held.has(id) || [...world.stations.values(), ...world.depots.values()].includes(id);
+    const fixed = (id: number) => held.has(id) || [...world.stations.values(), ...world.depots.values(), ...world.ruins.values()].includes(id);
     const editor = new Editor(layout, sim, () => {}, fixed);
     const rules = { land: landscape, layout, props: null, footprint: () => undefined };
     for (const town of landscape.towns) {

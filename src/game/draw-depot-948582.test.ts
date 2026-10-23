@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import save from "./fixtures/draw-depot-948582.json";
 import { Editor } from "../editor/editor";
 import { TREE_CLEARANCE, trackPoints, treesAside } from "../landscape";
-import { deserializeWorld } from "../persist/save";
+import { deserializeWorld, serializeWorld } from "../persist/save";
 import { treePlacements } from "../render/dressing/trees";
 import { connectorRef, createWorldConnector, DrawLine, normalizeAngle, STANDARD_DRAW_TYPES, type DrawEnd } from "../track";
 import { drawOptions } from "./draw-testing";
-import type { World } from "./world";
+import { fixedPieces, type World } from "./world";
 
 /**
  * A player's report (seed 948582, the starter map, Game mode): "This draw result does not look so great". A line drawn
@@ -20,8 +20,19 @@ import type { World } from "./world";
  */
 
 /** The save, with the drawn line (pieces 15 to 21) taken up again. */
+/**
+ * The save as loaded once (an older save gains the map's sites as it loads: done the first time, then reloaded as it
+ * then saves, so the hundreds of strokes below don't each make the start's land again).
+ */
+let loaded: ReturnType<typeof serializeWorld> | null = null;
+
 function mapWithoutLine(): World {
-  const r = deserializeWorld(save);
+  if (!loaded) {
+    const first = deserializeWorld(save);
+    if (!first.ok) throw new Error(first.error);
+    loaded = JSON.parse(JSON.stringify(serializeWorld(first.value)));
+  }
+  const r = deserializeWorld(loaded);
   if (!r.ok) throw new Error(r.error);
   const w = r.value;
   for (let id = 15; id <= 21; id++) w.layout.removePiece(id);
@@ -65,7 +76,7 @@ function drawLine(r: number, amp: number, phase: number, drift = 0, times?: numb
   const free = [connectorRef(1, 0), connectorRef(1, 1)].find((ref) => w.layout.joinedConnector(ref) === -1)!;
   const e = w.layout.worldConnector(free, createWorldConnector());
   const start: DrawEnd = { x: e.x, z: e.z, heading: e.heading, y: e.y, kind: e.kind };
-  const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const fixed = fixedPieces(w);
   const editor = new Editor(w.layout, w.sim, () => {}, (id) => fixed.has(id));
   const line = new DrawLine(start, drawOptions(w, true));
   for (const p of stroke(r, amp, phase, drift)) {

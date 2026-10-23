@@ -542,8 +542,17 @@ export class DepotView {
     return out;
   }
 
+  /**
+   * An industry's yard and buildings (its static parts only, no upgrades) for a piece at `pose`, each part handed to
+   * `add` in world space: an old industry's ruin is drawn from them, all in one grey (see `RuinsView`).
+   */
+  staticParts(role: DepotRole, pose: SitePose, add: (m: Material, g: BufferGeometry) => void): void {
+    const site = { depot: { role, sheds: 0 }, pose, layout: DEPOT_LAYOUT[role] } as unknown as Site;
+    this.buildStatic(site, { add }, false);
+  }
+
   /** Static parts: yard pad, crane mast or gantry frame, and the sawmill's shed and saw table. */
-  private buildStatic(site: Site, b: Batcher): void {
+  private buildStatic(site: Site, b: Pick<Batcher, "add">, upgrades = true): void {
     const { pose, layout } = site;
     const mats = this.mats;
     const place = (g: BufferGeometry, t: number, l: number, y: number) => {
@@ -578,7 +587,7 @@ export class DepotView {
       }
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(6, 5, GANTRY_HALF * 2 + 6, 1, 1.2), c.t, c.l, c.height + 6.5));
     }
-    for (const id of this.extras?.(site.depot.role) ?? []) {
+    for (const id of (upgrades && this.extras?.(site.depot.role)) || []) {
       const spot = UPGRADE_SPOTS[id];
       if (spot && hasPart(id)) addPart(b, mats, id, (g) => place(spot.turn ? g.rotateY(spot.turn) : g, spot.t, spot.l, PAD_H));
     }

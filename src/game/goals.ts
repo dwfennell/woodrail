@@ -8,7 +8,10 @@ import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
-import { schoolTown, type World } from "./world";
+import { schoolTown, type World, fixedPieces } from "./world";
+import { nearestRuin } from "./restore";
+import { restoredType } from "./map-sites";
+import type { SiteRole } from "../landscape";
 
 /** How far along a goal is: done or not, with an optional count toward a target ("2 / 3 towns"). */
 export interface GoalProgress {
@@ -39,6 +42,8 @@ export interface GoalGuide {
   held?: { type: PieceTypeId; heading: number };
   /** A depot whose card to open (the workshop's, to choose what to make). */
   card?: number;
+  /** An old industry's ruin whose card to open (its Restore there to tap): a site id. */
+  ruin?: number;
 }
 
 /** What a goal may ask beyond the world: the player's progress (blueprints learned). */
@@ -109,7 +114,7 @@ const trainPoints = (w: World) => w.sim.trainIds().flatMap((id) => trainPoint(w,
 
 /** The player's own track (not stations or depots). */
 const trackPoints = (w: World): Point[] => {
-  const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const fixed = fixedPieces(w);
   return [...w.layout.pieceIds()].filter((id) => !fixed.has(id)).map((id) => piecePoint(w, id));
 };
 
@@ -197,6 +202,26 @@ function guideDepot(w: World, kind: "forest" | "sawmill"): GoalGuide {
   if (!pair) return guideTowns(w, towns);
   const town = towns.find((id) => townAt(w, id) === pair[1])!;
   return { points: [pair[0], pair[1]], towns: [town], marks: [pair[0]] };
+}
+
+/**
+ * Where an industry of this kind (a farm, a quarry, a mine, a harbour) is to be had: the standing ruin of that kind on
+ * the player's land nearest their line (restorable or locked: its card says which), framed with the nearest bit of
+ * the line and its card opened; with none, a straight of the line where a new one fits and meets its site rule
+ * (`depotSpot`, nearest the map's stations and depots, as the workshop's), the Industries tab open.
+ */
+export function guideIndustry(w: World, role: SiteRole): GoalGuide {
+  const line = lineOf(w);
+  const ruin = nearestRuin(w.landscape, role, line);
+  if (ruin) {
+    const near = closest(line, [ruin.centre], (p) => p);
+    return { points: near ? [ruin.centre, near[0]] : [ruin.centre], towns: [], marks: [ruin.centre], ruin: ruin.id };
+  }
+  const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
+  const type = restoredType(role);
+  const near = [...w.depots.values(), ...w.stations.values()].map((id) => piecePoint(w, id));
+  const spot = depotSpot(w, type, near, (pose) => !siteWhy(w.landscape, type, pose));
+  return spot ? { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }], held: { type, heading: spot.heading } } : guide;
 }
 
 /** River squares' centres by grid, rebuilt when the grid changes (a plot added or a square edited). */
@@ -451,6 +476,15 @@ export const GOALS: readonly Goal[] = [
     hint: "Lay your switch from the Switch shelf on the Track tab.",
     check: (w) => ({ done: hasPiece(w, (type, flipped) => getPieceDef(type, flipped).isSwitch) }),
     guide: (w) => guideTrains(w, "track", "Switch"),
+  },
+  {
+    // Once Farming is learned: the old farm by the start to restore (Show me opens its card), or a farm yard of one's own.
+    id: "open-farm",
+    title: "Open a farm",
+    hint: "Restore an old farm, or build a farm yard by some fields.",
+    needs: ["farming"],
+    check: (w) => ({ done: w.economy.allDepots().some((d) => d.role === "farm" && !!w.layout.getPiece(d.pieceId)) }),
+    guide: (w) => guideIndustry(w, "farm"),
   },
   {
     id: "build-bridge",
