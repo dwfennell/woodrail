@@ -49,10 +49,8 @@ const check = (what, ok, detail = "") => {
 };
 const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
 const settle = (ticks = 3) => p.evaluate((t) => Promise.race([window.woodrail.settled(t), new Promise((r) => setTimeout(r, 20000))]), ticks);
-const tapAt = async (x, y) => {
-  await p.touchscreen.tap(x, y);
-  await p.waitForTimeout(500);
-};
+/** A tap on the page, stamped (see `stampedTap`): every tap here is one (QA: an unstamped toast tap was flaky). */
+const tapAt = (x, y) => stampedTap(p, x, y);
 /**
  * A tap stamped with its own time (CDP touches, 62 ms down, as deck-taps.mjs does it): on a loaded machine an unstamped
  * one can be taken as a long press or a drag by the time it's handled.
@@ -543,8 +541,8 @@ const lAt = await L.evaluate(async () => {
   return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height, id: s.id };
 });
 await L.waitForTimeout(4000);
-await L.touchscreen.tap(lAt.x, lAt.y);
-await L.waitForTimeout(800);
+await stampedTap(L, lAt.x, lAt.y);
+await L.waitForTimeout(300);
 const lTapped = await L.evaluate(() => !document.querySelector(".ruin-card").hidden);
 if (!lTapped) await L.evaluate((id) => window.woodrail.interaction.onRuinTap(id), lAt.id);
 await L.waitForTimeout(800);
@@ -569,7 +567,7 @@ check("667×375: Restore and Clear fully in view, above the tray, nothing over t
 await L.screenshot({ path: `${OUT}/14-ruin-card-667x375.png` }).catch(() => {});
 // A tap on Restore lands: no workshop yet, so it says where the planks come from.
 const restoreBtn = lCard.buttons.find((x) => x.text.startsWith("Restore"));
-if (restoreBtn) await L.touchscreen.tap(restoreBtn.at[0], restoreBtn.at[1]);
+if (restoreBtn) await stampedTap(L, restoreBtn.at[0], restoreBtn.at[1]);
 const lToast = await L.evaluate(async () => {
   // (Behind the research toast, if that's still up.)
   for (let k = 0; k < 40; k++) {
@@ -605,8 +603,8 @@ async function openMapOn(M) {
     return q && { x: q.x + q.width / 2, y: q.y + q.height / 2 };
   });
   if (r) {
-    await M.touchscreen.tap(r.x, r.y);
-    await M.waitForTimeout(600);
+    await stampedTap(M, r.x, r.y);
+    await M.waitForTimeout(100);
   }
   await glided(M);
   // (Till the glide up has ended: no frame drawn for a second, so the labels are where they'll stay.)
