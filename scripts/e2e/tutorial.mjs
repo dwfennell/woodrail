@@ -124,10 +124,16 @@ const hold = async (p, key, ms) => {
     const c = document.querySelector(".coach");
     const caps = [...c.querySelectorAll(".coach-art.move kbd")].map((k) => { const r = k.getBoundingClientRect(); return { k: k.textContent, x: Math.round(r.x), y: Math.round(r.y) }; });
     const anims = [...c.querySelectorAll(".coach-art, .coach-art *")].map((e) => getComputedStyle(e)).filter((st) => st.animationName !== "none").map((st) => st.animationIterationCount);
-    return { focused: document.activeElement === c, caps, anims };
+    // (Laid out, not as drawn this moment: the mouse drifts a few px either way as it shows a drag, into the card's
+    // padding. The mouse, the gap and the keys, as laid out, must fit the box.)
+    const artEl = c.querySelector(".coach-art.move");
+    const kids = [...artEl.children].map((e) => e.offsetWidth);
+    const content = kids.reduce((a, w) => a + w, 0) + (kids.length - 1) * parseFloat(getComputedStyle(artEl).columnGap || "0");
+    return { focused: document.activeElement === c, caps, anims, fits: content <= artEl.clientWidth + 0.5, art: [artEl.clientWidth], span: [content] };
   });
   const [W, A, S, D] = look.caps;
   check("W sits over A S D, as on a keyboard (QA)", !!D && W.y < A.y && A.y === S.y && S.y === D.y && A.x < S.x && S.x < D.x && Math.abs(W.x - S.x) <= 1, JSON.stringify(look.caps));
+  check("the Move picture (mouse and keys) fits its box (QA: the D stood 8 px out)", look.fits, `box ${look.art} px; laid out ${look.span} px`);
   check("its pictures move a few times, not for ever (QA)", look.anims.length > 0 && look.anims.every((n) => n !== "infinite" && Number(n) <= 4), JSON.stringify(look.anims));
   check("focus goes into it (a dialog)", look.focused);
   // A toast that comes while it's up waits, and shows once it's closed.
