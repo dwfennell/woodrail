@@ -11,7 +11,7 @@ vi.mock("./track-geometry", async (importOriginal) => {
 import { Flourishes } from "./flourishes";
 import { createSample, getPieceDef, Layout, pathLength, samplePath, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { ARROW_FAR_SCALES, arrowEnds, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { ARROW_FAR_SCALES, arrowEnds, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -174,8 +174,8 @@ describe("switch chevrons", () => {
   it("drawn bigger in the middle step, they still clear the other route's groove (QA: at 1.8x they didn't)", () => {
     const q = createSample();
     const k = ARROW_FAR_SCALES[0];
-    // The other track's groove reaches 16 mm from its centre line; the chevron, rim and all, 7.4 mm from its own, times k.
-    const clear = 16 + 7.4 * k;
+    // The other track's groove reaches 16 mm from its centre line; the burn, singe and all, its reach at this size.
+    const clear = 16 + burnExtent(BURN_SIZES[1]).reach;
     for (const type of ["switch", "switch-y", "switch-3way", "wye", "crossover"] as const) {
       const def = getPieceDef(type, false);
       for (let state = 0; state < trunkRoutes(def).length; state++) {
@@ -241,13 +241,17 @@ describe("switch chevrons", () => {
     expect(view.setArrowScale(ARROW_FAR_SCALES[1])).toBe(false);
     expect(view.switchArrows).toBe(mesh);
     expect(mesh.geometry).not.toBe(near);
+    // (Each size longer than the last; the biggest at least as long as the old chevrons grew.)
+    let was = 0;
     for (const k of [1, ...ARROW_FAR_SCALES]) {
       view.setArrowScale(k);
       const box = mesh.geometry.boundingBox ?? (mesh.geometry.computeBoundingBox(), mesh.geometry.boundingBox!);
       expect(box.max.z, `at ${k}`).toBeLessThanOrEqual(10);
-      expect(box.max.x - box.min.x, `at ${k}`).toBeGreaterThanOrEqual(2 * 4.4 * k);
+      expect(box.max.x - box.min.x, `at ${k}`).toBeGreaterThan(was);
+      was = box.max.x - box.min.x;
       expect(mesh.geometry.attributes.position.count / 3).toBe(16);
     }
+    expect(was).toBeGreaterThanOrEqual(2 * 4.4 * ARROW_FAR_SCALES[1]);
     view.setArrowScale(ARROW_FAR_SCALES[1]);
     // Drawn at their size in the shape, not scaled by their matrix.
     const m = new Matrix4();
@@ -273,6 +277,49 @@ describe("switch chevrons", () => {
       }
     // (It took up to 7.4 ms in the browser, around 4 here; now it's a scan of numbers already worked out.)
     expect(worst).toBeLessThan(1);
+  });
+
+  it("no two chevrons burn over each other, at any size, on any switch (QA on switch-burned: rows fused into a blob)", () => {
+    // Each chevron's outline, singe and all, as its two arms (convex quads), placed where it's drawn.
+    const arms = (size: (typeof BURN_SIZES)[number], a: { x: number; z: number; heading: number }) => {
+      const o = burnOutline(size).singe;
+      const c = Math.cos(a.heading);
+      const s = Math.sin(a.heading);
+      const at = (p: number[]) => [a.x + p[0] * c - p[1] * s, a.z + p[0] * s + p[1] * c];
+      return [
+        [o[0], o[1], o[2], o[3]].map(at),
+        [o[0], o[3], o[4], o[5]].map(at),
+      ];
+    };
+    // Two convex shapes overlap unless some edge's normal separates them.
+    const apart = (p: number[][], q: number[][]) => {
+      for (const poly of [p, q])
+        for (let i = 0; i < poly.length; i++) {
+          const [x0, z0] = poly[i];
+          const [x1, z1] = poly[(i + 1) % poly.length];
+          const nx = z1 - z0;
+          const nz = x0 - x1;
+          const span = (r: number[][]) => r.map(([x, z]) => x * nx + z * nz);
+          const a = span(p);
+          const b = span(q);
+          if (Math.max(...a) <= Math.min(...b) + 1e-6 || Math.max(...b) <= Math.min(...a) + 1e-6) return true;
+        }
+      return false;
+    };
+    const scales = [1, ...ARROW_FAR_SCALES];
+    for (const [k, scale] of scales.entries())
+      for (const type of ["switch", "switch-y", "switch-3way", "wye", "crossover"] as const)
+        for (const flipped of [false, true]) {
+          const def = getPieceDef(type, flipped);
+          for (let state = 0; state < trunkRoutes(def).length; state++) {
+            const shapes = switchArrows(def, state, scale).map((a) => arms(BURN_SIZES[k], a));
+            const { depth } = burnExtent(BURN_SIZES[k]);
+            for (let i = 0; i < shapes.length; i++)
+              for (let j = i + 1; j < shapes.length; j++)
+                for (const p of shapes[i])
+                  for (const q of shapes[j]) expect(apart(p, q), `${type}${flipped ? " flipped" : ""} state ${state} at ${scale}x (arms ${depth.toFixed(1)} mm deep): chevrons ${i} and ${j}`).toBe(true);
+          }
+        }
   });
 
   it("the chevrons follow the piece (turned and moved)", () => {
