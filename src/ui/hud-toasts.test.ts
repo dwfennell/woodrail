@@ -31,6 +31,8 @@ function toastHud(): { hud: Hud; shown: string[] } {
     root: { querySelectorAll: () => [] },
     help: { hidden: true },
     coach: { shown: false },
+    // (No layout here: a tray of no size, which a toast needn't keep clear of.)
+    tray: { getBoundingClientRect: () => ({ top: 0, height: 0 }) },
     toastQueue: [],
     toastTimer: 0,
     toastFlushTimer: 0,

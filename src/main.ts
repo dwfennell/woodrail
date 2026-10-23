@@ -293,6 +293,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     document.body,
     {
       cameraView: () => viewOf(game.camera.position, game.controls.target),
+      cameraGliding: () => game.director.busy,
       tutorialDone: () => {
         // Into the goals: Show me lights up a moment (Game mode).
         const show = document.querySelector<HTMLElement>(".goals:not([hidden]) .goals-show-icon");
