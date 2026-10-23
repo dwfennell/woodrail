@@ -402,15 +402,17 @@ interface BurnSize {
   singe: number;
 }
 /**
- * A burn's shape at each size it's drawn (`arrowScaleFor`): its own, close to; further out, as long as the old chevrons
- * grew (`ARROW.half` times the scale: the same places, the same room between them) but no wider than the wood between
- * the grooves (10 mm either side of the middle), singe and all. Burned across a groove, its dark arms ran into the
- * groove's dark line and the row read as a zigzag; kept between them, it's a long sharp ">" the grooves frame.
+ * A burn's shape at each size it's drawn (`arrowScaleFor`): its own, close to; further out, bigger, but no wider than
+ * the wood between the grooves (10 mm either side of the middle), singe and all. Burned across a groove, its dark arms
+ * ran into the groove's dark line and the row read as a zigzag; kept between them, it's a sharp ">" the grooves frame.
+ * Its arms are no deeper than its row's chevrons are apart (`clearSpan`), so they never burn over each other: at the
+ * middle size, short with bold arms, to fit three in where the routes part; at the biggest, longest (its rows are at
+ * least 28 mm apart).
  */
 export const BURN_SIZES: readonly BurnSize[] = [
   { half: ARROW.half, wide: ARROW.wide, arm: 2.4, singe: 0.8 },
-  { half: ARROW.half * ARROW_FAR_SCALES[0], wide: 8.2, arm: 3.8, singe: 0.6 },
-  { half: ARROW.half * ARROW_FAR_SCALES[1], wide: 8.6, arm: 5.6, singe: 0.7 },
+  { half: 6.0, wide: 8.2, arm: 3.2, singe: 0.6 },
+  { half: 12.6, wide: 8.6, arm: 6.0, singe: 0.7 },
 ];
 /**
  * How far (mm) a chevron's middle stands from the centre line of any other track through the switch: clear of that
@@ -419,10 +421,11 @@ export const BURN_SIZES: readonly BurnSize[] = [
 export const SWITCH_ARROW_CLEAR = 24;
 /**
  * Chevron burns: what each multiplies the wood under it by (the wood's own grain, light and shadow show through). A
- * charred brown, dark enough to read as a mark of its own from the usual high camera (QA N1: a mark must stand well off
- * the birch there); a pinned switch's is a red brand, lighter and strongly red, so it differs in both hue and lightness.
+ * scorched brown, dark enough to read as a mark of its own from the usual high camera (QA N1: a mark must stand well off
+ * the birch there) but light enough that the grain still reads through it (QA on switch-burned: at #4a2a14 the wood
+ * went near black, its grain lost); a pinned switch's is a red brand, strongly red, so it differs by hue and lightness.
  */
-export const SWITCH_ARROW_BURN = "#4a2a14";
+export const SWITCH_ARROW_BURN = "#7a5340";
 export const SWITCH_ARROW_PINNED = "#ff2a0c";
 const arrowBurn = new Color(SWITCH_ARROW_BURN);
 const arrowPinned = new Color(SWITCH_ARROW_PINNED);
@@ -435,7 +438,11 @@ const ARROW_LIFT = 0.05;
  * A chevron burned into the track, pointing along +x, flat and facing up: its charred core (4 triangles), and round it
  * a singe fading out to nothing (12), as vertex colours with alpha for a multiplying blend (`burnMaterial`).
  */
-function switchArrowGeometry(size: BurnSize = BURN_SIZES[0]): BufferGeometry {
+/**
+ * A burn's outline, pointing along +x (piece-local x, z, mm): its charred core's (outer tip, a back corner, the inner
+ * edge, the other back corner) and its singe's outer edge round it, corner for corner.
+ */
+export function burnOutline(size: BurnSize): { core: number[][]; singe: number[][] } {
   const { half: a, wide: w, arm, singe } = size;
   // The arms' slant off the chevron's axis, and how far in along x and z their inner edges lie (the arms `arm` thick
   // square across them, their back ends cut square to the axis, as a stencilled ">").
@@ -465,6 +472,26 @@ function switchArrowGeometry(size: BurnSize = BURN_SIZES[0]): BufferGeometry {
     const k = Math.min(2.2, 1 / Math.max(0.2, m[0] * n1[0] + m[1] * n1[1]));
     return [p[0] + m[0] * singe * k, p[1] + m[1] * singe * k];
   });
+  return { core: ring, singe: out };
+}
+
+/**
+ * How deep a burn's arms are along its axis, singe and all (from its singe's tip back to the singe in its notch), and
+ * how far it reaches either side of its middle and either way along it: chevrons in a row closer than its depth would
+ * burn over each other (a near-black blob, not ">>>": QA on switch-burned).
+ */
+export function burnExtent(size: BurnSize): { depth: number; reach: number; length: number } {
+  const { singe } = burnOutline(size);
+  return {
+    depth: singe[0][0] - singe[3][0],
+    reach: Math.max(...singe.map((p) => Math.abs(p[1]))),
+    length: Math.max(...singe.map((p) => Math.abs(p[0]))),
+  };
+}
+
+function switchArrowGeometry(size: BurnSize = BURN_SIZES[0]): BufferGeometry {
+  const { core: ring, singe: out } = burnOutline(size);
+  const n = ring.length;
   const tris: [number[], number, number[], number, number[], number][] = [];
   const [tip, right, rightIn, tipIn, leftIn, left] = ring;
   for (const [p, q, r] of [
@@ -651,9 +678,11 @@ function clearanceAlong(route: PathDef, def: PieceDef, back: boolean): Float64Ar
 
 /**
  * The first stretch of a switch's route (mm from the end it's set from: its `to` end if `back`) where it's parted from
- * every other track through the piece (`SWITCH_ARROW_CLEAR` from their centre lines), its chevrons kept inside it,
- * ending short of the far end; null if there's no stretch long enough. Worked out once for each route and way along it
- * (piece definitions are shared).
+ * every other track through the piece (`SWITCH_ARROW_CLEAR` from their centre lines, or, drawn bigger, the other
+ * track's groove plus the burn's own reach at that size), its chevrons kept inside it, ending short of the far end;
+ * null if there's no stretch long enough. Long enough: at their own size, the chevrons a millimetre apart at least;
+ * drawn bigger, at least their arms' depth apart (`burnExtent`), so they nest as a ">>>" without burning over each
+ * other. Worked out once for each route and way along it (piece definitions are shared).
  */
 function clearSpan(route: PathDef, def: PieceDef, back: boolean, scale = 1): [number, number] | null {
   let cached = clearSpans.get(route);
@@ -661,9 +690,13 @@ function clearSpan(route: PathDef, def: PieceDef, back: boolean, scale = 1): [nu
   const key = `${back}|${scale}`;
   if (cached.has(key)) return cached.get(key)!;
   const STEP = SPAN_STEP;
-  const ARROW_HALF = (ARROW.half + ARROW.margin) * scale;
-  // Clear of the other track's groove (its far edge 16 mm from its centre line) by the chevron's half-width at this size.
-  const CLEAR = SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.margin) + (ARROW.wide + ARROW.margin) * scale;
+  const far = BURN_SIZES[ARROW_FAR_SCALES.indexOf(scale as (typeof ARROW_FAR_SCALES)[number]) + 1];
+  const burn = scale === 1 || !far ? null : burnExtent(far);
+  // Room either way along the route for a chevron, and how far a chevron's middle must stand from another track's
+  // centre line: clear of its groove (its far edge 16 mm out) by the chevron's half-width at this size, and a little.
+  const ARROW_HALF = burn ? burn.length + 0.6 : (ARROW.half + ARROW.margin) * scale;
+  const CLEAR = burn ? 16 + burn.reach + 0.6 : SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.margin) + (ARROW.wide + ARROW.margin) * scale;
+  const needs = (burn ? burn.depth + 0.6 : 2 * ARROW_HALF + 1) * (SWITCH_ARROW_AT.length - 1);
   const END_MARGIN = 8;
   const len = pathLength(route.geom);
   const along = clearanceAlong(route, def, back);
@@ -676,9 +709,8 @@ function clearSpan(route: PathDef, def: PieceDef, back: boolean, scale = 1): [nu
     if (ok && from === -1) from = d;
     if ((!ok || d + STEP > last) && from !== -1) {
       const to = ok ? d : d - STEP;
-      // Long enough for the row: at their own size, the chevrons (margins and all) a millimetre apart at least; drawn bigger,
-      // nested half into each other (a stencilled ">>>").
-      if (to - from >= (scale === 1 ? 2 * ARROW_HALF + 1 : ARROW_HALF) * (SWITCH_ARROW_AT.length - 1)) {
+      // (Their own size: measured from the stretch's start, as the row always was. Bigger: from the first one's middle.)
+      if ((burn ? to - from - ARROW_HALF : to - from) >= needs) {
         span = [from + ARROW_HALF, to];
         break;
       }
