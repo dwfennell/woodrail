@@ -143,6 +143,14 @@ land not yet bought isn't tappable. The card (for a phone, a child reading):
 - Or build your own anywhere from the Industries tab. (Game mode)
 - [Clear the ruin · 10🪙] ("Clear the ruin" in Sandbox): takes the ruin and its stub away, its fields stay. Not while a
   train is on the stub ("A train is on its track"); short of coins: "Clearing it costs 10 coins: you have 4".
+  **One undo step** (since 2026-10-23, `clearRuinEdit` in restore.ts, `Editor.takeUp`): undone, the stub (the same
+  piece) and the ruin come back and the 10 coins are given back; redone, paid again (refused, and said, if it can't be).
+  It's saved like any edit. QA found Restore → Undo → Clear → Redo built the farm on the cleared site and charged again,
+  the 10 coins never given back: Clear was outside the history, so the restore's redo stayed. Now Clear is the newest
+  step and takes the redo with it, as any edit does; the history stays one story. (Only clearing the redo stack was the
+  fallback; it would have left the 10 coins out of undo, which is what the player tries next.) An undo onto ground used
+  since by something that isn't an undo step is refused: "Something is on that ground now". A restore's redo onto a
+  ruin that's gone is refused too ("It's gone already"), which the history no longer allows anyway.
 
 The land card (`describeLand`): towns (by the sea, if they are), old sites, depots, then the land: "2 towns by the sea,
 an old harbour, a forest yard and hills.", "A town, an old quarry, a river and hills."

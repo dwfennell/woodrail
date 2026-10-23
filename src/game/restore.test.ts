@@ -8,7 +8,7 @@ import { workshopStock } from "./crafting";
 import { GOALS, guideIndustry } from "./goals";
 import { restorePrice, ruinCard } from "./map-sites";
 import { Progress, inUse } from "./progress";
-import { gamePayment, nearestRuin, RESTORE_NO_WORKSHOP, restoreRuin, restoreWhy, ruinName } from "./restore";
+import { CLEAR_UNDO_USED, clearPayment, clearRuinEdit, gamePayment, nearestRuin, RESTORE_NO_WORKSHOP, restoreRuin, restoreWhy, ruinName } from "./restore";
 import { buildStarterWorld, fixedPieces, syncIndustries, type World } from "./world";
 
 /** The starter map, an editor on it as the game has one, and its old farm. */
@@ -217,5 +217,139 @@ describe("restoring a ruin: what the player is told and shown", () => {
     syncIndustries(w);
     expect(goal.check(w).done).toBe(true);
     expect(guideIndustry(w, "farm").ruin).toBeUndefined();
+  });
+});
+
+describe("clearing a ruin: one undo step, in the same history as Restore", () => {
+  const save = (w: World): World => {
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+    if (!r.ok) throw new Error(r.error);
+    return r.value;
+  };
+  const pieces = (w: World, type: string) => [...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id)!.type === type);
+
+  it("takes the ruin and its stub away for 10 coins; undone, both come back and the coins are given back; redone, paid again", () => {
+    const { w, editor, farm, stub } = setup();
+    const p = shop(w, 10, 30);
+    const squares = ruinSquares(w, farm.id);
+    let changed = 0;
+    const done = clearRuinEdit(w, editor, farm.id, { pay: clearPayment(p), changed: () => changed++ });
+    expect("slots" in done).toBe(true);
+    expect(farm.cleared).toBe(true);
+    expect(farm.restored).toBeFalsy();
+    expect(w.layout.getPiece(stub)).toBeUndefined();
+    expect(w.ruins.has(farm.id)).toBe(false);
+    expect(ruinSquares(w, farm.id)).toBe(0);
+    expect(p.coins).toBe(20);
+    expect(editor.canUndo).toBe(true);
+    expect(editor.undo()).toBe(true);
+    expect(farm.cleared).toBeFalsy();
+    expect(w.layout.getPiece(stub)?.type).toBe("straight-216");
+    expect(w.ruins.get(farm.id)).toBe(stub);
+    expect(ruinSquares(w, farm.id)).toBe(squares);
+    expect(p.coins).toBe(30);
+    expect(editor.redo()).toBe(true);
+    expect(farm.cleared).toBe(true);
+    expect(p.coins).toBe(20);
+    expect(changed).toBe(3);
+    // Short of coins: refused, nothing taken; a redo short of them is refused too, and said why.
+    editor.undo();
+    p.coins = 4;
+    const said: string[] = [];
+    editor.onRefused = (why) => said.push(why);
+    expect(editor.redo()).toBe(false);
+    expect(said).toEqual(["Clearing it costs 10 coins: you have 4"]);
+    expect(clearRuinEdit(w, editor, farm.id, { pay: clearPayment(p) })).toEqual({ why: "Clearing it costs 10 coins: you have 4" });
+    expect(w.layout.getPiece(stub)?.type).toBe("straight-216");
+    expect(p.coins).toBe(4);
+  });
+
+  it("QA: Restore, Undo, Clear, then Redo doesn't build the farm on the cleared site (nothing to redo); Undo gives the 10 back", () => {
+    const { w, editor, farm, stub } = setup();
+    const p = shop(w, 10, 100);
+    expect("pieceId" in restoreRuin(w, editor, farm.id, { pay: gamePayment(w, p, "farm") })).toBe(true);
+    expect(p.coins).toBe(55);
+    expect(editor.undo()).toBe(true);
+    expect(p.coins).toBe(100);
+    expect(editor.canRedo).toBe(true);
+    expect("slots" in clearRuinEdit(w, editor, farm.id, { pay: clearPayment(p) })).toBe(true);
+    expect(p.coins).toBe(90);
+    // The Clear is the newest step: the restore's redo is gone with it.
+    expect(editor.canRedo).toBe(false);
+    expect(editor.redo()).toBe(false);
+    expect(pieces(w, "depot-farm")).toEqual([]);
+    expect(p.coins).toBe(90);
+    expect(workshopStock(w).planks).toBe(10);
+    expect(farm.cleared).toBe(true);
+    expect(farm.restored).toBeFalsy();
+    // Undo: the Clear undone, its 10 coins back, the ruin standing; and nothing before it (the restore was undone).
+    expect(editor.undo()).toBe(true);
+    expect(p.coins).toBe(100);
+    expect(w.ruins.get(farm.id)).toBe(stub);
+    expect(editor.canUndo).toBe(false);
+    // Redo: cleared again (not restored).
+    expect(editor.redo()).toBe(true);
+    expect(pieces(w, "depot-farm")).toEqual([]);
+    expect(p.coins).toBe(90);
+  });
+
+  it("Clear, Undo, then Restore: the ruin is back and restores as ever, paid once", () => {
+    const { w, editor, farm, stub } = setup();
+    const p = shop(w, 10, 100);
+    clearRuinEdit(w, editor, farm.id, { pay: clearPayment(p) });
+    editor.undo();
+    expect(p.coins).toBe(100);
+    expect(restoreWhy(w, farm.id, { pay: gamePayment(w, p, "farm") })).toBeNull();
+    const done = restoreRuin(w, editor, farm.id, { pay: gamePayment(w, p, "farm") });
+    if (!("pieceId" in done)) throw new Error(done.why);
+    expect(w.layout.getPiece(stub)).toBeUndefined();
+    expect(pieces(w, "depot-farm")).toEqual([done.pieceId]);
+    expect(p.coins).toBe(55);
+    expect(workshopStock(w).planks).toBe(7);
+    expect(farm).toMatchObject({ cleared: true, restored: true });
+    // The Clear's redo went with the Restore; undo takes the restore back only.
+    expect(editor.canRedo).toBe(false);
+    expect(editor.undo()).toBe(true);
+    expect(w.ruins.get(farm.id)).toBe(stub);
+    expect(p.coins).toBe(100);
+  });
+
+  it("is saved wherever it stands in the history: cleared, the ruin stays gone; undone, it's back with its stub", () => {
+    const { w, editor, farm, stub } = setup();
+    const p = shop(w, 10, 100);
+    restoreRuin(w, editor, farm.id, { pay: gamePayment(w, p, "farm") });
+    editor.undo();
+    clearRuinEdit(w, editor, farm.id, { pay: clearPayment(p) });
+    const cleared = save(w);
+    expect(cleared.landscape.sites![farm.id].cleared).toBe(true);
+    expect(cleared.landscape.sites![farm.id].restored).toBeFalsy();
+    expect(cleared.ruins.has(farm.id)).toBe(false);
+    expect(ruinSquares(cleared, farm.id)).toBe(0);
+    expect(pieces(cleared, "depot-farm")).toEqual([]);
+    expect(pieces(cleared, "straight-216").length).toBe(pieces(w, "straight-216").length);
+    // Undone, then saved: the ruin and its stub come back with the load.
+    editor.undo();
+    const back = save(w);
+    expect(back.landscape.sites![farm.id].cleared).toBeFalsy();
+    expect(back.ruins.has(farm.id)).toBe(true);
+    expect(back.layout.getPiece(back.ruins.get(farm.id)!)?.pose).toEqual(w.layout.getPiece(stub)!.pose);
+    expect(ruinSquares(back, farm.id)).toBe(ruinSquares(w, farm.id));
+    // And it can be restored there.
+    const fixed = fixedPieces(back);
+    const ed2 = new Editor(back.layout, back.sim, () => {}, (id) => fixed.has(id));
+    expect("pieceId" in restoreRuin(back, ed2, farm.id)).toBe(true);
+  });
+
+  it("an undo onto ground used since (something put where the yard was, not as an undo step) is refused", () => {
+    const { w, editor, farm } = setup();
+    clearRuinEdit(w, editor, farm.id);
+    const g = w.landscape.grid;
+    const [c, r] = siteSquares(farm.centre, farm.piece.heading).yard[4];
+    g.feature[g.index(c, r)] = FEAT_BUILDING;
+    const said: string[] = [];
+    editor.onRefused = (why) => said.push(why);
+    expect(editor.undo()).toBe(false);
+    expect(said).toEqual([CLEAR_UNDO_USED]);
+    expect(farm.cleared).toBe(true);
   });
 });

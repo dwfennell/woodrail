@@ -5,9 +5,9 @@ import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/came
 import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, clearRuin, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { CLEAR_PRICE, describeLand, ruinCard, siteBlueprint } from "./game/map-sites";
-import { gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
+import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
+import { describeLand, ruinCard, siteBlueprint } from "./game/map-sites";
+import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
@@ -733,26 +733,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** "Clear the ruin": a few coins (Game mode) take it and its stub away, for track or an industry of your own. */
   function clearShownRuin(): void {
     if (ruinShown === -1) return;
-    if (mode === "game" && progress.coins < CLEAR_PRICE) {
-      hud.toast(`Clearing it costs ${CLEAR_PRICE} coins: you have ${progress.coins}`);
-      audio.refuse();
-      return;
-    }
     const t0 = performance.now();
-    const done = clearRuin(game.world, ruinShown);
+    // (One undo step, as Restore is: undone, the ruin and its stub come back and the coins are given back.)
+    const done = clearRuinEdit(game.world, editor, ruinShown, {
+      pay: mode === "game" ? clearPayment(progress) : undefined,
+      changed: () => {
+        game.syncRuins();
+        if (mode === "game") hud.setCoins(progress.coins);
+      },
+    });
     if ("why" in done) {
       hud.toast(done.why);
       audio.refuse();
       return;
     }
-    if (mode === "game") {
-      progress.coins -= CLEAR_PRICE;
-      hud.setCoins(progress.coins);
-    }
     ruinShown = -1;
     hud.hideCards();
-    game.syncRuins();
-    onChange();
     console.info(`Woodrail: ruin cleared in ${Math.round(performance.now() - t0)} ms`);
     hud.toast("Cleared");
     audio.putdown(true);

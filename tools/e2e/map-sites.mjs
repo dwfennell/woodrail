@@ -6,7 +6,7 @@
 //   at it; its card offers Restore · 3🪵 45🪙 (no workshop: says so); Restore makes the stub a farm yard in place (its
 //   depot, rate, crane and card), 3 planks from the workshop and 45 coins; Undo brings the ruin back and the price,
 //   Redo restores it again; a reload keeps it restored;
-// - Clear the ruin (one on the land bought) takes 10 coins, the ruin and its stub;
+// - Clear the ruin (one on the land bought) takes 10 coins, the ruin and its stub; Undo brings them back with the coins;
 // - the land around shows its ruins before it's bought; a coastal plot's land card lists its towns by the sea and its
 //   old sites; bought, it brings them (the ruins' stubs become track pieces, fixed);
 // - idle: no frames drawn in 30 s (the ruins cost nothing while nothing changes).
@@ -380,6 +380,21 @@ const after = await p.evaluate((id) => {
 }, ruinBought.id);
 check("Clear the ruin: it's gone, its stub too, for 10 coins", after.cleared && after.ruins === before.ruins - 1 && after.pieces === before.pieces - 1 && after.coins === before.coins - 10 && after.left === 0 && !after.card, JSON.stringify({ before, after }));
 await shot("10-cleared");
+// Clearing is one undo step (QA: Restore, Undo, Clear, Redo rebuilt the farm on the cleared site): Undo brings the
+// ruin and its stub back and the 10 coins, Redo clears it again.
+const ruinState = (id) =>
+  p.evaluate((id) => {
+    const w = window.woodrail;
+    return { pieces: w.layout.pieceCount, ruin: w.world.ruins.has(id), cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins };
+  }, id);
+await tap("button[title='Undo (Ctrl+Z)']");
+await p.waitForTimeout(1200);
+const unclear = await ruinState(ruinBought.id);
+check("Undo the Clear: the ruin and its stub are back, the 10 coins given back", unclear.ruin && !unclear.cleared && unclear.pieces === before.pieces && unclear.coins === before.coins, JSON.stringify(unclear));
+await p.evaluate(() => window.woodrail.editor().redo());
+await p.waitForTimeout(1200);
+const reclear = await ruinState(ruinBought.id);
+check("…Redo: cleared again, for 10 coins", !reclear.ruin && reclear.cleared && reclear.coins === before.coins - 10, JSON.stringify(reclear));
 
 // 11. Idle: nothing drawn for 30 s (the ruins cost nothing while nothing changes).
 const cdp = await p.context().newCDPSession(p);

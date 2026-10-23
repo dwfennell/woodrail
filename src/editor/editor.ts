@@ -452,6 +452,26 @@ export class Editor {
     return ok ? made : -1;
   }
 
+  /**
+   * Take up piece `id` as one undo step that `hooks` are told about inside, and asked before an undo or a redo: an old
+   * industry's ruin cleared away with its stub (undone, the stub, the same piece, and the ruin come back). True if done.
+   */
+  takeUp(id: number, hooks: { done?(): void; undone?(): void; refuse?(way: "undo" | "redo"): string | null } = {}): boolean {
+    const rec = this.record(id);
+    if (!rec) return false;
+    return this.run({
+      do: () => {
+        this.layout.removePiece(id);
+        hooks.done?.();
+      },
+      undo: () => {
+        this.restore(rec);
+        hooks.undone?.();
+      },
+      refuse: hooks.refuse ? (way) => hooks.refuse!(way) : undefined,
+    });
+  }
+
   /** Undo the last edit. Refused, the history kept as it was, if it would take up or move a held lift (see `run`). */
   undo(): boolean {
     const c = this.undoStack[this.undoStack.length - 1];
