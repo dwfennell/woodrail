@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { looseHeight } from "../landscape";
 import { connectorRef, createWorldConnector, DrawLine, normalizeAngle } from "../track";
 import { drawOptions } from "./draw-testing";
-import { createWorld } from "./world";
+import { createWorld, fixedPieces } from "./world";
 
 /**
  * QA (draw-long-pieces): tight corners drawn from open ground into a station's or depot's end closed with tight curves
@@ -14,7 +14,12 @@ import { createWorld } from "./world";
  * Every station's and depot's end on Sandbox seed 7, a corner of radius 55 to 130 mm into it from either side, from
  * open ground as DrawHand begins a line, the ghosts shown on the moves. Before: 34 of 46 closed, 31 with pieces bent
  * off the eighths; now 41 closed, none bent.
+ *
+ * Since the map's ruins (map-sites-2), four of those strokes begin on a ruin's stub, lay nothing and drop out: 37 of
+ * 42 close (31 without the move-over), the same closes as before on every stroke left. The ruins are over 400 mm from
+ * any end, so nothing crowds the ends; the bar is the old one, 40 of 46, as a share.
  */
+const CLOSE_SHARE = 40 / 46;
 
 /** A corner stroke into end e: from `run` mm off to the side `side` (±1), a quarter turn of radius r, in along its line and `over` on. */
 function corner(e: { x: number; z: number; heading: number }, r: number, side: number, run = 450, over = 25) {
@@ -69,7 +74,7 @@ describe("QA: tight corners into a station's end from open ground", () => {
           line.finish();
           const placed = line.placeable();
           if (!placed.length) continue;
-          const fixed = new Set([...world.stations.values(), ...world.depots.values()]);
+          const fixed = fixedPieces(world);
           new Editor(world.layout, world.sim, () => {}, (id) => fixed.has(id)).placeRun(placed, line.fitted);
           const joined = world.layout.joinedConnector(ref) !== -1;
           const end = placed[placed.length - 1].end;
@@ -80,8 +85,8 @@ describe("QA: tight corners into a station's end from open ground", () => {
           const name = `${ref} r${r} ${side}: ${placed.map((p) => p.type + (p.flipped ? "~" : "")).join(" ")} ${((worst * 180) / Math.PI).toFixed(2)}°`;
           if (joined && worst > 1e-6) bent.push(name);
         }
-    expect(n).toBeGreaterThan(40);
-    expect(closed, `${closed}/${n}`).toBeGreaterThanOrEqual(40);
+    expect(n).toBeGreaterThanOrEqual(40);
+    expect(closed / n, `${closed}/${n}`).toBeGreaterThanOrEqual(CLOSE_SHARE);
     expect(bent).toEqual([]);
   }, 60_000);
 });
