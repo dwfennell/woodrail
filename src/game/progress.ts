@@ -28,6 +28,8 @@ export class Progress {
   readonly counts = new Map<string, number>();
   /** The biggest any of your towns has grown (a level: 1 a village…), for the first-time gifts. */
   bestLevel = 0;
+  /** The first flour a town received has paid its bonus (see `payDelivery`): once a game. */
+  firstFlour = false;
   /** Fields planted with coins (each dearer than the last: see `fieldPrice`). */
   fieldsPlanted = 0;
   /** People carried to another town by coach, all game (they unlock the passenger line of blueprints). */
@@ -86,7 +88,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, counts: [...this.counts], research: researchToJSON(this.research) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -121,6 +123,8 @@ export class Progress {
     p.riders = Number.isInteger(d?.riders) && d!.riders! > 0 ? d!.riders! : 0;
     p.bestLevel = Number.isInteger(d?.bestLevel) && d!.bestLevel! > 0 ? d!.bestLevel! : 0;
     if (d && Array.isArray(d.counts)) for (const e of d.counts) if (Array.isArray(e) && typeof e[0] === "string" && Number.isFinite(e[1]) && e[1] > 0) p.counts.set(e[0], e[1]);
+    // (A save from before the first-flour bonus: due only if no flour was delivered yet.)
+    p.firstFlour = typeof d?.firstFlour === "boolean" ? d.firstFlour : (p.counts.get("delivered:flour") ?? 0) > 0;
     // Research: only blueprints still to learn.
     p.research = researchFromJSON(d?.research, (t) => (known(t) && !p.learned.has(known(t)!) ? known(t) : null), new Set(CARGO_KINDS));
     return p;
@@ -137,6 +141,7 @@ export interface ProgressData {
   fieldsPlanted?: number;
   riders?: number;
   bestLevel?: number;
+  firstFlour?: boolean;
   counts?: [string, number][];
   orders?: string[];
   making?: boolean;
