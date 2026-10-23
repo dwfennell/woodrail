@@ -48,6 +48,15 @@ const ghost = (p) => p.evaluate(() => { const m = window.woodrail.interaction.pr
 /** Medium straights on the map (a piece put down on a hill brings its risers too: those aren't counted). */
 const pieces = (p) => p.evaluate(() => { const w = window.woodrail; return [...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id).type === "straight-144").length; });
 const view = (p) => p.evaluate(() => { const w = window.woodrail; const t = w.controls.target; return { x: Math.round(t.x), z: Math.round(t.z), d: Math.round(w.camera.position.distanceTo(t)) }; });
+/** A key held as a finger presses it (about a quarter of a second): long enough for a held key to act on the view. */
+const press = async (p, key) => {
+  await p.keyboard.down(key);
+  await new Promise((r) => setTimeout(r, 250));
+  await p.keyboard.up(key);
+  await frames(p);
+};
+/** The view's tilt (radians from straight down). */
+const tilt = (p) => p.evaluate(() => { const w = window.woodrail; const d = w.camera.position.clone().sub(w.controls.target); return Math.acos(d.y / d.length()); });
 const frames = (p) => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 /** Points on open map: on the canvas, nothing there to pick, ground under it, in the middle of the view. */
@@ -203,9 +212,15 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const spot = await openGround(p);
   await p.mouse.move(spot[0], spot[1], { steps: 3 });
   const h0 = await p.evaluate(() => window.woodrail.interaction.preview?.heading);
-  await p.keyboard.press("r");
+  const a0 = await tilt(p);
+  await press(p, "r");
   const h1 = await p.evaluate(() => window.woodrail.interaction.preview?.heading);
-  check("R turns the carried piece an eighth", typeof h0 === "number" && typeof h1 === "number" && Math.abs(Math.abs(h1 - h0) - Math.PI / 4) < 1e-6 && (await ghost(p))?.visible, `heading ${h0?.toFixed?.(3)} → ${h1?.toFixed?.(3)}`);
+  const a1 = await tilt(p);
+  check("R (a quarter-second press) turns the carried piece an eighth, and doesn't tilt the view (QA)", typeof h0 === "number" && typeof h1 === "number" && Math.abs(Math.abs(h1 - h0) - Math.PI / 4) < 1e-6 && Math.abs(a1 - a0) < 1e-4 && (await ghost(p))?.visible, `heading ${h0?.toFixed?.(3)} → ${h1?.toFixed?.(3)}; tilt ${a0.toFixed(4)} → ${a1.toFixed(4)}`);
+  // (F the other way: R tilts up, and the view may be at its top; a straight doesn't mirror, but F is the carried piece's.)
+  await press(p, "f");
+  const a2 = await tilt(p);
+  check("F (a quarter-second press) doesn't tilt the view while carrying either", Math.abs(a2 - a1) < 1e-4 && (await carried(p)), `tilt ${a1.toFixed(4)} → ${a2.toFixed(4)}`);
 
   // 7. Put away: a right-click on the map; Esc; the tray item clicked again; Draw.
   await p.mouse.click(spot[0], spot[1], { button: "right" });
@@ -299,9 +314,11 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await frames(p);
   check("its ghost follows the mouse, and a click puts one down, still carried (no card opened)", (await props()) === p0 + 1 && (await thing())?.kind === "drag-prop" && (await p.evaluate(() => [...document.querySelectorAll(".card")].every((c) => c.hidden))), `models ${p0} → ${await props()}`);
   const t0 = (await thing())?.heading;
-  await p.keyboard.press("r");
+  const b0 = await tilt(p);
+  await press(p, "r");
   const t1 = (await thing())?.heading;
-  check("R turns the carried model", typeof t0 === "number" && Math.abs(Math.abs(t1 - t0) - Math.PI / 4) < 1e-6, `${t0?.toFixed?.(3)} → ${t1?.toFixed?.(3)}`);
+  const b1 = await tilt(p);
+  check("R (a quarter-second press) turns the carried model, and doesn't tilt the view", typeof t0 === "number" && Math.abs(Math.abs(t1 - t0) - Math.PI / 4) < 1e-6 && Math.abs(b1 - b0) < 1e-4, `${t0?.toFixed?.(3)} → ${t1?.toFixed?.(3)}; tilt ${b0.toFixed(4)} → ${b1.toFixed(4)}`);
   await p.keyboard.press("Escape");
   check("Esc puts it away (its ghost gone)", !(await thing()) && !(await marked(p, model.key)) && (await p.evaluate(() => !window.woodrail.interaction.propOutline.line.visible)));
 

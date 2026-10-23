@@ -3899,10 +3899,13 @@ export class Interaction {
     };
   }
 
-  /** Is something selected or held that R and F act on (turn, flip)? Else they tilt the view. */
+  /**
+   * Is something selected, held or carried that R and F act on (turn, flip)? Else they tilt the view. (A carried train
+   * isn't turned by them: they tilt the view then, as with nothing.)
+   */
   get piecesTakeKeys(): boolean {
     const k = this.mode.kind;
-    return k === "drag-piece" || k === "drag-prop" || this.selectedPiece !== -1 || this.selectedProp !== -1;
+    return k === "drag-piece" || k === "drag-prop" || this.selectedPiece !== -1 || this.selectedProp !== -1 || this.carried || this.carriedThing?.m.kind === "drag-prop";
   }
 
   /** Cmd or Ctrl went down on its own (and nothing else since): a tap that flips. */
