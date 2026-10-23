@@ -1,6 +1,6 @@
 # Map sites: old industries you restore, and more towns
 
-Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 implemented (branch `map-sites-2`, §7). **Game mode only**: Sandbox
+Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 implemented (branch `map-sites-2`, §7; the starter's old farm, the harness's spur and the placement study at the end of §7's Balance). **Game mode only**: Sandbox
 maps (`Landscape.siteless`) never get sites or ruins (it has no research to open them), and an old Sandbox save gains
 none; land added in Sandbox still gets the extra towns (§3), from the same generation path.
 
@@ -221,25 +221,33 @@ rings it.
   `RUIN_REACH` (1500 mm, `BALANCE_RUIN_REACH`) and cheaper than a new one (it always is, unless a farm yard is in the
   toy box already): the line is run on from one of its ends to the stub (`extend` to the stub's free connectors), then
   restored as the card does it (`restoreRuin` with `gamePayment`). It waits while it can't be paid for. If the line
-  can't be run to it from a line end, a new farm yard is built that same minute, as without ruins (waiting for the ruin
-  held the farm back 10 minutes and moved every seed's figures); it's tried again 5 minutes on while there's still no
-  farm. `BALANCE_NORUINS=1` never restores; `BALANCE_RUIN_TRACE=1` logs each line end's try.
-- **The step 1 workaround** (a new farm yard sited by the map's own fields, not the ruin's) stays, as the fallback, and
-  isn't fixed: restoring needs the line to reach the stub from a line end, and on the starter line it can't when the
-  farm is wanted (below). The other way to the ruin is a branch off a switch on the line, and that's exactly what
-  stalled step 1: before Routes the goods train runs end to end through the switches as they're set and never takes a
-  branch, so no grain reaches the school for Mills. A farm yard built new by the ruin's fields would be on such a branch
-  too, beside the ruin's yard.
+  can't be run to it from a line end, **a short spur** is laid to it (`spurTo`, once Switches is learned, which it
+  always is by then): a straight of the line nearest the ruin becomes a switch (made at the workshop) and a short
+  straight, as `branchOff` does, and track runs from the switch's branch to the stub, at most 24 pieces
+  (`BALANCE_SPUR_PIECES`). On the starter map that's 4 pieces from the line between Larkfield and Elderwick, down the
+  gap between the two towns' houses. If neither reaches it, a new farm yard is built that same minute, as without ruins
+  (waiting for the ruin held the farm back 10 minutes and moved every seed's figures); it's tried again 5 minutes on
+  while there's still no farm. `BALANCE_NORUINS=1` never restores; `BALANCE_NOSPUR=1` restores only from a line end
+  (the rule before); `BALANCE_RUIN_TRACE=1` logs each line end's and spur's try.
+- **A spur before Routes** (`tendSpur`): the goods train runs end to end with the switch set for the line, so it never
+  calls at the farm by itself (what stalled step 1). The player sets the switch by hand, as a child does: toward the
+  farm while grain is wanted (Mills being researched, or a mill), the goods train is on the line's side of the switch,
+  its hoppers are empty and the farm has a load; back for the line otherwise, so once it's loaded. Checked each second
+  of play, never while a train is on the switch; stops once Routes is learned (the routed line then calls at the farm
+  on its spur). `BALANCE_SPUR=routes` instead has the player learn Routes before Mills and leave the switch alone.
+- **The step 1 workaround** (a new farm yard sited by the map's own fields, not the ruin's) stays, as the fallback.
 - The goal the harness works on skips "Open a farm" (the farm comes by its own rule), so the other goals come as they
   did.
 
 ### Balance (180 min, 1 train a line; `BALANCE=1`, seeds 2027, 1–6, 9, 10)
 
-On the branch as pushed (merged with main at de19930: since step 1 the mill costs 400 coins, switches 3 planks, early
-flour 12 coins, and the workshop's yard keeps fewer planks): **all 9 seeds pass, and the figures with and without ruins are identical.** Farming
-now comes at minute 14–23, when the line's ends are the forest yard's (east) and Thimble Cross's (north); from both the
-track layer is boxed in short of the old farm's stub (towns, fields and the ruin's own yard in the way: `boxed-in`
-after 22–40 pieces, trace on seed 2027), so the harness builds a new farm yard as before.
+**Without ruins** (`BALANCE_NORUINS=1`; the same with ruins under the line-end rule alone, `BALANCE_NOSPUR=1`), on
+the branch merged with main at de19930 and again at 040cd60 (since step 1 the mill costs 400 coins, switches 3 planks,
+early flour 12 coins, and the workshop's yard keeps fewer planks): all 9 seeds pass. Farming comes at minute 14–23,
+when the line's ends are the forest yard's (east) and Thimble Cross's (north); from both the track layer is boxed in
+short of the old farm's stub (towns, fields and the ruin's own yard in the way: `boxed-in` after 22–40 pieces, trace on
+seed 2027), so without the spur rule the harness builds a new farm yard. These figures don't move with where the ruin
+stands (every placement below gives this table, row for row, without ruins).
 
 | seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/45/60/75/180 | researched | farm | bands |
 |---|---|---|---|---|---|---|---|---|---|
@@ -253,7 +261,83 @@ after 22–40 pieces, trace on seed 2027), so the harness builds a new farm yard
 | 9 | 4.4 | 69 | 166 | 11.1 | 18.6 | 296/380/6/111/1090 | 14 | 23.0 new | pass |
 | 10 | 4.4 | 82 | 179 | 6.5 | 18.3 | 78/464/782/464/1768 | 14 | 25.0 new | pass |
 
-(With ruins: the same table, row for row.)
+**With ruins** (the spur rule, the player setting the switch by hand; the old farm where it was, 8 of 8): the old farm
+is **restored on all 9 seeds**, on a 4-piece spur, at minute 15–23 (the minute Farming is learned, or the next); **7 of 9
+pass**.
+
+| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/45/60/75/180 | researched | farm | Routes | Mills | bands |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2027 | 4.4 | 87 | - | 9.5 | 29.4 | 296/39/129/203/615 | 13 | 19 restored (spur) | 42.5 | 35.1 | pass |
+| 1 | 4.4 | 70 | - | 8.4 | 27.9 | 123/359/25/369/935 | 11 | 15 restored (spur) | 40.8 | 33.4 | pass |
+| 2 | 4.4 | 83 | - | 7.9 | 19.1 | 93/1/85/217/643 | 11 | 15 restored (spur) | 40.8 | 33.4 | pass |
+| 3 | 4.4 | 83 | - | 12.4 | 15.1 | 326/1/159/303/652 | 13 | 23 restored (spur) | 52.9 | 40.3 | pass |
+| 4 | 4.4 | 87 | - | 11.4 | 11.8 | 296/55/187/337/679 | 13 | 23 restored (spur) | 51.9 | 42.7 | pass |
+| 5 | 4.4 | **109** | - | 7.6 | 29.1 | 93/439/673/937/1241 | 11 | 15 restored (spur) | 40.8 | 33.4 | FAIL: City by 90; City ≤ main's +20% (87) |
+| 6 | 4.4 | 69 | 180 | 9.1 | 19.1 | 326/7/121/363/931 | 12 | 23 restored (spur) | 50.8 | 42.6 | pass |
+| 9 | 4.4 | **98** | - | 13.1 | **47.2** | 296/457/731/845/815 | 12 | 23 restored (spur) | 47.4 | 42.6 | FAIL: City by 90; no planks into a town for 45 min |
+| 10 | 4.4 | 81 | - | 8.1 | 19.1 | 123/27/111/243/896 | 11 | 15 restored (spur) | 40.8 | 33.4 | pass |
+
+The City now comes **later** than without ruins on 8 of 9 seeds (62–82 → 69–109), not earlier as when the restored farm
+was the line's end (step 1: 54–57): the opposite failure. Mills is learned up to 8 minutes *earlier* on 7 seeds (the farm comes up to 10
+minutes sooner, and the switch set by hand brings its grain; 3 minutes later on 6 and 9), so what costs time is after it: from Routes on the routed
+train calls at the farm down its spur and back, and on every seed the sawmill went without logs for 5 minutes far more
+often (`STALL: no planks sawn` 14–17 times in 180 minutes, against 3–7 without ruins). On 5 and 9 that starved the
+workshop: its yard sat at 7 planks, one short of the mill's 8, for most of an hour (mill at minute 85 and 76, against 57 and
+49), so the flour, and the City, came late. Fewer blueprints too (11–13 against 14–17), all above main's floors. Coins
+at 180 are lower (615–1241 against 1026–1812) and nearer the 150–600 "nice to have".
+
+### Where the starter's old farm stands (the CoS's question: reachable, but a trade-off)
+
+The CoS asked to place the starter's ruin so restoring it is reachable but not ideal, and to try placements: off a
+natural line end, fewer fields (4 of 8, the player planting more at 40 coins), or slightly off the main line behind a
+short branch. Each variant below was run on all 9 seeds with and without ruins; **without ruins every variant gives
+the table above row for row**, so only the runs with ruins are shown. "Spur: Routes first" is `BALANCE_SPUR=routes`;
+"by hand" is the default. City by seed in the order 2027, 1, 2, 3, 4, 5, 6, 9, 10 (bold: outside 60–90).
+
+| variant | where (yard middle), fields | restored | City | bands pass |
+|---|---|---|---|---|
+| A | where it was (−36, 468: south of the line between Larkfield and Elderwick, behind the gap in their houses), 8 of 8; spur, Routes first | 9/9, spur, min 15–23 | 89, **94**, **92**, 89, 89, **119**, 72, **119**, 85 | 4 |
+| **A, by hand (chosen)** | as A; spur, switch by hand | 9/9, spur, min 15–23 | 87, 70, 83, 83, 87, **109**, 69, **98**, 81 | **7** |
+| B | as A, 4 of 8 (the field toward Larkfield); spur, Routes first | 9/9: 7 spur (15–23), 2 from a line end (25: 6 and 9) | 89, 79, 90, 89, 89, **119**, **51**, **51**, 85 | 3 |
+| B, by hand | as B; switch by hand | as B | 87, 72, 70, 83, 86, **109**, **51**, **51**, 70 | 6 |
+| B′, by hand | as A, 4 of 8 (the field toward Elderwick) | 9/9, spur, 15–23 | 87, 72, 70, **53**, **52**, **109**, **53**, **98**, 70 | 4 |
+| C | (−540, 684): under Larkfield, 8 rows off the line, its yard toward the river, 4 of 8 | 0/9: the line run to it, then "a field is in the way" | 67, **52**, 84, 86, **91**, 85, **–**, **–**, **99** | 4 |
+| D | (−324, 612): south-west, its yard toward the line, 4 of 8 | 0/9: Larkfield's roads grow onto its yard ("a road is in the way") | 66, **52**, 85, 85, **91**, 85, **–**, **–**, **98** | 2 |
+| E | (252, 612): south of Elderwick, its yard toward the line, 4 of 8 | 2/9, from a line end (25: 6 and 9); the spur can't get round its yard | 62, 62, 73, 80, 80, 73, **57**, 62, 82 | 7 |
+
+What they show:
+
+- **Fewer fields doesn't make it a trade-off here; it makes it chaotic.** With 4 of 8 the ground the second field
+  stood on is open, the line comes past the ruin on seeds 6 and 9 (173 mm off it) and runs on to its stub: the free win
+  again, City at 51. With the other field kept instead (B′) the line keeps off it, but the Cities spread both ways
+  (52–109). The field's price (40 coins at minute 15–25, when the player holds 100–330) is too small to steer anything.
+- **Moving it further off the line breaks it.** Under Larkfield (C, D) the town's roads and fields grow onto the yard
+  before Farming comes (the line is run to the stub, then Restore is refused), and the failed tries move the play
+  enough that 6 and 9 never learn Mills. South of Elderwick (E) the ruin's yard lies between the stub and the line, so
+  no short spur gets round it: it's restored only where the line happens to pass (2 seeds, both the free win).
+  Further east or west the opening view (390 × 844, framing the two towns' stations) doesn't show it: its near edge
+  is Elderwick, its sides rows −4 to 10 at Elderwick's end (cols up to about 9).
+- **Where it was is already off the main line behind a short branch**: 5 rows south of the line between the towns,
+  its stub across the gap between their houses, so the only way in is a 4-piece spur off a switch, never a line end
+  (on every seed). What was missing was a player who lays that spur; with one, the old farm is restored on every seed.
+
+**The choice: the old farm stays where it was, with 8 of 8 fields** (`addStartSites` unchanged), and the harness lays
+the spur. It's visible in the opening view (as step 1 made it) and nowhere near the grand tour's foundry and power
+station (unchanged; the tour passes). The trade-off a player feels:
+
+- **The good**: an old farm at half a new farm yard's price (3🪵 45🪙 against 6🪵 90🪙), full speed at once (no field to
+  plant), right beside the first line, and Show me points at it.
+- **The cost**: it's off the line. It takes a switch (3🪵 at the workshop) and a few pieces of track, and until Routes
+  is learned the goods train goes straight past it unless the player sets the switch for the farm each time grain is
+  wanted, and back for the line after (else the forest's logs wait). After Routes the routed train calls on its own,
+  but the trip down the spur and back costs every round of the line some time: the sawmill waits for logs more often.
+  A new farm yard at a line end costs more and needs a field planted, but the train calls there without help.
+
+The bands: 7 of 9 seeds pass (all 9 without ruins). Seeds 5 and 9 fail the City's ceiling (109 and 98), from the
+spur's extra trip after Routes starving the workshop of the mill's last plank (above), not from restoring early.
+**Open for the CoS**: accept the late City on 5 and 9 (the harness's routed train on a branched line, with one train;
+`BALANCE_TRAINS_PER_LINE=2` wasn't tried), or decide the spur is too dear and have the harness keep to a new farm yard
+(`BALANCE_NOSPUR=1`: all 9 pass, the old farm never restored on the starter map).
 
 **What restoring does when the line can reach it**, measured on step 1's main (before the merge), where Farming came at
 minute 16–24 and the line reached the ruin from an end on 5 seeds. Without ruins (identical to step 1):
@@ -298,7 +382,9 @@ sooner. **The price knob didn't move it**: at minute 22–25 the player held 240
 | 0.9 | 6🪵 80🪙 | 70 / 57 / 70 |
 
 **The minute-60 dip** (after the 400-coin mill; seeds 9 and 6 at 6 and 70 coins on main, the same here): with the
-ruin out of the harness's reach, Restore doesn't touch it, row for row. Where the harness did restore (step 1's main,
+ruin restored on a spur (above) it moves rather than eases: minute 60 is higher on 9 and 6 (731 and 121 coins) but
+lower on 1, 2, 3 and 4 (25–187 against 76–754), and minute 45 drops to 1–55 coins on 2027, 2, 3, 4, 6 and 10 (the
+400-coin mill bought at minute 41–44 there, against 38–66 without ruins). Where step 1's harness restored at a line end (step 1's main,
 the mill 280 coins), it moved the dip rather than easing it: the mill went down sooner (minute 42, straight after the
 restored farm), so the low point came at minute 45 (19–44 coins on 2027, 3 and 6, against 198–266 without ruins) and
 minute 60 was higher on 2027, 3 and 6 (85 → 124, 10 → 344, 8 → 314) but lower on 4 and 9 (98 → 32, 96 → 32). The
@@ -307,9 +393,8 @@ minute 22–25, small beside the mill's 400.
 
 (The 0.9 row's movement is the chaotic kind; seed 3 stayed at 57 at every price.) The share stays at 0.5. Main has
 since raised the mill to 400 coins "so the first City stays in its band", which holds the mill back whichever farm is
-there. Open for the CoS: if a later harness reaches the ruin again (a smarter line, or Routes learned before Farming),
-expect the City earlier where it's restored; the knob for that is the mill's or the farm's own rate, not the restore
-price.
+there. (That question was answered with the spur rule above: where the old farm is reached by a spur rather than a
+line end, the City comes later, not earlier, and restoring stays a trade-off; the price wasn't touched.)
 
 ### Cost
 

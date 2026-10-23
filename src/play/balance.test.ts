@@ -51,7 +51,9 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180). BALANCE_CARGO=a-b logs the
  * trains' loads from minute a to b (`cargoTrace`). For comparison, BALANCE_NOUNSTICK=1 leaves stuck cargo be
  * (`unstick`, `shopThrough`), BALANCE_NOFILL=1 leaves a goods engine's spare pull empty, and BALANCE_NORUINS=1 never
- * restores an old industry's ruin (`restoreOld`: map sites step 2), building new ones as before.
+ * restores an old industry's ruin (`restoreOld`: map sites step 2), building new ones as before; BALANCE_NOSPUR=1 restores
+ * one only from a line end, never on a spur, and BALANCE_SPUR=routes learns Routes for a spur farm instead of setting
+ * its switch by hand (`tendSpur`).
  *
  * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
  */
@@ -104,6 +106,14 @@ const WISH: readonly string[] = [
  */
 const NORUINS = !!ENV.BALANCE_NORUINS;
 const RUIN_REACH = Number(ENV.BALANCE_RUIN_REACH ?? 1500);
+/** BALANCE_NOSPUR=1: an old industry is restored only where a line end can be run on to it (step 2's rule), never on a spur. */
+const NOSPUR = !!ENV.BALANCE_NOSPUR;
+/**
+ * How the player gets the grain of an old farm restored on a spur before Routes (BALANCE_SPUR): `flip` (the default),
+ * setting the spur's switch for the farm by hand when the train should call there (`tendSpur`); `routes`, learning
+ * Routes before Mills instead (Mills waits for it).
+ */
+const ROUTES_FIRST = ENV.BALANCE_SPUR === "routes";
 
 /** Planks a player keeps in the workshop's yard before picking another research (BALANCE_SPARE to try others). */
 const RESEARCH_SPARE = Number(ENV.BALANCE_SPARE ?? 10);
@@ -192,6 +202,8 @@ class Player {
   readonly people = new Map<number, number>();
   readonly lastDelivered = new Map<number, number>();
   fixed = new Set<number>();
+  /** Done each second of play, as a player watching the trains does it (a spur's switch set by hand: `tendSpur`). */
+  everySecond: (() => void) | null = null;
   readonly log: string[] = [];
   readonly rows: Row[] = [];
   readonly findings: string[] = [];
@@ -387,6 +399,7 @@ class Player {
       const made = this.crafting.tick(this.w, 1);
       this.spent.buildCoins += coins - this.progress.coins;
       this.research();
+      this.everySecond?.();
       if (made) this.note(`workshop made a ${ruleOf(made)!.label.toLowerCase()}`);
       this.counters.collect(this.w.economy, this.progress);
       peopleArrive(this.w, this.progress, 1, this.people);
@@ -750,6 +763,47 @@ function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceT
             for (const id of [...w.layout.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
           }
           P.editor.remove(q);
+        }
+      }
+      P.editor.remove(short);
+      P.editor.remove(sw);
+      straight = P.editor.place("straight-216", p.pose, p.y, false);
+    }
+  }
+  return null;
+}
+
+/** The most pieces a spur to an old industry's stub may take: a short one, as a player lays to a ruin by the line. */
+const SPUR_PIECES = Number(ENV.BALANCE_SPUR_PIECES ?? 24);
+
+/**
+ * A short spur from the line to a free end (an old industry's stub): a straight of the line, nearest the stub first,
+ * becomes a switch (made at the workshop) and a short straight, as `branchOff` does, and track runs from the switch's
+ * branch to `targets` (the stub's free ends), at most `SPUR_PIECES` pieces. The switch, or null with everything put back.
+ */
+function spurTo(P: Player, at: { x: number; z: number }, targets: () => number[]): number | null {
+  const w = P.w;
+  if (!P.canMake(new Map([["piece:switch", 1]]))) return null;
+  const away = (id: number) => Math.hypot(w.layout.getPiece(id)!.pose.x - at.x, w.layout.getPiece(id)!.pose.z - at.z);
+  const line = [...w.layout.pieceIds()]
+    .filter((id) => !P.fixed.has(id) && w.layout.getPiece(id)!.type === "straight-216" && !nearEnd(P, id, 2))
+    .filter((id) => away(id) < RUIN_REACH)
+    .sort((a, b) => away(a) - away(b));
+  for (const s of line.slice(0, 8)) {
+    const p = w.layout.getPiece(s)!;
+    if ([0, 1].some((c) => w.layout.joinedConnector(connectorRef(s, c)) === -1) || w.sim.pieceOccupied(s)) continue;
+    let straight = s;
+    for (const flipped of [false, true]) {
+      P.editor.remove(straight);
+      const sw = P.editor.place("switch", p.pose, p.y, flipped);
+      const short = placeOn(P, connectorRef(sw, 1), "straight-72");
+      if (w.layout.joinedConnector(connectorRef(sw, 0)) !== -1 && freeEnd(P, short) === -1) {
+        for (const ref of targets()) {
+          const had = new Set(w.layout.pieceIds());
+          const r = play(w.layout, P.editor, connectorRef(sw, 2), ref, { blocked: P.rules(), maxPieces: SPUR_PIECES, fiddle: 3 });
+          if (ENV.BALANCE_RUIN_TRACE) P.note(`  spur trace: from ${Math.round(p.pose.x)},${Math.round(p.pose.z)} ${flipped ? "right" : "left"}: ${r.how} (${r.pieces} pieces)`);
+          if (r.ok && P.settle()) return sw;
+          for (const id of [...w.layout.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
         }
       }
       P.editor.remove(short);
@@ -1127,12 +1181,15 @@ class Playthrough {
       // (Only what the railway can bring the goods for: Mills once there's a farm yard for its grain.)
       const made = new Set(w.economy.allDepots().flatMap((d) => RECIPES[d.role].gives));
       const feedable = (id: string) => Object.keys(researchCost(id).goods).every((k) => made.has(k as CargoKind));
-      const wished = WISH.filter((id) => !LATER.has(id) && canResearch(s, id) && feedable(id));
+      // (BALANCE_SPUR=routes: a farm on a spur, before Routes, sends no grain to the school, so Routes first, Mills after.)
+      if (this.spurFarm && s.learned.has("routes")) this.spurFarm = false;
+      const held = (id: string) => ROUTES_FIRST && this.spurFarm && id === "mills" && s.research.current !== "routes";
+      const wished = (ROUTES_FIRST && this.spurFarm ? ["routes", ...WISH.filter((id) => id !== "routes")] : WISH).filter((id) => !LATER.has(id) && canResearch(s, id) && feedable(id));
       const others = TECHS.filter((t) => canResearch(s, t.id) && feedable(t.id) && (!WISH.includes(t.id) || LATER.has(t.id))).map((t) => t.id);
       const r = s.research;
       for (const id of [...wished, ...(rich ? others : [])]) {
         if (r.current !== null && r.next !== null) break;
-        if (id === r.current || id === r.next) continue;
+        if (id === r.current || id === r.next || held(id)) continue;
         const coins = s.coins;
         const where = pickResearch(s, id);
         P.spent.blueprintsCoins += coins - s.coins;
@@ -1341,7 +1398,7 @@ class Playthrough {
         syncIndustries(w, true);
         updateRates(w, (role) => boostOf(s, role));
         P.happened++;
-        P.note(`restored the old farm, the line run on to it (rate ${w.economy.depotAtPiece(old.id)!.rate.toFixed(2)})`);
+        P.note(`restored the old farm, the line run on to it or a spur laid (rate ${w.economy.depotAtPiece(old.id)!.rate.toFixed(2)})`);
         this.firsts["farm built"] = Math.round(P.minute);
         this.firsts["farm restored"] = Math.round(P.minute);
         if (this.lines) this.routeGoods();
@@ -1349,7 +1406,8 @@ class Playthrough {
         this.farmTry = P.minute;
         // (The map's own fields: not an old farm's, whose ruin stands by them. A farm yard by the ruin's fields on a
         // branch from the line was a branch the unrouted goods train never took (4 of 9 seeds, step 1): the old farm is
-        // restored instead, its stub the line's end, when it's within reach; this is for when it isn't.)
+        // restored instead (its stub the line's end, or on a spur whose switch the player sets by hand) when it's within
+        // reach; this is for when it isn't.)
         const fields: number[] = [];
         const ruins = new Set((w.landscape.sites ?? []).flatMap((x) => x.fields));
         g.forEachCell((i) => {
@@ -1637,6 +1695,64 @@ class Playthrough {
     }
   }
 
+  /** The farm is an old one restored on a spur, and Routes isn't learned yet: the line's train calls only if sent. */
+  spurFarm = false;
+  /** The spur's switch (−1: none). */
+  spurSwitch = -1;
+  /** The line's side of the spur's switch (its trunk's): its pieces, found again each minute of play. */
+  private trunkSide = { minute: -1, ids: new Set<number>() };
+
+  /**
+   * Before Routes (unless BALANCE_SPUR=routes), each second: the player sets the spur's switch by hand, as a child does,
+   * toward the old farm while grain is wanted (by the research or a mill), the goods train is on the line's side of the
+   * switch (it runs up to it from there, at once or after turning back), its hoppers are empty and the farm has a
+   * load; back to the line otherwise (so once it's loaded). Never while a train is on the switch.
+   */
+  tendSpur(): void {
+    const P = this.p;
+    const w = P.w;
+    const L = w.layout;
+    const sw = this.spurSwitch;
+    if (!this.spurFarm || sw < 0 || !L.getPiece(sw) || P.progress.learned.has("routes")) {
+      P.everySecond = null;
+      return;
+    }
+    if (w.sim.pieceOccupied(sw)) return;
+    if (this.trunkSide.minute !== Math.floor(P.minute)) {
+      const ids = new Set<number>([sw]);
+      const stack = [L.joinedConnector(connectorRef(sw, 0))].filter((j) => j !== -1).map(pieceOfRef);
+      while (stack.length > 0) {
+        const id = stack.pop()!;
+        if (ids.has(id)) continue;
+        ids.add(id);
+        const p = L.getPiece(id)!;
+        for (let c = 0; c < getPieceDef(p.type, p.flipped).connectors.length; c++) {
+          const j = L.joinedConnector(connectorRef(id, c));
+          if (j !== -1) stack.push(pieceOfRef(j));
+        }
+      }
+      ids.delete(sw);
+      this.trunkSide = { minute: Math.floor(P.minute), ids };
+    }
+    const farm = w.economy.depotAtPiece(this.farm);
+    const grain = farm ? farm.piles[CARGO.grain.index] : 0;
+    // (Only while grain is wanted: by the research (Mills), or a mill. Else the train keeps to the line and its planks.)
+    const r = P.progress.research;
+    const wanted = [r.current, r.next].some((id) => id !== null && (researchCost(id).goods.grain ?? 0) > 0) || w.economy.allDepots().some((d) => RECIPES[d.role].takes.includes("grain"));
+    let want = false;
+    if (!wanted) {
+      if (L.switchState(sw) === 1) w.sim.toggleSwitch(sw);
+      return;
+    }
+    for (const id of w.sim.trainIds()) {
+      const t = w.sim.getTrain(id)!;
+      const hoppers = t.cars.filter((c) => c.kind === "hopper");
+      if (hoppers.length === 0) continue;
+      const empty = hoppers.every((c) => w.economy.cargoOf(c.id).count === 0);
+      if (empty && grain >= 3 && this.trunkSide.ids.has(t.bogies[0].pieceId)) want = true;
+    }
+    if ((L.switchState(sw) === 1) !== want) w.sim.toggleSwitch(sw);
+  }
   /** Ruins found out of reach, or that couldn't be restored: not tried again. */
   private readonly ruinsPassed = new Set<number>();
   /** When the line last couldn't be run to a ruin (it's tried again 5 minutes on). */
@@ -1645,10 +1761,11 @@ class Playthrough {
   /**
    * Map sites step 2's rule: the standing ruin of `role` nearest the player's line, if it's within `RUIN_REACH` of it
    * and restoring it is cheaper than a new industry (always, unless one's in the toy box already, which costs nothing
-   * more): the line run on from one of its ends to the ruin's stub (`extend`), then restored there (as its card's
-   * Restore does: planks from the workshop's yard, coins). Its piece and its free end; "wait" while it can't be paid
-   * for yet; null to build a new one as before (no ruin near, BALANCE_NORUINS, or the line couldn't be run to it from
-   * a line end: tried again 5 minutes on, while there's still no farm). BALANCE_RUIN_TRACE=1 logs each line end's try.
+   * more): the line run on from one of its ends to the ruin's stub (`extend`), or else a short spur laid to it off a
+   * switch in the line (`spurTo`, once Switches is learned), then restored there (as its card's Restore does: planks
+   * from the workshop's yard, coins). Its piece and its free end; "wait" while it can't be paid for yet; null to build
+   * a new one as before (no ruin near, BALANCE_NORUINS, or neither a line end nor a spur reaches it: tried again 5
+   * minutes on, while there's still no farm). BALANCE_RUIN_TRACE=1 logs each line end's and spur's try.
    */
   restoreOld(role: SiteRole): { id: number; beyond: number } | "wait" | null {
     const P = this.p;
@@ -1687,12 +1804,22 @@ class Playthrough {
         }
       }
     }
-    const r = extend(P, { target: () => [0, 1].map((c) => connectorRef(stub, c)).filter((ref) => w.layout.joinedConnector(ref) === -1) });
+    const free = () => [0, 1].map((c) => connectorRef(stub, c)).filter((ref) => w.layout.joinedConnector(ref) === -1);
+    let r = extend(P, { target: free });
+    // Else a short spur to it off a switch in the line (as its Show me frames it: the ruin and the line beside it).
+    // Before Routes the line's train runs end to end with the switch set for the line, so its grain reaches the line
+    // only when the player sets the switch for the farm by hand (`tendSpur`; BALANCE_SPUR=routes: Routes learned
+    // first instead): the trade-off a player takes for the cheaper farm.
+    let spur = -1;
+    if (!r && s.learned.has("switches") && !NOSPUR) {
+      spur = spurTo(P, site.centre, free) ?? -1;
+      if (spur !== -1) r = { id: stub, beyond: -1 };
+    }
     if (!r) {
       // A new one instead, now (as without ruins: waiting on the ruin held the farm back 10 minutes, and a branch to it
       // is one the unrouted goods train never takes). Tried again 5 minutes on if there's still no farm.
       this.ruinTry = P.minute;
-      P.note(`COULDN'T run the line to the old ${role} from a line end (BALANCE_RUIN_TRACE=1 says why)`);
+      P.note(`COULDN'T run the line or a spur to the old ${role} (BALANCE_RUIN_TRACE=1 says why)`);
       return null;
     }
     // (The track to it may have taken the yard's planks: restored once they're back.)
@@ -1705,7 +1832,12 @@ class Playthrough {
     }
     P.spent.buildCoins += before.coins - s.coins;
     P.spent.buildPlanks += before.planks - P.planks();
-    P.note(`restored the old ${role} ${Math.round(away)} mm from the line (${describeGoods(restorePrice(role).goods)} + ${restorePrice(role).coins} coins)`);
+    if (spur !== -1) {
+      this.spurFarm = !s.learned.has("routes");
+      this.spurSwitch = spur;
+      if (!ROUTES_FIRST) P.everySecond = () => this.tendSpur();
+    }
+    P.note(`restored the old ${role} ${Math.round(away)} mm from the line${spur !== -1 ? ", on a spur" : ""} (${describeGoods(restorePrice(role).goods)} + ${restorePrice(role).coins} coins)`);
     return { id: done.pieceId, beyond: freeEnd(P, done.pieceId) };
   }
 
