@@ -548,9 +548,12 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
             }
     // (As the other timing guards: the slowest few moves left out, a loaded machine stalls one now and then.)
     const SPARED = 4;
+    const MEAN_BOUND = 0.05;
     const run = () => {
       const slowest: number[] = [];
       let most = 0;
+      let total = 0;
+      let moves = 0;
       for (const { opts, pts } of strokes) {
         const line = new DrawLine(at(0), opts);
         for (const p of pts) {
@@ -558,6 +561,8 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
           const t0 = performance.now();
           line.addPoint(p.x, p.z);
           const t = performance.now() - t0;
+          total += t;
+          moves++;
           if (slowest.length <= SPARED || t > slowest[SPARED]) {
             slowest.push(t);
             slowest.sort((a, b) => b - a);
@@ -567,16 +572,23 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
         }
         line.finish();
       }
-      return { worst: slowest[Math.min(SPARED, slowest.length - 1)] ?? 0, most };
+      return { worst: slowest[Math.min(SPARED, slowest.length - 1)] ?? 0, mean: total / Math.max(1, moves), most };
     };
-    run();
-    const { worst: first, most } = run();
-    expect(most).toBe(1);
-    // About 0.5 ms at worst in Node (the move that lays the first piece); generous for a slow CI, best of up to five.
-    let worst = first;
-    for (let k = 0; k < 4 && worst >= 4; k++) worst = Math.min(worst, run().worst);
-    expect(worst).toBeLessThan(4);
-  });
+    run(); // warm up
+    const first = run();
+    expect(first.most).toBe(1);
+    // (A loaded machine: the best of up to six runs counts. The mean, about 0.007 ms here, is what a real slowdown moves
+    // first, so ten times slower fails; the fifth slowest move, about 0.5 ms (the move that lays the first piece; 1.6 ms on a loaded box), has
+    // a generous bound.)
+    let best = first;
+    for (let k = 0; k < 5 && (best.mean >= MEAN_BOUND || best.worst >= 8); k++) {
+      const again = run();
+      if (again.mean / MEAN_BOUND + again.worst / 8 < best.mean / MEAN_BOUND + best.worst / 8) best = again;
+    }
+    if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.DRAW_BENCH) console.log(`N6 moves: mean ${best.mean.toFixed(4)} fifth slowest ${best.worst.toFixed(3)} ms`);
+    expect(best.mean).toBeLessThan(MEAN_BOUND);
+    expect(best.worst).toBeLessThan(8);
+  }, 60_000);
 });
 
 
