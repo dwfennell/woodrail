@@ -535,3 +535,10 @@ Measured (swiftshader in the e2e, 390 × 844, a new game, the land around shown:
 - Making the markers (`ruinMarkers`, 14 ruins; Node): 9.7 µs; their key: 2.2 µs, once a second while the map is open.
   The DOM is rebuilt only when a marker changes; a frame isn't drawn for it.
 - Elsewhere unchanged: idle with the ruins in view (§11) 0 frames, 1.72%.
+
+**Balance** (`BALANCE=1`, 9 seeds). On map-sites-3 with this step: all 9 pass, the table above row for row (City
+62/61/73/80/80/73/67/69/82, researched 14/15/15/14/14/15/17/14/14): the harness passes the new goals over,
+so they change nothing it does. Merged with main at 6a5a157: 8 pass; **seed 2027 fails**
+(research stall 42.4 min on Goods engine from minute 125.6, researched 13), and seeds 4, 6 and 9 move (stall 11.4,
+11.1, 9.3; coins 1144, 1410, 843). Main at 6a5a157 alone gives seed 2027 the same failure, figure for figure, as does
+map-sites-3 merged with it without this step: it's main's (its sections and play-through changes), not this step's.
