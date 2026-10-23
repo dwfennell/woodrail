@@ -43,6 +43,8 @@ interface Command {
   roads?: { slots: number[]; trees: boolean };
   /** Asked before an undo or a redo: a reason refuses it (`onRefused` is told), the history kept as it was. */
   refuse?: (way: "undo" | "redo") => string | null;
+  /** Several edits made as one undo step (see `group`): done in order, undone in reverse. */
+  parts?: Command[];
 }
 
 /** What a swap (`Editor.swap`) tells and asks its caller, inside its undo step. */
@@ -119,6 +121,8 @@ export function poseForCentre(type: PieceTypeId, flipped: boolean, x: number, z:
 export class Editor {
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
+  /** While `group` runs: the edits made, to become one undo step. */
+  private grouped: Command[] | null = null;
 
   constructor(
     private readonly layout: Layout,
@@ -154,10 +158,48 @@ export class Editor {
 
   /** Record a land edit, already done (by the caller, who redrew it), as one undo step. `slots` gives its plots. */
   recordLand(c: { do(): void; undo(): void; slots: () => number[] }): void {
-    this.undoStack.push({ do: c.do, undo: c.undo, land: c.slots });
+    this.push({ do: c.do, undo: c.undo, land: c.slots });
+    this.onPropsChange?.();
+  }
+
+  /**
+   * Make the edits `edit` makes (track, props, land, roads: each done as it's made) one undo step: undo takes them back
+   * together, the last first (the eraser's sweep). True if any was made.
+   */
+  group(edit: () => void): boolean {
+    const outer = this.grouped;
+    const parts: Command[] = [];
+    this.grouped = parts;
+    try {
+      edit();
+    } finally {
+      this.grouped = outer;
+    }
+    if (parts.length === 0) return false;
+    if (parts.length === 1) this.push(parts[0]);
+    else
+      this.push({
+        do: () => {
+          for (const c of parts) c.do();
+        },
+        undo: () => {
+          for (let i = parts.length - 1; i >= 0; i--) parts[i].undo();
+        },
+        parts,
+        moves: parts.flatMap((c) => c.moves ?? []),
+      });
+    return true;
+  }
+
+  /** Put an edit on the undo stack (or in the group being made), and forget what was undone. */
+  private push(c: Command): void {
+    if (this.grouped) {
+      this.grouped.push(c);
+      return;
+    }
+    this.undoStack.push(c);
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
-    this.onPropsChange?.();
   }
 
   /** Called after a road edit is done, undone or redone, with its plots and whether it cleared or brought back trees. */
@@ -484,7 +526,7 @@ export class Editor {
    * train is on (QA: undoing a line a train had rolled onto derailed it, cargo spilt).
    */
   private step(c: Command, go: () => void, back: () => void): boolean {
-    const track = !(c.props || c.land || c.roads);
+    const track = c.parts ? c.parts.some((p) => !(p.props || p.land || p.roads)) : !(c.props || c.land || c.roads);
     const held = track ? this.held() : null;
     const under = track ? this.underTrains() : null;
     go();
@@ -537,14 +579,16 @@ export class Editor {
       this.onTrackEdit?.(seeds);
       c = this.takeUpPlay(c, seeds);
     }
-    this.undoStack.push(c);
-    if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
-    this.redoStack = [];
+    this.push(c);
     this.changed(c);
     return true;
   }
 
   private changed(c: Command): void {
+    if (c.parts) {
+      for (const p of c.parts) this.changed(p);
+      return;
+    }
     if (c.roads) {
       this.onRoadsChange?.(c.roads.slots, c.roads.trees);
       return;

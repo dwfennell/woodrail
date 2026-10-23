@@ -1181,7 +1181,7 @@ export class TrackView {
       n++;
       outline.geometry = geometry;
       outline.visible = true;
-      geometry.computeBoundingBox();
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
       const box = geometry.boundingBox ?? new Box3();
       const size = box.getSize(new Vector3());
       const centre = box.getCenter(new Vector3());
@@ -1594,14 +1594,20 @@ export class TrackView {
     const list = [...ids];
     const same = list.length === this.highlighted.length && list.every((id, i) => id === this.highlighted[i]);
     if (same && tone === this.tone && tint === this.tinted) return;
-    this.tinted = tint;
-    this.tone = tone;
     this.outlineMaterial.color.set(OUTLINE_TONES[tone]);
     this.toneColour.set(PICK_TINTS[tone]);
-    // Several picked pieces are tinted too (an outline alone is hard to see from above).
+    // Several picked pieces are tinted too (an outline alone is hard to see from above). In the same tone, only the
+    // pieces that came or went are coloured again (a sweep marks pieces one at a time).
     const was = this.highlighted;
+    const sameLook = tone === this.tone && tint === this.tinted;
+    this.tinted = tint;
+    this.tone = tone;
     this.highlighted = list;
-    this.recolour(new Set([...was, ...list]));
+    if (sameLook) {
+      const before = new Set(was);
+      const now = new Set(list);
+      this.recolour([...was.filter((id) => !now.has(id)), ...list.filter((id) => !before.has(id))]);
+    } else this.recolour(new Set([...was, ...list]));
     if (!same) this.syncOutline();
   }
 

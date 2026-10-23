@@ -74,6 +74,8 @@ export interface HudHandlers {
   trayFlip(): void;
   /** Tray: drawing track switched on or off (the Draw chip). */
   trayDraw(on: boolean): void;
+  /** Tray: clearing switched on or off (the Clear chip). */
+  trayErase(on: boolean): void;
   /** Depot card: turn automatic loading on or off. */
   depotAuto(): void;
   /** Depot card: trains wait for a full load, or not. */
@@ -291,6 +293,8 @@ export class Hud {
   private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
   private drawBtn!: HTMLButtonElement;
+  private eraseBtn!: HTMLButtonElement;
+  private erasing = false;
   /** The tray favourites (tray keys, in order): first on the Track and Trains tabs. */
   private favourites: string[] = loadFavourites() ?? [...DEFAULT_FAVOURITES];
   private drawing = false;
@@ -803,8 +807,12 @@ export class Hud {
     // tabs); on a phone they share the tab row, at its right, the tabs scrolling in what's left (they never cover a tab,
     // nor the track being laid). First in the page, as they were, for a keyboard and a screen reader; on a phone the
     // row shows them after the tabs.
+    // Clear: a tap takes away what's under it, a sweep all it passes over (any tab).
+    this.eraseBtn = button(`🧽<span class="chip-word"> Clear</span>`, "Clear: tap or sweep over track and things to take them away", () => this.handlers.trayErase(!this.erasing), "chip text tray-erase");
+    const pens = el("div", "tray-pens");
+    pens.append(this.drawBtn, this.eraseBtn);
     const tools = el("div", "tray-tools");
-    tools.append(this.drawBtn, orient);
+    tools.append(pens, orient);
     const head = el("div", "tray-head");
     head.append(tools, tabs);
     this.tray.append(head, scroller);
@@ -870,7 +878,7 @@ export class Hud {
   /** Where the tray's chips start (Draw, Turn and Flip above it), or the tray where none show: in client pixels. */
   chipsTop(): number {
     let top = this.tray.getBoundingClientRect().top;
-    for (const chip of [this.drawBtn, this.tray.querySelector<HTMLElement>(".tray-orient")]) {
+    for (const chip of [this.drawBtn, this.eraseBtn, this.tray.querySelector<HTMLElement>(".tray-orient")]) {
       const r = chip?.getBoundingClientRect();
       if (r && r.height > 0) top = Math.min(top, r.top);
     }
@@ -882,6 +890,13 @@ export class Hud {
     this.drawing = on;
     this.drawBtn.classList.toggle("active", on);
     this.tray.classList.toggle("drawing", on);
+  }
+
+  /** Show whether clearing is on (the Clear chip lit). */
+  setErasing(on: boolean): void {
+    this.erasing = on;
+    this.eraseBtn.classList.toggle("active", on);
+    this.tray.classList.toggle("erasing", on);
   }
 
   /** The land tool in use (the Land tab open), or null. */
@@ -1231,6 +1246,7 @@ export class Hud {
     this.root.classList.toggle("planning", on);
     // (No drawing track while a route is planned: a press picks a stop.)
     this.drawBtn.disabled = on;
+    this.eraseBtn.disabled = on;
   }
 
   /** The Lines view open (the tray goes, as when planning: the map wants the room). */

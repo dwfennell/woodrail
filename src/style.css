@@ -309,9 +309,16 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 /* Draw: above the tray, at the left, while the Track tab is open. */
 /* (A flex box, so its pencil and word are centred as a plain button's text is: Turn's and Flip's, beside it.) */
-.tray-draw { position: absolute; left: 12px; top: -52px; display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+/* Draw (Track tab only) and Clear (any tab): above the tray, at the left, side by side. */
+.tray-pens { position: absolute; left: 12px; top: -52px; display: flex; gap: 6px; }
+.tray-draw { display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 .tray.draw-tab .tray-draw { display: inline-flex; }
 .card-open .tray.draw-tab .tray-draw { display: none; }
+.tray-erase { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.card-open .tray .tray-erase { display: none; }
+.tray-erase.active { background: linear-gradient(180deg, #f6b19f, #dd6b52); color: #3a120a; }
+/* Clearing: Turn and Flip have nothing to turn. */
+.tray.erasing .tray-orient { display: none !important; }
 /* Turn and Flip do nothing for a drawn line: away while drawing. */
 .tray.drawing .tray-orient { display: none !important; }
 /* Drawing on a phone on its side: the tray is its tabs and Draw only, its shelves put away, so the map between the
@@ -327,12 +334,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* (Over the shelf below, so the chips' taps reach just past them, not through to a tile's favourite star.) */
   .tray-tools { display: flex; flex: none; order: 1; gap: 6px; align-items: center; padding: 3px 2px 0 0; position: relative; z-index: 1; }
   .tray-tools .tray-orient { gap: 6px; }
+  .tray-tools .tray-pens { display: contents; }
   .tray-tools .tray-draw, .tray-tools .tray-orient { position: static; top: auto; left: auto; right: auto; }
   .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; height: 34px; min-width: 40px; padding: 0 9px; font-size: 12px; line-height: 1; box-shadow: 0 2px 6px rgba(60, 40, 20, 0.18); position: relative; }
   /* Drawn small to fit the row, but a finger's 44 px to tap. */
   /* (Sideways, half the gap between chips, so neighbours' reach meets but doesn't overlap; more at the row's ends.) */
   .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -3px; }
   .tray-tools .tray-draw::after { left: -4px; }
+  /* (The eraser's sponge alone: a finger's 44 px wide.) */
+  .tray-tools .chip.tray-erase { min-width: 44px; }
   .tray-tools .tray-flip::after { right: -4px; }
   .tray-tools .chip-word { display: none; }
   .tray-tools .turn-arrow { margin-left: 2px; }
