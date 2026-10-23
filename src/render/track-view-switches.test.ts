@@ -1,4 +1,4 @@
-import { Color, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
+import { Color, Matrix4, Mesh, MeshBasicMaterial, MultiplyBlending, Vector3 } from "three";
 import { describe, expect, it, vi } from "vitest";
 
 // These tests are about the switches' chevrons and levers, not the pieces' carved wood: each kind of piece is drawn as
@@ -9,9 +9,9 @@ vi.mock("./track-geometry", async (importOriginal) => {
   return { ...m, buildPieceGeometry: (def: Parameters<typeof m.buildPieceStandIn>[0]) => m.buildPieceStandIn(def) };
 });
 import { Flourishes } from "./flourishes";
-import { createSample, getPieceDef, Layout, pathLength, samplePath, type PieceTypeId } from "../track";
+import { createSample, getPieceDef, Layout, pathLength, samplePath, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { ARROW_FAR_SCALES, arrowEnds, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_CLEAR, SWITCH_ARROW_CREAM, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { ARROW_FAR_SCALES, arrowEnds, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -60,7 +60,8 @@ describe("switch chevrons", () => {
     expect(view.switchArrows!.count).toBe(6 * N);
     // One draw for all of them: a single mesh, a handful of triangles a chevron.
     expect(view.group.children.filter((c) => c.userData.kind === "switch-arrows")).toHaveLength(1);
-    expect(view.switchArrows!.geometry.attributes.position.count / 3).toBe(4);
+    // (A charred core of 4 and a singe round it of 12.)
+    expect(view.switchArrows!.geometry.attributes.position.count / 3).toBe(16);
     const none = new Layout();
     none.addPiece("straight-144", P(0, 0));
     const plainView = new TrackView(none, mats);
@@ -154,9 +155,12 @@ describe("switch chevrons", () => {
     const def = getPieceDef("crossover", false);
     expect(arrowEnds(def)).toEqual([0, 3]);
     const [onA, onB] = [0, 1].map((s) => arrowsOf(oneSwitch("crossover", s).view));
-    // Straight on: line A's row along line A, pointing on; line B's along line B (72 mm over), pointing back toward end 2.
+    // Straight on: line A's row along line A, line B's along line B (72 mm over), both pointing the one way, as the link
+    // goes over (QA, sc3: line B's pointed back toward end 2, the two rows facing opposite ways).
     for (const a of onA.slice(0, N)) expect([Math.round(a.z), Math.round(Math.cos(a.heading))]).toEqual([0, 1]);
-    for (const a of onA.slice(N)) expect([Math.round(a.z), Math.round(Math.cos(a.heading))]).toEqual([72, -1]);
+    for (const a of onA.slice(N)) expect([Math.round(a.z), Math.round(Math.cos(a.heading))]).toEqual([72, 1]);
+    // (And each row one after another the way it points.)
+    for (const row of [onA.slice(0, N), onA.slice(N)]) for (let i = 1; i < N; i++) expect(row[i].x).toBeGreaterThan(row[i - 1].x);
     // Over: one row on the link, where it's clear of both lines' grooves, all pointing the one way, from line A over to
     // line B (no two rows facing each other mid-link, like trains meeting: QA on switch clarity 2).
     expect(onB).toHaveLength(N);
@@ -191,22 +195,30 @@ describe("switch chevrons", () => {
     }
   });
 
-  it("each chevron has a dark rim under it (QA N1): a second mesh on the same instances, never picked", () => {
+  it("each chevron is burned into the wood: one mesh, no rim, multiplying the wood under it, its singe fading out", () => {
     const { view } = oneSwitch("switch");
-    const face = view.switchArrows!;
-    const rim = face.children[0] as InstancedMesh;
-    expect(rim).toBeInstanceOf(InstancedMesh);
-    expect(rim.instanceMatrix).toBe(face.instanceMatrix);
-    expect(rim.count).toBe(face.count);
-    // A little bigger than the face, a little under it.
-    rim.geometry.computeBoundingBox();
-    face.geometry.computeBoundingBox();
-    expect(rim.geometry.boundingBox!.max.z).toBeGreaterThan(face.geometry.boundingBox!.max.z + 1);
-    expect(rim.geometry.boundingBox!.max.y).toBeLessThan(face.geometry.boundingBox!.min.y);
-    expect(rim.geometry.attributes.position.count / 3).toBe(4);
-    const hits: unknown[] = [];
-    rim.raycast({} as never, hits as never);
-    expect(hits).toHaveLength(0);
+    const burn = view.switchArrows!;
+    expect(burn.children).toHaveLength(0);
+    expect(view.group.children.filter((c) => String(c.userData.kind).startsWith("switch-arrows"))).toHaveLength(1);
+    const mat = burn.material as MeshBasicMaterial;
+    expect(mat.blending).toBe(MultiplyBlending);
+    expect(mat.premultipliedAlpha).toBe(true);
+    expect(mat.depthWrite).toBe(false);
+    expect(burn.castShadow).toBe(false);
+    // Flush with the track's top (a hair above it), the singe's outer edge faded to nothing, the core at full strength.
+    burn.geometry.computeBoundingBox();
+    expect(burn.geometry.boundingBox!.max.y).toBe(0);
+    const colour = burn.geometry.attributes.color;
+    expect(colour.itemSize).toBe(4);
+    const alphas = new Set(Array.from({ length: colour.count }, (_, i) => colour.getW(i)));
+    expect([...alphas].sort()).toEqual([0, 1]);
+    // The singe reaches a little past the core (a chevron 6 mm half-wide), within the room kept round it.
+    expect(burn.geometry.boundingBox!.max.z).toBeGreaterThan(6.5);
+    expect(burn.geometry.boundingBox!.max.z).toBeLessThan(6 + 1.4 + 0.5);
+    for (const a of arrowsOf(view)) {
+      expect(a.y).toBeGreaterThan(TRACK_THICKNESS);
+      expect(a.y).toBeLessThan(TRACK_THICKNESS + 0.1);
+    }
   });
 
   it("further out they're drawn bigger, in steps (with a margin), placed afresh only when the step changes", () => {
@@ -220,24 +232,47 @@ describe("switch chevrons", () => {
     expect(arrowScaleFor(3300)).toBe(ARROW_FAR_SCALES[1]);
     expect(arrowScaleFor(1700, ARROW_FAR_SCALES[0])).toBe(ARROW_FAR_SCALES[0]);
     expect(arrowScaleFor(1500, ARROW_FAR_SCALES[0])).toBe(1);
-    // Biggest, a chevron (rim and all) is no wider than the track.
+    // Further out, each a bigger shape, as long as the old chevrons grew but kept between the grooves (10 mm either side
+    // of the middle), singe and all: their arms don't run into the grooves' dark lines.
     const { view } = oneSwitch("switch", 1);
     const mesh = view.switchArrows!;
-    const rim = mesh.children[0] as InstancedMesh;
-    rim.geometry.computeBoundingBox();
-    const half = rim.geometry.boundingBox!.max.z;
+    const near = mesh.geometry;
     expect(view.setArrowScale(ARROW_FAR_SCALES[1])).toBe(true);
     expect(view.setArrowScale(ARROW_FAR_SCALES[1])).toBe(false);
     expect(view.switchArrows).toBe(mesh);
+    expect(mesh.geometry).not.toBe(near);
+    for (const k of [1, ...ARROW_FAR_SCALES]) {
+      view.setArrowScale(k);
+      const box = mesh.geometry.boundingBox ?? (mesh.geometry.computeBoundingBox(), mesh.geometry.boundingBox!);
+      expect(box.max.z, `at ${k}`).toBeLessThanOrEqual(10);
+      expect(box.max.x - box.min.x, `at ${k}`).toBeGreaterThanOrEqual(2 * 4.4 * k);
+      expect(mesh.geometry.attributes.position.count / 3).toBe(16);
+    }
+    view.setArrowScale(ARROW_FAR_SCALES[1]);
+    // Drawn at their size in the shape, not scaled by their matrix.
     const m = new Matrix4();
     mesh.getMatrixAt(0, m);
-    expect(new Vector3(0, 0, half).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeLessThanOrEqual(20);
-    expect(new Vector3(0, 0, 1).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeCloseTo(ARROW_FAR_SCALES[1], 5);
+    expect(new Vector3(0, 0, 1).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeCloseTo(1, 5);
     // Still on the set route, pointing away from the trunk.
     for (const a of arrowsOf(view)) expect(Math.sign(a.z)).toBe(Math.sign(getPieceDef("switch", false).connectors[2].pose.z));
     view.setArrowScale(1);
-    mesh.getMatrixAt(0, m);
-    expect(new Vector3(0, 0, 1).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeCloseTo(1, 5);
+    expect(mesh.geometry).toBe(near);
+  });
+
+  it("a step in the zoom places them cheaply: the clearances are worked out once a route, whatever the size (QA, sc3)", () => {
+    // (Fresh piece definitions, so nothing is cached yet: a flipped crossover, the costliest, is built at its own size.)
+    const def = getPieceDef("crossover", true);
+    switchArrows(def, 0, 1);
+    switchArrows(def, 1, 1);
+    let worst = 0;
+    for (const k of ARROW_FAR_SCALES)
+      for (const state of [0, 1]) {
+        const t0 = performance.now();
+        switchArrows(def, state, k);
+        worst = Math.max(worst, performance.now() - t0);
+      }
+    // (It took up to 7.4 ms in the browser, around 4 here; now it's a scan of numbers already worked out.)
+    expect(worst).toBeLessThan(1);
   });
 
   it("the chevrons follow the piece (turned and moved)", () => {
@@ -252,11 +287,11 @@ describe("switch chevrons", () => {
     }
   });
 
-  it("rebuilt on a flip, in the same mesh; a pinned switch's go orange and its peg shows", () => {
+  it("rebuilt on a flip, in the same mesh; a pinned switch's burn red and its peg shows", () => {
     const { layout, id, view } = oneSwitch("switch");
     const mesh = view.switchArrows;
     const before = arrowsOf(view);
-    expect(before.every((a) => a.colour === SWITCH_ARROW_CREAM)).toBe(true);
+    expect(before.every((a) => a.colour === SWITCH_ARROW_BURN)).toBe(true);
     expect(view.pinShown(id)).toBe(false);
     layout.setSwitchState(id, 1);
     view.syncSwitches();
@@ -268,7 +303,7 @@ describe("switch chevrons", () => {
     expect(view.pinShown(id)).toBe(true);
     layout.setPinned(id, false);
     view.syncSwitches();
-    expect(arrowsOf(view).every((a) => a.colour === SWITCH_ARROW_CREAM)).toBe(true);
+    expect(arrowsOf(view).every((a) => a.colour === SWITCH_ARROW_BURN)).toBe(true);
     expect(view.pinShown(id)).toBe(false);
   });
 

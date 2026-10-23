@@ -133,7 +133,7 @@ describe("markets", () => {
     const w = buildStarterWorld();
     const t = w.landscape.towns[0];
     const p = Progress.fresh();
-    const before = townStatus({});
+    const before = townStatus({ planks: 12 }); // (a town: the price; a market comes at town level)
     expect(payDelivery(p, "planks", 2, before, t)).toBe(8);
     t.buildings[0].landmark = "market";
     expect(payDelivery(p, "planks", 2, before, t)).toBe(12);
