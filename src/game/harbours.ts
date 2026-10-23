@@ -46,9 +46,9 @@ const DIRS = [
 /**
  * The way a boat comes to a harbour at `pose`: world points from where it appears (past the edge of the land, or out
  * at sea) to the quay, or null if the water by the quay doesn't lead off the land or out to sea. Squares of water
- * only, the shortest way.
+ * only, the shortest way. `seaOnly`: only out to sea, not off the edge of the land (a way buying more land can't cut).
  */
-export function waterWay(land: Landscape, pose: Pose): { x: number; z: number }[] | null {
+export function waterWay(land: Landscape, pose: Pose, seaOnly = false): { x: number; z: number }[] | null {
   const g = land.grid;
   const q = depotPoint(pose, QUAY.t, QUAY.l);
   // Start from the water squares beside the quay.
@@ -73,7 +73,7 @@ export function waterWay(land: Landscape, pose: Pose): { x: number; z: number }[
     const c = g.colOf(i);
     const r = g.rowOf(i);
     if (g.surface[i] === SURF_SEA && shoreDistance(land.coast ?? null, c, r) <= -3) return { dc: 0, dr: 0 };
-    for (const [dc, dr] of DIRS) if (g.index(c + dc, r + dr) === -1) return { dc, dr };
+    if (!seaOnly) for (const [dc, dr] of DIRS) if (g.index(c + dc, r + dr) === -1) return { dc, dr };
     return null;
   };
   for (let k = 0; k < queue.length; k++) {

@@ -30,7 +30,7 @@ import {
   type SiteRole,
 } from "../landscape";
 import { rng } from "../lib/rng";
-import { harbourWhy } from "./harbours";
+import { waterWay } from "./harbours";
 import { resourceAt, SITE_RULES, yardMiddle } from "./industries";
 import type { GameMode } from "./modes";
 import { techOf } from "./tech";
@@ -311,7 +311,7 @@ function spotsFor(land: Landscape, region: Region, role: SiteRole, random: () =>
       score = random();
     } else {
       const r = resourceAt(land, role, pose)!;
-      if (r.count < want || (role === "harbour" && harbourWhy(land, pose))) continue;
+      if (r.count < want || (role === "harbour" && !waterWay(land, pose, true))) continue;
       score = -Math.min(r.count, rule.need * 1.5) + random();
     }
     if (opt.near) score = at.near + score * 0.01;
@@ -649,13 +649,16 @@ export interface RuinCard {
   status: string;
   /** Learned (or Sandbox): it can be restored. */
   open: boolean;
-  /** The restore button, once it's open: "Restore · 3🪵 45🪙" ("Restore" in Sandbox); null while locked. */
+  /** The restore button, once it's open: "Restore · 3🪵 45🪙" ("Restore" in Sandbox); null while locked, or a harbour's boats can't reach it. */
   restore: string | null;
   /** "Or build your own anywhere from the Industries tab." (Game mode.) */
   own: string | null;
   /** The clear button: "Clear the ruin · 10🪙". */
   clear: string;
 }
+
+/** A harbour ruin's card when its boats can't reach it (no Restore then). */
+export const HARBOUR_STRANDED = "⛵ Boats can't reach this water now";
 
 export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned: (id: string) => boolean): RuinCard {
   const name = SITE_NAMES[site.role];
@@ -668,12 +671,16 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   const fresh = THING_RULES[`piece:${restoredType(site.role)}`]?.label.toLowerCase() ?? name;
   const price = restorePrice(site.role);
   const priced = mode === "game" ? costTag(price.goods, price.coins) : "";
+  // (A harbour whose water no longer leads off the land or out to sea: a river one in an old save, its river ending in
+  // land bought since. New harbour sites are only where the sea is reached, which buying land can't cut. Restore would
+  // fail, so the card says why instead of offering it.)
+  const stranded = open && site.role === "harbour" && !waterWay(land, site.piece);
   return {
     title: `Old ${name}`,
     resource,
-    status: !open ? `🔒 Learn ${bp!.label} at a school to open this ${name}` : mode === "game" ? `🔧 ${RESTORE_SHARE === 0.5 ? "Half the price of" : "Cheaper than"} a new ${fresh}` : `🔧 Restore it to work again`,
+    status: !open ? `🔒 Learn ${bp!.label} at a school to open this ${name}` : stranded ? HARBOUR_STRANDED : mode === "game" ? `🔧 ${RESTORE_SHARE === 0.5 ? "Half the price of" : "Cheaper than"} a new ${fresh}` : `🔧 Restore it to work again`,
     open,
-    restore: open ? (priced ? `Restore · ${priced}` : "Restore") : null,
+    restore: open && !stranded ? (priced ? `Restore · ${priced}` : "Restore") : null,
     own: mode === "game" ? "Or build your own anywhere from the Industries tab." : null,
     clear: mode === "game" ? `Clear the ruin · ${CLEAR_PRICE}${COIN_ICON}` : "Clear the ruin",
   };

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { checkYard } from "./depot-footprint";
-import { restoredType } from "./map-sites";
+import { HARBOUR_STRANDED, restoredType, ruinCard } from "./map-sites";
+import { waterWay } from "./harbours";
+import { isWater, SURF_GRASS } from "../landscape";
 import { restoreRuin, restoreWhy, RUIN_YARD_REACH } from "./restore";
 import { createWorld, fixedPieces, plotsForSale, unlockPlot, type World } from "./world";
 
@@ -32,26 +34,53 @@ function wholePadRefuses(w: World, siteId: number): boolean {
 }
 
 describe("restoring a ruin: every generated ruin can be", () => {
-  it("every standing ruin round 8 starts (2 rings of plots bought, no player track) passes restoreWhy, but for a harbour whose water no longer leads off the land", () => {
+  it("every standing ruin round 8 starts (2 rings of plots bought, no player track) passes restoreWhy, harbours too (their way is out to sea)", () => {
     const refused: string[] = [];
-    const boats: string[] = [];
     let n = 0;
+    let harbours = 0;
     for (const seed of SEEDS) {
       const w = world(seed);
       for (const s of w.landscape.sites ?? []) {
         if (s.cleared) continue;
         n++;
+        if (s.role === "harbour") {
+          harbours++;
+          // (Out to sea, however much land is bought: not off its edge.)
+          expect(waterWay(w.landscape, s.piece, true), `seed ${seed} harbour #${s.id}`).not.toBeNull();
+        }
         const why = restoreWhy(w, s.id);
-        const at = `seed ${seed} ${s.role} #${s.id} at ${s.centre.x},${s.centre.z} heading ${Math.round((s.piece.heading * 180) / Math.PI)}`;
-        // (A harbour's boats must reach water leading off the player's land: a river that did when the plot was made
-        // can end inside the land bought since. The rule, not the ruin's yard.)
-        if (why && s.role === "harbour" && why.startsWith("Boats can't reach")) boats.push(at);
-        else if (why) refused.push(`${at}: ${why}`);
+        if (why) refused.push(`seed ${seed} ${s.role} #${s.id} at ${s.centre.x},${s.centre.z} heading ${Math.round((s.piece.heading * 180) / Math.PI)}: ${why}`);
       }
     }
     expect(n).toBeGreaterThan(150);
+    expect(harbours).toBeGreaterThan(5);
     expect(refused).toEqual([]);
-    expect(boats.length).toBeLessThanOrEqual(2);
+  });
+
+  it("a harbour ruin whose boats can't reach it (an old save's river harbour, its river ending in land bought since): its card says so, with no Restore", () => {
+    const w = world(SEEDS[0]);
+    const site = w.landscape.sites!.find((s) => s.role === "harbour" && !s.cleared)!;
+    const g = w.landscape.grid;
+    const learned = () => true;
+    expect(ruinCard(w.landscape, site, "game", learned).restore).toMatch(/^Restore/);
+    // Its water cut off two squares out from the quay, as a river ending inland is.
+    const was = new Map<number, number>();
+    const q = { col: g.colAt(site.centre.x), row: g.rowAt(site.centre.z) };
+    g.forEachCell((i, col, row) => {
+      if (isWater(g.surface[i]) && Math.max(Math.abs(col - q.col), Math.abs(row - q.row)) > 3) {
+        was.set(i, g.surface[i]);
+        g.surface[i] = SURF_GRASS;
+      }
+    });
+    try {
+      expect(waterWay(w.landscape, site.piece)).toBeNull();
+      const card = ruinCard(w.landscape, site, "game", learned);
+      expect(card.status).toBe(HARBOUR_STRANDED);
+      expect(card.restore).toBeNull();
+      expect(restoreWhy(w, site.id)).toMatch(/^Boats can't reach/);
+    } finally {
+      for (const [i, s] of was) g.surface[i] = s;
+    }
   });
 
   it("restores a farm whose fields lie against its yard, every way round, and quarries, mines and harbours by their hillside or water: what the whole pad refused", () => {
