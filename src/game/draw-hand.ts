@@ -418,6 +418,7 @@ export class DrawHand {
       return;
     }
     const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces, line.fitted) : this.editor().placeRun(plan.pieces, line.fitted);
+    this.liftLaid = ids.slice(plan.line, plan.line + ghosts.length);
     const closed = line.stopped === "closed" || !!merge;
     // Down, and its end left facing a station's (or other track's) end it didn't join: why, rather than buffers facing
     // each other and nothing said (QA: a line drawn into Fernhill's end stopped just short of it).
@@ -888,6 +889,8 @@ export class DrawHand {
 
   /** The ghosts on show as the last line went down (for the tests: what went down must be exactly these). */
   liftShown: ReturnType<DrawHand["shown"]> = [];
+  /** The ids the line's own pieces went down as, in order (the first `liftShown`'s: not a branch's or merge's swaps). */
+  liftLaid: number[] = [];
 
   /** Have the ghosts caught up with the line as it is (for the tests: a finger resting a frame or two)? */
   get ghostsCaughtUp(): boolean {
