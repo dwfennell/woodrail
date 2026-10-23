@@ -665,6 +665,7 @@ export class Hud {
         const key = trayKey(item);
         b.dataset.key = key;
         b.classList.toggle("armed", this.armedKey === key);
+        b.classList.toggle("carried", this.armedKey === key && this.armedCarried);
         b.title = `Drag onto the map, or click then click the map: ${item.label}`;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
@@ -673,12 +674,23 @@ export class Hud {
       } else {
         // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
         // A tap says so too, since a phone never shows a title.
+        // Clicked (a mouse or pen), a model or train is carried, as a piece is: each click on the map puts one down.
         const crossing = item.kind === "prop" && crossingStyleOf(item.asset);
-        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the floor: ${item.label}`;
+        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the map, or click then click the map: ${item.label}`;
+        const key = trayKey(item);
+        b.dataset.key = key;
+        b.classList.toggle("armed", this.armedKey === key);
+        b.classList.toggle("carried", this.armedKey === key && this.armedCarried);
         b.title = tip;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: crossing ? () => this.toast(tip) : undefined });
+          this.trayPress(e, scroller, {
+            pick: (move) => this.handlers.trayPointerDown(item, move),
+            tap: (up) => {
+              if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
+              else if (crossing) this.toast(tip);
+            },
+          });
         });
       }
       if (openDef?.favourites && canFavourite(item)) {
@@ -1528,11 +1540,17 @@ export class Hud {
 
   /** The tray piece readied for placing with taps (`trayKey`), or null. */
   private armedKey: string | null = null;
+  private armedCarried = false;
 
-  setArmed(key: string | null): void {
-    if (key === this.armedKey) return;
+  /** Mark the tray item that's ready (`carried`: clicked, following the mouse, marked apart), or none (null). */
+  setArmed(key: string | null, carried = false): void {
+    if (key === this.armedKey && carried === this.armedCarried) return;
     this.armedKey = key;
-    this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => b.classList.toggle("armed", b.dataset.key === key));
+    this.armedCarried = carried;
+    this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => {
+      b.classList.toggle("armed", b.dataset.key === key);
+      b.classList.toggle("carried", b.dataset.key === key && carried);
+    });
   }
 
   /**
@@ -1568,7 +1586,7 @@ export class Hud {
     if (t && t.message === old && this.toastEl.classList.contains("show") && this.toastEl.textContent === old) {
       note("toast", message);
       t.message = message;
-      this.showToast(message, celebrate, ms);
+      this.showToast(message, celebrate, ms, t.urgent);
       this.toastShownAt = performance.now();
       this.toastHeldUntil = this.toastShownAt + toastMs(message, celebrate, ms);
       return;
@@ -1617,11 +1635,11 @@ export class Hud {
     if (this.toastQueue.length === 0) return;
     // The first that may show: one with no room (a card open) waits till the cards close (`hideCards`), and lets one
     // that answers the player go ahead of it.
-    const i = this.toastQueue.findIndex((q) => q.urgent || this.placeToast(q.message));
+    const i = this.toastQueue.findIndex((q) => this.placeToast(q.message, q.urgent));
     this.toastWaitsForCard = i === -1;
     if (i === -1) return;
     const [next] = this.toastQueue.splice(i, 1);
-    this.showToast(next.message, next.celebrate, next.ms);
+    this.showToast(next.message, next.celebrate, next.ms, next.urgent);
     this.toastShowing = next;
     this.toastShownAt = performance.now();
     this.toastHeldUntil = this.toastShownAt + toastMs(next.message, next.celebrate, next.ms);
@@ -1636,7 +1654,7 @@ export class Hud {
   private refitToast(): void {
     const t = this.toastShowing;
     if (!t || !this.toastEl.classList.contains("show") || this.toastEl.textContent !== t.message) return;
-    if (this.placeToast(t.message) || t.urgent) return;
+    if (this.placeToast(t.message, t.urgent)) return;
     clearTimeout(this.toastTimer);
     this.toastEl.classList.remove("show");
     this.toastShowing = null;
@@ -1662,7 +1680,7 @@ export class Hud {
     if (message) {
       this.toastQueue.length = 0;
       this.toastShowing = null;
-      this.showToast(message, false, 600000);
+      this.showToast(message, false, 600000, true);
       this.toastHeldUntil = performance.now() + toastMs(message, false);
     } else if (this.toastEl.classList.contains("show")) {
       clearTimeout(this.toastTimer);
@@ -1703,11 +1721,11 @@ export class Hud {
     this.flushToasts();
   }
 
-  private showToast(message: string, celebrate: boolean, ms: number): void {
+  private showToast(message: string, celebrate: boolean, ms: number, urgent = false): void {
     this.toastEl.textContent = message;
     this.toastEl.classList.toggle("celebrate", celebrate);
     this.toastEl.classList.remove("show");
-    this.placeToast(message);
+    this.placeToast(message, urgent);
     // Restart the slide-in even when a toast is already showing.
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
@@ -1721,7 +1739,7 @@ export class Hud {
    * side), else just above it. False if a card leaves it no room (it'd cover the card's top rows). Measured when a toast
    * shows, not per frame.
    */
-  private placeToast(message: string): boolean {
+  private placeToast(message: string, urgent = false): boolean {
     const t = this.toastEl;
     t.textContent = message;
     t.style.top = t.style.left = t.style.maxWidth = "";
@@ -1751,8 +1769,14 @@ export class Hud {
     const card = cards.find(over);
     if (!card) return true;
     const h = t.offsetHeight;
-    if (card.top - t.offsetTop < h + 8) return false;
-    t.style.top = `${Math.round(card.top - h - 8)}px`;
+    if (card.top - t.offsetTop >= h + 8) {
+      t.style.top = `${Math.round(card.top - h - 8)}px`;
+      return true;
+    }
+    // No room above it: a toast that answers the player (urgent) shows now all the same, at the card's foot, just
+    // above the tray (QA: over its top it hid the card's ✕ and title); any other waits for the card to close.
+    if (!urgent) return false;
+    t.style.top = `${Math.round(card.bottom - h - 10)}px`;
     return true;
   }
 

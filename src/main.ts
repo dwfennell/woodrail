@@ -295,9 +295,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (trayAllowed(item)) interaction.startTrayDrag(item, e);
       },
       trayTap: (item, pointerType) => {
-        // A click (a mouse or pen) on a piece carries it, for clicks on the map to put down (or puts it away, if it was
-        // carried). Saying why if it can't come out: the toy box is asked again as each goes down.
-        if (item.kind === "piece" && pointerType !== "touch") {
+        // A click (a mouse or pen) on a piece, a model or a train carries it, for clicks on the map to put down (or puts
+        // it away, if it was carried). Saying why if it can't come out: the toy box is asked again as each goes down.
+        if ((item.kind === "piece" || item.kind === "prop" || item.kind === "train") && pointerType !== "touch") {
           if (interaction.isCarried(item) || trayAllowed(item, false)) interaction.carryTrayItem(item);
           return;
         }
@@ -554,7 +554,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
   game.keysTaken = () => interaction.piecesTakeKeys;
-  interaction.onArmed = (item) => hud.setArmed(item ? trayKey(item) : null);
+  interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {
     audio.putdown(snapped);
     if (snapped) hud.haptic("snap");
@@ -1276,6 +1276,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * missing is made on the spot, unless `make` is false (only asking).
    */
   interaction.trayAllowed = (item) => trayAllowed(item);
+  interaction.trayCanCarry = (item) => trayAllowed(item, false);
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
   function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {

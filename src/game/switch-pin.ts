@@ -4,7 +4,7 @@ import { hintSeen, markHintSeen } from "../ui/prefs";
 export const PIN_HINT = "Pinned: trains on a route won't change this switch. Hold again to unpin.";
 /** How to pin, said once before the first pin: the first time a lever is tapped, or a train throws a switch in view. */
 export const PIN_HOW_HINT = "Hold a switch's lever to pin it: trains on a route then leave it as it is";
-/** Said each time a switch is unpinned (its peg goes, its chevrons turn cream again). */
+/** Said each time a switch is unpinned (its peg goes, its burned chevrons turn from red back to brown). */
 export const UNPINNED = "Unpinned";
 
 /**
