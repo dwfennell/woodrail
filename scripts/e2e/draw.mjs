@@ -1601,6 +1601,7 @@ async function loopOffStraight() {
     const m = window.woodrail.interaction.mode;
     return `${m.kind}${m.branch !== undefined ? ":branch" + m.branch : ""}${m.press?.kind ? ":" + m.press.kind : ""}`;
   });
+  const idsBefore = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);
   await touch("touchStart", corners[0][0], corners[0][1]);
   modes.push(await mode());
   for (let i = 1; i < corners.length; i++) {
@@ -1610,9 +1611,37 @@ async function loopOffStraight() {
     for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
     modes.push(await mode());
   }
+  // The line's ghosts as the finger lifts (QA: a loop merged back went down 2.5 to 3.8 mm and 0.84° off them).
+  const ghostsShown = await q.evaluate(() => window.woodrail.interaction.draw.shown());
   await touch("touchEnd", 0, 0);
   await settled(q);
   await shot(q, `${OUT}/draw-10-loop.png`);
+  // Each plain piece laid (not the switches: they're the swaps' ghosts), against the line's ghost of its type nearest it.
+  const offGhosts = await q.evaluate(
+    ([before, shown]) => {
+      const w = window.woodrail;
+      const old = new Set(before);
+      let mm = 0;
+      let deg = 0;
+      let n = 0;
+      for (const id of w.layout.pieceIds()) {
+        if (old.has(id)) continue;
+        const p = w.layout.getPiece(id);
+        if (p.type.startsWith("switch")) continue;
+        n++;
+        let best = null;
+        for (const g of shown) {
+          if (g.type !== p.type || g.flipped !== p.flipped) continue;
+          const d = Math.hypot(g.x - p.pose.x, g.z - p.pose.z);
+          if (!best || d < best.d) best = { d, a: Math.abs(Math.atan2(Math.sin(g.heading - p.pose.heading), Math.cos(g.heading - p.pose.heading))) };
+        }
+        mm = Math.max(mm, best ? best.d : Infinity);
+        deg = Math.max(deg, best ? (best.a * 180) / Math.PI : Infinity);
+      }
+      return { n, ghosts: shown.length, mm, deg };
+    },
+    [idsBefore, ghostsShown],
+  );
   const got = await q.evaluate(() => {
     const w = window.woodrail;
     return { switches: [...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id).type.startsWith("switch")).length, pieces: w.layout.pieceCount, toasts: window.__toasts.splice(0) };
@@ -1620,6 +1649,11 @@ async function loopOffStraight() {
   const what = `${got.switches - view.switches} switches, ${got.pieces - view.pieces} pieces more · ${view.pxPerMm.toFixed(2)} px/mm · modes ${modes.join(" > ")} · press at ${corners[0].map(Math.round)}${got.toasts.length ? " · " + got.toasts.join(" | ") : ""}`;
   check("passing loop off the straight: a switch out, the run beside it, a switch back in", got.switches - view.switches === 2 && got.pieces > view.pieces, what);
   check("…and no 'Turn it to fit' while drawing", !got.toasts.some((t) => /turn it to fit/i.test(t)), what);
+  check(
+    "…and the loop's pieces went down where its last ghosts were",
+    offGhosts.n > 0 && offGhosts.mm < 0.05 && offGhosts.deg < 0.01,
+    `${offGhosts.n} pieces against ${offGhosts.ghosts} ghosts: worst ${offGhosts.mm.toFixed(2)} mm, ${offGhosts.deg.toFixed(3)}°`,
+  );
   // Out of reach (QA: the camera 4000 mm off; at 740 px tall reach lasts to about 3700 mm), Draw on: a tap on the
   // line's body, or a long press, only lets go of what's selected, as with Draw off; no card opens (QA: a tap opened
   // the straight's card, and a 650 ms press left it open).

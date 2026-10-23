@@ -380,7 +380,7 @@ export class DrawHand {
       if (say) this.hooks.toast(say);
       return;
     }
-    const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces) : this.editor().placeRun(plan.pieces, line.fitted);
+    const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces, line.fitted) : this.editor().placeRun(plan.pieces, line.fitted);
     const closed = line.stopped === "closed" || !!merge;
     // Down, and its end left facing a station's (or other track's) end it didn't join: why, rather than buffers facing
     // each other and nothing said (QA: a line drawn into Fernhill's end stopped just short of it).

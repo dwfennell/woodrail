@@ -190,6 +190,25 @@ describe("Editor", () => {
   });
 });
 
+describe("a drawn line swapped in, fitted (QA: a loop off a straight merged back went down up to 3.8 mm and 0.84° off its ghosts)", () => {
+  // Two straights of four taken up, and two put in their place a little off them (within the joints' play): spread
+  // unless fitted; fitted, where they were given, as a drawn line's ghosts showed them.
+  for (const fitted of [false, true])
+    it(fitted ? "fitted: they go down where they were given" : "not fitted: the joints' play is spread", () => {
+      const { layout, editor } = setup();
+      const ids = editor.placeRun([0, 1, 2, 3].map((i) => ({ type: "straight-216" as const, pose: { x: 216 * i, z: 0, heading: 0 }, y: 0, flipped: false })));
+      const run = [
+        { type: "straight-216" as const, pose: { x: 216.3, z: 0.5, heading: 0.004 }, y: 0, flipped: false },
+        { type: "straight-216" as const, pose: { x: 432.3, z: 0.5 + 216 * 0.004, heading: 0.004 }, y: 0, flipped: false },
+      ];
+      const got = editor.replaceRun([ids[1], ids[2]], run, fitted);
+      const off = Math.max(...got.map((id, i) => Math.hypot(layout.getPiece(id)!.pose.x - run[i].pose.x, layout.getPiece(id)!.pose.z - run[i].pose.z)));
+      if (fitted) expect(off).toBe(0);
+      else expect(off).toBeGreaterThan(0.1);
+      expect(layout.jointCount).toBe(3);
+    });
+});
+
 describe("Editor edits under trains", () => {
   for (const [name, act] of [
     ["rotate", (e: Editor, id: number) => e.rotate(id, Math.PI / 4)],

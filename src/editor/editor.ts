@@ -226,11 +226,13 @@ export class Editor {
    * Take up `covers` and put `pieces` down, in one undo step: a drawn line with the switch it swaps into the line it
    * leaves or meets (and the plain straights either side of it). A switch put down starts unpinned, unless it takes the
    * place of a pinned one (`pinOf`: a switch swapped for a three-way, set the same way). Undone, the covers go back as
-   * they were (their switch states and pins too). The ids of the pieces put down, in order.
+   * they were (their switch states and pins too). The ids of the pieces put down, in order. `fitted`: as for `placeRun`
+   * (QA: a loop drawn off a straight and merged back went down 2.5 to 3.8 mm and 0.84° off its ghosts, spread).
    */
   replaceRun(
     covers: readonly number[],
     pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean; state?: number; pinOf?: number }[],
+    fitted = false,
   ): number[] {
     const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
     const pinned = new Set(covers.filter((id) => this.layout.isPinned(id)));
@@ -254,6 +256,7 @@ export class Editor {
         for (const r of recs) this.restore(r);
       },
       seats: () => [...ids],
+      fitted,
     });
     return ids;
   }
