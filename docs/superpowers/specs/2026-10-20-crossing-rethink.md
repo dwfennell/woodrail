@@ -315,3 +315,29 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
   - A train on no line turning back short of a train: "Turning back: another train's in the way".
   - A train let in since it was held no longer shows the held card while it waits to ask again.
 - When the trains that could give up room let equally many run, the one not on a stop gives it up.
+
+## As built: QA's notes on 03c7711
+
+- **A line that can deliver nothing stands still.** It counts as stalled when all three hold:
+  - it's full (a train held, or a loop taken by a parked train);
+  - its trains with room have turned back `STALL_TURNS` (3) times a train between them;
+  - none has arrived at a stop for `STALL_S` (60 s). Standing at a stop doesn't count as arriving.
+  Then each train with room stands still where it comes to rest, with one steady card. It says to move the parked train
+  if one is to blame, otherwise how many loops to lay. It tries again as soon as anything changes: a train joins or
+  leaves the line, admission changes, a train not on the line moves, or the track changes.
+- **Catch-all:** a train is picked to turn back only if it can (nothing right behind it). Picked anyway, it would be
+  picked again every check.
+- **A train with room** waits behind a train not on the line standing ahead of it in its slot.
+- **Card wording:**
+  - The cause is "a parked train" in every card: "… a parked train is in the way. Move it", or "lay N more …, or
+    move the parked train".
+  - A train on no line at a buffer, while a line is managed, says "Turning back: the track ends here". On its own,
+    a buffer is still the end of its line.
+- **What wakes a stood-still line** (QA's B1 on 21e6efc): its own trains, admission, a lever set on one of its
+  trains (Stop then Go), the track, and trains not on it standing on its network: the slots and sections its ways
+  run through, and its loops' other roads. A train running past doesn't wake it, nor does any train on track it
+  doesn't use, or on a layout of its own.
+- **Cards:**
+  - On a line stood still for a parked train, every train of it says to move that train.
+  - "Another train" (another line's, running it) rather than "parked train" (no line, or its lever off).
+  - "The track ends here" only for a lineless train on a managed line's network.

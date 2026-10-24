@@ -1,3 +1,4 @@
+import { TRAIN_ON_TRACK } from "../editor/editor";
 /**
  * What the player is told about train lifts: the toast for a train too long for a lift's platform (once per train, not
  * on every approach), and the first-time tip when a lift is first put down.
@@ -38,7 +39,7 @@ export class TooLongNotice {
  * Why a lift can't be taken up, moved or turned now (`Sim.liftFree`): a train on it (standing, or being carried), as
  * the turntable says; or it's going (empty) to its other end.
  */
-export const liftHeldMessage = (trainOnIt: boolean): string => (trainOnIt ? "A train is on it" : "The train lift is still moving");
+export const liftHeldMessage = (trainOnIt: boolean): string => (trainOnIt ? TRAIN_ON_TRACK : "The train lift is still moving");
 
 /** The first-time tip when a train lift is put down. */
 export const LIFT_TIP = "Tap the train lift to send it";

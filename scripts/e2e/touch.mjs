@@ -847,7 +847,41 @@ async function shortUnderCar(ctx, p) {
   await touch("touchEnd", 0, 0);
   await settled();
   const after = await p.evaluate((id) => ({ there: !!window.woodrail.layout.getPiece(id), said: window.__underSaid }), ids.run[1]);
-  check("a long press on it doesn't pick it up, and says a train is on it", !held.startsWith("drag-piece") && after.there && after.said.includes("A train is on it"), `mode ${held}; pressed ${what}; ${JSON.stringify(after)}`);
+  check("a long press on it doesn't pick it up, and says a train is on it", !held.startsWith("drag-piece") && after.there && after.said.includes("A train is on that track"), `mode ${held}; pressed ${what}; ${JSON.stringify(after)}`);
+  await p.keyboard.press("Escape");
+
+  // The piece under the engine's wheels, selected (its card up): the card's Rotate and Delete are refused, and said so
+  // (QA N1: Delete took it up, derailing the engine; Rotate turned it under it).
+  const under = ids.run[2];
+  const pose = () => p.evaluate((id) => { const q = window.woodrail.layout.getPiece(id); return q ? JSON.stringify([q.pose, q.flipped]) : null; }, under);
+  const was = await pose();
+  await p.evaluate((id) => {
+    window.__underSaid.length = 0;
+    window.woodrail.interaction.selectPiece(id);
+  }, under);
+  await frames(p);
+  const pressCard = (label) =>
+    p.evaluate((label) => {
+      const b = [...document.querySelectorAll(".piece-card button")].find((b) => b.textContent.trim() === label && b.offsetParent !== null);
+      if (!b) return false;
+      b.click();
+      return true;
+    }, label);
+  const rotated = await pressCard("Rotate");
+  await settled();
+  const afterRotate = await pose();
+  const deleted = await pressCard("Delete");
+  await settled();
+  const end = await p.evaluate(({ id, run }) => {
+    const w = window.woodrail;
+    const t = [...w.sim.trainIds()].map((i) => w.sim.getTrain(i)).find((t) => t.bogies.some((b) => run.includes(b.pieceId)));
+    return { there: !!w.layout.getPiece(id), derailed: t?.derailed ?? null, said: [...window.__underSaid], card: !document.querySelector(".piece-card")?.hidden };
+  }, { id: under, run: ids.run });
+  check(
+    "the card's Rotate and Delete on the piece under an engine are refused: “A train is on that track”, the engine still on the rails",
+    rotated && deleted && afterRotate === was && (await pose()) === was && end.there && end.derailed === false && end.said.filter((m) => m === "A train is on that track").length === 2,
+    `pressed rotate ${rotated}, delete ${deleted}; ${was} → ${afterRotate} → ${await pose()}; ${JSON.stringify(end)}`,
+  );
   await p.keyboard.press("Escape");
 }
 

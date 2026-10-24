@@ -599,6 +599,32 @@ before early pay), so Routes' 40 is in reach at minute 15 on every seed; by minu
   town or school as a taker only if it accepts the good now. Seed 2027: stall 42.4 → 10.1 min, researched 13 → 14,
   City 62. All 9 seeds pass; only seed 6's coins moved (1410 → 1394).
 
+### Two goods trains on one line: the harness, and a deadlock repro (harness-two-trains, 2026-10-24)
+
+(h)'s loop is now laid with its switches **unpinned** (set one way each, free to change), so the sections count it as
+a passing place. The second train is picked up only when one of the line's goods trains has made no progress (not
+moved, not loaded at a stop, wait unchanged) for 4 min (`JAM_MINUTES`, `BALANCE_JAM_MINUTES`), not after 4 min with
+no planks sawn. When it fires, every engine's wait goes in the log (`JAM wait:`). Still off by default; `BALANCE=1`
+alone is unchanged on all 9 seeds (identical SUMMARY lines).
+
+- **Unpinned** (`BALANCE_SECOND_GOODS=15`): on 2027 and 3, both goods trains run from minute 69 / 82 to 180 with no
+  jam, but both seeds fail bands (research stall 24 / 17.4 min; seed 3 town gap 59.2). On 1 and 5 a jam is detected
+  at 80 / 100: both goods trains wait `slot` on the people train (engine 20, on no line), which stands still. The
+  harness then picks up the goods 2 train, and the planks rule picks up the people train 6–8 min later.
+- **REPRO** (pinned, the game's deadlock, for Rail and road):
+  `BALANCE=1 BALANCE_SEED=2027 BALANCE_SECOND_GOODS=15 BALANCE_LOOP_PIN=1 npx vitest run --silent=false src/play/balance.test.ts`.
+  The pinned loop goes down at minute 69 on the 18-stop line, and the second goods train is put down on it. At
+  minute 74 the log reads:
+  ```
+  74.0 min  JAM: goods 15 made no progress for 4 min; picked the goods 2 train up
+  74.0 min  JAM wait: goods 15 (line 1) still 4.7min stopped on straight-216 wait {"kind":"slot","engine":23}
+  74.0 min  JAM wait: goods 2 23 (line 1) still 4.7min stopped on straight-216 wait {"kind":"room","lineId":1,"trains":2,"loops":0,"more":1,...}
+  ```
+  The chain: the pinned loop isn't counted (`loops: 0`), so the line has room for one train. The new train 23 is held
+  for room where it was put down, and the working train 15 waits `slot` on it. Nothing is released. Seed 3 is the
+  same at minute 87 (trains 10 → 15). On seeds 1 (minute 66) and 5 (minute 87), the people train 20, on no line, is
+  in the chain as well.
+
 ## 6. Saves
 
 - `SAVE_VERSION` goes to 12. Older saves are turned away with `OLDER_SAVE` and kept aside under their backup key,

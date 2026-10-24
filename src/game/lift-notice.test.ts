@@ -42,7 +42,7 @@ describe("a train too long for a lift is told once, not on every approach", () =
   it("names the train lift", () => {
     expect(TOO_LONG_MESSAGE).toBe("That train's too long for the train lift: an engine and two cars fit");
     expect(LIFT_TIP).toBe("Tap the train lift to send it");
-    expect(liftHeldMessage(true)).toBe("A train is on it");
+    expect(liftHeldMessage(true)).toBe("A train is on that track");
     expect(liftHeldMessage(false)).toBe("The train lift is still moving");
   });
 });

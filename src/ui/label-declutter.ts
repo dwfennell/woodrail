@@ -27,9 +27,11 @@ const hits = (a: LabelBox, ay: number, b: LabelBox, by: number): boolean =>
  * Keep map labels from covering one another. Labels are settled in priority order (ties: the order given); each
  * takes the smallest vertical offset (0, then down, then up, a label height at a time) that clears the labels already
  * settled (a pinned one only 0), and is hidden when none does. Returns one spot per input, in input order.
+ * With `range`, each spot tried is first slid back within `lo`..`hi` (as `rangeNudge`), so the spot returned is where
+ * the label ends up: nothing moved after this can put it back over another (QA: a nudge into range after this did).
  * O(n^2 * steps), n = labels.
  */
-export function declutterLabels(boxes: readonly LabelBox[]): LabelSpot[] {
+export function declutterLabels(boxes: readonly LabelBox[], range?: { lo: number; hi: number }): LabelSpot[] {
   const order = boxes.map((_, i) => i).sort((a, b) => boxes[b].priority - boxes[a].priority || a - b);
   const out: LabelSpot[] = boxes.map(() => ({ dy: 0, hidden: false }));
   const placed: number[] = [];
@@ -37,7 +39,8 @@ export function declutterLabels(boxes: readonly LabelBox[]): LabelSpot[] {
     const b = boxes[i];
     let found = false;
     for (let s = 0; s <= (b.pinned ? 0 : MAX_STEPS * 2) && !found; s++) {
-      const dy = s === 0 ? 0 : (s % 2 === 1 ? 1 : -1) * Math.ceil(s / 2) * (b.h + GAP);
+      let dy = s === 0 ? 0 : (s % 2 === 1 ? 1 : -1) * Math.ceil(s / 2) * (b.h + GAP);
+      if (range && !b.pinned) dy += rangeNudge(b.y + dy, b.h, range.lo, range.hi);
       if (placed.every((j) => !hits(b, b.y + dy, boxes[j], boxes[j].y + out[j].dy))) {
         out[i].dy = dy;
         found = true;

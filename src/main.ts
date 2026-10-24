@@ -27,7 +27,7 @@ import { plotPrice } from "./game/towns";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
-import { mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
+import { mapFramePoints, mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
@@ -2980,11 +2980,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
-  const mapView = new MapView(hud.root, { go: (m) => goToMarker(m), close: () => closeMap(true, true) });
+  const mapView = new MapView(hud.root, { go: (m) => goToMarker(m), close: () => closeMap(true, true), handoff: (down) => game.canvas.dispatchEvent(down) });
   /** Where the camera was before the map opened, to go back to. */
   let mapReturn: { target: Vector3; distance: number; phi: number; theta: number } | null = null;
   let mapRefreshedAt = 0;
 
+  /** The map view's tilt: near straight down. */
+  const MAP_PHI = 0.22;
   /** Planning a route when the map opened: the engine, so planning goes on when it closes (−1 if not). */
   let planAfterMap = -1;
   function openMap(): void {
@@ -3001,12 +3003,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const c = game.controls;
     const sph = new Spherical().setFromVector3(game.camera.position.clone().sub(c.target));
     mapReturn = { target: c.target.clone(), distance: sph.radius, phi: sph.phi, theta: sph.theta };
-    const e = game.landscape.grid.extent();
-    const radius = Math.hypot(e.x1 - e.x0, e.z1 - e.z0) / 2;
-    const distance = Math.min(frameDistance(radius * 0.72, game.camera.fov, game.camera.aspect), c.maxDistance);
-    game.director.glideTo(new Vector3((e.x0 + e.x1) / 2, 0, (e.z0 + e.z1) / 2), distance, { phi: 0.22, duration: 0.9 });
     mapView.setOpen(true);
     hud.setMapOpen(true);
+    // Every place marked on the player's land (its ruins too), fitted between the map's bars (where the labels and badges
+    // go), as far out as the camera may go: on a big map they can't all be, and a drag pans to the rest (QA: on 22 plots
+    // the view sat on the land's middle, the bars not allowed for, and no harbour on the coast was in view).
+    const r = game.canvas.getBoundingClientRect();
+    const band = mapView.band();
+    const room = { left: 0, right: r.width, top: band.top - r.top, bottom: band.bottom - r.top };
+    const pts = mapFramePoints(currentMapMarkers(), game.landscape.grid.extent()).map((q) => new Vector3(q.x, 0, q.z));
+    const fit = fitToRect(pts, game.camera, MAP_PHI, sph.theta, room, r.width, r.height, 24, 0, c.maxDistance);
+    game.director.glideTo(fit.target, fit.distance, { phi: MAP_PHI, duration: 0.9 });
     refreshMap();
     game.invalidate();
   }
@@ -3064,8 +3071,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   function refreshMap(): void {
     mapRefreshedAt = performance.now();
-    mapView.show([...mapMarkers(game.world, (id) => townLife.status(id)), ...mapRuinMarkers()]);
+    mapView.show(currentMapMarkers());
     placeMap();
+  }
+
+  /** What the map view marks, as the world is now. */
+  function currentMapMarkers(): MapMarker[] {
+    return [...mapMarkers(game.world, (id) => townLife.status(id)), ...mapRuinMarkers()];
   }
 
   const mapPoint = new Vector3();

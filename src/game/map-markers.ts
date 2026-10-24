@@ -1,5 +1,5 @@
 import { CARGO, CARGO_KINDS, GOODS_ICON, type CargoKind } from "../economy/cargo";
-import { pilesOf } from "../economy/economy";
+import { pilesOf, RECIPES } from "../economy/economy";
 import type { TownStatus } from "./towns";
 import type { DepotRole } from "../economy";
 import { DEPOT_NAMES, depotName, type World } from "./world";
@@ -24,9 +24,17 @@ export interface MapMarker {
   detail: string;
   /** 0–1 toward a town's next level. */
   fill?: number;
+  /** A depot's or industry's goods as icons ("🌲"): beside its name on a compact label (a short band: on its side). */
+  glyph?: string;
 }
 
-const label = (k: CargoKind) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`;
+/** A depot's goods as icons: what it makes, else what it takes in (a workshop, a school). */
+export function depotGlyph(role: DepotRole): string {
+  const r = RECIPES[role];
+  return (r.gives.length > 0 ? r.gives : r.takes).map((k) => GOODS_ICON[k]).join("");
+}
+
+const label =(k: CargoKind) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`;
 
 /**
  * Everything the map view shows: every town (its level and what it wants), and every depot with its stock. Built from
@@ -46,7 +54,7 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
     const state = pieceId === undefined ? undefined : world.economy.depotAtPiece(pieceId);
     const kinds = pilesOf(d.kind);
     const stock = state ? kinds.map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${state.piles[CARGO[k].index]}`).join(" · ") : "";
-    out.push({ key: `depot:${d.id}`, kind: d.kind, x: d.centre.x, z: d.centre.z, title: DEPOT_NAMES[d.kind], detail: stock });
+    out.push({ key: `depot:${d.id}`, kind: d.kind, x: d.centre.x, z: d.centre.z, title: DEPOT_NAMES[d.kind], detail: stock, glyph: depotGlyph(d.kind) });
   }
   // The industries the player has put down (a workshop): not the map's own, nor a town's station.
   const own = new Set(world.depots.values());
@@ -57,7 +65,7 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
     if (!piece || !title) continue;
     // (A school's goods go into its research: it has no piles to list.)
     const stock = (d.role === "school" ? [] : pilesOf(d.role)).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${d.piles[CARGO[k].index]}`).join(" · ");
-    out.push({ key: `site:${d.id}`, kind: d.role, x: piece.pose.x, z: piece.pose.z, title, detail: stock });
+    out.push({ key: `site:${d.id}`, kind: d.role, x: piece.pose.x, z: piece.pose.z, title, detail: stock, glyph: depotGlyph(d.role) });
   }
   return out;
 }
@@ -110,4 +118,21 @@ export function ruinMarkers(ruins: readonly RuinOnMap[], learned: (id: string) =
     });
   }
   return out;
+}
+
+/**
+ * What the map view frames when it opens: every place marked on the player's land (towns, depots, industries and the
+ * ruins there, each a label or a badge to tap), or the land's corners if nothing is. Not the land around's ruins
+ * (they're only gone to), nor the land's bare corners: on a phone on its side the room between the bars is a strip, and
+ * pulled back to show the corners too, the labels crowd so close most of them are hidden.
+ */
+export function mapFramePoints(markers: readonly MapMarker[], land: { x0: number; z0: number; x1: number; z1: number }): { x: number; z: number }[] {
+  const out = markers.filter((m) => !m.key.startsWith("ruin-around:")).map((m) => ({ x: m.x, z: m.z }));
+  if (out.length > 0) return out;
+  return [
+    { x: land.x0, z: land.z0 },
+    { x: land.x1, z: land.z0 },
+    { x: land.x1, z: land.z1 },
+    { x: land.x0, z: land.z1 },
+  ];
 }

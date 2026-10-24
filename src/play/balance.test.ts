@@ -171,11 +171,15 @@ const FAMINE_STOPS = 20;
 /**
  * P5 (h), off unless asked for (BALANCE_SECOND_GOODS=15): a line of this many stops (there and back) or more gets a
  * passing loop and a second goods train once Signals are learned, since one train saws only a few planks a pass round
- * it. Off by default: on every seed tried the two goods trains still turned each other back within minutes (routed
- * trains don't wait at a loop for each other, and a signal's block ends at the loop's switch), so the second was
- * picked up again, and on seed 2 the pinned loop left the goods train unable to reach the sawmill (spec §5).
+ * it. The loop's switches are left unpinned, so the sections count it as a passing place (pinned, with
+ * BALANCE_LOOP_PIN=1, they don't, and the line deadlocks: spec §5 REPRO). Off by default (spec §5).
  */
 const SECOND_GOODS_STOPS = Number(ENV.BALANCE_SECOND_GOODS ?? 0) || Infinity;
+/**
+ * With the second goods train on, the line is jammed (and it is picked up) when one of its goods trains has made no
+ * progress (not moved, nor loaded at a stop, nor had its wait change) for this many minutes (BALANCE_JAM_MINUTES).
+ */
+const JAM_MINUTES = Number(ENV.BALANCE_JAM_MINUTES ?? 4);
 /** A town wanting planks that has had none for this many minutes is starved (see `Playthrough.shopThrough`). */
 const STARVED = 15;
 /** Planks in the workshop's yard that are plenty to build with: past this, a starved town's come first. */
@@ -231,6 +235,12 @@ class Player {
   private readonly turnsSeen = new Set<string>();
   private readonly atStop = new Map<number, boolean>();
   private readonly lastAt = new Map<number, number>();
+  /**
+   * Each line train's last progress (`tick`): moving, at a stop with no section wait (loading), or its section wait
+   * changed; and the wait it last had (JSON). A train with none for minutes is jammed (`Playthrough.decide`).
+   */
+  readonly progressAt = new Map<number, number>();
+  readonly waitKey = new Map<number, string>();
   /** The longest (minutes) a train on a line went without being at a stop. */
   lineStall = 0;
   readonly growths: { minute: number; town: string; level: string; ms: number; built: number }[] = [];
@@ -454,6 +464,9 @@ class Player {
         if (sw) this.sectionSeconds++;
         if (sw?.kind === "room") this.roomSeconds++;
         const at = !!this.w.economy.routeOf(engine)?.at;
+        const key = JSON.stringify(sw);
+        if ((this.w.sim.findCar(engine)?.train.speed ?? 0) > 1 || (at && !sw) || key !== this.waitKey.get(engine) || !this.progressAt.has(engine)) this.progressAt.set(engine, this.tick);
+        this.waitKey.set(engine, key);
         if (at && this.atStop.get(engine) === false) this.arrivals++;
         this.atStop.set(engine, at);
         // (The longest any train on a line went without coming to a stop: a lock-up shows here.)
@@ -751,10 +764,12 @@ function passingLoop(P: Player, near: { x: number; z: number }): [number, number
       const joined = [0, 1, 2].every((c) => L.joinedConnector(connectorRef(sa, c)) !== -1 && L.joinedConnector(connectorRef(sb, c)) !== -1);
       if (ENV.BALANCE_LOOP_TRACE) P.note(`loop try ${a}→${b} ${side ? "right" : "left"}: side road ${r.how} (${r.pieces} pieces), all joined ${joined}`);
       if (road && joined && P.settle()) {
+        // (Unpinned, the sections count it as a passing place; BALANCE_LOOP_PIN=1 pins its switches one way each, as
+        // first laid: a repro of the line deadlock, spec §5 REPRO.)
         L.setSwitchState(sa, 0);
-        L.setPinned(sa, true);
+        if (ENV.BALANCE_LOOP_PIN) L.setPinned(sa, true);
         L.setSwitchState(sb, 1);
-        L.setPinned(sb, true);
+        if (ENV.BALANCE_LOOP_PIN) L.setPinned(sb, true);
         w.sim.trackChanged();
         return [sa, sb];
       }
@@ -1298,6 +1313,11 @@ class Playthrough {
     if (this.idle >= 5) this.idleStretches.push({ from: last - this.idle + 1, to: last, why: this.idleWhy });
   }
 
+  /** The second goods train is on the line (its jams are judged by the trains: `decide`). */
+  goods2On(): boolean {
+    return [...this.trains.values()].includes("goods 2");
+  }
+
   /** A minute's decisions. */
   decide(): void {
     const P = this.p;
@@ -1319,7 +1339,7 @@ class Playthrough {
     if (sawn !== this.sawn) {
       this.sawn = sawn;
       this.sawnAt = P.minute;
-    } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2 && !ENV.BALANCE_NOJAMCUT) {
+    } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2 && !ENV.BALANCE_NOJAMCUT && !this.goods2On()) {
       // (The newest first: a second goods train before the people train, which came before it.)
       const [e, kind] = [...this.trains].find(([, k]) => k === "goods 2") ?? [...this.trains].find(([id]) => id !== this.timber) ?? [];
       if (e !== undefined) {
@@ -1330,6 +1350,35 @@ class Playthrough {
         if (this.lines) this.jamCut++;
         P.findings.push(`Minute ${P.minute.toFixed(0)}: no planks sawn for 4 minutes with ${this.trains.size + 1} trains on one line (they turn each other back; the goods train never reached the forest). Picked the ${kind} train up.`);
         P.note(`JAM: no planks sawn for 4 min; picked the ${kind} train up`);
+        this.sawnAt = P.minute;
+      }
+    }
+    // With a second goods train on the line, a jam is judged by the trains, not the planks (a long line saws none for
+    // minutes while both run): one of the line's goods trains has made no progress (not moved, or waited on the same
+    // thing) for `JAM_MINUTES`. Then the second is picked up, and the waits are logged (the repro: spec §5).
+    if (this.goods2On() && !ENV.BALANCE_NOJAMCUT) {
+      const goods = trainsOn(w.economy, this.lineId).filter((e) => w.sim.findCar(e)?.train.cars.some((c) => GOODS_CARS.has(c.kind)));
+      const still = (e: number) => (P.tick - (P.progressAt.get(e) ?? P.tick)) / SIM_HZ / 60;
+      const stuck = goods.find((e) => still(e) >= JAM_MINUTES);
+      if (stuck !== undefined) {
+        // (Every engine on the map, on a line or not, since a wait can name any: the chain, for the repro.)
+        const waits = w.sim.trainIds().flatMap((id) => {
+          const t = w.sim.getTrain(id)!;
+          const e = t.cars.find((c) => c.kind === "engine")?.id;
+          if (e === undefined) return [];
+          const l = w.economy.lineIdOf.get(e);
+          const on = `${t.speed > 1 ? "moving" : "stopped"} on ${w.layout.getPiece(t.bogies[0].pieceId)?.type}`;
+          return [`${this.trains.get(e) ?? "train"} ${e} ${l === undefined ? `(no line) ${on}` : `(line ${l}) still ${still(e).toFixed(1)}min ${on} wait ${P.waitKey.get(e) ?? "null"}`}`];
+        });
+        const who = `${this.trains.get(stuck) ?? "train"} ${stuck}`;
+        const [e2] = [...this.trains].find(([, k]) => k === "goods 2")!;
+        P.lift(e2);
+        this.trains.delete(e2);
+        this.goods2Cut++;
+        this.jamCut++;
+        P.findings.push(`Minute ${P.minute.toFixed(0)}: ${who} made no progress for ${JAM_MINUTES} minutes with two goods trains on the line (${waits.join("; ")}). Picked the goods 2 train up.`);
+        P.note(`JAM: ${who} made no progress for ${JAM_MINUTES} min; picked the goods 2 train up`);
+        for (const line of waits) P.note(`JAM wait: ${line}`);
         this.sawnAt = P.minute;
       }
     }
@@ -1791,7 +1840,7 @@ class Playthrough {
         this.loop = at ? passingLoop(P, at) : null;
         if (this.loop) {
           P.happened++;
-          P.note(`laid a passing loop (2 switches, pinned) halfway along the ${stops}-stop line`);
+          P.note(`laid a passing loop (2 switches${ENV.BALANCE_LOOP_PIN ? ", pinned" : ""}) halfway along the ${stops}-stop line`);
         } else P.note("COULDN'T lay a passing loop on the line");
       } else this.why ||= `a passing loop (2 switches; have ${P.planks()} planks)`;
     }
