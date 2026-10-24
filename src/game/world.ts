@@ -277,7 +277,8 @@ export function buildStarterWorld(sites = true): World {
   return createWorld(STARTER_SEED, true, true, sites);
 }
 
-const GAMES_KEY = "woodrail.game.started";
+/** Set once a game has been started (the next game is on a fresh map, not the starter). */
+export const GAMES_KEY = "woodrail.game.started";
 
 /**
  * A new Game-mode map. The first game is on the starter map; after that each is a fresh starter-style map (two towns

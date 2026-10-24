@@ -28,6 +28,10 @@ jobs:
       - run: npm test
       # Project pages are served from /<repo>/, not the domain root.
       - run: npm run build -- --base=/${{ github.event.repository.name }}/
+        env:
+          # The cloud saves' Worker (cloud/README.md), set as a repository variable once it's deployed. Unset: no
+          # Cloud save in the game. (The Worker itself is deployed by hand, never from here.)
+          VITE_CLOUD_URL: ${{ vars.WOODRAIL_CLOUD_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -10,7 +10,9 @@ import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBluep
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
+import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
+import { gameMerger } from "./persist/progress-merge";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker, secondEngineTip, trayRing } from "./game/goals";
 import { makesLine } from "./game/learn-text";
@@ -79,6 +81,7 @@ import { loadMuted, saveMuted } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
+import { CloudCard } from "./ui/cloud-card";
 import "./style.css";
 
 /** A blueprint's requirement in words, a count of goods with its icon: "20🪨 stone delivered". */
@@ -184,11 +187,55 @@ function takeResume(): string | null {
   }
 }
 
+/**
+ * Cloud saves (see persist/cloud.ts), in a build with a cloud to save to (`VITE_CLOUD_URL`; not the artifact build):
+ * else null, and nothing of them shows.
+ */
+const cloud = ((): CloudSync | null => {
+  const url = import.meta.env.VITE_CLOUD_URL as string | undefined;
+  if (!url || !cloudSupported()) return null;
+  try {
+    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION, merge: gameMerger(PROGRESS_KEYS) });
+  } catch {
+    // No storage.
+    return null;
+  }
+})();
+/** The cloud's copies checked against this device's while the game loads, so a newer one is the one loaded. */
+const cloudStarted = cloud ? cloud.start().catch(() => ({})) : Promise.resolve({});
+/** How long the game waits on that check, past its own loading (ms): a slow cloud never holds it up. */
+const CLOUD_WAIT_MS = 3000;
+type CloudNotes = Partial<Record<GameMode, SyncNote>>;
+
+/** A cloud note to say after a reload (`CloudSync.onTaken`), in session storage. */
+const CLOUD_NOTE_KEY = "woodrail.cloud.note";
+
+/** The note a reload left to say, if any (taken once). */
+function takeCloudNote(): CloudNotes {
+  try {
+    const raw = sessionStorage.getItem(CLOUD_NOTE_KEY);
+    sessionStorage.removeItem(CLOUD_NOTE_KEY);
+    const n = raw ? (JSON.parse(raw) as { mode?: unknown; note?: unknown }) : null;
+    if (n && (n.mode === "sandbox" || n.mode === "game") && typeof n.note === "string" && n.note in CLOUD_NOTES) return { [n.mode]: n.note as SyncNote };
+  } catch {
+    // none
+  }
+  return {};
+}
+
+/** What a cloud check did to a mode's railway, as a toast. */
+const CLOUD_NOTES: Record<Exclude<SyncNote, null>, string> = {
+  "took-cloud": "Loaded your newer railway from the cloud. The other one is kept (Cloud save → Restore).",
+  "kept-here": "This railway is newer than the one in the cloud, so it's kept. The other one is kept too (Cloud save → Restore).",
+  "both-changed": "Your railway was changed on another device too. That one is kept (Cloud save → Restore).",
+  newer: "Your railway online was saved by a newer version of the game: update to carry on with it.",
+};
+
 startLog();
 /** Where "Send to Claude" reports go (the dev server, or the claude.ai page), or null: no menu item. */
 let reports: Reporter | null = null;
 
-function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>): void {
+function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>, cloudNotes: CloudNotes): void {
   const game = new Game(canvas, opening.world);
   let mode = opening.mode;
   /** The research pill as last drawn: its key (`pillKey`) and the progress it was for (a new game starts a new one). */
@@ -353,11 +400,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       newLayout: () => {
         saveLastBuilt(mode, null);
         setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game"));
+        cloud?.edited(mode);
         game.frameLayout();
       },
       resetStarter: () => {
         saveLastBuilt(mode, null);
         setWorld(buildStarterWorld(mode === "game"));
+        cloud?.edited(mode);
         game.frameLayout();
         openingView();
       },
@@ -929,7 +978,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     scheduleSave();
   }
 
-  function scheduleSave(): void {
+  /** Game mode's progress as last saved (null: not yet, in this mode's railway), to tell when it's changed. */
+  let progressSig: string | null = null;
+
+  /**
+   * Save soon after a change. `kind`: the player's edit (`layout`), or the game's progress (deliveries, research,
+   * boats, growth): what the cloud sends, and which wins a conflict (`CloudSync`). The 5 s save of the clock and the
+   * trains rolling on isn't an edit.
+   */
+  function scheduleSave(kind: EditKind = "layout"): void {
+    cloud?.edited(mode, kind);
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(save, 600);
   }
@@ -941,7 +999,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.flushDraw();
     saveToStorage(game.world, mode);
     saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() });
-    if (mode === "game") saveProgress(progress.toJSON());
+    if (mode === "game") {
+      const data = progress.toJSON();
+      saveProgress(data);
+      // Progress the game made on its own (a delivery's coins, research studied, the first flour): an edit, of the
+      // progress kind, though nothing called for a save (QA: delivery coins never went up).
+      const sig = JSON.stringify(data);
+      if (progressSig !== null && sig !== progressSig) cloud?.edited("game", "progress");
+      progressSig = sig;
+    }
   }
 
   /** The railway's date in the top bar (Game mode), from the game's clock: shown as it turns (asked about once a second). */
@@ -956,8 +1022,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function restoreSession(m: GameMode, fromSave: boolean): void {
     const s = fromSave ? loadSession(m) : null;
     game.simSeconds = s?.clock ?? 0;
-    // A loaded clock is another session's time, not study done here.
+    // A loaded clock is another session's time, not study done here (nor making, nor sailing).
     studyClock.at = null;
+    craftClock.at = null;
+    harbourClock.at = null;
     showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
@@ -982,6 +1050,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (savedOnLeaving) return;
     savedOnLeaving = true;
     save();
+    void cloud?.flush(true);
   };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") saveOnLeaving();
@@ -989,6 +1058,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   });
   addEventListener("pagehide", saveOnLeaving);
   addEventListener("pageshow", () => (savedOnLeaving = false));
+  // Back online: what's waiting goes up.
+  addEventListener("online", () => void cloud?.flush());
 
   const title = new TitleScreen(document.body, { play }, { thumbnails });
 
@@ -1224,9 +1295,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         checkGoals(true); // (its tick is logged after the growth)
       }
       audio.chime();
+      // (A town grown is the game's progress, gift or not.)
+      cloud?.edited(mode, "progress");
       if (gift.length > 0 || offer) {
         refreshBoard();
-        scheduleSave();
+        scheduleSave("progress");
       }
       // The sheet comes up for it, unless a finger's on the map (a drag isn't cut short) or a panel's open: then the
       // toast and the badge wait for a tap.
@@ -1260,6 +1333,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       interaction.guideSpots = [];
       hud.refreshTrayBadges();
       saveGoals(goals.ids());
+      cloud?.edited(mode, "progress");
       if (announce) {
         const titles = fresh.map((g) => g.title);
         const tick = goalsDoneText(titles, TOAST_TITLES);
@@ -1561,6 +1635,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       audio.chime();
       if (board.open) refreshBoard();
       save();
+      cloud?.edited(mode);
       // The next offer waiting, if any; else the sheet closes.
       if (progress.offers.length > 0) refreshRewards();
       else closeRewards();
@@ -1618,6 +1693,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Old industries' ruins it opens: the nearest is named, to restore.
     ruinOpened(id);
     save();
+    cloud?.edited(mode, "progress");
   }
 
   /** The school research goods go to: one beside a town, by name ("Larkfield school"), or null if none is placed. */
@@ -1767,6 +1843,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The research's study clock, on the world's game time (see `simElapsed`). */
   const studyClock: StudyClock = { at: null };
   /**
+   * The workshop's and the harbour boats' clocks, on game time too: a hidden tab (no frames, so no game time) or a
+   * paused game makes nothing and trades nothing, as its trains deliver nothing (cloud saves: two devices both earning
+   * only when both are in view).
+   */
+  const craftClock: StudyClock = { at: null };
+  const harbourClock: StudyClock = { at: null };
+  /**
    * What the map gives research, from the map: the towns' landmarks, a school beside a city (tier 3), and how fast the
    * schools study (a college: twice as fast). Asked when industries, towns or what's learned change, not per frame.
    */
@@ -1794,13 +1877,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else if (progress.research.current !== was) {
         // Next up started (its coins came in): schools take its goods now.
         game.economy.acceptsChanged();
-        scheduleSave();
+        scheduleSave("progress");
       }
     }
-    if (mode !== "game" || !playing || game.paused || progress.orders.length === 0) return;
+    // (Read on every step, as the study clock is, so time off the game isn't counted.)
+    const crafted = simElapsed(craftClock, game.simSeconds);
+    if (mode !== "game" || !playing || game.paused || progress.orders.length === 0 || crafted <= 0) return;
     const wasMaking = progress.making;
     const coinsBefore = progress.coins;
-    const made = crafting.tick(game.world, CRAFT_STEP);
+    const made = crafting.tick(game.world, crafted);
     if (progress.coins !== coinsBefore) hud.setCoins(progress.coins);
     showWorkshop();
     // Planks leave the yard when an order starts: draw the pile going down (only then, not on every step).
@@ -1811,7 +1896,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.toast(said, true, said.length > 40 ? 3600 : 2400);
     audio.chime();
     hud.refreshTrayBadges();
-    scheduleSave();
+    scheduleSave("progress");
   }, CRAFT_STEP * 1000);
   // A farm yard's card (Game mode): its fields, how fast that makes it work, and a field to plant with coins.
   let farmShown = "";
@@ -1879,11 +1964,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Goods brought to a school go into the research (saved soon after: a train brings them in a burst).
     attachResearch(game.economy, () => progress, () => {
       refreshPill();
-      scheduleSave();
+      scheduleSave("progress");
     });
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
-      scheduleSave();
+      scheduleSave("progress");
     });
   }
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
@@ -1903,8 +1988,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   setInterval(() => {
     updatePlanksKept();
-    if (mode !== "game" || !playing || game.paused) return;
-    for (const e of harbourTrade.update(game.world, progress)) {
+    const sailed = simElapsed(harbourClock, game.simSeconds);
+    if (mode !== "game" || !playing || game.paused || sailed <= 0) return;
+    for (const e of harbourTrade.update(game.world, progress, sailed)) {
       if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "gone") game.boats.remove(e.depotId);
@@ -1915,11 +2001,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // An order that all went back is a refusal (a plain toast); a delivery is logged quietly.
         if (total(e.goods) === 0) hud.toast(`Your order went back: ${why}`, false, 3200);
         else note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats brought goods: −${c} coins` : e.short ? `${got} (the rest went back: ${why})` : got) });
-        scheduleSave();
+        scheduleSave("progress");
       } else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
         note({ kind: "event", key: `sold:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats took goods: +${c} coins` : `A boat took ${describeGoods(e.goods)}: +${c} coins`) });
-        scheduleSave();
+        scheduleSave("progress");
       }
     }
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
@@ -3133,6 +3219,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     townLife.reset();
     passengersOn();
     save();
+    cloud?.edited("game");
     openingView();
   }
 
@@ -3161,6 +3248,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (hasOlderSave(next)) loadFromStorage(next);
       setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false));
       restoreSession(next, false);
+      cloud?.edited(next);
     } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
@@ -3199,8 +3287,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function enter(next: GameMode): void {
     closeLines();
     mode = next;
+    progressSig = null;
     saveLastMode(mode);
     title.hide();
+    // What the start-up cloud check did to this mode's railway.
+    const note = cloudNotes[next];
+    if (note) {
+      delete cloudNotes[next];
+      hud.toast(CLOUD_NOTES[note], false, 7000);
+    }
     if (olderSave) {
       olderSave = false;
       hud.toast("Your last map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
@@ -3613,6 +3708,48 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   hud.setHistory(false, false);
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), trayThumbnailsSaved: () => trayThumbnailsSaved });
+  if (cloud) {
+    const card = new CloudCard(hud.root, cloud, {
+      mode: () => mode,
+      // Other railways are in storage now: the game starts again on them, without saving this one over them.
+      reload: () => {
+        playing = false;
+        clearTimeout(saveTimer);
+        reloadInto(mode);
+      },
+      toast: (m) => hud.toast(m),
+    });
+    hud.addCloudItem(() => card.show());
+    cloud.onNote = (_m, note) => note && hud.toast(CLOUD_NOTES[note], false, 7000);
+    // A newer copy from another device, taken while playing: the game starts again on it (without saving this one over
+    // it), and says so then.
+    cloud.mayTake = () => !interaction.busy;
+    // Game progress merged with another device's (the railway as it is here): taken up now, before the next save.
+    cloud.onMerged = (m) => {
+      if (m !== "game" || mode !== "game") return;
+      progress = Progress.fromJSON(loadProgress());
+      progress.coverMap(game.world);
+      progressSig = JSON.stringify(progress.toJSON());
+      crafting.setProgress(progress);
+      goals = new GoalTracker(loadGoals());
+      syncLandmarks();
+      hud.setCoins(progress.coins);
+      hud.refreshTrayBadges();
+      refreshBoard();
+      refreshPill();
+      checkGoals(false);
+    };
+    cloud.onTaken = (m, note) => {
+      try {
+        if (note) sessionStorage.setItem(CLOUD_NOTE_KEY, JSON.stringify({ mode: m, note }));
+      } catch {
+        // (Not said.)
+      }
+      playing = false;
+      clearTimeout(saveTimer);
+      reloadInto(mode);
+    };
+  }
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();
@@ -3785,6 +3922,9 @@ requestAnimationFrame(() =>
       loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (loadBar.set("thumbnails", 1), t)),
       models(),
     ]).then(async ([, thumbs]) => {
+      // The cloud check, under way all this while: waited for only a little longer than the rest took.
+      const cloudNotes = { ...takeCloudNote(), ...((await Promise.race([cloudStarted, sleep(CLOUD_WAIT_MS).then(() => ({}))])) as CloudNotes) };
+      cloud?.cutoff();
       // Only the pieces the opening railway has (and the title's picture) are waited for: the rest carry on carving
       // in the background, and any wanted before its turn shows as a stand-in for a moment.
       const opening = initialWorld();
@@ -3792,7 +3932,7 @@ requestAnimationFrame(() =>
       let ready = 0;
       await Promise.all(wanted.map((t) => TrackView.whenBuilt(t).then(() => loadBar.set("pieces", ++ready / wanted.length))));
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms (${wanted.length} kinds; the rest in the background)`);
-      boot(thumbs, opening);
+      boot(thumbs, opening, cloudNotes);
     });
   }, 30),
 );

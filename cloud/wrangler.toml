@@ -1,0 +1,13 @@
+# Woodrail's cloud saves (see README.md). Deployed by hand, never from CI.
+name = "woodrail-cloud"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[[r2_buckets]]
+binding = "SAVES"
+bucket_name = "woodrail-saves"
+
+[vars]
+# The pages that may call the Worker (comma separated): the deployed game. (Pages on localhost, any port, always may.)
+ALLOWED_ORIGINS = "https://dwfennell.github.io"
+# (And the secret CODE_KEY, set with `wrangler secret put CODE_KEY`: never here.)

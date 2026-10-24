@@ -11,7 +11,11 @@ const OUT = "dist-artifact";
 rmSync(OUT, { recursive: true, force: true });
 // Relative base: the page is served from the artifact's own path, not a domain root.
 // No update check: an artifact is republished by hand, so the build turns the check off and drops version.json.
-execFileSync("npx", ["vite", "build", "--base=./", "--outDir", OUT, "--emptyOutDir"], { stdio: "inherit", env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1" } });
+execFileSync("npx", ["vite", "build", "--base=./", "--outDir", OUT, "--emptyOutDir"], {
+  stdio: "inherit",
+  // (No cloud saves on claude.ai: the page can't reach the Worker.)
+  env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1", VITE_CLOUD_URL: "" },
+});
 rmSync(join(OUT, "version.json"), { force: true });
 
 const files = (dir) => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]));
