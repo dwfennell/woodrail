@@ -977,23 +977,29 @@ async function toastTapsThrough(p) {
     const at = () => {
       const q = t.getBoundingClientRect();
       const e = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
-      return e === t || t.contains(e) ? "toast" : (e?.tagName ?? "nothing");
+      return e === t || t.contains(e) ? "toast" : e?.tagName === "CANVAS" ? "CANVAS" : `${e?.tagName ?? "nothing"}.${String(e?.className ?? "").slice(0, 40)} toast ${Math.round(q.top)}-${Math.round(q.bottom)} it ${e ? Math.round(e.getBoundingClientRect().top) + "-" + Math.round(e.getBoundingClientRect().bottom) : ""}`;
     };
     w.hud.toast("A toast over the map, for the test", false, 60000);
     // (Up: shown, its slide in done, by what it is, not after a set time.)
     for (let i = 0; i < 600 && !(t.classList.contains("show") && getComputedStyle(t).transform.endsWith(", 0)")); i++) await new Promise((r) => setTimeout(r, 50));
     const idle = at();
+    // (Each a couple of frames on, as a finger comes: a card that opens with the mode (picking's) has had its resize
+    // seen, and the toast put clear of it.)
+    const later = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     w.interaction.setDrawing(true);
+    await later();
     const drawing = at();
     w.interaction.setDrawing(false);
     w.interaction.selectMore();
+    await later();
     const picking = at();
     w.interaction.doneSelecting();
+    await later();
     const after = at();
     w.hud.dismissToast();
     return { idle, drawing, picking, after };
   });
-  check("a toast takes a tap, but lets it through to the map while picking pieces or drawing (QA)", r.idle === "toast" && r.drawing !== "toast" && r.picking !== "toast" && r.after === "toast", JSON.stringify(r));
+  check("a toast takes a tap, but lets it through to the map (the canvas) while picking pieces or drawing (QA)", r.idle === "toast" && r.drawing === "CANVAS" && r.picking === "CANVAS" && r.after === "toast", JSON.stringify(r));
 }
 
 async function runMode(mode) {
