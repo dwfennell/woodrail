@@ -356,6 +356,7 @@ export class Economy {
         return out;
       },
       drive: (train) => this.drive(train),
+      atStop: (engine) => !!this.routes.get(engine)?.at,
       skipStops: (engine, pieces) => {
         const r = this.routes.get(engine);
         if (!r || r.stops.length === 0 || r.at) return;
