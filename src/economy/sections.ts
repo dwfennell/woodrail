@@ -460,6 +460,21 @@ export class Sections {
   private readonly slow = new Map<number, { key: string; topo: Topology; blocked: ReadonlySet<number>; more: number; spareCut: boolean; parked: boolean; other: boolean }>();
   /** When each engine was first seen on its line (for the room rule: the first ones are let run). */
   private readonly firstSeen = new Map<number, number>();
+  /**
+   * When each engine last came onto its line's track: put down, joined, or back from the hand or the box (a count).
+   * The room rule holds the newest: the one the player has just added, and can put away again.
+   */
+  private readonly joinedAt = new Map<number, number>();
+  private joins = 0;
+  /** Each line's trains on the track as last seen (to tell which have just come). */
+  private readonly seenOn = new Map<number, ReadonlySet<number>>();
+  /** Lines whose player has been told, once, that a train put on it has no room (see `onFull`). */
+  private readonly toldFull = new Set<number>();
+  /**
+   * Told once a line, when a train comes onto it with no room for it: how many trains it has room for, how many it
+   * has, and how many more loops would run them all.
+   */
+  onFull: ((lineId: number, room: number, trains: number, more: number) => void) | null = null;
   /** Loops on each line's way, by its stops and the track's revisions. */
   private readonly loopCount = new Map<number, { key: string; topo: Topology; n: number; set: ReadonlySet<number>; way: ReadonlySet<number>; regions: ReadonlySet<number>; pinnedLoop: boolean }>();
   /** Engines just granted a move: steer them now. */
@@ -1292,6 +1307,11 @@ export class Sections {
     let info = this.lineInfo.get(lineId);
     if (info) return info;
     const engines = this.host.live(lineId);
+    // (Just come onto it, in the order of their ids when several come at once: the newest last.)
+    const was = this.seenOn.get(lineId);
+    const fresh = engines.filter((e) => !was?.has(e) || !this.joinedAt.has(e)).sort((a, b) => a - b);
+    for (const e of fresh) this.joinedAt.set(e, ++this.joins);
+    if (fresh.length > 0 || !was || was.size !== engines.length) this.seenOn.set(lineId, new Set(engines));
     let longest = 0;
     for (const e of engines) {
       // (Car ids grow as trains are put down: the order they came to the track.)
@@ -1384,7 +1404,11 @@ export class Sections {
           }
           return sec ? 0 : end ? 1 : road ? 2 : 3;
         };
-        const byWhere = (a: number, b: number) => where(a) - where(b) || this.firstSeen.get(a)! - this.firstSeen.get(b)!;
+        // (The newest last: the one held when room runs out is the one just put on the line. The player put it there,
+        // and can take it off again: "Put away" on its card.)
+        const newest = (a: number, b: number) => (this.joinedAt.get(a) ?? 0) - (this.joinedAt.get(b) ?? 0);
+        // (Those whose holding would block most first, as `where` says; of those alike, the newest last.)
+        const byWhere = (a: number, b: number) => where(a) - where(b) || newest(a, b);
         // (Not one standing where a train let in is on its way to: the other has it; this one is the end of its way.)
         const inWay = (e: number, adm: ReadonlySet<number>): boolean => {
           const t = this.sim.findCar(e)?.train;
@@ -1408,6 +1432,12 @@ export class Sections {
           }
         };
         fill(admitted);
+        // (A train just come with no room for it: the player's told once a line what the line has room for.)
+        if (this.onFull && !this.toldFull.has(lineId) && fresh.some((e) => !admitted.has(e))) {
+          this.toldFull.add(lineId);
+          const room = roomOf(admitted);
+          this.onFull(lineId, room, engines.length, Math.max(1, engines.length - room));
+        }
         // Too many for the room left (a train came to stand on a loop's road): one gives up its room, never mid-way (only
         // one standing with no move, never one in a section: held there it'd block the line). The one whose giving up
         // lets the most run (others may be let in then), then one at a line end, then the one that came last.
@@ -1428,7 +1458,9 @@ export class Sections {
             fill(adm, e);
             const n = adm.size <= roomOf(adm) ? adm.size : -1;
             // (Of those letting as many run: one off its stops first (held on a stop, that stop is lost to the others).)
-            const cmp = !best ? -1 : n !== best.n ? best.n - n : onStop(e) !== onStop(best.e) ? (onStop(e) ? 1 : -1) : where(e) !== where(best.e) ? where(e) - where(best.e) : this.firstSeen.get(best.e)! - this.firstSeen.get(e)!;
+            // (Of those letting as many run: one off its stops first (held on a stop, that stop is lost to the others),
+            // then by where it stands, then the newest.)
+            const cmp = !best ? -1 : n !== best.n ? best.n - n : onStop(e) !== onStop(best.e) ? (onStop(e) ? 1 : -1) : where(e) !== where(best.e) ? where(e) - where(best.e) : newest(best.e, e);
             const better = cmp < 0;
             if (better) best = { e, adm, n };
           }
@@ -1763,7 +1795,11 @@ export class Sections {
         const lineId = this.host.lineOf(e);
         const adm = this.admitted.get(lineId);
         const at = this.swappedAt.get(lineId) ?? -Infinity;
-        if (adm && h !== undefined && st && !(st.move && !st.move.free) && standing(last) && now - at > SWAP_S * 120) {
+        // (Not the newest, held as the line has a train too many: the player put it there, its card says to put it
+        // away or lay a loop, and handing it room would only hold another, laden maybe, where it can't be put away.)
+        const newestOn = info.engines.reduce((x, y) => ((this.joinedAt.get(y) ?? 0) > (this.joinedAt.get(x) ?? 0) ? y : x), info.engines[0]);
+        const tooMany = info.engines.length > info.loops + 1 && h === newestOn;
+        if (adm && h !== undefined && !tooMany && st && !(st.move && !st.move.free) && standing(last) && now - at > SWAP_S * 120) {
           adm.delete(last);
           adm.add(h);
           this.swappedAt.set(lineId, now);
@@ -1952,6 +1988,33 @@ export class Sections {
   /** Forget engines no longer routed (the economy prunes). */
   prune(engines: ReadonlySet<number>): void {
     for (const e of [...this.states.keys()]) if (!engines.has(e)) this.states.delete(e);
+    for (const e of [...this.joinedAt.keys()]) if (!engines.has(e)) this.joinedAt.delete(e);
+  }
+
+  /**
+   * The train "Put away" on this engine's card puts back in the box: itself if its line has no room for it, else the
+   * newest of its line's held for room (its card says the line is full); −1: none (the line has room for all).
+   */
+  /** Is this engine one its line has no room for (held where it stands)? */
+  heldForRoom(engine: number): boolean {
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0) return false;
+    const info = this.line(lineId);
+    return info.managed && info.engines.includes(engine) && !info.admitted.has(engine);
+  }
+
+  putAwayFor(engine: number): number {
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0) return -1;
+    const info = this.line(lineId);
+    if (!info.managed || !info.engines.includes(engine)) return -1;
+    let best = -1;
+    for (const e of info.engines) {
+      if (info.admitted.has(e)) continue;
+      if (e === engine) return e;
+      if (best === -1 || (this.joinedAt.get(e) ?? 0) > (this.joinedAt.get(best) ?? 0)) best = e;
+    }
+    return best;
   }
 }
 

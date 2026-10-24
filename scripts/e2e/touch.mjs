@@ -996,6 +996,71 @@ async function toastTapsThrough(p) {
   check("a toast takes a tap, but lets it through to the map while picking pieces or drawing (QA)", r.idle === "toast" && r.drawing !== "toast" && r.picking !== "toast" && r.after === "toast", JSON.stringify(r));
 }
 
+/**
+ * The third-train trap: a line with a train too many shows "Put away" on its engines' cards. A tap on it puts that
+ * train back in the box; undo puts it back. At 360 px wide: the button and the line's toast fit. (Which train the line
+ * holds is the sections' to say, unit-tested there: here it's told this engine, so only the card and the tap are tested.)
+ */
+async function putAwayButton(p) {
+  await p.keyboard.press("Escape");
+  await p.setViewportSize({ width: 360, height: 740 });
+  await frames(p);
+  const placed = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { nearestCursor } = await import("/src/sim/nearest.ts");
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const g = w.interaction.groundAt(180, 300);
+    // (A straight of its own under the finger, then the engine on it.)
+    w.editor().place("straight-216", poseForCentre("straight-216", false, g.x, g.z, 0), 0, false);
+    const near = nearestCursor(w.layout, g.x, g.z, 120, 0);
+    const r = near && w.sim.addTrainAround(["engine"], near.cursor);
+    if (!r || r.kind !== "placed") return null;
+    const e = w.sim.getTrain(r.trainId).cars[0].id;
+    // (Held for room: this engine is the one to put away.)
+    w.economy.sections.putAwayFor = (x) => (x === e && w.sim.findCar(e) ? e : -1);
+    w.invalidate();
+    return { e, trains: w.sim.trainIds().length };
+  });
+  check("put away: an engine goes on the track", !!placed, JSON.stringify(placed));
+  if (!placed) return;
+  await frames(p);
+  // Open its card: a tap on the engine.
+  await tapped(p, () => p.touchscreen.tap(180, 300));
+  await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 60000 });
+  await p.waitForFunction(() => !document.querySelector(".engine-card .put-away").hidden, null, { timeout: 60000 });
+  const fit = await p.evaluate(() => {
+    const b = document.querySelector(".engine-card .put-away").getBoundingClientRect();
+    const c = document.querySelector(".engine-card").getBoundingClientRect();
+    const lh = parseFloat(getComputedStyle(document.querySelector(".engine-card .put-away")).lineHeight) || 20;
+    return { left: b.left, right: b.right, h: b.height, lh, card: [c.left, c.right], vw: innerWidth };
+  });
+  check("put away: the card's button fits at 360 px, on one line", fit.left >= 0 && fit.right <= fit.vw && fit.right <= fit.card[1] && fit.h < 2 * fit.lh + 24, JSON.stringify(fit));
+  const box = await (await p.$(".engine-card .put-away")).boundingBox();
+  await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
+  const gone = await p.evaluate((e) => ({ on: !!window.woodrail.sim.findCar(e), trains: window.woodrail.sim.trainIds().length, card: !document.querySelector(".engine-card").hidden }), placed.e);
+  check("put away: a tap on it puts the train back in the box, and the card closes", !gone.on && gone.trains === placed.trains - 1 && !gone.card, JSON.stringify(gone));
+  await p.keyboard.press("Control+z");
+  await frames(p);
+  const back = await p.evaluate((e) => ({ on: !!window.woodrail.sim.findCar(e), trains: window.woodrail.sim.trainIds().length }), placed.e);
+  check("put away: undo puts it back where it stood", back.on && back.trains === placed.trains, JSON.stringify(back));
+  // The line's toast, said once: on one phone toast at 360 px (two lines at most).
+  const toast = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { fullLineToast } = await import("/src/game/engine-status.ts");
+    const t = document.querySelector(".toast");
+    w.hud.toast(fullLineToast(2, 3, 1), false, 60000);
+    for (let i = 0; i < 600 && !(t.classList.contains("show") && getComputedStyle(t).transform.endsWith(", 0)")); i++) await new Promise((r) => setTimeout(r, 50));
+    const r = t.getBoundingClientRect();
+    const lh = parseFloat(getComputedStyle(t).lineHeight) || 20;
+    const out = { text: t.textContent, left: r.left, right: r.right, lines: Math.round((r.height - parseFloat(getComputedStyle(t).paddingTop) - parseFloat(getComputedStyle(t).paddingBottom)) / lh), vw: innerWidth };
+    w.hud.dismissToast();
+    return out;
+  });
+  check("put away: the line's toast fits one phone toast at 360 px", toast.left >= 0 && toast.right <= toast.vw && toast.lines <= 2, JSON.stringify(toast));
+  await p.setViewportSize({ width: 390, height: 844 });
+  await frames(p);
+}
+
 async function runMode(mode) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -1046,6 +1111,7 @@ async function runMode(mode) {
     await leverPins(ctx, p);
     await shortUnderCar(ctx, p);
     await toastTapsThrough(p);
+    await putAwayButton(p);
   }
   await ctx.close();
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CARGO, Economy } from "../economy";
 import { Sim, SIM_DT } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
-import { engineStatus, headOnTip, trainState, trainsForReport } from "./engine-status";
+import { engineStatus, fullLineToast, headOnTip, trainState, trainsForReport } from "./engine-status";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] } {
   const layout = new Layout();
@@ -309,5 +309,14 @@ describe("headOnTip", () => {
     expect(headOnTip(new Set(["switches"]))).toBe("Trains met head on. Learn Signals so they can pass on a loop");
     expect(headOnTip(new Set(["switches", "signals"]))).toBe("Trains met head on. A passing loop with signals lets them pass");
     expect(headOnTip(null)).toContain("signals");
+  });
+});
+
+describe("the full line's toast", () => {
+  it("says what the line has room for, and what would run them all, short", () => {
+    expect(fullLineToast(2, 3, 1)).toBe("This line has room for 2 trains. Lay another passing loop to run 3.");
+    expect(fullLineToast(1, 2, 1)).toBe("This line has room for 1 train. Lay a passing loop to run 2.");
+    expect(fullLineToast(2, 4, 2)).toBe("This line has room for 2 trains. Lay 2 more passing loops to run 4.");
+    for (const t of [fullLineToast(2, 3, 1), fullLineToast(9, 12, 3)]) expect(t.length).toBeLessThanOrEqual(72);
   });
 });

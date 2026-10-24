@@ -373,3 +373,16 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
 - **Removing a train takes it off its line at once.** Remove, or a train dropped back in the box, prunes the
   economy straight away. Before, it stayed on its line until the next track edit, so counts said one train too many.
   A train picked up into the hand keeps its line.
+- **The third-train trap.** With 3 trains on a 1-loop line nothing delivers, whichever is held. Held on a loop's road,
+  a train takes that loop and a second must be held. Anywhere else it's at an end, where the stops are, or on the
+  single track. So the player gets the way out:
+  - The room rule holds the newest: the train last put down or joined (`Sections.joinedAt`), the ties of where
+    trains stand as before. The held-train hand-over doesn't hand that one the room when the line has more trains
+    than loops + 1. The player put it there and can put it away; handing it room would hold another, laden maybe.
+  - Said once a line, when a train comes onto it with no room (`Sections.onFull`): "This line has room for 2
+    trains. Lay another passing loop to run 3."
+  - "Put away" on the card of the held train, and of its line's others: the held one (the newest held) back in the
+    box (`put-away.ts`), as one undo step. Undo puts it back where it stood, on its line, held again (refused if
+    something has come to stand there).
+  - A train waiting on its line's held one says the line is full ("Waiting: the line is full. Lay 1 more passing
+    loop"), not "Waiting for the Red line train".
