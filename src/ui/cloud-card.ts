@@ -61,7 +61,12 @@ export class CloudCard {
     const was = cloud.onStatus;
     cloud.onStatus = (s) => {
       was(s);
-      if (!this.root.hidden && !this.busy) this.draw();
+      if (this.root.hidden || this.busy) return;
+      // Only the status line, when that's all that changed: drawn afresh, the card's buttons would be swapped under a
+      // finger mid-tap (QA: a Turn off's second tap lost).
+      const line = this.root.querySelector(".cloud-status");
+      if (line && !this.entering && this.cloud.code !== null) line.textContent = statusText(s, Date.now());
+      else this.draw();
     };
   }
 

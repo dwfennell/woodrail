@@ -14,6 +14,15 @@ import { newCode, parseCode } from "./sync-code";
  */
 
 export const UPLOAD_EVERY_MS = 30_000;
+/** Progress alone (coins, goals, towns growing, with trains running) goes up at most this often: cheap, but bounded. */
+export const PROGRESS_EVERY_MS = 60_000;
+
+/**
+ * What an edit was: the player's (the railway laid out, things made, picked, moved: `layout`), or the game's own
+ * running on (deliveries' coins, fares, goals ticked, towns growing: `progress`). A layout edit outranks progress in a
+ * conflict: a device left running never wins over another device's building just by earning later.
+ */
+export type EditKind = "layout" | "progress";
 /** A bundle no bigger than this goes with `keepalive` as the page closes (browsers allow 64 KB in all). */
 const KEEPALIVE_MAX = 60_000;
 const META_KEY = "woodrail.cloud.v1";
@@ -27,6 +36,8 @@ export interface RemoteMeta {
   saveVersion: number;
   /** When the cloud stored it, by the cloud's clock (ms; 0: not said). */
   storedAt?: number;
+  /** When a copy with a layout edit was last stored there, by the cloud's clock (this one or an earlier; 0: not said). */
+  layoutAt?: number;
 }
 
 /** A reply from the cloud, or why there's none: `status` 0 is no connection at all. */
@@ -38,8 +49,11 @@ export interface CloudBackend {
   readonly clockOffset?: number;
   head(code: string, mode: GameMode): Promise<Reply<RemoteMeta | null>>;
   get(code: string, mode: GameMode): Promise<Reply<{ meta: RemoteMeta; bytes: Uint8Array } | null>>;
-  /** Stored only if the copy there is still `base` (its `savedAt`; 0: none), else a 409. */
-  put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, keepalive: boolean): Promise<Reply<void>>;
+  /**
+   * Stored only if the copy there is still `base` (its `savedAt`; 0: none), else a 409. `kind`: has it a layout edit
+   * (since the copy it was made from)? The answer: when the cloud stored it, by its clock (0: not said).
+   */
+  put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, kind: EditKind, keepalive: boolean): Promise<Reply<{ storedAt: number }>>;
 }
 
 export type KeyStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -60,6 +74,11 @@ interface ModeMeta {
   dirty: boolean;
   /** When it was last edited here (ms). */
   changedAt: number;
+  /** Any of those edits the player's (`layout`), and when the last was (ms; 0: none). */
+  layout: boolean;
+  layoutAt: number;
+  /** When the cloud stored the copy this device last sent or took, by the cloud's clock (0: not known). */
+  remoteStoredAt: number;
   /**
    * The copy last sent, until the cloud's answer is in (its `savedAt`; 0: none). A copy sent with `keepalive` as the
    * page closed has no answer here: found in the cloud at the next start, it's known as this device's own.
@@ -104,6 +123,10 @@ export class CloudSync {
   private readonly sent: Record<GameMode, Map<string, string | null> | null> = { sandbox: null, game: null };
   /** Counts changes, so one made while an upload is on its way keeps the mode dirty. */
   private readonly gen: Record<GameMode, number> = { sandbox: 0, game: 0 };
+  /** Whether each mode's dirty edits were already known to include a layout one (`edited`: its meta written once). */
+  private readonly wasLayout: Record<GameMode, boolean> = { sandbox: false, game: false };
+  /** When the upload timer goes off (`o.now()`), or Infinity. */
+  private due = Infinity;
   private readonly busy = new Set<GameMode>();
   private readonly newer = new Set<GameMode>();
   /** Past the start-up check's deadline: it no longer writes a cloud copy into storage (the game has read it). */
@@ -117,6 +140,11 @@ export class CloudSync {
    * game should load it again (`note` says what happened, for after).
    */
   onTaken: (mode: GameMode, note: SyncNote) => void = () => {};
+  /**
+   * May a newer copy be taken now, while playing (the game starts again on it)? Not mid-gesture (a finger down, a
+   * piece in hand): then it waits for the next round, as the rewards sheet does.
+   */
+  mayTake: () => boolean = () => true;
   /** A turn on, a code taken in, or a restore, under way (each waits for the other). */
   private working = false;
   /** The upload under way (the timer's, or `flush`'s), for `idle`. */
@@ -148,7 +176,7 @@ export class CloudSync {
   async start(): Promise<Partial<Record<GameMode, SyncNote>>> {
     const code = this.meta.code;
     if (!code) return {};
-    const notes = await Promise.all(MODES.map((m) => this.reconcile(code, m, "start")));
+    const notes = (await Promise.all(MODES.map((m) => this.reconcile(code, m, "start")))).map((n) => (n === "wait" ? null : n));
     const out: Partial<Record<GameMode, SyncNote>> = {};
     MODES.forEach((m, i) => notes[i] && (out[m] = notes[i]));
     for (const m of MODES) if (this.meta.modes[m].dirty) this.arm();
@@ -164,19 +192,24 @@ export class CloudSync {
    * The mode's railway was edited (the game's save after a change, `scheduleSave`; not its 5 s save of the clock and
    * the trains rolling on): it goes up within `UPLOAD_EVERY_MS`. Cheap.
    */
-  edited(mode: GameMode): void {
+  edited(mode: GameMode, kind: EditKind = "layout"): void {
     const m = this.meta.modes[mode];
     m.changedAt = this.o.now();
+    if (kind === "layout") {
+      m.layoutAt = m.changedAt;
+      m.layout = true;
+    }
     // Off: only when it was edited is kept (a railway kept aside when a code is taken in is labelled by it).
     if (!this.meta.code) {
       this.writeMeta();
       return;
     }
     this.gen[mode]++;
-    if (!m.dirty) {
+    if (!m.dirty || (kind === "layout" && !this.wasLayout[mode])) {
       m.dirty = true;
       this.writeMeta();
     }
+    this.wasLayout[mode] = m.layout;
     this.arm();
   }
 
@@ -194,6 +227,7 @@ export class CloudSync {
     if (this.timer !== null) {
       this.o.clearTimer(this.timer);
       this.timer = null;
+      this.due = Infinity;
     }
     if (!this.meta.code) return;
     const run = Promise.all(MODES.map((m) => this.upload(m, leaving))).then(() => {});
@@ -216,7 +250,8 @@ export class CloudSync {
       for (const m of MODES) {
         this.sent[m] = null;
         const here = this.o.storage.getItem(this.o.keys[m][0]) !== null;
-        this.meta.modes[m] = { ...freshMode(), dirty: here, changedAt: here ? was[m].changedAt || this.o.now() : 0 };
+        // (A railway's first copy up is all of it: the player's.)
+        this.meta.modes[m] = { ...freshMode(), dirty: here, layout: here, changedAt: here ? was[m].changedAt || this.o.now() : 0, layoutAt: here ? was[m].changedAt || this.o.now() : 0 };
       }
       this.writeMeta();
       this.setStatus({ kind: "saving" });
@@ -254,8 +289,8 @@ export class CloudSync {
     const modes = { sandbox: freshMode(), game: freshMode() };
     for (const [i, mode] of MODES.entries()) {
       if (remote[i] === null) {
-        modes[mode].dirty = this.o.storage.getItem(this.o.keys[mode][0]) !== null;
-        modes[mode].changedAt = this.o.now();
+        const here = this.o.storage.getItem(this.o.keys[mode][0]) !== null;
+        modes[mode] = { ...modes[mode], dirty: here, layout: here, changedAt: this.o.now(), layoutAt: this.o.now() };
         continue;
       }
       const got = await this.o.backend.get(code, mode);
@@ -265,6 +300,7 @@ export class CloudSync {
       if (this.o.storage.getItem(this.o.keys[mode][0]) !== null) await this.keepBackup(mode, this.bundleHere(mode, this.meta.modes[mode].changedAt || this.o.now()));
       if (!this.apply(bundle)) return { ok: false, error: "offline" };
       modes[mode].remoteSavedAt = modes[mode].changedAt = got.value.meta.savedAt;
+      modes[mode].remoteStoredAt = got.value.meta.storedAt ?? 0;
       took.push(mode);
     }
     this.meta = { code, modes };
@@ -326,7 +362,7 @@ export class CloudSync {
    * both were, the one edited later wins and the other is kept as the backup. Taken while playing (`before-put`), the
    * game is told to load it (`onTaken`).
    */
-  private async reconcile(code: string, mode: GameMode, when: "start" | "before-put"): Promise<SyncNote> {
+  private async reconcile(code: string, mode: GameMode, when: "start" | "before-put"): Promise<SyncNote | "wait"> {
     const head = await this.o.backend.head(code, mode);
     if (!head.ok) {
       if (head.status === 0) this.setStatus({ kind: "offline" });
@@ -351,7 +387,11 @@ export class CloudSync {
     // This device's own, sent as its page closed (no answer came back to say so).
     if (m.sentAt !== 0 && remote.savedAt === m.sentAt) {
       m.remoteSavedAt = m.sentAt;
-      if (m.changedAt <= m.sentAt) m.dirty = false;
+      m.remoteStoredAt = remote.storedAt ?? 0;
+      if (m.changedAt <= m.sentAt) {
+        m.dirty = false;
+        m.layout = false;
+      }
       m.sentAt = 0;
       this.writeMeta();
       return null;
@@ -363,24 +403,32 @@ export class CloudSync {
     if (!bundle) return null;
     // (When the other copy was made: when the cloud stored it, by this device's clock, so two devices' clocks never
     // disagree about which edit came later; by the other's own clock if the cloud didn't say.)
-    const storedAt = remote.storedAt ? remote.storedAt - (this.o.backend.clockOffset ?? 0) : remote.savedAt;
-    const cloudWins = !here || !m.dirty || storedAt > m.changedAt;
+    const offset = this.o.backend.clockOffset ?? 0;
+    const storedAt = remote.storedAt ? remote.storedAt - offset : remote.savedAt;
+    // A layout edit there since the copy this device last had (not said, or the copy it had not known: taken as one).
+    const theirLayout = remote.layoutAt === undefined || (remote.layoutAt > 0 && (!m.remoteStoredAt || remote.layoutAt > m.remoteStoredAt));
+    const cloudWins = !here || !m.dirty || (theirLayout !== m.layout ? theirLayout : m.layout ? (remote.layoutAt ? remote.layoutAt - offset : storedAt) > m.layoutAt : storedAt > m.changedAt);
     if (cloudWins) {
       if (when === "start" && this.late) return null;
+      // (Not mid-gesture: tried again on the next round.)
+      if (when === "before-put" && !this.mayTake()) return "wait";
       // Edited here as well: this device's copy is kept aside.
       const both = here && m.dirty;
       if (both) await this.keepBackup(mode, this.bundleHere(mode, m.changedAt));
       if (!this.apply(bundle)) return null;
-      this.meta.modes[mode] = { remoteSavedAt: got.value.meta.savedAt, dirty: false, changedAt: got.value.meta.savedAt, sentAt: 0 };
+      this.meta.modes[mode] = { ...freshMode(), remoteSavedAt: got.value.meta.savedAt, changedAt: storedAt, remoteStoredAt: remote.storedAt ?? 0 };
+      this.wasLayout[mode] = false;
       this.sent[mode] = null;
       this.writeMeta();
       const note: SyncNote = both ? "took-cloud" : null;
       if (when === "before-put") this.onTaken(mode, note);
       return note;
     }
-    // This device's was edited later: the cloud's is kept aside, and this one goes up over it.
-    await this.keepBackup(mode, bundle);
+    // This device's wins (a layout edit over progress, or the later): the cloud's is kept aside (dated by when the cloud
+    // stored it, on this device's clock), and this one goes up over it.
+    await this.keepBackup(mode, { ...bundle, savedAt: storedAt });
     m.remoteSavedAt = got.value.meta.savedAt;
+    m.remoteStoredAt = remote.storedAt ?? 0;
     m.dirty = true;
     this.writeMeta();
     return when === "start" ? "kept-here" : "both-changed";
@@ -404,6 +452,10 @@ export class CloudSync {
       // over another device's, it's turned away, and settled at the next start.)
       if (!leaving) {
         const note = await this.reconcile(code, mode, "before-put");
+        if (note === "wait") {
+          this.arm();
+          return;
+        }
         // (Taken from the cloud: nothing of this one's left to send.)
         if (!m.dirty) return;
         if (note) this.onNote(mode, note);
@@ -415,14 +467,20 @@ export class CloudSync {
       m.sentAt = savedAt;
       this.writeMeta();
       const bytes = await gzip(JSON.stringify(bundleOf(mode, savedAt, this.o.saveVersion, keys)));
-      const res = await this.o.backend.put(code, mode, bytes, { savedAt, saveVersion: this.o.saveVersion }, m.remoteSavedAt, leaving && bytes.byteLength <= KEEPALIVE_MAX);
+      const kind: EditKind = m.layout ? "layout" : "progress";
+      const res = await this.o.backend.put(code, mode, bytes, { savedAt, saveVersion: this.o.saveVersion }, m.remoteSavedAt, kind, leaving && bytes.byteLength <= KEEPALIVE_MAX);
       // (Turned off, or another code taken, meanwhile.)
       if (this.meta.code !== code) return;
       if (res.ok) {
         m.remoteSavedAt = savedAt;
+        m.remoteStoredAt = res.value.storedAt;
         m.sentAt = 0;
         this.sent[mode] = keys;
-        if (gen === this.gen[mode]) m.dirty = false;
+        if (gen === this.gen[mode]) {
+          m.dirty = false;
+          m.layout = false;
+          this.wasLayout[mode] = false;
+        }
         this.writeMeta();
         this.settle();
       } else {
@@ -446,12 +504,21 @@ export class CloudSync {
     return MODES.some((m) => this.meta.modes[m].dirty && !this.newer.has(m));
   }
 
+  /** The upload timer: 30 s after a layout edit, 60 s when there's only progress to send (a sooner one replaces it). */
   private arm(): void {
-    if (this.timer !== null) return;
+    const layout = MODES.some((m) => this.meta.modes[m].dirty && this.meta.modes[m].layout);
+    const ms = layout ? UPLOAD_EVERY_MS : PROGRESS_EVERY_MS;
+    const due = this.o.now() + ms;
+    if (this.timer !== null) {
+      if (due >= this.due) return;
+      this.o.clearTimer(this.timer);
+    }
+    this.due = due;
     this.timer = this.o.setTimer(() => {
       this.timer = null;
+      this.due = Infinity;
       this.flushing = this.flush();
-    }, UPLOAD_EVERY_MS);
+    }, ms);
   }
 
   private setStatus(s: CloudStatus): void {
@@ -549,7 +616,7 @@ export class CloudSync {
   }
 }
 
-const freshMode = (): ModeMeta => ({ remoteSavedAt: 0, dirty: false, changedAt: 0, sentAt: 0 });
+const freshMode = (): ModeMeta => ({ remoteSavedAt: 0, dirty: false, changedAt: 0, layout: false, layoutAt: 0, remoteStoredAt: 0, sentAt: 0 });
 
 function bundleOf(mode: GameMode, savedAt: number, saveVersion: number, keys: Map<string, string | null>): CloudBundle {
   const out: Record<string, string> = {};
@@ -619,7 +686,7 @@ export class WorkerBackend implements CloudBackend {
     }
   }
 
-  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, keepalive: boolean): Promise<Reply<void>> {
+  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, kind: EditKind, keepalive: boolean): Promise<Reply<{ storedAt: number }>> {
     const res = await this.call("PUT", code, mode, {
       body: bytes as BodyInit,
       keepalive,
@@ -629,10 +696,11 @@ export class WorkerBackend implements CloudBackend {
         "X-Save-Version": String(meta.saveVersion),
         "X-Game-Version": this.gameVersion,
         "X-Base-Saved-At": String(base),
+        "X-Edit-Kind": kind,
       },
     });
     if (!res) return { ok: false, status: 0 };
-    return res.ok ? { ok: true, value: undefined } : { ok: false, status: res.status };
+    return res.ok ? { ok: true, value: { storedAt: Number(res.headers.get("X-Stored-At") ?? 0) } } : { ok: false, status: res.status };
   }
 
   private async call(method: string, code: string, mode: GameMode, init: { body?: BodyInit; keepalive?: boolean; headers?: Record<string, string> } = {}): Promise<Response | null> {
@@ -659,6 +727,7 @@ const metaOf = (res: Response): RemoteMeta => ({
   savedAt: Number(res.headers.get("X-Saved-At") ?? 0),
   saveVersion: Number(res.headers.get("X-Save-Version") ?? 0),
   storedAt: Number(res.headers.get("X-Stored-At") ?? 0),
+  layoutAt: Number(res.headers.get("X-Layout-At") ?? 0),
 });
 
 /** The status as the Cloud save card says it. */

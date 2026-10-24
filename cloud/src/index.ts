@@ -10,6 +10,9 @@
  * it, and answers in headers: `X-Saved-At` (ms, when the game made the bundle), `X-Save-Version` (the game's save
  * format) and `X-Game-Version` (its build).
  *
+ * A PUT says whether its copy has a layout edit (`X-Edit-Kind: layout`) or only the game's progress (`progress`), and
+ * the Worker keeps when a layout one was last stored (`X-Layout-At`), so the games can rank a conflict.
+ *
  * A PUT may say which copy it was made from (`X-Base-Saved-At`: that copy's `X-Saved-At`, 0 for none): if another has
  * been stored since, it's turned away (409), so a device never writes over a copy it hasn't seen.
  */
@@ -27,7 +30,7 @@ export interface Env {
 /** Three words of 3 to 5 letters and four digits, as the game sends it (lowercase, hyphenated): about 43 bits. */
 const CODE = /^[a-z]{3,5}-[a-z]{3,5}-[a-z]{3,5}-\d{4}$/;
 const PATH = /^\/v1\/saves\/([a-z]+)$/;
-const EXPOSED = "X-Saved-At, X-Save-Version, X-Game-Version, X-Stored-At, X-Server-Now";
+const EXPOSED = "X-Saved-At, X-Save-Version, X-Game-Version, X-Stored-At, X-Layout-At, X-Server-Now";
 /** Any port on this machine (the dev server, a preview, a test's own): a page there is the developer's. */
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
@@ -54,7 +57,7 @@ export default {
           status: 204,
           headers: {
             "Access-Control-Allow-Methods": "GET, HEAD, PUT, OPTIONS",
-            "Access-Control-Allow-Headers": "X-Woodrail-Code, X-Saved-At, X-Save-Version, X-Game-Version, X-Base-Saved-At, Content-Type",
+            "Access-Control-Allow-Headers": "X-Woodrail-Code, X-Saved-At, X-Save-Version, X-Game-Version, X-Base-Saved-At, X-Edit-Kind, Content-Type",
             "Access-Control-Max-Age": "86400",
           },
         }),
@@ -106,14 +109,17 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const old = current ? await env.SAVES.get(key) : null;
     const oldBody = old ? await old.arrayBuffer() : null;
     const gameVersion = (request.headers.get("X-Game-Version") ?? "").slice(0, 40);
+    // When a copy with a layout edit (the player's, not just the game's progress) was last stored: carried on by a
+    // progress-only one, so a game can tell if there's been a layout edit since the copy it last had.
+    const layoutAt = request.headers.get("X-Edit-Kind") === "progress" ? (current?.customMetadata?.layoutAt ?? "0") : String(now);
     // Only over the copy checked above: another PUT that got in between wins, and this one is a 409.
     const stored = await env.SAVES.put(key, body, {
-      customMetadata: { savedAt: String(savedAt), saveVersion: String(saveVersion), gameVersion, putAt: String(now) },
+      customMetadata: { savedAt: String(savedAt), saveVersion: String(saveVersion), gameVersion, putAt: String(now), layoutAt },
       onlyIf: current ? { etagMatches: current.etag } : undefined,
     });
     if (stored === null) return text(409, "Changed since");
     if (old && oldBody) await env.SAVES.put(`${key}.prev`, oldBody, { customMetadata: old.customMetadata });
-    return text(200, "Saved");
+    return text(200, "Saved", { "X-Stored-At": String(now) });
   }
 
   return text(405, "Method not allowed", { Allow: "GET, HEAD, PUT, OPTIONS" });
@@ -122,7 +128,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
 function metaHeaders(obj: R2Object): Headers {
   const meta = obj.customMetadata ?? {};
   // (`X-Stored-At`: when the Worker stored it, by its own clock: games compare edits by it, not by each other's clocks.)
-  return new Headers({ "X-Saved-At": meta.savedAt ?? "0", "X-Save-Version": meta.saveVersion ?? "0", "X-Game-Version": meta.gameVersion ?? "", "X-Stored-At": meta.putAt ?? "0" });
+  return new Headers({ "X-Saved-At": meta.savedAt ?? "0", "X-Save-Version": meta.saveVersion ?? "0", "X-Game-Version": meta.gameVersion ?? "", "X-Stored-At": meta.putAt ?? "0", "X-Layout-At": meta.layoutAt ?? "0" });
 }
 
 /** The body, or null once it runs past `max` bytes (Content-Length can be missing, or wrong). */

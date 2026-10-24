@@ -11,7 +11,7 @@ import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, rui
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
-import { cloudSupported, CloudSync, WorkerBackend, type SyncNote } from "./persist/cloud";
+import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker, secondEngineTip, trayRing } from "./game/goals";
 import { makesLine } from "./game/learn-text";
@@ -975,9 +975,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     scheduleSave();
   }
 
-  function scheduleSave(): void {
-    // (An edit: what the cloud sends. The 5 s save of the clock and the trains rolling on isn't one.)
-    cloud?.edited(mode);
+  /** Game mode's progress as last saved (null: not yet, in this mode's railway), to tell when it's changed. */
+  let progressSig: string | null = null;
+
+  /**
+   * Save soon after a change. `kind`: the player's edit (`layout`), or the game's progress (deliveries, research,
+   * boats, growth): what the cloud sends, and which wins a conflict (`CloudSync`). The 5 s save of the clock and the
+   * trains rolling on isn't an edit.
+   */
+  function scheduleSave(kind: EditKind = "layout"): void {
+    cloud?.edited(mode, kind);
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(save, 600);
   }
@@ -987,7 +994,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!playing) return;
     saveToStorage(game.world, mode);
     saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() });
-    if (mode === "game") saveProgress(progress.toJSON());
+    if (mode === "game") {
+      const data = progress.toJSON();
+      saveProgress(data);
+      // Progress the game made on its own (a delivery's coins, research studied, the first flour): an edit, of the
+      // progress kind, though nothing called for a save (QA: delivery coins never went up).
+      const sig = JSON.stringify(data);
+      if (progressSig !== null && sig !== progressSig) cloud?.edited("game", "progress");
+      progressSig = sig;
+    }
   }
 
   /** The railway's date in the top bar (Game mode), from the game's clock: shown as it turns (asked about once a second). */
@@ -1273,9 +1288,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         checkGoals(true); // (its tick is logged after the growth)
       }
       audio.chime();
+      // (A town grown is the game's progress, gift or not.)
+      cloud?.edited(mode, "progress");
       if (gift.length > 0 || offer) {
         refreshBoard();
-        scheduleSave();
+        scheduleSave("progress");
       }
       // The sheet comes up for it, unless a finger's on the map (a drag isn't cut short) or a panel's open: then the
       // toast and the badge wait for a tap.
@@ -1309,6 +1326,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       interaction.guideSpots = [];
       hud.refreshTrayBadges();
       saveGoals(goals.ids());
+      cloud?.edited(mode, "progress");
       if (announce) {
         const titles = fresh.map((g) => g.title);
         const tick = goalsDoneText(titles, TOAST_TITLES);
@@ -1668,7 +1686,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Old industries' ruins it opens: the nearest is named, to restore.
     ruinOpened(id);
     save();
-    cloud?.edited(mode);
+    cloud?.edited(mode, "progress");
   }
 
   /** The school research goods go to: one beside a town, by name ("Larkfield school"), or null if none is placed. */
@@ -1845,7 +1863,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else if (progress.research.current !== was) {
         // Next up started (its coins came in): schools take its goods now.
         game.economy.acceptsChanged();
-        scheduleSave();
+        scheduleSave("progress");
       }
     }
     if (mode !== "game" || !playing || game.paused || progress.orders.length === 0) return;
@@ -1862,7 +1880,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.toast(said, true, said.length > 40 ? 3600 : 2400);
     audio.chime();
     hud.refreshTrayBadges();
-    scheduleSave();
+    scheduleSave("progress");
   }, CRAFT_STEP * 1000);
   // A farm yard's card (Game mode): its fields, how fast that makes it work, and a field to plant with coins.
   let farmShown = "";
@@ -1930,11 +1948,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Goods brought to a school go into the research (saved soon after: a train brings them in a burst).
     attachResearch(game.economy, () => progress, () => {
       refreshPill();
-      scheduleSave();
+      scheduleSave("progress");
     });
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
-      scheduleSave();
+      scheduleSave("progress");
     });
   }
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
@@ -1966,11 +1984,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // An order that all went back is a refusal (a plain toast); a delivery is logged quietly.
         if (total(e.goods) === 0) hud.toast(`Your order went back: ${why}`, false, 3200);
         else note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats brought goods: −${c} coins` : e.short ? `${got} (the rest went back: ${why})` : got) });
-        scheduleSave();
+        scheduleSave("progress");
       } else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
         note({ kind: "event", key: `sold:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats took goods: +${c} coins` : `A boat took ${describeGoods(e.goods)}: +${c} coins`) });
-        scheduleSave();
+        scheduleSave("progress");
       }
     }
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
@@ -3249,6 +3267,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function enter(next: GameMode): void {
     closeLines();
     mode = next;
+    progressSig = null;
     saveLastMode(mode);
     title.hide();
     // What the start-up cloud check did to this mode's railway.
@@ -3677,6 +3696,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     cloud.onNote = (_m, note) => note && hud.toast(CLOUD_NOTES[note], false, 7000);
     // A newer copy from another device, taken while playing: the game starts again on it (without saving this one over
     // it), and says so then.
+    cloud.mayTake = () => !interaction.busy;
     cloud.onTaken = (m, note) => {
       try {
         if (note) sessionStorage.setItem(CLOUD_NOTE_KEY, JSON.stringify({ mode: m, note }));

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GameMode } from "../game/modes";
-import { CloudSync, gunzip, statusText, UPLOAD_EVERY_MS, type CloudBackend, type KeyStore, type RemoteMeta, type Reply } from "./cloud";
+import { CloudSync, gunzip, PROGRESS_EVERY_MS, statusText, UPLOAD_EVERY_MS, type CloudBackend, type EditKind, type KeyStore, type RemoteMeta, type Reply } from "./cloud";
 import { WORDS } from "./code-words";
 import { newCode, parseCode, showCode } from "./sync-code";
 
@@ -26,6 +26,8 @@ class FakeCloud implements CloudBackend {
   readonly saves = new Map<string, { meta: RemoteMeta; bytes: Uint8Array }>();
   puts = 0;
   offline = false;
+  /** Each PUT's kind, in order. */
+  readonly kinds: EditKind[] = [];
   /** Stored, but the answer never comes (the page closed). */
   hangPuts = false;
   /** The cloud's own clock, when a test has one: copies are stored at its time (`storedAt`). */
@@ -39,14 +41,17 @@ class FakeCloud implements CloudBackend {
     if (this.offline) return { ok: false, status: 0 };
     return { ok: true, value: this.saves.get(`${code}/${mode}`) ?? null };
   }
-  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number): Promise<Reply<void>> {
+  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, kind: EditKind): Promise<Reply<{ storedAt: number }>> {
     if (this.offline) return { ok: false, status: 0 };
     if (this.reply429) return { ok: false, status: 429 };
     if ((this.saves.get(`${code}/${mode}`)?.meta.savedAt ?? 0) !== base) return { ok: false, status: 409 };
     this.puts++;
-    this.saves.set(`${code}/${mode}`, { meta: this.server ? { ...meta, storedAt: this.server.t } : meta, bytes });
+    const was = this.saves.get(`${code}/${mode}`)?.meta;
+    const storedAt = this.server ? this.server.t : meta.savedAt;
+    this.saves.set(`${code}/${mode}`, { meta: { ...meta, storedAt, layoutAt: kind === "layout" ? storedAt : (was?.layoutAt ?? 0) }, bytes });
+    this.kinds.push(kind);
     if (this.hangPuts) return new Promise(() => {});
-    return { ok: true, value: undefined };
+    return { ok: true, value: { storedAt } };
   }
   async keysOf(code: string, mode: GameMode): Promise<Record<string, string>> {
     return (JSON.parse(await gunzip(this.saves.get(`${code}/${mode}`)!.bytes)) as { keys: Record<string, string> }).keys;
@@ -63,7 +68,7 @@ function device(cloud: CloudBackend & FakeCloud, store = new MemStore(), clock =
     saveVersion: 13,
     now: () => clock.t,
     setTimer: (fn, ms) => {
-      expect(ms).toBe(UPLOAD_EVERY_MS);
+      expect([UPLOAD_EVERY_MS, PROGRESS_EVERY_MS]).toContain(ms);
       timers.push(fn);
       return timers.length;
     },
@@ -84,10 +89,10 @@ function device(cloud: CloudBackend & FakeCloud, store = new MemStore(), clock =
       for (const fn of due) fn();
       await sync.idle();
     },
-    /** An edit, saved. */
-    save(mode: GameMode, text: string): void {
+    /** An edit, saved (the player's, unless said: `progress` is the game's own, coins from a delivery). */
+    save(mode: GameMode, text: string, kind: EditKind = "layout"): void {
       store.setItem(KEYS[mode][0], `{"version":13,"text":"${text}"}`);
-      sync.edited(mode);
+      sync.edited(mode, kind);
     },
     /** The 5 s save of a railway played on, nothing edited (its clock, its trains rolling): no edit. */
     tickOn(mode: GameMode, clockText: string): void {
@@ -466,6 +471,120 @@ describe("cloud saves", () => {
     expect(a.store.getItem("s.save")).toContain("b's later edit");
   });
 
+  describe("the player's edits outrank the game's progress (CoS: QA's delivery coins)", () => {
+    /** A (on the code first) and B (joined), both with the game's railway, at server time 1 000 000 on. */
+    async function pair() {
+      const cloud = new FakeCloud();
+      const server = { t: 1_000_000 };
+      cloud.server = server;
+      const a = device(cloud, new MemStore(), server);
+      a.store.setItem("g.save", '{"version":13,"text":"start"}');
+      const code = (await a.sync.enable())!;
+      const b = device(cloud, new MemStore(), server);
+      expect((await b.sync.useCode(code)).ok).toBe(true);
+      const taken: [string, GameMode, string | null][] = [];
+      a.sync.onTaken = (m, n) => taken.push(["a", m, n]);
+      b.sync.onTaken = (m, n) => taken.push(["b", m, n]);
+      return { cloud, server, a, b, code, taken };
+    }
+
+    it("progress alone goes up at most every 60 s; a layout edit brings it to 30 s", async () => {
+      const { a } = await pair();
+      const ms: number[] = [];
+      const real = a.timers.push.bind(a.timers);
+      a.timers.push = (...fns) => (ms.push(a.sync["due"] - a.clock.t), real(...fns));
+      a.save("game", "coins 1100", "progress");
+      a.save("game", "laid a piece");
+      expect(ms).toEqual([60_000, 30_000]);
+    });
+
+    it("A only earns, B does nothing: B takes A's coins", async () => {
+      const { server, a, b, code } = await pair();
+      server.t = 2_000_000;
+      a.save("game", "coins 1120", "progress");
+      await a.tick();
+      expect(await (a.sync["o"].backend as FakeCloud).keysOf(code, "game")).toMatchObject({ "g.save": expect.stringContaining("coins 1120") });
+      const b2 = device(b.sync["o"].backend as FakeCloud, b.store, server);
+      expect(await b2.sync.start()).toEqual({});
+      expect(b2.store.getItem("g.save")).toContain("coins 1120");
+    });
+
+    it("A earns later, B laid track earlier: B's layout wins at A's next upload; A's coins kept to restore, said", async () => {
+      const { server, a, b, cloud, code, taken } = await pair();
+      server.t = 2_000_000;
+      b.save("game", "b laid track");
+      await b.sync.flush();
+      server.t = 3_000_000;
+      a.save("game", "a earned coins", "progress");
+      await a.tick();
+      expect(taken).toEqual([["a", "game", "took-cloud"]]);
+      expect(a.store.getItem("g.save")).toContain("b laid track");
+      expect(await cloud.keysOf(code, "game")).toMatchObject({ "g.save": expect.stringContaining("b laid track") });
+      expect(await a.sync.restore("game")).toBe(true);
+      expect(a.store.getItem("g.save")).toContain("a earned coins");
+    });
+
+    it("A laid track earlier, B earns later: A's layout wins over B's progress; B's kept here, said", async () => {
+      const { server, a, b, cloud, code } = await pair();
+      server.t = 2_000_000;
+      a.save("game", "a laid track");
+      cloud.offline = true;
+      await a.sync.flush();
+      cloud.offline = false;
+      server.t = 3_000_000;
+      b.save("game", "b earned coins", "progress");
+      await b.sync.flush();
+      expect(cloud.kinds.at(-1)).toBe("progress");
+      server.t = 4_000_000;
+      await a.sync.flush();
+      expect(a.notes).toEqual([["game", "both-changed"]]);
+      expect(await cloud.keysOf(code, "game")).toMatchObject({ "g.save": expect.stringContaining("a laid track") });
+      expect(a.sync.backupOf("game")).toBe(3_000_000);
+    });
+
+    it("a progress-only copy carries the layout edit before it: two layout edits, the later wins", async () => {
+      const { server, a, b, cloud, code, taken } = await pair();
+      server.t = 2_000_000;
+      a.save("game", "a laid track");
+      cloud.offline = true;
+      await a.sync.flush();
+      cloud.offline = false;
+      server.t = 2_500_000;
+      b.save("game", "b laid track");
+      await b.sync.flush();
+      server.t = 3_000_000;
+      b.save("game", "b laid track, then earned", "progress");
+      await b.sync.flush();
+      server.t = 4_000_000;
+      await a.sync.flush();
+      // (B's layout edit, at 2 500 000, is later than A's at 2 000 000, though B's last copy was progress.)
+      expect(taken).toEqual([["a", "game", "took-cloud"]]);
+      expect(await cloud.keysOf(code, "game")).toMatchObject({ "g.save": expect.stringContaining("then earned") });
+    });
+
+    it("mid-gesture, a newer copy waits: taken on a later round, once the finger's up", async () => {
+      const { server, a, b, taken } = await pair();
+      server.t = 2_000_000;
+      a.save("game", "a's edit");
+      cloud_offline(a, true);
+      await a.sync.flush();
+      cloud_offline(a, false);
+      server.t = 3_000_000;
+      b.save("game", "b's later edit");
+      await b.sync.flush();
+      let busy = true;
+      a.sync.mayTake = () => !busy;
+      server.t = 4_000_000;
+      await a.sync.flush();
+      expect(taken).toEqual([]);
+      expect(a.store.getItem("g.save")).toContain("a's edit");
+      expect(a.timers).toHaveLength(1);
+      busy = false;
+      await a.tick();
+      expect(taken).toEqual([["a", "game", "took-cloud"]]);
+    });
+  });
+
   it("a 429 or a failure never loses what's still to send", async () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
@@ -571,3 +690,8 @@ describe("cloud saves", () => {
     expect(a.timers).toHaveLength(0);
   });
 });
+
+/** A device's cloud offline or not (the fake is shared). */
+function cloud_offline(d: { sync: CloudSync }, off: boolean): void {
+  (d.sync["o"].backend as FakeCloud).offline = off;
+}

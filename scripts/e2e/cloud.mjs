@@ -69,14 +69,21 @@ async function device(ctx) {
   return p;
 }
 async function inSandbox(p) {
-  // Playing (the HUD up: a reload into play skips the title), or the title up with its cards placed, to press Sandbox's.
+  await inMode(p, "sandbox");
+}
+/** Into a mode: playing (the HUD up: a reload into play skips the title), or its title card pressed. */
+async function inMode(p, mode) {
   // (The loading screen goes once a mode's entered: before that the HUD and the title can both be hidden.)
-  const playing = () => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !window.woodrail.hud.root.hidden && !!document.querySelector("#loading.done");
-  await p.waitForFunction(`(${playing})() || (!!window.woodrail && window.woodrail.title.shown && !window.woodrail.title.root.classList.contains("placing") && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null)`, null, { timeout: 180000 });
-  await p.evaluate(() => {
-    if (window.woodrail.title.shown) document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click();
-  });
-  await p.waitForFunction(playing, null, { timeout: 120000 });
+  const playing = (mode) => window.woodrail?.mode?.() === mode && !window.woodrail.title.shown && !window.woodrail.hud.root.hidden && !!document.querySelector("#loading.done");
+  await p.waitForFunction(
+    ([playing, mode]) => new Function(`return (${playing})`)()(mode) || (!!window.woodrail && window.woodrail.title.shown && !window.woodrail.title.root.classList.contains("placing") && document.querySelector(`.title-card.mode-${mode} .title-buttons .primary`) !== null),
+    [String(playing), mode],
+    { timeout: 180000 },
+  );
+  await p.evaluate((mode) => {
+    if (window.woodrail.title.shown) document.querySelector(`.title-card.mode-${mode} .title-buttons .primary`).click();
+  }, mode);
+  await p.waitForFunction(playing, mode, { timeout: 120000 });
 }
 const menu = (p, label) =>
   p.evaluate((label) => {
@@ -252,6 +259,99 @@ try {
   );
   await ctxA.close();
   await ctxB.close();
+
+  // 7. Game mode, two more devices on a code of their own: the game's progress (coins, with trains running) goes up
+  // too, but a layout edit outranks it.
+  const ctxC = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const c = await ctxC.newPage();
+  c.on("pageerror", (e) => errors.push(String(e)));
+  await c.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await c.goto(URL);
+  await inMode(c, "game");
+  await c.waitForFunction(() => localStorage.getItem("woodrail.game.v2") !== null, null, { timeout: 30000 });
+  await menu(c, "Cloud save");
+  await tap(c, "Turn on");
+  await c.waitForFunction(() => /Saved online/.test(document.querySelector(".cloud-status")?.textContent ?? ""), null, { timeout: 30000 });
+  const code2 = (await c.evaluate(() => document.querySelector(".cloud-code").textContent)).trim().replace(/ /g, "-");
+  await tap(c, "Done");
+  const ctxD = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const d = await ctxD.newPage();
+  d.on("pageerror", (e) => errors.push(String(e)));
+  await d.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await d.goto(URL);
+  await inMode(d, "game");
+  await menu(d, "Cloud save");
+  await tap(d, "I have a code");
+  await d.fill(".cloud-input", code2);
+  const dIn = d.waitForEvent("load", { timeout: 60000 });
+  await tap(d, "Load");
+  await dIn;
+  await inMode(d, "game");
+  const coins = (p) => p.evaluate(() => window.woodrail.progress().coins);
+  const remote2 = async () => {
+    const res = await fetch(`${WORKER}/v1/saves/game`, { method: "HEAD", headers: { "X-Woodrail-Code": code2 } });
+    return { savedAt: Number(res.headers.get("X-Saved-At")), layoutAt: Number(res.headers.get("X-Layout-At")) };
+  };
+  const landed2 = async (was) => {
+    let r = await remote2();
+    for (let i = 0; i < 60 && r.savedAt === was.savedAt; i++) {
+      await new Promise((res) => setTimeout(res, 250));
+      r = await remote2();
+    }
+    return r;
+  };
+
+  // 7a. C only earns (a delivery's coins: no edit of the layout), and its page hides. D did nothing: started again,
+  // it has C's coins.
+  const g0 = await remote2();
+  await pastLimit();
+  const earned = await c.evaluate(() => (window.woodrail.progress().coins += 120));
+  // (The 5 s save sees the progress changed: an edit, of the progress kind.)
+  await c.waitForFunction((n) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === n, earned, { timeout: 15000 });
+  await c.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
+  const g1 = await landed2(g0);
+  await d.reload();
+  await inMode(d, "game");
+  check(
+    "Game mode: coins earned on one device (trains running, no layout edit) go up, and the other takes them",
+    g1.savedAt > g0.savedAt && g1.layoutAt === g0.layoutAt && (await coins(d)) === earned,
+    `cloud ${g0.savedAt} → ${g1.savedAt} (layout at ${g0.layoutAt} → ${g1.layoutAt}); C ${earned}; D ${await coins(d)}`,
+  );
+
+  // 7b. C earns more (not sent yet); D lays a piece of track, sent as its page hides. C's next upload finds D's layout
+  // edit: it outranks C's progress, though C's came later. C takes D's (starting again on it, and saying so), its
+  // coins kept to restore; nothing goes over D's.
+  await pastLimit();
+  const piecesD = await d.evaluate(() => {
+    const w = window.woodrail;
+    const g = w.interaction.groundAt(innerWidth / 2, innerHeight / 2);
+    w.editor().place("straight-216", { x: g.x, z: g.z, heading: 0 }, 0, false);
+    return w.layout.pieceCount;
+  });
+  await d.waitForFunction((n) => {
+    const s = localStorage.getItem("woodrail.game.v2") ?? "";
+    return (s.match(/"type":/g) ?? []).length >= 0 && window.woodrail.layout.pieceCount === n;
+  }, piecesD);
+  await new Promise((r) => setTimeout(r, 1500));
+  await d.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
+  const g2 = await landed2(g1);
+  const more = await c.evaluate(() => (window.woodrail.progress().coins += 55));
+  await c.waitForFunction((n) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === n, more, { timeout: 15000 });
+  const cIn = c.waitForEvent("load", { timeout: 60000 });
+  // (C's next upload, now rather than in a minute.)
+  await c.evaluate(() => dispatchEvent(new Event("online")));
+  await cIn;
+  await inMode(c, "game");
+  const toldC = await c.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
+  const g3 = await remote2();
+  await menu(c, "Cloud save");
+  check(
+    "Game mode: a layout edit outranks progress made later: C takes D's track (and says so), its coins kept to restore",
+    g2.layoutAt > g1.layoutAt && (await c.evaluate(() => window.woodrail.layout.pieceCount)) === piecesD && (await coins(c)) === earned && g3.savedAt === g2.savedAt && /newer railway/.test(toldC) && /Restore the railway from/.test(await card(c)),
+    `D pieces ${piecesD}, C now ${await c.evaluate(() => window.woodrail.layout.pieceCount)}; C coins ${more} → ${await coins(c)}; cloud ${g2.savedAt} → ${g3.savedAt}; said “${toldC}”`,
+  );
+  await ctxC.close();
+  await ctxD.close();
 } catch (e) {
   check("ran to the end", false, String(e?.stack ?? e));
 }

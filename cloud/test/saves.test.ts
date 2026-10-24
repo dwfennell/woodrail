@@ -131,6 +131,20 @@ describe("saves", () => {
     expect(await (await call("GET", { url: `${URL_}?prev=1` })).text()).toBe("first");
   });
 
+  it("keeps when a layout edit was last stored, carried on by progress-only copies", async () => {
+    const first = await put("laid", 100, { headers: { "X-Edit-Kind": "layout" } });
+    expect(first.headers.get("X-Stored-At")).toBe(String(Date.now()));
+    const laidAt = String(Date.now());
+    later();
+    await put("earned", 200, { headers: { "X-Edit-Kind": "progress", "X-Base-Saved-At": "100" } });
+    const head = await call("HEAD");
+    expect(head.headers.get("X-Layout-At")).toBe(laidAt);
+    expect(head.headers.get("X-Stored-At")).toBe(String(Date.now()));
+    later();
+    await put("laid again", 300, { headers: { "X-Edit-Kind": "layout", "X-Base-Saved-At": "200" } });
+    expect((await call("HEAD")).headers.get("X-Layout-At")).toBe(String(Date.now()));
+  });
+
   it("turns away a bundle that's too big (413)", async () => {
     expect((await put(new Uint8Array(MAX_BYTES + 1))).status).toBe(413);
     // (Streamed, with no length said up front.)
