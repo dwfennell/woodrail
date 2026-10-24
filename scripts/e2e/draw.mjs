@@ -30,9 +30,28 @@ const tapSel = async (page, sel) => {
   await page.waitForSelector(sel, { state: "attached", timeout: 120000 });
   await page.evaluate((sel) => document.querySelector(sel).click(), sel);
 };
-/** The scene has been still a few ticks (the game's own hook), within a generous cap: no fixed waits. */
+/**
+ * The scene has been still a few ticks (the game's own hook), within a generous cap: no fixed waits. (Where frames come
+ * slowly, a still tick well after the last frame counts: see `Game.settled`.) Run out, it says what was still going
+ * on and how fast frames were coming (QA's box: 0.3 to 1.3 a second), rather than just "never settled".
+ */
 const settled = (page) =>
-  page.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((_, no) => setTimeout(() => no(new Error("never settled")), 120000))]));
+  page.evaluate(() => {
+    const w = window.woodrail;
+    const f0 = w.framesDrawn;
+    const t0 = performance.now();
+    return Promise.race([
+      w.settled(),
+      new Promise((_, no) =>
+        setTimeout(() => {
+          const s = (performance.now() - t0) / 1000;
+          const frames = w.framesDrawn - f0;
+          const why = [`${w.flourishes.count} animations running`, w.director.busy ? "the camera moving" : "the camera still", w.interaction.draw.ghostsCaughtUp === false ? "the ghosts catching up" : "the ghosts done"];
+          no(new Error(`never settled in ${s.toFixed(0)} s: ${frames} frames drawn (${(frames / s).toFixed(2)} a second); ${why.join(", ")}`));
+        }, 120000),
+      ),
+    ]);
+  });
 const check = (name, ok, detail = "") => {
   results.push({ name, ok, detail });
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
