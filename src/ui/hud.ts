@@ -181,6 +181,8 @@ const REFUSAL_BUMP_MS = 1000;
  * tick shown, then shown again whole once the workshop's card closed).
  */
 const TOAST_SEEN_MS = 1500;
+/** How far above its place a toast starts its slide in (px: `.toast` in style.css, translate −14 px till shown). */
+const TOAST_SLIDE = 14;
 /** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
 const HELP_ART: Record<string, string> = { "piece:curve-large": ".art-build", "train:Full train": ".art-run" };
 
@@ -1896,7 +1898,7 @@ export class Hud {
     });
     const bar = this.root.querySelector<HTMLElement>(".map-bar")?.getBoundingClientRect();
     const vw = document.documentElement.clientWidth;
-    const area = { left: 0, right: vw, top: t.offsetTop, bottom: bar && bar.height > 0 ? bar.top - 12 : window.innerHeight - 12 };
+    const area = { left: 0, right: vw, top: t.offsetTop - TOAST_SLIDE, bottom: bar && bar.height > 0 ? bar.top - 12 : window.innerHeight - 12 };
     const natural = t.offsetWidth;
     // (Narrower a step at a time, more lines each, down to a readable 220 px: a gap between labels is found at most a
     // step's width short. Each is one layout.)
@@ -1906,12 +1908,13 @@ export class Hud {
     let fallback: { width: number; spot: Spot; cost: number } | null = null;
     for (const width of widths) {
       t.style.maxWidth = width ? `${width}px` : "";
+      // (Its slide in starts `TOAST_SLIDE` px higher: clear of the labels there too, not only once it's in.)
       const w = t.offsetWidth;
-      const h = t.offsetHeight;
+      const h = t.offsetHeight + TOAST_SLIDE;
       const spot = clearSpot(labels, w, h, area);
       if (spot) {
         t.style.left = `${spot.x}px`;
-        t.style.top = `${spot.top}px`;
+        t.style.top = `${spot.top + TOAST_SLIDE}px`;
         return;
       }
       const least = leastCovered(labels, w, h, area);
@@ -1920,7 +1923,7 @@ export class Hud {
     if (!fallback) return;
     t.style.maxWidth = fallback.width ? `${fallback.width}px` : "";
     t.style.left = `${fallback.spot.x}px`;
-    t.style.top = `${fallback.spot.top}px`;
+    t.style.top = `${fallback.spot.top + TOAST_SLIDE}px`;
   }
 
   /** The map's view has settled (its glide done): a toast up goes where it's clear of the labels where they are now. */

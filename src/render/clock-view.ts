@@ -1,4 +1,4 @@
-import { Frustum, Group, Matrix4, Quaternion, Sphere, Vector3, type Camera } from "three";
+import { Frustum, Group, Matrix4, Quaternion, Sphere, Vector3, type Camera, type PerspectiveCamera } from "three";
 import type { PropStore } from "../props/store";
 import { partsOf, type PropLibrary } from "./props/library";
 import { modelKey } from "./props/library";
@@ -26,6 +26,11 @@ interface Clock {
 const frustum = new Frustum();
 const viewProjection = new Matrix4();
 const sphere = new Sphere(new Vector3(), 40);
+/**
+ * How far (mm) the minute hand's tip moves in a game minute: a station clock's face is 8.6 mm across its radius, its
+ * minute hand about 0.8 of that (tools/blender/bldg_parts.py `clock`), and a minute is a sixtieth of a turn.
+ */
+const MINUTE_TIP_MOVE = (2 * Math.PI * 8.6 * 0.8) / 60;
 const X_AXIS = new Vector3(1, 0, 0);
 const turn = new Quaternion();
 
@@ -93,9 +98,11 @@ export class ClockView {
 
   /**
    * The game's time moved on to `seconds`: if that's a new minute, the hands are set, and true if a clock is in the
-   * camera's view (draw a frame for it). A clock out of view shows the right time when it comes into view.
+   * camera's view near enough that the move shows (draw a frame for it). A clock out of view, or too far off for a
+   * minute's move to show (the map view: QA, a frame every 20 s for nothing), shows the right time when it's drawn.
+   * `viewH`: the drawing's height in pixels.
    */
-  tick(seconds: number, camera: Camera): boolean {
+  tick(seconds: number, camera: Camera, viewH: number): boolean {
     this.seconds = seconds;
     const minute = Math.floor(seconds / 60);
     if (minute === this.minute) return false;
@@ -103,10 +110,13 @@ export class ClockView {
     for (const c of this.clocks.values()) this.setHands(c);
     camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    // Beyond this, a minute's move of the minute hand's tip is under half a pixel.
+    const fov = (camera as PerspectiveCamera).isPerspectiveCamera ? (camera as PerspectiveCamera).fov : 45;
+    const far = (MINUTE_TIP_MOVE * viewH) / (2 * Math.tan((fov * Math.PI) / 360) * 0.5);
     for (const c of this.clocks.values()) {
       if (!c.group.visible) continue;
       sphere.center.copy(c.group.position);
-      if (frustum.intersectsSphere(sphere)) return true;
+      if (frustum.intersectsSphere(sphere) && camera.position.distanceTo(sphere.center) < far) return true;
     }
     return false;
   }
