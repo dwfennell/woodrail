@@ -87,8 +87,8 @@ describe("the map's ruin markers (map sites step 3)", () => {
     expect(ruinMarkersKey(3, (id) => ["farming", "quarries", "mines", "harbours"].includes(id))).toBe("3|0|0000");
   });
 
-  it("map view: ruins' badges stay on their ruin, and give way to labels (pinned, lowest priority)", () => {
-    expect(mapViewSrc).toMatch(/kind === "ruin"\) return \{ priority: -1, pinned: true \}/);
+  it("map view: ruins' badges stay on their ruin (pinned); the land around's give way to labels (lowest priority)", () => {
+    expect(mapViewSrc).toMatch(/kind === "ruin"\) return \{ priority: m\.ruin !== undefined \? 1\.5 : -1, pinned: true \}/);
     // A pinned box is never nudged: hidden when its spot is taken.
     const spots = declutterLabels([
       { x: 0, y: 0, w: 100, h: 40, priority: 1 },

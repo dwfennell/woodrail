@@ -111,3 +111,20 @@ export function ruinMarkers(ruins: readonly RuinOnMap[], learned: (id: string) =
   }
   return out;
 }
+
+/**
+ * What the map view frames when it opens: every place marked on the player's land (towns, depots, industries and the
+ * ruins there, each a label or a badge to tap), or the land's corners if nothing is. Not the land around's ruins
+ * (they're only gone to), nor the land's bare corners: on a phone on its side the room between the bars is a strip, and
+ * pulled back to show the corners too, the labels crowd so close most of them are hidden.
+ */
+export function mapFramePoints(markers: readonly MapMarker[], land: { x0: number; z0: number; x1: number; z1: number }): { x: number; z: number }[] {
+  const out = markers.filter((m) => !m.key.startsWith("ruin-around:")).map((m) => ({ x: m.x, z: m.z }));
+  if (out.length > 0) return out;
+  return [
+    { x: land.x0, z: land.z0 },
+    { x: land.x1, z: land.z0 },
+    { x: land.x1, z: land.z1 },
+    { x: land.x0, z: land.z1 },
+  ];
+}

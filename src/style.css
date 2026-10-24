@@ -523,7 +523,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-view { position: absolute; inset: 0; pointer-events: none; }
 .map-view > * { pointer-events: auto; }
 .map-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.map-marker { position: absolute; left: 0; top: 0; pointer-events: auto; display: flex; align-items: center; gap: 6px; margin: -14px 0 0 -14px; padding: 5px 10px 5px 6px; border: 0; border-radius: 12px; background: rgba(251, 243, 228, 0.94); box-shadow: 0 3px 12px rgba(40, 25, 10, 0.25); font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; max-width: 210px; }
+.map-marker { position: absolute; left: 0; top: 0; pointer-events: auto; touch-action: none; display: flex; align-items: center; gap: 6px; margin: -14px 0 0 -14px; padding: 5px 10px 5px 6px; border: 0; border-radius: 12px; background: rgba(251, 243, 228, 0.94); box-shadow: 0 3px 12px rgba(40, 25, 10, 0.25); font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; max-width: 210px; }
 .map-marker.off { visibility: hidden; pointer-events: none; }
 .map-marker:hover { filter: brightness(1.04); }
 .map-marker.flip { flex-direction: row-reverse; margin-left: 14px; padding: 5px 6px 5px 10px; text-align: right; }
@@ -540,7 +540,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-marker.kind-ruin::before { content: ""; position: absolute; inset: -8px; }
 .map-ruin-icon { font-size: 16px; line-height: 1; }
 .map-marker.kind-ruin.locked .map-ruin-icon { filter: grayscale(0.6); opacity: 0.85; }
-.map-ruin-lock { position: absolute; right: -6px; bottom: -5px; font-size: 11px; line-height: 1; }
+/* The lock: big enough to read at a glance (QA: 11px was hard to see), on a pale disc at the badge's corner. It reaches
+   LOCK_OUT (map-view.ts) past the badge's right and bottom edges, kept clear of labels by the layout. */
+.map-ruin-lock { position: absolute; right: -8px; bottom: -8px; display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(251, 243, 228, 0.97); box-shadow: 0 1px 3px rgba(40, 25, 10, 0.35); font-size: 16px; line-height: 1; }
 .map-text { display: flex; flex-direction: column; min-width: 0; }
 .map-text b { font-size: 14px; line-height: 1.15; }
 .map-text span { font-size: 12px; font-weight: 700; color: #6a5340; line-height: 1.25; }
