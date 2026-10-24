@@ -156,13 +156,14 @@ describe("Editor", () => {
     expect(editor.canRedo).toBe(false);
   });
 
-  it("removing track under a train derails it", () => {
-    const { sim, editor } = setup();
+  it("track under a train isn't taken up (it would derail it: QA N1)", () => {
+    const { layout, sim, editor } = setup();
     const a = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
     const r = sim.addTrain(["engine"], { pieceId: a, pathIndex: 0, reversed: false, s: 150 });
     if (r.kind !== "placed") throw new Error("not placed");
-    editor.remove(a);
-    expect(sim.getTrain(r.trainId)!.derailed).toBe(true);
+    expect(editor.remove(a)).toBe(false);
+    expect(layout.getPiece(a)).toBeDefined();
+    expect(sim.getTrain(r.trainId)!.derailed).toBe(false);
   });
 
   it("a switch's pin is carried through undo and redo of its removal (and of a group's)", () => {
@@ -215,13 +216,13 @@ describe("Editor edits under trains", () => {
     ["move", (e: Editor, id: number) => e.move(id, { x: 400, z: 300, heading: 0 }, 0)],
     ["flip", (e: Editor, id: number) => e.flip(id)],
   ] as const) {
-    it(`${name} of a piece a train stands on derails the train`, () => {
+    it(`${name} of a piece a train stands on is refused, the train left on the rails (QA N1)`, () => {
       const { sim, editor } = setup();
       const id = editor.place("curve-large", { x: 0, z: 0, heading: 0 }, 0, false);
       const r = sim.addTrain(["engine"], { pieceId: id, pathIndex: 0, reversed: false, s: 100 });
       if (r.kind !== "placed") throw new Error("not placed");
       act(editor, id);
-      expect(sim.getTrain(r.trainId)!.derailed).toBe(true);
+      expect(sim.getTrain(r.trainId)!.derailed).toBe(false);
     });
   }
 

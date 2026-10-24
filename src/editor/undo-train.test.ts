@@ -77,3 +77,58 @@ describe("undo and redo never derail a train (QA sweep 3)", () => {
     expect(TRAIN_ON_TRACK).toBe("A train is on that track");
   });
 });
+
+describe("no edit takes track from under a train (QA N1, occupied span)", () => {
+  it("taking up, turning, flipping or moving the piece under an engine is refused, and nothing changes", () => {
+    const { layout, sim, editor, refused } = setup();
+    const id = editor.place("curve-large", { x: 216, z: 0, heading: 0 }, 0, false);
+    const t = trainOn(sim, id);
+    const was = { ...layout.getPiece(id)!.pose };
+    expect(editor.remove(id)).toBe(false);
+    expect(editor.rotate(id, Math.PI / 4)).toBe(false);
+    expect(editor.flip(id)).toBe(false);
+    expect(editor.move(id, { x: 900, z: 300, heading: 0 }, 0)).toBe(false);
+    expect(editor.removeGroup([id])).toBe(false);
+    expect(refused).toEqual([id, id, id, id, id]);
+    expect(layout.getPiece(id)!.pose).toEqual(was);
+    expect(layout.getPiece(id)!.flipped).toBe(false);
+    expect(sim.getTrain(t)!.derailed).toBe(false);
+    // None of it is on the history: with the train gone, one undo takes back the piece's placing.
+    sim.removeTrain(t);
+    expect(editor.undo()).toBe(true);
+    expect(layout.getPiece(id)).toBeUndefined();
+  });
+
+  it("a group taken up with one piece under a train: all of it stays", () => {
+    const { layout, sim, editor, refused, base } = setup();
+    const id = editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
+    trainOn(sim, id);
+    expect(editor.removeGroup([base, id])).toBe(false);
+    expect(refused).toEqual([id]);
+    expect(layout.getPiece(base)).toBeDefined();
+    expect(layout.getPiece(id)).toBeDefined();
+  });
+
+  it("track beside a train can still be taken up", () => {
+    const { layout, sim, editor, refused } = setup();
+    const far = editor.place("straight-216", { x: 2000, z: 0, heading: 0 }, 0, false);
+    const near = editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
+    trainOn(sim, near);
+    expect(editor.remove(far)).toBe(true);
+    expect(refused).toEqual([]);
+    expect(layout.getPiece(far)).toBeUndefined();
+  });
+});
+
+describe("a train's pieces follow the track (QA N2)", () => {
+  it("are worked out again after an edit, though the train hasn't moved", () => {
+    const { layout, sim, editor, base } = setup();
+    const t = trainOn(sim, base);
+    expect([...sim.piecesUnder(t)]).toEqual([base]);
+    const before = sim.piecesUnder(t);
+    // A piece put down beside it, joined: the cover is worked out again (a new set), still just the one piece.
+    editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
+    expect(sim.piecesUnder(t)).not.toBe(before);
+    expect(layout.revision).toBeGreaterThan(0);
+  });
+});

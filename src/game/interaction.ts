@@ -1559,7 +1559,7 @@ export class Interaction {
     // Track with a train on it stays put: lifted, it would derail the train (a turntable carrying an engine, say).
     const lifts = m.press.kind === "piece" ? (this.picking ? (this.picked.has(m.press.pieceId) ? this.pickedWithRisers() : []) : [m.press.pieceId]) : m.press.kind === "depot" ? [this.movableIndustry(m.press.depotId)] : [];
     if (lifts.some((id) => id !== -1 && this.game.sim.pieceOccupied(id))) {
-      this.hud.toast("A train is on it");
+      this.hud.toast(TRAIN_ON_TRACK);
       return idle();
     }
     // (A train lift going to its other end, empty: picked up, it would leave its ride mid-way.)
@@ -2533,7 +2533,7 @@ export class Interaction {
     }
     const id = this.selectedPiece;
     const p = id === -1 ? undefined : this.game.layout.getPiece(id);
-    if (!p) return;
+    if (!p || this.trainOn([id])) return;
     const c = pieceCentre(this.game.layout, id);
     const pose = poseForCentre(p.type, p.flipped, c.x, c.z, p.pose.heading + Math.PI / 4);
     if (!this.allowed(id, p.type, p.flipped, pose, p.y)) {
@@ -2982,7 +2982,7 @@ export class Interaction {
     }
     const id = this.selectedPiece;
     const p = id === -1 ? undefined : this.game.layout.getPiece(id);
-    if (!p) return;
+    if (!p || this.trainOn([id])) return;
     const pose = this.editor().flippedPose(id) ?? p.pose;
     if (!this.allowed(id, p.type, !p.flipped, pose, p.y)) {
       this.onRefused?.();
@@ -3019,13 +3019,24 @@ export class Interaction {
     const id = this.selectedPiece;
     // A train lift carrying a train, going, or with one on it stays (taken up, the train would be left in mid-air):
     // said, and left selected.
-    if (this.liftHeld(id)) return;
+    if (this.liftHeld(id) || this.trainOn([id])) return;
     this.clearSelection();
     this.hud.hideCards();
     const p = this.game.layout.getPiece(id);
     if (!p) return;
     this.shrinkStandIn(id);
     this.editor().remove(id);
+  }
+
+  /**
+   * Is a train on any of these pieces, under a wheel or a car? If so the player is told, and they're left as they are
+   * (and selected): taken up, moved or turned, the train would derail. (The editor refuses such an edit too.)
+   */
+  private trainOn(ids: readonly number[]): boolean {
+    if (!ids.some((id) => this.game.sim.pieceOccupied(id))) return false;
+    this.hud.toast(TRAIN_ON_TRACK);
+    this.onRefused?.();
+    return true;
   }
 
   /** Is this a train lift that may not be taken up or moved now (`Sim.liftFree`)? If so the player is told why. */
@@ -3242,7 +3253,7 @@ export class Interaction {
       if (first !== -1) this.picked.add(first);
     }
     if (this.picked.has(id)) this.picked.delete(id);
-    else if (this.game.sim.pieceOccupied(id)) this.hud.toast("A train is on that track");
+    else if (this.game.sim.pieceOccupied(id)) this.hud.toast(TRAIN_ON_TRACK);
     else if (this.pickable(id)) this.picked.add(id);
     this.showPicked();
   }
@@ -3369,6 +3380,7 @@ export class Interaction {
     const g = this.game;
     if (this.picked.size === 0) return;
     const ids = this.pickedWithRisers();
+    if (this.trainOn(ids)) return;
     const members = new Set(ids);
     const before = new Map(ids.map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
     const after = this.turnedPoses(ids);
@@ -3393,7 +3405,7 @@ export class Interaction {
   private deletePicked(): void {
     const g = this.game;
     const ids = this.pickedWithRisers();
-    if (ids.length === 0 || ids.some((id) => this.liftHeld(id))) return;
+    if (ids.length === 0 || ids.some((id) => this.liftHeld(id)) || this.trainOn(ids)) return;
     const pieces = ids.map((id) => g.layout.getPiece(id)!);
     this.clearSelection();
     this.hud.hideCards();

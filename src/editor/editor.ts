@@ -139,8 +139,8 @@ export class Editor {
   onHeld: ((liftId: number) => void) | null = null;
 
   /**
-   * Called when an undo or redo was refused because it would take up or move track a train is on (it would derail
-   * the train), with that piece. The history is kept as it was, to try again once the train has gone.
+   * Called when an edit, undo or redo was refused because it would take up or move track a train is on (it would
+   * derail the train), with that piece. The history is kept as it was, to try again once the train has gone.
    */
   onTrainOn: ((pieceId: number) => void) | null = null;
 
@@ -583,19 +583,23 @@ export class Editor {
   }
 
   /**
-   * Do an edit as one undo step. Refused (false, undone at once, `onHeld` told) if it would take up or move a lift
-   * that's carrying a train or has one on it (`Sim.heldLifts`): the train would be left derailed in mid-air.
+   * Do an edit as one undo step. Refused (false, undone at once) if it would take up or move a lift that's carrying a
+   * train or has one on it (`Sim.heldLifts`: the train would be left derailed in mid-air; `onHeld` told), or track a
+   * train is on, under a wheel or a car (it would derail: `onTrainOn` told). The same rule as undo and redo (`step`),
+   * so no edit, however it's asked for (Delete, Rotate, Flip, a group's), takes track from under a train.
    */
   private run(c: Command): boolean {
-    const held = c.props || c.land || c.roads ? null : this.held();
+    const track = !(c.props || c.land || c.roads);
+    const held = track ? this.held() : null;
+    const under = track ? this.underTrains() : null;
     c.do();
-    if (held) {
-      const id = this.disturbed(held, c);
-      if (id !== -1) {
-        c.undo();
-        this.onHeld?.(id);
-        return false;
-      }
+    const lift = held ? this.disturbed(held, c) : -1;
+    const train = lift === -1 && under ? this.disturbed(under, c) : -1;
+    if (lift !== -1 || train !== -1) {
+      c.undo();
+      if (lift !== -1) this.onHeld?.(lift);
+      else this.onTrainOn?.(train);
+      return false;
     }
     if (c.seats) {
       const seeds = c.seats();
