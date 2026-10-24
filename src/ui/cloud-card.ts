@@ -94,8 +94,10 @@ export class CloudCard {
     const row = el("div", "card-row");
     row.append(
       chip("I have a code", "", () => this.enter()),
-      chip("Turn on", "primary", async () => {
+      chip(this.busy ? "Turning on…" : "Turn on", "primary", async () => {
+        if (this.busy) return;
         this.busy = true;
+        this.draw();
         try {
           await this.cloud.enable();
         } finally {
@@ -108,16 +110,34 @@ export class CloudCard {
     this.root.append(el("p", "cloud-text", "Keep your railway safe online, and carry on playing on another device."), row);
   }
 
+  /** The other railway a sync kept on this device (see `CloudSync.backupOf`; dated by its last edit), offered back. */
+  private restoreChip(): void {
+    const mode = this.h.mode();
+    const kept = this.cloud.backupOf(mode);
+    if (kept === null) return;
+    const when = new Date(kept).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    this.root.append(
+      chip(`Restore the railway from ${when}`, "cloud-restore", async () => {
+        if (this.busy) return;
+        this.busy = true;
+        try {
+          if (await this.cloud.restore(mode)) {
+            this.h.reload();
+            return;
+          }
+          this.h.toast("Couldn't restore it: there's no room on this device");
+        } finally {
+          this.busy = false;
+        }
+      }),
+    );
+  }
+
   private drawOn(code: string): void {
     const codeRow = el("div", "cloud-code-row");
     codeRow.append(
       el("span", "cloud-code", showCode(code)),
-      chip("Copy", "", () => {
-        void navigator.clipboard?.writeText(showCode(code)).then(
-          () => this.h.toast("Code copied"),
-          () => this.h.toast("Couldn't copy it: write it down instead"),
-        );
-      }),
+      chip("Copy", "", () => void this.copy(showCode(code))),
     );
     this.root.append(
       el("div", "cloud-status", statusText(this.cloud.status, Date.now())),
@@ -125,18 +145,9 @@ export class CloudCard {
       codeRow,
       el("p", "cloud-text", "Type this code on your other device to carry on there. Only share it with people you'd let play your railway."),
     );
-    const mode = this.h.mode();
-    const backup = this.cloud.backupOf(mode);
-    if (backup !== null) {
-      const when = new Date(backup).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-      this.root.append(
-        chip(`Restore the railway from ${when}`, "cloud-restore", async () => {
-          if (await this.cloud.restore(mode)) this.h.reload();
-          else this.h.toast("Couldn't restore it: there's no room on this device");
-        }),
-      );
-    }
-    const off = chip(this.askingOff ? "Forget the code here? Tap again" : "Turn off", this.askingOff ? "asking" : "", () => {
+    this.restoreChip();
+    const kept = this.cloud.backupOf(this.h.mode()) !== null || this.cloud.backupOf(this.h.mode() === "game" ? "sandbox" : "game") !== null;
+    const off = chip(this.askingOff ? (kept ? "Forget the code and the kept railway? Tap again" : "Forget the code here? Tap again") : "Turn off", this.askingOff ? "asking" : "", () => {
       if (!this.askingOff) {
         this.askingOff = true;
         this.askTimer = window.setTimeout(() => {
@@ -198,6 +209,37 @@ export class CloudCard {
     this.draw();
     const input = this.root.querySelector<HTMLInputElement>(".cloud-input");
     if (input) input.value = typed;
+  }
+
+  /** Copy the code: the clipboard, else the old way (a selected field), else it's left selected to copy by hand. */
+  private async copy(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.h.toast("Code copied");
+      return;
+    } catch {
+      // (No clipboard here: an http page, or not allowed.)
+    }
+    const field = el("textarea", "cloud-copy-field");
+    field.value = text;
+    field.readOnly = true;
+    this.root.append(field);
+    field.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      copied = false;
+    }
+    field.remove();
+    if (copied) {
+      this.h.toast("Code copied");
+      return;
+    }
+    // Selected on the card, to copy (or write down).
+    const shown = this.root.querySelector(".cloud-code");
+    if (shown) getSelection()?.selectAllChildren(shown);
+    this.h.toast("Couldn't copy it: it's selected to copy, or write it down");
   }
 
   private enter(): void {

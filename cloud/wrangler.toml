@@ -8,5 +8,6 @@ binding = "SAVES"
 bucket_name = "woodrail-saves"
 
 [vars]
-# The pages that may call the Worker (comma separated): the deployed game, and the dev server.
-ALLOWED_ORIGINS = "https://dwfennell.github.io,http://localhost:5173,http://127.0.0.1:5173"
+# The pages that may call the Worker (comma separated): the deployed game. (Pages on localhost, any port, always may.)
+ALLOWED_ORIGINS = "https://dwfennell.github.io"
+# (And the secret CODE_KEY, set with `wrangler secret put CODE_KEY`: never here.)

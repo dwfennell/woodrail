@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { GameMode } from "../game/modes";
 import { CloudSync, gunzip, statusText, UPLOAD_EVERY_MS, type CloudBackend, type KeyStore, type RemoteMeta, type Reply } from "./cloud";
 import { WORDS } from "./code-words";
@@ -26,6 +26,10 @@ class FakeCloud implements CloudBackend {
   readonly saves = new Map<string, { meta: RemoteMeta; bytes: Uint8Array }>();
   puts = 0;
   offline = false;
+  /** Stored, but the answer never comes (the page closed). */
+  hangPuts = false;
+  /** The cloud's own clock, when a test has one: copies are stored at its time (`storedAt`). */
+  server: { t: number } | null = null;
   reply429 = false;
   async head(code: string, mode: GameMode): Promise<Reply<RemoteMeta | null>> {
     if (this.offline) return { ok: false, status: 0 };
@@ -40,7 +44,8 @@ class FakeCloud implements CloudBackend {
     if (this.reply429) return { ok: false, status: 429 };
     if ((this.saves.get(`${code}/${mode}`)?.meta.savedAt ?? 0) !== base) return { ok: false, status: 409 };
     this.puts++;
-    this.saves.set(`${code}/${mode}`, { meta, bytes });
+    this.saves.set(`${code}/${mode}`, { meta: this.server ? { ...meta, storedAt: this.server.t } : meta, bytes });
+    if (this.hangPuts) return new Promise(() => {});
     return { ok: true, value: undefined };
   }
   async keysOf(code: string, mode: GameMode): Promise<Record<string, string>> {
@@ -49,7 +54,7 @@ class FakeCloud implements CloudBackend {
 }
 
 /** A device: its storage, its clock and its timers (run by hand). */
-function device(cloud: FakeCloud, store = new MemStore(), clock = { t: 1_000_000 }) {
+function device(cloud: CloudBackend & FakeCloud, store = new MemStore(), clock = { t: 1_000_000 }) {
   const timers: (() => void)[] = [];
   const sync = new CloudSync({
     backend: cloud,
@@ -77,16 +82,19 @@ function device(cloud: FakeCloud, store = new MemStore(), clock = { t: 1_000_000
       clock.t += UPLOAD_EVERY_MS;
       const due = timers.splice(0);
       for (const fn of due) fn();
-      await settle();
+      await sync.idle();
     },
+    /** An edit, saved. */
     save(mode: GameMode, text: string): void {
       store.setItem(KEYS[mode][0], `{"version":13,"text":"${text}"}`);
-      sync.changed(mode);
+      sync.edited(mode);
+    },
+    /** The 5 s save of a railway played on, nothing edited (its clock, its trains rolling): no edit. */
+    tickOn(mode: GameMode, clockText: string): void {
+      store.setItem(KEYS[mode][1], `{"clock":"${clockText}"}`);
     },
   };
 }
-
-const settle = () => new Promise((r) => setTimeout(r, 20));
 
 describe("sync codes", () => {
   it("has 1024 words of 3 to 5 lowercase letters, all different", () => {
@@ -137,7 +145,7 @@ describe("cloud saves", () => {
     const a = device(cloud);
     a.store.setItem("s.save", '{"version":13}');
     a.store.setItem("s.session", "{}");
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     expect(cloud.puts).toBe(1);
     expect(await cloud.keysOf(code, "sandbox")).toEqual({ "s.save": '{"version":13}', "s.session": "{}" });
     expect(a.sync.status.kind).toBe("synced");
@@ -163,10 +171,10 @@ describe("cloud saves", () => {
   it("carries a railway to another device with its code", async () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     a.save("game", "my game");
     a.store.setItem("g.goals", '["a"]');
-    a.sync.changed("game");
+    a.sync.edited("game");
     await a.sync.flush();
 
     const b = device(cloud);
@@ -198,7 +206,7 @@ describe("cloud saves", () => {
   it("at start-up takes the newer copy from the cloud", async () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     a.save("sandbox", "v1");
     await a.sync.flush();
     // B carries on with it, and sends a newer one.
@@ -216,7 +224,7 @@ describe("cloud saves", () => {
   it("both changed: the newer wins, and the other is kept", async () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     a.save("sandbox", "v1");
     await a.sync.flush();
     const b = device(cloud, new MemStore(), { t: 3_000_000 });
@@ -240,7 +248,7 @@ describe("cloud saves", () => {
   it("both changed, this one later: it's kept, and goes up over the cloud's (which is kept here)", async () => {
     const cloud = new FakeCloud();
     const b = device(cloud, new MemStore(), { t: 1_000_000 });
-    const code = await b.sync.enable();
+    const code = (await b.sync.enable())!;
     b.save("sandbox", "b's");
     await b.sync.flush();
     const a = device(cloud, new MemStore(), { t: 1_000_500 });
@@ -261,15 +269,16 @@ describe("cloud saves", () => {
     expect(a2.sync.backupOf("sandbox")).toBe(2_000_000);
   });
 
-  it("while playing: another device's copy sent meanwhile is kept, and this one goes up", async () => {
+  it("while playing, both edited, this one later: the other device's is kept, and this one goes up", async () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
     a.store.setItem("s.save", '{"version":13,"text":"a\'s first"}');
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     const b = device(cloud, new MemStore(), { t: 1_000_100 });
     expect((await b.sync.useCode(code)).ok).toBe(true);
     b.save("sandbox", "b's again");
     await b.sync.flush();
+    a.clock.t = 1_000_200;
     a.save("sandbox", "a's");
     await a.tick();
     expect(a.notes).toEqual([["sandbox", "both-changed"]]);
@@ -281,7 +290,7 @@ describe("cloud saves", () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
     a.store.setItem("s.save", '{"version":13,"text":"a\'s first"}');
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     const b = device(cloud, new MemStore(), { t: 2_000_000 });
     expect((await b.sync.useCode(code)).ok).toBe(true);
     b.save("sandbox", "b's change");
@@ -297,10 +306,170 @@ describe("cloud saves", () => {
     expect(a2.sync.backupOf("sandbox")).not.toBeNull();
   });
 
+  it("QA B1: a device only open (its clock running on, nothing edited) sends nothing, and never over another's edits", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.store.setItem("s.save", '{"version":13,"text":"8 pieces"}');
+    const code = (await a.sync.enable())!;
+    const b = device(cloud, new MemStore(), { t: 1_000_100 });
+    expect((await b.sync.useCode(code)).ok).toBe(true);
+    b.save("sandbox", "14 pieces");
+    await b.sync.flush();
+    const puts = cloud.puts;
+    // A plays on for minutes, untouched.
+    for (let i = 0; i < 10; i++) {
+      a.tickOn("sandbox", `clock ${i}`);
+      await a.tick();
+    }
+    expect(a.timers).toHaveLength(0);
+    expect(cloud.puts).toBe(puts);
+    expect(await cloud.keysOf(code, "sandbox")).toMatchObject({ "s.save": expect.stringContaining("14 pieces") });
+    // Started again, A simply takes B's: nothing of A's was edited, so nothing's kept aside or said.
+    const a2 = device(cloud, a.store, a.clock);
+    expect(await a2.sync.start()).toEqual({});
+    expect(a2.store.getItem("s.save")).toContain("14 pieces");
+    expect(a2.sync.backupOf("sandbox")).toBeNull();
+  });
+
+  it("QA B2: back online, an edit made offline before the other device's: the other's is taken (the game reloads it)", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.store.setItem("s.save", '{"version":13,"text":"8 pieces"}');
+    const code = (await a.sync.enable())!;
+    const taken: [GameMode, string | null][] = [];
+    a.sync.onTaken = (m, n) => taken.push([m, n]);
+    cloud.offline = true;
+    a.clock.t = 1_000_500;
+    a.save("sandbox", "10 pieces");
+    await a.sync.flush();
+    cloud.offline = false;
+    const b = device(cloud, new MemStore(), { t: 2_000_000 });
+    expect((await b.sync.useCode(code)).ok).toBe(true);
+    b.save("sandbox", "13 pieces");
+    await b.sync.flush();
+    // Back online.
+    await a.sync.flush();
+    expect(await cloud.keysOf(code, "sandbox")).toMatchObject({ "s.save": expect.stringContaining("13 pieces") });
+    expect(a.store.getItem("s.save")).toContain("13 pieces");
+    expect(taken).toEqual([["sandbox", "took-cloud"]]);
+    // A's edit is kept to restore.
+    expect(await a.sync.restore("sandbox")).toBe(true);
+    expect(a.store.getItem("s.save")).toContain("10 pieces");
+  });
+
+  it("QA B3: a device that didn't edit (only saved as its page hid) takes the other's edits at its next start", async () => {
+    const cloud = new FakeCloud();
+    const b = device(cloud, new MemStore(), { t: 1_000_000 });
+    b.store.setItem("s.save", '{"version":13,"text":"8 pieces"}');
+    const code = (await b.sync.enable())!;
+    const a = device(cloud, new MemStore(), { t: 1_000_100 });
+    expect((await a.sync.useCode(code)).ok).toBe(true);
+    // B's page hides (saved, not edited), later than A's edit below would be.
+    b.clock.t = 3_000_000;
+    b.tickOn("sandbox", "paused");
+    await b.sync.flush(true);
+    a.clock.t = 2_000_000;
+    a.save("sandbox", "12 pieces");
+    await a.sync.flush(true);
+    const b2 = device(cloud, b.store, b.clock);
+    expect(await b2.sync.start()).toEqual({});
+    expect(b2.store.getItem("s.save")).toContain("12 pieces");
+    await b2.tick();
+    expect(await cloud.keysOf(code, "sandbox")).toMatchObject({ "s.save": expect.stringContaining("12 pieces") });
+  });
+
+  it("a copy sent as the page closed (no answer heard) is known as this device's own at the next start", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.store.setItem("s.save", '{"version":13,"text":"first"}');
+    const code = (await a.sync.enable())!;
+    a.clock.t = 1_500_000;
+    a.save("sandbox", "closing");
+    cloud.hangPuts = true;
+    void a.sync.flush(true);
+    await new Promise((r) => setTimeout(r, 0));
+    await vi.waitFor(() => expect(cloud.puts).toBe(2));
+    cloud.hangPuts = false;
+    const a2 = device(cloud, a.store, a.clock);
+    expect(await a2.sync.start()).toEqual({});
+    expect(a2.sync.backupOf("sandbox")).toBeNull();
+    expect(a2.timers).toHaveLength(0);
+    expect(await cloud.keysOf(code, "sandbox")).toMatchObject({ "s.save": expect.stringContaining("closing") });
+  });
+
+  it("one turn-on, code or restore at a time", async () => {
+    const a = device(new FakeCloud());
+    a.store.setItem("s.save", '{"version":13}');
+    const [one, two] = await Promise.all([a.sync.enable(), a.sync.enable()]);
+    expect(one).not.toBeNull();
+    expect(two).toBeNull();
+    expect(a.sync.code).toBe(one);
+  });
+
+  it("turning off forgets the railway kept aside too", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    const code = (await a.sync.enable())!;
+    a.save("game", "theirs");
+    await a.sync.flush();
+    const b = device(cloud);
+    b.store.setItem("g.save", '{"version":13,"text":"mine"}');
+    expect((await b.sync.useCode(code)).ok).toBe(true);
+    expect(b.sync.backupOf("game")).not.toBeNull();
+    b.sync.disable();
+    expect(b.sync.backupOf("game")).toBeNull();
+  });
+
+  it("a railway kept aside is labelled by when it was last edited, not when it was kept", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    const code = (await a.sync.enable())!;
+    a.save("game", "theirs");
+    await a.sync.flush();
+    // B, off, edits its own at 1 200 000; it's kept aside when B takes A's code later, at 5 000 000.
+    const b = device(cloud, new MemStore(), { t: 1_200_000 });
+    b.save("game", "mine");
+    const b2 = device(cloud, b.store, b.clock);
+    b2.clock.t = 5_000_000;
+    expect((await b2.sync.useCode(code)).ok).toBe(true);
+    expect(b2.sync.backupOf("game")).toBe(1_200_000);
+  });
+
+  it("which edit came later is judged by the cloud's clock, not the other device's (B's clock 25 min slow)", async () => {
+    const cloud = new FakeCloud();
+    const server = { t: 1_000_000 };
+    cloud.server = server;
+    // A's clock is right; B's is behind. A device knows its offset from the cloud's answers.
+    const a = device(cloud, new MemStore(), server);
+    const bClock = { t: server.t - 1_500_000 };
+    const bCloud = Object.assign(Object.create(cloud) as FakeCloud, { clockOffset: 1_500_000 });
+    a.store.setItem("s.save", '{"version":13,"text":"first"}');
+    const code = (await a.sync.enable())!;
+    const taken: GameMode[] = [];
+    a.sync.onTaken = (m) => taken.push(m);
+    // A edits offline at 2 000 000; B edits and sends later, at 2 100 000 (its clock says 600 000).
+    cloud.offline = true;
+    server.t = 2_000_000;
+    a.save("sandbox", "a's edit");
+    await a.sync.flush();
+    cloud.offline = false;
+    const b = device(bCloud, new MemStore(), bClock);
+    expect((await b.sync.useCode(code)).ok).toBe(true);
+    server.t = 2_100_000;
+    bClock.t = server.t - 1_500_000;
+    b.save("sandbox", "b's later edit");
+    await b.sync.flush();
+    // A back online: B's came later, though B's own clock says otherwise.
+    server.t = 2_200_000;
+    await a.sync.flush();
+    expect(taken).toEqual(["sandbox"]);
+    expect(a.store.getItem("s.save")).toContain("b's later edit");
+  });
+
   it("a 429 or a failure never loses what's still to send", async () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     a.save("sandbox", "edit");
     cloud.reply429 = true;
     await a.tick();
@@ -334,7 +503,7 @@ describe("cloud saves", () => {
   it("leaves a copy from a newer game alone", async () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     a.save("sandbox", "mine");
     await a.sync.flush();
     cloud.saves.get(`${code}/sandbox`)!.meta = { savedAt: 9_000_000, saveVersion: 14 };
@@ -351,7 +520,7 @@ describe("cloud saves", () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
     a.store.setItem("s.save", '{"version":12}');
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     expect(cloud.saves.get(`${code}/sandbox`)!.meta.saveVersion).toBe(13);
     expect((JSON.parse(await gunzip(cloud.saves.get(`${code}/sandbox`)!.bytes)) as { saveVersion: number }).saveVersion).toBe(12);
   });
@@ -360,7 +529,7 @@ describe("cloud saves", () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
     a.store.setItem("s.save", '{"version":13,"text":"a\'s"}');
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     const b = device(cloud, new MemStore(), { t: 2_000_000 });
     expect((await b.sync.useCode(code)).ok).toBe(true);
     b.save("sandbox", "b's");
@@ -370,7 +539,8 @@ describe("cloud saves", () => {
     a2.sync.cutoff();
     await started;
     expect(a2.store.getItem("s.save")).toContain("a's");
-    // (Settled by the next upload: B's is kept here, and A's goes up.)
+    // (Settled by the next upload, A's edited later: B's is kept here, and A's goes up.)
+    a2.clock.t = 3_000_000;
     a2.save("sandbox", "a's again");
     await a2.tick();
     expect(a2.sync.backupOf("sandbox")).not.toBeNull();
@@ -380,7 +550,7 @@ describe("cloud saves", () => {
   it("storage full: a cloud copy isn't half written", async () => {
     const cloud = new FakeCloud();
     const a = device(cloud);
-    const code = await a.sync.enable();
+    const code = (await a.sync.enable())!;
     a.save("game", "theirs");
     await a.sync.flush();
     const b = device(cloud);

@@ -13,17 +13,23 @@ on another device. The game's side of it is `src/persist/cloud.ts`, and its card
 
 - `:mode` is `sandbox` or `game`.
 - **The sync code** goes in the `X-Woodrail-Code` header, never in the URL, so it stays out of logs. It's three words
-  and four digits (`acorn-badge-otter-0420`, about 43 bits), and R2 keys are `saves/<sha256(code)>/<mode>`, so the code
-  itself is never stored.
+  and four digits (`acorn-badge-otter-0420`, about 43 bits). R2 keys are `saves/<HMAC-SHA256(CODE_KEY, code)>/<mode>`,
+  so the code itself is never stored, and the bucket's keys can't be checked against guessed codes without the
+  Worker's secret.
 - **Metadata** goes in the headers `X-Saved-At` (ms), `X-Save-Version` (the save format) and `X-Game-Version` (the
-  build). The Worker keeps them beside the bundle and returns them on GET and HEAD.
+  build). The Worker keeps them beside the bundle and returns them on GET and HEAD, with `X-Stored-At`, when it
+  stored the bundle by its own clock. Every response carries `X-Server-Now`, so a game compares edits by the Worker's
+  clock rather than another device's.
 
 ### Limits
 
 - **Size:** 2 MB per bundle, or the request gets a 413. A big railway gzips to well under 200 KB.
 - **Rate:** one PUT per code and mode every 10 s, or the request gets a 429. The game sends at most every 30 s, and
   when its page hides.
-- **CORS:** only the pages listed in `ALLOWED_ORIGINS` in `wrangler.toml`. A page from any other origin gets a 403.
+- **CORS:** only the pages listed in `ALLOWED_ORIGINS` in `wrangler.toml`, plus `http://localhost` and
+  `http://127.0.0.1` on any port. A page from any other origin gets a 403.
+- **No overwriting unseen:** a PUT names the copy it was made from (`X-Base-Saved-At`), and R2 stores it only if that
+  copy is still there (`onlyIf` its etag). If another device's copy got in first, the PUT gets a 409.
 
 ## Develop and test
 
@@ -32,7 +38,7 @@ cd cloud
 npm ci
 npm test          # the Worker's tests, in the Workers runtime (Miniflare)
 npm run typecheck
-npm run dev       # wrangler dev --local on :8787, R2 kept in .wrangler/
+npm run dev       # wrangler dev --local on :8787, R2 kept in .wrangler/, with a local-only CODE_KEY
 ```
 
 From the repo root, `npm run e2e:cloud` runs two browser devices against a local Worker. It needs `npm --prefix cloud
@@ -49,9 +55,10 @@ Nothing deploys the Worker from CI. These are the steps to run once:
    cd cloud && npm ci
    export CLOUDFLARE_API_TOKEN=…   # and CLOUDFLARE_ACCOUNT_ID=… if the token can see several accounts
    ```
-2. Create the bucket:
+2. Create the bucket and the code key (any long random string; keep it, since changing it orphans every save):
    ```sh
    npx wrangler r2 bucket create woodrail-saves
+   openssl rand -hex 32 | npx wrangler secret put CODE_KEY
    ```
 3. Check `ALLOWED_ORIGINS` in `wrangler.toml`. It must include the game's origin, which is
    `https://dwfennell.github.io` for GitHub Pages (an origin has no path).
@@ -67,6 +74,16 @@ Nothing deploys the Worker from CI. These are the steps to run once:
    `WOODRAIL_CLOUD_URL` set to that URL. The Pages workflow builds with it as `VITE_CLOUD_URL`, and the next deploy of
    the game shows Cloud save in the menu. While the variable is unset, the game has no Cloud save. The claude.ai
    artifact build (`npm run build:artifact`) never has it.
+
+### Before it goes wide
+
+These limits aren't in v1:
+- Rate limits on HEAD and GET per client, against guessing codes. Use the Workers rate-limiting binding, or a WAF
+  rule on the route.
+- A tighter limit on PUTs under codes with nothing saved yet. Today anyone can store 2 MB under a fresh code every
+  10 s.
+- The first PUT under a code isn't conditional. R2's `onlyIf` has no "only if absent", so two devices turning on the
+  same code at the same moment could race.
 
 To undo, delete the variable, so the menu item goes with the next deploy. Then, if you want, run `npx wrangler delete`
 and `npx wrangler r2 bucket delete woodrail-saves`.

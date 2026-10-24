@@ -6,7 +6,7 @@
  *   HEAD /v1/saves/:mode         just its headers: what's there, without the bytes
  *
  * The sync code is the only key: sent in `X-Woodrail-Code` (never in the URL, so it stays out of logs), and stored only
- * hashed. The bundle is opaque here: the game gzips it, and checks it when it loads it. What the Worker keeps beside
+ * as an HMAC under the Worker's secret `CODE_KEY` (so the bucket's keys can't be tried against codes without it). The bundle is opaque here: the game gzips it, and checks it when it loads it. What the Worker keeps beside
  * it, and answers in headers: `X-Saved-At` (ms, when the game made the bundle), `X-Save-Version` (the game's save
  * format) and `X-Game-Version` (its build).
  *
@@ -20,18 +20,24 @@ export interface Env {
   SAVES: R2Bucket;
   /** The pages that may call the Worker, comma separated (`https://example.com,http://localhost:5173`). */
   ALLOWED_ORIGINS: string;
+  /** The secret the codes are keyed under (`wrangler secret put CODE_KEY`; `npm run dev` passes a local one). */
+  CODE_KEY: string;
 }
 
 /** Three words of 3 to 5 letters and four digits, as the game sends it (lowercase, hyphenated): about 43 bits. */
 const CODE = /^[a-z]{3,5}-[a-z]{3,5}-[a-z]{3,5}-\d{4}$/;
 const PATH = /^\/v1\/saves\/([a-z]+)$/;
-const EXPOSED = "X-Saved-At, X-Save-Version, X-Game-Version";
+const EXPOSED = "X-Saved-At, X-Save-Version, X-Game-Version, X-Stored-At, X-Server-Now";
+/** Any port on this machine (the dev server, a preview, a test's own): a page there is the developer's. */
+const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = request.headers.get("Origin");
-    const allowed = origin !== null && env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).includes(origin);
+    const allowed = origin !== null && (LOCAL.test(origin) || env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).includes(origin));
     const cors = (res: Response): Response => {
+      // (The Worker's clock, so a game can tell how far off its own is: see `X-Stored-At`.)
+      res.headers.set("X-Server-Now", String(Date.now()));
       if (allowed) {
         res.headers.set("Access-Control-Allow-Origin", origin);
         res.headers.set("Access-Control-Expose-Headers", EXPOSED);
@@ -66,7 +72,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (!(MODES as readonly string[]).includes(mode)) return text(404, "No such mode");
   const code = request.headers.get("X-Woodrail-Code") ?? "";
   if (!CODE.test(code)) return text(400, "Missing or malformed code");
-  const key = `saves/${await sha256(code)}/${mode}`;
+  if (!env.CODE_KEY) return text(500, "Not set up: CODE_KEY");
+  const key = `saves/${await hmac(env.CODE_KEY, code)}/${mode}`;
 
   if (request.method === "GET" || request.method === "HEAD") {
     const name = url.searchParams.get("prev") === "1" ? `${key}.prev` : key;
@@ -95,13 +102,17 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (current && now - Number(current.customMetadata?.putAt ?? 0) < MIN_PUT_INTERVAL_MS) {
       return text(429, "Too soon", { "Retry-After": String(Math.ceil(MIN_PUT_INTERVAL_MS / 1000)) });
     }
-    // The one it replaces is kept, one step back.
-    if (current) {
-      const old = await env.SAVES.get(key);
-      if (old) await env.SAVES.put(`${key}.prev`, old.body, { customMetadata: old.customMetadata });
-    }
+    // (Read before it's replaced: kept one step back once the new one's in.)
+    const old = current ? await env.SAVES.get(key) : null;
+    const oldBody = old ? await old.arrayBuffer() : null;
     const gameVersion = (request.headers.get("X-Game-Version") ?? "").slice(0, 40);
-    await env.SAVES.put(key, body, { customMetadata: { savedAt: String(savedAt), saveVersion: String(saveVersion), gameVersion, putAt: String(now) } });
+    // Only over the copy checked above: another PUT that got in between wins, and this one is a 409.
+    const stored = await env.SAVES.put(key, body, {
+      customMetadata: { savedAt: String(savedAt), saveVersion: String(saveVersion), gameVersion, putAt: String(now) },
+      onlyIf: current ? { etagMatches: current.etag } : undefined,
+    });
+    if (stored === null) return text(409, "Changed since");
+    if (old && oldBody) await env.SAVES.put(`${key}.prev`, oldBody, { customMetadata: old.customMetadata });
     return text(200, "Saved");
   }
 
@@ -110,7 +121,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
 function metaHeaders(obj: R2Object): Headers {
   const meta = obj.customMetadata ?? {};
-  return new Headers({ "X-Saved-At": meta.savedAt ?? "0", "X-Save-Version": meta.saveVersion ?? "0", "X-Game-Version": meta.gameVersion ?? "" });
+  // (`X-Stored-At`: when the Worker stored it, by its own clock: games compare edits by it, not by each other's clocks.)
+  return new Headers({ "X-Saved-At": meta.savedAt ?? "0", "X-Save-Version": meta.saveVersion ?? "0", "X-Game-Version": meta.gameVersion ?? "", "X-Stored-At": meta.putAt ?? "0" });
 }
 
 /** The body, or null once it runs past `max` bytes (Content-Length can be missing, or wrong). */
@@ -138,9 +150,10 @@ async function readCapped(request: Request, max: number): Promise<Uint8Array | n
   return out;
 }
 
-async function sha256(s: string): Promise<string> {
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+async function hmac(secret: string, s: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(s));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function text(status: number, body: string, headers: Record<string, string> = {}): Response {

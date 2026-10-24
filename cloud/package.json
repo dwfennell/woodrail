@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Woodrail's cloud saves: a Cloudflare Worker over an R2 bucket (see README.md)",
   "scripts": {
-    "dev": "wrangler dev --local --port 8787",
+    "dev": "wrangler dev --local --port 8787 --var CODE_KEY:local-dev-only",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

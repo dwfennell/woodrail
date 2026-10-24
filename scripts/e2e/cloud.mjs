@@ -20,7 +20,7 @@ const URL = server.resolvedUrls.local[0].replace(/\/$/, "");
 const ORIGIN = new globalThis.URL(URL).origin;
 
 const persist = mkdtempSync(join(tmpdir(), "woodrail-cloud-"));
-const worker = spawn("npx", ["wrangler", "dev", "--local", "--port", String(WORKER_PORT), "--ip", "127.0.0.1", "--persist-to", persist, "--var", `ALLOWED_ORIGINS:${ORIGIN}`, "--show-interactive-dev-session=false"], {
+const worker = spawn("npx", ["wrangler", "dev", "--local", "--port", String(WORKER_PORT), "--ip", "127.0.0.1", "--persist-to", persist, "--var", `ALLOWED_ORIGINS:${ORIGIN}`, "--var", "CODE_KEY:e2e-only-key", "--show-interactive-dev-session=false"], {
   cwd: new globalThis.URL("../../cloud/", import.meta.url),
   stdio: ["ignore", "pipe", "pipe"],
   detached: true,
@@ -167,13 +167,89 @@ try {
   }
   check("B's change is sent as its page hides", r2.savedAt > r1.savedAt, `${r1.savedAt} → ${r2.savedAt}`);
 
+  // 3b. (QA B1) A, open and running (its clock going on, nothing edited) past its 30 s timer: it sends nothing, so
+  // B's edit stays.
+  await a.evaluate(() => (window.woodrail.paused = false));
+  await new Promise((r) => setTimeout(r, 36_000));
+  const r3 = await remote(code);
+  check("a device only open, running, sends nothing over another's edit (QA B1)", r3.savedAt === r2.savedAt, `${r2.savedAt} → ${r3.savedAt}`);
+
   // 4. A starts again: B's newer railway is the one it opens (A hadn't changed its own: no backup, no toast).
   await a.reload();
   await inSandbox(a);
   check("A, started again, opens B's newer railway", (await seed(a)) === seedB2, `A ${await seed(a)}; B ${seedB2}`);
   await menu(a, "Cloud save");
   check("…with no backup offered (nothing of A's was lost)", !/Restore/.test(await card(a)), await card(a));
+  await tap(a, "Done");
   console.log(`  bundle sizes (gzipped): ${r1.size} B, ${r2.size} B`);
+
+  // (The cloud takes one upload per code and mode every 10 s.)
+  const pastLimit = () => new Promise((r) => setTimeout(r, 11_000));
+  /** Wait for the cloud's copy to be other than `was` (an upload landing). */
+  const landed = async (was) => {
+    let r = await remote(code);
+    for (let i = 0; i < 60 && r.savedAt === was.savedAt; i++) {
+      await new Promise((res) => setTimeout(res, 250));
+      r = await remote(code);
+    }
+    return r;
+  };
+
+  // 5. (QA B3) Both paused. A edits (a new map) and its page hides: sent. B, which only sat there (its pages hid and
+  // saved, nothing edited), starts again: it takes A's, and sends nothing over it.
+  await a.evaluate(() => (window.woodrail.paused = true));
+  await bp.evaluate(() => (window.woodrail.paused = true));
+  // (B's backup now: its own first railway, kept when it took A's code. A sync now mustn't add another.)
+  const keptB = () => bp.evaluate(() => localStorage.getItem("woodrail.cloud.backup.sandbox"));
+  const keptB0 = await keptB();
+  await bp.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
+  await pastLimit();
+  await menu(a, "New map");
+  await a.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  const seedA3 = await seed(a);
+  await autosaved(a);
+  await a.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
+  const r4 = await landed(r3);
+  await bp.reload();
+  await inSandbox(bp);
+  await new Promise((r) => setTimeout(r, 2000));
+  const r5 = await remote(code);
+  await menu(bp, "Cloud save");
+  check(
+    "a device that only sat there takes the other's edit at its next start, and sends nothing over it (QA B3)",
+    r4.savedAt > r3.savedAt && (await seed(bp)) === seedA3 && r5.savedAt === r4.savedAt && (await keptB()) === keptB0,
+    `cloud ${r3.savedAt} → ${r4.savedAt} → ${r5.savedAt}; A ${seedA3}; B ${await seed(bp)}`,
+  );
+  await tap(bp, "Done");
+
+  // 6. (QA B2) A goes offline and edits (a new map). B edits later (another), and sends it. A back online: B's edit
+  // was the later, so A takes it (the game starts again on it, and says so), A's kept to restore; nothing sent over B's.
+  await ctxA.setOffline(true);
+  await menu(a, "New map");
+  await a.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  const seedAOff = await seed(a);
+  await autosaved(a);
+  await pastLimit();
+  await menu(bp, "New map");
+  await bp.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  const seedB6 = await seed(bp);
+  await autosaved(bp);
+  await bp.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
+  const r6 = await landed(r5);
+  const reloadedA = a.waitForEvent("load", { timeout: 60000 });
+  await ctxA.setOffline(false);
+  // (The page hears it's back online; told again, in case the browser didn't say.)
+  await a.evaluate(() => dispatchEvent(new Event("online"))).catch(() => {});
+  await reloadedA;
+  await inSandbox(a);
+  const told = await a.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
+  const r7 = await remote(code);
+  await menu(a, "Cloud save");
+  check(
+    "back online, an edit made offline before the other device's: A takes B's (and says so), keeps its own to restore, sends nothing over it (QA B2)",
+    seedAOff !== seedB6 && (await seed(a)) === seedB6 && r7.savedAt === r6.savedAt && /Restore the railway from/.test(await card(a)) && /newer railway/.test(told),
+    `A offline ${seedAOff}; B ${seedB6}; A now ${await seed(a)}; cloud ${r6.savedAt} → ${r7.savedAt}; said “${told}”; card ${await card(a)}`,
+  );
   await ctxA.close();
   await ctxB.close();
 } catch (e) {

@@ -206,6 +206,22 @@ const cloudStarted = cloud ? cloud.start().catch(() => ({})) : Promise.resolve({
 const CLOUD_WAIT_MS = 3000;
 type CloudNotes = Partial<Record<GameMode, SyncNote>>;
 
+/** A cloud note to say after a reload (`CloudSync.onTaken`), in session storage. */
+const CLOUD_NOTE_KEY = "woodrail.cloud.note";
+
+/** The note a reload left to say, if any (taken once). */
+function takeCloudNote(): CloudNotes {
+  try {
+    const raw = sessionStorage.getItem(CLOUD_NOTE_KEY);
+    sessionStorage.removeItem(CLOUD_NOTE_KEY);
+    const n = raw ? (JSON.parse(raw) as { mode?: unknown; note?: unknown }) : null;
+    if (n && (n.mode === "sandbox" || n.mode === "game") && typeof n.note === "string" && n.note in CLOUD_NOTES) return { [n.mode]: n.note as SyncNote };
+  } catch {
+    // none
+  }
+  return {};
+}
+
 /** What a cloud check did to a mode's railway, as a toast. */
 const CLOUD_NOTES: Record<Exclude<SyncNote, null>, string> = {
   "took-cloud": "Loaded your newer railway from the cloud. The other one is kept (Cloud save → Restore).",
@@ -383,11 +399,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       newLayout: () => {
         saveLastBuilt(mode, null);
         setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game"));
+        cloud?.edited(mode);
         game.frameLayout();
       },
       resetStarter: () => {
         saveLastBuilt(mode, null);
         setWorld(buildStarterWorld(mode === "game"));
+        cloud?.edited(mode);
         game.frameLayout();
         openingView();
       },
@@ -958,6 +976,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function scheduleSave(): void {
+    // (An edit: what the cloud sends. The 5 s save of the clock and the trains rolling on isn't one.)
+    cloud?.edited(mode);
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(save, 600);
   }
@@ -968,7 +988,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     saveToStorage(game.world, mode);
     saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() });
     if (mode === "game") saveProgress(progress.toJSON());
-    cloud?.changed(mode);
   }
 
   /** The railway's date in the top bar (Game mode), from the game's clock: shown as it turns (asked about once a second). */
@@ -1591,6 +1610,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       audio.chime();
       if (board.open) refreshBoard();
       save();
+      cloud?.edited(mode);
       // The next offer waiting, if any; else the sheet closes.
       if (progress.offers.length > 0) refreshRewards();
       else closeRewards();
@@ -1648,6 +1668,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Old industries' ruins it opens: the nearest is named, to restore.
     ruinOpened(id);
     save();
+    cloud?.edited(mode);
   }
 
   /** The school research goods go to: one beside a town, by name ("Larkfield school"), or null if none is placed. */
@@ -3160,6 +3181,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     townLife.reset();
     passengersOn();
     save();
+    cloud?.edited("game");
     openingView();
   }
 
@@ -3188,6 +3210,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (hasOlderSave(next)) loadFromStorage(next);
       setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false));
       restoreSession(next, false);
+      cloud?.edited(next);
     } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
@@ -3652,6 +3675,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     });
     hud.addCloudItem(() => card.show());
     cloud.onNote = (_m, note) => note && hud.toast(CLOUD_NOTES[note], false, 7000);
+    // A newer copy from another device, taken while playing: the game starts again on it (without saving this one over
+    // it), and says so then.
+    cloud.onTaken = (m, note) => {
+      try {
+        if (note) sessionStorage.setItem(CLOUD_NOTE_KEY, JSON.stringify({ mode: m, note }));
+      } catch {
+        // (Not said.)
+      }
+      playing = false;
+      clearTimeout(saveTimer);
+      reloadInto(mode);
+    };
   }
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
@@ -3826,7 +3861,7 @@ requestAnimationFrame(() =>
       models(),
     ]).then(async ([, thumbs]) => {
       // The cloud check, under way all this while: waited for only a little longer than the rest took.
-      const cloudNotes = (await Promise.race([cloudStarted, sleep(CLOUD_WAIT_MS).then(() => ({}))])) as CloudNotes;
+      const cloudNotes = { ...takeCloudNote(), ...((await Promise.race([cloudStarted, sleep(CLOUD_WAIT_MS).then(() => ({}))])) as CloudNotes) };
       cloud?.cutoff();
       // Only the pieces the opening railway has (and the title's picture) are waited for: the rest carry on carving
       // in the background, and any wanted before its turn shows as a stand-in for a moment.

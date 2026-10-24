@@ -22,6 +22,7 @@ declare global {
     interface Env {
       SAVES: R2Bucket;
       ALLOWED_ORIGINS: string;
+      CODE_KEY: string;
     }
   }
 }
@@ -47,6 +48,8 @@ describe("saves", () => {
     expect(got.headers.get("X-Game-Version")).toBe("abc123");
     expect(got.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
     expect(got.headers.get("Access-Control-Expose-Headers")).toContain("X-Saved-At");
+    expect(got.headers.get("X-Stored-At")).toBe(String(Date.now()));
+    expect(got.headers.get("X-Server-Now")).toBe(String(Date.now()));
   });
 
   it("HEAD answers what's there without the bytes", async () => {
@@ -108,6 +111,26 @@ describe("saves", () => {
     expect(await (await call("GET")).text()).toBe("second");
   });
 
+  it("keys a code by an HMAC under CODE_KEY, and won't run without one", async () => {
+    await put("x");
+    const [key] = (await env.SAVES.list()).objects.map((o) => o.key);
+    const k = await crypto.subtle.importKey("raw", new TextEncoder().encode("test-only-key"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const want = [...new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(CODE)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    expect(key).toBe(`saves/${want}/sandbox`);
+    const res = await worker.fetch(new Request(URL_, { headers: { "X-Woodrail-Code": CODE, Origin: ORIGIN } }), { ...env, CODE_KEY: "" });
+    expect(res.status).toBe(500);
+  });
+
+  it("of two PUTs over the same copy at once, one is a 409", async () => {
+    await put("first", 100);
+    later();
+    const [a, b] = await Promise.all([put("from a", 200, { headers: { "X-Base-Saved-At": "100" } }), put("from b", 300, { headers: { "X-Base-Saved-At": "100" } })]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const won = a.status === 200 ? "from a" : "from b";
+    expect(await (await call("GET")).text()).toBe(won);
+    expect(await (await call("GET", { url: `${URL_}?prev=1` })).text()).toBe("first");
+  });
+
   it("turns away a bundle that's too big (413)", async () => {
     expect((await put(new Uint8Array(MAX_BYTES + 1))).status).toBe(413);
     // (Streamed, with no length said up front.)
@@ -146,6 +169,10 @@ describe("saves", () => {
     expect(pre.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
     expect(pre.headers.get("Access-Control-Allow-Headers")).toContain("X-Woodrail-Code");
     expect(pre.headers.get("Access-Control-Allow-Methods")).toContain("PUT");
+    // Any port on this machine.
+    expect((await call("OPTIONS", { code: null, origin: "http://localhost:5397" })).headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5397");
+    expect((await call("OPTIONS", { code: null, origin: "http://127.0.0.1:4100" })).status).toBe(204);
+    expect((await call("OPTIONS", { code: null, origin: "http://localhost.evil.example" })).status).toBe(403);
     const evil = await call("GET", { origin: "https://evil.example" });
     expect(evil.status).toBe(403);
     expect(evil.headers.get("Access-Control-Allow-Origin")).toBeNull();
