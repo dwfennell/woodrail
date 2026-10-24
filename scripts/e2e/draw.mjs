@@ -1419,11 +1419,17 @@ async function finishRun() {
  */
 async function liftFlush() {
   if (!site) return;
+  // (Drawing on, as its chip does: run on its own, nothing before it switched it on.)
+  await p.evaluate(() => {
+    if (!window.woodrail.interaction.isDrawing) document.querySelector(".tray-draw")?.click();
+  });
+  await p.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
   const { x, z, heading: h } = site;
   await focus(x + Math.cos(h) * 200, z + Math.sin(h) * 200);
   const triggers = {
     undo: () => window.woodrail.interaction.undo(),
-    "a press": () => window.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 9, pointerType: "mouse", bubbles: true })),
+    // (On the page's body, as a real press is on an element: the window's capture listeners see it first.)
+    "a press": () => document.body.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 9, pointerType: "mouse", bubbles: true })),
     "the page hidden": () => {
       Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
       document.dispatchEvent(new Event("visibilitychange"));
