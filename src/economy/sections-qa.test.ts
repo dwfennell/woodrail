@@ -87,6 +87,9 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
   const spare: boolean[] = [];
   let stillFrom = 0;
   let allStill = 0;
+  // (The same for the trains on the line only: one taken off it may shuttle between them while they stand.)
+  let lineFrom = 0;
+  let lineStill = 0;
   let tickMs = 0;
   if (ENV.BENCH) q.economy.sections.timing = true;
   let ringFrom = 0;
@@ -163,6 +166,15 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     for (let k = 0; k < E.length; k++) if (!spare[k] && (q.sim.findCar(E[k])?.train.speed ?? 0) >= 1) moving = true;
     if (moving || E.length === 0) stillFrom = tick;
     else allStill = Math.max(allStill, (tick - stillFrom) / SIM_HZ);
+    let lineMoving = false;
+    let onLine = 0;
+    for (let k = 0; k < E.length; k++)
+      if (!spare[k] && q.economy.lineIdOf.has(E[k])) {
+        onLine++;
+        if ((q.sim.findCar(E[k])?.train.speed ?? 0) >= 1) lineMoving = true;
+      }
+    if (lineMoving || onLine === 0) lineFrom = tick;
+    else lineStill = Math.max(lineStill, (tick - lineFrom) / SIM_HZ);
     // (The longest a ring of waits lasted: trains of the line each waiting on the next, round to the first.)
     const on = (e: number) => {
       const w = q.economy.sections.waitOf(e);
@@ -229,7 +241,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     }
     return all ? n / all : 0;
   };
-  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, cardLog, stale, flips, turns: sec0.turnedShort + sec0.yielded + sec0.gaveWay - turns0, share, allStill, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
+  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, cardLog, stale, flips, turns: sec0.turnedShort + sec0.yielded + sec0.gaveWay - turns0, share, allStill, lineStill, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
 }
 
 describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
@@ -470,7 +482,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
           // (QA: a spare can leave the line delivering nothing. Then the cards must say to move it.)
           const delivering = r.arrivals.slice(0, 3).some((a) => a > 3);
           if (kind === "spare" && !delivering && ![...r.cards].some((c) => /[Mm]ove (it|the parked train)$/.test(c))) bad.push(`${line}: no card saying to move it`);
-          if (r.allStill > 60 && says && ENV.SHOW) console.log(`B5 still, but it says why: ${[...r.cards].filter((c) => /ay \d+ more|Move it/.test(c)).join(" | ")}`);
+          if (r.allStill > 60 && says && ENV.SHOW) console.log(`B5 still, but it says why: ${[...r.cards].filter((c) => /ay \d+ more|Move it|unpin/.test(c)).join(" | ")}`);
         }
     expect(bad).toEqual([]);
   });
@@ -657,6 +669,23 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
   });
   // The same, built directly: a short train in loop 1's main road waiting on a spare ahead of it (stuck: the spare
   // won't move), a free slot behind it, but another spare right behind it in the road. It mustn't be picked to turn.
+  // (Game Mode's harness, seeds 1 and 5: a people train on no line, lever on, between the line's two goods trains,
+  // each waiting on it. It stood short of one, turned back, stood short of the other, on and on; standing with its lever
+  // on, `unring` took it for one that will go, and no one gave way: they stood till picked up. Before: 88 s.)
+  it("a train on no line shuttling between two of the line's trains waiting on it: one gives way, they don't all stand", () => {
+    const rows: string[] = [];
+    for (const k of [0, 2, 3, 4])
+      for (const off of [5, 40]) {
+        const { q, l } = one();
+        const ps = [q.west[0], l.main[0], l.main[1], l.side[0], l.main[1], q.east[0]];
+        const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: ps[k], ps: [ps[k], ...ps], ss: [20, 100, 180], next: 1, offAt: off }], [q.a, q.b], 240, cars);
+        if (ENV.SHOW) console.log(`LINELESS k${k} off${off}: line still ${r.lineStill.toFixed(0)} s, arrivals ${r.arrivals.join("/")}, meets ${r.meet}`);
+        if (r.lineStill > 30) rows.push(`k${k} off${off}: the line's trains all stood ${r.lineStill.toFixed(0)} s`);
+        if (r.arrivals[0] + r.arrivals[1] < 4) rows.push(`k${k} off${off}: ${r.arrivals.join("/")} arrivals`);
+        expect(r.meet).toBeLessThanOrEqual(4);
+      }
+    expect(rows).toEqual([]);
+  });
   it("unring: a train boxed in by spares in its road waits on the one ahead, named, and isn't picked to turn back", () => {
     const { q, l1 } = two();
     const short: CarKind[] = ["engine"];

@@ -468,6 +468,8 @@ export class Sections {
   stalls = 0;
   /** Trains on no line standing short of a train ahead (see `clearCap`): since when (tick); and turns back after. */
   private readonly clearHeld = new Map<number, number>();
+  /** The train each of those stands short of (its id). */
+  private readonly clearBy = new Map<number, number>();
   clearTurns = 0;
   /** The last tick a line was managed (see `clearCap`). */
   private managedTick = -Infinity;
@@ -1513,6 +1515,7 @@ export class Sections {
             // (Stood short of it a while: it turns back, as it would have on bumping it, but without the bump.)
             const since = held ?? this.sim.ticks;
             this.clearHeld.set(train.id, since);
+            this.clearBy.set(train.id, t.id);
             if (train.speed < 1 && this.sim.ticks - since > CLEAR_TURN_S * 120 && this.sim.turnBack(train.id)) {
               this.clearHeld.delete(train.id);
               this.clearTurns++;
@@ -1687,7 +1690,7 @@ export class Sections {
     const standing = (e: number) => (this.sim.findCar(e)?.train.speed ?? 1) < 1;
     // Where a chain of waits from `e` ends: "moving" (a train under way, or one of the line at work with no wait: it
     // will go), or "stuck" (no one named, a train that won't move, or back round to one already in the chain).
-    const ends = (e: number): { stuck: boolean; chain: number[]; held?: number } => {
+    const ends = (e: number): { stuck: boolean; chain: number[]; held?: number; foreign?: number } => {
       const chain = [e];
       let x = on(e);
       for (;;) {
@@ -1695,7 +1698,14 @@ export class Sections {
         if (x === -1) return { stuck: false, chain };
         if (chain.includes(x)) return { stuck: true, chain };
         const f = info.foreign.find((t) => t.cars.some((c) => c.id === x));
-        if (f) return { stuck: f.speed < 1 && this.host.drive(f) === 0, chain };
+        // (Not on the line: stuck if standing with its lever off, or standing short of a train other than the one
+        // waiting on it (see `clearCap`), as one does shuttling between two of the line's trains that wait on it: then
+        // one of them gives way. Short of the one waiting on it, it turns back by itself.)
+        if (f) {
+          const by = this.clearHeld.has(f.id) ? this.clearBy.get(f.id) : undefined;
+          const waiter = this.sim.findCar(chain[chain.length - 1])?.train.id;
+          return { stuck: f.speed < 1 && (this.host.drive(f) === 0 || (by !== undefined && by !== waiter)), chain, foreign: x };
+        }
         if (!info.engines.includes(x)) return { stuck: true, chain };
         if (!info.admitted.has(x)) return { stuck: true, chain, held: x };
         if (!standing(x)) return { stuck: false, chain };
@@ -1707,7 +1717,7 @@ export class Sections {
     // slot behind them, the one nearest the end of the chain turns back (the newest, at a ring). One a check.
     for (const e of info.engines) {
       if (!info.admitted.has(e) || on(e) === -1 || !lasted(e)) continue;
-      const { stuck, chain } = ends(e);
+      const { stuck, chain, foreign } = ends(e);
       if (!stuck) continue;
       // (And none behind it to turn back into: `giveWay` won't turn one that isn't, and it'd be picked again and again.)
       const open = chain.filter((y) => {
@@ -1718,6 +1728,20 @@ export class Sections {
       // (None can turn, and it ends at one of its own held for room: held by rule, not by the track, it can move.
       // It takes the room of the one waiting on it, which is held where it stands instead. Once a minute at most.)
       if (open.length === 0) {
+        // (It ends at a train not on the line: another of the line's trains waiting on that one, from the other side,
+        // say, turns back if it can, held for room or not: it's in the way of that one's way out.)
+        if (foreign !== undefined) {
+          const other = info.engines.find((y) => {
+            if (chain.includes(y) || on(y) !== foreign || !standing(y)) return false;
+            const st = this.states.get(y);
+            const t = this.sim.findCar(y)?.train;
+            return !!st && !!t && this.aloneIn(st, t, null) && this.openBack(y, info);
+          });
+          if (other !== undefined) {
+            this.giveWay(other);
+            return;
+          }
+        }
         const h = ends(e).held;
         const last = chain[chain.length - 1];
         const st = this.states.get(last);
