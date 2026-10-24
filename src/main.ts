@@ -1017,8 +1017,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function restoreSession(m: GameMode, fromSave: boolean): void {
     const s = fromSave ? loadSession(m) : null;
     game.simSeconds = s?.clock ?? 0;
-    // A loaded clock is another session's time, not study done here.
+    // A loaded clock is another session's time, not study done here (nor making, nor sailing).
     studyClock.at = null;
+    craftClock.at = null;
+    harbourClock.at = null;
     showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
@@ -1836,6 +1838,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The research's study clock, on the world's game time (see `simElapsed`). */
   const studyClock: StudyClock = { at: null };
   /**
+   * The workshop's and the harbour boats' clocks, on game time too: a hidden tab (no frames, so no game time) or a
+   * paused game makes nothing and trades nothing, as its trains deliver nothing (cloud saves: two devices both earning
+   * only when both are in view).
+   */
+  const craftClock: StudyClock = { at: null };
+  const harbourClock: StudyClock = { at: null };
+  /**
    * What the map gives research, from the map: the towns' landmarks, a school beside a city (tier 3), and how fast the
    * schools study (a college: twice as fast). Asked when industries, towns or what's learned change, not per frame.
    */
@@ -1866,10 +1875,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         scheduleSave("progress");
       }
     }
-    if (mode !== "game" || !playing || game.paused || progress.orders.length === 0) return;
+    // (Read on every step, as the study clock is, so time off the game isn't counted.)
+    const crafted = simElapsed(craftClock, game.simSeconds);
+    if (mode !== "game" || !playing || game.paused || progress.orders.length === 0 || crafted <= 0) return;
     const wasMaking = progress.making;
     const coinsBefore = progress.coins;
-    const made = crafting.tick(game.world, CRAFT_STEP);
+    const made = crafting.tick(game.world, crafted);
     if (progress.coins !== coinsBefore) hud.setCoins(progress.coins);
     showWorkshop();
     // Planks leave the yard when an order starts: draw the pile going down (only then, not on every step).
@@ -1972,8 +1983,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   setInterval(() => {
     updatePlanksKept();
-    if (mode !== "game" || !playing || game.paused) return;
-    for (const e of harbourTrade.update(game.world, progress)) {
+    const sailed = simElapsed(harbourClock, game.simSeconds);
+    if (mode !== "game" || !playing || game.paused || sailed <= 0) return;
+    for (const e of harbourTrade.update(game.world, progress, sailed)) {
       if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "gone") game.boats.remove(e.depotId);
