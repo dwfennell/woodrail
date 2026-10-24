@@ -415,7 +415,15 @@ export class Interaction {
   onHeld: ((type: PieceTypeId | null) => void) | null = null;
   private selectedPiece = -1;
   /** Picking several pieces (see `selectMore`): which are picked. */
-  private picking = false;
+  private pickingNow = false;
+  /** Picking pieces to move together ("Select more"): taps on track pick. (The HUD lets taps through a toast meanwhile.) */
+  private get picking(): boolean {
+    return this.pickingNow;
+  }
+  private set picking(on: boolean) {
+    this.pickingNow = on;
+    this.hud.setMapTaps("picking", on);
+  }
   private readonly picked = new Set<number>();
   private selectedProp = -1;
   /** Round the selected prop, or under the held one (green where it can go, red where it can't). */
@@ -490,6 +498,12 @@ export class Interaction {
     // Touch moves the camera through TouchCamera (Maps-style gestures).
     c.touches = { ONE: NO_TOUCH, TWO: NO_TOUCH };
     window.addEventListener("pointerdown", (e) => this.notePointer(e), { capture: true });
+    // Hidden (or leaving), the page's frames stop: a line lifted just before, waiting for one to go down, goes down now
+    // (and is saved with the rest: these run before the game's own save on the way out).
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") this.draw.flush();
+    });
+    addEventListener("pagehide", () => this.draw.flush());
     const lift = (e: PointerEvent) => this.touches.delete(e.pointerId);
     window.addEventListener("pointerup", lift, { capture: true });
     window.addEventListener("pointercancel", lift, { capture: true });
@@ -1468,7 +1482,7 @@ export class Interaction {
     if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
       this.feelBranch(e);
-      this.updateDraw(e.clientX, e.clientY);
+      this.updateDrawFrom(e);
       return;
     }
     const still = this.heldStill;
@@ -1516,7 +1530,7 @@ export class Interaction {
           this.game.controls.enabled = false;
           this.mode = { kind: "draw-track", pointerId: m.pointerId };
           this.feelBranch(e);
-          this.updateDraw(e.clientX, e.clientY);
+          this.updateDrawFrom(e);
         } else {
           this.mode = { kind: "idle" };
           this.game.controls.enabled = true;
@@ -1527,7 +1541,7 @@ export class Interaction {
       if (m.draws && this.drawsNow && this.draw.begin(m.x, m.y)) {
         this.game.controls.enabled = false;
         this.mode = { kind: "draw-track", pointerId: m.pointerId };
-        this.updateDraw(e.clientX, e.clientY);
+        this.updateDrawFrom(e);
         return;
       }
       if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
@@ -1792,7 +1806,7 @@ export class Interaction {
           this.game.controls.enabled = false;
           this.mode = { kind: "draw-track", pointerId: e.pointerId };
           this.feelBranch(e);
-          this.updateDraw(e.clientX, e.clientY);
+          this.updateDrawFrom(e);
         }
         return true;
       }
@@ -2021,6 +2035,17 @@ export class Interaction {
   }
 
   /** Drawing: the finger moved (or the view edge-panned under it). */
+  /**
+   * Drawing: the finger moved, through every point the browser ran into this event, in order. (Only the last, the line
+   * was drawn from whichever moves got through on their own, and the same stroke laid other pieces when the page was
+   * busier: QA, a branch drawn the same way laid 1 or 2 pieces.)
+   */
+  private updateDrawFrom(e: PointerEvent): void {
+    const pts = coalesced(e);
+    for (let i = 0; i < pts.length - 1; i++) this.draw.move(pts[i].clientX, pts[i].clientY, false);
+    this.updateDraw(e.clientX, e.clientY);
+  }
+
   private updateDraw(x: number, y: number): void {
     this.lastX = x;
     this.lastY = y;
@@ -2484,6 +2509,8 @@ export class Interaction {
     const found = this.selectedCar === -1 ? undefined : this.game.sim.findCar(this.selectedCar);
     if (!found) return;
     this.game.sim.removeTrain(found.train.id);
+    // (Gone for good: off its line now, its cargo and route with it, not at the next track edit.)
+    this.game.economy.prune();
     this.hud.hideCards();
     this.clearSelection();
     this.changed();
@@ -3229,8 +3256,18 @@ export class Interaction {
     const first = this.selectedPiece;
     this.clearSelection();
     this.picking = true;
-    if (first !== -1) this.picked.add(first);
+    this.pickFirst(first);
     this.showPicked();
+  }
+
+  /**
+   * The piece selected when picking starts becomes the first picked, unless a train is on it (said so: a group with
+   * it couldn't be moved, turned or taken up).
+   */
+  private pickFirst(id: number): void {
+    if (id === -1) return;
+    if (this.game.sim.pieceOccupied(id)) this.hud.toast(TRAIN_ON_TRACK);
+    else this.picked.add(id);
   }
 
   /** Group card "Done": let the picked pieces go. */
@@ -3250,7 +3287,12 @@ export class Interaction {
       const first = this.selectedPiece;
       this.clearSelection();
       this.picking = true;
-      if (first !== -1) this.picked.add(first);
+      this.pickFirst(first);
+      // (Shift+click on the piece selected, a train on it: said once.)
+      if (first === id && !this.picked.has(id)) {
+        this.showPicked();
+        return;
+      }
     }
     if (this.picked.has(id)) this.picked.delete(id);
     else if (this.game.sim.pieceOccupied(id)) this.hud.toast(TRAIN_ON_TRACK);
@@ -4072,6 +4114,8 @@ export class Interaction {
     const fresh = !m.origin;
     if (m.overTray) {
       if (m.origin) this.hud.toast("Back in the box");
+      // (Off the map for good, as with Remove: off its line now, not at the next track edit.)
+      if (m.origin) this.game.economy.prune();
       if (fresh) this.onTrayTrainDropped?.(false);
       this.changed();
       return;
@@ -5083,12 +5127,22 @@ export class Interaction {
 
   /** Track touch pointers (for multi-touch) and whether the latest pointer is touch (for the lifted drag offset). */
   notePointer(e: PointerEvent): void {
+    // (A line lifted just before, waiting a frame to go down: down first, before this press does anything.)
+    this.draw.flush();
     this.lastPointerWasTouch = e.pointerType === "touch";
     if (e.pointerType === "touch") this.touches.add(e.pointerId);
   }
 
+  /** A line lifted just before, waiting a frame to go down (see `DrawHand.end`), goes down now. */
+  flushDraw(): void {
+    this.draw.flush();
+  }
+
   /** Undo, finishing any piece animation first so the change shows at once. */
   undo(): void {
+    // (A line lifted just before, waiting a frame to go down: down first, so this undo takes it up, not what came
+    // before it.)
+    this.draw.flush();
     if (this.busy) return;
     this.game.flourishes.clear();
     // (Carrying, it stays carried: its ghost is placed again on the map as it now is.)
@@ -5098,6 +5152,7 @@ export class Interaction {
   }
 
   redo(): void {
+    this.draw.flush();
     if (this.busy) return;
     this.game.flourishes.clear();
     if (!this.carrying) this.arm(null);

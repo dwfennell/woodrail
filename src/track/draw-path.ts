@@ -212,6 +212,12 @@ const MAX_PIECES = 200;
  */
 const GROW_PER_MOVE = 1;
 
+/** A way `closeBack` might close: pieces taken back, pieces laid, the free end met, how, and what it costs. */
+type Fit = { back: number; lay: DrawCandidate[]; to: DrawEnd; exact: boolean; shift: boolean; cost: number };
+
+/** Thrown by a preview's close search when its slice is up (see `DrawLine.preview`, `closeBack`). */
+const LATE = { late: true };
+
 /** How many levels above the line's height the finger is looked for on a hill nearer the camera (see `onGround`). */
 const SEEN_LEVELS = 4;
 /** What each piece costs on its own: fewer pieces look calmer, and the tight curve and the mini are for when they're needed. */
@@ -533,6 +539,17 @@ export class DrawLine {
   private offBand = false;
   /** Fits that didn't close (see `closeBack`), while the line's last piece was `of` (undefined: none). */
   private unclosed: { of: DrawnPiece | undefined; keys: Set<string> } = { of: undefined, keys: new Set() };
+  /**
+   * A preview's step cut short (see `preview`): the fits its close search tried (whether each was bent to fit), which
+   * the step taken again counts as tried without trying them again (see `closeBack`).
+   */
+  private tried = new Map<string, boolean>();
+  /** The next close search takes up one cut short (its `tried`, its `search`), rather than beginning afresh. */
+  private resuming = false;
+  /** A close search cut short (see `closeBack`): the fits found so far, where it had got to, whether it found them all. */
+  private search: { fits: Fit[]; next: number; done: boolean } | null = null;
+  /** When a preview's slice is up (`performance.now()`): its close search stops there, after a try (see `closeBack`). */
+  private until = Infinity;
   /** The special piece the piece being placed needed but may not use (see `want`), or null. */
   private wanted: PieceTypeId | null = null;
 
@@ -665,9 +682,20 @@ export class DrawLine {
     const until = budget === Infinity ? Infinity : performance.now() + budget;
     // (A piece at a time, at least one a call: pieces already due while drawing go down as they would have then, and
     // then the line grows to the stroke's end.)
+    job.line.until = until;
     do {
       const finishing = job.phase === 1;
-      job.line.grow(finishing, budget === Infinity ? Infinity : 1, job.resumed);
+      // (A step whose close search runs out of time part way (see `closeBack`) leaves the line as it was and is taken
+      // again on the next call, knowing the fits it found, those it tried and those that didn't close: so a close
+      // search, the costliest step, is spread over calls.)
+      try {
+        job.line.grow(finishing, budget === Infinity ? Infinity : 1, job.resumed);
+      } catch (e) {
+        if (e !== LATE) throw e;
+        DrawLine.cutShort++;
+        job.line.resuming = true;
+        return this.previewed?.pieces ?? this.pieces;
+      }
       job.resumed = true;
       if (!job.line.backlog || ++job.steps >= MAX_PIECES) {
         job.resumed = false;
@@ -681,6 +709,9 @@ export class DrawLine {
     this.job = null;
     return this.previewed.pieces;
   }
+
+  /** How many preview steps have been cut short and taken up again (for the tests). */
+  static cutShort = 0;
 
   /** Has `preview` caught up with the line as it is now (what it returns is what lifting now would lay)? */
   get previewDone(): boolean {
@@ -705,6 +736,9 @@ export class DrawLine {
     w.zs = this.zs.slice();
     w.ss = this.ss.slice();
     w.unclosed = { of: this.unclosed.of, keys: new Set(this.unclosed.keys) };
+    w.tried = new Map();
+    w.resuming = false;
+    w.search = null;
     w.chord = { ...this.chord };
     w.crossing = this.crossing && { ...this.crossing };
     w.previewed = null;
@@ -1111,6 +1145,10 @@ export class DrawLine {
   private closeBack(): boolean {
     const closes = this.options.closes;
     const freeEnds = this.options.freeEnds;
+    // (Afresh, unless taking up one cut short: see `tried`.)
+    const resume = this.resuming;
+    if (!resume) this.tried = new Map();
+    this.resuming = false;
     if (!closes || !freeEnds || this.crossing) return false;
     const n = this.pieces.length;
     const progress = this.progress;
@@ -1120,13 +1158,27 @@ export class DrawLine {
       this.pieces.length = 0;
       for (let i = 0; i < n - back; i++) this.pieces.push(all[i]);
     };
-    type Fit = { back: number; lay: DrawCandidate[]; to: DrawEnd; exact: boolean; shift: boolean; cost: number };
     // (Begun on open ground, the whole line may move a little to seat its last piece: see `shiftOnto`.)
     const loose = this.options.startHeld === false;
-    const fits: Fit[] = [];
+    /** A preview's slice up (see `preview`): the line as it was, what's been found kept for the next, and out. */
+    const late = (state: { fits: Fit[]; next: number; done: boolean }): void => {
+      if (performance.now() <= this.until) return;
+      this.search = state;
+      keep(0);
+      this.progress = progress;
+      this.stopped = null;
+      throw LATE;
+    };
+    // (Taking up one cut short, from the line as it was then: the fits found so far, and where it had got to.)
+    const was = resume ? this.search : null;
+    this.search = null;
+    const fits: Fit[] = was ? was.fits : [];
     const ends: DrawEnd[] = [];
-    for (let back = 0; back <= Math.min(CLOSE_BACK, n); back++) {
+    const from0 = was ? was.next : 0;
+    for (let back = from0; !was?.done && back <= Math.min(CLOSE_BACK, n); back++) {
       if (back > 0 && (!DRAW_TYPES.includes(all[n - back].type) || all[n - back].blocked)) break;
+      // (Each number of pieces taken back looked at in full; the slice up, the rest on the next.)
+      if (back > from0) late({ fits, next: back, done: false });
       keep(back);
       const end = this.end;
       const from = back > 0 ? all[n - back].from : progress;
@@ -1192,18 +1244,34 @@ export class DrawLine {
         }
       }
     }
-    fits.sort((p, q) => p.cost - q.cost);
+    if (!was?.done) {
+      fits.sort((p, q) => p.cost - q.cost);
+      // (Found in full this time: the slice up, the tries on the next.)
+      late({ fits, next: 0, done: true });
+    }
     const check = this.options.check;
     let flexed = 0;
     // (A fit that didn't close isn't tried again while the line is as it is: on the next move, the next ones are.)
     if (this.unclosed.of !== all[n - 1]) this.unclosed = { of: all[n - 1], keys: new Set() };
     let tries = 0;
+    let fresh = 0;
     for (const fit of fits) {
       if (tries >= CLOSE_TRIES) break;
       if (!fit.exact && !fit.shift && flexed >= FLEX_TRIES) continue;
       const key = `${fit.back}:${fit.lay.map((c) => `${c.type}${c.flipped ? "~" : ""}${c.entry}`).join(",")}:${fit.to.x.toFixed(1)},${fit.to.z.toFixed(1)}`;
+      // (Tried already by this step, cut short in a preview's slice: counted as tried, as it was then.)
+      const bent = this.tried.get(key);
+      if (bent !== undefined) {
+        tries++;
+        if (bent) flexed++;
+        continue;
+      }
       if (this.unclosed.keys.has(key)) continue;
+      // A fit tried already in this slice, and it's up: the rest on the next.
+      if (fresh > 0) late({ fits, next: 0, done: true });
+      fresh++;
       tries++;
+      this.tried.set(key, !fit.exact && !fit.shift);
       keep(fit.back);
       this.progress = fit.back > 0 ? all[n - fit.back].from : progress;
       let ok = true;

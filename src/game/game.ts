@@ -63,6 +63,8 @@ export type GameWorld = World;
 /** Owns the renderer, scene, camera and frame loop. Input and UI attach to it. */
 /** Seconds to keep drawing after the last change on screen, for anything easing to rest. */
 const IDLE_TAIL = 1;
+/** A still tick this long (ms) after the last frame drawn counts as settled (see `Game.settled`). */
+const SETTLE_QUIET_MS = 300;
 /**
  * Frame-rate cap (ms between frames). A high-refresh display would otherwise draw every vsync (120 Hz on ProMotion),
  * which keeps the GPU flat out and the fans spinning.
@@ -722,10 +724,21 @@ export class Game {
     return new Promise((done) => this.settling.push({ ticks, still: 0, done }));
   }
 
+  /** When a frame was last drawn (`performance.now()`), for `settled`. */
+  private lastDrewAt = 0;
+
+  /**
+   * (Or still for a tick that came `SETTLE_QUIET_MS` or more after the last frame drawn: where frames come slowly (a
+   * loaded machine's software rendering, at well under one a second), five still ticks took many seconds after the
+   * scene had come to rest, and a test's wait for it ran out.)
+   */
   private settleWaiters(drew: boolean): void {
+    const now = performance.now();
+    if (drew) this.lastDrewAt = now;
+    const quiet = !drew && now - this.lastDrewAt >= SETTLE_QUIET_MS;
     this.settling = this.settling.filter((w) => {
       w.still = drew ? 0 : w.still + 1;
-      if (w.still < w.ticks) return true;
+      if (w.still < w.ticks && !(quiet && w.still >= 1)) return true;
       w.done();
       return false;
     });
@@ -756,7 +769,7 @@ export class Game {
       if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
     }
     // Station clocks show the game's time: their hands are set when its minute changes (drawn if one's in view).
-    if (this.clockView.count > 0 && this.clockView.tick(this.simSeconds, this.camera)) this.invalidate();
+    if (this.clockView.count > 0 && this.clockView.tick(this.simSeconds, this.camera, this.canvas.height)) this.invalidate();
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     if (this.sim.signalsVersion !== this.signalsShown) {
       this.signalsShown = this.sim.signalsVersion;

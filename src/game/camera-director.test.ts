@@ -158,12 +158,30 @@ describe("CameraDirector edge pan", () => {
     camera.lookAt(controls.target);
     const d = new CameraDirector(camera, controls);
     d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600 });
-    // 4 fps: each frame's step is capped at 0.1 s, but 0.25 s really passed.
+    // 4 fps: each frame's step is capped at 0.1 s, but 0.25 s really passed. (Held from the first frame it's seen in
+    // the band: the time before that frame isn't counted, so a finger let go just after reaching the band never pans,
+    // however slowly frames come. Capped, the wait would be 5 frames past the dwell: 1.25 s.)
     d.update(0.1, 1000, 800, 0.25);
     expect(controls.target.z).toBe(0);
     d.update(0.1, 1000, 800, 0.25);
     d.update(0.1, 1000, 800, 0.25);
+    expect(controls.target.z).toBe(0);
+    d.update(0.1, 1000, 800, 0.25);
     expect(controls.target.z).toBeGreaterThan(0);
+  });
+
+  it("a finger come into the band on a frame that took long doesn't pan on the next: the wait counts from the frame it's seen in", () => {
+    const camera = new PerspectiveCamera(30, 1000 / 800, 5, 40000);
+    camera.position.set(0, 600, 600);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 9000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    d.setEdgePointer({ x: 500, y: 300, touch: true, bottom: 600 });
+    d.update(0.1, 1000, 800, 1.2);
+    // Into the band, on a frame 1.2 s after the last (QA's loaded box: frames about a second apart).
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600 });
+    d.update(0.1, 1000, 800, 1.2);
+    expect(controls.target.z).toBe(0);
   });
 });
 
@@ -195,6 +213,7 @@ describe("CameraDirector over the scenery around the mat", () => {
   it("a glide goes by the time that's passed: one slow frame (3 s, its step capped at 0.1) lands it, exactly, done", () => {
     const { camera, controls, d } = setup();
     d.glideTo(new Vector3(800, 0, -400), 2000, { phi: 0.6, duration: 0.9 });
+    d.update(1 / 60, 1000, 800, 1 / 60);
     d.update(0.1, 1000, 800, 3);
     expect(d.busy).toBe(false);
     expect(controls.target.x).toBeCloseTo(800, 6);
@@ -204,6 +223,22 @@ describe("CameraDirector over the scenery around the mat", () => {
     const at = camera.position.clone();
     d.update(0.1, 1000, 800, 3);
     expect(camera.position.distanceTo(at)).toBe(0);
+  });
+
+  it("a glide's first step is the frame's capped step: the slow frame that started it (a tap's handler) doesn't jump it", () => {
+    const { controls, d } = setup();
+    const x0 = controls.target.x;
+    d.glideTo(new Vector3(x0 + 1000, 0, 0), 2000, { duration: 0.9 });
+    // (QA: 683 ms went by in the tap's handler before the glide's first frame.)
+    d.update(0.1, 1000, 800, 0.683);
+    expect(d.busy).toBe(true);
+    // Eased in over 0.1 s of 0.9 (k ≈ 0.005), not 0.683 s (k ≈ 0.79).
+    expect(controls.target.x - x0).toBeLessThan(10);
+    expect(controls.target.x - x0).toBeGreaterThan(0);
+    // From then on, by the time that's passed: a slow frame lands it.
+    d.update(0.1, 1000, 800, 3);
+    expect(d.busy).toBe(false);
+    expect(controls.target.x).toBeCloseTo(x0 + 1000, 6);
   });
 
   it("zooming at a point far out in the haze doesn't lurch the view to the mat's edge", () => {

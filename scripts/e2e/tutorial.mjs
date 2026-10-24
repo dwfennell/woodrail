@@ -129,11 +129,26 @@ const hold = async (p, key, ms) => {
     const artEl = c.querySelector(".coach-art.move");
     const kids = [...artEl.children].map((e) => e.offsetWidth);
     const content = kids.reduce((a, w) => a + w, 0) + (kids.length - 1) * parseFloat(getComputedStyle(artEl).columnGap || "0");
-    return { focused: document.activeElement === c, caps, anims, fits: content <= artEl.clientWidth + 0.5, art: [artEl.clientWidth], span: [content] };
+    // And as drawn, at each end of its drift (QA: ±10 px took the mouse 8.75 px out): inside the box, clear of the keys.
+    const m = artEl.querySelector(".m");
+    const box = artEl.getBoundingClientRect();
+    const keys = artEl.querySelector(".caps").getBoundingClientRect();
+    const drift = m.getAnimations().map((a) => {
+      const was = a.currentTime;
+      const ends = [0, 0.5].map((f) => {
+        a.currentTime = f * a.effect.getTiming().duration;
+        const r = m.getBoundingClientRect();
+        return { out: Math.max(box.left - r.left, r.right - box.right, box.top - r.top, r.bottom - box.bottom, 0), intoKeys: Math.max(r.right - keys.left, 0) };
+      });
+      a.currentTime = was;
+      return ends;
+    }).flat();
+    return { focused: document.activeElement === c, caps, anims, fits: content <= artEl.clientWidth + 0.5, art: [artEl.clientWidth], span: [content], drift };
   });
   const [W, A, S, D] = look.caps;
   check("W sits over A S D, as on a keyboard (QA)", !!D && W.y < A.y && A.y === S.y && S.y === D.y && A.x < S.x && S.x < D.x && Math.abs(W.x - S.x) <= 1, JSON.stringify(look.caps));
   check("the Move picture (mouse and keys) fits its box (QA: the D stood 8 px out)", look.fits, `box ${look.art} px; laid out ${look.span} px`);
+  check("the Move mouse stays in its box as it drifts, clear of the keys (QA: 8.75 px out)", look.drift.length === 2 && look.drift.every((d) => d.out <= 0.5 && d.intoKeys <= 0.5), JSON.stringify(look.drift));
   check("its pictures move a few times, not for ever (QA)", look.anims.length > 0 && look.anims.every((n) => n !== "infinite" && Number(n) <= 4), JSON.stringify(look.anims));
   check("focus goes into it (a dialog)", look.focused);
   // A toast that comes while it's up waits, and shows once it's closed.

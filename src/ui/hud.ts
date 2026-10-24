@@ -13,6 +13,7 @@ import { pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
 import { ControlsTutorial, type ViewState } from "./controls-tutorial";
+import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -180,6 +181,8 @@ const REFUSAL_BUMP_MS = 1000;
  * tick shown, then shown again whole once the workshop's card closed).
  */
 const TOAST_SEEN_MS = 1500;
+/** How far above its place a toast starts its slide in (px: `.toast` in style.css, translate −14 px till shown). */
+const TOAST_SLIDE = 14;
 /** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
 const HELP_ART: Record<string, string> = { "piece:curve-large": ".art-build", "train:Full train": ".art-run" };
 
@@ -932,8 +935,22 @@ export class Hud {
     return top;
   }
 
+  /**
+   * What's taking taps on the map now (picking pieces, drawing, clearing, picking a route's stops): while any is, a tap
+   * on a toast goes through it to the map (QA: picking, a tap on a piece under it hit the toast instead, twice), and it
+   * isn't dismissed by a tap.
+   */
+  private readonly mapTaps = new Set<string>();
+  setMapTaps(why: string, on: boolean): void {
+    if (on === this.mapTaps.has(why)) return;
+    if (on) this.mapTaps.add(why);
+    else this.mapTaps.delete(why);
+    this.toastEl.classList.toggle("taps-through", this.mapTaps.size > 0);
+  }
+
   /** Show whether drawing track is on (the Draw chip lit). */
   setDrawing(on: boolean): void {
+    this.setMapTaps("drawing", on);
     this.drawing = on;
     this.drawBtn.classList.toggle("active", on);
     this.tray.classList.toggle("drawing", on);
@@ -941,6 +958,7 @@ export class Hud {
 
   /** Show whether clearing is on (the Clear chip lit). */
   setErasing(on: boolean): void {
+    this.setMapTaps("erasing", on);
     this.erasing = on;
     this.eraseBtn.classList.toggle("active", on);
     this.tray.classList.toggle("erasing", on);
@@ -1149,13 +1167,10 @@ export class Hud {
   setMapOpen(open: boolean): void {
     this.mapBtn.classList.toggle("active", open);
     this.root.classList.toggle("map-open", open);
-    // A toast up as it opens or closes goes where it should now (the goals put away or back), and again once the view
-    // has glided to the whole map (the labels it keeps clear of have moved).
+    // A toast up as it opens or closes goes where it should now (the goals put away or back); again once the view has
+    // glided to the whole map (`mapSettled`: the labels it keeps clear of have moved).
     this.refitToast();
-    clearTimeout(this.mapRefit);
-    if (open) this.mapRefit = window.setTimeout(() => this.refitToast(), 1000);
   }
-  private mapRefit = 0;
 
   /** Hide or show the whole play overlay (the title screen covers the game). */
   setVisible(visible: boolean): void {
@@ -1848,19 +1863,33 @@ export class Hud {
       t.style.maxWidth = `${Math.round(beside.left - 24)}px`;
       r = t.getBoundingClientRect();
     }
-    let below = 0;
-    for (const p of this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")) {
-      // (Put away by the map or the board, the goals keep their box: QA, the toast went under them, over the map's labels.)
-      if (p.hidden || p.offsetParent === null || getComputedStyle(p).visibility === "hidden") continue;
-      const q = p.getBoundingClientRect();
-      if (q.width === 0 || q.right < r.left || q.left > r.right || q.bottom < r.top) continue;
-      below = Math.max(below, q.bottom);
-    }
-    if (below > 0) {
-      t.style.top = `${Math.round(below + 22)}px`;
+    // Below what's pinned under the top bar where it would be.
+    const underPinned = () => {
+      let below = 0;
+      for (const p of this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")) {
+        // (Put away by the map or the board, the goals keep their box: QA, the toast went under them, over the map's labels.)
+        if (p.hidden || p.offsetParent === null || getComputedStyle(p).visibility === "hidden") continue;
+        const q = p.getBoundingClientRect();
+        if (q.width === 0 || q.right < r.left || q.left > r.right || q.bottom < r.top) continue;
+        below = Math.max(below, q.bottom);
+      }
+      if (below > 0) {
+        t.style.top = `${Math.round(below + 22)}px`;
+        r = t.getBoundingClientRect();
+      }
+    };
+    underPinned();
+    if (beside) {
+      // Too tall for the room beside the card, down to the tray (QA, 667 wide: six lines, pushed up off the tray over
+      // the goals and the date): it goes over the card instead, at its own width, under the goals.
+      const tray = this.tray.getBoundingClientRect();
+      const floor = tray.height > 0 && getComputedStyle(this.tray).visibility !== "hidden" ? tray.top - 6 : window.innerHeight - 8;
+      if (t.offsetTop + t.offsetHeight + 4 <= floor) return true;
+      t.style.top = t.style.left = t.style.maxWidth = "";
       r = t.getBoundingClientRect();
+      underPinned();
+      return true;
     }
-    if (beside) return true;
     if (this.root.classList.contains("map-open")) {
       this.fitToastOnMap();
       return true;
@@ -1881,28 +1910,50 @@ export class Hud {
   }
 
   /**
-   * The map open: the toast clear of its labels (QA: it covered the top ones) and its bar. Under the top bar if no label
-   * is there, else just above the map's bar, else wherever it covers fewest. (Where the labels are as it shows: they
-   * move only when the view does.)
+   * The map open: the toast clear of its labels and badges (QA: it covered the top ones), between the top bar and the
+   * map's bar. The highest clear place, in the middle or at a side; else made narrower (more lines) and tried again;
+   * else wherever it hides least, never a badge if a label will do (see `leastCovered`). Measured as it shows (and again
+   * once the view settles: `mapSettled`), a few layouts, nothing per frame.
    */
   private fitToastOnMap(): void {
     const t = this.toastEl;
-    const labels = [...this.root.querySelectorAll<HTMLElement>(".map-marker:not(.off)")].map((m) => m.getBoundingClientRect());
+    const labels: Label[] = [...this.root.querySelectorAll<HTMLElement>(".map-marker:not(.off)")].map((m) => {
+      const q = m.getBoundingClientRect();
+      return { left: q.left, top: q.top, right: q.right, bottom: q.bottom, badge: m.classList.contains("kind-ruin") };
+    });
     const bar = this.root.querySelector<HTMLElement>(".map-bar")?.getBoundingClientRect();
-    const h = t.offsetHeight;
-    const r = t.getBoundingClientRect();
-    const covers = (top: number) => labels.filter((q) => !(q.right < r.left || q.left > r.right || q.bottom < top - 4 || q.top > top + h + 4)).length;
-    const under = t.offsetTop;
-    const spots = [under];
-    if (bar && bar.height > 0 && bar.top - h - 12 > under) spots.push(Math.round(bar.top - h - 12));
-    let best = under;
-    let fewest = Infinity;
-    for (const top of spots) {
-      const n = covers(top);
-      if (n < fewest) [best, fewest] = [top, n];
-      if (n === 0) break;
+    const vw = document.documentElement.clientWidth;
+    const area = { left: 0, right: vw, top: t.offsetTop - TOAST_SLIDE, bottom: bar && bar.height > 0 ? bar.top - 12 : window.innerHeight - 12 };
+    const natural = t.offsetWidth;
+    // (Narrower a step at a time, more lines each, down to a readable 220 px: a gap between labels is found at most a
+    // step's width short. Each is one layout.)
+    const widths = [0];
+    for (let w = natural * 0.85; w > 220 && widths.length < 7; w *= 0.85) widths.push(Math.round(w));
+    if (natural > 220) widths.push(220);
+    let fallback: { width: number; spot: Spot; cost: number } | null = null;
+    for (const width of widths) {
+      t.style.maxWidth = width ? `${width}px` : "";
+      // (Its slide in starts `TOAST_SLIDE` px higher: clear of the labels there too, not only once it's in.)
+      const w = t.offsetWidth;
+      const h = t.offsetHeight + TOAST_SLIDE;
+      const spot = clearSpot(labels, w, h, area);
+      if (spot) {
+        t.style.left = `${spot.x}px`;
+        t.style.top = `${spot.top + TOAST_SLIDE}px`;
+        return;
+      }
+      const least = leastCovered(labels, w, h, area);
+      if (!fallback || least.cost < fallback.cost) fallback = { width, spot: least, cost: least.cost };
     }
-    t.style.top = `${best}px`;
+    if (!fallback) return;
+    t.style.maxWidth = fallback.width ? `${fallback.width}px` : "";
+    t.style.left = `${fallback.spot.x}px`;
+    t.style.top = `${fallback.spot.top + TOAST_SLIDE}px`;
+  }
+
+  /** The map's view has settled (its glide done): a toast up goes where it's clear of the labels where they are now. */
+  mapSettled(): void {
+    this.refitToast();
   }
 
   /** Is the screen point over the tray (dropping there cancels / deletes)? */

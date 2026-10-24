@@ -70,6 +70,24 @@ describe("lines", () => {
     expect(w.economy.lineIdOf.size).toBe(0);
   });
 
+  it("one of a line's trains taken off the map (Remove, or back in the box): the line counts only the rest at once", () => {
+    // (Interaction prunes straight after taking it off: a count kept till the next track edit said "3 trains on it now".)
+    const w = world();
+    const line = editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }, { depotId: w.mill, action: "auto" }))!;
+    const r = w.sim.addTrain(["engine"], { pieceId: w.economy.depot(w.town)!.pieceId, pathIndex: 0, reversed: false, s: 100 });
+    if (r.kind !== "placed") throw new Error();
+    const second = w.sim.getTrain(r.trainId)!.cars[0].id;
+    joinLine(w.economy, second, line.id);
+    expect(trainsOn(w.economy, line.id)).toHaveLength(2);
+    w.sim.removeTrain(r.trainId);
+    w.economy.prune();
+    expect(trainsOn(w.economy, line.id)).toEqual([w.engine]);
+    expect(w.economy.lineIdOf.has(second)).toBe(false);
+    expect(w.economy.routeOf(second)).toBeUndefined();
+    expect(w.economy.sectionWait(second)).toBe(null);
+    expect(w.economy.lines.has(line.id)).toBe(true);
+  });
+
   it("several trains run one line: an edit keeps each heading for its own stop; one leaving keeps the line for the rest", () => {
     const w = world();
     const line = editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }, { depotId: w.mill, action: "auto" }, { depotId: w.town, action: "auto" }))!;

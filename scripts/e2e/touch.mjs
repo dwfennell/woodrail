@@ -808,9 +808,23 @@ async function shortUnderCar(ctx, p) {
   const ids = await p.evaluate(async () => {
     const w = window.woodrail;
     const { frameDistance } = await import("/src/game/camera-director.ts");
-    const g = w.interaction.groundAt(195, 420);
-    // (Clear of what earlier checks left here: a run of its own, off to one side.)
-    const x0 = g.x + 700;
+    // (A run of its own on open ground, found outward from the view's target, whatever earlier checks left there or
+    // wherever they left the view: a glide cut short by a touch stops nearer where it set off.)
+    const t = w.controls.target;
+    const clear = (x, z) =>
+      [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
+      [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
+    let g = null;
+    for (let d = 0; d <= 6000 && !g; d += 216) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 216));
+      for (let a = 0; a < n && !g; a++) {
+        const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+        const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+        if ([0, 120, 240, 360, 480].every((dx) => clear(x + dx, z))) g = t.clone().set(x, 0, z);
+      }
+    }
+    if (!g) throw new Error("no open ground for the run");
+    const x0 = g.x;
     const run = w.editor().placeRun([
       { type: "straight-216", pose: { x: x0, z: g.z, heading: 0 }, y: 0, flipped: false },
       { type: "straight-36", pose: { x: x0 + 216, z: g.z, heading: 0 }, y: 0, flipped: false },
@@ -882,6 +896,12 @@ async function shortUnderCar(ctx, p) {
     rotated && deleted && afterRotate === was && (await pose()) === was && end.there && end.derailed === false && end.said.filter((m) => m === "A train is on that track").length === 2,
     `pressed rotate ${rotated}, delete ${deleted}; ${was} → ${afterRotate} → ${await pose()}; ${JSON.stringify(end)}`,
   );
+  // Select more from it: picking starts, without it (said so), as a group with it couldn't move or be taken up.
+  await p.evaluate(() => (window.__underSaid.length = 0));
+  const more = await pressCard("Select more");
+  await frames(p);
+  const picking = await p.evaluate(() => ({ picking: window.woodrail.interaction.picking, picked: [...window.woodrail.interaction.picked], said: [...window.__underSaid] }));
+  check("Select more from the piece under an engine leaves it out, and says why", more && picking.picking && picking.picked.length === 0 && picking.said.includes("A train is on that track"), JSON.stringify({ more, ...picking }));
   await p.keyboard.press("Escape");
 }
 
@@ -891,6 +911,36 @@ for (const mode of ["sandbox", "game"]) {
   } catch (e) {
     check(`${mode}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
   }
+}
+
+/**
+ * A toast up over the map: a tap on it dismisses it, but while the map takes taps (picking pieces, drawing) it goes
+ * through to the map (QA: picking, a tap on a piece under the toast hit the toast, twice).
+ */
+async function toastTapsThrough(p) {
+  await p.keyboard.press("Escape");
+  const r = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const t = document.querySelector(".toast");
+    const at = () => {
+      const q = t.getBoundingClientRect();
+      const e = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+      return e === t || t.contains(e) ? "toast" : (e?.tagName ?? "nothing");
+    };
+    w.hud.toast("A toast over the map, for the test", false, 60000);
+    await new Promise((r) => setTimeout(r, 800));
+    const idle = at();
+    w.interaction.setDrawing(true);
+    const drawing = at();
+    w.interaction.setDrawing(false);
+    w.interaction.selectMore();
+    const picking = at();
+    w.interaction.doneSelecting();
+    const after = at();
+    w.hud.dismissToast();
+    return { idle, drawing, picking, after };
+  });
+  check("a toast takes a tap, but lets it through to the map while picking pieces or drawing (QA)", r.idle === "toast" && r.drawing !== "toast" && r.picking !== "toast" && r.after === "toast", JSON.stringify(r));
 }
 
 async function runMode(mode) {
@@ -942,6 +992,7 @@ async function runMode(mode) {
     await flickOut(ctx, p, tapOn);
     await leverPins(ctx, p);
     await shortUnderCar(ctx, p);
+    await toastTapsThrough(p);
   }
   await ctx.close();
 }
