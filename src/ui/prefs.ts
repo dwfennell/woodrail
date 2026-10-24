@@ -61,3 +61,13 @@ export function markHintSeen(id: string): void {
     // storage unavailable: it shows once this session
   }
 }
+
+/** Forget that hint `id` was seen (it was marked for something undone: a pin that turned out to be a tap). */
+export function unmarkHintSeen(id: string): void {
+  try {
+    const seen = (localStorage.getItem(HINTS_KEY) ?? "").split(",").filter((h) => h && h !== id);
+    localStorage.setItem(HINTS_KEY, seen.join(","));
+  } catch {
+    // storage unavailable: nothing was kept
+  }
+}

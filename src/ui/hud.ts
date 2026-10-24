@@ -1659,6 +1659,17 @@ export class Hud {
     return !!t && t.message === message && this.toastEl.classList.contains("show") && this.toastEl.textContent === message;
   }
 
+  /** Take toast `message` back, showing or waiting (what it said was undone): the next waiting comes on. */
+  withdrawToast(message: string): void {
+    const i = this.toastQueue.findIndex((t) => t.message === message);
+    if (i >= 0) this.toastQueue.splice(i, 1);
+    const t = this.toastShowing;
+    if (t && t.message === message && this.toastEl.classList.contains("show") && this.toastEl.textContent === message) {
+      this.toastShowing = null;
+      this.dismissToast();
+    }
+  }
+
   /**
    * Say `message` in place of toast `old` (several goals ticked together become one line): changed where it shows or
    * waits, its time to read starting again; a plain toast if `old` has gone.

@@ -463,7 +463,8 @@ async function selectThenDrag(ctx, p) {
     engine.lever = 1;
     return id;
   });
-  await new Promise((r) => setTimeout(r, 1500));
+  // (Running: under way, by the sim's own clock, not after a set time (a loaded machine steps it slower).)
+  await p.waitForFunction((id) => (window.woodrail.sim.getTrain(id)?.speed ?? 0) > 20, run0, { timeout: 60000 }).catch(() => {});
   const speedBefore = await p.evaluate((id) => window.woodrail.sim.getTrain(id)?.speed ?? -1, run0);
   [sx, sy] = await p.evaluate((id) => {
     const w = window.woodrail;
@@ -588,13 +589,54 @@ async function leverPins(ctx, p) {
     if (g) w.director.glideTo(g, frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3 });
     // (Its own list: an earlier check's spy may still be wrapped round the toast, and says each toast too.)
     window.__pinSaid = [];
+    // (What the pin hints did, for a failure's message.)
+    window.__pinDiag = [];
+    const it = w.interaction;
+    const tp = it.togglePin.bind(it);
+    it.togglePin = (...a) => (window.__pinDiag.push(`pin ${a[0]} @${Math.round(performance.now())}`), tp(...a));
+    const hp = it.hintPinHow.bind(it);
+    it.hintPinHow = () => (window.__pinDiag.push(`hint ${JSON.stringify(it.pinHint)} @${Math.round(performance.now())}`), hp());
+    const tl = it.throwLever.bind(it);
+    it.throwLever = (...a) => (window.__pinDiag.push(`throw ${a[0]} @${Math.round(performance.now())}`), tl(...a));
     const h = w.hud;
     const toast = h.toast.bind(h);
     h.toast = (m, ...a) => (window.__pinSaid.push(m), toast(m, ...a));
+    // (A toast taken back, a pin undone when a late lift showed it was a tap, wasn't said: off the list too.)
+    const withdraw = h.withdrawToast.bind(h);
+    h.withdrawToast = (m) => {
+      const i = window.__pinSaid.lastIndexOf(m);
+      if (i >= 0) window.__pinSaid.splice(i, 1);
+      window.__pinDiag.push(`withdrawn ${m.slice(0, 12)} @${Math.round(performance.now())}`);
+      return withdraw(m);
+    };
+    window.__pinAt = g ? [g.x, g.z] : null;
     return r;
   });
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await settled();
+  // (Framed on it, by where the view is and the lever's on screen, not by the glide having ended: under load a gesture
+  // left from the checks before can cut the glide short or move the view after, and every tap missed the lever.)
+  for (let tries = 0; id >= 0 && tries < 5; tries++) {
+    const framed = await p.evaluate((id) => {
+      const w = window.woodrail;
+      const [x, z] = window.__pinAt;
+      const lever = w.trackView.group.children.find((c) => c.userData.kind === "switch-lever" && c.userData.pieceId === id);
+      if (!lever) return false;
+      lever.updateMatrixWorld(true);
+      const v = new w.camera.position.constructor(0, 14, 0).applyMatrix4(lever.matrixWorld).project(w.camera);
+      return Math.hypot(w.controls.target.x - x, w.controls.target.z - z) < 60 && Math.abs(v.x) < 0.8 && Math.abs(v.y) < 0.8 && w.interaction.mode.kind === "idle";
+    }, id);
+    if (framed) break;
+    await p.keyboard.press("Escape");
+    await p.evaluate(async () => {
+      const w = window.woodrail;
+      const { frameDistance } = await import("/src/game/camera-director.ts");
+      const [x, z] = window.__pinAt;
+      w.director.glideTo(w.controls.target.clone().set(x, 0, z), frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    });
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    await settled();
+  }
   if (id < 0) {
     check("a switch goes down for the lever checks", false);
     return;
@@ -639,6 +681,15 @@ async function leverPins(ctx, p) {
   };
   // (Where the lever is: found afresh before each press, since it leans the other way once flipped.)
   let [lx, ly] = await screenOf("lever");
+  // (The pin hints as on a device that's never pinned, nor been told how, from here: how to pin is said at the first
+  // lever tap. Set once the gestures before are done: under load an earlier one could still pin, or a train throw a
+  // switch in view, and either uses the hint up: QA, 58/59 once in three runs.)
+  await p.waitForFunction(() => window.woodrail.interaction.mode.kind === "idle", null, { timeout: 60000 });
+  await p.evaluate(() => {
+    Object.assign(window.woodrail.interaction.pinHint, { seen: false, howSeen: false });
+    window.__pinSaid.length = 0;
+    window.__pinDiag.push(`hints reset @${Math.round(performance.now())}`);
+  });
   // 1. A tap flips it: drawn while it swings, then nothing once it's settled. (Boats held still, as in e2e:draw.)
   const s0 = await state();
   const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
@@ -685,7 +736,8 @@ async function leverPins(ctx, p) {
   {
     const words = await p.evaluate(() => window.__pinSaid.slice());
     check("an unpin says so (QA N3)", words.includes("Unpinned"), JSON.stringify(words));
-    check("…and how to pin was said once, at the first tap on a lever, before the first pin (QA N3)", words.filter((m) => /^Hold a switch's lever to pin it/.test(m)).length === 1 && words.findIndex((m) => /^Hold a switch's lever/.test(m)) < words.findIndex((m) => /^Pinned: trains/.test(m)), JSON.stringify(words));
+    const diag = await p.evaluate(() => window.__pinDiag);
+    check("…and how to pin was said once, at the first tap on a lever, before the first pin (QA N3)", words.filter((m) => /^Hold a switch's lever to pin it/.test(m)).length === 1 && words.findIndex((m) => /^Hold a switch's lever/.test(m)) < words.findIndex((m) => /^Pinned: trains/.test(m)), JSON.stringify(words) + " DIAG " + JSON.stringify(diag));
   }
   [lx, ly] = await screenOf("lever");
   // 5. A slow phone: a short press (200 ms by its own times) delivered late is a tap, a flip, not a pin.
@@ -928,7 +980,8 @@ async function toastTapsThrough(p) {
       return e === t || t.contains(e) ? "toast" : (e?.tagName ?? "nothing");
     };
     w.hud.toast("A toast over the map, for the test", false, 60000);
-    await new Promise((r) => setTimeout(r, 800));
+    // (Up: shown, its slide in done, by what it is, not after a set time.)
+    for (let i = 0; i < 600 && !(t.classList.contains("show") && getComputedStyle(t).transform.endsWith(", 0)")); i++) await new Promise((r) => setTimeout(r, 50));
     const idle = at();
     w.interaction.setDrawing(true);
     const drawing = at();

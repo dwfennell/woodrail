@@ -35,7 +35,7 @@ import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
-import { PinHint } from "./switch-pin";
+import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
@@ -1650,8 +1650,9 @@ export class Interaction {
       // The press is used up: letting go doesn't flip it as well.
       this.mode = { kind: "idle" };
       this.game.controls.enabled = true;
-      this.togglePin(m.press.pieceId);
-      this.pinUnsure = { pointerId: m.pointerId, t: pin.t, x: m.x, y: m.y, pieceId: m.press.pieceId };
+      const hints = this.pinHint.state();
+      const said = this.togglePin(m.press.pieceId);
+      this.pinUnsure = { pointerId: m.pointerId, t: pin.t, x: m.x, y: m.y, pieceId: m.press.pieceId, hints, said };
     });
   }
 
@@ -1659,7 +1660,17 @@ export class Interaction {
    * Pinned by the pin's timer, before any move had been seen: a slow phone may deliver the moves of a pan (or the lift
    * of a tap) only now. Settled (null) by the first move from after the pin's time.
    */
-  private pinUnsure: { pointerId: number; t: number; x: number; y: number; pieceId: number } | null = null;
+  private pinUnsure: { pointerId: number; t: number; x: number; y: number; pieceId: number; hints: PinHintState; said: string | null } | null = null;
+
+  /**
+   * A pin the late moves or lift undid (`pinUnsure`): unpinned, quietly, and what it said taken back (its toast, and
+   * the hints as they were), so the tap it really was says how to pin if that's still to say.
+   */
+  private undoPin(u: NonNullable<Interaction["pinUnsure"]>): void {
+    this.togglePin(u.pieceId, false);
+    this.pinHint.restore(u.hints);
+    if (u.said) this.hud.withdrawToast(u.said);
+  }
 
   /** True if late moves showed a pin was really a pan: it's unpinned again (the view has the gesture from here). */
   private vetoPin(e: PointerEvent): boolean {
@@ -1670,7 +1681,7 @@ export class Interaction {
       if (at >= PIN_HOLD_MS) break;
       if (undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false, PIN_HOLD_MS)) {
         this.pinUnsure = null;
-        this.togglePin(u.pieceId, false);
+        this.undoPin(u);
         return true;
       }
     }
@@ -1694,16 +1705,17 @@ export class Interaction {
    * Pin a switch, or unpin it (`cue`: a buzz, and a toast: the first time ever it's pinned, what pinning does; each
    * unpin, "Unpinned"): its peg shows or goes and its burned chevrons change colour (red when pinned); it's saved.
    */
-  private togglePin(pieceId: number, cue = true): void {
+  private togglePin(pieceId: number, cue = true): string | null {
     const g = this.game;
     const on = !g.layout.isPinned(pieceId);
     g.layout.setPinned(pieceId, on);
     g.switchesChanged();
     this.onSwitched?.();
-    if (!cue) return;
+    if (!cue) return null;
     this.holdCue();
     const hint = this.pinHint.next(on);
     if (hint) this.hud.toast(hint, false, on ? 4200 : 1400);
+    return hint;
   }
 
   /** The hold's buzz a frame on, if `still()` says the pickup still stands then. */
@@ -1879,7 +1891,7 @@ export class Interaction {
     if (pinned && pinned.pointerId === e.pointerId) {
       this.pinUnsure = null;
       if (undoesHold(e.timeStamp - pinned.t, 0, true, PIN_HOLD_MS)) {
-        this.togglePin(pinned.pieceId, false);
+        this.undoPin(pinned);
         this.tap({ kind: "lever", pieceId: pinned.pieceId });
       }
       return;
