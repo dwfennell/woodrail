@@ -1834,7 +1834,8 @@ async function loopOffStraight() {
       mm = Math.max(mm, Math.hypot(g.x - p.pose.x, g.z - p.pose.z));
       deg = Math.max(deg, (Math.abs(Math.atan2(Math.sin(g.heading - p.pose.heading), Math.cos(g.heading - p.pose.heading))) * 180) / Math.PI);
     });
-    return { n: d.liftLaid.length, ghosts: d.liftShown.length, mm, deg };
+    const types = (xs) => xs.map((q) => `${q.type}${q.flipped ? "~" : ""}`).join(" ");
+    return { n: d.liftLaid.length, ghosts: d.liftShown.length, mm, deg, laid: types(d.liftLaid.map((id) => w.layout.getPiece(id))), shown: types(d.liftShown) };
   });
   const got = await q.evaluate(() => {
     const w = window.woodrail;
@@ -1844,9 +1845,9 @@ async function loopOffStraight() {
   check("passing loop off the straight: a switch out, the run beside it, a switch back in", got.switches - view.switches === 2 && got.pieces > view.pieces, what);
   check("…and no 'Turn it to fit' while drawing", !got.toasts.some((t) => /turn it to fit/i.test(t)), what);
   check(
-    "…and the loop's pieces went down where its last ghosts were",
-    offGhosts.n > 0 && offGhosts.mm < 0.05 && offGhosts.deg < 0.01,
-    `${offGhosts.n} of the line's pieces against its ${offGhosts.ghosts} ghosts as it lifted: worst ${offGhosts.mm.toFixed(2)} mm, ${offGhosts.deg.toFixed(3)}°`,
+    "…and the loop's pieces are its last ghosts: the same pieces (none shown that the merge's switch takes the place of), where they were",
+    offGhosts.n > 0 && offGhosts.n === offGhosts.ghosts && offGhosts.laid === offGhosts.shown && offGhosts.mm < 0.05 && offGhosts.deg < 0.01,
+    `laid ${offGhosts.laid} · shown ${offGhosts.shown} · worst ${offGhosts.mm.toFixed(2)} mm, ${offGhosts.deg.toFixed(3)}°`,
   );
   // Out of reach (QA: the camera 4000 mm off; at 740 px tall reach lasts to about 3700 mm), Draw on: a tap on the
   // line's body, or a long press, only lets go of what's selected, as with Draw off; no card opens (QA: a tap opened

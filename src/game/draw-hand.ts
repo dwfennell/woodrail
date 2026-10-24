@@ -337,7 +337,9 @@ export class DrawHand {
     // so when they had caught up, it's what they showed.)
     const caughtUp = line.previewDone;
     line.finish();
-    if (this.sync(false, Infinity) && !caughtUp) {
+    const ghostsChanged = this.sync(false, Infinity);
+    const mergeChanged = this.showMerge();
+    if (((ghostsChanged || mergeChanged) && !caughtUp) || this.deferLifts) {
       this.lifting = () => this.lay(line);
       afterNextFrame(() => this.flushLift());
       return;
@@ -499,7 +501,13 @@ export class DrawHand {
   private mergeNow(): Merge | null {
     const line = this.line;
     if (!line || line.stopped === "closed") return null;
-    const m = mergeAt(this.junctions, line.start, line.placeable(), line.tip, this.taken(), this.branch ? 1 : 0);
+    // (Onto the line as its ghosts show it: what the lift would lay, merged where it would merge.)
+    const shown: DrawnPiece[] = [];
+    for (const p of this.showing) {
+      if (p.blocked) break;
+      shown.push(p);
+    }
+    const m = mergeAt(this.junctions, line.start, shown, line.tip, this.taken(), this.branch ? 1 : 0);
     if (m?.kind === "short") {
       if (!this.toldShort) this.hooks.toast(m.message);
       this.toldShort = true;
@@ -580,17 +588,33 @@ export class DrawHand {
   private toldShort = false;
 
   /** Show the merge the line would make if let go now, as ghosts, when that changes. */
-  private showMerge(): void {
+  private showMerge(): boolean {
     const m = this.mergeNow();
     const key = m ? `${m.keep}|${m.swap.covers.join(",")}|${m.swap.pieces.map((p) => `${p.type}${p.pose.x.toFixed(0)},${p.pose.z.toFixed(0)}`).join(";")}|${m.links.map((l) => l.type).join(",")}` : "";
-    if (key === this.mergeKey) return;
+    if (key === this.mergeKey) return false;
     this.mergeKey = key;
     this.merge = m;
     for (const g of this.mergeGhosts) this.game.scene.remove(g);
     this.mergeGhosts = m ? [...m.links, ...m.swap.pieces].map((p) => this.pieceMesh(p)) : [];
     for (const g of this.mergeGhosts) this.game.scene.add(g);
+    this.trimToMerge();
     this.outlineCovers();
     this.game.invalidate();
+    return true;
+  }
+
+  /** How many of the line's ghosts show: those the merge keeps, if it merges (the switch goes in after them). */
+  private shownCount(): number {
+    return this.merge ? Math.min(this.merge.keep, this.showing.length) : this.showing.length;
+  }
+
+  /**
+   * The line's ghosts past what a merge keeps hidden: the merge's switch shows in their place, as it goes down (QA: a
+   * loop merged back showed a straight at 45° that the switch took the place of on the lift).
+   */
+  private trimToMerge(): void {
+    const n = this.shownCount();
+    this.ghosts.forEach((gh, i) => (gh.mesh.visible = i < n));
   }
 
   private warmed = false;
@@ -874,6 +898,7 @@ export class DrawHand {
       this.ghosts[i] = { mesh, key };
     }
     for (const gh of this.ghosts.splice(i)) g.scene.remove(gh.mesh);
+    this.trimToMerge();
     if (grew) this.hooks.onGrow();
     if (changed) g.invalidate();
     if (this.line && !this.line.previewDone) this.catchUp();
@@ -894,6 +919,7 @@ export class DrawHand {
       update: () => {
         if (!this.line || this.line.previewDone || this.lifting) return (this.catching = false);
         this.sync(false, PREVIEW_SLICE_MS);
+        this.showMerge();
         return this.line ? !this.line.previewDone || (this.catching = false) : (this.catching = false);
       },
       dispose: () => {
@@ -913,9 +939,9 @@ export class DrawHand {
     return !this.line || this.line.previewDone;
   }
 
-  /** The pieces the ghosts show now (for the tests: what goes down on the lift must be exactly these). */
+  /** The pieces the line's ghosts show now, up to a merge (for the tests: what goes down on the lift must be exactly these). */
   shown(): { type: PieceTypeId; flipped: boolean; x: number; z: number; heading: number; y: number; blocked: boolean }[] {
-    return (this.line ? this.showing : []).map((p) => ({ type: p.type, flipped: p.flipped, x: p.pose.x, z: p.pose.z, heading: p.pose.heading, y: p.y, blocked: !!p.blocked }));
+    return (this.line ? this.showing.slice(0, this.shownCount()) : []).map((p) => ({ type: p.type, flipped: p.flipped, x: p.pose.x, z: p.pose.z, heading: p.pose.heading, y: p.y, blocked: !!p.blocked }));
   }
 
   private drawTrail(): void {
