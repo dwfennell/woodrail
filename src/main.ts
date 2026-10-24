@@ -879,6 +879,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function setWorld(world: GameWorld): void {
+    // (A drawn line lifted just before, waiting a frame to go down: down on the map it was drawn on.)
+    interaction?.flushDraw();
     setExpanding(false);
     game.setWorld(world);
     shownDelivered = new Map();
@@ -935,6 +937,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Save the railway under its mode (not while the title screen shows it turning behind: nothing is being played). */
   function save(): void {
     if (!playing) return;
+    // (A drawn line lifted just before, waiting a frame to go down: down first, and saved with the rest.)
+    interaction.flushDraw();
     saveToStorage(game.world, mode);
     saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() });
     if (mode === "game") saveProgress(progress.toJSON());

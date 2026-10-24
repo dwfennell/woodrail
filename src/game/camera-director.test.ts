@@ -158,12 +158,30 @@ describe("CameraDirector edge pan", () => {
     camera.lookAt(controls.target);
     const d = new CameraDirector(camera, controls);
     d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600 });
-    // 4 fps: each frame's step is capped at 0.1 s, but 0.25 s really passed.
+    // 4 fps: each frame's step is capped at 0.1 s, but 0.25 s really passed. (Held from the first frame it's seen in
+    // the band: the time before that frame isn't counted, so a finger let go just after reaching the band never pans,
+    // however slowly frames come. Capped, the wait would be 5 frames past the dwell: 1.25 s.)
     d.update(0.1, 1000, 800, 0.25);
     expect(controls.target.z).toBe(0);
     d.update(0.1, 1000, 800, 0.25);
     d.update(0.1, 1000, 800, 0.25);
+    expect(controls.target.z).toBe(0);
+    d.update(0.1, 1000, 800, 0.25);
     expect(controls.target.z).toBeGreaterThan(0);
+  });
+
+  it("a finger come into the band on a frame that took long doesn't pan on the next: the wait counts from the frame it's seen in", () => {
+    const camera = new PerspectiveCamera(30, 1000 / 800, 5, 40000);
+    camera.position.set(0, 600, 600);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 9000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    d.setEdgePointer({ x: 500, y: 300, touch: true, bottom: 600 });
+    d.update(0.1, 1000, 800, 1.2);
+    // Into the band, on a frame 1.2 s after the last (QA's loaded box: frames about a second apart).
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600 });
+    d.update(0.1, 1000, 800, 1.2);
+    expect(controls.target.z).toBe(0);
   });
 });
 
