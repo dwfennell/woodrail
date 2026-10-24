@@ -131,17 +131,20 @@ describe("saves", () => {
     expect(await (await call("GET", { url: `${URL_}?prev=1` })).text()).toBe("first");
   });
 
-  it("keeps when a layout edit was last stored, carried on by progress-only copies", async () => {
-    const first = await put("laid", 100, { headers: { "X-Edit-Kind": "layout" } });
+  it("keeps when a layout edit was made and when it was stored, carried on by progress-only copies", async () => {
+    const editedAt = Date.now() - 25_000;
+    const first = await put("laid", 100, { headers: { "X-Edit-Kind": "layout", "X-Edited-At": String(editedAt) } });
     expect(first.headers.get("X-Stored-At")).toBe(String(Date.now()));
-    const laidAt = String(Date.now());
+    const storedAt = String(Date.now());
     later();
     await put("earned", 200, { headers: { "X-Edit-Kind": "progress", "X-Base-Saved-At": "100" } });
     const head = await call("HEAD");
-    expect(head.headers.get("X-Layout-At")).toBe(laidAt);
+    expect(head.headers.get("X-Layout-At")).toBe(String(editedAt));
+    expect(head.headers.get("X-Layout-Stored-At")).toBe(storedAt);
     expect(head.headers.get("X-Stored-At")).toBe(String(Date.now()));
     later();
-    await put("laid again", 300, { headers: { "X-Edit-Kind": "layout", "X-Base-Saved-At": "200" } });
+    // (An edit time from the future is taken as now; none said, as now.)
+    await put("laid again", 300, { headers: { "X-Edit-Kind": "layout", "X-Base-Saved-At": "200", "X-Edited-At": String(Date.now() + 999_999) } });
     expect((await call("HEAD")).headers.get("X-Layout-At")).toBe(String(Date.now()));
   });
 

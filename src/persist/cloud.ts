@@ -36,8 +36,12 @@ export interface RemoteMeta {
   saveVersion: number;
   /** When the cloud stored it, by the cloud's clock (ms; 0: not said). */
   storedAt?: number;
-  /** When a copy with a layout edit was last stored there, by the cloud's clock (this one or an earlier; 0: not said). */
+  /**
+   * The last layout edit in it (this copy's or an earlier one's), by the cloud's clock: when it was made (`layoutAt`),
+   * and when it was stored (`layoutStoredAt`). 0: none; not said: not known.
+   */
   layoutAt?: number;
+  layoutStoredAt?: number;
 }
 
 /** A reply from the cloud, or why there's none: `status` 0 is no connection at all. */
@@ -53,7 +57,7 @@ export interface CloudBackend {
    * Stored only if the copy there is still `base` (its `savedAt`; 0: none), else a 409. `kind`: has it a layout edit
    * (since the copy it was made from)? The answer: when the cloud stored it, by its clock (0: not said).
    */
-  put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, kind: EditKind, keepalive: boolean): Promise<Reply<{ storedAt: number }>>;
+  put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number }, keepalive: boolean): Promise<Reply<{ storedAt: number }>>;
 }
 
 export type KeyStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -406,7 +410,7 @@ export class CloudSync {
     const offset = this.o.backend.clockOffset ?? 0;
     const storedAt = remote.storedAt ? remote.storedAt - offset : remote.savedAt;
     // A layout edit there since the copy this device last had (not said, or the copy it had not known: taken as one).
-    const theirLayout = remote.layoutAt === undefined || (remote.layoutAt > 0 && (!m.remoteStoredAt || remote.layoutAt > m.remoteStoredAt));
+    const theirLayout = remote.layoutStoredAt === undefined || (remote.layoutStoredAt > 0 && (!m.remoteStoredAt || remote.layoutStoredAt > m.remoteStoredAt));
     const cloudWins = !here || !m.dirty || (theirLayout !== m.layout ? theirLayout : m.layout ? (remote.layoutAt ? remote.layoutAt - offset : storedAt) > m.layoutAt : storedAt > m.changedAt);
     if (cloudWins) {
       if (when === "start" && this.late) return null;
@@ -467,8 +471,10 @@ export class CloudSync {
       m.sentAt = savedAt;
       this.writeMeta();
       const bytes = await gzip(JSON.stringify(bundleOf(mode, savedAt, this.o.saveVersion, keys)));
-      const kind: EditKind = m.layout ? "layout" : "progress";
-      const res = await this.o.backend.put(code, mode, bytes, { savedAt, saveVersion: this.o.saveVersion }, m.remoteSavedAt, kind, leaving && bytes.byteLength <= KEEPALIVE_MAX);
+      // (A layout edit goes with when it was made, on the cloud's clock: QA saw a later edit lose to an earlier one
+      // stored later.)
+      const edit = { kind: (m.layout ? "layout" : "progress") as EditKind, at: m.layoutAt + (this.o.backend.clockOffset ?? 0) };
+      const res = await this.o.backend.put(code, mode, bytes, { savedAt, saveVersion: this.o.saveVersion }, m.remoteSavedAt, edit, leaving && bytes.byteLength <= KEEPALIVE_MAX);
       // (Turned off, or another code taken, meanwhile.)
       if (this.meta.code !== code) return;
       if (res.ok) {
@@ -686,7 +692,7 @@ export class WorkerBackend implements CloudBackend {
     }
   }
 
-  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, kind: EditKind, keepalive: boolean): Promise<Reply<{ storedAt: number }>> {
+  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number }, keepalive: boolean): Promise<Reply<{ storedAt: number }>> {
     const res = await this.call("PUT", code, mode, {
       body: bytes as BodyInit,
       keepalive,
@@ -696,7 +702,8 @@ export class WorkerBackend implements CloudBackend {
         "X-Save-Version": String(meta.saveVersion),
         "X-Game-Version": this.gameVersion,
         "X-Base-Saved-At": String(base),
-        "X-Edit-Kind": kind,
+        "X-Edit-Kind": edit.kind,
+        "X-Edited-At": String(Math.round(edit.at)),
       },
     });
     if (!res) return { ok: false, status: 0 };
@@ -728,6 +735,7 @@ const metaOf = (res: Response): RemoteMeta => ({
   saveVersion: Number(res.headers.get("X-Save-Version") ?? 0),
   storedAt: Number(res.headers.get("X-Stored-At") ?? 0),
   layoutAt: Number(res.headers.get("X-Layout-At") ?? 0),
+  layoutStoredAt: Number(res.headers.get("X-Layout-Stored-At") ?? 0),
 });
 
 /** The status as the Cloud save card says it. */

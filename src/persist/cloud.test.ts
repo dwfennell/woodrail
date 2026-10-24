@@ -41,14 +41,19 @@ class FakeCloud implements CloudBackend {
     if (this.offline) return { ok: false, status: 0 };
     return { ok: true, value: this.saves.get(`${code}/${mode}`) ?? null };
   }
-  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, kind: EditKind): Promise<Reply<{ storedAt: number }>> {
+  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number }): Promise<Reply<{ storedAt: number }>> {
+    const kind = edit.kind;
     if (this.offline) return { ok: false, status: 0 };
     if (this.reply429) return { ok: false, status: 429 };
     if ((this.saves.get(`${code}/${mode}`)?.meta.savedAt ?? 0) !== base) return { ok: false, status: 409 };
     this.puts++;
     const was = this.saves.get(`${code}/${mode}`)?.meta;
     const storedAt = this.server ? this.server.t : meta.savedAt;
-    this.saves.set(`${code}/${mode}`, { meta: { ...meta, storedAt, layoutAt: kind === "layout" ? storedAt : (was?.layoutAt ?? 0) }, bytes });
+    const layout = kind === "layout";
+    this.saves.set(`${code}/${mode}`, {
+      meta: { ...meta, storedAt, layoutAt: layout ? Math.min(edit.at || storedAt, storedAt) : (was?.layoutAt ?? 0), layoutStoredAt: layout ? storedAt : (was?.layoutStoredAt ?? 0) },
+      bytes,
+    });
     this.kinds.push(kind);
     if (this.hangPuts) return new Promise(() => {});
     return { ok: true, value: { storedAt } };
@@ -560,6 +565,29 @@ describe("cloud saves", () => {
       // (B's layout edit, at 2 500 000, is later than A's at 2 000 000, though B's last copy was progress.)
       expect(taken).toEqual([["a", "game", "took-cloud"]]);
       expect(await cloud.keysOf(code, "game")).toMatchObject({ "g.save": expect.stringContaining("then earned") });
+    });
+
+    it("two layout edits: the one made later wins, not the one stored later (QA t4 4b)", async () => {
+      const { server, a, b, cloud, code, taken } = await pair();
+      // B lays track at 2 000 000; its timer stores it 30 s later.
+      server.t = 2_000_000;
+      b.save("game", "b laid track");
+      // A, offline, lays track 5 s after B did.
+      cloud.offline = true;
+      server.t = 2_005_000;
+      a.save("game", "a laid track later");
+      await a.sync.flush();
+      cloud.offline = false;
+      server.t = 2_030_000;
+      await b.sync.flush();
+      expect(cloud.saves.get(`${code}/game`)!.meta).toMatchObject({ layoutAt: 2_000_000, layoutStoredAt: 2_030_000 });
+      // A back online: its edit was the later.
+      server.t = 2_040_000;
+      await a.sync.flush();
+      expect(taken).toEqual([]);
+      expect(a.notes).toEqual([["game", "both-changed"]]);
+      expect(await cloud.keysOf(code, "game")).toMatchObject({ "g.save": expect.stringContaining("a laid track later") });
+      expect(a.sync.backupOf("game")).toBe(2_030_000);
     });
 
     it("mid-gesture, a newer copy waits: taken on a later round, once the finger's up", async () => {
