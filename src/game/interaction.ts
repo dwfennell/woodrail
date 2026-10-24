@@ -3229,8 +3229,18 @@ export class Interaction {
     const first = this.selectedPiece;
     this.clearSelection();
     this.picking = true;
-    if (first !== -1) this.picked.add(first);
+    this.pickFirst(first);
     this.showPicked();
+  }
+
+  /**
+   * The piece selected when picking starts becomes the first picked, unless a train is on it (said so: a group with
+   * it couldn't be moved, turned or taken up).
+   */
+  private pickFirst(id: number): void {
+    if (id === -1) return;
+    if (this.game.sim.pieceOccupied(id)) this.hud.toast(TRAIN_ON_TRACK);
+    else this.picked.add(id);
   }
 
   /** Group card "Done": let the picked pieces go. */
@@ -3250,7 +3260,12 @@ export class Interaction {
       const first = this.selectedPiece;
       this.clearSelection();
       this.picking = true;
-      if (first !== -1) this.picked.add(first);
+      this.pickFirst(first);
+      // (Shift+click on the piece selected, a train on it: said once.)
+      if (first === id && !this.picked.has(id)) {
+        this.showPicked();
+        return;
+      }
     }
     if (this.picked.has(id)) this.picked.delete(id);
     else if (this.game.sim.pieceOccupied(id)) this.hud.toast(TRAIN_ON_TRACK);
