@@ -352,6 +352,13 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
   It doesn't count when both are pinned to the same road: then every train runs through by that road. The line's
   cards then say "unpin the passing loop's switches so trains can pass", not "lay a loop". Pinned switches' settings
   are part of the topology's key. The way-finder already took only a pinned switch's road, as steering does.
+- **One switch pinned, the other free (fix-forward, QA's B1).** Trains in at the pinned end all take its road, so
+  trains in at the free end must keep to the other road. Otherwise the two meet on the pinned end's road with no way
+  round. 7034c25 let them take either road: pinned main/main and then one switch unpinned, as the card says, the line
+  delivered 0 (s1) or 2 (s2) in the next 200 s. Each loop now lists the roads trains may take in at each end
+  (`Loop.into`), and the way-finder sends a train only onto those, unless its stop is on the other road. Trailing
+  through a pinned switch set against the train is fine: the sim runs a train through any switch from a branch,
+  whichever way it's set.
 - **A held train in the working one's way:** when a train with room waits on a chain that ends at one of its own held
   for room, and none in the chain can turn back, the held one takes the room: it's held by rule, not by the track.
   The one waiting on it is held where it stands instead. This happens at most once a minute on a line. It's what

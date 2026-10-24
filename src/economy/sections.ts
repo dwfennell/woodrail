@@ -63,6 +63,12 @@ export interface Loop {
   a: number;
   b: number;
   roads: [number, number];
+  /**
+   * The roads (slot ids) a train coming in at `a`, and at `b`, may be sent onto to pass. A pinned switch sends every
+   * train coming at it from its stem one way; trains coming in at the other end then keep to the other road, else the
+   * two would meet on the one road with no way round (see `findLoops`).
+   */
+  into: [number[], number[]];
 }
 
 export interface Topology {
@@ -223,10 +229,11 @@ function roadTo(layout: Layout, pieceId: number, exit: number): { switchId: numb
  * Passing loops a train of `minRoad` mm fits in: both roads long enough, and trains coming at it from each end able
  * to take different roads. A pinned switch sends a train coming at it from its stem onto the one road it's set to:
  * both switches pinned to the same road, every train runs through by that one road (no passing: listed in `pinned`
- * instead); pinned to opposite roads, it's a one-way loop, each way its own road, and passes as well as any.
+ * instead); pinned to opposite roads, it's a one-way loop, each way its own road, and passes as well as any. One
+ * pinned, the other free: trains in at the free end keep to the other road (`into`), so it's one-way too.
  */
-function findLoops(layout: Layout, minRoad: number, pinned: { a: number; b: number; pieces: number[] }[] = []): { a: number; b: number; roads: [number[], number[]]; lengths: [number, number] }[] {
-  const out: { a: number; b: number; roads: [number[], number[]]; lengths: [number, number] }[] = [];
+function findLoops(layout: Layout, minRoad: number, pinned: { a: number; b: number; pieces: number[] }[] = []): { a: number; b: number; roads: [number[], number[]]; lengths: [number, number]; into: [number[], number[]] }[] {
+  const out: { a: number; b: number; roads: [number[], number[]]; lengths: [number, number]; into: [number[], number[]] }[] = [];
   const seen = new Set<string>();
   const used = new Set<number>();
   for (const id of layout.pieceIds()) {
@@ -263,13 +270,18 @@ function findLoops(layout: Layout, minRoad: number, pinned: { a: number; b: numb
             if (set?.exit === r1.entry) intoB.add(0);
             if (set?.exit === r2.entry) intoB.add(1);
           }
+          // (One end pinned, the other free: trains in at the free end keep to the road the pinned end doesn't send
+          // its trains onto. Trailing through a pinned switch is fine (a train from the far road runs through it, as
+          // through any switch, whichever way it's set): only the road a train is sent onto matters.)
+          if (intoA.size === 1 && intoB.size === 2) intoB.delete([...intoA][0]);
+          if (intoB.size === 1 && intoA.size === 2) intoA.delete([...intoB][0]);
           if (![...intoA].some((x) => [...intoB].some((y) => y !== x))) {
             pinned.push({ a: id, b: r1.switchId, pieces: [id, r1.switchId, ...r1.pieces, ...r2.pieces] });
             continue;
           }
           if ([...r1.pieces, ...r2.pieces].some((p) => used.has(p))) continue;
           for (const p of [...r1.pieces, ...r2.pieces]) used.add(p);
-          out.push({ a: id, b: r1.switchId, roads: [r1.pieces, r2.pieces], lengths: [r1.length, r2.length] });
+          out.push({ a: id, b: r1.switchId, roads: [r1.pieces, r2.pieces], lengths: [r1.length, r2.length], into: [[...intoA], [...intoB]] });
         }
     }
   }
@@ -310,7 +322,7 @@ function buildTopology(layout: Layout, minRoad: number): Topology {
       for (const p of pieces) slotOf.set(p, id);
       roads.push(id);
     });
-    loops.push({ a: l.a, b: l.b, roads: [roads[0], roads[1]] });
+    loops.push({ a: l.a, b: l.b, roads: [roads[0], roads[1]], into: [l.into[0].map((r) => roads[r]), l.into[1].map((r) => roads[r])] });
   }
   // Line ends: from each end (a buffer, or an end joined to nothing) back to the first piece with a choice of way.
   for (const id of layout.pieceIds()) {
@@ -888,7 +900,10 @@ export class Sections {
           const w = u === -1 ? null : this.states.get(u)?.wait;
           if (w && "engine" in w && w.engine === st.engine) calls = undefined;
         }
+        // (Only the roads trains in at this end may take: with the far end pinned, the one its trains don't use.)
+        const into = prev?.pieceId === loop.a ? loop.into[0] : prev?.pieceId === loop.b ? loop.into[1] : loop.roads;
         for (const r of calls !== undefined ? [calls] : s.road === 0 ? loop.roads : [loop.roads[1], loop.roads[0]]) {
+          if (r !== calls && !into.includes(r)) continue;
           const u = this.slotUser(info, r, st.engine);
           if (u !== -1) {
             blockedBy = u;

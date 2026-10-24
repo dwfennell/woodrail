@@ -853,6 +853,83 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
         // (Two trains, the loop no passing place: one runs, the other held out of its way.)
         if (roads[0] === roads[1] && trains === 2) expect(r.arrivals.some((a) => a > 5)).toBe(true);
       });
+  // Each switch free, or pinned so a train at it from its stem takes main or side (`pin`, one switch at a time).
+  const pinEach = (q: Q, l: Q["loops"][0], ways: readonly ["free" | "main" | "side", "free" | "main" | "side"]) => {
+    for (const [k, sw] of [l.s1, l.s2].entries()) {
+      const want = ways[k];
+      if (want === "free") continue;
+      for (let state = 0; state < 2; state++) {
+        q.L.setSwitchState(sw, state);
+        q.L.setPinned(sw, true);
+        const w = waysFrom(q.L, sw, 0)[0];
+        const n = w ? next(q.L, sw, w.exit) : null;
+        if ((n && l.main.includes(n.pieceId) ? "main" : "side") === want) break;
+        q.L.setPinned(sw, false);
+      }
+    }
+  };
+  // Every way of pinning a loop: each switch free, or pinned to send trains coming at it from its stem onto main or
+  // side. Pinned to the same road both ends: no passing place (the card says unpin). Otherwise it passes: one end
+  // pinned, trains in at the other keep to the other road (7034c25 let them onto the pinned end's road, where the two
+  // met with no way round: free/main and main/free delivered 0 and 2 where these deliver 13 each).
+  const W = ["free", "main", "side"] as const;
+  for (const a of W)
+    for (const b of W)
+      it(`a loop pinned ${a}/${b}, 2 trains: ${a !== "free" && a === b ? "no passing place, the card says unpin" : "they pass, both deliver"}`, () => {
+        const q = line0({ loops: 1, ends: 2 });
+        const l = q.loops[0];
+        pinEach(q, l, [a, b]);
+        const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }], [q.a, q.b], 300, cars);
+        if (ENV.SHOW) console.log(`PINS ${a}/${b}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} meets ${r.meet} cards ${[...r.cards].filter((c) => /pin|lay|Move/.test(c)).join(" | ")}`);
+        expect(r.meet).toBe(0);
+        const unpin = [...r.cards].some((c) => c.endsWith("unpin the passing loop's switches so trains can pass"));
+        if (a !== "free" && a === b) {
+          expect(unpin).toBe(true);
+          expect(r.arrivals.some((x) => x > 5)).toBe(true);
+        } else {
+          expect(unpin).toBe(false);
+          expect([...r.cards].filter((c) => /[Ll]ay \d+ more|full/.test(c))).toEqual([]);
+          for (const x of r.arrivals) expect(x).toBeGreaterThan(9);
+        }
+      });
+  // QA's j_pin2 (B1 on 7034c25): pinned main/main, 2 trains; at 200 s the player does what the card says, unpinning
+  // one switch or both (each keeps the state it was pinned in). 7034c25, arrivals in the 200 s after: s1 0, s2 2,
+  // both 16; dae31d6: 9, 9, 16.
+  for (const un of ["s1", "s2", "both"] as const)
+    it(`QA's j_pin2: a loop pinned main/main, then ${un === "both" ? "both switches" : un} unpinned as the card says: the line delivers`, () => {
+      const q = line0({ loops: 1, ends: 2 });
+      const l = q.loops[0];
+      pin(q, l, ["main", "main"]);
+      const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }], [q.a, q.b], 400, cars, [
+        {
+          at: 200,
+          fn: () => {
+            if (un !== "s2") q.L.setPinned(l.s1, false);
+            if (un !== "s1") q.L.setPinned(l.s2, false);
+          },
+        },
+      ]);
+      const after = r.E.map((e) => r.arrAt.filter((x) => x.e === e && x.t >= 200).length);
+      if (ENV.SHOW) console.log(`J_PIN2 unpin ${un}: after ${after.join("/")} before ${r.arrAt.filter((x) => x.t < 200).length} meets ${r.meet}`);
+      expect(r.meet).toBe(0);
+      expect(after.reduce((x, y) => x + y, 0)).toBeGreaterThanOrEqual(14);
+      for (const x of after) expect(x).toBeGreaterThan(5);
+    });
+  // QA's N1: 3 trains on 1 loop (the third put down at the forest end at 30 s), unpinned or one-way. The room rule
+  // (loops + 1) holds one; it's held at the forest end, so neither of the others can load: unpinned they shuttle empty
+  // to the sawmill (QA counted 17 arrivals, none with logs), one-way they stand still. Both say lay 1 more loop.
+  for (const w of [["free", "free"], ["main", "side"]] as const)
+    it(`QA's N1: 3 trains on a loop ${w[0] === "free" ? "unpinned" : "pinned one-way"}: one held, the card says lay 1 more loop`, () => {
+      const q = line0({ loops: 1, ends: 2 });
+      const l = q.loops[0];
+      pinEach(q, l, w);
+      const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: q.west[1], next: 1, s: 100, at: 30 }], [q.a, q.b], 300, cars);
+      const loads = r.E.map((e) => r.cardLog.filter((x) => x.e === e && x.t > 60 && /at forest/.test(x.c)).length);
+      if (ENV.SHOW) console.log(`N1 ${w.join("/")}: ${r.arrivals.join("/")} loading at the forest after 60 s ${loads.join("/")}`);
+      expect(r.meet).toBe(0);
+      expect([...r.cards].some((c) => /lay 1 more passing loop for 3 trains/.test(c))).toBe(true);
+      expect(loads).toEqual([0, 0, 0]);
+    });
   // Fix 2's case, built directly: no passing place (the loop pinned to one road both ways), the working train standing
   // at its end of the line, a second put down right in front of it on the single track. Held for room where it
   // stood, it blocked the working train, which had nowhere to turn: it waited on it for good. Held by rule, not by
