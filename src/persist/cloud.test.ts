@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GameMode } from "../game/modes";
-import { CloudSync, gunzip, PROGRESS_EVERY_MS, statusText, UPLOAD_EVERY_MS, type CloudBackend, type EditKind, type KeyStore, type RemoteMeta, type Reply } from "./cloud";
+import { CloudSync, gunzip, PROGRESS_EVERY_MS, statusText, UPLOAD_EVERY_MS, type CloudBackend, type EditKind, type KeyStore, type Merger, type RemoteMeta, type Reply } from "./cloud";
 import { WORDS } from "./code-words";
+import { gameMerger } from "./progress-merge";
 import { newCode, parseCode, showCode } from "./sync-code";
 
-const KEYS: Record<GameMode, string[]> = { sandbox: ["s.save", "s.session"], game: ["g.save", "g.session", "g.goals"] };
+const KEYS: Record<GameMode, string[]> = { sandbox: ["s.save", "s.session"], game: ["g.save", "g.session", "g.goals", "g.prog"] };
 
 class MemStore implements KeyStore {
   readonly m = new Map<string, string>();
@@ -64,13 +65,14 @@ class FakeCloud implements CloudBackend {
 }
 
 /** A device: its storage, its clock and its timers (run by hand). */
-function device(cloud: CloudBackend & FakeCloud, store = new MemStore(), clock = { t: 1_000_000 }) {
+function device(cloud: CloudBackend & FakeCloud, store = new MemStore(), clock = { t: 1_000_000 }, merge: Merger | null = null) {
   const timers: (() => void)[] = [];
   const sync = new CloudSync({
     backend: cloud,
     storage: store,
     keys: KEYS,
     saveVersion: 13,
+    merge,
     now: () => clock.t,
     setTimer: (fn, ms) => {
       expect([UPLOAD_EVERY_MS, PROGRESS_EVERY_MS]).toContain(ms);
@@ -610,6 +612,105 @@ describe("cloud saves", () => {
       busy = false;
       await a.tick();
       expect(taken).toEqual([["a", "game", "took-cloud"]]);
+    });
+  });
+
+  describe("Game progress made on both is merged, not lost (CoS: no toasts for progress)", () => {
+    const merger = gameMerger({ progress: "g.prog", goals: "g.goals" });
+    const prog = (coins: number, learned: string[] = []) => JSON.stringify({ owned: [], learned, coins });
+    const coinsOf = (store: KeyStore) => (JSON.parse(store.getItem("g.prog")!) as { coins: number }).coins;
+    /** C and D on one code, both with the same railway and 1000 coins, at server time 1 000 000 on. */
+    async function pair() {
+      const cloud = new FakeCloud();
+      const server = { t: 1_000_000 };
+      cloud.server = server;
+      const c = device(cloud, new MemStore(), server, merger);
+      c.store.setItem("g.save", '{"version":13,"text":"the railway"}');
+      c.store.setItem("g.prog", prog(1000));
+      c.store.setItem("g.goals", '["join-towns"]');
+      const code = (await c.sync.enable())!;
+      const d = device(cloud, new MemStore(), server, merger);
+      expect((await d.sync.useCode(code)).ok).toBe(true);
+      const events: string[] = [];
+      for (const [name, x] of [["c", c], ["d", d]] as const) {
+        x.sync.onTaken = (m, n) => events.push(`${name} taken ${m} ${n}`);
+        x.sync.onMerged = (m) => events.push(`${name} merged ${m}`);
+      }
+      /** A device earns (a delivery's coins): its progress saved, a progress edit. */
+      const earn = (x: typeof c, coins: number, extra: Partial<{ learned: string[]; goals: string[] }> = {}) => {
+        x.store.setItem("g.prog", prog(coins, extra.learned));
+        if (extra.goals) x.store.setItem("g.goals", JSON.stringify(extra.goals));
+        x.sync.edited("game", "progress");
+      };
+      return { cloud, server, c, d, code, events, earn };
+    }
+
+    it("both earn: each merge sums what each earned, with no toast and nothing kept aside", async () => {
+      const { cloud, server, c, d, code, events, earn } = await pair();
+      server.t = 2_000_000;
+      earn(c, 1120);
+      await c.sync.flush();
+      server.t = 2_010_000;
+      earn(d, 1050);
+      await d.sync.flush();
+      expect(coinsOf(d.store)).toBe(1170);
+      expect(events).toEqual(["d merged game"]);
+      expect(d.notes).toEqual([]);
+      expect(d.sync.backupOf("game")).toBeNull();
+      expect(JSON.parse((await cloud.keysOf(code, "game"))["g.prog"]).coins).toBe(1170);
+      expect(cloud.kinds.at(-1)).toBe("progress");
+      // C earns again meanwhile; its next round merges D's merged copy: still exact.
+      server.t = 2_020_000;
+      earn(c, 1150);
+      await c.sync.flush();
+      expect(coinsOf(c.store)).toBe(1200);
+      expect(c.notes).toEqual([]);
+      // D, not earning since, simply takes it at its next start.
+      const d2 = device(cloud, d.store, server, merger);
+      expect(await d2.sync.start()).toEqual({});
+      expect(coinsOf(d2.store)).toBe(1200);
+    });
+
+    it("blueprints learned and goals done on either are kept", async () => {
+      const { server, c, d, earn } = await pair();
+      server.t = 2_000_000;
+      earn(c, 1000, { learned: ["switches"], goals: ["join-towns", "first-delivery"] });
+      await c.sync.flush();
+      server.t = 2_010_000;
+      earn(d, 1080, { goals: ["join-towns", "second-train"] });
+      await d.sync.flush();
+      expect(JSON.parse(d.store.getItem("g.prog")!)).toMatchObject({ coins: 1080, learned: ["switches"] });
+      expect(new Set(JSON.parse(d.store.getItem("g.goals")!))).toEqual(new Set(["join-towns", "first-delivery", "second-train"]));
+    });
+
+    it("the railway itself is the later copy's: here, the game reloads onto it (no toast)", async () => {
+      const { server, c, d, events, earn } = await pair();
+      // D earned first (its copy not yet sent); C earned later and sent, its railway moved on (trains ran).
+      server.t = 2_000_000;
+      earn(d, 1030);
+      server.t = 2_100_000;
+      c.store.setItem("g.save", '{"version":13,"text":"the railway, trains further on"}');
+      earn(c, 1200);
+      await c.sync.flush();
+      server.t = 2_200_000;
+      await d.sync.flush();
+      expect(events).toEqual(["d taken game null"]);
+      expect(d.store.getItem("g.save")).toContain("trains further on");
+      expect(coinsOf(d.store)).toBe(1230);
+    });
+
+    it("a layout edit on either side isn't merged: the rules for a clash, as before", async () => {
+      const { server, c, d, earn, events } = await pair();
+      server.t = 2_000_000;
+      c.store.setItem("g.save", '{"version":13,"text":"c laid track"}');
+      c.sync.edited("game");
+      await c.sync.flush();
+      server.t = 2_010_000;
+      earn(d, 1500);
+      await d.sync.flush();
+      expect(events).toEqual(["d taken game took-cloud"]);
+      expect(coinsOf(d.store)).toBe(1000);
+      expect(d.sync.backupOf("game")).not.toBeNull();
     });
   });
 

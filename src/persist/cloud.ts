@@ -27,6 +27,20 @@ export type EditKind = "layout" | "progress";
 const KEEPALIVE_MAX = 60_000;
 const META_KEY = "woodrail.cloud.v1";
 const backupKey = (mode: GameMode): string => `woodrail.cloud.backup.${mode}`;
+/** The mergeable keys as this device last synced them (sent or taken): what a merge counts each side's change from. */
+const baseKey = (mode: GameMode): string => `woodrail.cloud.base.${mode}`;
+
+type Keys = Record<string, string | null>;
+
+/**
+ * Keys two devices' copies can be merged in, when neither changed the layout since they last matched (Game mode's
+ * progress and goals: `progress-merge.ts`), so the game's progress made on both is kept, without a backup or a toast.
+ */
+export interface Merger {
+  keys: Partial<Record<GameMode, readonly string[]>>;
+  /** The merged values of `keys[mode]`, from the base (as both last had them) and each side's. */
+  merge(mode: GameMode, base: Keys, local: Keys, remote: Keys, later: "local" | "remote"): Keys;
+}
 const MODES: readonly GameMode[] = ["sandbox", "game"];
 
 export interface RemoteMeta {
@@ -109,6 +123,8 @@ export type SyncNote = "took-cloud" | "kept-here" | "both-changed" | "newer" | n
 export type UseCodeResult = { ok: true; took: GameMode[] } | { ok: false; error: "malformed" | "nothing" | "offline" | "newer" };
 
 export interface CloudOptions {
+  /** How progress is merged (none: a conflict is always one copy or the other). */
+  merge?: Merger | null;
   backend: CloudBackend;
   storage: KeyStore;
   /** Each mode's storage keys (`modeKeys`): the first is its autosave. */
@@ -149,6 +165,11 @@ export class CloudSync {
    * piece in hand): then it waits for the next round, as the rewards sheet does.
    */
   mayTake: () => boolean = () => true;
+  /**
+   * While playing, the mode's progress was merged with another device's into storage, the railway kept as it is here:
+   * the game should take up the merged progress (and goals) from storage now, before its next save.
+   */
+  onMerged: (mode: GameMode) => void = () => {};
   /** A turn on, a code taken in, or a restore, under way (each waits for the other). */
   private working = false;
   /** The upload under way (the timer's, or `flush`'s), for `idle`. */
@@ -156,6 +177,7 @@ export class CloudSync {
 
   constructor(opts: CloudOptions) {
     this.o = {
+      merge: null,
       now: () => Date.now(),
       setTimer: (fn, ms) => setTimeout(fn, ms),
       clearTimer: (t) => clearTimeout(t as number),
@@ -303,6 +325,7 @@ export class CloudSync {
       if (!bundle) return { ok: false, error: "offline" };
       if (this.o.storage.getItem(this.o.keys[mode][0]) !== null) await this.keepBackup(mode, this.bundleHere(mode, this.meta.modes[mode].changedAt || this.o.now()));
       if (!this.apply(bundle)) return { ok: false, error: "offline" };
+      this.writeBase(mode, bundle.keys);
       modes[mode].remoteSavedAt = modes[mode].changedAt = got.value.meta.savedAt;
       modes[mode].remoteStoredAt = got.value.meta.storedAt ?? 0;
       took.push(mode);
@@ -328,6 +351,7 @@ export class CloudSync {
     for (const m of MODES) {
       try {
         this.o.storage.removeItem(backupKey(m));
+        this.o.storage.removeItem(baseKey(m));
       } catch {
         // gone with the code anyway
       }
@@ -395,6 +419,8 @@ export class CloudSync {
       if (m.changedAt <= m.sentAt) {
         m.dirty = false;
         m.layout = false;
+        // (What went is what's here: nothing was edited since.)
+        this.writeBase(mode, Object.fromEntries(this.readKeys(mode)));
       }
       m.sentAt = 0;
       this.writeMeta();
@@ -411,6 +437,36 @@ export class CloudSync {
     const storedAt = remote.storedAt ? remote.storedAt - offset : remote.savedAt;
     // A layout edit there since the copy this device last had (not said, or the copy it had not known: taken as one).
     const theirLayout = remote.layoutStoredAt === undefined || (remote.layoutStoredAt > 0 && (!m.remoteStoredAt || remote.layoutStoredAt > m.remoteStoredAt));
+    // Both only played on (no layout edit on either since they last matched): merged, nothing lost, nothing said.
+    const mergeable = this.o.merge?.keys[mode];
+    if (here && m.dirty && !m.layout && !theirLayout && mergeable && this.o.merge) {
+      const later = storedAt > m.changedAt ? "remote" : "local";
+      if (when === "start" && this.late) return null;
+      if (when === "before-put" && later === "remote" && !this.mayTake()) return "wait";
+      const local = Object.fromEntries(this.readKeys(mode));
+      const merged = this.o.merge.merge(mode, this.readBase(mode), local, bundle.keys, later);
+      // The rest (the railway, its clock) as the later copy has it.
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(later === "remote" ? bundle.keys : local)) if (v !== null) out[k] = v;
+      for (const k of mergeable) {
+        const v = merged[k];
+        if (v === null || v === undefined) delete out[k];
+        else out[k] = v;
+      }
+      if (!this.apply({ ...bundle, keys: out })) return null;
+      // (The base is the cloud's, till the merged copy goes up and becomes it.)
+      this.writeBase(mode, bundle.keys);
+      m.remoteSavedAt = got.value.meta.savedAt;
+      m.remoteStoredAt = remote.storedAt ?? 0;
+      m.dirty = true;
+      this.sent[mode] = null;
+      this.writeMeta();
+      if (when === "before-put") {
+        if (later === "remote") this.onTaken(mode, null);
+        else this.onMerged(mode);
+      }
+      return null;
+    }
     const cloudWins = !here || !m.dirty || (theirLayout !== m.layout ? theirLayout : m.layout ? (remote.layoutAt ? remote.layoutAt - offset : storedAt) > m.layoutAt : storedAt > m.changedAt);
     if (cloudWins) {
       if (when === "start" && this.late) return null;
@@ -420,6 +476,7 @@ export class CloudSync {
       const both = here && m.dirty;
       if (both) await this.keepBackup(mode, this.bundleHere(mode, m.changedAt));
       if (!this.apply(bundle)) return null;
+      this.writeBase(mode, bundle.keys);
       this.meta.modes[mode] = { ...freshMode(), remoteSavedAt: got.value.meta.savedAt, changedAt: storedAt, remoteStoredAt: remote.storedAt ?? 0 };
       this.wasLayout[mode] = false;
       this.sent[mode] = null;
@@ -444,7 +501,7 @@ export class CloudSync {
     if (!code || !m.dirty || this.newer.has(mode) || this.busy.has(mode)) return;
     this.busy.add(mode);
     try {
-      const keys = this.readKeys(mode);
+      let keys = this.readKeys(mode);
       if (this.sent[mode] && sameKeys(this.sent[mode], keys)) {
         m.dirty = false;
         this.writeMeta();
@@ -464,6 +521,8 @@ export class CloudSync {
         if (!m.dirty) return;
         if (note) this.onNote(mode, note);
         if (this.newer.has(mode)) return;
+        // (A merge may have changed them.)
+        keys = this.readKeys(mode);
       }
       const gen = this.gen[mode];
       const savedAt = this.o.now();
@@ -482,6 +541,7 @@ export class CloudSync {
         m.remoteStoredAt = res.value.storedAt;
         m.sentAt = 0;
         this.sent[mode] = keys;
+        this.writeBase(mode, Object.fromEntries(keys));
         if (gen === this.gen[mode]) {
           m.dirty = false;
           m.layout = false;
@@ -594,6 +654,29 @@ export class CloudSync {
       return b && typeof b.savedAt === "number" && typeof b.data === "string" ? { savedAt: b.savedAt, data: b.data } : null;
     } catch {
       return null;
+    }
+  }
+
+  /** The mergeable keys as last synced (none kept for a mode with nothing to merge). */
+  private readBase(mode: GameMode): Keys {
+    try {
+      const raw = this.o.storage.getItem(baseKey(mode));
+      const b = raw ? (JSON.parse(raw) as unknown) : null;
+      return b && typeof b === "object" ? (b as Keys) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private writeBase(mode: GameMode, keys: Keys): void {
+    const mergeable = this.o.merge?.keys[mode];
+    if (!mergeable) return;
+    const out: Keys = {};
+    for (const k of mergeable) out[k] = keys[k] ?? null;
+    try {
+      this.o.storage.setItem(baseKey(mode), JSON.stringify(out));
+    } catch {
+      // No room: the next merge counts from the cloud's copy.
     }
   }
 

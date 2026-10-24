@@ -350,6 +350,62 @@ try {
     g2.layoutAt > g1.layoutAt && (await c.evaluate(() => window.woodrail.layout.pieceCount)) === piecesD && (await coins(c)) === earned && g3.savedAt === g2.savedAt && /newer railway/.test(toldC) && /Restore the railway from/.test(await card(c)),
     `D pieces ${piecesD}, C now ${await c.evaluate(() => window.woodrail.layout.pieceCount)}; C coins ${more} → ${await coins(c)}; cloud ${g2.savedAt} → ${g3.savedAt}; said “${toldC}”`,
   );
+
+  // 8. Both earn (progress only, on both): merged, nothing lost, nothing said. Then one learns a blueprint while the
+  // other earns: both keep both.
+  await tap(c, "Done");
+  const syncedCoins = await coins(c);
+  const earnOn = async (p, n) => {
+    const want = await p.evaluate((n) => (window.woodrail.progress().coins += n), n);
+    await p.waitForFunction((w) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === w, want, { timeout: 15000 });
+    return want;
+  };
+  /**
+   * A page's next upload round, now (as its timer would, in a minute: the cloud's copy checked first, and merged), and
+   * whatever it then plays on (a merge may reload it onto the later railway) is in play.
+   */
+  const hideAndSettle = async (p, was) => {
+    await p.evaluate(() => dispatchEvent(new Event("online")));
+    const r = await landed2(was);
+    await new Promise((res) => setTimeout(res, 3000));
+    await inMode(p, "game");
+    return r;
+  };
+  const g4 = await remote2();
+  await pastLimit();
+  await earnOn(c, 200);
+  await earnOn(d, 30);
+  const g5 = await hideAndSettle(c, g4);
+  await pastLimit();
+  const g6 = await hideAndSettle(d, g5);
+  await c.reload();
+  await inMode(c, "game");
+  const both = { c: await coins(c), d: await coins(d), toasts: await d.evaluate(() => document.querySelector(".toast")?.textContent ?? "") };
+  check(
+    "Game mode: both earn; after each syncs and reloads, both have the sum (and no toast)",
+    g6.savedAt > g5.savedAt && both.c === syncedCoins + 230 && both.d === syncedCoins + 230 && !/kept/.test(both.toasts),
+    `synced ${syncedCoins}; C +200, D +30 → C ${both.c}, D ${both.d}; said “${both.toasts}”`,
+  );
+  await pastLimit();
+  const learnt = await c.evaluate(() => {
+    const w = window.woodrail;
+    const id = ["switches", "bridges", "signals", "junctions"].find((t) => !w.progress().learned.has(t));
+    w.learn(id);
+    return id;
+  });
+  await c.waitForFunction((id) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).learned.includes(id), learnt, { timeout: 15000 });
+  const earned2 = (await earnOn(d, 45)) - both.d;
+  const g7 = await hideAndSettle(c, g6);
+  await pastLimit();
+  await hideAndSettle(d, g7);
+  await c.reload();
+  await inMode(c, "game");
+  const kept = await Promise.all([c, d].map((p) => p.evaluate((id) => ({ learned: window.woodrail.progress().learned.has(id), coins: window.woodrail.progress().coins }), learnt)));
+  check(
+    "Game mode: one learns a blueprint while the other earns: both keep both",
+    kept.every((k) => k.learned && k.coins === both.d + earned2),
+    `learned ${learnt}; ${JSON.stringify(kept)} (want coins ${both.d + earned2})`,
+  );
   await ctxC.close();
   await ctxD.close();
 } catch (e) {

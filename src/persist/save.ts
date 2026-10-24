@@ -666,6 +666,9 @@ export function loadSession(mode: GameMode): SessionData | null {
  * autosave and session, and in Game mode its goals and progress too. Settings (sound, graphics, favourites, the hints
  * seen) stay with the device.
  */
+/** Game mode's progress and goals keys (what two devices' cloud copies merge: `persist/progress-merge.ts`). */
+export const PROGRESS_KEYS = { progress: PROGRESS_KEY, goals: GOALS_KEY } as const;
+
 export function modeKeys(mode: GameMode): string[] {
   const keys = [STORAGE_KEYS[mode], sessionKey(mode)];
   return mode === "game" ? [...keys, GOALS_KEY, PROGRESS_KEY, GAMES_KEY] : keys;

@@ -10,8 +10,9 @@ import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBluep
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
+import { gameMerger } from "./persist/progress-merge";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker, secondEngineTip, trayRing } from "./game/goals";
 import { makesLine } from "./game/learn-text";
@@ -194,7 +195,7 @@ const cloud = ((): CloudSync | null => {
   const url = import.meta.env.VITE_CLOUD_URL as string | undefined;
   if (!url || !cloudSupported()) return null;
   try {
-    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION });
+    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION, merge: gameMerger(PROGRESS_KEYS) });
   } catch {
     // No storage.
     return null;
@@ -3709,6 +3710,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // A newer copy from another device, taken while playing: the game starts again on it (without saving this one over
     // it), and says so then.
     cloud.mayTake = () => !interaction.busy;
+    // Game progress merged with another device's (the railway as it is here): taken up now, before the next save.
+    cloud.onMerged = (m) => {
+      if (m !== "game" || mode !== "game") return;
+      progress = Progress.fromJSON(loadProgress());
+      progress.coverMap(game.world);
+      progressSig = JSON.stringify(progress.toJSON());
+      crafting.setProgress(progress);
+      goals = new GoalTracker(loadGoals());
+      syncLandmarks();
+      hud.setCoins(progress.coins);
+      hud.refreshTrayBadges();
+      refreshBoard();
+      refreshPill();
+      checkGoals(false);
+    };
     cloud.onTaken = (m, note) => {
       try {
         if (note) sessionStorage.setItem(CLOUD_NOTE_KEY, JSON.stringify({ mode: m, note }));
