@@ -37,12 +37,14 @@ function researching(id = "mills"): Progress {
 
 const planks = (w: World) => workshopStock(w).planks ?? 0;
 
-describe("the growth menu: pick one of three", () => {
+// Its slowest tests draw a few hundred cards; they took 5-6 s on a loaded machine.
+describe("the growth menu: pick one of three", { timeout: 30_000 }, () => {
   it("an offer is three cards of different kinds, never a blueprint", () => {
+    // One world for every offer: drawing one only reads it (only taking a card changes it).
+    const w = world({ school: true });
     for (let seed = 1; seed < 40; seed++) {
       for (const level of [1, 2, 3, 5]) {
         const p = researching();
-        const w = world({ school: true });
         const offer = offerOnGrowth(p, w, "Larkfield", level, rng(seed))!;
         expect(offer.cards).toHaveLength(3);
         expect(new Set(offer.cards.map((c) => c.kind)).size).toBe(3);
@@ -313,7 +315,8 @@ describe("taking a card", () => {
   });
 });
 
-describe("growth never teaches a blueprint", () => {
+// A fresh world for each of its 195 offers (taking a card changes it): 2-4 s, near the 5 s default on a loaded machine.
+describe("growth never teaches a blueprint", { timeout: 30_000 }, () => {
   it("whatever is offered and taken, at any level", () => {
     for (let seed = 1; seed < 40; seed++) {
       for (const level of [1, 2, 3, 4, 5]) {
@@ -401,7 +404,8 @@ describe("three real choices", () => {
   });
 });
 
-describe("crates and presents", () => {
+// Its slowest tests draw a few hundred cards; they took 5-6 s on a loaded machine.
+describe("crates and presents", { timeout: 30_000 }, () => {
   it("a crate holds things you know, no buildings; a city's is bigger", () => {
     const p = Progress.fresh();
     p.learned.add("switches");
@@ -418,6 +422,8 @@ describe("crates and presents", () => {
 
   it("a crate holds no engine till Signals are learned; after, it can", () => {
     let engines = 0;
+    // One world for every card: drawing one only reads it.
+    const w = world();
     for (let seed = 1; seed < 60; seed++) {
       for (const level of [1, 2, 3, 5]) {
         const p = Progress.fresh();
@@ -425,7 +431,7 @@ describe("crates and presents", () => {
         p.learned.add("farming");
         expect(crateFor(p, level, rng(seed)).map(([id]) => id), `seed ${seed} level ${level}`).not.toContain("car:engine");
         // The crate card too.
-        const card = cardFor(p, world(), "crate", level, rng(seed));
+        const card = cardFor(p, w, "crate", level, rng(seed));
         if (card?.kind === "crate") expect(card.things.map(([id]) => id)).not.toContain("car:engine");
         p.learned.add("signals");
         if (crateFor(p, level, rng(seed)).some(([id]) => id === "car:engine")) engines++;

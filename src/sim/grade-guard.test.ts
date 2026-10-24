@@ -98,12 +98,23 @@ function runTo(layout: Layout, from: { pieceId: number; reversed: boolean; s: nu
   return Infinity;
 }
 
-describe("a loaded train gets over every grade-changing piece", () => {
+/**
+ * A layout as the sim sees it: a piece that can't be flipped (a straight bridge) is the same piece flipped or not
+ * (`getPieceDef` gives the one def), so its flip is left out, and such twins share their runs.
+ */
+const simKey = (steps: Step[]): string =>
+  steps.map((s) => `${s.type}${s.flipped && getPieceDef(s.type, true) !== getPieceDef(s.type, false) ? "'" : ""}:${s.enter}>${s.exit}${s.state ?? ""}`).join(" ");
+
+// Its 4140 sim runs take about 26 s alone and 43-47 s on a loaded machine (two full runs at once): 120 s is 2.5× that.
+describe("a loaded train gets over every grade-changing piece", { timeout: 120_000 }, () => {
   it("ramps, curved ramps and bridges, entered from straights, curves and switches, up and down, pulling and pushing", () => {
     expect(GRADE_PIECES).toEqual(expect.arrayContaining(["ramp", "ramp-curve", "bridge", "bridge-curve"]));
     let checked = 0;
     const failures: string[] = [];
     const seen = new Set<string>();
+    // Each run's result (the sim second it got there; null for no room) by layout as the sim sees it, start and
+    // pushing: a twin layout's run is the same run (the sim is deterministic), so it's done once.
+    const runs = new Map<string, number | null>();
     for (const o of [0, 1]) {
       for (const lead of leadIns(o)) {
         for (const grade of grades()) {
@@ -134,13 +145,19 @@ describe("a loaded train gets over every grade-changing piece", () => {
               starts.push({ label: `straddling piece ${at}`, from: { pieceId: ids[at], reversed: false, s: 40 }, marker: ids[n - 1], pushing: false });
               starts.push({ label: `straddling piece ${at} back`, from: { pieceId: ids[at], reversed: true, s: 40 }, marker: ids[0], pushing: false });
             }
+            const key = simKey(steps);
             for (const st of starts) {
-              let t: number;
-              try {
-                t = runTo(layout, st.from, st.marker, st.pushing, limit);
-              } catch {
-                continue; // no room to set the train down there
+              const runKey = `${key} [${st.label}${st.pushing ? ", pushing" : ""}]`;
+              let t = runs.get(runKey);
+              if (t === undefined) {
+                try {
+                  t = runTo(layout, st.from, st.marker, st.pushing, limit);
+                } catch {
+                  t = null; // no room to set the train down there
+                }
+                runs.set(runKey, t);
               }
+              if (t === null) continue;
               checked++;
               if (!(t < limit)) failures.push(`${name} [${st.label}${st.pushing ? ", pushing" : ""}]`);
             }
@@ -148,10 +165,10 @@ describe("a loaded train gets over every grade-changing piece", () => {
         }
       }
     }
-    console.log(`grade guard: ${checked} runs over ${seen.size} candidate layouts`);
+    console.log(`grade guard: ${checked} runs over ${seen.size} candidate layouts (${runs.size} sim runs)`);
     expect(failures).toEqual([]);
     expect(checked).toBeGreaterThan(1000);
-  }, 60_000);
+  });
 });
 
 describe("the reported scene: off a curve, up a ramp, onto a bridge", () => {
