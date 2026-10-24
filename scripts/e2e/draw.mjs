@@ -456,7 +456,7 @@ if (site) {
     }, [patch.x, patch.z]);
     if (off < 200) break;
   }
-  await q.tap(".tray-draw");
+  await tapSel(q, ".tray-draw");
   // Up the screen from the middle, then round to the right: about a third of the screen.
   const pts = [];
   for (let k = 0; k <= 10; k++) pts.push([195, 520 - k * 12]);
@@ -578,7 +578,7 @@ async function phoneSwipe() {
     const last = ground[ground.length - 1];
     const deg = (Math.atan2(last.z - first.z, last.x - first.x) * 180) / Math.PI;
     const length = Math.hypot(last.x - first.x, last.z - first.z);
-    await q.tap(".tray-draw");
+    await tapSel(q, ".tray-draw");
     await q.evaluate(() => window.__toasts.splice(0));
     const cdp = await ctx.newCDPSession(q);
     const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
@@ -891,7 +891,7 @@ async function qaReplay() {
         window.__moves.push(performance.now() - t0);
       };
     });
-    await q.tap(".tray-draw");
+    await tapSel(q, ".tray-draw");
     // (Drawing switched on gets ready when idle, a job at a time: a player's finger comes later than a script's.)
     await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
     const cdp = await ctx.newCDPSession(q);
@@ -1618,7 +1618,7 @@ async function terraceRepeat() {
       return orig(m, ...a);
     };
   });
-  await q.tap(".tray-draw");
+  await tapSel(q, ".tray-draw");
   await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
   const cdp = await ctx.newCDPSession(q);
   const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
