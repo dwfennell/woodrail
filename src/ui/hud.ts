@@ -1447,6 +1447,16 @@ export class Hud {
     requestAnimationFrame(step);
   }
 
+  /** Offer Cloud save in the menu (the build has a cloud to save to: `VITE_CLOUD_URL`). */
+  addCloudItem(onTap: () => void): void {
+    this.linesItem.after(
+      button("☁ Cloud save", "Keep your railway online, and carry on on another device", () => {
+        this.menu.hidden = true;
+        onTap();
+      }, "menu-item"),
+    );
+  }
+
   /** Show how tray pieces will come out: the Turn arrow points their way, and Flip lights up when mirroring. */
   /** Show "Send to Claude…" in the menu (the page can store reports). */
   enableReports(): void {

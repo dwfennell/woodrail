@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
-import { addSitesToOldSave, depotPieceType, fixedPieces, HALT_KITS, INDUSTRY_ROLE, RUIN_STUB, STATION_CRANE_AT, type World } from "../game/world";
+import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, INDUSTRY_ROLE, RUIN_STUB, STATION_CRANE_AT, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
@@ -659,4 +659,14 @@ export function loadSession(mode: GameMode): SessionData | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Everything kept for a mode's railway, by storage key (what a cloud save carries, see `persist/cloud.ts`): its
+ * autosave and session, and in Game mode its goals and progress too. Settings (sound, graphics, favourites, the hints
+ * seen) stay with the device.
+ */
+export function modeKeys(mode: GameMode): string[] {
+  const keys = [STORAGE_KEYS[mode], sessionKey(mode)];
+  return mode === "game" ? [...keys, GOALS_KEY, PROGRESS_KEY, GAMES_KEY] : keys;
 }

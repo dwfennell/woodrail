@@ -517,6 +517,26 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .report-card .card-title { text-align: center; }
 .report-card .card-row { justify-content: flex-end; }
 .report-note { font: 500 15px/1.35 Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; resize: vertical; background: #fffaf2; color: #2b2118; }
+.cloud-card { z-index: 30; width: min(400px, calc(100% - 24px)); align-items: stretch; gap: 8px; }
+.cloud-card .card-title { text-align: center; }
+.cloud-card .card-row { justify-content: flex-end; flex-wrap: wrap; }
+.cloud-card .chip.asking { background: linear-gradient(180deg, #f0b49a, #d9785a); }
+.cloud-text { margin: 0; font-size: 15px; line-height: 1.35; }
+.cloud-status { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; }
+.cloud-label { font-size: 13px; font-weight: 800; color: #6a4a2c; text-transform: uppercase; letter-spacing: 0.04em; }
+.cloud-code-row { display: flex; align-items: center; gap: 10px; }
+.cloud-code { flex: 1; font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: #2b2118; background: #fffaf2; border-radius: 10px; padding: 6px 10px; user-select: all; -webkit-user-select: all; }
+.cloud-input { font: 700 18px/1.3 Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; background: #fffaf2; color: #2b2118; }
+.cloud-error { font-size: 14px; font-weight: 700; color: #a3361f; }
+.cloud-card .cloud-restore { align-self: flex-start; }
+.cloud-credit { margin: 0; font-size: 11px; color: #8a6c4c; text-align: center; }
+/* A phone on its side: docked under the top bar as the other cards are, but free to come down over the tray (it's in
+   charge while it's open), so it all fits. */
+@media (max-height: 520px) {
+  .cloud-card { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); gap: 6px; }
+  .cloud-label { display: none; }
+  .cloud-code { font-size: 19px; }
+}
 .report-status { font-size: 12.5px; color: #7a5a3c; min-height: 1em; }
 
 /* ---- Map view (Game mode): labels over towns and depots, seen from above ------------------------------------- */
