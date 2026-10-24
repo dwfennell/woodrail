@@ -808,9 +808,23 @@ async function shortUnderCar(ctx, p) {
   const ids = await p.evaluate(async () => {
     const w = window.woodrail;
     const { frameDistance } = await import("/src/game/camera-director.ts");
-    const g = w.interaction.groundAt(195, 420);
-    // (Clear of what earlier checks left here: a run of its own, off to one side.)
-    const x0 = g.x + 700;
+    // (A run of its own on open ground, found outward from the view's target, whatever earlier checks left there or
+    // wherever they left the view: a glide cut short by a touch stops nearer where it set off.)
+    const t = w.controls.target;
+    const clear = (x, z) =>
+      [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
+      [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
+    let g = null;
+    for (let d = 0; d <= 6000 && !g; d += 216) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 216));
+      for (let a = 0; a < n && !g; a++) {
+        const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+        const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+        if ([0, 120, 240, 360, 480].every((dx) => clear(x + dx, z))) g = t.clone().set(x, 0, z);
+      }
+    }
+    if (!g) throw new Error("no open ground for the run");
+    const x0 = g.x;
     const run = w.editor().placeRun([
       { type: "straight-216", pose: { x: x0, z: g.z, heading: 0 }, y: 0, flipped: false },
       { type: "straight-36", pose: { x: x0 + 216, z: g.z, heading: 0 }, y: 0, flipped: false },

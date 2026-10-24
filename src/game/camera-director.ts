@@ -243,6 +243,8 @@ interface Shot {
   track?: (out: Vector3) => boolean;
   /** Its target is shown in the room's middle (see `CameraDirector.roomOf`). */
   inRoom?: boolean;
+  /** Not stepped yet: its first step is the frame's capped `dt` (see `update`). */
+  fresh: boolean;
 }
 
 const EDGE_PAN_SPEED = 0.9; // view distances per second at full push
@@ -356,7 +358,7 @@ export class CameraDirector {
     this.zoomGoal = -1;
     // (In the room: the target in the middle of what the map shows, above a card, not behind it.)
     const goal = opts.inRoom ? this.aimed(target, to, new Vector3()) : target.clone();
-    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(goal), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track, inRoom: opts.inRoom };
+    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(goal), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track, inRoom: opts.inRoom, fresh: true };
   }
 
   /** Frame a point of interest of the given radius, keeping the viewing direction. Never zooms out. */
@@ -431,9 +433,13 @@ export class CameraDirector {
       this.onMat(s.toTarget);
       // (By the time that's passed, not the frame's step capped at a tenth of a second: on a device that draws a frame
       // every few seconds a 0.9 s glide took a frame a tenth, crawling on for half a minute, QA. A long frame lands it.)
-      if (s.delay > 0) s.delay -= elapsed;
+      // Its first step is capped all the same: the time before it is the frame that started it (a slow tap's handler,
+      // QA: 683 ms on a slowed phone jumped the glide most of the way in its first frame), not time it was gliding.
+      const step = s.fresh ? dt : elapsed;
+      s.fresh = false;
+      if (s.delay > 0) s.delay -= step;
       else {
-        s.elapsed += elapsed;
+        s.elapsed += step;
         const k = easeInOutCubic(s.elapsed / s.duration);
         c.target.lerpVectors(s.fromTarget, s.toTarget, k);
         sph.radius = s.from.radius + (s.to.radius - s.from.radius) * k;

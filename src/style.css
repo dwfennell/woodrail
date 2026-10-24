@@ -1017,7 +1017,9 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .coach-art.mouse.turn .m, .coach-art.mouse.tilt .m { border-right-color: #e2a12b; }
 .coach-art.mouse.turn .m { animation: coach-sway 1.6s ease-in-out 4; }
 .coach-art.mouse.tilt .m { animation: coach-nod 1.6s ease-in-out 4; }
-.coach-art.mouse.move .m { animation: coach-drift 1.8s ease-in-out 4; }
+/* (Its own drift: the mouse has 2.5 px either side in its box, the keys beside it; QA, ±10 took it 8.75 px out. Up and
+   down it has room, so the drag reads mostly there.) */
+.coach-art.mouse.move .m { animation: coach-drift-mouse 1.8s ease-in-out 4; }
 .coach-art .caps { display: grid; grid-template-columns: repeat(2, 15px); gap: 2px; }
 /* (The Move card's mouse and four keys fit its 64 px box: smaller keys, closer. QA: the D stood 8 px out.) */
 .coach-art.mouse.move { gap: 3px; }
@@ -1040,6 +1042,7 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .coach-art.touch.tilt .f2 { right: 16px; }
 @keyframes coach-wheel { 50% { transform: translateY(6px); } }
 @keyframes coach-drift { 0%, 100% { transform: translate(-10px, 4px); } 50% { transform: translate(10px, -4px); } }
+@keyframes coach-drift-mouse { 0%, 100% { transform: translate(-2px, 5px); } 50% { transform: translate(2px, -5px); } }
 @keyframes coach-sway { 0%, 100% { transform: translateX(-6px); } 50% { transform: translateX(6px); } }
 @keyframes coach-nod { 0%, 100% { transform: translateY(-5px); } 50% { transform: translateY(5px); } }
 @keyframes coach-key { 0%, 20% { transform: translateY(1.5px); box-shadow: none; background: #ffe5a8; } 30%, 100% { transform: none; } }
