@@ -636,6 +636,8 @@ class Player {
   lift(engine: number): void {
     const found = this.w.sim.findCar(engine);
     if (found) this.w.sim.removeTrain(found.train.id);
+    // (As the game's Remove does: the engine off its line, so `lineIdOf` keeps no train that's gone.)
+    this.w.economy.prune();
   }
 }
 
