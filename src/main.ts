@@ -2518,6 +2518,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function setPlanning(on: boolean, frame = true): void {
     if (planning === on) return;
     planning = on;
+    hud.setMapTaps("planning", on);
     stopPicked = -1;
     // (A piece carried, or waiting at an end, is put away: a click on the map picks a stop now.)
     if (on) interaction.arm(null);
@@ -2954,6 +2955,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Where the camera was before the map opened, to go back to. */
   let mapReturn: { target: Vector3; distance: number; phi: number; theta: number } | null = null;
   let mapRefreshedAt = 0;
+  /** The view was gliding with the map open at the last frame (see `mapSettled`). */
+  let mapGliding = false;
 
   /** The map view's tilt: near straight down. */
   const MAP_PHI = 0.22;
@@ -3495,7 +3498,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mapView.open) {
       if (now - mapRefreshedAt > 1000) refreshMap();
       else placeMap();
+      // The glide to the whole map has landed (however long it took): the labels are where they'll stay, laid out
+      // afresh, and a toast up keeps clear of them there.
+      if (mapGliding && !game.director.busy) {
+        refreshMap();
+        hud.mapSettled();
+      }
     }
+    mapGliding = mapView.open && game.director.busy;
     let hum = 0;
     // Whistle posts' near track: worked out again only when the props or the track change.
     whistles.sync(game.layout, game.props, game.trackVersion);
