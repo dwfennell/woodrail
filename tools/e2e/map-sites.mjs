@@ -524,27 +524,38 @@ await L.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.wo
 await L.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
 await L.keyboard.press("Escape");
 await L.waitForTimeout(1500);
-// (Farming learned, so the card has both buttons; its yard looked at from above the tray, and tapped.)
+// (Farming learned, so the card has both buttons; its yard framed in the middle of the view, and tapped for real.)
+// The tap goes to the first spot on the ruin (its yard's middle, else its buildings or stub) with the canvas on top
+// and the ruin under it: the HUD is checked, not assumed. (A test artefact: aimed with the view's target 300 mm past
+// the yard, the yard was at y 318 of 375, under the tray; and Farming's "Old farm … can be restored" toast, up 4.2 s,
+// lies over the view's middle in landscape. Every spot on the ruin with the canvas on top opens its card, both ways up.)
+await L.evaluate(() => window.woodrail.learn("farming"));
+await L.waitForFunction(() => !document.querySelector(".toast.show"), null, { timeout: 30000, polling: 250 }).catch(() => console.log("  (the toast was still up after 30 s)"));
 const lAt = await L.evaluate(async () => {
   const w = window.woodrail;
-  w.learn("farming");
   const s = w.world.landscape.sites.find((x) => x.role === "farm");
   const c = Math.cos(s.piece.heading);
   const n = Math.sin(s.piece.heading);
   const V = w.camera.position.constructor;
-  const yard = new V(s.piece.x + c * 108 - n * 72, 10, s.piece.z + n * 108 + c * 72);
-  w.lookAt(new V(yard.x, 0, yard.z + 300), 1300, 0.8);
+  w.lookAt(new V(s.piece.x + c * 108 - n * 72, 0, s.piece.z + n * 108 + c * 72), 1300, 0.8);
   w.invalidate();
   await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 15000))]);
-  const v = yard.clone().project(w.camera);
   const r = w.canvas.getBoundingClientRect();
-  return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height, id: s.id };
+  const stub = w.world.ruins.get(s.id);
+  // (Depot frame: t along the stub, l across; h mm up.)
+  for (const [t, l, h] of [[108, 72, 10], [60, 72, 10], [160, 72, 10], [108, 30, 30], [108, 110, 30], [60, -10, 2], [160, -10, 2]]) {
+    const v = new V(s.piece.x + c * t - n * l, h, s.piece.z + n * t + c * l).project(w.camera);
+    const x = r.left + ((v.x + 1) / 2) * r.width;
+    const y = r.top + ((1 - v.y) / 2) * r.height;
+    if (document.elementFromPoint(x, y) !== w.canvas) continue;
+    const pick = w.interaction.pick(x, y, true);
+    if (w.interaction.ruinAtScreen(x, y) === s.id || (pick?.kind === "piece" && pick.pieceId === stub)) return { x: Math.round(x), y: Math.round(y), at: [t, l, h] };
+  }
+  return null;
 });
-await L.waitForTimeout(4000);
-await stampedTap(L, lAt.x, lAt.y);
+if (lAt) await stampedTap(L, lAt.x, lAt.y);
 await L.waitForTimeout(300);
 const lTapped = await L.evaluate(() => !document.querySelector(".ruin-card").hidden);
-if (!lTapped) await L.evaluate((id) => window.woodrail.interaction.onRuinTap(id), lAt.id);
 await L.waitForTimeout(800);
 const lCard = await L.evaluate(() => {
   const card = document.querySelector(".ruin-card");
@@ -562,7 +573,7 @@ const lCard = await L.evaluate(() => {
     tray: Math.round(tray.top),
   };
 });
-check("667×375: the ruin card opens (a tap on the old farm)", lCard.open, JSON.stringify({ tapped: lTapped }));
+check("667×375: the ruin card opens (a stamped tap on the old farm, no fallback)", !!lAt && lTapped && lCard.open, JSON.stringify({ at: lAt, tapped: lTapped }));
 check("667×375: Restore and Clear fully in view, above the tray, nothing over them", lCard.buttons.length === 2 && lCard.buttons.every((x) => x.ok && x.hit), JSON.stringify(lCard));
 await L.screenshot({ path: `${OUT}/14-ruin-card-667x375.png` }).catch(() => {});
 // A tap on Restore lands: no workshop yet, so it says where the planks come from.
