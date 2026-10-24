@@ -752,9 +752,13 @@ function passingLoop(P: Player, near: { x: number; z: number }, room = 0, stopPi
   const far = (q: { a: number; b: number }) => Math.hypot((at(q.a).x + at(q.b).x) / 2 - near.x, (at(q.a).z + at(q.b).z) / 2 - near.z);
   pairs.sort((x, y) => far(x) - far(y));
   if (ENV.BALANCE_LOOP_TRACE) P.note(`loop pairs: ${pairs.length}`);
-  const had = new Set<number>();
+  /** The track as it is (each piece's type, pose and height, by id): a failed try must leave it just so. */
+  const snapshot = () => [...L.pieceIds()].sort((x, y) => x - y).map((id) => {
+    const q = L.getPiece(id)!;
+    return `${id}:${q.type}:${q.flipped}:${q.pose.x.toFixed(3)},${q.pose.z.toFixed(3)},${q.pose.heading.toFixed(5)},${q.y.toFixed(3)}`;
+  }).join(" ");
   for (const pair of pairs.slice(0, 10)) {
-    let { a, b } = pair;
+    const { a, b } = pair;
     for (const side of [false, true]) {
       // (`b`'s neighbour beyond is taken up while the side road is laid, and put back after: the track layer joins a
       // piece with no other joints.)
@@ -766,30 +770,37 @@ function passingLoop(P: Player, near: { x: number; z: number }, room = 0, stopPi
       const pb = L.getPiece(b)!;
       const [poseA, yA, poseB, yB] = [{ ...pa.pose }, pa.y, { ...pb.pose }, pb.y];
       const nbWas = { type: pn.type, pose: { ...pn.pose }, y: pn.y, flipped: pn.flipped };
-      had.clear();
-      for (const id of L.pieceIds()) had.add(id);
-      P.editor.remove(a);
-      P.editor.remove(b);
-      P.editor.remove(nb);
-      // `a`'s switch: its trunk where `a`'s hole end was. `b`'s: its trunk where `b`'s peg end was, facing back.
-      const sa = P.editor.place("switch", poseA, yA, side);
-      placeOn(P, connectorRef(sa, 1), "straight-72");
-      const endB = { x: poseB.x + Math.cos(poseB.heading) * 216, z: poseB.z + Math.sin(poseB.heading) * 216, heading: poseB.heading + Math.PI };
-      const sb = P.editor.place("switch", endB, yB, !side);
-      const r = play(L, P.editor, connectorRef(sa, 2), connectorRef(sb, 2), { blocked: P.rules(), maxPieces: 24, fiddle: 3 });
-      const road = r.ok && L.joinedConnector(connectorRef(sb, 2)) !== -1;
-      if (road) {
-        placeOn(P, connectorRef(sb, 1), "straight-72");
-        P.editor.place(nbWas.type, nbWas.pose, nbWas.y, nbWas.flipped);
-      }
-      const joined = [0, 1, 2].every((c) => L.joinedConnector(connectorRef(sa, c)) !== -1 && L.joinedConnector(connectorRef(sb, c)) !== -1);
-      if (ENV.BALANCE_LOOP_TRACE) P.note(`loop try ${a}→${b} ${side ? "right" : "left"}: side road ${r.how} (${r.pieces} pieces), all joined ${joined}`);
-      // (With `room`: the sections count it as a passing place for a train that long, both roads long enough.)
-      const fits = room === 0 || topologyOf(L, room).loops.some((l) => (l.a === sa && l.b === sb) || (l.a === sb && l.b === sa));
-      // (And every way between the line's stops still joined: `b`'s neighbour put back short of its own leaves the
-      // line open, and its train turns back at the gap for good.)
-      const whole = lineLegs(L, stopPieces).every((leg) => leg !== null);
-      if (road && joined && fits && whole && P.settle()) {
+      const before = snapshot();
+      // The try is one edit (the editor's group), so a failed one is undone as one: every piece back as it was, under
+      // its own id. (Put back piece by piece, each was shifted to take up the play left by the ones not yet back, and
+      // the line could come back open: a lone goods train then turned back at the gap for good, seeds 1, 2 and 10.)
+      let sa = -1;
+      let sb = -1;
+      let ok = false;
+      const edited = P.editor.group(() => {
+        P.editor.remove(a);
+        P.editor.remove(b);
+        P.editor.remove(nb);
+        // `a`'s switch: its trunk where `a`'s hole end was. `b`'s: its trunk where `b`'s peg end was, facing back.
+        sa = P.editor.place("switch", poseA, yA, side);
+        placeOn(P, connectorRef(sa, 1), "straight-72");
+        const endB = { x: poseB.x + Math.cos(poseB.heading) * 216, z: poseB.z + Math.sin(poseB.heading) * 216, heading: poseB.heading + Math.PI };
+        sb = P.editor.place("switch", endB, yB, !side);
+        const r = play(L, P.editor, connectorRef(sa, 2), connectorRef(sb, 2), { blocked: P.rules(), maxPieces: 24, fiddle: 3 });
+        const road = r.ok && L.joinedConnector(connectorRef(sb, 2)) !== -1;
+        if (road) {
+          placeOn(P, connectorRef(sb, 1), "straight-72");
+          P.editor.place(nbWas.type, nbWas.pose, nbWas.y, nbWas.flipped);
+        }
+        const joined = [0, 1, 2].every((c) => L.joinedConnector(connectorRef(sa, c)) !== -1 && L.joinedConnector(connectorRef(sb, c)) !== -1);
+        if (ENV.BALANCE_LOOP_TRACE) P.note(`loop try ${a}→${b} ${side ? "right" : "left"}: side road ${r.how} (${r.pieces} pieces), all joined ${joined}`);
+        // (With `room`: the sections count it as a passing place for a train that long, both roads long enough.)
+        const fits = room === 0 || topologyOf(L, room).loops.some((l) => (l.a === sa && l.b === sb) || (l.a === sb && l.b === sa));
+        // (And every way between the line's stops still joined.)
+        const whole = lineLegs(L, stopPieces).every((leg) => leg !== null);
+        ok = road && joined && fits && whole;
+      });
+      if (ok && P.settle()) {
         // (Unpinned, the sections count it as a passing place; BALANCE_LOOP_PIN=1 pins its switches one way each, as
         // first laid: a repro of the line deadlock, spec §5 REPRO.)
         L.setSwitchState(sa, 0);
@@ -799,11 +810,11 @@ function passingLoop(P: Player, near: { x: number; z: number }, room = 0, stopPi
         w.sim.trackChanged();
         return [sa, sb];
       }
-      // Back as it was.
-      for (const id of [...L.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
-      a = P.editor.place("straight-216", poseA, yA, false);
-      b = P.editor.place("straight-216", poseB, yB, false);
-      P.editor.place(nbWas.type, nbWas.pose, nbWas.y, nbWas.flipped);
+      // Back as it was, as one edit; and it must be: the track just as before, the line closed.
+      const undone = !edited || P.editor.undo();
+      expect(undone, "a failed passing loop try is undone").toBe(true);
+      expect(snapshot() === before, "a failed passing loop try leaves the track as it was").toBe(true);
+      expect(lineLegs(L, stopPieces).every((leg) => leg !== null), "a failed passing loop try leaves the line closed").toBe(true);
     }
   }
   return null;
@@ -1905,11 +1916,7 @@ class Playthrough {
         if (this.loop) {
           P.happened++;
           P.note(`laid a passing loop (2 switches${ENV.BALANCE_LOOP_PIN ? ", pinned" : ""}) halfway along the ${stops}-stop line`);
-        } else {
-          P.note("COULDN'T lay a passing loop on the line");
-          // (Each try is put back piece by piece: say so if that left a way between the line's stops broken.)
-          if (lineLegs(w.layout, stopPieces).some((leg) => leg === null)) P.findings.push(`Minute ${P.minute.toFixed(0)}: a passing loop's tries, put back, left the line open (a way between its stops is broken).`);
-        }
+        } else P.note("COULDN'T lay a passing loop on the line");
       } else this.why ||= `a passing loop (2 switches; have ${P.planks()} planks)`;
     }
     if (wantsSecond && this.loop) {
