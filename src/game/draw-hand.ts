@@ -259,7 +259,7 @@ export class DrawHand {
   }))(this);
 
   /** The finger moved to screen point (x, y). */
-  move(x: number, y: number): void {
+  move(x: number, y: number, last = true): void {
     const pending = this.pending;
     if (pending) {
       const f = this.hooks.planeAt(x, y, pending.y);
@@ -309,9 +309,19 @@ export class DrawHand {
     if (!p) return;
     // (Kept only while a branch's line has laid nothing, and no more than a stroke's worth.)
     if (this.branchStart && before === 0 && this.branchStroke.length < 2048) this.branchStroke.push({ x: p.x, z: p.z });
+    // (One of several moves the browser ran into one event, not its last: the line takes it, and the ghosts, the merge
+    // and the trail are brought up to date once, on the last.)
+    if (!last) {
+      this.grewUnshown ||= line.pieces.length > before;
+      this.goOnAcross();
+      const told = this.notice.moved(line, p, before);
+      if (told) this.hooks.toast(told);
+      return;
+    }
     // (The ghosts are what lifting now would put down, the line's last stretch too: see `DrawLine.preview`. Worked out
     // again only when the stroke or the line changed.)
-    this.sync(line.pieces.length > before);
+    this.sync(line.pieces.length > before || this.grewUnshown);
+    this.grewUnshown = false;
     this.showMerge();
     this.goOnAcross();
     // Stuck behind the finger (a corner no piece can turn, a circle too tight, or no piece left that fits): say why,
@@ -320,6 +330,9 @@ export class DrawHand {
     if (say) this.hooks.toast(say);
     this.drawTrail();
   }
+
+  /** The line grew on a move whose ghosts weren't brought up to date (not an event's last: see `move`). */
+  private grewUnshown = false;
 
   /**
    * The finger lifted: the line goes down (as far as it may), one piece after another; with the switch it branches off

@@ -1883,5 +1883,81 @@ async function loopOffStraight() {
     farOut.every((f) => !f.card && f.moved < 1e-6 && /press:branch/.test(f.pressed)),
     JSON.stringify(farOut),
   );
+  await branchZNear(q, cdp);
   await ctx.close();
+}
+
+/**
+ * QA's branch-z-near (p17): a short branch off the Larkfield–Elderwick straight, drawn the same way four times, the
+ * camera 700 mm off, the screen line resampled every 10 px, touches 16 ms apart. It laid 1 piece or 2 by the run: the
+ * line was drawn only from each event's last point, and the browser runs more moves together when the page is busier
+ * (a 23rd or 24th input). Every point now goes into the line (see `Interaction.updateDrawFrom`): the same pieces each
+ * time.
+ */
+async function branchZNear(q, cdp) {
+  const Z = 108;
+  const lerp = (pts, every) => {
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const [a, c] = [pts[i - 1], pts[i]];
+      const n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1]) / every));
+      for (let k = 1; k <= n; k++) out.push([a[0] + ((c[0] - a[0]) * k) / n, a[1] + ((c[1] - a[1]) * k) / n]);
+    }
+    return out;
+  };
+  const world = lerp([[-150, Z], [-125, Z - 22], [-90, Z - 70], [0, Z - 200]], 4);
+  let clock = Date.now() / 1000 + 100;
+  const outcomes = [];
+  for (let rep = 0; rep < 4; rep++) {
+    const scr = await q.evaluate((world) => {
+      const w = window.woodrail;
+      const V = w.camera.position.constructor;
+      w.director.cancel?.();
+      w.lookAt(new V(-100, 0, 108 - 60), 700, 0.95, -1.1659);
+      w.camera.updateMatrixWorld();
+      const G = w.landscape.grid;
+      const r = w.canvas.getBoundingClientRect();
+      return world.map(([x, z]) => {
+        const c = G.cellAtWorld(x, z);
+        const v = new V(x, c === -1 ? 0 : G.groundY(c), z).project(w.camera);
+        return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+      });
+    }, world);
+    await settled(q);
+    const res = [scr[0]];
+    let carry = 0;
+    for (let i = 1; i < scr.length; i++) {
+      const [ax, ay] = scr[i - 1];
+      const [bx, by] = scr[i];
+      const L = Math.hypot(bx - ax, by - ay);
+      let t = 10 - carry;
+      for (; t <= L; t += 10) res.push([ax + ((bx - ax) * t) / L, ay + ((by - ay) * t) / L]);
+      carry = L - (t - 10);
+    }
+    const before = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    clock += 1;
+    const tp = (x, y) => [{ x, y, radiusX: 1, radiusY: 1, force: 1, id: 1 }];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: tp(...res[0]), timestamp: clock });
+    for (const pt of res.slice(1)) {
+      clock += 0.016;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: tp(...pt), timestamp: clock });
+    }
+    clock += 0.016;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [], timestamp: clock });
+    await settled(q);
+    const laid = await q.evaluate((before) => {
+      const w = window.woodrail;
+      const old = new Set(before);
+      return [...w.layout.pieceIds()].filter((id) => !old.has(id)).map((id) => {
+        const p = w.layout.getPiece(id);
+        return `${p.type}${p.flipped ? "~" : ""}@${p.pose.x.toFixed(1)},${p.pose.z.toFixed(1)}`;
+      });
+    }, before);
+    outcomes.push(laid.join(" "));
+    if (laid.length) {
+      await q.evaluate(() => window.woodrail.interaction.undo());
+      await settled(q);
+    }
+  }
+  check("branch-z-near drawn four times: the same pieces each time", outcomes[0] !== "" && outcomes.every((o) => o === outcomes[0]), outcomes.join(" | "));
 }

@@ -1474,7 +1474,7 @@ export class Interaction {
     if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
       this.feelBranch(e);
-      this.updateDraw(e.clientX, e.clientY);
+      this.updateDrawFrom(e);
       return;
     }
     const still = this.heldStill;
@@ -1522,7 +1522,7 @@ export class Interaction {
           this.game.controls.enabled = false;
           this.mode = { kind: "draw-track", pointerId: m.pointerId };
           this.feelBranch(e);
-          this.updateDraw(e.clientX, e.clientY);
+          this.updateDrawFrom(e);
         } else {
           this.mode = { kind: "idle" };
           this.game.controls.enabled = true;
@@ -1533,7 +1533,7 @@ export class Interaction {
       if (m.draws && this.drawsNow && this.draw.begin(m.x, m.y)) {
         this.game.controls.enabled = false;
         this.mode = { kind: "draw-track", pointerId: m.pointerId };
-        this.updateDraw(e.clientX, e.clientY);
+        this.updateDrawFrom(e);
         return;
       }
       if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
@@ -1798,7 +1798,7 @@ export class Interaction {
           this.game.controls.enabled = false;
           this.mode = { kind: "draw-track", pointerId: e.pointerId };
           this.feelBranch(e);
-          this.updateDraw(e.clientX, e.clientY);
+          this.updateDrawFrom(e);
         }
         return true;
       }
@@ -2027,6 +2027,17 @@ export class Interaction {
   }
 
   /** Drawing: the finger moved (or the view edge-panned under it). */
+  /**
+   * Drawing: the finger moved, through every point the browser ran into this event, in order. (Only the last, the line
+   * was drawn from whichever moves got through on their own, and the same stroke laid other pieces when the page was
+   * busier: QA, a branch drawn the same way laid 1 or 2 pieces.)
+   */
+  private updateDrawFrom(e: PointerEvent): void {
+    const pts = coalesced(e);
+    for (let i = 0; i < pts.length - 1; i++) this.draw.move(pts[i].clientX, pts[i].clientY, false);
+    this.updateDraw(e.clientX, e.clientY);
+  }
+
   private updateDraw(x: number, y: number): void {
     this.lastX = x;
     this.lastY = y;
