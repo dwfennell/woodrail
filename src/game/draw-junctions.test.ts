@@ -336,10 +336,13 @@ describe("junctions' cost", () => {
     expect(layout.pieceCount).toBe(400);
     const junctions: JunctionRules = { layout, check: () => null, occupied: () => false, may: () => null };
     const start = { x: 0, z: 400, heading: -Math.PI / 4, y: 0, kind: "peg" as const };
-    // (As the draw-path timing guards: the slowest few looks left out of `worst`, since a loaded machine (the whole
-    // suite running) stalls one now and then, while a slow look comes back every time and the fifth slowest still
-    // catches it. Warmed up first; the best of up to five runs counts; the very slowest only within a looser bound.)
+    // (A timing guard on a loaded machine, as the draw-path ones: warmed up, then the best of up to six runs counts. The
+    // median is what a real slowdown moves, and still fails one ten times as slow; the fifth slowest (the slowest few
+    // left out: a loaded machine stalls one now and then, while a slow look comes back every time) and the very slowest
+    // have generous bounds. A full run under load once took a single look 56 ms. Here: a median of 0.03 to 0.09 ms, the
+    // fifth slowest 0.08 to 0.4 ms, the slowest 0.4 to 5.4 ms.)
     const SPARED = 4;
+    const MEDIAN_BOUND = 0.25;
     const run = () => {
       const times: number[] = [];
       for (let k = 0; k < 200; k++) {
@@ -350,15 +353,17 @@ describe("junctions' cost", () => {
       times.sort((a, b) => b - a);
       return { worst: times[SPARED], slowest: times[0], median: times[times.length >> 1] };
     };
-    run();
+    const ok = (r: { worst: number; slowest: number; median: number }) => r.median < MEDIAN_BOUND && r.worst < 2 && r.slowest < 100;
+    run(); // warm up
     let r = run();
-    for (let k = 0; k < 4 && r.worst >= 1; k++) {
+    for (let k = 1; k < 6 && !ok(r); k++) {
       const next = run();
-      if (next.worst < r.worst) r = next;
+      if (ok(next) || next.median < r.median) r = next;
     }
-    expect(r.worst).toBeLessThan(1);
-    expect(r.median).toBeLessThan(1);
-    expect(r.slowest).toBeLessThan(20);
+    if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.DRAW_BENCH) console.log(`merge looks: median ${r.median.toFixed(4)} fifth slowest ${r.worst.toFixed(3)} slowest ${r.slowest.toFixed(2)} ms`);
+    expect(r.median, `median ${r.median.toFixed(4)} ms`).toBeLessThan(MEDIAN_BOUND);
+    expect(r.worst, `fifth slowest ${r.worst.toFixed(3)} ms`).toBeLessThan(2);
+    expect(r.slowest, `slowest ${r.slowest.toFixed(2)} ms`).toBeLessThan(100);
   });
 });
 

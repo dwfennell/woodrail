@@ -356,8 +356,9 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     const before = [
       "curve-small curve-large curve-small! straight-54 curve-large! curve-large! straight-144 curve-wide! curve-large straight-144 curve-large curve-large straight-144 curve-wide curve-large! straight-144 curve-large! curve-large! straight-144 straight-108 straight-54 curve-large! curve-large straight-54 curve-large curve-large straight-144 straight-144",
       "straight-216 straight-216 straight-216 straight-216 straight-216 straight-144",
-      // (The 10° swipe no longer ends on a step begun as the finger lifts: see `BAND_LAST_CURVE`.)
-      "straight-216 curve-wide curve-large! straight-144 straight-144 straight-144 curve-large straight-108",
+      // (The 10° swipe no longer ends on a step begun as the finger lifts: see `BAND_LAST_CURVE`; and its step turns
+      // off and back on one kind of curve, not a wide and a curve: see `BAND_MIX`.)
+      "straight-216 curve-large curve-large! straight-144 straight-216 straight-54 curve-large curve-large! straight-54",
       "straight-54 curve-wide straight-144 curve-wide! straight-144 curve-wide straight-144 curve-large!",
       "curve-large straight-144 straight-144 straight-144 curve-large! curve-large straight-144 straight-216",
       "curve-small straight-216 straight-216 straight-216 straight-216 straight-216 straight-54",
@@ -547,9 +548,12 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
             }
     // (As the other timing guards: the slowest few moves left out, a loaded machine stalls one now and then.)
     const SPARED = 4;
+    const MEAN_BOUND = 0.05;
     const run = () => {
       const slowest: number[] = [];
       let most = 0;
+      let total = 0;
+      let moves = 0;
       for (const { opts, pts } of strokes) {
         const line = new DrawLine(at(0), opts);
         for (const p of pts) {
@@ -557,6 +561,8 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
           const t0 = performance.now();
           line.addPoint(p.x, p.z);
           const t = performance.now() - t0;
+          total += t;
+          moves++;
           if (slowest.length <= SPARED || t > slowest[SPARED]) {
             slowest.push(t);
             slowest.sort((a, b) => b - a);
@@ -566,18 +572,32 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
         }
         line.finish();
       }
-      return { worst: slowest[Math.min(SPARED, slowest.length - 1)] ?? 0, most };
+      return { worst: slowest[Math.min(SPARED, slowest.length - 1)] ?? 0, mean: total / Math.max(1, moves), most };
     };
-    run();
-    const { worst: first, most } = run();
-    expect(most).toBe(1);
-    // About 0.5 ms at worst in Node (the move that lays the first piece); generous for a slow CI, best of up to five.
-    let worst = first;
-    for (let k = 0; k < 4 && worst >= 4; k++) worst = Math.min(worst, run().worst);
-    expect(worst).toBeLessThan(4);
-  });
+    run(); // warm up
+    const first = run();
+    expect(first.most).toBe(1);
+    // (A loaded machine: the best of up to six runs counts. The mean, about 0.007 ms here, is what a real slowdown moves
+    // first, so ten times slower fails; the fifth slowest move, about 0.5 ms (the move that lays the first piece; 1.6 ms on a loaded box), has
+    // a generous bound.)
+    let best = first;
+    for (let k = 0; k < 5 && (best.mean >= MEAN_BOUND || best.worst >= 8); k++) {
+      const again = run();
+      if (again.mean / MEAN_BOUND + again.worst / 8 < best.mean / MEAN_BOUND + best.worst / 8) best = again;
+    }
+    if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.DRAW_BENCH) console.log(`N6 moves: mean ${best.mean.toFixed(4)} fifth slowest ${best.worst.toFixed(3)} ms`);
+    expect(best.mean).toBeLessThan(MEAN_BOUND);
+    expect(best.worst).toBeLessThan(8);
+  }, 60_000);
 });
 
+
+/**
+ * Terrace 2 as it goes down: both ramps, and a straight on the top. (Read on the hill nearer the camera the finger's
+ * over, the stroke runs straight on as drawn: before, it jogged back where it crossed each rise on the screen, and the
+ * line went s54 s54 ramp s54 ramp, or with QA's browser run curved away at the first level: see `DrawLine.onGround`.)
+ */
+const TERRACE_2 = "straight-108@0 ramp↑@0 ramp↑@48 straight-54@96";
 
 describe("QA's terrace 2 drawn again (the camera a hair off after an undo)", () => {
   it("lays the same line, both ramps, wherever the camera is to within a millimetre, and wherever the line begins along the stroke", () => {
@@ -586,17 +606,17 @@ describe("QA's terrace 2 drawn again (the camera a hair off after an undo)", () 
     // a hair off took the long one first, and found no room for its second ramp: "The hill is a level up here".)
     for (const e of [0, 1e-9, -1e-9, 1e-7, 1e-5, -1e-3, 1e-3, 0.01, -0.1, 0.5, -1]) {
       const { line } = replayQA([run[0], run[1], run[2], run[3], run[4], run[5], run[6] + e, run[7] + e, run[8] + e]);
-      expect(line && name(line), `camera ${e} mm off`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+      expect(line && name(line), `camera ${e} mm off`).toBe(TERRACE_2);
     }
     // The stroke itself a few micrometres to one side (the browser's repeat was 6 µm shorter): with the tie to within
     // rounding only, 39 of 80 such strokes from −0.1 to 0.1 mm took the long straight first.
     for (const e of [0.0025, 0.006, 0.01, 0.05, -0.05, 0.1]) {
       const { line } = replayQA([run[0], run[1], run[2] + e, run[3], run[4], run[5], run[6], run[7], run[8]]);
-      expect(line && name(line), `stroke ${e} mm off`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+      expect(line && name(line), `stroke ${e} mm off`).toBe(TERRACE_2);
     }
     for (const sm of [20, 30, 31, 45]) {
       const { line } = replayQA(run, sm);
-      expect(line && name(line), `begun ${sm} mm along`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+      expect(line && name(line), `begun ${sm} mm along`).toBe(TERRACE_2);
     }
   });
 });
