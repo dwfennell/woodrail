@@ -124,6 +124,24 @@ describe("toasts", () => {
     expect(shown.filter((s) => s === "Can't go there")).toHaveLength(1);
   });
 
+  it("a toast taken back goes, showing or waiting, and what waits after it comes on (a pin undone: QA)", () => {
+    const { hud, shown } = toastHud();
+    hud.toast("Pinned");
+    hud.toast("Joined");
+    hud.toast("A hint");
+    // Showing: it goes now, the next on at once.
+    hud.withdrawToast("Pinned");
+    expect(hud.hasToast("Pinned")).toBe(false);
+    expect(shown).toEqual(["Pinned", "Joined"]);
+    // Waiting: never shown.
+    hud.withdrawToast("A hint");
+    vi.advanceTimersByTime(30000);
+    expect(shown).toEqual(["Pinned", "Joined"]);
+    // Gone already, or never said: nothing happens.
+    hud.withdrawToast("Other");
+    expect(shown).toEqual(["Pinned", "Joined"]);
+  });
+
   it("knows a toast showing or waiting from one gone", () => {
     const { hud } = toastHud();
     hud.toast("✓ A", true, 3200);

@@ -68,6 +68,36 @@ describe("pinning a switch with a long press on its lever", () => {
     expect(new PinHint().how()).toBeNull();
   });
 
+  it("a pin undone (a slow phone's late lift: it was a tap) takes back what it said: the tap says how to pin", () => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    const hint = new PinHint();
+    const was = hint.state();
+    // The pin's timer pinned it: what a pin does is said, and how to pin goes without saying...
+    expect(hint.next(true)).toBe(PIN_HINT);
+    expect(hint.how()).toBeNull();
+    // ...but the lift came late, before the pin's time: undone, as if it never was, here and on the device.
+    hint.restore(was);
+    expect(hint.how()).toBe(PIN_HOW_HINT);
+    expect(new PinHint().next(true)).toBe(PIN_HINT);
+    // And a real pin after says what a pin does, once.
+    expect(hint.next(true)).toBe(PIN_HINT);
+    expect(hint.next(true)).toBeNull();
+  });
+
+  it("a pin undone after the hints were said before leaves them said", () => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    const hint = new PinHint();
+    expect(hint.how()).toBe(PIN_HOW_HINT);
+    expect(hint.next(true)).toBe(PIN_HINT);
+    const was = hint.state();
+    expect(hint.next(true)).toBeNull();
+    hint.restore(was);
+    expect(hint.how()).toBeNull();
+    expect(hint.next(true)).toBeNull();
+    expect(new PinHint().how()).toBeNull();
+    expect(new PinHint().next(true)).toBeNull();
+  });
+
   it("a tap still flips a pinned switch by hand, and it stays pinned", () => {
     const layout = new Layout();
     const id = layout.addPiece("switch", { x: 0, z: 0, heading: 0 });

@@ -601,10 +601,42 @@ async function leverPins(ctx, p) {
     const h = w.hud;
     const toast = h.toast.bind(h);
     h.toast = (m, ...a) => (window.__pinSaid.push(m), toast(m, ...a));
+    // (A toast taken back, a pin undone when a late lift showed it was a tap, wasn't said: off the list too.)
+    const withdraw = h.withdrawToast.bind(h);
+    h.withdrawToast = (m) => {
+      const i = window.__pinSaid.lastIndexOf(m);
+      if (i >= 0) window.__pinSaid.splice(i, 1);
+      window.__pinDiag.push(`withdrawn ${m.slice(0, 12)} @${Math.round(performance.now())}`);
+      return withdraw(m);
+    };
+    window.__pinAt = g ? [g.x, g.z] : null;
     return r;
   });
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await settled();
+  // (Framed on it, by where the view is and the lever's on screen, not by the glide having ended: under load a gesture
+  // left from the checks before can cut the glide short or move the view after, and every tap missed the lever.)
+  for (let tries = 0; id >= 0 && tries < 5; tries++) {
+    const framed = await p.evaluate((id) => {
+      const w = window.woodrail;
+      const [x, z] = window.__pinAt;
+      const lever = w.trackView.group.children.find((c) => c.userData.kind === "switch-lever" && c.userData.pieceId === id);
+      if (!lever) return false;
+      lever.updateMatrixWorld(true);
+      const v = new w.camera.position.constructor(0, 14, 0).applyMatrix4(lever.matrixWorld).project(w.camera);
+      return Math.hypot(w.controls.target.x - x, w.controls.target.z - z) < 60 && Math.abs(v.x) < 0.8 && Math.abs(v.y) < 0.8 && w.interaction.mode.kind === "idle";
+    }, id);
+    if (framed) break;
+    await p.keyboard.press("Escape");
+    await p.evaluate(async () => {
+      const w = window.woodrail;
+      const { frameDistance } = await import("/src/game/camera-director.ts");
+      const [x, z] = window.__pinAt;
+      w.director.glideTo(w.controls.target.clone().set(x, 0, z), frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    });
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    await settled();
+  }
   if (id < 0) {
     check("a switch goes down for the lever checks", false);
     return;

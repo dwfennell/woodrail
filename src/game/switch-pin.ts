@@ -1,4 +1,4 @@
-import { hintSeen, markHintSeen } from "../ui/prefs";
+import { hintSeen, markHintSeen, unmarkHintSeen } from "../ui/prefs";
 
 /** What a pin does, said the first time a switch is pinned. */
 export const PIN_HINT = "Pinned: trains on a route won't change this switch. Hold again to unpin.";
@@ -6,6 +6,12 @@ export const PIN_HINT = "Pinned: trains on a route won't change this switch. Hol
 export const PIN_HOW_HINT = "Hold a switch's lever to pin it: trains on a route then leave it as it is";
 /** Said each time a switch is unpinned (its peg goes, its burned chevrons turn from red back to brown). */
 export const UNPINNED = "Unpinned";
+
+/** Which pin hints have been said (see `PinHint.state`). */
+export interface PinHintState {
+  seen: boolean;
+  howSeen: boolean;
+}
 
 /**
  * The pinning hints (QA N3): how to pin, once before the first pin (the first time a lever is tapped, or a routed
@@ -34,6 +40,23 @@ export class PinHint {
     if (this.howSeen || this.seen) return null;
     this.markHow();
     return PIN_HOW_HINT;
+  }
+
+  /** Which hints have been said, to put back with `restore`. */
+  state(): PinHintState {
+    return { seen: this.seen, howSeen: this.howSeen };
+  }
+
+  /**
+   * Put the hints back as they were at `was` (here and on the device): a pin undone, the lift of a tap delivered late,
+   * didn't happen, so what it said doesn't count (QA: a slow phone's first tap on a lever said what a pin does, and how
+   * to pin never came).
+   */
+  restore(was: PinHintState): void {
+    if (this.seen && !was.seen) unmarkHintSeen("pin-switch");
+    if (this.howSeen && !was.howSeen) unmarkHintSeen("pin-switch-how");
+    this.seen = was.seen;
+    this.howSeen = was.howSeen;
   }
 
   private markHow(): void {
