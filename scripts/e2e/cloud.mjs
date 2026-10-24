@@ -109,6 +109,24 @@ const remote = async (code, mode = "sandbox") => {
   return { status: res.status, savedAt: Number(res.headers.get("X-Saved-At")), size: Number(res.headers.get("Content-Length")) };
 };
 
+/**
+ * The game, told its connection is back (an upload round: the cloud's copy checked first), starts again on a newer copy:
+ * told again every few seconds till it does, as its own timer would (a newer copy waits while a gesture is under way,
+ * and a busy machine can be slow to get there), up to two minutes. On none, says what the game was doing.
+ */
+async function untilTaken(p) {
+  let done = false;
+  const loaded = p.waitForEvent("load", { timeout: 120_000 }).then(() => (done = true));
+  for (let i = 0; i < 24 && !done; i++) {
+    await p.evaluate(() => dispatchEvent(new Event("online"))).catch(() => {});
+    await Promise.race([loaded.catch(() => {}), new Promise((r) => setTimeout(r, 5000))]);
+  }
+  if (!done) {
+    const state = await p.evaluate(() => ({ mode: window.woodrail?.interaction?.mode?.kind, status: document.querySelector(".cloud-status")?.textContent ?? null, online: navigator.onLine })).catch((e) => String(e));
+    throw new Error(`no reload onto the newer copy in 2 min: ${JSON.stringify(state)}`);
+  }
+}
+
 try {
   // 1. A: a new map, then Cloud save on: a code, and the railway in the cloud.
   const ctxA = await b.newContext({ viewport: { width: 1280, height: 800 } });
@@ -243,11 +261,8 @@ try {
   await autosaved(bp);
   await bp.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
   const r6 = await landed(r5);
-  const reloadedA = a.waitForEvent("load", { timeout: 60000 });
   await ctxA.setOffline(false);
-  // (The page hears it's back online; told again, in case the browser didn't say.)
-  await a.evaluate(() => dispatchEvent(new Event("online"))).catch(() => {});
-  await reloadedA;
+  await untilTaken(a);
   await inSandbox(a);
   const told = await a.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
   const r7 = await remote(code);
@@ -337,10 +352,8 @@ try {
   const g2 = await landed2(g1);
   const more = await c.evaluate(() => (window.woodrail.progress().coins += 55));
   await c.waitForFunction((n) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === n, more, { timeout: 15000 });
-  const cIn = c.waitForEvent("load", { timeout: 60000 });
   // (C's next upload, now rather than in a minute.)
-  await c.evaluate(() => dispatchEvent(new Event("online")));
-  await cIn;
+  await untilTaken(c);
   await inMode(c, "game");
   const toldC = await c.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
   const g3 = await remote2();
