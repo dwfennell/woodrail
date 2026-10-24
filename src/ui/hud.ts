@@ -1149,7 +1149,13 @@ export class Hud {
   setMapOpen(open: boolean): void {
     this.mapBtn.classList.toggle("active", open);
     this.root.classList.toggle("map-open", open);
+    // A toast up as it opens or closes goes where it should now (the goals put away or back), and again once the view
+    // has glided to the whole map (the labels it keeps clear of have moved).
+    this.refitToast();
+    clearTimeout(this.mapRefit);
+    if (open) this.mapRefit = window.setTimeout(() => this.refitToast(), 1000);
   }
+  private mapRefit = 0;
 
   /** Hide or show the whole play overlay (the title screen covers the game). */
   setVisible(visible: boolean): void {
@@ -1813,7 +1819,7 @@ export class Hud {
     // (By layout, not its box: the toast slides in, its box a little higher till it's shown. Shown, it's tilted 0.8°,
     // a corner that much lower: QA, a wide one cleared the tray by 1-2 px.)
     const tilt = Math.ceil((t.offsetWidth * Math.sin((0.8 * Math.PI) / 180)) / 2);
-    if (tray.height > 0 && t.offsetTop + t.offsetHeight + tilt > tray.top - 6) t.style.top = `${Math.max(8, Math.round(tray.top - 6 - tilt - t.offsetHeight))}px`;
+    if (tray.height > 0 && getComputedStyle(this.tray).visibility !== "hidden" && t.offsetTop + t.offsetHeight + tilt > tray.top - 6) t.style.top = `${Math.max(8, Math.round(tray.top - 6 - tilt - t.offsetHeight))}px`;
     return true;
   }
 
@@ -1834,7 +1840,8 @@ export class Hud {
     }
     let below = 0;
     for (const p of this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")) {
-      if (p.hidden || p.offsetParent === null) continue;
+      // (Put away by the map or the board, the goals keep their box: QA, the toast went under them, over the map's labels.)
+      if (p.hidden || p.offsetParent === null || getComputedStyle(p).visibility === "hidden") continue;
       const q = p.getBoundingClientRect();
       if (q.width === 0 || q.right < r.left || q.left > r.right || q.bottom < r.top) continue;
       below = Math.max(below, q.bottom);
@@ -1844,6 +1851,10 @@ export class Hud {
       r = t.getBoundingClientRect();
     }
     if (beside) return true;
+    if (this.root.classList.contains("map-open")) {
+      this.fitToastOnMap();
+      return true;
+    }
     // Over a card (a tall one, on a phone held upright): just above its top edge if it fits there, else no room.
     const card = cards.find(over);
     if (!card) return true;
@@ -1857,6 +1868,31 @@ export class Hud {
     if (!urgent) return false;
     t.style.top = `${Math.round(card.bottom - h - 10)}px`;
     return true;
+  }
+
+  /**
+   * The map open: the toast clear of its labels (QA: it covered the top ones) and its bar. Under the top bar if no label
+   * is there, else just above the map's bar, else wherever it covers fewest. (Where the labels are as it shows: they
+   * move only when the view does.)
+   */
+  private fitToastOnMap(): void {
+    const t = this.toastEl;
+    const labels = [...this.root.querySelectorAll<HTMLElement>(".map-marker:not(.off)")].map((m) => m.getBoundingClientRect());
+    const bar = this.root.querySelector<HTMLElement>(".map-bar")?.getBoundingClientRect();
+    const h = t.offsetHeight;
+    const r = t.getBoundingClientRect();
+    const covers = (top: number) => labels.filter((q) => !(q.right < r.left || q.left > r.right || q.bottom < top - 4 || q.top > top + h + 4)).length;
+    const under = t.offsetTop;
+    const spots = [under];
+    if (bar && bar.height > 0 && bar.top - h - 12 > under) spots.push(Math.round(bar.top - h - 12));
+    let best = under;
+    let fewest = Infinity;
+    for (const top of spots) {
+      const n = covers(top);
+      if (n < fewest) [best, fewest] = [top, n];
+      if (n === 0) break;
+    }
+    t.style.top = `${best}px`;
   }
 
   /** Is the screen point over the tray (dropping there cancels / deletes)? */
