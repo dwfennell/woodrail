@@ -28,7 +28,7 @@ function toastHud(): { hud: Hud; shown: string[] } {
   const hud = Object.create(Hud.prototype) as Hud;
   Object.assign(hud, {
     toastEl,
-    root: { querySelectorAll: () => [] },
+    root: { querySelectorAll: () => [], classList: { contains: () => false } },
     help: { hidden: true },
     coach: { shown: false },
     // (No layout here: a tray of no size, which a toast needn't keep clear of.)
