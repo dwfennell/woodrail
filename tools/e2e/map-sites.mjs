@@ -13,8 +13,9 @@
 // - a phone on its side (667×375): the ruin card's Restore and Clear fully in view above the tray, and tappable.
 // - the map view (390×844, step 3): the old farm's marker (🌾, a lock), none over a town's or station's label; idle
 //   there, no frames; Farming learned, the lock goes; tapped, the ruin's card opens; restored, its marker goes.
-// - the map view on a phone on its side (667×375, 844×390): no badge or label over another, a badge tapped (middle or
-//   edge) goes to its ruin.
+// - the map view on a phone on its side (667×375, 844×390): compact labels (name only), 4 of the starter map's 5 towns'
+//   shown at 667×375 and all 5 at 844×390; no badge or label over another, a badge tapped (middle or edge) goes to its
+//   ruin. Upright (390×844), the full labels.
 // - a big map (22 plots bought, 390×844): a drag from a town's label pans the map view, and panning gets every ruin on
 //   the land its badge on screen.
 //
@@ -662,6 +663,9 @@ const mapStateOn = (M) =>
 const overlaps = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
 await openMapView();
 const map1 = await mapState();
+// Upright, the band is tall: the full labels (name, the line under it, a town's bar), not the compact ones.
+const fullLabels = await M.evaluate(() => ({ compact: document.querySelector(".map-view").classList.contains("compact"), towns: [...document.querySelectorAll(".map-marker.kind-town:not(.off)")].map((e) => [e.offsetHeight, !!e.querySelector(".map-fill")?.getBoundingClientRect().height]) }));
+check("map view upright (390×844): full labels, as before (a town's line and bar shown)", !fullLabels.compact && fullLabels.towns.length > 0 && fullLabels.towns.every(([h, bar]) => h > 40 && bar), JSON.stringify(fullLabels));
 const farmMark = map1.ruins.find((r) => r.key === `ruin:${mFarm}`);
 check("map view: the old farm's marker, 🌾 with a lock", map1.open && farmMark?.shown && farmMark.icon === "🌾" && farmMark.locked, JSON.stringify(farmMark));
 check("…its lock readable: 16 px or more, on a pale disc", !!farmMark?.lock && farmMark.lock.font >= 16 && farmMark.lock.disc >= 20 && farmMark.lock.bg !== "rgba(0, 0, 0, 0)", JSON.stringify(farmMark?.lock));
@@ -770,6 +774,16 @@ for (const [W, H] of [
   const shownBoxes = [...st.ruins.filter((r) => r.shown), ...st.labels];
   const clash = [];
   for (let i = 0; i < shownBoxes.length; i++) for (let j = i + 1; j < shownBoxes.length; j++) if (overlaps(shownBoxes[i].box, shownBoxes[j].box)) clash.push(`${shownBoxes[i].key}×${shownBoxes[j].key}`);
+  // Compact labels (the band between the bars is short): most of the towns' fit (QA: 2 of 5 at 667×375, 4 at 844×390).
+  const towns = await S.evaluate(() => ({
+    compact: document.querySelector(".map-view").classList.contains("compact"),
+    shown: document.querySelectorAll(".map-marker.kind-town:not(.off)").length,
+    all: document.querySelectorAll(".map-marker.kind-town").length,
+    detail: [...document.querySelectorAll(".map-marker:not(.kind-ruin):not(.off) .map-text > span")].some((e) => e.getBoundingClientRect().height > 0),
+    tall: Math.max(0, ...[...document.querySelectorAll(".map-marker:not(.kind-ruin):not(.off)")].map((e) => e.offsetHeight)),
+  }));
+  const want = W === 667 ? Math.min(4, towns.all) : towns.all;
+  check(`${W}×${H} map view: compact labels (name only, one line), ${want} or more of the ${towns.all} towns' shown`, towns.compact && !towns.detail && towns.tall <= 30 && towns.shown >= want, JSON.stringify(towns));
   const locks = st.ruins.filter((r) => r.shown && r.lock);
   check(`${W}×${H} map view: the locks readable (16 px or more, on a pale disc)`, locks.length > 0 && locks.every((r) => r.lock.font >= 16 && r.lock.disc >= 20), JSON.stringify(locks.map((r) => [r.key, r.lock])));
   check(`${W}×${H} map view: no badge or label over another`, st.open && shownBoxes.length > 0 && clash.length === 0, clash.join(", ") || `${st.labels.length} labels, ${st.ruins.filter((r) => r.shown).length} badges shown`);

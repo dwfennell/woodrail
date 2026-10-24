@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MapMarker } from "../game/map-markers";
-import { LOCK_OUT, layoutMarkers, type MarkerSpot } from "./map-view";
+import { COMPACT_BAND, LOCK_OUT, compactBand, layoutMarkers, type MarkerSpot } from "./map-view";
 
 const marker = (key: string, kind: MapMarker["kind"]): MapMarker => ({ key, kind, x: 0, z: 0, title: key, detail: "" });
 const LABEL = { w: 190, h: 52 };
@@ -99,6 +99,53 @@ describe("layoutMarkers (the map view's boxes)", () => {
     const each = (performance.now() - t0) / 100;
     console.log(`  (layoutMarkers, 100 markers: ${each.toFixed(3)} ms)`);
     expect(each).toBeLessThan(5);
+  });
+});
+
+describe("compact labels (a short band: a phone on its side)", () => {
+  // The starter map's map view at 667×375, as the game frames it (captured from a new game: each marker's place on
+  // screen, the band between the bars 88..279, and each label's size, full and compact). Ruins on the land around off
+  // screen are left out (null places); the old farm's badge is locked (its box takes in the lock).
+  const W = 667;
+  const [lo, hi] = [88, 279];
+  const starter: [string, MapMarker["kind"], { x: number; y: number } | null, { w: number; h: number }, { w: number; h: number }][] = [
+    ["town:0", "town", { x: 398, y: 148 }, { w: 203, h: 49 }, { w: 87, h: 28 }],
+    ["town:1", "town", { x: 283, y: 148 }, { w: 203, h: 49 }, { w: 94, h: 28 }],
+    ["town:2", "town", { x: 250, y: 239 }, { w: 203, h: 49 }, { w: 122, h: 28 }],
+    ["town:3", "town", { x: 376, y: 247 }, { w: 203, h: 49 }, { w: 97, h: 28 }],
+    ["town:4", "town", { x: 479, y: 255 }, { w: 203, h: 49 }, { w: 105, h: 28 }],
+    ["depot:0", "sawmill", { x: 499, y: 178 }, { w: 169, h: 41 }, { w: 102, h: 28 }],
+    ["depot:1", "forest", { x: 168, y: 148 }, { w: 111, h: 41 }, { w: 121, h: 28 }],
+    ["ruin:0", "ruin", { x: 344, y: 112 }, { w: 28 + LOCK_OUT, h: 28 + LOCK_OUT }, { w: 28 + LOCK_OUT, h: 28 + LOCK_OUT }],
+    ["ruin-around:-2,-1:0", "ruin", { x: 657, y: 224 }, { w: 28 + LOCK_OUT, h: 28 + LOCK_OUT }, { w: 28 + LOCK_OUT, h: 28 + LOCK_OUT }],
+    ["ruin-around:-2,0:0", "ruin", { x: 648, y: 56 }, { w: 28 + LOCK_OUT, h: 28 + LOCK_OUT }, { w: 28 + LOCK_OUT, h: 28 + LOCK_OUT }],
+  ];
+  const markers = starter.map(([key, kind]) => ({ ...marker(key, kind), ...(key === "ruin:0" ? { ruin: 0, locked: true } : {}) }));
+  const pts = starter.map((s) => s[2]);
+  const towns = (spots: (MarkerSpot | null)[]) => spots.filter((s, k) => s && markers[k].kind === "town").length;
+
+  it("the band decides, not the device: under COMPACT_BAND px between the bars, compact", () => {
+    expect(compactBand(lo, hi)).toBe(true); // 667×375: 191 px
+    expect(compactBand(62, 294)).toBe(true); // 844×390: 232 px
+    expect(compactBand(62, 748)).toBe(false); // 390×844: 686 px
+    expect(COMPACT_BAND).toBeGreaterThanOrEqual(260);
+    expect(COMPACT_BAND).toBeLessThanOrEqual(300);
+  });
+
+  it("the starter map at 667×375: full labels fit 2 of its 5 towns; compact ones 4 or more, none over another", () => {
+    const full = layoutMarkers(markers, pts, starter.map((s) => s[3]), W, lo, hi);
+    expectClear(full, W, lo, hi);
+    expect(towns(full)).toBe(2);
+    const compact = layoutMarkers(markers, pts, starter.map((s) => s[4]), W, lo, hi);
+    expectClear(compact, W, lo, hi);
+    expect(towns(compact)).toBeGreaterThanOrEqual(4);
+    // (The depots' labels too, and the old farm's badge on its ruin.)
+    expect(compact[5]).not.toBeNull();
+    expect(compact[6]).not.toBeNull();
+    expect(compact[7]).toMatchObject({ x: 344 - 14, y: 112 - 14 });
+    const t0 = performance.now();
+    for (let k = 0; k < 200; k++) layoutMarkers(markers, pts, starter.map((s) => s[4]), W, lo, hi);
+    console.log(`  (layoutMarkers, the starter map at 667×375 compact: ${((performance.now() - t0) / 200).toFixed(4)} ms)`);
   });
 });
 
