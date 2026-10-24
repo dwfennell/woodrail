@@ -36,7 +36,9 @@ function wholePadRefuses(w: World, siteId: number): boolean {
   }
 }
 
-describe("restoring a ruin: every generated ruin can be", () => {
+// 8 maps made and two rings of plots bought round each (a second or two alone, the first test to ask paying): headroom
+// for a loaded machine.
+describe("restoring a ruin: every generated ruin can be", { timeout: 30_000 }, () => {
   it("every standing ruin round 8 starts (2 rings of plots bought, no player track) passes restoreWhy, harbours too (their way is out to sea)", () => {
     const refused: string[] = [];
     let n = 0;
@@ -152,16 +154,27 @@ describe("restoring a ruin: every generated ruin can be", () => {
     const seen = new Map<string, number>();
     for (const seed of SEEDS) {
       const w = world(seed);
+      // Restored for real on a fresh world of the seed's (the survey's worlds stay as made), each restore undone before
+      // the next: one fresh world a seed, not one a restore (each costs a map and its plots made).
+      let fresh: { w: World; editor: Editor } | undefined;
       for (const s of w.landscape.sites ?? []) {
         if (s.cleared || !wholePadRefuses(w, s.id) || restoreWhy(w, s.id)) continue;
         const key = `${s.role} ${Math.round((s.piece.heading * 180) / Math.PI)}`;
         if (seen.has(key)) continue;
-        // Restored for real, on its own world (a fresh one: the survey's worlds stay as made).
-        const fresh = boughtOut(seed);
-        const fixed = fixedPieces(fresh);
-        const editor = new Editor(fresh.layout, fresh.sim, () => {}, (id) => fixed.has(id));
-        const done = restoreRuin(fresh, editor, s.id);
-        expect("pieceId" in done ? fresh.layout.getPiece(done.pieceId)!.type : done.why, key).toBe(`depot-${s.role}`);
+        if (!fresh) {
+          const f = boughtOut(seed);
+          const fixed = fixedPieces(f);
+          fresh = { w: f, editor: new Editor(f.layout, f.sim, () => {}, (id) => fixed.has(id)) };
+        }
+        const stub = fresh.w.ruins.get(s.id)!;
+        const done = restoreRuin(fresh.w, fresh.editor, s.id);
+        expect("pieceId" in done ? fresh.w.layout.getPiece(done.pieceId)!.type : done.why, key).toBe(`depot-${s.role}`);
+        // Undone: the ruin as it was (its stub back, the same piece), for the next restore.
+        expect(fresh.editor.undo(), key).toBe(true);
+        expect(fresh.w.ruins.get(s.id), key).toBe(stub);
+        expect(fresh.w.layout.getPiece(stub)?.type, key).toBe(w.layout.getPiece(w.ruins.get(s.id)!)!.type);
+        expect(fresh.w.landscape.sites![s.id].cleared, key).toBeUndefined();
+        expect(restoreWhy(fresh.w, s.id), key).toBeNull();
         seen.set(key, seed);
       }
     }

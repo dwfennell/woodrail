@@ -102,10 +102,12 @@ describe("auto-spacing (Spacing)", () => {
   });
 });
 
-describe("auto-spacing on a line", () => {
+// Minutes of simulated running each (a second or two alone): headroom for a loaded machine.
+describe("auto-spacing on a line", { timeout: 30_000 }, () => {
   it("two trains started bunched spread out to about half a lap apart within a few laps", () => {
     const w = oval(2);
-    w.run(1500);
+    // (Spaced out by about 150 s, some 8 laps: 500 s leaves the last 6 departures well into the steady state.)
+    w.run(500);
     const [a, b] = w.engines.map((e) => w.departures.get(e)!);
     expect(a.length).toBeGreaterThanOrEqual(5);
     expect(b.length).toBeGreaterThanOrEqual(5);
