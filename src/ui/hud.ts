@@ -1851,12 +1851,23 @@ export class Hud {
     if (!this.fitToast(message, urgent)) return false;
     // Wherever it went, clear of the tray (QA, 667x375: a three-line toast beside a docked card reached 2 px into it).
     const t = this.toastEl;
-    const tray = this.tray.getBoundingClientRect();
-    // (By layout, not its box: the toast slides in, its box a little higher till it's shown. Shown, it's tilted 0.8°,
-    // a corner that much lower: QA, a wide one cleared the tray by 1-2 px.)
-    const tilt = Math.ceil((t.offsetWidth * Math.sin((0.8 * Math.PI) / 180)) / 2);
-    if (tray.height > 0 && getComputedStyle(this.tray).visibility !== "hidden" && t.offsetTop + t.offsetHeight + tilt > tray.top - 6) t.style.top = `${Math.max(8, Math.round(tray.top - 6 - tilt - t.offsetHeight))}px`;
+    const floor = this.toastFloor();
+    if (t.offsetTop + t.offsetHeight > floor) t.style.top = `${Math.max(8, Math.round(floor - t.offsetHeight))}px`;
     return true;
+  }
+
+  /**
+   * How low the toast as laid out may reach: clear of the tray by 6 px (or of the screen's foot), less what its tilt
+   * takes. One rule, for beside a card as anywhere (QA: beside a card wanted 10 px, the clamp 6, so a toast between
+   * the two went over the engine card's Go). By layout, not its box: the toast slides in, its box a little higher till
+   * it's shown; shown, it's tilted 0.8°, a corner that much lower (QA: a wide one cleared the tray by 1-2 px).
+   */
+  private toastFloor(): number {
+    const t = this.toastEl;
+    const tilt = Math.ceil((t.offsetWidth * Math.sin((0.8 * Math.PI) / 180)) / 2);
+    const tray = this.tray.getBoundingClientRect();
+    const out = tray.height > 0 && getComputedStyle(this.tray).visibility !== "hidden";
+    return (out ? tray.top - 6 : window.innerHeight - 8) - tilt;
   }
 
   /** Where a toast goes (see `placeToast`): false if there's no room for it now. */
@@ -1893,9 +1904,7 @@ export class Hud {
     if (beside) {
       // Too tall for the room beside the card, down to the tray (QA, 667 wide: six lines, pushed up off the tray over
       // the goals and the date): it goes over the card instead, at its own width, under the goals.
-      const tray = this.tray.getBoundingClientRect();
-      const floor = tray.height > 0 && getComputedStyle(this.tray).visibility !== "hidden" ? tray.top - 6 : window.innerHeight - 8;
-      if (t.offsetTop + t.offsetHeight + 4 <= floor) return true;
+      if (t.offsetTop + t.offsetHeight <= this.toastFloor()) return true;
       t.style.top = t.style.left = t.style.maxWidth = "";
       r = t.getBoundingClientRect();
       underPinned();
@@ -1934,32 +1943,40 @@ export class Hud {
     });
     const bar = this.root.querySelector<HTMLElement>(".map-bar")?.getBoundingClientRect();
     const vw = document.documentElement.clientWidth;
-    const area = { left: 0, right: vw, top: t.offsetTop - TOAST_SLIDE, bottom: bar && bar.height > 0 ? bar.top - 12 : window.innerHeight - 12 };
+    const top = t.offsetTop;
+    const bottom = bar && bar.height > 0 ? bar.top - 12 : window.innerHeight - 12;
     const natural = t.offsetWidth;
     // (Narrower a step at a time, more lines each, down to a readable 220 px: a gap between labels is found at most a
     // step's width short. Each is one layout.)
     const widths = [0];
     for (let w = natural * 0.85; w > 220 && widths.length < 7; w *= 0.85) widths.push(Math.round(w));
     if (natural > 220) widths.push(220);
+    // Clear of the labels through its slide in too (it starts `TOAST_SLIDE` px higher), if there's room for that at any
+    // width; else clear once it's in (QA: reserving the slide, a toast fell back to covering a label by 10 px when it
+    // fitted clear without).
+    for (const slide of [TOAST_SLIDE, 0]) {
+      const area = { left: 0, right: vw, top: top - slide, bottom };
+      for (const width of widths) {
+        t.style.maxWidth = width ? `${width}px` : "";
+        const spot = clearSpot(labels, t.offsetWidth, t.offsetHeight + slide, area);
+        if (spot) {
+          t.style.left = `${spot.x}px`;
+          t.style.top = `${spot.top + slide}px`;
+          return;
+        }
+      }
+    }
+    // Nowhere clear: where it hides least (see `leastCovered`), once it's in.
     let fallback: { width: number; spot: Spot; cost: number } | null = null;
     for (const width of widths) {
       t.style.maxWidth = width ? `${width}px` : "";
-      // (Its slide in starts `TOAST_SLIDE` px higher: clear of the labels there too, not only once it's in.)
-      const w = t.offsetWidth;
-      const h = t.offsetHeight + TOAST_SLIDE;
-      const spot = clearSpot(labels, w, h, area);
-      if (spot) {
-        t.style.left = `${spot.x}px`;
-        t.style.top = `${spot.top + TOAST_SLIDE}px`;
-        return;
-      }
-      const least = leastCovered(labels, w, h, area);
+      const least = leastCovered(labels, t.offsetWidth, t.offsetHeight, { left: 0, right: vw, top, bottom });
       if (!fallback || least.cost < fallback.cost) fallback = { width, spot: least, cost: least.cost };
     }
     if (!fallback) return;
     t.style.maxWidth = fallback.width ? `${fallback.width}px` : "";
     t.style.left = `${fallback.spot.x}px`;
-    t.style.top = `${fallback.spot.top + TOAST_SLIDE}px`;
+    t.style.top = `${fallback.spot.top}px`;
   }
 
   /** The map's view has settled (its glide done): a toast up goes where it's clear of the labels where they are now. */

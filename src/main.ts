@@ -3041,8 +3041,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Where the camera was before the map opened, to go back to. */
   let mapReturn: { target: Vector3; distance: number; phi: number; theta: number } | null = null;
   let mapRefreshedAt = 0;
-  /** The view was gliding with the map open at the last frame (see `mapSettled`). */
-  let mapGliding = false;
+  /** The map's view as last seen (camera, target), and whether it has moved since a toast was last fitted to it. */
+  const mapViewSeen = [NaN, NaN, NaN, NaN, NaN];
+  let mapMoving = false;
 
   /** The map view's tilt: near straight down. */
   const MAP_PHI = 0.22;
@@ -3593,14 +3594,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mapView.open) {
       if (now - mapRefreshedAt > 1000) refreshMap();
       else placeMap();
-      // The glide to the whole map has landed (however long it took): the labels are where they'll stay, laid out
-      // afresh, and a toast up keeps clear of them there.
-      if (mapGliding && !game.director.busy) {
+      // The view has stopped moving (the glide to the whole map landed, however long it took; a pan, pinch or fling
+      // done): the labels are where they'll stay, laid out afresh, and a toast up keeps clear of them there. (Five
+      // numbers compared a tick, only while the map's open.)
+      const cam = game.camera.position;
+      const tgt = game.controls.target;
+      const v = mapViewSeen;
+      if (v[0] !== cam.x || v[1] !== cam.y || v[2] !== cam.z || v[3] !== tgt.x || v[4] !== tgt.z) {
+        v[0] = cam.x;
+        v[1] = cam.y;
+        v[2] = cam.z;
+        v[3] = tgt.x;
+        v[4] = tgt.z;
+        mapMoving = true;
+      } else if (mapMoving && !game.director.busy) {
+        mapMoving = false;
         refreshMap();
         hud.mapSettled();
       }
+    } else {
+      // (Forgotten while it's shut: opened again, the view counts as moved, and settles once.)
+      mapMoving = false;
+      mapViewSeen[0] = NaN;
     }
-    mapGliding = mapView.open && game.director.busy;
     let hum = 0;
     // Whistle posts' near track: worked out again only when the props or the track change.
     whistles.sync(game.layout, game.props, game.trackVersion);
