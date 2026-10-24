@@ -2514,6 +2514,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function setPlanning(on: boolean, frame = true): void {
     if (planning === on) return;
     planning = on;
+    hud.setMapTaps("planning", on);
     stopPicked = -1;
     // (A piece carried, or waiting at an end, is put away: a click on the map picks a stop now.)
     if (on) interaction.arm(null);

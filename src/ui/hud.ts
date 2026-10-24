@@ -935,8 +935,22 @@ export class Hud {
     return top;
   }
 
+  /**
+   * What's taking taps on the map now (picking pieces, drawing, clearing, picking a route's stops): while any is, a tap
+   * on a toast goes through it to the map (QA: picking, a tap on a piece under it hit the toast instead, twice), and it
+   * isn't dismissed by a tap.
+   */
+  private readonly mapTaps = new Set<string>();
+  setMapTaps(why: string, on: boolean): void {
+    if (on === this.mapTaps.has(why)) return;
+    if (on) this.mapTaps.add(why);
+    else this.mapTaps.delete(why);
+    this.toastEl.classList.toggle("taps-through", this.mapTaps.size > 0);
+  }
+
   /** Show whether drawing track is on (the Draw chip lit). */
   setDrawing(on: boolean): void {
+    this.setMapTaps("drawing", on);
     this.drawing = on;
     this.drawBtn.classList.toggle("active", on);
     this.tray.classList.toggle("drawing", on);
@@ -944,6 +958,7 @@ export class Hud {
 
   /** Show whether clearing is on (the Clear chip lit). */
   setErasing(on: boolean): void {
+    this.setMapTaps("erasing", on);
     this.erasing = on;
     this.eraseBtn.classList.toggle("active", on);
     this.tray.classList.toggle("erasing", on);

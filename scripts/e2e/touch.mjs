@@ -907,6 +907,36 @@ for (const mode of ["sandbox", "game"]) {
   }
 }
 
+/**
+ * A toast up over the map: a tap on it dismisses it, but while the map takes taps (picking pieces, drawing) it goes
+ * through to the map (QA: picking, a tap on a piece under the toast hit the toast, twice).
+ */
+async function toastTapsThrough(p) {
+  await p.keyboard.press("Escape");
+  const r = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const t = document.querySelector(".toast");
+    const at = () => {
+      const q = t.getBoundingClientRect();
+      const e = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+      return e === t || t.contains(e) ? "toast" : (e?.tagName ?? "nothing");
+    };
+    w.hud.toast("A toast over the map, for the test", false, 60000);
+    await new Promise((r) => setTimeout(r, 800));
+    const idle = at();
+    w.interaction.setDrawing(true);
+    const drawing = at();
+    w.interaction.setDrawing(false);
+    w.interaction.selectMore();
+    const picking = at();
+    w.interaction.doneSelecting();
+    const after = at();
+    w.hud.dismissToast();
+    return { idle, drawing, picking, after };
+  });
+  check("a toast takes a tap, but lets it through to the map while picking pieces or drawing (QA)", r.idle === "toast" && r.drawing !== "toast" && r.picking !== "toast" && r.after === "toast", JSON.stringify(r));
+}
+
 async function runMode(mode) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -956,6 +986,7 @@ async function runMode(mode) {
     await flickOut(ctx, p, tapOn);
     await leverPins(ctx, p);
     await shortUnderCar(ctx, p);
+    await toastTapsThrough(p);
   }
   await ctx.close();
 }
