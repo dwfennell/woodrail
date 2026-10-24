@@ -548,6 +548,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-text span { font-size: 12px; font-weight: 700; color: #6a5340; line-height: 1.25; }
 .map-fill { display: block; height: 5px; margin-top: 3px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }
 .map-fill i { display: block; height: 100%; background: #e2a12b; }
+/* A depot's goods icon beside its name: on a compact label only (the full one lists its piles under the name). */
+.map-glyph { display: none; font-style: normal; }
+/* Compact labels (a short band between the bars, `COMPACT_BAND` in map-view.ts: a phone on its side): the name alone,
+   one line, smaller, its dot kept (a depot's icon beside the name), no line under it or bar. 28 px tall, its dot's
+   middle 14 px in from the box's corner as the full label's is (where the layout puts the place). */
+.map-view.compact .map-marker:not(.kind-ruin) { box-sizing: border-box; height: 28px; padding: 0 9px 0 8px; gap: 5px; border-radius: 14px; white-space: nowrap; max-width: none; }
+.map-view.compact .map-marker.flip:not(.kind-ruin) { padding: 0 8px 0 9px; }
+.map-view.compact .map-dot { width: 12px; height: 12px; }
+.map-view.compact .map-text > span { display: none; }
+.map-view.compact .map-text b { font-size: 13px; line-height: 1; }
+.map-view.compact .map-glyph { display: inline; margin-left: 4px; font-size: 12px; }
 .map-bar { position: absolute; left: 50%; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 150px); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; white-space: nowrap; }
 .map-bar span { font-size: 13px; font-weight: 700; color: #6a5340; }
 .hud.map-open .goals, .hud.map-open .tray, .hud.board-open .goals, .hud.board-open .tray, .hud.board-open .tray-orient { visibility: hidden; }

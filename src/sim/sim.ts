@@ -146,6 +146,13 @@ interface Cover {
   bogies: readonly Cursor[];
   /** Each axle's piece and path (piece × 8 + path), when worked out. */
   at: readonly number[];
+  /**
+   * The track then (`Layout`'s revision, joints and switches versions): an edit, or a switch thrown under the train,
+   * changes what's between its axles, so it's worked out again (QA N2).
+   */
+  track: number;
+  joints: number;
+  switches: number;
   pieces: ReadonlySet<number>;
 }
 const lookAdv = createAdvance();
@@ -515,7 +522,8 @@ export class Sim {
     // (Between two axles on given pieces the track between is given too: worked out again only when an axle has come
     // onto another piece, not as it rolls along one.)
     const hit = this.covers.get(train.id);
-    if (hit && hit.bogies === b && hit.at.length === b.length) {
+    const L = this.layout;
+    if (hit && hit.bogies === b && hit.at.length === b.length && hit.track === L.revision && hit.joints === L.jointsVersion && hit.switches === L.switchesVersion) {
       let same = true;
       for (let i = 0; i < b.length && same; i++) if (hit.at[i] !== b[i].pieceId * 8 + b[i].pathIndex) same = false;
       if (same) return hit;
@@ -542,7 +550,7 @@ export class Sim {
       for (const car of train.cars) span += CAR_SPECS[car.kind].length;
       walk(last, span);
     }
-    const cover: Cover = { bogies: b, at: b.map((x) => x.pieceId * 8 + x.pathIndex), pieces };
+    const cover: Cover = { bogies: b, at: b.map((x) => x.pieceId * 8 + x.pathIndex), track: L.revision, joints: L.jointsVersion, switches: L.switchesVersion, pieces };
     if (this.covers.size > this.trains.size + 8) for (const id of this.covers.keys()) if (!this.trains.has(id)) this.covers.delete(id);
     this.covers.set(train.id, cover);
     return cover;
