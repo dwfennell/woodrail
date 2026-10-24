@@ -769,7 +769,7 @@ export class Game {
       if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
     }
     // Station clocks show the game's time: their hands are set when its minute changes (drawn if one's in view).
-    if (this.clockView.count > 0 && this.clockView.tick(this.simSeconds, this.camera)) this.invalidate();
+    if (this.clockView.count > 0 && this.clockView.tick(this.simSeconds, this.camera, this.canvas.height)) this.invalidate();
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     if (this.sim.signalsVersion !== this.signalsShown) {
       this.signalsShown = this.sim.signalsVersion;

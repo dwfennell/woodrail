@@ -415,7 +415,15 @@ export class Interaction {
   onHeld: ((type: PieceTypeId | null) => void) | null = null;
   private selectedPiece = -1;
   /** Picking several pieces (see `selectMore`): which are picked. */
-  private picking = false;
+  private pickingNow = false;
+  /** Picking pieces to move together ("Select more"): taps on track pick. (The HUD lets taps through a toast meanwhile.) */
+  private get picking(): boolean {
+    return this.pickingNow;
+  }
+  private set picking(on: boolean) {
+    this.pickingNow = on;
+    this.hud.setMapTaps("picking", on);
+  }
   private readonly picked = new Set<number>();
   private selectedProp = -1;
   /** Round the selected prop, or under the held one (green where it can go, red where it can't). */
