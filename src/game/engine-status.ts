@@ -28,7 +28,7 @@ export type TrainState =
    * Held: its line has more trains than passing loops (lay `more` more for `trains` trains). `spare`: a train not on
    * the line stands on each road of one of its loops; only moving it helps.
    */
-  | { kind: "needs-loop"; more: number; trains: number; spare: boolean; parked: boolean; other?: boolean }
+  | { kind: "needs-loop"; more: number; trains: number; spare: boolean; parked: boolean; other?: boolean; pinned?: boolean }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -89,8 +89,8 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
       const w = economy.sectionWait(car.id);
       if (!w) continue;
       // (A line that can deliver nothing, a parked train to blame: that's what to do something about.)
-      if (w.kind === "stalled") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare || w.parked, parked: w.parked, other: w.other };
-      if (w.kind === "room") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare, parked: w.parked, other: w.other };
+      if (w.kind === "stalled") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare || w.parked, parked: w.parked, other: w.other, pinned: w.pinned };
+      if (w.kind === "room") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare, parked: w.parked, other: w.other, pinned: w.pinned };
       // (One with room waiting a moment for a line-mate: just that, though the line be full.)
       const lineId = economy.lineIdOf.get(car.id);
       const line = lineId === undefined ? undefined : economy.lines.get(lineId);
@@ -127,10 +127,14 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
 const SPARE_CUT = "a parked train is in the way. Move it";
 
 /** Why a full line's train can't get on: lay loops, or (a loop taken by trains not on the line) move one. */
-function fullText(full: { more: number; spare: boolean; parked: boolean; other: boolean }): string {
+function fullText(full: { more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean }): string {
   if (full.spare) return full.other ? OTHER_CUT : SPARE_CUT;
+  if (full.pinned) return UNPIN;
   return `the line is full. Lay ${full.more} more passing loop${full.more === 1 ? "" : "s"}${full.parked ? (full.other ? OR_MOVE_OTHER : OR_MOVE) : ""}`;
 }
+
+/** A loop on the line pinned so every train takes the same road: no passing place till it's unpinned. */
+const UNPIN = "unpin the passing loop's switches so trains can pass";
 
 /** The same, when the train to blame is another line's, running it (it's waiting, not left there): "another train". */
 const OTHER_CUT = "another train is in the way. Move it";
@@ -193,6 +197,7 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return s.parked ? `Waiting: ${SPARE_CUT}` : "Waiting: a train not on the line is in the way";
     case "needs-loop":
       if (s.spare) return `Waiting: ${s.other ? OTHER_CUT : SPARE_CUT}`;
+      if (s.pinned) return `Waiting: ${UNPIN}`;
       return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? (s.other ? OR_MOVE_OTHER : OR_MOVE) : ""}`;
     case "held-up":
       return "Waiting: something's in the way";

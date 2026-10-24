@@ -341,3 +341,28 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
   - On a line stood still for a parked train, every train of it says to move that train.
   - "Another train" (another line's, running it) rather than "parked train" (no line, or its lever off).
   - "The track ends here" only for a lineless train on a managed line's network.
+
+## As built: pinned loops, and a held train in the working one's way
+
+- **A pinned loop counts if it still passes.** A pinned switch sends a train coming at it from its stem onto the road
+  it's set to. A loop counts as a passing place when trains coming in at each end can take different roads:
+  - unpinned;
+  - one switch pinned;
+  - both pinned to opposite roads (a one-way loop, each way its own road).
+  It doesn't count when both are pinned to the same road: then every train runs through by that road. The line's
+  cards then say "unpin the passing loop's switches so trains can pass", not "lay a loop". Pinned switches' settings
+  are part of the topology's key. The way-finder already took only a pinned switch's road, as steering does.
+- **A held train in the working one's way:** when a train with room waits on a chain that ends at one of its own held
+  for room, and none in the chain can turn back, the held one takes the room: it's held by rule, not by the track.
+  The one waiting on it is held where it stands instead. This happens at most once a minute on a line. It's what
+  locked Game Mode's line: a train put down right in front of the working one at its line end, which had nowhere to
+  turn.
+- **A train on no line between two of the line's.** A train on no line with its lever on, standing short of a line
+  train (see `clearCap`), turns back by itself after a moment. Between two line trains that both wait on it, it
+  shuttles from one to the other for good. So the catch-all takes it as stuck when it stands short of a train other
+  than the one waiting on it. Then a train waiting on it that can turn back gives way. That may be the other one, on
+  its far side, and it may be one held for room. This is what jammed Game Mode's harness on seeds 1 and 5 (engine 20,
+  a people train on no line).
+- **Removing a train takes it off its line at once.** Remove, or a train dropped back in the box, prunes the
+  economy straight away. Before, it stayed on its line until the next track edit, so counts said one train too many.
+  A train picked up into the hand keeps its line.
