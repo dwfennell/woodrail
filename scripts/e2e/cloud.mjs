@@ -305,7 +305,7 @@ try {
   const coins = (p) => p.evaluate(() => window.woodrail.progress().coins);
   const remote2 = async () => {
     const res = await fetch(`${WORKER}/v1/saves/game`, { method: "HEAD", headers: { "X-Woodrail-Code": code2 } });
-    return { savedAt: Number(res.headers.get("X-Saved-At")), layoutAt: Number(res.headers.get("X-Layout-At")) };
+    return { savedAt: Number(res.headers.get("X-Saved-At")), layoutAt: Number(res.headers.get("X-Layout-At")), layoutStoredAt: Number(res.headers.get("X-Layout-Stored-At")) };
   };
   const landed2 = async (was) => {
     let r = await remote2();
@@ -334,8 +334,9 @@ try {
   );
 
   // 7b. C earns more (not sent yet); D lays a piece of track, sent as its page hides. C's next upload finds D's layout
-  // edit: it outranks C's progress, though C's came later. C takes D's (starting again on it, and saying so), its
-  // coins kept to restore; nothing goes over D's.
+  // edit: it outranks C's progress, though C's came later. C takes D's railway (starting again on it, and saying so,
+  // its own copy kept to restore), but its earnings are merged in (CoS: not rolled back by one piece of track), and
+  // go up on D's railway.
   await pastLimit();
   const piecesD = await d.evaluate(() => {
     const w = window.woodrail;
@@ -349,7 +350,15 @@ try {
   }, piecesD);
   await new Promise((r) => setTimeout(r, 1500));
   await d.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
-  const g2 = await landed2(g1);
+  // (D's layout copy in: by when the cloud stored a layout edit, not by a fixed wait. Sent as the page hid, it can meet
+  // a 409 if C's progress went up just then: D, still with it to send, is prompted again till it's in. QA's race.)
+  let g2 = await remote2();
+  for (let i = 0; i < 24 && !(g2.layoutStoredAt > g1.layoutStoredAt); i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    g2 = await remote2();
+    if (!(g2.layoutStoredAt > g1.layoutStoredAt)) await d.evaluate(() => dispatchEvent(new Event("online"))).catch(() => {});
+  }
+  const dCoins = await coins(d);
   const more = await c.evaluate(() => (window.woodrail.progress().coins += 55));
   await c.waitForFunction((n) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === n, more, { timeout: 15000 });
   // (C's next upload, now rather than in a minute.)
@@ -359,9 +368,9 @@ try {
   const g3 = await remote2();
   await menu(c, "Cloud save");
   check(
-    "Game mode: a layout edit outranks progress made later: C takes D's track (and says so), its coins kept to restore",
-    g2.layoutAt > g1.layoutAt && (await c.evaluate(() => window.woodrail.layout.pieceCount)) === piecesD && (await coins(c)) === earned && g3.savedAt === g2.savedAt && /newer railway/.test(toldC) && /Restore the railway from/.test(await card(c)),
-    `D pieces ${piecesD}, C now ${await c.evaluate(() => window.woodrail.layout.pieceCount)}; C coins ${more} → ${await coins(c)}; cloud ${g2.savedAt} → ${g3.savedAt}; said “${toldC}”`,
+    "Game mode: a layout edit outranks progress made later: C takes D's track (and says so, its own kept to restore), its earnings merged in",
+    g2.layoutAt > g1.layoutAt && (await c.evaluate(() => window.woodrail.layout.pieceCount)) === piecesD && (await coins(c)) === dCoins + 55 && g3.layoutAt === g2.layoutAt && /newer railway/.test(toldC) && /Restore the railway from/.test(await card(c)),
+    `D pieces ${piecesD}, C now ${await c.evaluate(() => window.woodrail.layout.pieceCount)}; D coins ${dCoins}, C earned +55 → ${await coins(c)}; cloud layout ${g2.layoutAt} → ${g3.layoutAt}; said “${toldC}”`,
   );
 
   // 8. Both earn (progress only, on both): merged, nothing lost, nothing said. Then one learns a blueprint while the
@@ -419,6 +428,27 @@ try {
     kept.every((k) => k.learned && k.coins === both.d + earned2),
     `learned ${learnt}; ${JSON.stringify(kept)} (want coins ${both.d + earned2})`,
   );
+
+  // 9. One town grows on both devices (each draws its own cards): after both sync, one offer for it, not two.
+  await pastLimit();
+  const grow = (p) =>
+    p.evaluate(async () => {
+      const w = window.woodrail;
+      const { offerOnGrowth } = await import("/src/game/rewards.ts");
+      offerOnGrowth(w.progress(), w.world, "Testbury", 2, Math.random);
+    });
+  const offersFor = (p) => p.evaluate(() => window.woodrail.progress().offers.filter((o) => o.from === "Testbury" && o.level === 2).length);
+  await grow(c);
+  await grow(d);
+  for (const p of [c, d]) await p.waitForFunction(() => (localStorage.getItem("woodrail.game.progress.v1") ?? "").includes("Testbury"), null, { timeout: 15000 });
+  const g8 = await remote2();
+  const g9 = await hideAndSettle(c, g8);
+  await pastLimit();
+  await hideAndSettle(d, g9);
+  await c.reload();
+  await inMode(c, "game");
+  const offers = { c: await offersFor(c), d: await offersFor(d) };
+  check("Game mode: one town's growth seen on both devices is one reward offer, not two (QA)", offers.c === 1 && offers.d === 1, JSON.stringify(offers));
   await ctxC.close();
   await ctxD.close();
 } catch (e) {

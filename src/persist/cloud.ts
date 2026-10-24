@@ -472,14 +472,21 @@ export class CloudSync {
       if (when === "start" && this.late) return null;
       // (Not mid-gesture: tried again on the next round.)
       if (when === "before-put" && !this.mayTake()) return "wait";
-      // Edited here as well: this device's copy is kept aside.
+      // Edited here as well: this device's copy is kept aside. Its progress is merged into the one taken (the railway
+      // is the layout winner's, the earnings both's): then that goes up.
       const both = here && m.dirty;
       if (both) await this.keepBackup(mode, this.bundleHere(mode, m.changedAt));
-      if (!this.apply(bundle)) return null;
+      const merged = both ? this.mergedInto(mode, bundle.keys, "remote") : null;
+      if (!this.apply(merged ? { ...bundle, keys: merged } : bundle)) return null;
       this.writeBase(mode, bundle.keys);
       this.meta.modes[mode] = { ...freshMode(), remoteSavedAt: got.value.meta.savedAt, changedAt: storedAt, remoteStoredAt: remote.storedAt ?? 0 };
       this.wasLayout[mode] = false;
       this.sent[mode] = null;
+      if (merged) {
+        this.meta.modes[mode].dirty = true;
+        this.meta.modes[mode].changedAt = this.o.now();
+        this.arm();
+      }
       this.writeMeta();
       const note: SyncNote = both ? "took-cloud" : null;
       if (when === "before-put") this.onTaken(mode, note);
@@ -488,6 +495,10 @@ export class CloudSync {
     // This device's wins (a layout edit over progress, or the later): the cloud's is kept aside (dated by when the cloud
     // stored it, on this device's clock), and this one goes up over it.
     await this.keepBackup(mode, { ...bundle, savedAt: storedAt });
+    // (The cloud's progress merged into this one's: the railway is this one's, the earnings both's.)
+    const merged = this.mergedInto(mode, Object.fromEntries(this.readKeys(mode)), "local", bundle.keys);
+    if (merged && this.apply({ ...bundle, keys: merged }) && when === "before-put") this.onMerged(mode);
+    this.writeBase(mode, bundle.keys);
     m.remoteSavedAt = got.value.meta.savedAt;
     m.remoteStoredAt = remote.storedAt ?? 0;
     m.dirty = true;
@@ -655,6 +666,26 @@ export class CloudSync {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The keys `winner` has (the layout clash's winner's: its railway), with the mergeable ones merged with the other
+   * side's through the base. `later` names the winner. Null when the mode has nothing to merge.
+   */
+  private mergedInto(mode: GameMode, winner: Keys, later: "local" | "remote", loser?: Keys): Record<string, string> | null {
+    const mergeable = this.o.merge?.keys[mode];
+    if (!mergeable || !this.o.merge) return null;
+    const local = later === "local" ? winner : Object.fromEntries(this.readKeys(mode));
+    const remote = later === "remote" ? winner : (loser ?? {});
+    const merged = this.o.merge.merge(mode, this.readBase(mode), local, remote, later);
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(winner)) if (v !== null) out[k] = v;
+    for (const k of mergeable) {
+      const v = merged[k];
+      if (v === null || v === undefined) delete out[k];
+      else out[k] = v;
+    }
+    return out;
   }
 
   /** The mergeable keys as last synced (none kept for a mode with nothing to merge). */

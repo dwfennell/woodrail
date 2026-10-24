@@ -85,6 +85,14 @@ These limits aren't in v1:
 - The first PUT under a code isn't conditional. R2's `onlyIf` has no "only if absent", so two devices turning on the
   same code at the same moment could race.
 
+### Known limits (the game's side)
+
+- **Two devices running at once earn twice.** In Game mode, two devices running the same railway with both in view
+  both deliver, and their earnings are added together when they sync. A hidden or paused one earns nothing (the sim,
+  the workshop and the harbour boats all run on game time). Running both at once is rare, so this is accepted for now.
+- **Spending more than both had** (both sides spend the same coins before they sync) leaves coins at 0, not below.
+- **Up to one autosave of earnings** (about 5 s) can be lost when a copy is merged or taken.
+
 To undo, delete the variable, so the menu item goes with the next deploy. Then, if you want, run `npx wrangler delete`
 and `npx wrangler r2 bucket delete woodrail-saves`.
 

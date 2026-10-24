@@ -1,16 +1,19 @@
 import type { ProgressData } from "../game/progress";
-import type { ResearchData } from "../game/research";
+import { costOf, type ResearchData } from "../game/research";
 import type { Merger } from "./cloud";
 
 /**
- * Game mode's progress from two devices that both played on (neither changed the railway's layout since they last
- * matched), made one, so neither's earnings are lost (cloud saves; the CoS's rules of 2026-10-24):
+ * Game mode's progress from two devices that both played on since they last matched, made one, so neither's earnings
+ * are lost (cloud saves; the CoS's rules of 2026-10-24). Also when their layouts clashed: the railway is the layout
+ * winner's, but the progress is still merged, so a session's earnings aren't rolled back by one piece of track.
  *
  * - coins, counters (riders, `counts`), the toy box (`owned`): the base plus what each side earned or spent since;
  * - the furthest reached: `bestLevel` (max), `firstFlour` (either), blueprints learned (both), goals done (both);
- * - research: what either learned is done; one being studied on both keeps the most of each good and of the study;
- *   two different ones, the one further along stays current and the other waits next (or keeps its goods aside);
- * - the reward cards waiting: both sides' (once each);
+ * - research: what either learned is done; one being studied on both: the base plus the goods each brought (no more
+ *   than it needs), and the most study; two different ones, the one further along stays current and the other waits
+ *   next (or keeps its goods aside);
+ * - the reward offers waiting: one per town and level; one taken on either side (in the base, gone from that side)
+ *   stays taken;
  * - the player's own queue (`orders`, `making`) and `fieldsPlanted` (fields are land) go with the world kept: the
  *   later copy's (`later`).
  *
@@ -24,7 +27,7 @@ export function mergeProgress(base: ProgressData | undefined, local: ProgressDat
   return {
     owned: sumMaps(b.owned, local.owned, remote.owned),
     learned,
-    offers: unionOffers(local.offers ?? [], remote.offers ?? []),
+    offers: mergeOffers(b.offers ?? [], local.offers ?? [], remote.offers ?? []),
     coins: sum(b.coins, local.coins, remote.coins),
     orders: [...(latest.orders ?? [])],
     making: !!latest.making,
@@ -33,7 +36,7 @@ export function mergeProgress(base: ProgressData | undefined, local: ProgressDat
     bestLevel: Math.max(local.bestLevel ?? 0, remote.bestLevel ?? 0),
     firstFlour: !!local.firstFlour || !!remote.firstFlour,
     counts: sumMaps(b.counts ?? [], local.counts ?? [], remote.counts ?? []),
-    research: mergeResearch(local.research, remote.research, new Set(learned)),
+    research: mergeResearch(local.research, remote.research, new Set(learned), base?.research),
   };
 }
 
@@ -56,20 +59,50 @@ function sumMaps(base: readonly [string, number][], local: readonly [string, num
   return out;
 }
 
-/** Both sides' offers, once each (the same town's same cards are one offer). */
-function unionOffers(local: readonly unknown[], remote: readonly unknown[]): unknown[] {
+/**
+ * The offers waiting, from both: one per town and level (the same growth seen on both draws different cards: it's one
+ * offer, the local one kept). One in the base that's gone from either side was taken there: it stays taken. (QA: one
+ * growth on two devices gave two rewards.)
+ */
+export function mergeOffers(base: readonly unknown[], local: readonly unknown[], remote: readonly unknown[]): unknown[] {
+  const key = (o: unknown) => {
+    const x = o as { from?: unknown; level?: unknown } | null;
+    return `${String(x?.from ?? "")}\u0000${String(x?.level ?? "")}`;
+  };
+  const inBase = new Set(base.map(key));
+  const inLocal = new Set(local.map(key));
+  const inRemote = new Set(remote.map(key));
   const seen = new Set<string>();
   const out: unknown[] = [];
   for (const o of [...local, ...remote]) {
-    const key = JSON.stringify(o);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const k = key(o);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (inBase.has(k) && !(inLocal.has(k) && inRemote.has(k))) continue;
     out.push(o);
   }
   return out;
 }
 
 type Bag = [string, number][];
+
+/**
+ * A research's goods brought on both: what it had in the base (as current, or kept aside) plus what each side brought
+ * since, never more than it needs (`costOf`).
+ */
+function sumGoods(id: string, base: ResearchData | undefined, local: Bag, remote: Bag): Bag {
+  const had = new Map<string, number>(base?.current === id ? base.got : (base?.held?.find(([h]) => h === id)?.[1].got ?? []));
+  const need = costOf(id).goods;
+  const l = new Map(local);
+  const r = new Map(remote);
+  const out: Bag = [];
+  for (const k of new Set([...l.keys(), ...r.keys()])) {
+    const b = had.get(k) ?? 0;
+    const n = Math.min(need[k] ?? Infinity, Math.max(0, b + ((l.get(k) ?? 0) - b) + ((r.get(k) ?? 0) - b)));
+    if (n > 0) out.push([k, n]);
+  }
+  return out;
+}
 const total = (g: Bag) => g.reduce((n, [, k]) => n + k, 0);
 const maxBags = (a: Bag, b: Bag): Bag => {
   const m = new Map(a);
@@ -79,10 +112,10 @@ const maxBags = (a: Bag, b: Bag): Bag => {
 
 /**
  * The research, from both: blueprints learned on either side are no longer studied. The same one current on both:
- * the most of each good and of the study. Different ones: the one further along (more goods in, then more study)
+ * the goods each brought added (`sumGoods`), and the most study. Different ones: the one further along (more goods in, then more study)
  * stays current; the other goes next if that's free, else it keeps its goods aside (`held`, as a swap does).
  */
-export function mergeResearch(local: ResearchData | undefined, remote: ResearchData | undefined, learned: ReadonlySet<string>): ResearchData | undefined {
+export function mergeResearch(local: ResearchData | undefined, remote: ResearchData | undefined, learned: ReadonlySet<string>, base?: ResearchData): ResearchData | undefined {
   if (!local || !remote) return local ?? remote;
   const open = (id: string | null) => (id !== null && !learned.has(id) ? id : null);
   const held = new Map<string, { got: Bag; study: number }>();
@@ -99,7 +132,7 @@ export function mergeResearch(local: ResearchData | undefined, remote: ResearchD
   let other: { id: string; got: Bag; study: number } | null = null;
   if (lc !== null && lc === rc) {
     current = lc;
-    got = maxBags(local.got, remote.got);
+    got = sumGoods(lc, base, local.got, remote.got);
     study = Math.max(local.study, remote.study);
   } else {
     const l = { id: lc, got: lc ? local.got : [], study: lc ? local.study : 0 };

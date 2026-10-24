@@ -699,19 +699,51 @@ describe("cloud saves", () => {
       expect(coinsOf(d.store)).toBe(1230);
     });
 
-    it("a layout edit on either side isn't merged: the rules for a clash, as before", async () => {
+    it("a layout clash: the railway is the layout winner's, but the earnings are still merged (CoS)", async () => {
       const { server, c, d, earn, events } = await pair();
+      // C lays track (and earned 50 before it); D only earns 500, later.
       server.t = 2_000_000;
       c.store.setItem("g.save", '{"version":13,"text":"c laid track"}');
+      earn(c, 1050);
       c.sync.edited("game");
       await c.sync.flush();
       server.t = 2_010_000;
       earn(d, 1500);
       await d.sync.flush();
+      // D takes C's railway (said so, D's own copy kept), with both's earnings: 1000 + 50 + 500.
       expect(events).toEqual(["d taken game took-cloud"]);
-      expect(coinsOf(d.store)).toBe(1000);
+      expect(d.store.getItem("g.save")).toContain("c laid track");
+      expect(coinsOf(d.store)).toBe(1550);
       expect(d.sync.backupOf("game")).not.toBeNull();
+      // And it goes up, so C has them too.
+      await d.tick();
+      const c2 = device(c.sync["o"].backend as FakeCloud, c.store, server, merger);
+      await c2.sync.start();
+      expect(coinsOf(c2.store)).toBe(1550);
+      expect(c2.store.getItem("g.save")).toContain("c laid track");
     });
+
+    it("a layout clash won here: the railway kept, the other's earnings merged in (taken up live)", async () => {
+      const { server, c, d, earn, events, cloud } = await pair();
+      // D earns 300 and sends it; C, offline, laid track later (and earned 20).
+      server.t = 2_000_000;
+      earn(d, 1300);
+      await d.sync.flush();
+      cloud.offline = true;
+      server.t = 2_100_000;
+      c.store.setItem("g.save", '{"version":13,"text":"c laid track"}');
+      earn(c, 1020);
+      c.sync.edited("game");
+      await c.sync.flush();
+      cloud.offline = false;
+      server.t = 2_200_000;
+      await c.sync.flush();
+      expect(events).toEqual(["c merged game"]);
+      expect(c.notes).toEqual([["game", "both-changed"]]);
+      expect(c.store.getItem("g.save")).toContain("c laid track");
+      expect(coinsOf(c.store)).toBe(1320);
+    });
+
   });
 
   it("a 429 or a failure never loses what's still to send", async () => {
