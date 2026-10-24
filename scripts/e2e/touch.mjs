@@ -808,9 +808,23 @@ async function shortUnderCar(ctx, p) {
   const ids = await p.evaluate(async () => {
     const w = window.woodrail;
     const { frameDistance } = await import("/src/game/camera-director.ts");
-    const g = w.interaction.groundAt(195, 420);
-    // (Clear of what earlier checks left here: a run of its own, off to one side.)
-    const x0 = g.x + 700;
+    // (A run of its own on open ground, found outward from the view's target, whatever earlier checks left there or
+    // wherever they left the view: a glide cut short by a touch stops nearer where it set off.)
+    const t = w.controls.target;
+    const clear = (x, z) =>
+      [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
+      [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
+    let g = null;
+    for (let d = 0; d <= 6000 && !g; d += 216) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 216));
+      for (let a = 0; a < n && !g; a++) {
+        const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+        const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+        if ([0, 120, 240, 360, 480].every((dx) => clear(x + dx, z))) g = t.clone().set(x, 0, z);
+      }
+    }
+    if (!g) throw new Error("no open ground for the run");
+    const x0 = g.x;
     const run = w.editor().placeRun([
       { type: "straight-216", pose: { x: x0, z: g.z, heading: 0 }, y: 0, flipped: false },
       { type: "straight-36", pose: { x: x0 + 216, z: g.z, heading: 0 }, y: 0, flipped: false },
@@ -899,6 +913,36 @@ for (const mode of ["sandbox", "game"]) {
   }
 }
 
+/**
+ * A toast up over the map: a tap on it dismisses it, but while the map takes taps (picking pieces, drawing) it goes
+ * through to the map (QA: picking, a tap on a piece under the toast hit the toast, twice).
+ */
+async function toastTapsThrough(p) {
+  await p.keyboard.press("Escape");
+  const r = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const t = document.querySelector(".toast");
+    const at = () => {
+      const q = t.getBoundingClientRect();
+      const e = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+      return e === t || t.contains(e) ? "toast" : (e?.tagName ?? "nothing");
+    };
+    w.hud.toast("A toast over the map, for the test", false, 60000);
+    await new Promise((r) => setTimeout(r, 800));
+    const idle = at();
+    w.interaction.setDrawing(true);
+    const drawing = at();
+    w.interaction.setDrawing(false);
+    w.interaction.selectMore();
+    const picking = at();
+    w.interaction.doneSelecting();
+    const after = at();
+    w.hud.dismissToast();
+    return { idle, drawing, picking, after };
+  });
+  check("a toast takes a tap, but lets it through to the map while picking pieces or drawing (QA)", r.idle === "toast" && r.drawing !== "toast" && r.picking !== "toast" && r.after === "toast", JSON.stringify(r));
+}
+
 async function runMode(mode) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -948,6 +992,7 @@ async function runMode(mode) {
     await flickOut(ctx, p, tapOn);
     await leverPins(ctx, p);
     await shortUnderCar(ctx, p);
+    await toastTapsThrough(p);
   }
   await ctx.close();
 }

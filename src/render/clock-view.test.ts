@@ -44,13 +44,21 @@ describe("station clocks", () => {
     camera.position.set(0, 300, 400);
     camera.lookAt(0, 0, 0);
     camera.updateMatrixWorld();
-    expect(view.tick(10, camera)).toBe(true);
+    expect(view.tick(10, camera, 800)).toBe(true);
     // Same minute: nothing.
-    expect(view.tick(50, camera)).toBe(false);
+    expect(view.tick(50, camera, 800)).toBe(false);
+    // The next minute, in view but far off (the map view: QA, a frame every 20 s), the hand's move under half a pixel:
+    // set, no frame asked for. Nearer, or with more pixels to the view, it shows.
+    camera.position.set(0, 2400, 3200);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    expect(view.tick(61, camera, 800)).toBe(false);
+    expect(view.tick(121, camera, 4000)).toBe(true);
+    camera.position.set(0, 300, 400);
     // The next minute, out of view: the hands are set, but no frame asked for.
     camera.lookAt(0, 0, 5000);
     camera.updateMatrixWorld();
-    expect(view.tick(61, camera)).toBe(false);
+    expect(view.tick(181, camera, 800)).toBe(false);
     // Taken away: gone.
     props.remove(clock.id);
     view.sync(props);

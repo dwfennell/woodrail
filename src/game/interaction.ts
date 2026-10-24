@@ -415,7 +415,15 @@ export class Interaction {
   onHeld: ((type: PieceTypeId | null) => void) | null = null;
   private selectedPiece = -1;
   /** Picking several pieces (see `selectMore`): which are picked. */
-  private picking = false;
+  private pickingNow = false;
+  /** Picking pieces to move together ("Select more"): taps on track pick. (The HUD lets taps through a toast meanwhile.) */
+  private get picking(): boolean {
+    return this.pickingNow;
+  }
+  private set picking(on: boolean) {
+    this.pickingNow = on;
+    this.hud.setMapTaps("picking", on);
+  }
   private readonly picked = new Set<number>();
   private selectedProp = -1;
   /** Round the selected prop, or under the held one (green where it can go, red where it can't). */
@@ -2501,6 +2509,8 @@ export class Interaction {
     const found = this.selectedCar === -1 ? undefined : this.game.sim.findCar(this.selectedCar);
     if (!found) return;
     this.game.sim.removeTrain(found.train.id);
+    // (Gone for good: off its line now, its cargo and route with it, not at the next track edit.)
+    this.game.economy.prune();
     this.hud.hideCards();
     this.clearSelection();
     this.changed();
@@ -4104,6 +4114,8 @@ export class Interaction {
     const fresh = !m.origin;
     if (m.overTray) {
       if (m.origin) this.hud.toast("Back in the box");
+      // (Off the map for good, as with Remove: off its line now, not at the next track edit.)
+      if (m.origin) this.game.economy.prune();
       if (fresh) this.onTrayTrainDropped?.(false);
       this.changed();
       return;
