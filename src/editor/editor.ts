@@ -567,9 +567,11 @@ export class Editor {
   /** The pieces a train (on the rails) is on, under a wheel or a car between them, or null for none. */
   private underTrains(): PieceRecord[] | null {
     let out: PieceRecord[] | null = null;
+    const seen = new Set<number>();
     for (const t of this.sim.trainIds()) {
       for (const id of this.sim.piecesUnder(t)) {
-        if (out?.some((r) => r.id === id)) continue;
+        if (seen.has(id)) continue;
+        seen.add(id);
         const r = this.record(id);
         if (r) (out ??= []).push(r);
       }

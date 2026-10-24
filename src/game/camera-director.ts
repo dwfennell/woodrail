@@ -257,6 +257,8 @@ export const EDGE_TOUCH_ZONE = 36;
 export const EDGE_TOUCH_DWELL = 0.5;
 export const EDGE_TOUCH_RAMP = 0.3;
 export const EDGE_TOUCH_SPEED = 0.5;
+/** Frames a finger must be seen in the band, after the one it came in on, before the view moves (see `update`). */
+export const EDGE_TOUCH_FRAMES = 3;
 
 /**
  * How much of its speed an edge pan has, `held` seconds after the pointer came into the band (0 while waiting). A mouse
@@ -410,6 +412,10 @@ export class CameraDirector {
 
   /** True when the last update panned the view (dragged things under the pointer need re-placing). */
   edgePanning = false;
+  /** The pointer was in the edge band (and not waiting to leave it first) on the last update (see `update`). */
+  private edgeIn = false;
+  /** Frames the pointer has been in the band since the one it was first seen there in (see `update`). */
+  private edgeFrames = 0;
 
   /**
    * `elapsed` is the real time since the last update, where `dt` is capped (a slow frame doesn't jump the view): the
@@ -472,8 +478,16 @@ export class CameraDirector {
       edgePan(this.edgePointer.x, this.edgePointer.y, viewW, this.edgePointer.bottom ?? viewH, this.edgePointer.zone, this.edge);
       const inBand = this.edge.dx !== 0 || this.edge.dy !== 0;
       if (!inBand) this.edgeWaiting = false;
-      this.edgeHeld = inBand && !this.edgeWaiting ? this.edgeHeld + elapsed : 0;
-      const push = edgeDwell(this.edgeHeld, this.edgePointer.touch);
+      // (Held from the frame it's first seen in the band: counted from the frame before, the first one in, where frames
+      // come slowly (QA's box: about one a second), was past the dwell already, and a stroke let go just after reaching
+      // the band panned the view, or didn't, by a frame's timing (QA, branch-z-near: 1 piece or 2 by the run).)
+      // A finger also waits `EDGE_TOUCH_FRAMES` frames in the band after that one, however long they take: half a second
+      // at 60 fps is 30 frames, and where they come slowly, one long frame isn't a finger resting there.
+      const held = inBand && !this.edgeWaiting;
+      this.edgeHeld = held ? (this.edgeIn ? this.edgeHeld + elapsed : 0) : 0;
+      this.edgeFrames = held ? (this.edgeIn ? this.edgeFrames + 1 : 0) : 0;
+      this.edgeIn = held;
+      const push = this.edgePointer.touch && this.edgeFrames < EDGE_TOUCH_FRAMES ? 0 : edgeDwell(this.edgeHeld, this.edgePointer.touch);
       if (inBand && !this.edgeWaiting && push > 0) {
         const dist = cam.position.distanceTo(c.target);
         cam.getWorldDirection(this.forward);

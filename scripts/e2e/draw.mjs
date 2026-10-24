@@ -30,9 +30,28 @@ const tapSel = async (page, sel) => {
   await page.waitForSelector(sel, { state: "attached", timeout: 120000 });
   await page.evaluate((sel) => document.querySelector(sel).click(), sel);
 };
-/** The scene has been still a few ticks (the game's own hook), within a generous cap: no fixed waits. */
+/**
+ * The scene has been still a few ticks (the game's own hook), within a generous cap: no fixed waits. (Where frames come
+ * slowly, a still tick well after the last frame counts: see `Game.settled`.) Run out, it says what was still going
+ * on and how fast frames were coming (QA's box: 0.3 to 1.3 a second), rather than just "never settled".
+ */
 const settled = (page) =>
-  page.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((_, no) => setTimeout(() => no(new Error("never settled")), 120000))]));
+  page.evaluate(() => {
+    const w = window.woodrail;
+    const f0 = w.framesDrawn;
+    const t0 = performance.now();
+    return Promise.race([
+      w.settled(),
+      new Promise((_, no) =>
+        setTimeout(() => {
+          const s = (performance.now() - t0) / 1000;
+          const frames = w.framesDrawn - f0;
+          const why = [`${w.flourishes.count} animations running`, w.director.busy ? "the camera moving" : "the camera still", w.interaction.draw.ghostsCaughtUp === false ? "the ghosts catching up" : "the ghosts done"];
+          no(new Error(`never settled in ${s.toFixed(0)} s: ${frames} frames drawn (${(frames / s).toFixed(2)} a second); ${why.join(", ")}`));
+        }, 120000),
+      ),
+    ]);
+  });
 const check = (name, ok, detail = "") => {
   results.push({ name, ok, detail });
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
@@ -197,12 +216,19 @@ if (process.env.E2E_ONLY === "junctions") {
   await junctions(false);
   await loopOffStraight();
   await ghostMatch();
+  await liftFlush();
   await finishRun();
 }
 
 /** Only what's laid against the last ghosts (E2E_ONLY=ghosts). */
 if (process.env.E2E_ONLY === "ghosts") {
   await ghostMatch();
+  await finishRun();
+}
+
+/** Only a lift waiting a frame to go down, and what puts it down at once (E2E_ONLY=lift). */
+if (process.env.E2E_ONLY === "lift") {
+  await liftFlush();
   await finishRun();
 }
 
@@ -1385,6 +1411,96 @@ async function finishRun() {
  * too. (It was a tie between two plans that a camera a hair off after the undo broke the other way: see `best`.)
  */
 /**
+ * A lift whose ghosts hadn't caught up shows the finished ghosts for a frame and goes down after (`DrawHand.end`; every
+ * lift does with `deferLifts`, for the test). Anything that acts on the layout in that frame puts it down first: an
+ * undo (which then takes the line up, not what came before it), another press, the page hidden (its frames stop:
+ * the line goes down and is saved), the page left. (QA, from reading the code: an undo in that frame undid the
+ * action before the line, and a lift just before backgrounding wasn't laid or saved till the player came back.)
+ */
+async function liftFlush() {
+  if (!site) return;
+  // (Drawing on, as its chip does: run on its own, nothing before it switched it on.)
+  await p.evaluate(() => {
+    if (!window.woodrail.interaction.isDrawing) document.querySelector(".tray-draw")?.click();
+  });
+  await p.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
+  const { x, z, heading: h } = site;
+  await focus(x + Math.cos(h) * 200, z + Math.sin(h) * 200);
+  const triggers = {
+    undo: () => window.woodrail.interaction.undo(),
+    // (On the page's body, as a real press is on an element: the window's capture listeners see it first.)
+    "a press": () => document.body.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 9, pointerType: "mouse", bubbles: true })),
+    "the page hidden": () => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    },
+    "the page left": () => window.dispatchEvent(new Event("pagehide")),
+  };
+  for (const name of Object.keys(triggers)) {
+    // Something done before the line (a straight put down off to one side), for the undo to leave alone.
+    const before = await p.evaluate(([x, z, h]) => {
+      const w = window.woodrail;
+      const id = w.editor().place("straight-54", { x: x - Math.sin(h) * 300, z: z + Math.cos(h) * 300, heading: h }, 0, false);
+      return { id, pieces: w.layout.pieceCount };
+    }, [x, z, h]);
+    const screen = await p.evaluate(([x, z, h]) => [0, 100, 200, 300, 380].map((d) => D.screen(x + Math.cos(h) * d, 0, z + Math.sin(h) * d)), [x, z, h]);
+    await p.mouse.move(...screen[0]);
+    await p.mouse.down();
+    for (let i = 1; i < screen.length; i++) {
+      const [ax, ay] = screen[i - 1];
+      const [bx, by] = screen[i];
+      for (let k = 1; k <= 8; k++) await p.mouse.move(ax + ((bx - ax) * k) / 8, ay + ((by - ay) * k) / 8);
+    }
+    await p.waitForFunction(() => window.woodrail.interaction.draw.ghostsCaughtUp ?? true, null, { timeout: 30000 }).catch(() => {});
+    // The lift, then the trigger, in one go: no frame between them.
+    const got = await p.evaluate(
+      ([name, src, last]) => {
+        const w = window.woodrail;
+        const d = w.interaction.draw;
+        d.deferLifts = true;
+        window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, pointerType: "mouse", button: 0, clientX: last[0], clientY: last[1], bubbles: true }));
+        const pending = d.liftPending;
+        const lifted = w.layout.pieceCount;
+        // eslint-disable-next-line no-new-func
+        new Function(`return (${src})`)()();
+        const out = { pending, lifted, after: w.layout.pieceCount, stillPending: d.liftPending };
+        d.deferLifts = false;
+        return out;
+      },
+      [name, triggers[name].toString(), screen[screen.length - 1]],
+    );
+    await p.mouse.up();
+    const saved = await p.evaluate(() => {
+      const w = window.woodrail;
+      const key = w.mode() === "game" ? "woodrail.game.v2" : "woodrail.autosave.v3";
+      try {
+        return JSON.parse(localStorage.getItem(key) ?? "null")?.pieces?.length ?? -1;
+      } catch {
+        return -1;
+      }
+    });
+    const after = await p.evaluate(([id]) => ({ pieces: window.woodrail.layout.pieceCount, prevThere: !!window.woodrail.layout.getPiece(id) }), [before.id]);
+    if (name === "the page hidden")
+      await p.evaluate(() => {
+        delete document.visibilityState;
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    await settled(p);
+    const what = `${name}: lift pending ${got.pending} at ${got.lifted} pieces (${before.pieces} before), then ${got.after}, pending ${got.stillPending}; saved ${saved}; the piece before there ${after.prevThere}`;
+    if (name === "undo") check(`a lift waiting a frame, then an undo: the line goes down and the undo takes it up, not the piece before`, got.pending && got.lifted === before.pieces && got.after === before.pieces && !got.stillPending && after.prevThere, what);
+    else check(`a lift waiting a frame, then ${name}: the line goes down at once`, got.pending && got.lifted === before.pieces && got.after > before.pieces && !got.stillPending, what);
+    if (name === "the page hidden") check("…and it's saved with the rest as the page goes", saved === got.after, what);
+    // Tidy: the line (if down) and the straight before it.
+    await p.evaluate(([n, id]) => {
+      const w = window.woodrail;
+      if (w.layout.pieceCount > n) w.interaction.undo();
+      if (w.layout.getPiece(id)) w.interaction.undo();
+    }, [before.pieces, before.id]);
+    await settled(p);
+  }
+}
+
+/**
  * QA's own script for terrace 2 (scratchpad qa-ghost/README.md, "Terrace 2: QA's exact script"): a 390 × 844 phone,
  * Draw switched on by its chip, the world line x −1764 − d (d 0 to 480, every 15 mm) at z −1620 seen on each square's
  * ground with QA's camera, resampled every 10 px on the screen, each touch stamped 16 ms after the last and the lift
@@ -1743,7 +1859,8 @@ async function loopOffStraight() {
       mm = Math.max(mm, Math.hypot(g.x - p.pose.x, g.z - p.pose.z));
       deg = Math.max(deg, (Math.abs(Math.atan2(Math.sin(g.heading - p.pose.heading), Math.cos(g.heading - p.pose.heading))) * 180) / Math.PI);
     });
-    return { n: d.liftLaid.length, ghosts: d.liftShown.length, mm, deg };
+    const types = (xs) => xs.map((q) => `${q.type}${q.flipped ? "~" : ""}`).join(" ");
+    return { n: d.liftLaid.length, ghosts: d.liftShown.length, mm, deg, laid: types(d.liftLaid.map((id) => w.layout.getPiece(id))), shown: types(d.liftShown) };
   });
   const got = await q.evaluate(() => {
     const w = window.woodrail;
@@ -1753,9 +1870,9 @@ async function loopOffStraight() {
   check("passing loop off the straight: a switch out, the run beside it, a switch back in", got.switches - view.switches === 2 && got.pieces > view.pieces, what);
   check("…and no 'Turn it to fit' while drawing", !got.toasts.some((t) => /turn it to fit/i.test(t)), what);
   check(
-    "…and the loop's pieces went down where its last ghosts were",
-    offGhosts.n > 0 && offGhosts.mm < 0.05 && offGhosts.deg < 0.01,
-    `${offGhosts.n} of the line's pieces against its ${offGhosts.ghosts} ghosts as it lifted: worst ${offGhosts.mm.toFixed(2)} mm, ${offGhosts.deg.toFixed(3)}°`,
+    "…and the loop's pieces are its last ghosts: the same pieces (none shown that the merge's switch takes the place of), where they were",
+    offGhosts.n > 0 && offGhosts.n === offGhosts.ghosts && offGhosts.laid === offGhosts.shown && offGhosts.mm < 0.05 && offGhosts.deg < 0.01,
+    `laid ${offGhosts.laid} · shown ${offGhosts.shown} · worst ${offGhosts.mm.toFixed(2)} mm, ${offGhosts.deg.toFixed(3)}°`,
   );
   // Out of reach (QA: the camera 4000 mm off; at 740 px tall reach lasts to about 3700 mm), Draw on: a tap on the
   // line's body, or a long press, only lets go of what's selected, as with Draw off; no card opens (QA: a tap opened
@@ -1791,5 +1908,81 @@ async function loopOffStraight() {
     farOut.every((f) => !f.card && f.moved < 1e-6 && /press:branch/.test(f.pressed)),
     JSON.stringify(farOut),
   );
+  await branchZNear(q, cdp);
   await ctx.close();
+}
+
+/**
+ * QA's branch-z-near (p17): a short branch off the Larkfield–Elderwick straight, drawn the same way four times, the
+ * camera 700 mm off, the screen line resampled every 10 px, touches 16 ms apart. It laid 1 piece or 2 by the run: the
+ * line was drawn only from each event's last point, and the browser runs more moves together when the page is busier
+ * (a 23rd or 24th input). Every point now goes into the line (see `Interaction.updateDrawFrom`): the same pieces each
+ * time.
+ */
+async function branchZNear(q, cdp) {
+  const Z = 108;
+  const lerp = (pts, every) => {
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const [a, c] = [pts[i - 1], pts[i]];
+      const n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1]) / every));
+      for (let k = 1; k <= n; k++) out.push([a[0] + ((c[0] - a[0]) * k) / n, a[1] + ((c[1] - a[1]) * k) / n]);
+    }
+    return out;
+  };
+  const world = lerp([[-150, Z], [-125, Z - 22], [-90, Z - 70], [0, Z - 200]], 4);
+  let clock = Date.now() / 1000 + 100;
+  const outcomes = [];
+  for (let rep = 0; rep < 4; rep++) {
+    const scr = await q.evaluate((world) => {
+      const w = window.woodrail;
+      const V = w.camera.position.constructor;
+      w.director.cancel?.();
+      w.lookAt(new V(-100, 0, 108 - 60), 700, 0.95, -1.1659);
+      w.camera.updateMatrixWorld();
+      const G = w.landscape.grid;
+      const r = w.canvas.getBoundingClientRect();
+      return world.map(([x, z]) => {
+        const c = G.cellAtWorld(x, z);
+        const v = new V(x, c === -1 ? 0 : G.groundY(c), z).project(w.camera);
+        return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+      });
+    }, world);
+    await settled(q);
+    const res = [scr[0]];
+    let carry = 0;
+    for (let i = 1; i < scr.length; i++) {
+      const [ax, ay] = scr[i - 1];
+      const [bx, by] = scr[i];
+      const L = Math.hypot(bx - ax, by - ay);
+      let t = 10 - carry;
+      for (; t <= L; t += 10) res.push([ax + ((bx - ax) * t) / L, ay + ((by - ay) * t) / L]);
+      carry = L - (t - 10);
+    }
+    const before = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    clock += 1;
+    const tp = (x, y) => [{ x, y, radiusX: 1, radiusY: 1, force: 1, id: 1 }];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: tp(...res[0]), timestamp: clock });
+    for (const pt of res.slice(1)) {
+      clock += 0.016;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: tp(...pt), timestamp: clock });
+    }
+    clock += 0.016;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [], timestamp: clock });
+    await settled(q);
+    const laid = await q.evaluate((before) => {
+      const w = window.woodrail;
+      const old = new Set(before);
+      return [...w.layout.pieceIds()].filter((id) => !old.has(id)).map((id) => {
+        const p = w.layout.getPiece(id);
+        return `${p.type}${p.flipped ? "~" : ""}@${p.pose.x.toFixed(1)},${p.pose.z.toFixed(1)}`;
+      });
+    }, before);
+    outcomes.push(laid.join(" "));
+    if (laid.length) {
+      await q.evaluate(() => window.woodrail.interaction.undo());
+      await settled(q);
+    }
+  }
+  check("branch-z-near drawn four times: the same pieces each time", outcomes[0] !== "" && outcomes.every((o) => o === outcomes[0]), outcomes.join(" | "));
 }

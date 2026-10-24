@@ -15,6 +15,17 @@ export interface MapViewHandlers {
 /** How far (px) a ruin's lock reaches past its badge's right and bottom edges (`.map-ruin-lock`'s right and bottom). */
 export const LOCK_OUT = 8;
 
+/**
+ * Below this height (px) the band between the bars (`MapView.band`) takes compact labels: a town's or depot's name
+ * alone on one line, smaller, with its dot (and a depot's goods icon), no line under it or progress bar. A phone on its
+ * side has about 190–235 px there, upright 600 or more; the full labels (49 px tall) left room for 2 of the starter
+ * map's 5 towns at 667×375. Measured from the band, not the device, so a short window on a desk gets them too.
+ */
+export const COMPACT_BAND = 300;
+
+/** Does a band `lo`..`hi` (px) take compact labels? */
+export const compactBand = (lo: number, hi: number): boolean => hi - lo < COMPACT_BAND;
+
 /** How far (px) a press on a marker moves before it's a drag of the map, not a tap on the marker. */
 const DRAG_PX = 8;
 
@@ -184,7 +195,7 @@ export class MapView {
   /** Show these markers (rebuilt only when what they say changed). */
   show(markers: MapMarker[]): void {
     this.markers = markers;
-    const key = markers.map((m) => `${m.key}|${m.title}|${m.detail}|${m.fill ?? ""}|${m.icon ?? ""}${m.locked ? "L" : ""}`).join(";");
+    const key = markers.map((m) => `${m.key}|${m.title}|${m.detail}|${m.fill ?? ""}|${m.icon ?? ""}|${m.glyph ?? ""}${m.locked ? "L" : ""}`).join(";");
     if (key === this.shownKey) return;
     this.shownKey = key;
     this.placedKey = "";
@@ -205,7 +216,9 @@ export class MapView {
         continue;
       }
       const bar = m.fill !== undefined ? `<span class="map-fill"><i style="width:${Math.round(m.fill * 100)}%"></i></span>` : "";
-      b.innerHTML = `<span class="map-dot"></span><span class="map-text"><b>${m.title}</b><span>${m.detail}</span>${bar}</span>`;
+      // (A compact label, `.compact`, shows the name and a depot's goods icon alone: the line under it and the bar hidden.)
+      const glyph = m.glyph ? `<i class="map-glyph">${m.glyph}</i>` : "";
+      b.innerHTML = `<span class="map-dot"></span><span class="map-text"><b>${m.title}${glyph}</b><span>${m.detail}</span>${bar}</span>`;
       this.layer.appendChild(b);
       this.els.set(m.key, b);
     }
@@ -227,6 +240,10 @@ export class MapView {
    * one another are nudged apart vertically (towns keep their spot over depots), and hidden if they still would.
    */
   place(project: (x: number, z: number) => { x: number; y: number } | null): void {
+    const { top: lo, bottom: hi } = this.band();
+    // A short band (a phone on its side): compact labels, so most of the towns' fit (set before their sizes are read).
+    const compact = compactBand(lo, hi);
+    if (compact !== this.root.classList.contains("compact")) this.root.classList.toggle("compact", compact);
     // Read every label's size first, then move them (one layout, not one per marker).
     // (A locked badge's lock reaches past its corner: its box takes that in, so no label covers it.)
     const sizes = this.markers.map((m) => {
@@ -234,7 +251,6 @@ export class MapView {
       const out = m.kind === "ruin" && m.locked ? LOCK_OUT : 0;
       return { w: (e?.offsetWidth ?? 0) + out, h: (e?.offsetHeight ?? 0) + out };
     });
-    const { top: lo, bottom: hi } = this.band();
     const pts = this.markers.map((m) => project(m.x, m.z));
     const key = pts.map((p, k) => (p ? `${Math.round(p.x)},${Math.round(p.y)},${sizes[k].w},${sizes[k].h}` : "-")).join(";") + `@${window.innerWidth},${lo},${hi}`;
     if (key === this.placedKey) return;

@@ -13,8 +13,9 @@
 // - a phone on its side (667×375): the ruin card's Restore and Clear fully in view above the tray, and tappable.
 // - the map view (390×844, step 3): the old farm's marker (🌾, a lock), none over a town's or station's label; idle
 //   there, no frames; Farming learned, the lock goes; tapped, the ruin's card opens; restored, its marker goes.
-// - the map view on a phone on its side (667×375, 844×390): no badge or label over another, a badge tapped (middle or
-//   edge) goes to its ruin.
+// - the map view on a phone on its side (667×375, 844×390): compact labels (name only), 4 of the starter map's 5 towns'
+//   shown at 667×375 and all 5 at 844×390; no badge or label over another, a badge tapped (middle or edge) goes to its
+//   ruin. Upright (390×844), the full labels.
 // - a big map (22 plots bought, 390×844): a drag from a town's label pans the map view, and panning gets every ruin on
 //   the land its badge on screen.
 //
@@ -524,30 +525,44 @@ await L.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.wo
 await L.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
 await L.keyboard.press("Escape");
 await L.waitForTimeout(1500);
-// (Farming learned, so the card has both buttons; its yard looked at from above the tray, and tapped.)
+// (Farming learned, so the card has both buttons; its yard framed in the middle of the view, and tapped for real.)
+// The tap goes to the first spot on the ruin (its yard's middle, else its buildings or stub) with the canvas on top
+// and the ruin under it: the HUD is checked, not assumed. (A test artefact: aimed with the view's target 300 mm past
+// the yard, the yard was at y 318 of 375, under the tray; and Farming's "Old farm … can be restored" toast, up 4.2 s,
+// lies over the view's middle in landscape. Every spot on the ruin with the canvas on top opens its card, both ways up.)
+await L.evaluate(() => window.woodrail.learn("farming"));
+await L.waitForFunction(() => !document.querySelector(".toast.show"), null, { timeout: 30000, polling: 250 }).catch(() => console.log("  (the toast was still up after 30 s)"));
 const lAt = await L.evaluate(async () => {
   const w = window.woodrail;
-  w.learn("farming");
   const s = w.world.landscape.sites.find((x) => x.role === "farm");
   const c = Math.cos(s.piece.heading);
   const n = Math.sin(s.piece.heading);
   const V = w.camera.position.constructor;
-  const yard = new V(s.piece.x + c * 108 - n * 72, 10, s.piece.z + n * 108 + c * 72);
-  w.lookAt(new V(yard.x, 0, yard.z + 300), 1300, 0.8);
+  w.lookAt(new V(s.piece.x + c * 108 - n * 72, 0, s.piece.z + n * 108 + c * 72), 1300, 0.8);
   w.invalidate();
   await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 15000))]);
-  const v = yard.clone().project(w.camera);
   const r = w.canvas.getBoundingClientRect();
-  return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height, id: s.id };
+  const stub = w.world.ruins.get(s.id);
+  // (Depot frame: t along the stub, l across; h mm up.)
+  for (const [t, l, h] of [[108, 72, 10], [60, 72, 10], [160, 72, 10], [108, 30, 30], [108, 110, 30], [60, -10, 2], [160, -10, 2]]) {
+    const v = new V(s.piece.x + c * t - n * l, h, s.piece.z + n * t + c * l).project(w.camera);
+    const x = r.left + ((v.x + 1) / 2) * r.width;
+    const y = r.top + ((1 - v.y) / 2) * r.height;
+    if (document.elementFromPoint(x, y) !== w.canvas) continue;
+    const pick = w.interaction.pick(x, y, true);
+    if (w.interaction.ruinAtScreen(x, y) === s.id || (pick?.kind === "piece" && pick.pieceId === stub)) return { x: Math.round(x), y: Math.round(y), at: [t, l, h] };
+  }
+  return null;
 });
-await L.waitForTimeout(4000);
-await stampedTap(L, lAt.x, lAt.y);
+if (lAt) await stampedTap(L, lAt.x, lAt.y);
 await L.waitForTimeout(300);
 const lTapped = await L.evaluate(() => !document.querySelector(".ruin-card").hidden);
-if (!lTapped) await L.evaluate((id) => window.woodrail.interaction.onRuinTap(id), lAt.id);
 await L.waitForTimeout(800);
-const lCard = await L.evaluate(() => {
+const lCard = await L.evaluate(async () => {
   const card = document.querySelector(".ruin-card");
+  // (Measured once its opening is over: on a loaded machine its `card-in`, scaled, was still running at 1.1 s.)
+  await Promise.race([Promise.all(card.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {}))), new Promise((r) => setTimeout(r, 5000))]);
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const cr = card.getBoundingClientRect();
   const tray = document.querySelector(".tray").getBoundingClientRect();
   return {
@@ -562,7 +577,7 @@ const lCard = await L.evaluate(() => {
     tray: Math.round(tray.top),
   };
 });
-check("667×375: the ruin card opens (a tap on the old farm)", lCard.open, JSON.stringify({ tapped: lTapped }));
+check("667×375: the ruin card opens (a stamped tap on the old farm, no fallback)", !!lAt && lTapped && lCard.open, JSON.stringify({ at: lAt, tapped: lTapped }));
 check("667×375: Restore and Clear fully in view, above the tray, nothing over them", lCard.buttons.length === 2 && lCard.buttons.every((x) => x.ok && x.hit), JSON.stringify(lCard));
 await L.screenshot({ path: `${OUT}/14-ruin-card-667x375.png` }).catch(() => {});
 // A tap on Restore lands: no workshop yet, so it says where the planks come from.
@@ -651,6 +666,9 @@ const mapStateOn = (M) =>
 const overlaps = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
 await openMapView();
 const map1 = await mapState();
+// Upright, the band is tall: the full labels (name, the line under it, a town's bar), not the compact ones.
+const fullLabels = await M.evaluate(() => ({ compact: document.querySelector(".map-view").classList.contains("compact"), towns: [...document.querySelectorAll(".map-marker.kind-town:not(.off)")].map((e) => [e.offsetHeight, !!e.querySelector(".map-fill")?.getBoundingClientRect().height]) }));
+check("map view upright (390×844): full labels, as before (a town's line and bar shown)", !fullLabels.compact && fullLabels.towns.length > 0 && fullLabels.towns.every(([h, bar]) => h > 40 && bar), JSON.stringify(fullLabels));
 const farmMark = map1.ruins.find((r) => r.key === `ruin:${mFarm}`);
 check("map view: the old farm's marker, 🌾 with a lock", map1.open && farmMark?.shown && farmMark.icon === "🌾" && farmMark.locked, JSON.stringify(farmMark));
 check("…its lock readable: 16 px or more, on a pale disc", !!farmMark?.lock && farmMark.lock.font >= 16 && farmMark.lock.disc >= 20 && farmMark.lock.bg !== "rgba(0, 0, 0, 0)", JSON.stringify(farmMark?.lock));
@@ -759,6 +777,16 @@ for (const [W, H] of [
   const shownBoxes = [...st.ruins.filter((r) => r.shown), ...st.labels];
   const clash = [];
   for (let i = 0; i < shownBoxes.length; i++) for (let j = i + 1; j < shownBoxes.length; j++) if (overlaps(shownBoxes[i].box, shownBoxes[j].box)) clash.push(`${shownBoxes[i].key}×${shownBoxes[j].key}`);
+  // Compact labels (the band between the bars is short): most of the towns' fit (QA: 2 of 5 at 667×375, 4 at 844×390).
+  const towns = await S.evaluate(() => ({
+    compact: document.querySelector(".map-view").classList.contains("compact"),
+    shown: document.querySelectorAll(".map-marker.kind-town:not(.off)").length,
+    all: document.querySelectorAll(".map-marker.kind-town").length,
+    detail: [...document.querySelectorAll(".map-marker:not(.kind-ruin):not(.off) .map-text > span")].some((e) => e.getBoundingClientRect().height > 0),
+    tall: Math.max(0, ...[...document.querySelectorAll(".map-marker:not(.kind-ruin):not(.off)")].map((e) => e.offsetHeight)),
+  }));
+  const want = W === 667 ? Math.min(4, towns.all) : towns.all;
+  check(`${W}×${H} map view: compact labels (name only, one line), ${want} or more of the ${towns.all} towns' shown`, towns.compact && !towns.detail && towns.tall <= 30 && towns.shown >= want, JSON.stringify(towns));
   const locks = st.ruins.filter((r) => r.shown && r.lock);
   check(`${W}×${H} map view: the locks readable (16 px or more, on a pale disc)`, locks.length > 0 && locks.every((r) => r.lock.font >= 16 && r.lock.disc >= 20), JSON.stringify(locks.map((r) => [r.key, r.lock])));
   check(`${W}×${H} map view: no badge or label over another`, st.open && shownBoxes.length > 0 && clash.length === 0, clash.join(", ") || `${st.labels.length} labels, ${st.ruins.filter((r) => r.shown).length} badges shown`);

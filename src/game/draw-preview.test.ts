@@ -82,6 +82,7 @@ describe("a drawn line's ghosts (DrawLine.preview)", () => {
 
   it("cut into slices come out as worked out whole, and a lift lays them", () => {
     let sliced = 0;
+    const cut = DrawLine.cutShort;
     for (const s of all) {
       const world = createWorld(7);
       const [a, b] = [s.line(world), s.line(world)];
@@ -104,6 +105,9 @@ describe("a drawn line's ghosts (DrawLine.preview)", () => {
       expect(key(a.pieces), s.name).toBe(ghosts);
     }
     expect(sliced).toBeGreaterThan(100);
+    // (Close searches among them, cut short part way and taken up again on the next slice: QA, one ran whole in a
+    // frame, 9.6 to 66.7 ms drawing into a station.)
+    expect(DrawLine.cutShort - cut).toBeGreaterThan(10);
   }, 60_000);
 
   it("while a slice is still being worked out, the last ones worked out are shown, and none is worked out at 0", () => {
