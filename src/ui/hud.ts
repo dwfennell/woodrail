@@ -1870,13 +1870,57 @@ export class Hud {
     return (out ? tray.top - 6 : window.innerHeight - 8) - tilt;
   }
 
+  /**
+   * The toast over a docked card (`card`, at `box`; `below`: the foot of the goals, 0 if none): under the goals at its
+   * own width if that covers none of the card's controls; else as wide as the card, over its title or text, on the
+   * first rows that keep its controls clear; else where it covers fewest, its main button (Go) counting most (QA: a
+   * toast over the engine card hid Go). Measured when it shows: a few layouts.
+   */
+  private overCard(card: HTMLElement, box: DOMRect, below: number): void {
+    const t = this.toastEl;
+    const controls = [...card.querySelectorAll<HTMLElement>("button, input, select, .chip, [role=switch]")]
+      .filter((c) => c.offsetParent !== null)
+      .map((c) => ({ q: c.getBoundingClientRect(), main: c.classList.contains("primary") || c.classList.contains("go") }));
+    // (By layout, not its box, which is higher while it slides in: its middle across is `offsetLeft`, as it's centred.)
+    const cost = () => {
+      const l = t.offsetLeft - t.offsetWidth / 2;
+      const r = l + t.offsetWidth;
+      const top = t.offsetTop;
+      const bottom = top + t.offsetHeight;
+      let n = 0;
+      for (const { q, main } of controls) if (q.right > l && q.left < r && q.bottom > top && q.top < bottom) n += main ? 10 : 1;
+      return n;
+    };
+    const floor = this.toastFloor();
+    // Under the goals, at its own width.
+    t.style.top = t.style.left = t.style.maxWidth = "";
+    if (below > 0) t.style.top = `${Math.round(below + 22)}px`;
+    let best = { cost: cost(), left: "", maxWidth: "", top: t.style.top };
+    if (best.cost === 0) return;
+    // Over the card, as wide as it: from its top, then under each of its controls.
+    t.style.left = `${Math.round((box.left + box.right) / 2)}px`;
+    t.style.maxWidth = `${Math.round(box.width - 16)}px`;
+    const h = t.offsetHeight;
+    const tops = [box.top + 4, ...controls.map(({ q }) => q.bottom + 4)].filter((y) => y + h <= floor).sort((a, b) => a - b);
+    for (const y of tops) {
+      t.style.top = `${Math.round(y)}px`;
+      const c = cost();
+      if (c < best.cost) best = { cost: c, left: t.style.left, maxWidth: t.style.maxWidth, top: t.style.top };
+      if (c === 0) break;
+    }
+    t.style.left = best.left;
+    t.style.maxWidth = best.maxWidth;
+    t.style.top = best.top;
+  }
+
   /** Where a toast goes (see `placeToast`): false if there's no room for it now. */
   private fitToast(message: string, urgent: boolean): boolean {
     const t = this.toastEl;
     t.textContent = message;
     t.style.top = t.style.left = t.style.maxWidth = "";
     let r = t.getBoundingClientRect();
-    const cards = [...this.root.querySelectorAll<HTMLElement>(".card")].filter((c) => !c.hidden && c.offsetParent !== null && !c.classList.contains("group")).map((c) => c.getBoundingClientRect());
+    const cardEls = [...this.root.querySelectorAll<HTMLElement>(".card")].filter((c) => !c.hidden && c.offsetParent !== null && !c.classList.contains("group"));
+    const cards = cardEls.map((c) => c.getBoundingClientRect());
     const over = (q: DOMRect) => !(q.right < r.left || q.left > r.right || q.bottom < r.top || q.top > r.bottom);
     // Beside a card (on a phone on its side, cards dock at the right, under the top bar): in the room to its left.
     const beside = cards.find((q) => over(q) && q.left >= 200);
@@ -1899,15 +1943,21 @@ export class Hud {
         t.style.top = `${Math.round(below + 22)}px`;
         r = t.getBoundingClientRect();
       }
+      return below;
     };
-    underPinned();
+    const below = underPinned();
     if (beside) {
-      // Too tall for the room beside the card, down to the tray (QA, 667 wide: six lines, pushed up off the tray over
-      // the goals and the date): it goes over the card instead, at its own width, under the goals.
-      if (t.offsetTop + t.offsetHeight <= this.toastFloor()) return true;
-      t.style.top = t.style.left = t.style.maxWidth = "";
-      r = t.getBoundingClientRect();
-      underPinned();
+      const floor = this.toastFloor();
+      if (t.offsetTop + t.offsetHeight <= floor) return true;
+      // Short of room down to the tray: nearer the goals, down to 8 px under them (QA, 740x360: two lines missed by a
+      // pixel and went over the engine card's Go).
+      if (below > 0 && floor - t.offsetHeight >= below + 8) {
+        t.style.top = `${Math.round(floor - t.offsetHeight)}px`;
+        return true;
+      }
+      // Too tall for the room beside the card (QA, 667 wide: six lines, pushed up off the tray over the goals and the
+      // date): over the card instead, where it covers none of its controls if it can (see `overCard`).
+      this.overCard(cardEls[cards.indexOf(beside)], beside, below);
       return true;
     }
     if (this.root.classList.contains("map-open")) {

@@ -3044,6 +3044,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The map's view as last seen (camera, target), and whether it has moved since a toast was last fitted to it. */
   const mapViewSeen = [NaN, NaN, NaN, NaN, NaN];
   let mapMoving = false;
+  let mapMovedAt = 0;
+  /** How long the map's view stays still before a toast refits to it (QA: not mid-gesture, a finger resting a moment). */
+  const MAP_STILL_MS = 100;
 
   /** The map view's tilt: near straight down. */
   const MAP_PHI = 0.22;
@@ -3594,8 +3597,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mapView.open) {
       if (now - mapRefreshedAt > 1000) refreshMap();
       else placeMap();
-      // The view has stopped moving (the glide to the whole map landed, however long it took; a pan, pinch or fling
-      // done): the labels are where they'll stay, laid out afresh, and a toast up keeps clear of them there. (Five
+      // The view has stopped moving, and stayed still a moment (the glide to the whole map landed, however long it
+      // took; a pan, pinch or fling done): the labels are where they'll stay, laid out afresh, and a toast up keeps clear of them there. (Five
       // numbers compared a tick, only while the map's open.)
       const cam = game.camera.position;
       const tgt = game.controls.target;
@@ -3607,7 +3610,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         v[3] = tgt.x;
         v[4] = tgt.z;
         mapMoving = true;
-      } else if (mapMoving && !game.director.busy) {
+        mapMovedAt = now;
+      } else if (mapMoving && !game.director.busy && now - mapMovedAt >= MAP_STILL_MS) {
         mapMoving = false;
         refreshMap();
         hud.mapSettled();
