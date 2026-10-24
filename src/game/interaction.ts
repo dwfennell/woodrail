@@ -490,6 +490,12 @@ export class Interaction {
     // Touch moves the camera through TouchCamera (Maps-style gestures).
     c.touches = { ONE: NO_TOUCH, TWO: NO_TOUCH };
     window.addEventListener("pointerdown", (e) => this.notePointer(e), { capture: true });
+    // Hidden (or leaving), the page's frames stop: a line lifted just before, waiting for one to go down, goes down now
+    // (and is saved with the rest: these run before the game's own save on the way out).
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") this.draw.flush();
+    });
+    addEventListener("pagehide", () => this.draw.flush());
     const lift = (e: PointerEvent) => this.touches.delete(e.pointerId);
     window.addEventListener("pointerup", lift, { capture: true });
     window.addEventListener("pointercancel", lift, { capture: true });
@@ -5083,12 +5089,22 @@ export class Interaction {
 
   /** Track touch pointers (for multi-touch) and whether the latest pointer is touch (for the lifted drag offset). */
   notePointer(e: PointerEvent): void {
+    // (A line lifted just before, waiting a frame to go down: down first, before this press does anything.)
+    this.draw.flush();
     this.lastPointerWasTouch = e.pointerType === "touch";
     if (e.pointerType === "touch") this.touches.add(e.pointerId);
   }
 
+  /** A line lifted just before, waiting a frame to go down (see `DrawHand.end`), goes down now. */
+  flushDraw(): void {
+    this.draw.flush();
+  }
+
   /** Undo, finishing any piece animation first so the change shows at once. */
   undo(): void {
+    // (A line lifted just before, waiting a frame to go down: down first, so this undo takes it up, not what came
+    // before it.)
+    this.draw.flush();
     if (this.busy) return;
     this.game.flourishes.clear();
     // (Carrying, it stays carried: its ghost is placed again on the map as it now is.)
@@ -5098,6 +5114,7 @@ export class Interaction {
   }
 
   redo(): void {
+    this.draw.flush();
     if (this.busy) return;
     this.game.flourishes.clear();
     if (!this.carrying) this.arm(null);

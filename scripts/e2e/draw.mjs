@@ -197,12 +197,19 @@ if (process.env.E2E_ONLY === "junctions") {
   await junctions(false);
   await loopOffStraight();
   await ghostMatch();
+  await liftFlush();
   await finishRun();
 }
 
 /** Only what's laid against the last ghosts (E2E_ONLY=ghosts). */
 if (process.env.E2E_ONLY === "ghosts") {
   await ghostMatch();
+  await finishRun();
+}
+
+/** Only a lift waiting a frame to go down, and what puts it down at once (E2E_ONLY=lift). */
+if (process.env.E2E_ONLY === "lift") {
+  await liftFlush();
   await finishRun();
 }
 
@@ -1384,6 +1391,90 @@ async function finishRun() {
  * strokes on one page, undoing between. The same line each time; a toast about the hill only if the first said it
  * too. (It was a tie between two plans that a camera a hair off after the undo broke the other way: see `best`.)
  */
+/**
+ * A lift whose ghosts hadn't caught up shows the finished ghosts for a frame and goes down after (`DrawHand.end`; every
+ * lift does with `deferLifts`, for the test). Anything that acts on the layout in that frame puts it down first: an
+ * undo (which then takes the line up, not what came before it), another press, the page hidden (its frames stop:
+ * the line goes down and is saved), the page left. (QA, from reading the code: an undo in that frame undid the
+ * action before the line, and a lift just before backgrounding wasn't laid or saved till the player came back.)
+ */
+async function liftFlush() {
+  if (!site) return;
+  const { x, z, heading: h } = site;
+  await focus(x + Math.cos(h) * 200, z + Math.sin(h) * 200);
+  const triggers = {
+    undo: () => window.woodrail.interaction.undo(),
+    "a press": () => window.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 9, pointerType: "mouse", bubbles: true })),
+    "the page hidden": () => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    },
+    "the page left": () => window.dispatchEvent(new Event("pagehide")),
+  };
+  for (const name of Object.keys(triggers)) {
+    // Something done before the line (a straight put down off to one side), for the undo to leave alone.
+    const before = await p.evaluate(([x, z, h]) => {
+      const w = window.woodrail;
+      const id = w.editor().place("straight-54", { x: x - Math.sin(h) * 300, z: z + Math.cos(h) * 300, heading: h }, 0, false);
+      return { id, pieces: w.layout.pieceCount };
+    }, [x, z, h]);
+    const screen = await p.evaluate(([x, z, h]) => [0, 100, 200, 300, 380].map((d) => D.screen(x + Math.cos(h) * d, 0, z + Math.sin(h) * d)), [x, z, h]);
+    await p.mouse.move(...screen[0]);
+    await p.mouse.down();
+    for (let i = 1; i < screen.length; i++) {
+      const [ax, ay] = screen[i - 1];
+      const [bx, by] = screen[i];
+      for (let k = 1; k <= 8; k++) await p.mouse.move(ax + ((bx - ax) * k) / 8, ay + ((by - ay) * k) / 8);
+    }
+    await p.waitForFunction(() => window.woodrail.interaction.draw.ghostsCaughtUp ?? true, null, { timeout: 30000 }).catch(() => {});
+    // The lift, then the trigger, in one go: no frame between them.
+    const got = await p.evaluate(
+      ([name, src, last]) => {
+        const w = window.woodrail;
+        const d = w.interaction.draw;
+        d.deferLifts = true;
+        window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, pointerType: "mouse", button: 0, clientX: last[0], clientY: last[1], bubbles: true }));
+        const pending = d.liftPending;
+        const lifted = w.layout.pieceCount;
+        // eslint-disable-next-line no-new-func
+        new Function(`return (${src})`)()();
+        const out = { pending, lifted, after: w.layout.pieceCount, stillPending: d.liftPending };
+        d.deferLifts = false;
+        return out;
+      },
+      [name, triggers[name].toString(), screen[screen.length - 1]],
+    );
+    await p.mouse.up();
+    const saved = await p.evaluate(() => {
+      const w = window.woodrail;
+      const key = w.mode() === "game" ? "woodrail.game.v2" : "woodrail.autosave.v3";
+      try {
+        return JSON.parse(localStorage.getItem(key) ?? "null")?.pieces?.length ?? -1;
+      } catch {
+        return -1;
+      }
+    });
+    const after = await p.evaluate(([id]) => ({ pieces: window.woodrail.layout.pieceCount, prevThere: !!window.woodrail.layout.getPiece(id) }), [before.id]);
+    if (name === "the page hidden")
+      await p.evaluate(() => {
+        delete document.visibilityState;
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    await settled(p);
+    const what = `${name}: lift pending ${got.pending} at ${got.lifted} pieces (${before.pieces} before), then ${got.after}, pending ${got.stillPending}; saved ${saved}; the piece before there ${after.prevThere}`;
+    if (name === "undo") check(`a lift waiting a frame, then an undo: the line goes down and the undo takes it up, not the piece before`, got.pending && got.lifted === before.pieces && got.after === before.pieces && !got.stillPending && after.prevThere, what);
+    else check(`a lift waiting a frame, then ${name}: the line goes down at once`, got.pending && got.lifted === before.pieces && got.after > before.pieces && !got.stillPending, what);
+    if (name === "the page hidden") check("…and it's saved with the rest as the page goes", saved === got.after, what);
+    // Tidy: the line (if down) and the straight before it.
+    await p.evaluate(([n, id]) => {
+      const w = window.woodrail;
+      if (w.layout.pieceCount > n) w.interaction.undo();
+      if (w.layout.getPiece(id)) w.interaction.undo();
+    }, [before.pieces, before.id]);
+    await settled(p);
+  }
+}
+
 /**
  * QA's own script for terrace 2 (scratchpad qa-ghost/README.md, "Terrace 2: QA's exact script"): a 390 × 844 phone,
  * Draw switched on by its chip, the world line x −1764 − d (d 0 to 480, every 15 mm) at z −1620 seen on each square's

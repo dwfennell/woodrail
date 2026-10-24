@@ -348,6 +348,22 @@ export class DrawHand {
   /** A lift waiting for its ghosts to have been shown (see `end`), or null. */
   private lifting: (() => void) | null = null;
 
+  /** For the tests: every lift waits for the next frame, as one whose ghosts hadn't caught up does (see `end`). */
+  deferLifts = false;
+
+  /** Is a lift waiting to go down (see `end`)? */
+  get liftPending(): boolean {
+    return this.lifting !== null;
+  }
+
+  /**
+   * A lift waiting for its ghosts to be shown goes down now (see `end`): before anything that would act on the layout
+   * as if it had (an undo, a save, another press), and when the page is hidden (its frames stop until it's back).
+   */
+  flush(): void {
+    this.flushLift();
+  }
+
   /** Finish a lift that was waiting (see `end`) now: before anything else the hand does. */
   private flushLift(): void {
     const f = this.lifting;
