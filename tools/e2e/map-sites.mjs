@@ -558,8 +558,11 @@ if (lAt) await stampedTap(L, lAt.x, lAt.y);
 await L.waitForTimeout(300);
 const lTapped = await L.evaluate(() => !document.querySelector(".ruin-card").hidden);
 await L.waitForTimeout(800);
-const lCard = await L.evaluate(() => {
+const lCard = await L.evaluate(async () => {
   const card = document.querySelector(".ruin-card");
+  // (Measured once its opening is over: on a loaded machine its `card-in`, scaled, was still running at 1.1 s.)
+  await Promise.race([Promise.all(card.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {}))), new Promise((r) => setTimeout(r, 5000))]);
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const cr = card.getBoundingClientRect();
   const tray = document.querySelector(".tray").getBoundingClientRect();
   return {
