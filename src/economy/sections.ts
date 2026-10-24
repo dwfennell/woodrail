@@ -71,6 +71,8 @@ export interface Topology {
   slotOf: ReadonlyMap<number, number>;
   sectionOf: ReadonlyMap<number, number>;
   sections: number;
+  /** Loops pinned so every train takes the same road (no passing place, see `findLoops`): their pieces. */
+  pinnedLoops: { a: number; b: number; pieces: number[] }[];
 }
 
 /** Why a train is held (for its card, later). */
@@ -80,12 +82,12 @@ export type BlockWait =
   /** The slot ahead (a loop road, a line end) is full or on another's way: waiting for that train. */
   | { kind: "slot"; engine: number }
   /** The line has more trains than places to pass: `trains`, `loops` passing loops; lay `more` more (or take a train off). */
-  | { kind: "room"; lineId: number; trains: number; loops: number; more: number; spare: boolean; parked: boolean; other: boolean }
+  | { kind: "room"; lineId: number; trains: number; loops: number; more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean }
   /**
    * Its line can deliver nothing as it stands (each train with room has turned back again and again with no stop
    * reached): it stands still rather than shuttle, till something changes (see `Sections.stalled`).
    */
-  | { kind: "stalled"; lineId: number; trains: number; more: number; spare: boolean; parked: boolean; other: boolean }
+  | { kind: "stalled"; lineId: number; trains: number; more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean }
   /** That train of its line was put down facing it in the same slot: one gives way (this one turns back, or waits). */
   | { kind: "facing"; engine: number };
 
@@ -217,8 +219,13 @@ function roadTo(layout: Layout, pieceId: number, exit: number): { switchId: numb
   return null;
 }
 
-/** Passing loops a train of `minRoad` mm fits in: both roads long enough, neither switch pinned. */
-function findLoops(layout: Layout, minRoad: number): { a: number; b: number; roads: [number[], number[]]; lengths: [number, number] }[] {
+/**
+ * Passing loops a train of `minRoad` mm fits in: both roads long enough, and trains coming at it from each end able
+ * to take different roads. A pinned switch sends a train coming at it from its stem onto the one road it's set to:
+ * both switches pinned to the same road, every train runs through by that one road (no passing: listed in `pinned`
+ * instead); pinned to opposite roads, it's a one-way loop, each way its own road, and passes as well as any.
+ */
+function findLoops(layout: Layout, minRoad: number, pinned: { a: number; b: number; pieces: number[] }[] = []): { a: number; b: number; roads: [number[], number[]]; lengths: [number, number] }[] {
   const out: { a: number; b: number; roads: [number[], number[]]; lengths: [number, number] }[] = [];
   const seen = new Set<string>();
   const used = new Set<number>();
@@ -239,8 +246,27 @@ function findLoops(layout: Layout, minRoad: number): { a: number; b: number; roa
           const key = `${Math.min(id, r1.switchId)}:${Math.max(id, r1.switchId)}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          if (layout.isPinned(id) || layout.isPinned(r1.switchId)) continue;
           if (r1.pieces.length === 0 || r2.pieces.length === 0 || r1.length < minRoad || r2.length < minRoad) continue;
+          // (Which roads a train coming in at each end can take: a pinned switch, only the one it's set to.)
+          const intoA = new Set<number>([0, 1]);
+          if (layout.isPinned(id)) {
+            const set = waysFrom(layout, id, stem)[0];
+            intoA.clear();
+            if (set?.exit === ways[i].exit) intoA.add(0);
+            if (set?.exit === ways[j].exit) intoA.add(1);
+          }
+          const intoB = new Set<number>([0, 1]);
+          const stemB = w1.find((x) => w2.some((y) => y.exit === x.exit))!.exit;
+          if (layout.isPinned(r1.switchId)) {
+            const set = waysFrom(layout, r1.switchId, stemB)[0];
+            intoB.clear();
+            if (set?.exit === r1.entry) intoB.add(0);
+            if (set?.exit === r2.entry) intoB.add(1);
+          }
+          if (![...intoA].some((x) => [...intoB].some((y) => y !== x))) {
+            pinned.push({ a: id, b: r1.switchId, pieces: [id, r1.switchId, ...r1.pieces, ...r2.pieces] });
+            continue;
+          }
           if ([...r1.pieces, ...r2.pieces].some((p) => used.has(p))) continue;
           for (const p of [...r1.pieces, ...r2.pieces]) used.add(p);
           out.push({ a: id, b: r1.switchId, roads: [r1.pieces, r2.pieces], lengths: [r1.length, r2.length] });
@@ -275,7 +301,8 @@ function buildTopology(layout: Layout, minRoad: number): Topology {
   const slots: Slot[] = [];
   const loops: Loop[] = [];
   const slotOf = new Map<number, number>();
-  for (const l of findLoops(layout, minRoad)) {
+  const pinnedLoops: { a: number; b: number; pieces: number[] }[] = [];
+  for (const l of findLoops(layout, minRoad, pinnedLoops)) {
     const roads: number[] = [];
     l.roads.forEach((pieces, road) => {
       const id = slots.length;
@@ -352,16 +379,16 @@ function buildTopology(layout: Layout, minRoad: number): Topology {
       }
     }
   }
-  return { slots, loops, slotOf, sectionOf, sections };
+  return { slots, loops, slotOf, sectionOf, sections, pinnedLoops };
 }
 
 const topoCache = new WeakMap<Layout, { key: string; byRoad: Map<number, Topology> }>();
 
 /** The layout's slots and sections for trains of `trainLength` mm (cached per revision, pins and length). */
 export function topologyOf(layout: Layout, trainLength: number): Topology {
-  // (A pinned loop switch makes the loop no passing place: pins are part of the key. There are few.)
+  // (Pinned switches, and the way each is set, decide which loops pass: part of the key. There are few.)
   let pins = "";
-  for (const id of layout.pinnedIds()) pins += `,${id}`;
+  for (const id of layout.pinnedIds()) pins += `,${id}:${layout.switchState(id)}`;
   const key = `${layout.revision}${pins}`;
   let hit = topoCache.get(layout);
   if (!hit || hit.key !== key) topoCache.set(layout, (hit = { key, byRoad: new Map() }));
@@ -422,7 +449,7 @@ export class Sections {
   /** When each engine was first seen on its line (for the room rule: the first ones are let run). */
   private readonly firstSeen = new Map<number, number>();
   /** Loops on each line's way, by its stops and the track's revisions. */
-  private readonly loopCount = new Map<number, { key: string; n: number; set: ReadonlySet<number>; way: ReadonlySet<number>; regions: ReadonlySet<number> }>();
+  private readonly loopCount = new Map<number, { key: string; topo: Topology; n: number; set: ReadonlySet<number>; way: ReadonlySet<number>; regions: ReadonlySet<number>; pinnedLoop: boolean }>();
   /** Engines just granted a move: steer them now. */
   readonly steerSoon = new Set<number>();
   /** Safety-net releases (a mutual wait with a train in a section and no move), for the play-through and tests. */
@@ -434,6 +461,9 @@ export class Sections {
   private readonly stall = new Map<number, { key: string; on: boolean }>();
   /** Turn-backs `unring` picked that a train behind wouldn't allow (it should pick only ones that can turn). */
   giveWayRefused = 0;
+  /** Room handed from a train to one held for room that it waited on, none able to turn (see `unring`). */
+  swapped = 0;
+  private readonly swappedAt = new Map<number, number>();
   /** Times a line came to stand still so (see `stalledLine`). */
   stalls = 0;
   /** Trains on no line standing short of a train ahead (see `clearCap`): since when (tick); and turns back after. */
@@ -534,7 +564,7 @@ export class Sections {
     // Its line can deliver nothing as it stands: it stands still where it comes to rest, saying why.
     if (info.stalled && info.admitted.has(engine) && train.speed < 1 && !(st.move && !st.move.free && train.turnback >= 0)) {
       st.move = null;
-      this.hold(st, { kind: "stalled", lineId, trains: info.engines.length, more: Math.max(1, info.more), spare: info.spareCut, parked: info.parked, other: info.other });
+      this.hold(st, { kind: "stalled", lineId, trains: info.engines.length, more: Math.max(1, info.more), spare: info.spareCut, parked: info.parked, other: info.other, pinned: this.loopCount.get(lineId)?.pinnedLoop ?? false });
       return 0;
     }
     // (Let go, and it has met the other and turned back since: the release is over; it asks again.)
@@ -969,7 +999,7 @@ export class Sections {
   private roomWait(st: TrainState, info: LineInfo): BlockWait {
     const loops = Math.max(0, info.loops - info.blocked.size);
     // (A line stood still for a parked train: every train of it says to move that, as moving it is what works.)
-    return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: Math.max(1, info.more), spare: info.spareCut || (info.stalled && info.parked), parked: info.parked, other: info.other };
+    return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: Math.max(1, info.more), spare: info.spareCut || (info.stalled && info.parked), parked: info.parked, other: info.other, pinned: this.pinnedLoopOn(st.engine) };
   }
 
   /** Does a train the line has no room for stand on this loop road? */
@@ -1194,12 +1224,12 @@ export class Sections {
    * How full the engine's line is: trains it has no room for (and so how many more passing loops it needs), and its
    * trains; null if it has room for all of them (or isn't managed).
    */
-  fullness(engine: number): { more: number; trains: number; spare: boolean; parked: boolean; other: boolean } | null {
+  fullness(engine: number): { more: number; trains: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean } | null {
     if (!this.enabled) return null;
     const lineId = this.host.lineOf(engine);
     if (lineId < 0) return null;
     const info = this.line(lineId);
-    return info.managed && info.more > 0 ? { more: info.more, trains: info.engines.length, spare: info.spareCut || (info.stalled && info.parked), parked: info.parked, other: info.other } : null;
+    return info.managed && info.more > 0 ? { more: info.more, trains: info.engines.length, spare: info.spareCut || (info.stalled && info.parked), parked: info.parked, other: info.other, pinned: this.loopCount.get(lineId)?.pinnedLoop ?? false } : null;
   }
 
   /** Is the stop it's heading for beyond a train its line has no room for (it will turn back short of it)? */
@@ -1657,7 +1687,7 @@ export class Sections {
     const standing = (e: number) => (this.sim.findCar(e)?.train.speed ?? 1) < 1;
     // Where a chain of waits from `e` ends: "moving" (a train under way, or one of the line at work with no wait: it
     // will go), or "stuck" (no one named, a train that won't move, or back round to one already in the chain).
-    const ends = (e: number): { stuck: boolean; chain: number[] } => {
+    const ends = (e: number): { stuck: boolean; chain: number[]; held?: number } => {
       const chain = [e];
       let x = on(e);
       for (;;) {
@@ -1667,7 +1697,7 @@ export class Sections {
         const f = info.foreign.find((t) => t.cars.some((c) => c.id === x));
         if (f) return { stuck: f.speed < 1 && this.host.drive(f) === 0, chain };
         if (!info.engines.includes(x)) return { stuck: true, chain };
-        if (!info.admitted.has(x)) return { stuck: true, chain };
+        if (!info.admitted.has(x)) return { stuck: true, chain, held: x };
         if (!standing(x)) return { stuck: false, chain };
         chain.push(x);
         x = on(x);
@@ -1685,7 +1715,24 @@ export class Sections {
         const t = this.sim.findCar(y)?.train;
         return info.admitted.has(y) && standing(y) && !!st && !!t && this.aloneIn(st, t, null) && this.openBack(y, info);
       });
-      if (open.length === 0) continue;
+      // (None can turn, and it ends at one of its own held for room: held by rule, not by the track, it can move.
+      // It takes the room of the one waiting on it, which is held where it stands instead. Once a minute at most.)
+      if (open.length === 0) {
+        const h = ends(e).held;
+        const last = chain[chain.length - 1];
+        const st = this.states.get(last);
+        const lineId = this.host.lineOf(e);
+        const adm = this.admitted.get(lineId);
+        const at = this.swappedAt.get(lineId) ?? -Infinity;
+        if (adm && h !== undefined && st && !(st.move && !st.move.free) && standing(last) && now - at > SWAP_S * 120) {
+          adm.delete(last);
+          adm.add(h);
+          this.swappedAt.set(lineId, now);
+          this.swapped++;
+          return;
+        }
+        continue;
+      }
       const ring = chain.includes(on(chain[chain.length - 1]));
       const pick = ring ? open.reduce((a, b) => ((this.firstSeen.get(b) ?? 0) > (this.firstSeen.get(a) ?? 0) ? b : a)) : open[open.length - 1];
       this.giveWay(pick);
@@ -1751,6 +1798,11 @@ export class Sections {
     return this.wayOn(st, info, { pieceId: c.pieceId, entry: c.reversed ? (path.to ?? -1) : path.from }, c.pathIndex);
   }
 
+  /** Is a loop on its line's way pinned so it's no passing place (see `findLoops`)? */
+  private pinnedLoopOn(engine: number): boolean {
+    return this.loopCount.get(this.host.lineOf(engine))?.pinnedLoop ?? false;
+  }
+
   /** Whether a train has somewhere to go the other way: a free slot (a dead end only brings it back). */
   private openBack(e: number, info: LineInfo): boolean {
     const st = this.states.get(e);
@@ -1792,7 +1844,8 @@ export class Sections {
     const stops = this.host.stopPieces(lineId);
     const key = `${stops.join(",")}|${this.layout.revision}:${topo.slots.length}`;
     const hit = this.loopCount.get(lineId);
-    if (hit && hit.key === key) return hit.n;
+    // (The same topology too: pinning a loop's switches changes it, not the track's revision.)
+    if (hit && hit.key === key && hit.topo === topo) return hit.n;
     const loops = new Set<number>();
     const way = new Set<number>();
     let slots = 0;
@@ -1817,7 +1870,9 @@ export class Sections {
       if (r !== null) regions.add(r);
     }
     for (const sl of topo.slots) if (sl.kind === "road" && loops.has(sl.loop)) regions.add(sl.id);
-    this.loopCount.set(lineId, { key, n, set: loops, way, regions });
+    // (A loop on its way pinned so every train takes one road: no passing place till it's unpinned.)
+    const pinnedLoop = topo.pinnedLoops.some((pl) => pl.pieces.some((p) => way.has(p)));
+    this.loopCount.set(lineId, { key, topo, n, set: loops, way, regions, pinnedLoop });
     return n;
   }
 
@@ -1878,6 +1933,8 @@ function regionOf(topo: Topology, pieceId: number): number | null {
   const sc = topo.sectionOf.get(pieceId);
   return sc !== undefined ? -1 - sc : null;
 }
+/** At most one hand-over of room this often (s) on a line's track (see `unring`). */
+const SWAP_S = 60;
 /** Turn-backs with no stop reached, by every train with room, before a full line stands still (see `stalledLine`). */
 const STALL_TURNS = 3;
 /** …and none of them arrived at a stop for this long (s). */

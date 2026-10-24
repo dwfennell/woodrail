@@ -7,6 +7,7 @@ import { CARGO } from "./cargo";
 import { Economy } from "./economy";
 import { topologyOf, trainLength, YIELD_S } from "./sections";
 import { loopOn } from "./loop-fixtures";
+import { next, waysFrom } from "./steer";
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const TRACE = !!ENV.TRACE;
@@ -356,7 +357,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     says(r, 1, 4);
   });
   type L = Q["loops"][0];
-  type T = { p: number; next?: number; s?: number; at?: number; spare?: boolean };
+  type T = { p: number; next?: number; s?: number; at?: number; spare?: boolean; ps?: readonly number[]; ss?: readonly number[]; when?: (E: readonly number[]) => boolean };
   // [name, extra trains, how many keep running (more than 5 arrivals), loops to lay (0: move a spare), trains on the line]
   const parks1: [string, (l: L) => T[], number, number, number][] = [
     ["L1T3_heldSide", (l) => [{ p: l.side[1], next: 1, s: 100 }], 2, 1, 3],
@@ -446,17 +447,21 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     const { q, l0, l1, R3 } = two();
     const roads = (ENV.ROADS ? ENV.ROADS.split(",") : ["l0.side", "l0.main", "l1.side", "l1.main"]) as readonly string[];
     const ats = ENV.ATS ? ENV.ATS.split(",").map(Number) : [15, 30, 45, 60, 75, 90];
-    const kinds = ENV.KINDS ? ENV.KINDS.split(",") : ["spare", "line"];
+    // (Then the same with the other loop pinned to one road both ways, as Game Mode had it: no passing place there.)
+    const kinds = ENV.KINDS ? ENV.KINDS.split(",") : ["spare", "line", "pinned"];
     for (const kind of kinds)
       for (const road of roads)
         for (const at of ats) {
           clearTrains(q);
           const l = road.startsWith("l0") ? l0 : l1;
           const p = road.endsWith("side") ? l.side[1] : l.main[0];
+          const other = l === l0 ? l1 : l0;
+          if (kind === "pinned") pin(q, other, ["main", "main"]);
           const r = scen(q, [...R3, { p, next: road.startsWith("l0") ? 1 : 0, s: 100, at, spare: kind === "spare" }], [q.a, q.b], at + 180, cars);
+          for (const sw of [other.s1, other.s2]) q.L.setPinned(sw, false);
           const meets = r.meets.filter((t) => t < at || t > at + 3).length;
           // (Can't do better: every train of the line held, or a card saying what to build or move.)
-          const says = [...r.cards].some((c) => /Lay \d+ more|lay \d+ more|Move it/.test(c));
+          const says = [...r.cards].some((c) => /Lay \d+ more|lay \d+ more|Move it|unpin/.test(c));
           const line = `${kind} ${road} at ${at}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${meets} released ${r.released} turns ${r.turns} flips ${r.E.map((e) => r.flips.get(e) ?? 0).join("/")}`;
           if (ENV.SHOW) console.log(`B5 ${line}`);
           if (ENV.SHOW && ENV.CARDS) for (const e of r.E) console.log(`B5C e${e}`, [...(r.cardsOf.get(e) ?? [])].map(([c, n]) => `${c} x${n}`).join(" | "));
@@ -767,4 +772,77 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     expect(said.get("Waiting: another train is in the way") ?? 0).toBeGreaterThan(0);
     void r;
   });
+  // Game Mode's deadlock on main: a loop whose switches are pinned wasn't counted as a passing place at all, so the
+  // line had room for one; a second train put down in front of the working one was held where it stood, and the
+  // working one waited on it for good (with a third, a ring nobody could turn out of).
+  /** Pin a loop's switches, each set so a train coming at it from its stem takes `roads` ("main" or "side"). */
+  const pin = (q: Q, l: Q["loops"][0], roads: readonly ["main" | "side", "main" | "side"]) => {
+    for (const [k, sw] of [l.s1, l.s2].entries()) {
+      for (let state = 0; state < 2; state++) {
+        q.L.setSwitchState(sw, state);
+        q.L.setPinned(sw, true);
+        const w = waysFrom(q.L, sw, 0)[0];
+        const n = w ? next(q.L, sw, w.exit) : null;
+        const on = n && l.main.includes(n.pieceId) ? "main" : "side";
+        if (on === roads[k]) break;
+        q.L.setPinned(sw, false);
+      }
+    }
+  };
+  for (const [nm, roads, trains] of [
+    ["pinned both to the main road, 2 trains", ["main", "main"], 2],
+    ["pinned both to the main road, 3 trains", ["main", "main"], 3],
+    ["pinned one-way (each way its own road), 2 trains", ["main", "side"], 2],
+    ["pinned one-way, 3 trains", ["main", "side"], 3],
+  ] as [string, readonly ["main" | "side", "main" | "side"], number][])
+    for (const [seedAt, onLoop] of [[20, false], [45, false], [20, true], [45, true]] as const)
+      it(`pinned loop: ${nm}, one put down at ${seedAt} s in front of a running one${onLoop ? ", on the loop's road" : ""}: no lock-up`, () => {
+        const q = line0({ loops: 1, ends: 2 });
+        const l = q.loops[0];
+        pin(q, l, roads);
+        const ts: T[] = [{ p: q.west[0], next: 1, s: 200 }];
+        // (Put down at that time where there's room, the far end first: ahead of the runner, the way it's heading.)
+        const at = (t: number) => () => q.sim.ticks >= t * SIM_HZ;
+        const t0 = q.sim.ticks / SIM_HZ;
+        const ahead = onLoop ? [...l.main, ...l.side] : [q.east[1], q.east[0]];
+        ts.push({ p: ahead[0], ps: [...ahead, q.east[1], q.east[0], q.west[1], q.west[0]], ss: [100, 60, 140], next: 0, s: 100, when: at(t0 + seedAt) });
+        if (trains === 3) ts.push({ p: q.west[1], ps: [q.west[1], q.west[0], q.east[1], q.east[0]], ss: [100, 60, 140], next: 1, s: 100, when: at(t0 + seedAt + 10) });
+        const r = show(`pin ${nm} at ${seedAt}`, scen(q, ts, [q.a, q.b], seedAt + 300, cars));
+        if (ENV.SHOW) console.log(`PIN ${nm} at ${seedAt}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${r.meet} turns ${r.turns} cards ${[...r.cards].filter((c) => /pin|lay|Move/.test(c)).join(" | ")}`);
+        expect(r.E.length).toBe(trains);
+        expect(r.meet).toBe(0);
+        expect(r.longestRing).toBeLessThan(YIELD_S + 3);
+        const says = [...r.cards].some((c) => /unpin|[Ll]ay \d+ more/.test(c));
+        expect(r.allStill < 60 || says, `all still ${r.allStill.toFixed(0)} s and no card says why`).toBe(true);
+        if (roads[0] === roads[1]) {
+          // (Pinned to one road both ways: no passing place. The card says what to do: unpin, not lay a loop.)
+          expect([...r.cards].some((c) => c.endsWith("unpin the passing loop's switches so trains can pass"))).toBe(true);
+          expect([...r.cards].filter((c) => /[Ll]ay \d+ more/.test(c))).toEqual([]);
+        }
+        // (Passing one way each way round: as good as an unpinned loop, two trains both running.)
+        if (roads[0] !== roads[1] && trains === 2) expect(r.arrivals.filter((a) => a > 5).length).toBe(2);
+        // (Two trains, the loop no passing place: one runs, the other held out of its way.)
+        if (roads[0] === roads[1] && trains === 2) expect(r.arrivals.some((a) => a > 5)).toBe(true);
+      });
+  // Fix 2's case, built directly: no passing place (the loop pinned to one road both ways), the working train standing
+  // at its end of the line, a second put down right in front of it on the single track. Held for room where it
+  // stood, it blocked the working train, which had nowhere to turn: it waited on it for good. Held by rule, not by
+  // the track, the second takes the room and runs; the first is held where it stands, clear of its way.
+  for (const onLoop of [false, true])
+    it(`held train in front of the working one at its line end (${onLoop ? "on the pinned loop" : "just past the end"}): no lock-up`, () => {
+      const q = line0({ loops: 1, ends: 2 });
+      const l = q.loops[0];
+      pin(q, l, ["main", "main"]);
+      const t0 = q.sim.ticks / SIM_HZ;
+      const ahead = onLoop ? [l.main[0], l.main[1]] : [q.west[q.west.length - 1]];
+      const r = show(
+        `held in front ${onLoop}`,
+        scen(q, [{ p: q.west[0], next: 1, s: 100, rev: true }, { p: ahead[0], ps: ahead, ss: [60, 100, 140], next: 1, s: 100, when: () => q.sim.ticks / SIM_HZ >= t0 + 1 }], [q.a, q.b], 300, cars),
+      );
+      if (ENV.SHOW) console.log(`INFRONT ${onLoop}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} put ${r.whenAt} swapped ${q.economy.sections.swapped}`);
+      expect(r.E.length).toBe(2);
+      expect(r.meet).toBe(0);
+      expect(r.allStill).toBeLessThan(60);
+      expect(r.arrivals.some((a) => a > 5)).toBe(true);
+    });
 });
