@@ -882,6 +882,12 @@ async function shortUnderCar(ctx, p) {
     rotated && deleted && afterRotate === was && (await pose()) === was && end.there && end.derailed === false && end.said.filter((m) => m === "A train is on that track").length === 2,
     `pressed rotate ${rotated}, delete ${deleted}; ${was} → ${afterRotate} → ${await pose()}; ${JSON.stringify(end)}`,
   );
+  // Select more from it: picking starts, without it (said so), as a group with it couldn't move or be taken up.
+  await p.evaluate(() => (window.__underSaid.length = 0));
+  const more = await pressCard("Select more");
+  await frames(p);
+  const picking = await p.evaluate(() => ({ picking: window.woodrail.interaction.picking, picked: [...window.woodrail.interaction.picked], said: [...window.__underSaid] }));
+  check("Select more from the piece under an engine leaves it out, and says why", more && picking.picking && picking.picked.length === 0 && picking.said.includes("A train is on that track"), JSON.stringify({ more, ...picking }));
   await p.keyboard.press("Escape");
 }
 
