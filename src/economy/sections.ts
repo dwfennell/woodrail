@@ -1764,7 +1764,21 @@ export class Sections {
         const adm = this.admitted.get(lineId);
         const at = this.swappedAt.get(lineId) ?? -Infinity;
         if (adm && h !== undefined && st && !(st.move && !st.move.free) && standing(last) && now - at > SWAP_S * 120) {
-          adm.delete(last);
+          // (Who gives its room up: the one waiting on it, unless that one stands on a stop and another with room
+          // stands off its stops, clear of the single track, with no move: held on a stop, that stop is lost to all.)
+          const stops = new Set(this.host.stopPieces(lineId));
+          const offStop = (y: number) => !this.sim.findCar(y)?.train.bogies.some((b) => stops.has(b.pieceId));
+          let give = last;
+          if (!offStop(last))
+            for (const y of info.engines) {
+              if (y === last || y === h || !adm.has(y) || !standing(y) || !offStop(y)) continue;
+              const sy = this.states.get(y);
+              const t = this.sim.findCar(y)?.train;
+              if (!sy || !t || (sy.move && !sy.move.free) || t.bogies.some((b) => !info.topo.slotOf.has(b.pieceId))) continue;
+              give = y;
+              break;
+            }
+          adm.delete(give);
           adm.add(h);
           this.swappedAt.set(lineId, now);
           this.swapped++;

@@ -915,18 +915,34 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       expect(after.reduce((x, y) => x + y, 0)).toBeGreaterThanOrEqual(14);
       for (const x of after) expect(x).toBeGreaterThan(5);
     });
-  // QA's N1: 3 trains on 1 loop (the third put down at the forest end at 30 s), unpinned or one-way. The room rule
-  // (loops + 1) holds one; it's held at the forest end, so neither of the others can load: unpinned they shuttle empty
-  // to the sawmill (QA counted 17 arrivals, none with logs), one-way they stand still. Both say lay 1 more loop.
+  // QA's N1: 3 trains on 1 loop (the third put down at the forest end at 30 s, in front of the second loading there),
+  // unpinned or one-way. The room rule (loops + 1) holds one. Not on a stop: the hand-over holds the one standing on
+  // the loop's road rather than the one at the forest (3604b26 held that one there). But no train loads at the forest
+  // again whoever's held: held on a loop's road, it takes the loop and the room is 1; held anywhere else, it's on the
+  // single track or at a line end, both stops' ends here. The second ends held just short of the forest, its logs on.
+  // Unpinned the others shuttle empty to the sawmill (QA counted 17 arrivals, none with logs); one-way they stand
+  // still. Both say lay 1 more loop.
   for (const w of [["free", "free"], ["main", "side"]] as const)
     it(`QA's N1: 3 trains on a loop ${w[0] === "free" ? "unpinned" : "pinned one-way"}: one held, the card says lay 1 more loop`, () => {
       const q = line0({ loops: 1, ends: 2 });
       const l = q.loops[0];
       pinEach(q, l, w);
-      const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: q.west[1], next: 1, s: 100, at: 30 }], [q.a, q.b], 300, cars);
+      // (Every 5 s from 60 s: the trains held for room standing on a stop's piece.)
+      const sx = q.economy.sections as unknown as { admitted: Map<number, Set<number>> };
+      const heldOnStop: string[] = [];
+      const ev = Array.from({ length: 48 }, (_, k) => ({
+        at: 60 + 5 * k,
+        fn: (E: readonly number[]) => {
+          const adm = sx.admitted.values().next().value ?? new Set<number>();
+          for (const e of E) if (!adm.has(e) && q.sim.findCar(e)!.train.bogies.some((x) => x.pieceId === q.a || x.pieceId === q.b)) heldOnStop.push(`e${e} at ${60 + 5 * k} s`);
+        },
+      }));
+      const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: q.west[1], next: 1, s: 100, at: 30 }], [q.a, q.b], 300, cars, ev);
       const loads = r.E.map((e) => r.cardLog.filter((x) => x.e === e && x.t > 60 && /at forest/.test(x.c)).length);
-      if (ENV.SHOW) console.log(`N1 ${w.join("/")}: ${r.arrivals.join("/")} loading at the forest after 60 s ${loads.join("/")}`);
+      if (ENV.SHOW) console.log(`N1 ${w.join("/")}: ${r.arrivals.join("/")} loading at the forest after 60 s ${loads.join("/")} held on a stop ${heldOnStop.length} swapped ${q.economy.sections.swapped}`);
       expect(r.meet).toBe(0);
+      // (The one held isn't held on a stop: there, the stop is lost to the others for good.)
+      expect(heldOnStop).toEqual([]);
       expect([...r.cards].some((c) => /lay 1 more passing loop for 3 trains/.test(c))).toBe(true);
       expect(loads).toEqual([0, 0, 0]);
     });
