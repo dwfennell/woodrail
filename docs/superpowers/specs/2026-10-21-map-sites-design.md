@@ -406,6 +406,19 @@ station (unchanged; the tour passes). The trade-off a player feels:
 With the spur 7 of 9 seeds pass: 5 and 9 miss the City's ceiling (109 and 98), from the spur's extra trip after Routes
 starving the workshop of the mill's last plank (above), not from restoring early.
 
+**Fixed in the harness (2026-10-25, `orderMill`): with the farm on a spur, the player orders the mill at the workshop.**
+The cause was the harness's player, not the game: with no order waiting, the yard keeps `WORKSHOP_SPARE` (7) planks
+while a town ahead wants them, one short of the mill's 8, and the player held research back for the mill, so nothing
+else drew planks either. On seed 5 the yard sat at 7 from Mills (33) to the mill (85), the coins there from minute 44;
+on 9 from 43 to 76. Ordered at the workshop's card (as the switch is for its goal), the yard keeps the order's 8: the
+mill at 46 and 45, the City at 87 and 70, and all 9 seeds pass with `BALANCE_SPUR=1`. On the other 7 seeds the coins
+came last and the order changes nothing (their SUMMARY lines are the same). The order is only for a farm on a spur:
+with a new farm yard on the line (the default run) it moved the mill up enough to fail seed 2 (City at 57, before 60)
+and seed 4 (research stall 20.9 min), so the default run is unchanged, line for line. With the spur, by seed (2027, 1,
+2, 3, 4, 5, 6, 9, 10): City 87, 70, 83, 83, 87, 87, 69, 70, 81 (default: 62, 61, 73, 80, 80, 73, 67, 69, 82);
+researched 13, 11, 10, 12, 13, 14, 12, 9, 11 (default 14–15); a City★ by 180 on 1 seed (default 8); coins at 180
+272–1238 (default 582–1828).
+
 **The CoS's choice (2026-10-23): the harness keeps to a new farm yard.** The spur is too dear for the bands' run, so
 it's an A/B behind `BALANCE_SPUR=1` and the table above is for information. By default the harness restores a ruin
 only from a line end, which on the starter line never reaches the old farm: the starter's old farm isn't restored, a
