@@ -3,7 +3,7 @@ import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
-import { Game, type GameWorld } from "./game/game";
+import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
@@ -47,7 +47,7 @@ import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
-import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
+import { engineStatus, fullLineToast, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
@@ -389,6 +389,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lever: (v) => interaction.setLever(v),
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
+      putAway: () => interaction.putAwayFromCard(),
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
@@ -2376,6 +2377,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
     // Held at its stop for spacing: one tap ("Go now") sends it on.
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
+    // Its line has a train too many: "Put away" (this one, if it's the one held; else the one held).
+    const away = game.economy.sections.putAwayFor(carId);
+    hud.setPutAway(away !== -1, away === carId);
     // Waiting to turn back where the track ends: Continue sends it on now.
     hud.setContinue(canContinue(game.sim, game.economy, carId));
     const opened = carId !== viewCar;
@@ -3131,6 +3135,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     mapReturn = { target: c.target.clone(), distance: sph.radius, phi: sph.phi, theta: sph.theta };
     mapView.setOpen(true);
     hud.setMapOpen(true);
+    game.steepAllowed = true;
     // Every place marked on the player's land (its ruins too), fitted between the map's bars (where the labels and badges
     // go), as far out as the camera may go: on a big map they can't all be, and a drag pans to the rest (QA: on 22 plots
     // the view sat on the land's middle, the bars not allowed for, and no harbour on the coast was in view).
@@ -3149,9 +3154,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!mapView.open) return;
     mapView.setOpen(false);
     hud.setMapOpen(false);
+    game.steepAllowed = false;
     if (back && mapReturn) {
       const r = mapReturn;
       game.director.glideTo(r.target, r.distance, { phi: r.phi, theta: r.theta, duration: 0.9 });
+    } else if (!game.director.busy) {
+      // Left where the map looked (nearly straight down): eased up to the pitch cap, not snapped there by the controls.
+      const sph = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
+      if (sph.phi < MIN_PITCH) game.director.glideTo(game.controls.target.clone(), sph.radius, { phi: MIN_PITCH, duration: 0.5 });
     }
     mapReturn = null;
     game.invalidate();
@@ -3638,6 +3648,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const tooLong = new TooLongNotice();
   /** The lifts heard riding (for the clunk as each gets there), and where. */
   const liftsHeard = new Map<number, { x: number; z: number }>();
+  const fullToast = (_lineId: number, room: number, trains: number, more: number) => hud.toast(fullLineToast(room, trains, more), false, 6000);
   function showLoopTip(): void {
     loopTipShown = true;
     try {
@@ -3776,6 +3787,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     animateDiscs();
     showRoute();
     showLines();
+    // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
+    if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
     showEngineView();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
