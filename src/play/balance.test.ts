@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
-import { describe as describeGoods } from "../economy/goods";
+import { describe as describeGoods, total, type Bag } from "../economy/goods";
+import { HarbourTrade } from "../game/harbours";
 import { craftNow, craftShort, Crafting, keepsForOrder, lacking, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
@@ -18,7 +19,7 @@ import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
 import { buildStarterWorld, haltTown, haltWhy, syncIndustries, type World, fixedPieces } from "../game/world";
-import { FEAT_FIELD, FEAT_TREE, looseHeight, type SiteRole } from "../landscape";
+import { FEAT_FIELD, FEAT_TREE, isWater, looseHeight, type SiteRole } from "../landscape";
 import { gamePayment, nearestRuin, restoreRuin } from "../game/restore";
 import { restorePrice, restoredType } from "../game/map-sites";
 import { LandEditor } from "../landscape/edit";
@@ -105,6 +106,17 @@ const WISH: readonly string[] = [
 ];
 
 /**
+ * The goals play-through's player works down the goals' list (`GOALS_WISH`): Quarries first of what's left ("Open a
+ * quarry"), as `WISH` has it; once Quarries is learned, what "Open a mine" needs (the Tank engine, the Goods engine,
+ * Mines), and once Mines is, what "Open a harbour" needs (Warehouses, which `WISH` leaves for later, and Harbours,
+ * which it hasn't); then the rest of `WISH`.
+ */
+const GOALS_NEXT: readonly string[] = ["tank", "goods-engine", "mines", "warehouses", "harbours"];
+/** Each of `GOALS_NEXT`, picked only once the blueprint of the goal before it is learned. */
+const GOALS_AFTER: Readonly<Record<string, string>> = { tank: "quarries", "goods-engine": "quarries", mines: "quarries", warehouses: "mines", harbours: "mines" };
+const GOALS_WISH: readonly string[] = [...WISH.slice(0, WISH.indexOf("quarries") + 1), ...GOALS_NEXT, ...WISH.slice(WISH.indexOf("quarries") + 1).filter((id) => !GOALS_NEXT.includes(id))];
+
+/**
  * Map sites step 2: the player restores an old industry's ruin within this reach (mm) of its line when that's cheaper
  * than a new one (`restoreOld`); BALANCE_NORUINS=1 never does, to compare.
  */
@@ -127,15 +139,16 @@ const ROUTES_FIRST = ENV.BALANCE_SPUR === "routes";
 
 /**
  * The goals play-through (part of `npm test`, not only BALANCE=1): the same player on the starter map, this many
- * minutes of play (about 20 s on a laptop), and every goal of GOALS must be met by then but those listed here, each
- * with why. A goal listed that is met fails too, so the list only ever shrinks.
+ * minutes of play (about 50 s on a laptop: BALANCE_GOALS_MINUTES to try others, BALANCE_GOALS_LOG=1 prints its log),
+ * and every goal of GOALS must be met by then but those listed here, each with why. A goal listed that is met fails
+ * too, so the list only ever shrinks. (The minutes are what fits the time `npm test` gives it: the quarry is built at
+ * minute 157, its stone in a city by 165.)
  */
-const GOALS_RUN_MINUTES = 70;
+const GOALS_RUN_MINUTES = Number(ENV.BALANCE_GOALS_MINUTES ?? 175);
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
-  "open-quarry": "Quarries is learned after minute 70 (the play-through builds its quarry by its own rules then): phase 2",
-  "open-mine": "the play-through doesn't build or restore a mine yet: phase 2",
-  "open-harbour": "the play-through doesn't build or restore a harbour yet: phase 2",
-  "join-all": "the play-through joins the towns it trades with, not every town: phase 2",
+  "open-mine": "Mines wants 20 stone delivered and the Goods engine, which this one goods train brings only at about minute 210 (some 100 s of play-through, past what npm test has room for): the split proposed in phase 2's report",
+  "open-harbour": "a harbour can't be made or restored in Game mode: its price has stone at the workshop, whose yard takes only planks and iron (a product decision, phase 2's report)",
+  "join-all": "Ashcombe and Brambleton come only past minute 175 (once the quarry is open), when there's an end the line can run on from: phase 2's report",
 };
 
 /** The goals neither met nor listed in `allowed` (with why), and those listed but met or not goals at all. */
@@ -252,6 +265,9 @@ class Player {
   fixed = new Set<number>();
   /** Done each second of play, as a player watching the trains does it (a spur's switch set by hand: `tendSpur`). */
   everySecond: (() => void) | null = null;
+  /** The boats of the harbours (`HarbourTrade`), and what they took: loads and coins. */
+  readonly harbours = new HarbourTrade();
+  readonly boatTook = { loads: 0, coins: 0 };
   readonly log: string[] = [];
   readonly rows: Row[] = [];
   readonly findings: string[] = [];
@@ -350,6 +366,14 @@ class Player {
 
   note(s: string): void {
     this.log.push(`${this.minute.toFixed(1).padStart(6)} min  ${s}`);
+  }
+
+  /** A boat took `goods` off a harbour's quay and paid `coins` (the progress has them already). */
+  boatSold(goods: Bag, coins: number): void {
+    this.boatTook.loads += total(goods);
+    this.boatTook.coins += coins;
+    this.happened++;
+    this.note(`a boat took ${describeGoods(goods)}: +${coins} coins`);
   }
 
   learned(id: string, how: string, price: string): void {
@@ -490,6 +514,8 @@ class Player {
       this.spent.buildCoins += coins - this.progress.coins;
       this.research();
       this.everySecond?.();
+      // (Boats call at the harbours by themselves, as the game's clock has them: once a second of play.)
+      for (const e of this.harbours.update(this.w, this.progress, 1)) if (e.kind === "sold") this.boatSold(e.goods, e.coins);
       if (made) this.note(`workshop made a ${ruleOf(made)!.label.toLowerCase()}`);
       this.counters.collect(this.w.economy, this.progress);
       peopleArrive(this.w, this.progress, 1, this.people);
@@ -1241,9 +1267,10 @@ describe("the goals guard", () => {
 });
 
 describe.skipIf(RUN)("the goals play-through", () => {
-  it(`meets every goal by minute ${GOALS_RUN_MINUTES} but those allowed (GOALS_NOT_REACHED), the old farm restored the player's way, its grain made and milled`, () => {
-    // (The old farm restored on a spur, as a player does on the starter map: no line end reaches it.)
-    const P = new Playthrough(true);
+  it(`meets every goal by minute ${GOALS_RUN_MINUTES} but those allowed (GOALS_NOT_REACHED), the old farm restored the player's way, its grain made and milled, a quarry's stone in a city`, () => {
+    // (The old farm restored on a spur, as a player does on the starter map: no line end reaches it. Past Quarries,
+    // the player picks research in the goals' order: `GOALS_WISH`.)
+    const P = new Playthrough(true, true);
     const t0 = performance.now();
     try {
       P.play(GOALS_RUN_MINUTES);
@@ -1254,7 +1281,7 @@ describe.skipIf(RUN)("the goals play-through", () => {
     const seconds = (performance.now() - t0) / 1000;
     console.log(`goals play-through: ${GOALS_RUN_MINUTES} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}`);
     const { missed, stale } = goalsMissed((id) => P.p.goals.isDone(id), GOALS_NOT_REACHED);
-    if (missed.length > 0 || stale.length > 0) P.report();
+    if (missed.length > 0 || stale.length > 0 || ENV.BALANCE_GOALS_LOG) P.report();
     expect(missed, "goals neither met nor allowed").toEqual([]);
     expect(stale, "allowed but met (take them off GOALS_NOT_REACHED), or not goals").toEqual([]);
     // The old farm, restored (its Restore, paid for), not a new farm yard; its grain made, and carried to the mill.
@@ -1265,6 +1292,10 @@ describe.skipIf(RUN)("the goals play-through", () => {
     expect(farm?.type).toBe("depot-farm");
     expect(w.economy.made[CARGO.grain.index], "grain made").toBeGreaterThan(0);
     expect(w.economy.made[CARGO.flour.index], "flour milled of its grain").toBeGreaterThan(0);
+    // The quarry, on the line and working: its stone cut, and taken to a city that wants it.
+    expect(w.layout.getPiece(P.quarry)?.type, "the quarry on the map").toBe("depot-quarry");
+    expect(w.economy.made[CARGO.stone.index], "stone cut").toBeGreaterThan(0);
+    expect(P.p.progress.counts.get("delivered:stone") ?? 0, "stone delivered to a town").toBeGreaterThan(0);
   }, 180_000);
 });
 
@@ -1284,7 +1315,11 @@ describe.skipIf(!RUN)("balance play-through", () => {
 /** The new player's decisions, a minute at a time. */
 class Playthrough {
   /** `spur`: an old industry no line end reaches is restored on a short spur (BALANCE_SPUR's rule). */
-  constructor(readonly spur = SPUR) {}
+  /** `goalsFirst`: past Quarries, the blueprints the goals still to come need first (`GOALS_WISH`). */
+  constructor(
+    readonly spur = SPUR,
+    readonly goalsFirst = false,
+  ) {}
   readonly p = new Player(buildStarterWorld());
   shop = -1;
   /** The school's piece (−1: not placed yet). */
@@ -1296,6 +1331,8 @@ class Playthrough {
   farm = -1;
   mill = -1;
   quarry = -1;
+  mine = -1;
+  harbour = -1;
   halt = -1;
   switchLaid = false;
   joinedThird = false;
@@ -1340,12 +1377,11 @@ class Playthrough {
   /** When things first came within reach (a blueprint offered or on the board), and each town level first reached. */
   readonly firsts: Record<string, number> = {};
   /** Minutes a farm yard or a quarry waited on coins alone (learned, planks in the yard). */
-  readonly coinWait = { farm: 0, quarry: 0 };
+  readonly coinWait = { farm: 0, quarry: 0, mine: 0, harbour: 0 };
   /** The longest stretch with no planks sawn (whole minutes). */
   stall = 0;
   /** The longest stretch with no planks sawn while two trains share the line (they turn each other back). */
   jamStall = 0;
-  quarryTry = -99;
   /**
    * Goods the player picks up only at the visit nearest before where they're taken (`onlyNearestPickup`), since the
    * cars carrying them kept another good from loading (P5: hoppers full of grain at the quarry); and how many minutes
@@ -1564,7 +1600,7 @@ class Playthrough {
     // before the workshop sees them, so a player keeps a few for track and buildings first.)
     // (Nor while what the line needs next waits on the workshop's planks: cars for the goods train, or a farm yard, mill or
     // quarry learned and not yet built. A new research would take the planks at the school first.)
-    const building = this.carsWait || (s.learned.has("farming") && this.farm === -1) || (s.learned.has("mills") && this.farm >= 0 && this.mill < 0) || (s.learned.has("quarries") && this.quarry === -1);
+    const building = this.carsWait || (s.learned.has("farming") && this.farm === -1) || (s.learned.has("mills") && this.farm >= 0 && this.mill < 0) || (s.learned.has("quarries") && this.quarry === -1) || (s.learned.has("mines") && this.mine === -1);
     if (this.school !== -1 && (P.researchedAt.length === 0 || P.planks() >= PICK_SPARE) && !building) {
       // (As before research: planks and coins to spare, 24 and 150.)
       const rich = P.planks() >= 24 && s.coins >= 150;
@@ -1574,8 +1610,9 @@ class Playthrough {
       // (BALANCE_SPUR=routes: a farm on a spur, before Routes, sends no grain to the school, so Routes first, Mills after.)
       if (this.spurFarm && s.learned.has("routes")) this.spurFarm = false;
       const held = (id: string) => ROUTES_FIRST && this.spurFarm && id === "mills" && s.research.current !== "routes";
-      const wished = (ROUTES_FIRST && this.spurFarm ? ["routes", ...WISH.filter((id) => id !== "routes")] : WISH).filter((id) => !LATER.has(id) && canResearch(s, id) && feedable(id));
-      const others = TECHS.filter((t) => canResearch(s, t.id) && feedable(t.id) && (!WISH.includes(t.id) || LATER.has(t.id))).map((t) => t.id);
+      const wish = this.goalsFirst ? GOALS_WISH : WISH;
+      const wished = (ROUTES_FIRST && this.spurFarm ? ["routes", ...wish.filter((id) => id !== "routes")] : wish).filter((id) => (this.goalsFirst && id in GOALS_AFTER ? s.learned.has(GOALS_AFTER[id]) : !LATER.has(id)) && canResearch(s, id) && feedable(id));
+      const others = TECHS.filter((t) => canResearch(s, t.id) && feedable(t.id) && (!wish.includes(t.id) || (LATER.has(t.id) && !wished.includes(t.id)))).map((t) => t.id);
       const r = s.research;
       for (const id of [...wished, ...(rich ? others : [])]) {
         if (r.current !== null && r.next !== null) break;
@@ -2116,34 +2153,13 @@ class Playthrough {
       }
     }
 
-    // The quarry (a city's library opens it): at a line end, on the hillside.
-    if (this.quarry === -1 && s.learned.has("quarries") && P.minute - this.quarryTry >= 10) {
-      if (P.canMake(new Map([["piece:depot-quarry", 1]]))) {
-        this.quarryTry = P.minute;
-        const hills: number[] = [];
-        g.forEachCell((i) => {
-          if (g.height[i] > 0) hills.push(i);
-        });
-        P.make(new Map([["piece:depot-quarry", 1]]));
-        const r = extend(P, { type: "depot-quarry", cells: hills }) ?? (s.learned.has("switches") ? branchOff(P, "depot-quarry", hills) : null);
-        if (r) {
-          this.quarry = r.id;
-          capEnd(P, r.beyond);
-          syncIndustries(w, true);
-          updateRates(w, (role) => boostOf(s, role));
-          P.happened++;
-          P.note("built a quarry at a line end");
-          this.firsts["quarry built"] = Math.round(P.minute);
-          if (this.lines) this.routeGoods();
-        } else {
-          P.note("COULDN'T reach a quarry site from the line's ends (or a branch)");
-        }
-      } else {
-        // Waiting on coins alone (the planks are there): counted, for the summary.
-        if (s.coins < ruleOf("piece:depot-quarry")!.coins! && P.planks() >= (ruleOf("piece:depot-quarry")!.cost.planks ?? 0)) this.coinWait.quarry++;
-        this.why = `a quarry (${describeGoods(ruleOf("piece:depot-quarry")!.cost)} + ${ruleOf("piece:depot-quarry")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
-      }
-    }
+    // The quarry (a city's library opens it), then the mine (Mines), then the harbour (Harbours): each an old one
+    // restored where one is in reach, else a new one at a line end or on a branch, by its resource (`openIndustry`).
+    this.openIndustry("quarry");
+    this.openIndustry("mine");
+    this.openIndustry("harbour");
+    // Every town on the railway (the goal "Connect every town"): `joinTowns`.
+    this.joinTowns();
   }
 
   /** The farm is an old one restored on a spur, and Routes isn't learned yet: the line's train calls only if sent. */
@@ -2209,6 +2225,104 @@ class Playthrough {
   /** When the line last couldn't be run to a ruin (it's tried again 5 minutes on). */
   private ruinTry = -99;
 
+  /** When each "Open a …" industry was last tried (minutes). */
+  private readonly industryTry: Record<"quarry" | "mine" | "harbour", number> = { quarry: -99, mine: -99, harbour: -99 };
+  /** A good an industry's price asks of the workshop's yard that the yard never takes, said once. */
+  private readonly neverPaid = new Set<string>();
+
+  /**
+   * An industry for its "Open a …" goal, once its blueprint is learned (tried every 10 minutes till one stands): the
+   * old one restored if one is in reach of the line (`restoreOld`, its price paid), else a new one made at the
+   * workshop and placed at a line end, or on a branch off the line (`branchOff`), by its resource (`SITE_RULES`):
+   * hillside for a quarry or a mine, water the boats come in on for a harbour.
+   */
+  openIndustry(role: "quarry" | "mine" | "harbour"): void {
+    const P = this.p;
+    const w = P.w;
+    const s = P.progress;
+    const g = w.landscape.grid;
+    const type = restoredType(role);
+    const thing = pieceThing(type);
+    if (this[role] !== -1 || !s.knows(thing) || P.minute - this.industryTry[role] < 10) return;
+    const opened = (id: number, beyond: number, how: string): void => {
+      this[role] = id;
+      capEnd(P, beyond);
+      syncIndustries(w, true);
+      updateRates(w, (r) => boostOf(s, r));
+      P.happened++;
+      P.note(`${how} (rate ${w.economy.depotAtPiece(id)!.rate.toFixed(2)})`);
+      this.firsts[`${role} built`] = Math.round(P.minute);
+      if (this.lines) this.routeGoods();
+    };
+    const old = this.restoreOld(role);
+    if (old === "wait") {
+      this.why ||= `restoring the old ${role} (${describeGoods(restorePrice(role).goods)} + ${restorePrice(role).coins} coins; have ${describeGoods(workshopStock(w))}, ${s.coins} coins)`;
+      return;
+    }
+    if (old) {
+      this.industryTry[role] = P.minute;
+      this.firsts[`${role} restored`] = Math.round(P.minute);
+      opened(old.id, old.beyond, `restored the old ${role}`);
+      return;
+    }
+    const rule = ruleOf(thing)!;
+    // (A good of its price that the workshop's yard never takes can't be paid: said once, as a finding.)
+    for (const k of Object.keys(rule.cost) as CargoKind[])
+      if (!RECIPES.workshop.takes.includes(k) && !this.neverPaid.has(`${role}:${k}`)) {
+        this.neverPaid.add(`${role}:${k}`);
+        P.findings.push(`Minute ${P.minute.toFixed(0)}: a ${rule.label.toLowerCase()} costs ${describeGoods({ [k]: rule.cost[k] })} at the workshop, whose yard never takes ${k}: it can't be made.`);
+        P.note(`a ${rule.label.toLowerCase()} can't be made: its ${k} must be in the workshop's yard, which never takes ${k}`);
+      }
+    if (!P.canMake(new Map([[thing, 1]]))) {
+      // Waiting on coins alone (the planks are there): counted, for the summary.
+      if (s.coins < (rule.coins ?? 0) && P.planks() >= (rule.cost.planks ?? 0)) this.coinWait[role]++;
+      this.why ||= `a ${rule.label.toLowerCase()} (${describeGoods(rule.cost)} + ${rule.coins} coins; have ${describeGoods(workshopStock(w))}, ${s.coins} coins)`;
+      return;
+    }
+    this.industryTry[role] = P.minute;
+    const cells: number[] = [];
+    g.forEachCell((i) => {
+      if (role === "harbour" ? isWater(g.surface[i]) : g.height[i] > 0) cells.push(i);
+    });
+    P.make(new Map([[thing, 1]]));
+    const r = extend(P, { type, cells }) ?? (s.learned.has("switches") ? branchOff(P, type, cells) : null);
+    if (r) opened(r.id, r.beyond, `built a ${rule.label.toLowerCase()} by the line`);
+    else P.note(`COULDN'T reach a ${role} site from the line's ends (or a branch)`);
+  }
+
+  /** When the line was last run on to another town for "Connect every town" (minutes). */
+  private joinTry = -99;
+
+  /**
+   * "Connect every town": once the quarry is open (the goals before it done, as a player's are), every 10 minutes
+   * with planks to spare, the line run on from one of its ends to the nearest town not on it (as the third town was),
+   * the station's far side capped. The next nearest is tried if the nearest can't be reached.
+   */
+  joinTowns(): void {
+    const P = this.p;
+    const w = P.w;
+    if (P.goals.isDone("join-all") || this.quarry < 0 || !this.joinedThird || P.minute - this.joinTry < 10 || P.planks() < PICK_SPARE) return;
+    const on = townsOnLine(P);
+    const ends = lineEnds(P).map((e) => w.layout.worldConnector(e.ref, peg));
+    const dist = (i: number) => Math.min(...ends.map((e) => Math.hypot(w.landscape.towns[i].centre.x - e.x, w.landscape.towns[i].centre.z - e.z)));
+    const others = w.landscape.towns
+      .map((_, i) => i)
+      .filter((i) => !on.includes(i))
+      .sort((a, b) => dist(a) - dist(b));
+    if (others.length === 0) return;
+    this.joinTry = P.minute;
+    for (const i of others.slice(0, 2)) {
+      const station = st(P, i);
+      if (!extend(P, { target: () => [connectorRef(station, 0), connectorRef(station, 1)] })) continue;
+      capEnd(P, freeEnd(P, station));
+      P.happened++;
+      P.note(`ran the line on to ${w.landscape.towns[i].name} (${on.length + 1} of ${w.landscape.towns.length} towns)`);
+      if (this.lines) this.routeGoods();
+      return;
+    }
+    P.note(`COULDN'T run the line on to ${others.map((i) => w.landscape.towns[i].name).join(" or ")}`);
+  }
+
   /**
    * Map sites step 2's rule: the standing ruin of `role` nearest the player's line, if it's within `RUIN_REACH` of it
    * and restoring it is cheaper than a new industry (always, unless one's in the toy box already, which costs nothing
@@ -2262,7 +2376,7 @@ class Playthrough {
     // only when the player sets the switch for the farm by hand (`tendSpur`; BALANCE_SPUR=routes: Routes learned
     // first instead): the trade-off a player takes for the cheaper farm.
     let spur = -1;
-    if (!r && s.learned.has("switches") && this.spur) {
+    if (!r && s.learned.has("switches") && this.spur && (role === "farm" || s.learned.has("routes"))) {
       spur = spurTo(P, site.centre, free) ?? -1;
       if (spur !== -1) r = { id: stub, beyond: -1 };
     }
