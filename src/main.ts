@@ -46,6 +46,7 @@ import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, point
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
+import { canContinue, continueOn } from "./game/continue-on";
 import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
@@ -390,6 +391,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       removeTrain: () => interaction.removeSelectedTrain(),
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
+      continueOn: () => continueTrain(),
       decouple: () => decouple(),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
@@ -2274,6 +2276,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     onChange();
   }
 
+  /** Continue (the engine card, at the end of the track): it turns round now and runs on to its next stop. */
+  function continueTrain(): void {
+    const carId = interaction.openEngineCarId;
+    if (carId === -1) return;
+    const r = continueOn(game.sim, game.economy, carId);
+    if (r === "no-room") return hud.toast("No room to turn the train round here", false, 2500);
+    if (r !== "continued") return;
+    hud.setContinue(false);
+    const found = game.sim.findCar(carId);
+    if (found) hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
+    game.invalidate();
+    onChange();
+  }
+
   /** Why a train can't move at all, where engines have their limits (Game mode); in Sandbox any train can go. */
   const whyCantMove = (): CantMove | null => (game.sim.topSpeed ? (t) => cantMove(game.world, t) : null);
 
@@ -2349,6 +2365,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
     // Held at its stop for spacing: one tap ("Go now") sends it on.
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
+    // Waiting to turn back where the track ends: Continue sends it on now.
+    hud.setContinue(canContinue(game.sim, game.economy, carId));
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go

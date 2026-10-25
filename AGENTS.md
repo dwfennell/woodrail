@@ -25,3 +25,12 @@ The game should cost close to nothing when nothing is happening, and only pay fo
 - **Key caches by their inputs.** Skip work when the inputs are the same as last time, such as a key built from the pose, or a signature of what's cut. Cache derived data per map (as `hillsOf(grid)` does).
 - **Pointer moves are hot paths.** Code called on every pointer move while dragging (placement checks, previews) should be cheap and bounded. Time it, with a target of a few milliseconds on a phone.
 - **Measure before and after** a performance change: idle CPU, frame time, the time of the operation itself. Note the numbers in the commit.
+
+## Testing: check the player's path, end to end
+
+A feature works only if a player can reach it and it pays off. (A restored old farm once shipped that couldn't farm: the play-through skipped the "Open a …" goals and the e2e stopped at the restore button.)
+
+- **Every goal is reached by the player's path** in the play-through (`src/play/balance.test.ts`): through the actions a player takes (tray drops, card buttons, prices paid), not by writing state (`learned.add`, `coins =`, `piles[…] =`, placing depots directly). A goal that can't be is on an explicit allowlist with a reason, and a guard test fails when a goal is neither reached nor allowlisted.
+- **Assert the payoff, not just the UI.** An e2e or test for a feature checks what it is for: an industry produces and its goods are carried, a goal ticks, a train delivers. Not only that a card opened or a button went away.
+- **The harness uses the game's own rules.** Same footprints, prices and reach as `main.ts`. A harness-only shortcut must be named and commented, and never stands in for the player's path of the thing under test.
+- **Shortcuts in setup are fine** (learning research to get to a state quickly), but only for what isn't the thing being tested.
