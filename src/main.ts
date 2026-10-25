@@ -3047,6 +3047,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let mapMovedAt = 0;
   /** How long the map's view stays still before a toast refits to it (QA: not mid-gesture, a finger resting a moment). */
   const MAP_STILL_MS = 100;
+  /**
+   * And for this many ticks: on a slow device a frame alone can outlast `MAP_STILL_MS`, so one tick between a gesture's
+   * moves read as still (QA, SwiftShader: 3-10 refits a gesture).
+   */
+  const MAP_STILL_TICKS = 3;
+  let mapStillTicks = 0;
 
   /** The map view's tilt: near straight down. */
   const MAP_PHI = 0.22;
@@ -3611,7 +3617,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         v[4] = tgt.z;
         mapMoving = true;
         mapMovedAt = now;
-      } else if (mapMoving && !game.director.busy && now - mapMovedAt >= MAP_STILL_MS) {
+        mapStillTicks = 0;
+      } else if (mapMoving && !game.director.busy && ++mapStillTicks >= MAP_STILL_TICKS && now - mapMovedAt >= MAP_STILL_MS) {
         mapMoving = false;
         refreshMap();
         hud.mapSettled();
