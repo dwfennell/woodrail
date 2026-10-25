@@ -13,12 +13,12 @@ import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, learnGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
-import { techOf, TECHS } from "../game/tech";
+import { built, techOf, TECHS, unlocksOf } from "../game/tech";
 import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, setSpeed, studying, tick as researchTick } from "../game/research";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
-import { buildStarterWorld, haltTown, haltWhy, syncIndustries, type World, fixedPieces } from "../game/world";
+import { buildStarterWorld, haltTown, haltWhy, INDUSTRY_ROLE, syncIndustries, type World, fixedPieces } from "../game/world";
 import { FEAT_FIELD, FEAT_TREE, isWater, looseHeight, type SiteRole } from "../landscape";
 import { gamePayment, nearestRuin, restoreRuin } from "../game/restore";
 import { restorePrice, restoredType } from "../game/map-sites";
@@ -42,7 +42,9 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * blueprint) and the player takes one of those that make sense now (at random, seeded per run), and passengers come
  * and pay. A simulated new player follows the goals, joins towns, runs trains, places its school beside a town as
  * soon as it has one, builds what the blueprints allow, and picks research in its wish order (what its railway can
- * bring the goods for, keeping a few planks in the workshop to build with). When cargo is stuck it does what a player
+ * bring the goods for, keeping a few planks in the workshop to build with; past Quarries, toward the industry that makes
+ * a good its railway lacks first, `towardChains`, and the rest it can feed once its wishes run out, building the
+ * foundry once Foundry is learned). When cargo is stuck it does what a player
  * can on the engine and depot cards: picks a good up only on the way to where it's taken, if its cars come to another
  * good's full pile loaded with it (`unstick`), and switches the workshop's crane off while a town past it starves
  * (`shopThrough`). The log is a timeline in minutes of play;
@@ -233,6 +235,43 @@ const PICK_SPARE = GREEDY_WORKSHOP ? RESEARCH_SPARE : YARD_SPARE < 0 ? RESEARCH_
 
 /** Wished for, but of no use to this player till much later: bought only with planks and coins to spare. */
 const LATER: ReadonlySet<string> = new Set(["warehouses", "sawmills", "junctions", "college"]);
+
+/** The goods the industries a blueprint lets you build make (Quarries: stone; Mines: coal and ore; Foundry: iron). */
+export function goodsUnlocked(id: string): CargoKind[] {
+  return unlocksOf(id).flatMap((t) => {
+    const role = t.startsWith("piece:") ? INDUSTRY_ROLE[t.slice("piece:".length) as PieceTypeId] : undefined;
+    // (What its cycle makes: a warehouse gives every good, but only what it was brought.)
+    return role ? (Object.keys(RECIPES[role].cycle?.makes ?? {}) as CargoKind[]) : [];
+  });
+}
+
+/**
+ * Research toward a goods chain, as a player looks past what the railway can feed now: the goods a blueprint still to
+ * learn asks of a school that no industry on the line makes (`made`), taken in the order those blueprints come in
+ * `order` (the wish list, then the rest), and for each the blueprint whose industry makes it (Quarries' stone, Mines'
+ * coal and ore, Foundry's iron), or, while that one can't be researched yet, what it needs first (the Tank engine and
+ * the Goods engine, before Mines). Only blueprints `ok` allows (researchable now and fed), each once. A good whose
+ * industry's blueprint is learned already is the builder's to open (`openIndustry`), not research's.
+ */
+export function towardChains(learned: ReadonlySet<string>, made: ReadonlySet<CargoKind>, ok: (id: string) => boolean, order: readonly string[] = []): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const walk = (id: string): void => {
+    if (seen.has(id) || learned.has(id)) return;
+    seen.add(id);
+    if (ok(id)) out.push(id);
+    else for (const n of techOf(id)?.needs ?? []) walk(n);
+  };
+  const ids = [...order, ...TECHS.map((t) => t.id).filter((id) => !order.includes(id))];
+  const lacking: CargoKind[] = [];
+  for (const id of ids) {
+    const t = techOf(id);
+    if (!t || !built(t) || learned.has(id)) continue;
+    for (const k of Object.keys(t.research.goods) as CargoKind[]) if (!made.has(k) && !lacking.includes(k)) lacking.push(k);
+  }
+  for (const k of lacking) for (const t of TECHS) if (built(t) && !learned.has(t.id) && goodsUnlocked(t.id).includes(k)) walk(t.id);
+  return out;
+}
 
 /**
  * Main's figures before research (17dbc6f; main at 5add1ea gives the same), by seed: the minute of the first City (the
@@ -1472,6 +1511,27 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   return P;
 }
 
+describe("research toward a goods chain (towardChains)", () => {
+  const all = (id: string) => !!techOf(id);
+  it("finds the industry's blueprint for a good nothing makes, or what it needs first", () => {
+    expect(goodsUnlocked("quarries")).toEqual(["stone"]);
+    expect(goodsUnlocked("mines").sort()).toEqual(["coal", "ore"]);
+    expect(goodsUnlocked("foundry")).toEqual(["iron"]);
+    // (A warehouse keeps goods, it makes none.)
+    expect(goodsUnlocked("warehouses")).toEqual([]);
+    const learned = new Set(["farming", "mills", "quarries"]);
+    const made = new Set<CargoKind>(["log", "planks", "grain", "flour", "stone"]);
+    // Coal for Foundry and Electricity: Mines, which needs the Goods engine, which needs the Tank engine first.
+    expect(towardChains(learned, made, (id) => id === "tank")).toEqual(["tank"]);
+    expect(towardChains(new Set([...learned, "tank"]), made, (id) => id === "goods-engine")).toEqual(["goods-engine"]);
+    expect(towardChains(new Set([...learned, "tank", "goods-engine"]), made, all)).toContain("mines");
+    // Mines learned: its coal is the builder's to open, and Foundry's iron is next.
+    expect(towardChains(new Set([...learned, "tank", "goods-engine", "mines"]), new Set([...made, "coal", "ore"]), all)).toEqual(["foundry"]);
+    // Every good made: nothing to open.
+    expect(towardChains(learned, new Set<CargoKind>(["planks", "grain", "flour", "stone", "coal", "ore", "iron"]), all)).toEqual([]);
+  });
+});
+
 describe.skipIf(RUN)("the goals play-through", () => {
   it(`meets every goal by minute ${GOALS_RUN_MINUTES} but those allowed (GOALS_NOT_REACHED), the old farm restored the player's way, its grain made and milled, a quarry's stone in a city`, () => {
     goalsPlay(GOALS_RUN_MINUTES, GOALS_NOT_REACHED, "fast");
@@ -1533,6 +1593,8 @@ class Playthrough {
   mill = -1;
   quarry = -1;
   mine = -1;
+  /** The foundry (the default run: built once Foundry is learned, for the iron Smithy and Electricity ask). */
+  foundry = -1;
   harbour = -1;
   halt = -1;
   switchLaid = false;
@@ -1578,7 +1640,7 @@ class Playthrough {
   /** When things first came within reach (a blueprint offered or on the board), and each town level first reached. */
   readonly firsts: Record<string, number> = {};
   /** Minutes a farm yard or a quarry waited on coins alone (learned, planks in the yard). */
-  readonly coinWait = { farm: 0, quarry: 0, mine: 0, harbour: 0 };
+  readonly coinWait = { farm: 0, quarry: 0, mine: 0, harbour: 0, foundry: 0 };
   /** The longest stretch with no planks sawn (whole minutes). */
   stall = 0;
   /** The longest stretch with no planks sawn while two trains share the line (they turn each other back). */
@@ -1803,7 +1865,7 @@ class Playthrough {
     // (Nor while what the line needs next waits on the workshop's planks: cars for the goods train, or a farm yard, mill or
     // quarry learned and not yet built. A new research would take the planks at the school first.)
     // (In the goals play-through, the harbour too: its stone at the workshop before another research's at the school.)
-    const building = this.carsWait || (s.learned.has("farming") && this.farm === -1) || (s.learned.has("mills") && this.farm >= 0 && this.mill < 0) || (s.learned.has("quarries") && this.quarry === -1) || (s.learned.has("mines") && this.mine === -1) || (this.goalsFirst && s.learned.has("harbours") && this.harbour === -1);
+    const building = this.carsWait || (s.learned.has("farming") && this.farm === -1) || (s.learned.has("mills") && this.farm >= 0 && this.mill < 0) || (s.learned.has("quarries") && this.quarry === -1) || (s.learned.has("mines") && this.mine === -1) || (!this.goalsFirst && s.learned.has("foundry") && this.foundry === -1) || (this.goalsFirst && s.learned.has("harbours") && this.harbour === -1);
     if (this.school !== -1 && (P.researchedAt.length === 0 || P.planks() >= PICK_SPARE) && !building) {
       // (As before research: planks and coins to spare, 24 and 150.)
       const rich = P.planks() >= 24 && s.coins >= 150;
@@ -1823,7 +1885,38 @@ class Playthrough {
       // Harbours' 20 stone, and the hoppers came by full of coal no stop took: Foundry stuck at 9 stone from minute 285
       // to 400 and more, Harbours never started.)
       const waiting = this.goalsFirst && GOALS_NEXT.some((id) => s.learned.has(GOALS_AFTER[id]) && !s.learned.has(id));
-      for (const id of waiting ? wished.filter((x) => GOALS_NEXT.includes(x)) : [...wished, ...(rich ? others : [])]) {
+      // (The default run's player, past Quarries, also looks past what it can feed now (`towardChains`): what opens the
+      // goods no industry on the line makes yet first (the Tank engine and the Goods engine toward Mines' coal, then
+      // Mines, then Foundry's iron), even if not rich; and once none of its wishes is left to pick, the rest it can feed,
+      // rich or not, rather than leave the school idle with coins in hand. Before Quarries the wish list's order stands:
+      // the first city's growth comes first. The goals play-through keeps its own order.)
+      const toward = !this.goalsFirst && s.learned.has("quarries") ? towardChains(s.learned, made, (id) => canResearch(s, id) && feedable(id) && !held(id), wish) : [];
+      const idle = !this.goalsFirst && s.learned.has("quarries") && wished.every((id) => id === r.current || id === r.next);
+      // (Of the rest, picked idle, a new goods chain's first: what opens a good no industry on the line makes (Smithy's
+      // tools, once the foundry's iron comes: on seed 1, played on to 400, the iron from minute 225 went only to the
+      // workshop's yard and Smithy was never picked); the rest in the blueprints' order, as before. Not what asks a good
+      // of a chain the line has (ranked so, Diesel was picked on 8 of 9 seeds and on 4 still waited on its 8 flour at
+      // minute 180), nor what such a one needs (Warehouses, College): either way fewer were researched by 180.)
+      const rank = (id: string) => (goodsUnlocked(id).some((k) => !made.has(k)) ? 0 : 1);
+      const rest = idle ? [...others].sort((a, b) => rank(a) - rank(b)) : others;
+      const order = [...new Set([...toward, ...wished, ...(rich || idle ? rest : [])])];
+      // (A filler, picked only as nothing wanted was left, gives way once a wanted one opens (a chain's or a wish's): the
+      // wanted one up next, then swapped in ahead, the filler keeping what it had got. Else Junctions, picked idle at
+      // 139 on seed 9, starved for planks while Mines, open at 155, waited behind it to 180.)
+      const wanted = [...toward, ...wished].find((id) => !held(id));
+      if (!this.goalsFirst && s.learned.has("quarries") && wanted !== undefined && r.current !== null && r.current !== wanted && !toward.includes(r.current) && !wished.includes(r.current)) {
+        const coins = s.coins;
+        if (r.next !== wanted) pickResearch(s, wanted);
+        const where = r.next === wanted ? pickResearch(s, wanted) : null;
+        P.spent.blueprintsCoins += coins - s.coins;
+        if (where === "current") {
+          P.happened++;
+          P.w.economy.acceptsChanged();
+          P.researchFed = P.tick;
+          P.note(`research: ${techOf(wanted)!.label} swapped in ahead of ${techOf(r.next!)!.label} (${describeGoods(researchCost(wanted).goods)}${researchCost(wanted).coins ? ` + ${researchCost(wanted).coins} coins` : ""})`);
+        }
+      }
+      for (const id of waiting ? wished.filter((x) => GOALS_NEXT.includes(x)) : order) {
         if (r.current !== null && r.next !== null) break;
         if (id === r.current || id === r.next || held(id)) continue;
         const coins = s.coins;
@@ -2374,6 +2467,8 @@ class Playthrough {
     this.openIndustry("quarry");
     this.openIndustry("mine");
     this.openIndustry("harbour");
+    // (The default run: a foundry once Foundry is learned, for the iron Smithy, Electricity and the electric engine ask.)
+    if (!this.goalsFirst) this.openIndustry("foundry");
     // (The mine's coal or ore on a train, the first minute it's seen: for the long goals play-through's check.)
     if (this.mine >= 0 && this.firsts["mine's goods carried"] === undefined)
       for (const id of w.sim.trainIds())
@@ -2478,7 +2573,7 @@ class Playthrough {
   /** Stone trains had unloaded at the workshop when the harbour was paid for (`Player.shopStoneIn`; −1: no harbour). */
   harbourStone = -1;
   /** When each "Open a …" industry was last tried (minutes). */
-  private readonly industryTry: Record<"quarry" | "mine" | "harbour", number> = { quarry: -99, mine: -99, harbour: -99 };
+  private readonly industryTry: Record<"quarry" | "mine" | "harbour" | "foundry", number> = { quarry: -99, mine: -99, harbour: -99, foundry: -99 };
   /** A good an industry's price asks of the workshop's yard that the yard never takes, said once. */
   private readonly neverPaid = new Set<string>();
 
@@ -2488,12 +2583,12 @@ class Playthrough {
    * workshop and placed at a line end, or on a branch off the line (`branchOff`), by its resource (`SITE_RULES`):
    * hillside for a quarry or a mine, water the boats come in on for a harbour.
    */
-  openIndustry(role: "quarry" | "mine" | "harbour"): void {
+  openIndustry(role: "quarry" | "mine" | "harbour" | "foundry"): void {
     const P = this.p;
     const w = P.w;
     const s = P.progress;
     const g = w.landscape.grid;
-    const type = restoredType(role);
+    const type: PieceTypeId = role === "foundry" ? "depot-foundry" : restoredType(role);
     const thing = pieceThing(type);
     if (this[role] !== -1 || !s.knows(thing) || P.minute - this.industryTry[role] < 10) return;
     const opened = (id: number, beyond: number, how: string): void => {
@@ -2510,9 +2605,11 @@ class Playthrough {
       }
       if (this.lines) this.routeGoods();
     };
-    const old = this.restoreOld(role);
+    // (A foundry has no old one on the map: always a new one.)
+    const site = role === "foundry" ? null : role;
+    const old = site && this.restoreOld(site);
     if (old === "wait") {
-      this.why ||= `restoring the old ${role} (${describeGoods(restorePrice(role).goods)} + ${restorePrice(role).coins} coins; have ${describeGoods(workshopStock(w))}, ${s.coins} coins)`;
+      this.why ||= `restoring the old ${role} (${describeGoods(restorePrice(site!).goods)} + ${restorePrice(site!).coins} coins; have ${describeGoods(workshopStock(w))}, ${s.coins} coins)`;
       return;
     }
     if (old) {
@@ -2549,9 +2646,12 @@ class Playthrough {
     }
     this.industryTry[role] = P.minute;
     const cells: number[] = [];
-    g.forEachCell((i) => {
-      if (role === "harbour" ? isWater(g.surface[i]) : g.height[i] > 0) cells.push(i);
-    });
+    // (A foundry needs no resource: by the mine whose coal and ore it takes, or a town's station, as a mill goes.)
+    if (role === "foundry") cells.push(...[this.mine, ...w.stations.values()].map((id) => w.layout.getPiece(id)).filter((p) => !!p).map((p) => g.cellAtWorld(p!.pose.x, p!.pose.z)).filter((i) => i !== -1));
+    else
+      g.forEachCell((i) => {
+        if (role === "harbour" ? isWater(g.surface[i]) : g.height[i] > 0) cells.push(i);
+      });
     // (A waiting order taken off when the harness makes it itself, so only one is made.)
     P.crafting.cancel(thing);
     P.make(new Map([[thing, 1]]));
