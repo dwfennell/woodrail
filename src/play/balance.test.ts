@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
-import { capAt, RECIPES, type DepotState, type RouteStopDef } from "../economy/economy";
+import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
 import { describe as describeGoods, total, type Bag } from "../economy/goods";
 import { HarbourTrade } from "../game/harbours";
 import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
@@ -1394,14 +1394,6 @@ function onlyNearestPickup(w: World, stops: RouteStopDef[], kind: CargoKind): vo
   }
 }
 
-/** Every stop of `stops` at a depot that gives only `kind` set to "Only drop": the line picks none of it up (`holdBack`). */
-function onlyDropAtSources(w: World, stops: RouteStopDef[], kind: CargoKind): void {
-  for (const s of stops) {
-    const gives = RECIPES[w.economy.depot(s.depotId)?.role ?? "town"]?.gives ?? [];
-    if (gives.length === 1 && gives[0] === kind) s.action = "drop";
-  }
-}
-
 describe("the harness's footprints", () => {
   it("are the game's: every prop on the starter map has one, measured from its model (none left out as the game wouldn't)", () => {
     const w = buildStarterWorld();
@@ -2751,7 +2743,6 @@ class Playthrough {
         for (const g of loads) if (g && !this.nearestPickup.has(g)) blocking.add(g);
       }
     }
-    if (this.goalsFirst) this.holdBack(takers);
     if (blocking.size === 0) {
       this.stuckFor = 0;
       return;
@@ -2805,46 +2796,6 @@ class Playthrough {
   }
   /** Has the stop before the mine been set so the hoppers reach it with room (`roomForMine`)? */
   mineRoom = false;
-
-  /**
-   * Goods picked up only on the way to where they're taken (`unstick`) that the goods train still carries round while
-   * every industry on the line that takes them is full of them (the goals play-through: the farm's grain, the mill full
-   * of grain and flour, its one van taking 3 flour a lap; the three hoppers came by full of grain, and the stone for
-   * Harbours and the harbour stayed at the quarry from minute 400 on): after 3 minutes of that the player sets the
-   * stops that give only that good to "Only drop" (the engine card's stops, as the game does it), so the cars come by
-   * empty for other goods. Picked up again (the line laid out as before) once those industries are down to a carload.
-   */
-  holdBack(takers: (DepotState | undefined)[]): void {
-    const P = this.p;
-    const w = P.w;
-    const found = w.sim.findCar(this.timber);
-    if (!found) return;
-    const users = (k: CargoKind) => takers.filter((d) => RECIPES[d!.role].takes.includes(k) && !["town", "school", "harbour"].includes(d!.role) && !RECIPES[d!.role].routedOnly);
-    for (const k of [...this.held]) {
-      if (!users(k).some((d) => d!.piles[CARGO[k].index] <= 3)) continue;
-      this.held.delete(k);
-      P.happened++;
-      P.note(`the line's ${k} picked up again: an industry that takes it is down to a carload`);
-      this.routeGoods();
-    }
-    const carried = (k: CargoKind) => found.train.cars.some((c) => w.economy.cargoOf(c.id).kind === k);
-    const hold = [...this.nearestPickup].filter((k) => !this.held.has(k) && carried(k) && users(k).length > 0 && users(k).every((d) => d!.piles[CARGO[k].index] >= capAt(d!) - 3) && takers.some((d) => RECIPES[d!.role].gives.length === 1 && RECIPES[d!.role].gives[0] === k));
-    if (hold.length === 0) {
-      this.holdFor = 0;
-      return;
-    }
-    if (++this.holdFor < 3) return;
-    this.holdFor = 0;
-    for (const k of hold) this.held.add(k);
-    editLine(w.economy, this.timber, (stops) => {
-      for (const k of hold) onlyDropAtSources(w, stops, k);
-    });
-    P.happened++;
-    P.note(`HELD: the goods train carries ${hold.join(", ")} round, every industry that takes it full: its stops that give only that set to "Only drop" till one is down to a carload`);
-  }
-  /** Goods the line doesn't pick up for now (`holdBack`), and how many minutes in a row the cars came by full of one. */
-  readonly held = new Set<CargoKind>();
-  holdFor = 0;
 
   /**
    * A town on the line that wants planks and has had none for `STARVED` minutes while the workshop's yard holds
@@ -2904,7 +2855,6 @@ class Playthrough {
     const back = order.slice(1, -1).reverse();
     const stops: RouteStopDef[] = [...order, ...back].map((depotId) => ({ depotId, action: "auto" as const }));
     for (const kind of this.nearestPickup) onlyNearestPickup(w, stops, kind);
-    for (const kind of this.held) onlyDropAtSources(w, stops, kind);
     // One line for every train (with routes-lines' auto-spacing to spread them out); its stops follow the track.
     const live = [...this.trains.keys()].filter((e) => w.sim.findCar(e));
     if (live.length === 0) return;
