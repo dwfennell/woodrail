@@ -29,7 +29,8 @@ on another device. The game's side of it is `src/persist/cloud.ts`, and its card
 - **CORS:** only the pages listed in `ALLOWED_ORIGINS` in `wrangler.toml`, plus `http://localhost` and
   `http://127.0.0.1` on any port. A page from any other origin gets a 403.
 - **No overwriting unseen:** a PUT names the copy it was made from (`X-Base-Saved-At`), and R2 stores it only if that
-  copy is still there (`onlyIf` its etag). If another device's copy got in first, the PUT gets a 409.
+  copy is still there (`onlyIf` its etag), and the first PUT under a code only if there's still nothing (`onlyIf`
+  `etagDoesNotMatch: "*"`). If another device's copy got in first, the PUT gets a 409.
 
 ## Develop and test
 
@@ -82,8 +83,14 @@ These limits aren't in v1:
   rule on the route.
 - A tighter limit on PUTs under codes with nothing saved yet. Today anyone can store 2 MB under a fresh code every
   10 s.
-- The first PUT under a code isn't conditional. R2's `onlyIf` has no "only if absent", so two devices turning on the
-  same code at the same moment could race.
+
+### Known limits (the game's side)
+
+- **Two devices running at once earn twice.** In Game mode, two devices running the same railway with both in view
+  both deliver, and their earnings are added together when they sync. A hidden or paused one earns nothing (the sim,
+  the workshop and the harbour boats all run on game time). Running both at once is rare, so this is accepted for now.
+- **Spending more than both had** (both sides spend the same coins before they sync) leaves coins at 0, not below.
+- **Up to one autosave of earnings** (about 5 s) can be lost when a copy is merged or taken.
 
 To undo, delete the variable, so the menu item goes with the next deploy. Then, if you want, run `npx wrangler delete`
 and `npx wrangler r2 bucket delete woodrail-saves`.

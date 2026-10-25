@@ -690,6 +690,29 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       }
     expect(rows).toEqual([]);
   });
+  // QA's N2: a running train taken off its line at 5 s, put down anywhere on a 1-loop line among the line's two. The
+  // line's train in a loop road ran head on into it (the line's slots don't keep a train on no line out): two real
+  // bumps 2.3 s apart, the second as it turned back into it again. On origin/main (7385861) 15 of these placements
+  // bumped so. Now a line's train stops short of a train not on its line ahead of it, as that one does of it.
+  it("QA's N2: a train taken off its line, anywhere among the line's two: no head-ons", () => {
+    const rows: string[] = [];
+    for (const ends of [1, 2])
+      for (let p0 = 0; p0 < 16; p0++)
+        for (const s0 of [20, 100, 180]) {
+          const q = line0({ loops: 1, ends });
+          const piece = q.L.getPiece(p0);
+          if (!piece || !/^(straight|depot|curve)/.test(piece.type)) continue;
+          let r;
+          try {
+            r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: p0, s: s0, next: 1, offAt: 5 }], [q.a, q.b], 240, cars);
+          } catch {
+            continue;
+          }
+          if (r.meet > 0) rows.push(`ends ${ends}, piece ${p0} at ${s0}: head-ons at ${r.meets.map((t) => t.toFixed(1)).join(", ")} s`);
+          if (r.arrivals[0] + r.arrivals[1] < 3) rows.push(`ends ${ends}, piece ${p0} at ${s0}: ${r.arrivals.join("/")} arrivals`);
+        }
+    expect(rows).toEqual([]);
+  });
   it("unring: a train boxed in by spares in its road waits on the one ahead, named, and isn't picked to turn back", () => {
     const { q, l1 } = two();
     const short: CarKind[] = ["engine"];

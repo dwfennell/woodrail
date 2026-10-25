@@ -31,7 +31,7 @@ import {
 } from "../landscape";
 import { rng } from "../lib/rng";
 import { waterWay } from "./harbours";
-import { resourceAt, SITE_RULES, yardMiddle } from "./industries";
+import { amountText, resourceAt, SITE_RULES, yardMiddle } from "./industries";
 import type { GameMode } from "./modes";
 import { techOf } from "./tech";
 import { THING_RULES } from "./things";
@@ -637,7 +637,7 @@ export function siteBlueprint(role: SiteRole): { id: string; label: string } | n
 export interface RuinCard {
   /** "Old farm". */
   title: string;
-  /** "🌾 Farm fields nearby: 8 of 8". */
+  /** "🌾 Farm fields nearby: 2 of 2" (whole fields: `amountText`). */
   resource: string;
   /**
    * What opens it: "🔒 Learn Farming at a school to open this farm", or once that's learned (and in Sandbox) what
@@ -670,7 +670,8 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   const r = resourceAt(land, site.role, site.piece);
   const res = RESOURCE[site.role];
   // (All it needs: "8 of 8", however many more there are.)
-  const resource = r ? `${res.icon} ${res.what} nearby: ${Math.min(r.count, r.need)} of ${r.need}` : "";
+  // (A farm's in whole fields, "2 of 2", as the player sees them: not squares, "8 of 8", beside two fields.)
+  const resource = r ? `${res.icon} ${res.what} nearby: ${amountText(r.rule, Math.min(r.count, r.need))} of ${amountText(r.rule, r.need)}` : "";
   const bp = siteBlueprint(site.role);
   const open = mode === "sandbox" || !bp || learned(bp.id);
   const fresh = THING_RULES[`piece:${restoredType(site.role)}`]?.label.toLowerCase() ?? name;

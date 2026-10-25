@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FEAT_FIELD, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_TOWN } from "../landscape";
 import type { PieceTypeId } from "../track";
-import { rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates } from "./industries";
+import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates } from "./industries";
 import { buildStarterWorld, depotName, INDUSTRY_ROLE, schoolTown, syncIndustries } from "./world";
 
 /** An open patch of grass on the starter map, cleared of features, and a pose for a depot whose yard sits on it. */
@@ -70,7 +70,7 @@ describe("industries near their resource", () => {
     for (const [type, role] of Object.entries(INDUSTRY_ROLE)) if (SITE_RULES[role!]) said[type] = siteWhy(land, type as PieceTypeId, pose);
     expect(said).toEqual({
       "depot-forest": "Needs trees nearby: 0 of 5",
-      "depot-farm": "Needs farm fields nearby: 0 of 4",
+      "depot-farm": "Needs a farm field nearby",
       "depot-quarry": "Needs hillside nearby: 0 of 6",
       "depot-mine": "Needs hillside nearby: 0 of 6",
       "depot-harbour": "Needs water nearby: 0 of 4",
@@ -109,9 +109,20 @@ describe("industries near their resource", () => {
   it("a farm yard needs farm fields", () => {
     const { w, pose, near } = openPatch();
     const land = w.landscape;
-    expect(siteWhy(land, "depot-farm", pose)).toBe("Needs farm fields nearby: 0 of 4");
+    expect(siteWhy(land, "depot-farm", pose)).toBe("Needs a farm field nearby");
+    // (Part of a field, 2 squares of its 4, in reach: said in fields, not "2 of 4", which a player beside two whole
+    // fields read as fields. QA: "it needs four but I only have those two".)
+    for (const i of near(150).slice(0, 2)) land.grid.feature[i] = FEAT_FIELD;
+    expect(siteWhy(land, "depot-farm", pose)).toBe("Move it closer to a farm field");
     for (const i of near(150).slice(0, 4)) land.grid.feature[i] = FEAT_FIELD;
     expect(siteWhy(land, "depot-farm", pose)).toBeNull();
+  });
+
+  it("a farm's fields are counted in whole fields (2 × 2 paddocks) in its words, to the half", () => {
+    const farm = SITE_RULES.farm!;
+    expect([0, 1, 2, 3, 4, 6, 8, 12].map((n) => amountText(farm, n))).toEqual(["0", "0", "½", "½", "1", "1½", "2", "3"]);
+    // (Other resources stay in squares.)
+    expect(amountText(SITE_RULES.forest!, 7)).toBe("7");
   });
 
   it("a quarry needs hillside: raised squares nearby", () => {

@@ -37,12 +37,14 @@ function researching(id = "mills"): Progress {
 
 const planks = (w: World) => workshopStock(w).planks ?? 0;
 
-describe("the growth menu: pick one of three", () => {
+// Its slowest tests draw a few hundred cards; they took 5-6 s on a loaded machine.
+describe("the growth menu: pick one of three", { timeout: 30_000 }, () => {
   it("an offer is three cards of different kinds, never a blueprint", () => {
+    // One world for every offer: drawing one only reads it (only taking a card changes it).
+    const w = world({ school: true });
     for (let seed = 1; seed < 40; seed++) {
       for (const level of [1, 2, 3, 5]) {
         const p = researching();
-        const w = world({ school: true });
         const offer = offerOnGrowth(p, w, "Larkfield", level, rng(seed))!;
         expect(offer.cards).toHaveLength(3);
         expect(new Set(offer.cards.map((c) => c.kind)).size).toBe(3);
@@ -285,6 +287,26 @@ describe("taking a card", () => {
     expect(take({ kind: "rare", good: "grain", n: 6 }, researching()).p.research.got).toEqual({ grain: 6 });
   });
 
+  it("records what it gave, for a cloud merge to count it once (planks went into the world: only the offer)", () => {
+    const take = (card: GrowthCard, p = Progress.fresh()) => {
+      p.offers.push({ from: "Larkfield", level: 2, cards: [card] });
+      takeCard(p, world({ school: true }), 0, 0);
+      return p.taken.at(-1);
+    };
+    expect(take({ kind: "planks", n: 16 })).toEqual({ from: "Larkfield", level: 2 });
+    expect(take({ kind: "coins", n: 80 })).toEqual({ from: "Larkfield", level: 2, coins: 80 });
+    expect(take({ kind: "wagon", id: "car:engine" })).toEqual({ from: "Larkfield", level: 2, owned: [["car:engine", 1]] });
+    const p = researching();
+    expect(take({ kind: "rare", good: "grain", n: 6 }, p)).toEqual({ from: "Larkfield", level: 2, goods: [["grain", 6]], to: p.research.current });
+    // Only the last few are kept.
+    const q = Progress.fresh();
+    for (let i = 0; i < 20; i++) {
+      q.offers.push({ from: `T${i}`, level: 1, cards: [{ kind: "coins", n: 1 }] });
+      takeCard(q, world(), 0, 0);
+    }
+    expect(q.taken.map((t) => t.from)).toEqual(Array.from({ length: 12 }, (_, i) => `T${i + 8}`));
+  });
+
   it("the planks card gives only what fits now: nothing lost", () => {
     const p = Progress.fresh();
     const w = world();
@@ -313,7 +335,8 @@ describe("taking a card", () => {
   });
 });
 
-describe("growth never teaches a blueprint", () => {
+// A fresh world for each of its 195 offers (taking a card changes it): 2-4 s, near the 5 s default on a loaded machine.
+describe("growth never teaches a blueprint", { timeout: 30_000 }, () => {
   it("whatever is offered and taken, at any level", () => {
     for (let seed = 1; seed < 40; seed++) {
       for (const level of [1, 2, 3, 4, 5]) {
@@ -401,7 +424,8 @@ describe("three real choices", () => {
   });
 });
 
-describe("crates and presents", () => {
+// Its slowest tests draw a few hundred cards; they took 5-6 s on a loaded machine.
+describe("crates and presents", { timeout: 30_000 }, () => {
   it("a crate holds things you know, no buildings; a city's is bigger", () => {
     const p = Progress.fresh();
     p.learned.add("switches");
@@ -418,6 +442,8 @@ describe("crates and presents", () => {
 
   it("a crate holds no engine till Signals are learned; after, it can", () => {
     let engines = 0;
+    // One world for every card: drawing one only reads it.
+    const w = world();
     for (let seed = 1; seed < 60; seed++) {
       for (const level of [1, 2, 3, 5]) {
         const p = Progress.fresh();
@@ -425,7 +451,7 @@ describe("crates and presents", () => {
         p.learned.add("farming");
         expect(crateFor(p, level, rng(seed)).map(([id]) => id), `seed ${seed} level ${level}`).not.toContain("car:engine");
         // The crate card too.
-        const card = cardFor(p, world(), "crate", level, rng(seed));
+        const card = cardFor(p, w, "crate", level, rng(seed));
         if (card?.kind === "crate") expect(card.things.map(([id]) => id)).not.toContain("car:engine");
         p.learned.add("signals");
         if (crateFor(p, level, rng(seed)).some(([id]) => id === "car:engine")) engines++;

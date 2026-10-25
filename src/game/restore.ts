@@ -1,6 +1,8 @@
-import { CARGO } from "../economy/cargo";
+import { CARGO, type CargoKind } from "../economy/cargo";
+import { RECIPES, type DepotRole } from "../economy/economy";
 import { kindsOf, minus, total } from "../economy/goods";
-import { CELL, FEAT_NONE, FEAT_RUIN, plotSlotOf, type Landscape, type MapSite, type SiteRole } from "../landscape";
+import { CELL, FEAT_NONE, FEAT_RUIN, plotSlotOf, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_SAND, type Landscape, type MapSite, type SiteRole } from "../landscape";
+import { getPieceDef, pathLength } from "../track";
 import type { Footprint } from "../props/placement";
 import type { Editor } from "../editor/editor";
 import { costTag } from "../ui/cost-tag";
@@ -10,7 +12,7 @@ import { siteWhy } from "./industries";
 import { CLEAR_PRICE, harbourStranded, restorePrice, restoredType, SITE_NAMES } from "./map-sites";
 import type { Progress } from "./progress";
 import { pieceThing } from "./things";
-import type { World } from "./world";
+import { DEPOT_NAMES, type World } from "./world";
 
 /**
  * Restoring an old industry's ruin (map sites, step 2: spec 2026-10-21-map-sites-design.md §7): its stub of track
@@ -250,4 +252,95 @@ export function nearestRuin(land: Landscape, role: SiteRole, from: readonly { x:
     if (e < d) [best, d] = [site, e];
   }
   return best;
+}
+
+/** What each kind of old industry does, in a word for its payoff line ("It grows grain"). */
+const MAKES: Record<SiteRole, string> = { farm: "grows", quarry: "cuts", mine: "digs up", harbour: "ships" };
+
+/** "a, b or c" (`last` "or"), "a and b". */
+const listed = (items: readonly string[], last: string) => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} ${last} ${items.at(-1)}`);
+
+/**
+ * Where a good goes, from the recipes: the industries whose work uses it ("the mill" for grain), and "a town" if towns
+ * take it. Not the depots that take anything (a harbour, a warehouse, a school's research, Sandbox's unloader).
+ */
+export function goodsGoTo(kind: CargoKind): string[] {
+  const out: string[] = [];
+  for (const role of Object.keys(RECIPES) as DepotRole[]) {
+    const r = RECIPES[role];
+    if (role === "town" ? r.takes.includes(kind) : (r.cycle?.uses[kind] ?? 0) > 0) out.push(role === "town" ? "a town" : `the ${DEPOT_NAMES[role].toLowerCase()}`);
+  }
+  return out;
+}
+
+/**
+ * Said once, as a ruin is restored: what it makes, what to do next and where its goods go, from the recipes ("The farm
+ * is working! It grows grain. Lay track to its siding and a train will take it to the mill."). A harbour makes
+ * nothing: trains bring it goods and boats take them away.
+ */
+export function restoredText(role: SiteRole): string {
+  const name = SITE_NAMES[role];
+  const gives = RECIPES[role].gives;
+  if (gives.length === 0) return `The ${name} is working! Lay track to its siding and bring it goods by train. Boats take them away.`;
+  const goods = listed(
+    gives.map((k) => CARGO[k].label.toLowerCase()),
+    "and",
+  );
+  const to = listed([...new Set(gives.flatMap(goodsGoTo))], "or");
+  return `The ${name} is working! It ${MAKES[role]} ${goods}. Lay track to its siding and a train will take ${gives.length > 1 ? "them" : "it"} to ${to}.`;
+}
+
+/** Said on a ruin's card when no track can be laid to it from the line (`trackCanReach`). */
+export const RUIN_NO_WAY = "🚧 Track can't reach it from your line yet";
+
+/**
+ * Can track be laid from the line (any piece on the map: the player's, a station, a depot) to this ruin's stub, over
+ * open ground (grass, sand, lanes, roads and rivers, a block up or down a square at most, as the map's own sites are
+ * made reachable: `reachable`)? A flood fill from the stub's two ends; true where it can't tell (no stub, or its ends
+ * off the land). Once as a ruin's card opens (the caller keys it by the land and the pieces), never per frame or
+ * pointer move: a few thousand squares at most.
+ */
+export function trackCanReach(world: World, siteId: number): boolean {
+  const stub = world.ruins.get(siteId);
+  const piece = stub === undefined ? undefined : world.layout.getPiece(stub);
+  if (!piece) return true;
+  const g = world.landscape.grid;
+  const stubs = new Set(world.ruins.values());
+  const goal = new Set<number>();
+  for (const id of world.layout.pieceIds()) {
+    if (stubs.has(id)) continue;
+    const p = world.layout.getPiece(id)!;
+    for (const along of [0, 72]) {
+      const i = g.cellAtWorld(p.pose.x + Math.cos(p.pose.heading) * along, p.pose.z + Math.sin(p.pose.heading) * along);
+      if (i !== -1) goal.add(i);
+    }
+  }
+  const len = pathLength(getPieceDef(piece.type, piece.flipped).paths[0].geom);
+  const c = Math.cos(piece.pose.heading);
+  const s = Math.sin(piece.pose.heading);
+  const starts = [-40, len + 40].map((t) => g.cellAtWorld(piece.pose.x + c * t, piece.pose.z + s * t)).filter((i) => i !== -1);
+  if (starts.length === 0) return true;
+  const open = (i: number) => g.feature[i] === FEAT_NONE && (g.surface[i] === SURF_GRASS || g.surface[i] === SURF_RIVER || g.surface[i] === SURF_LANE || g.surface[i] === SURF_SAND || g.surface[i] === SURF_ROAD);
+  const near = g.neighbours();
+  const seen = new Uint8Array(g.cellCount);
+  const stack: number[] = [];
+  for (const i of starts) {
+    if (goal.has(i)) return true;
+    if (open(i) && !seen[i]) {
+      seen[i] = 1;
+      stack.push(i);
+    }
+  }
+  while (stack.length > 0) {
+    const at = stack.pop()!;
+    for (let d = 0; d < 4; d++) {
+      const n = near[at * 4 + d];
+      if (n === -1 || seen[n] || Math.abs(g.height[n] - g.height[at]) > 1) continue;
+      if (goal.has(n)) return true;
+      if (!open(n)) continue;
+      seen[n] = 1;
+      stack.push(n);
+    }
+  }
+  return false;
 }

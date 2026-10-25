@@ -143,6 +143,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ruin-resource { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; }
 .ruin-status { font-size: 15px; font-weight: 800; color: #4a3220; text-align: center; max-width: 320px; }
 .ruin-own { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; max-width: 300px; }
+.ruin-reach { font-size: 13px; font-weight: 800; color: #a0472e; text-align: center; max-width: 300px; }
 .ruin-card [hidden] { display: none; }
 .ruin-card .card-row { flex-wrap: wrap; justify-content: center; }
 /* On a phone the card scrolls when it's taller than the room above the tray (on its side, 667 × 375, always): Restore
@@ -164,6 +165,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip.go { width: 150px; height: 58px; font-size: 20px; font-weight: 800; gap: 8px; background: linear-gradient(180deg, #8fd47f, #5fb24f); color: #163b10; box-shadow: inset 0 -3px 0 rgba(30, 80, 20, 0.35), 0 3px 8px rgba(40, 90, 30, 0.25); }
 .chip.go.stop { background: linear-gradient(180deg, #f3a08f, #d9634d); color: #3b130b; box-shadow: inset 0 -3px 0 rgba(110, 30, 15, 0.35), 0 3px 8px rgba(120, 40, 20, 0.25); }
 .chip.go .go-icon { font-size: 16px; margin-right: 8px; }
+/* Continue (waiting to turn back where the track ends): the width of Go and the arrow together, a thumb tall. */
+.chip.continue { width: 218px; height: 48px; font-size: 18px; font-weight: 800; }
 .chip.way { position: relative; width: 58px; height: 58px; padding: 0; color: #4a3220; }
 /* A small ⇄ in the corner: the arrow can be turned round. */
 .chip.way .way-hint { position: absolute; right: 4px; bottom: 2px; font-size: 12px; line-height: 1; font-weight: 800; color: #8a6a4a; }

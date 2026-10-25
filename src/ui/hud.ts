@@ -43,6 +43,8 @@ export interface HudHandlers {
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
   swapEnds(): void;
+  /** The engine card, waiting to turn back where the track ends: turn round now and run on to the next stop. */
+  continueOn(): void;
   /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
   decouple(): void;
   rotate(): void;
@@ -228,6 +230,8 @@ export class Hud {
   private readonly ruinResource = el("div", "ruin-resource");
   private readonly ruinStatus = el("div", "ruin-status");
   private readonly ruinOwn = el("div", "ruin-own");
+  /** Said when track can't be laid to it from the line (a terrace cut off, say). */
+  private readonly ruinReach = el("div", "ruin-reach");
   private ruinClearBtn!: HTMLButtonElement;
   private ruinRestoreBtn!: HTMLButtonElement;
   private landBuyBtn!: HTMLButtonElement;
@@ -248,6 +252,8 @@ export class Hud {
   private readonly putAwayBtn: HTMLButtonElement;
   private putAwayShown = false;
   private readonly wayBtn: HTMLButtonElement;
+  /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
+  private readonly continueBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
   private readonly engineMore = el("div", "engine-more");
   private readonly followBtn: HTMLButtonElement;
@@ -488,6 +494,9 @@ export class Hud {
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
     controls.append(this.goBtn, this.wayBtn);
     this.engineCard.appendChild(controls);
+    this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
+    this.continueBtn.hidden = true;
+    this.engineCard.appendChild(this.continueBtn);
     this.engineMore.hidden = true;
     this.engineMore.append(
       button("Swap ends", "Move the engine to the other end of its train", () => {
@@ -562,7 +571,7 @@ export class Hud {
     this.ruinClearBtn = button("Clear the ruin", "Take the ruin and its track away", () => h.clearRuin?.(), "chip text ruin-clear");
     const ruinRow = el("div", "card-row");
     ruinRow.append(this.ruinRestoreBtn, this.ruinClearBtn);
-    this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
+    this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinReach, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.ruinCard);
 
     // Tray with tabs
@@ -1317,6 +1326,12 @@ export class Hud {
     this.drawEngine();
   }
 
+  /** Waiting to turn back where the track ends (see `canContinue`): Continue shows. */
+  setContinue(on: boolean): void {
+    if (on === !this.continueBtn.hidden) return;
+    this.continueBtn.hidden = !on;
+  }
+
   private drawEngine(): void {
     const moving = this.engineLever !== 0;
     const now = moving && this.goNow;
@@ -1606,7 +1621,7 @@ export class Hud {
   }
 
   /** Show an old industry's card (see `ruinCard` in map-sites.ts). */
-  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string; restore: string | null }): void {
+  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string; restore: string | null; reach?: string | null }): void {
     this.hideCards();
     this.ruinTitle.textContent = card.title;
     this.ruinResource.textContent = card.resource;
@@ -1614,6 +1629,8 @@ export class Hud {
     this.ruinStatus.textContent = card.status;
     this.ruinOwn.textContent = card.own ?? "";
     this.ruinOwn.hidden = !card.own;
+    this.ruinReach.textContent = card.reach ?? "";
+    this.ruinReach.hidden = !card.reach;
     this.ruinClearBtn.textContent = card.clear;
     this.ruinRestoreBtn.textContent = card.restore ?? "";
     this.ruinRestoreBtn.hidden = !card.restore;
@@ -1869,12 +1886,103 @@ export class Hud {
     if (!this.fitToast(message, urgent)) return false;
     // Wherever it went, clear of the tray (QA, 667x375: a three-line toast beside a docked card reached 2 px into it).
     const t = this.toastEl;
-    const tray = this.tray.getBoundingClientRect();
-    // (By layout, not its box: the toast slides in, its box a little higher till it's shown. Shown, it's tilted 0.8°,
-    // a corner that much lower: QA, a wide one cleared the tray by 1-2 px.)
-    const tilt = Math.ceil((t.offsetWidth * Math.sin((0.8 * Math.PI) / 180)) / 2);
-    if (tray.height > 0 && getComputedStyle(this.tray).visibility !== "hidden" && t.offsetTop + t.offsetHeight + tilt > tray.top - 6) t.style.top = `${Math.max(8, Math.round(tray.top - 6 - tilt - t.offsetHeight))}px`;
+    const floor = this.toastFloor();
+    if (t.offsetTop + t.offsetHeight > floor) t.style.top = `${Math.max(this.toastAbove, Math.round(floor - t.offsetHeight))}px`;
     return true;
+  }
+
+  /** How high the tray's clamp may lift the toast: clear of the goals it was put under (see `fitToast`). */
+  private toastAbove = 8;
+
+  /**
+   * In the room left of a docked card (`card`), down to `floor`: the highest place clear of what's pinned under the
+   * top bar (the goals: below them or beside them), at the width it has there, else narrower a step at a time down to
+   * 200 px (more lines). False if none: it's left as it was. A few layouts, as it shows.
+   */
+  private besideNarrower(card: DOMRect, floor: number): boolean {
+    const t = this.toastEl;
+    const was = [t.style.left, t.style.top, t.style.maxWidth];
+    const pinned = [...this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")]
+      .filter((p) => !p.hidden && p.offsetParent !== null && getComputedStyle(p).visibility !== "hidden")
+      .map((p) => p.getBoundingClientRect())
+      .filter((q) => q.width > 0)
+      // (8 px kept from them, as under them: `clearSpot` keeps 4 of its own.)
+      .map((q) => ({ left: q.left - 4, top: q.top - 4, right: q.right + 4, bottom: q.bottom + 4 }));
+    t.style.top = t.style.left = "";
+    const area = { left: 0, right: card.left - 8, top: t.offsetTop, bottom: floor };
+    const widest = Math.round(card.left - 24);
+    const widths: number[] = [];
+    for (let w = widest; w > 200 && widths.length < 6; w *= 0.85) widths.push(Math.round(w));
+    widths.push(200);
+    for (const width of widths) {
+      t.style.maxWidth = `${width}px`;
+      const spot = clearSpot(pinned, t.offsetWidth, t.offsetHeight, area);
+      if (spot) {
+        t.style.left = `${spot.x}px`;
+        t.style.top = `${spot.top}px`;
+        this.toastAbove = spot.top;
+        return true;
+      }
+    }
+    [t.style.left, t.style.top, t.style.maxWidth] = was;
+    return false;
+  }
+
+  /**
+   * How low the toast as laid out may reach: clear of the tray by 6 px (or of the screen's foot), less what its tilt
+   * takes. One rule, for beside a card as anywhere (QA: beside a card wanted 10 px, the clamp 6, so a toast between
+   * the two went over the engine card's Go). By layout, not its box: the toast slides in, its box a little higher till
+   * it's shown; shown, it's tilted 0.8°, a corner that much lower (QA: a wide one cleared the tray by 1-2 px).
+   */
+  private toastFloor(): number {
+    const t = this.toastEl;
+    const tilt = Math.ceil((t.offsetWidth * Math.sin((0.8 * Math.PI) / 180)) / 2);
+    const tray = this.tray.getBoundingClientRect();
+    const out = tray.height > 0 && getComputedStyle(this.tray).visibility !== "hidden";
+    return (out ? tray.top - 6 : window.innerHeight - 8) - tilt;
+  }
+
+  /**
+   * The toast over a docked card (`card`, at `box`; `below`: the foot of the goals, 0 if none): under the goals at its
+   * own width if that covers none of the card's controls; else as wide as the card, over its title or text, on the
+   * first rows that keep its controls clear; else where it covers fewest, its main button (Go) counting most (QA: a
+   * toast over the engine card hid Go). Measured when it shows: a few layouts.
+   */
+  private overCard(card: HTMLElement, box: DOMRect, below: number): void {
+    const t = this.toastEl;
+    const controls = [...card.querySelectorAll<HTMLElement>("button, input, select, .chip, [role=switch]")]
+      .filter((c) => c.offsetParent !== null)
+      .map((c) => ({ q: c.getBoundingClientRect(), main: c.classList.contains("primary") || c.classList.contains("go") }));
+    // (By layout, not its box, which is higher while it slides in: its middle across is `offsetLeft`, as it's centred.)
+    const cost = () => {
+      const l = t.offsetLeft - t.offsetWidth / 2;
+      const r = l + t.offsetWidth;
+      const top = t.offsetTop;
+      const bottom = top + t.offsetHeight;
+      let n = 0;
+      for (const { q, main } of controls) if (q.right > l && q.left < r && q.bottom > top && q.top < bottom) n += main ? 10 : 1;
+      return n;
+    };
+    const floor = this.toastFloor();
+    // Under the goals, at its own width.
+    t.style.top = t.style.left = t.style.maxWidth = "";
+    if (below > 0) t.style.top = `${Math.round(below + 22)}px`;
+    let best = { cost: cost(), left: "", maxWidth: "", top: t.style.top };
+    if (best.cost === 0) return;
+    // Over the card, as wide as it: from its top, then under each of its controls.
+    t.style.left = `${Math.round((box.left + box.right) / 2)}px`;
+    t.style.maxWidth = `${Math.round(box.width - 16)}px`;
+    const h = t.offsetHeight;
+    const tops = [box.top + 4, ...controls.map(({ q }) => q.bottom + 4)].filter((y) => y + h <= floor).sort((a, b) => a - b);
+    for (const y of tops) {
+      t.style.top = `${Math.round(y)}px`;
+      const c = cost();
+      if (c < best.cost) best = { cost: c, left: t.style.left, maxWidth: t.style.maxWidth, top: t.style.top };
+      if (c === 0) break;
+    }
+    t.style.left = best.left;
+    t.style.maxWidth = best.maxWidth;
+    t.style.top = best.top;
   }
 
   /** Where a toast goes (see `placeToast`): false if there's no room for it now. */
@@ -1882,8 +1990,10 @@ export class Hud {
     const t = this.toastEl;
     t.textContent = message;
     t.style.top = t.style.left = t.style.maxWidth = "";
+    this.toastAbove = 8;
     let r = t.getBoundingClientRect();
-    const cards = [...this.root.querySelectorAll<HTMLElement>(".card")].filter((c) => !c.hidden && c.offsetParent !== null && !c.classList.contains("group")).map((c) => c.getBoundingClientRect());
+    const cardEls = [...this.root.querySelectorAll<HTMLElement>(".card")].filter((c) => !c.hidden && c.offsetParent !== null && !c.classList.contains("group"));
+    const cards = cardEls.map((c) => c.getBoundingClientRect());
     const over = (q: DOMRect) => !(q.right < r.left || q.left > r.right || q.bottom < r.top || q.top > r.bottom);
     // Beside a card (on a phone on its side, cards dock at the right, under the top bar): in the room to its left.
     const beside = cards.find((q) => over(q) && q.left >= 200);
@@ -1906,17 +2016,26 @@ export class Hud {
         t.style.top = `${Math.round(below + 22)}px`;
         r = t.getBoundingClientRect();
       }
+      // (The tray's clamp never lifts it back into them: QA, a toast over a docked card went up into the goals pill.)
+      this.toastAbove = below > 0 ? below + 8 : 8;
+      return below;
     };
-    underPinned();
+    const below = underPinned();
     if (beside) {
-      // Too tall for the room beside the card, down to the tray (QA, 667 wide: six lines, pushed up off the tray over
-      // the goals and the date): it goes over the card instead, at its own width, under the goals.
-      const tray = this.tray.getBoundingClientRect();
-      const floor = tray.height > 0 && getComputedStyle(this.tray).visibility !== "hidden" ? tray.top - 6 : window.innerHeight - 8;
-      if (t.offsetTop + t.offsetHeight + 4 <= floor) return true;
-      t.style.top = t.style.left = t.style.maxWidth = "";
-      r = t.getBoundingClientRect();
-      underPinned();
+      const floor = this.toastFloor();
+      if (t.offsetTop + t.offsetHeight <= floor) return true;
+      // Short of room down to the tray: nearer the goals, down to 8 px under them (QA, 740x360: two lines missed by a
+      // pixel and went over the engine card's Go).
+      if (below > 0 && floor - t.offsetHeight >= below + 8) {
+        t.style.top = `${Math.round(floor - t.offsetHeight)}px`;
+        return true;
+      }
+      // Narrower, more lines, anywhere in the room left of the card clear of the goals (beside them too), down to
+      // 200 px (QA: three lines at 740x360 went over the card's Go).
+      if (this.besideNarrower(beside, floor)) return true;
+      // Nowhere there (QA, 667 wide: six lines, pushed up off the tray over the goals and the date): over the card
+      // instead, where it covers none of its controls if it can (see `overCard`).
+      this.overCard(cardEls[cards.indexOf(beside)], beside, below);
       return true;
     }
     if (this.root.classList.contains("map-open")) {
@@ -1952,32 +2071,40 @@ export class Hud {
     });
     const bar = this.root.querySelector<HTMLElement>(".map-bar")?.getBoundingClientRect();
     const vw = document.documentElement.clientWidth;
-    const area = { left: 0, right: vw, top: t.offsetTop - TOAST_SLIDE, bottom: bar && bar.height > 0 ? bar.top - 12 : window.innerHeight - 12 };
+    const top = t.offsetTop;
+    const bottom = bar && bar.height > 0 ? bar.top - 12 : window.innerHeight - 12;
     const natural = t.offsetWidth;
     // (Narrower a step at a time, more lines each, down to a readable 220 px: a gap between labels is found at most a
     // step's width short. Each is one layout.)
     const widths = [0];
     for (let w = natural * 0.85; w > 220 && widths.length < 7; w *= 0.85) widths.push(Math.round(w));
     if (natural > 220) widths.push(220);
+    // Clear of the labels through its slide in too (it starts `TOAST_SLIDE` px higher), if there's room for that at any
+    // width; else clear once it's in (QA: reserving the slide, a toast fell back to covering a label by 10 px when it
+    // fitted clear without).
+    for (const slide of [TOAST_SLIDE, 0]) {
+      const area = { left: 0, right: vw, top: top - slide, bottom };
+      for (const width of widths) {
+        t.style.maxWidth = width ? `${width}px` : "";
+        const spot = clearSpot(labels, t.offsetWidth, t.offsetHeight + slide, area);
+        if (spot) {
+          t.style.left = `${spot.x}px`;
+          t.style.top = `${spot.top + slide}px`;
+          return;
+        }
+      }
+    }
+    // Nowhere clear: where it hides least (see `leastCovered`), once it's in.
     let fallback: { width: number; spot: Spot; cost: number } | null = null;
     for (const width of widths) {
       t.style.maxWidth = width ? `${width}px` : "";
-      // (Its slide in starts `TOAST_SLIDE` px higher: clear of the labels there too, not only once it's in.)
-      const w = t.offsetWidth;
-      const h = t.offsetHeight + TOAST_SLIDE;
-      const spot = clearSpot(labels, w, h, area);
-      if (spot) {
-        t.style.left = `${spot.x}px`;
-        t.style.top = `${spot.top + TOAST_SLIDE}px`;
-        return;
-      }
-      const least = leastCovered(labels, w, h, area);
+      const least = leastCovered(labels, t.offsetWidth, t.offsetHeight, { left: 0, right: vw, top, bottom });
       if (!fallback || least.cost < fallback.cost) fallback = { width, spot: least, cost: least.cost };
     }
     if (!fallback) return;
     t.style.maxWidth = fallback.width ? `${fallback.width}px` : "";
     t.style.left = `${fallback.spot.x}px`;
-    t.style.top = `${fallback.spot.top + TOAST_SLIDE}px`;
+    t.style.top = `${fallback.spot.top}px`;
   }
 
   /** The map's view has settled (its glide done): a toast up goes where it's clear of the labels where they are now. */

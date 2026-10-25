@@ -7,7 +7,7 @@ import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
-import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
+import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
@@ -37,7 +37,7 @@ import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type Thing
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
-import { rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
+import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
@@ -46,6 +46,7 @@ import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, point
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
+import { canContinue, continueOn } from "./game/continue-on";
 import { engineStatus, fullLineToast, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
@@ -391,6 +392,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       putAway: () => interaction.putAwayFromCard(),
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
+      continueOn: () => continueTrain(),
       decouple: () => decouple(),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
@@ -787,10 +789,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!site || site.cleared || mode !== "game") return;
     interaction.clearSelection();
     ruinShown = siteId;
-    hud.showRuinCard(ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)));
+    hud.showRuinCard({ ...ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)), reach: canReach(siteId) ? null : RUIN_NO_WAY });
     audio.tap();
   }
   interaction.onRuinTap = openRuin;
+
+  /**
+   * Can track be laid to this ruin from the line (`trackCanReach`: a flood fill of the land)? Worked out as its card
+   * opens, and again only when the land or the pieces have changed since.
+   */
+  let reachShown = { key: "", yes: true };
+  function canReach(siteId: number): boolean {
+    const key = `${siteId}:${game.landscape.grid.revision}:${game.layout.piecesVersion}`;
+    if (key !== reachShown.key) reachShown = { key, yes: trackCanReach(game.world, siteId) };
+    return reachShown.yes;
+  }
 
   /** Can this ruin (a site of the map shown) be restored now (its card offers Restore)? Kept till a blueprint is learned. */
   const restorable = new WeakMap<object, { learned: number; yes: boolean }>();
@@ -864,7 +877,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     ruinShown = -1;
     hud.hideCards();
     console.info(`Woodrail: ruin restored in ${ms.toFixed(1)} ms (ruins tile rebuilt in ${game.ruinsView.lastBuildMs.toFixed(1)} ms)`);
-    hud.toast(`Old ${site.role} restored! It works again`, true, 2600);
+    // What it makes, what to do next and where its goods go (from the recipes), once; a tap frames it.
+    const at = game.layout.getPiece(done.pieceId)?.pose;
+    const said = restoredText(site.role);
+    hud.toast(said, true, 6000, at ? () => showSpot(yardMiddle(at)) : undefined);
     audio.putdown(true);
     if (mode === "game") {
       hud.refreshTrayBadges();
@@ -888,6 +904,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     journal.add({ kind: "event", text, place });
     goalsPanel.newsChanged();
     hud.toast(text, true, 4200, () => showRuin(site.id));
+  }
+
+  /** Frame a spot and ring it (a tapped toast: an old industry just restored). */
+  function showSpot(at: { x: number; z: number }): void {
+    flyTo({ x: at.x, z: at.z });
+    const i = game.landscape.grid.cellAtWorld(at.x, at.z);
+    const marks = goalMarks(game.scene, [{ x: at.x, y: i < 0 ? 0 : game.landscape.grid.groundY(i), z: at.z }]);
+    if (marks) game.flourishes.add(marks);
+    game.invalidate();
   }
 
   /** Frame a ruin and ring it (a tapped toast: "Old farm by Larkfield can be restored"). */
@@ -1920,7 +1945,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const line = document.createElement("div");
     line.className = "farm-fields";
     const speed = Math.round(rateFor(r.count, r.need) * 100);
-    line.textContent = `Field squares nearby: ${r.count} (works at ${speed}% speed; full speed at ${r.need})`;
+    // (In whole fields, as the player sees them: `amountText`. Short of full speed, how to get there.)
+    line.textContent = `Farm fields nearby: ${amountText(r.rule, r.count)} of ${amountText(r.rule, r.need)} (works at ${speed}% speed)${r.count < r.need ? ". Plant a field to work faster" : ""}`;
     const plant = document.createElement("button");
     plant.className = "chip text farm-plant";
     plant.textContent = `Plant a field · ${costTag({}, price)}`;
@@ -2251,6 +2277,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     onChange();
   }
 
+  /** Continue (the engine card, at the end of the track): it turns round now and runs on to its next stop. */
+  function continueTrain(): void {
+    const carId = interaction.openEngineCarId;
+    if (carId === -1) return;
+    const r = continueOn(game.sim, game.economy, carId);
+    if (r === "no-room") return hud.toast("No room to turn the train round here", false, 2500);
+    if (r !== "continued") return;
+    hud.setContinue(false);
+    const found = game.sim.findCar(carId);
+    if (found) hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
+    game.invalidate();
+    onChange();
+  }
+
   /** Why a train can't move at all, where engines have their limits (Game mode); in Sandbox any train can go. */
   const whyCantMove = (): CantMove | null => (game.sim.topSpeed ? (t) => cantMove(game.world, t) : null);
 
@@ -2329,6 +2369,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Its line has a train too many: "Put away" (this one, if it's the one held; else the one held).
     const away = game.economy.sections.putAwayFor(carId);
     hud.setPutAway(away !== -1, away === carId);
+    // Waiting to turn back where the track ends: Continue sends it on now.
+    hud.setContinue(canContinue(game.sim, game.economy, carId));
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go
@@ -3045,8 +3087,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Where the camera was before the map opened, to go back to. */
   let mapReturn: { target: Vector3; distance: number; phi: number; theta: number } | null = null;
   let mapRefreshedAt = 0;
-  /** The view was gliding with the map open at the last frame (see `mapSettled`). */
-  let mapGliding = false;
+  /** The map's view as last seen (camera, target), and whether it has moved since a toast was last fitted to it. */
+  const mapViewSeen = [NaN, NaN, NaN, NaN, NaN];
+  let mapMoving = false;
+  let mapMovedAt = 0;
+  /** How long the map's view stays still before a toast refits to it (QA: not mid-gesture, a finger resting a moment). */
+  const MAP_STILL_MS = 100;
+  /**
+   * And for this many ticks: on a slow device a frame alone can outlast `MAP_STILL_MS`, so one tick between a gesture's
+   * moves read as still (QA, SwiftShader: 3-10 refits a gesture).
+   */
+  const MAP_STILL_TICKS = 3;
+  let mapStillTicks = 0;
 
   /** The map view's tilt: near straight down. */
   const MAP_PHI = 0.22;
@@ -3598,14 +3650,31 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mapView.open) {
       if (now - mapRefreshedAt > 1000) refreshMap();
       else placeMap();
-      // The glide to the whole map has landed (however long it took): the labels are where they'll stay, laid out
-      // afresh, and a toast up keeps clear of them there.
-      if (mapGliding && !game.director.busy) {
+      // The view has stopped moving, and stayed still a moment (the glide to the whole map landed, however long it
+      // took; a pan, pinch or fling done): the labels are where they'll stay, laid out afresh, and a toast up keeps clear of them there. (Five
+      // numbers compared a tick, only while the map's open.)
+      const cam = game.camera.position;
+      const tgt = game.controls.target;
+      const v = mapViewSeen;
+      if (v[0] !== cam.x || v[1] !== cam.y || v[2] !== cam.z || v[3] !== tgt.x || v[4] !== tgt.z) {
+        v[0] = cam.x;
+        v[1] = cam.y;
+        v[2] = cam.z;
+        v[3] = tgt.x;
+        v[4] = tgt.z;
+        mapMoving = true;
+        mapMovedAt = now;
+        mapStillTicks = 0;
+      } else if (mapMoving && !game.director.busy && ++mapStillTicks >= MAP_STILL_TICKS && now - mapMovedAt >= MAP_STILL_MS) {
+        mapMoving = false;
         refreshMap();
         hud.mapSettled();
       }
+    } else {
+      // (Forgotten while it's shut: opened again, the view counts as moved, and settles once.)
+      mapMoving = false;
+      mapViewSeen[0] = NaN;
     }
-    mapGliding = mapView.open && game.director.busy;
     let hum = 0;
     // Whistle posts' near track: worked out again only when the props or the track change.
     whistles.sync(game.layout, game.props, game.trackVersion);
@@ -3714,7 +3783,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, trayThumbnailsSaved: () => trayThumbnailsSaved });
   if (cloud) {
     const card = new CloudCard(hud.root, cloud, {
       mode: () => mode,

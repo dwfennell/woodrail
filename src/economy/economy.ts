@@ -1109,6 +1109,22 @@ export class Economy {
   }
 
   /**
+   * Nothing more for this train at the depot it's beside, this visit (Continue, on its engine's card): the crane lets
+   * it go, and it runs on. False if it's beside none.
+   */
+  skipVisit(trainId: number): boolean {
+    const train = this.sim.getTrain(trainId);
+    const d = train && this.depotUnder(train);
+    if (!train || !d) return false;
+    const s = this.service(trainId);
+    if (s.depotId !== d.id) this.endVisit(s);
+    s.depotId = d.id;
+    s.phase = NONE;
+    for (const car of train.cars) s.done.add(car.id);
+    return true;
+  }
+
+  /**
    * What the crane is doing for this train at this depot, as far as its cars still need: unloading (goods it takes,
    * riders getting off) and/or loading (goods it may pick up, riders getting on). With nothing left to do (a moment
    * as it finishes), what the depot does that this train may have done: a Drop stop only unloads.
