@@ -28,7 +28,7 @@ import { fieldPrice, fieldSpot, plantField } from "../game/fields";
 import { rng } from "../lib/rng";
 import { CAR_SPECS, COUPLER_GAP, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
-import { lineLegs } from "../game/route-path";
+import { legFromCursor, lineLegs, runsLength } from "../game/route-path";
 import { topologyOf, trainLength } from "../economy/sections";
 import { play, type Blocked } from "./player";
 import { pathLength } from "../track/path";
@@ -59,6 +59,11 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * BALANCE_SPUR=routes, the same spur with Routes learned before Mills instead.
  *
  * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
+ *
+ * The goals play-through (the same player, working down the goals' list) runs in two parts (see `GOALS_RUN_MINUTES`):
+ * the fast one in plain `npm test` (to minute 175, about 47 s), and a long one, skipped unless asked for:
+ *   GOALS_LONG=1 npx vitest run src/play/balance.test.ts -t "long goals"
+ * which plays on to minute 285 (about 85 s) and checks the mine and "Connect every town" too.
  */
 
 /** The environment (Node's, under Vitest), without Node's types. */
@@ -138,17 +143,37 @@ const SPUR = !!ENV.BALANCE_SPUR;
 const ROUTES_FIRST = ENV.BALANCE_SPUR === "routes";
 
 /**
- * The goals play-through (part of `npm test`, not only BALANCE=1): the same player on the starter map, this many
- * minutes of play (about 50 s on a laptop: BALANCE_GOALS_MINUTES to try others, BALANCE_GOALS_LOG=1 prints its log),
- * and every goal of GOALS must be met by then but those listed here, each with why. A goal listed that is met fails
- * too, so the list only ever shrinks. (The minutes are what fits the time `npm test` gives it: the quarry is built at
- * minute 157, its stone in a city by 165.)
+ * The goals play-through, in two parts: the same player on the starter map (picking research in the goals' order,
+ * `GOALS_WISH`), and every goal of GOALS must be met by the part's last minute but those its list allows, each with why.
+ * A goal listed that is met fails too, so the lists only ever shrink.
+ *
+ * - The fast part is part of `npm test` (not only BALANCE=1): `GOALS_RUN_MINUTES` of play, about 47 s on a laptop
+ *   (BALANCE_GOALS_MINUTES to try others). The minutes are what fits the time `npm test` gives it: the quarry is built
+ *   at minute 157, its stone in a city by 170.
+ * - The long part, opt-in: GOALS_LONG=1 npx vitest run src/play/balance.test.ts -t "long goals"
+ *   The same play on to `GOALS_LONG_MINUTES` (about 85 s; BALANCE_GOALS_LONG_MINUTES to try others): the mine opened
+ *   the player's way, its coal or ore made and carried, then the last two towns joined. Skipped without the flag.
+ *
+ * BALANCE_GOALS_LOG=1 prints either part's log; BALANCE_JOIN_TRACE=1 logs each try at joining a town, BALANCE_STOPS=1
+ * the line's stops each time they're set.
  */
 const GOALS_RUN_MINUTES = Number(ENV.BALANCE_GOALS_MINUTES ?? 175);
+const GOALS_LONG = !!ENV.GOALS_LONG;
+/**
+ * The long part's minutes: the mine stands at 223 and the last town is joined at 252, but the mine's coal waits for a
+ * taker (the school, once it studies Foundry, from 252, after Warehouses: the goals' order) and is first on a train at
+ * 279.
+ */
+const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 285);
+/** The goals the fast part doesn't reach by `GOALS_RUN_MINUTES`, with why. */
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
-  "open-mine": "Mines wants 20 stone delivered and the Goods engine, which this one goods train brings only at about minute 210 (some 100 s of play-through, past what npm test has room for): the split proposed in phase 2's report",
-  "open-harbour": "a harbour can't be made or restored in Game mode: its price has stone at the workshop, whose yard takes only planks and iron (a product decision, phase 2's report)",
-  "join-all": "Ashcombe and Brambleton come only past minute 175 (once the quarry is open), when there's an end the line can run on from: phase 2's report",
+  "open-mine": "Mines wants 20 stone delivered, 10 more at the school and the Goods engine, which this one goods train brings only at about minute 180; the mine stands at about 223: the long part's (GOALS_LONG=1)",
+  "open-harbour": "a harbour can't be made or restored in Game mode: its price has stone at the workshop, whose yard takes only planks and iron (a product decision, phase 2's report; branch harbour-stone fixes it)",
+  "join-all": "the player joins Ashcombe and Brambleton once the mine is open (the goals' order), past this part's minutes: the long part's (GOALS_LONG=1)",
+};
+/** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
+export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {
+  "open-harbour": GOALS_NOT_REACHED["open-harbour"],
 };
 
 /** The goals neither met nor listed in `allowed` (with why), and those listed but met or not goals at all. */
@@ -987,15 +1012,17 @@ const SPUR_PIECES = Number(ENV.BALANCE_SPUR_PIECES ?? 24);
 /**
  * A short spur from the line to a free end (an old industry's stub): a straight of the line, nearest the stub first,
  * becomes a switch (made at the workshop) and a short straight, as `branchOff` does, and track runs from the switch's
- * branch to `targets` (the stub's free ends), at most `SPUR_PIECES` pieces. The switch, or null with everything put back.
+ * branch to `targets` (the stub's free ends), at most `maxPieces` pieces, from a straight within `reach` of `at`. (A
+ * town's station, joined by `joinTowns`, takes a longer one.) `trace`: each try logged. The switch, or null with
+ * everything put back.
  */
-function spurTo(P: Player, at: { x: number; z: number }, targets: () => number[]): number | null {
+function spurTo(P: Player, at: { x: number; z: number }, targets: () => number[], maxPieces = SPUR_PIECES, reach = RUIN_REACH, trace = ENV.BALANCE_RUIN_TRACE): number | null {
   const w = P.w;
   if (!P.canMake(new Map([["piece:switch", 1]]))) return null;
   const away = (id: number) => Math.hypot(w.layout.getPiece(id)!.pose.x - at.x, w.layout.getPiece(id)!.pose.z - at.z);
   const line = [...w.layout.pieceIds()]
     .filter((id) => !P.fixed.has(id) && w.layout.getPiece(id)!.type === "straight-216" && !nearEnd(P, id, 2))
-    .filter((id) => away(id) < RUIN_REACH)
+    .filter((id) => away(id) < reach)
     .sort((a, b) => away(a) - away(b));
   for (const s of line.slice(0, 8)) {
     const p = w.layout.getPiece(s)!;
@@ -1008,8 +1035,8 @@ function spurTo(P: Player, at: { x: number; z: number }, targets: () => number[]
       if (w.layout.joinedConnector(connectorRef(sw, 0)) !== -1 && freeEnd(P, short) === -1) {
         for (const ref of targets()) {
           const had = new Set(w.layout.pieceIds());
-          const r = play(w.layout, P.editor, connectorRef(sw, 2), ref, { blocked: P.rules(), maxPieces: SPUR_PIECES, fiddle: 3 });
-          if (ENV.BALANCE_RUIN_TRACE) P.note(`  spur trace: from ${Math.round(p.pose.x)},${Math.round(p.pose.z)} ${flipped ? "right" : "left"}: ${r.how} (${r.pieces} pieces)`);
+          const r = play(w.layout, P.editor, connectorRef(sw, 2), ref, { blocked: P.rules(), maxPieces, fiddle: 3 });
+          if (trace) P.note(`  spur trace: from ${Math.round(p.pose.x)},${Math.round(p.pose.z)} ${flipped ? "right" : "left"}: ${r.how} (${r.pieces} pieces${r.miss ? `, miss ${r.miss.d} mm ${r.miss.angle}°` : ""}${r.blockedBy ? `, blocked by ${r.blockedBy}` : ""})`);
           if (r.ok && P.settle()) return sw;
           for (const id of [...w.layout.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
         }
@@ -1137,7 +1164,14 @@ function extend(P: Player, to: { type: PieceTypeId; cells: number[]; after?: Pie
       for (const ref of to.target()) {
         const had = new Set(P.w.layout.pieceIds());
         const r = play(P.w.layout, P.editor, from, ref, { blocked: P.rules(), maxPieces: 90, fiddle: 3 });
-        if (r.ok && P.settle()) return { id: pieceOfRef(ref), beyond: -1 };
+        const settled = r.ok && P.settle();
+        if (ENV.BALANCE_JOIN_TRACE) {
+          const e = { ...P.w.layout.worldConnector(from, peg) };
+          const t = { ...P.w.layout.worldConnector(ref, peg) };
+          const near = P.w.layout.getPiece(pieceOfRef(from))!;
+          P.note(`  join trace: end ${Math.round(e.x)},${Math.round(e.z)} h${Math.round((e.heading * 180) / Math.PI)} (${near.type}, y ${near.y}) → ${Math.round(t.x)},${Math.round(t.z)} h${Math.round((t.heading * 180) / Math.PI)}: ${r.how} (${r.pieces} pieces${r.miss ? `, miss ${r.miss.d} mm ${r.miss.angle}°` : ""}${r.blockedBy ? `, blocked by ${r.blockedBy}` : ""})${r.ok && !settled ? " but didn't settle" : ""}`);
+        }
+        if (settled) return { id: pieceOfRef(ref), beyond: -1 };
         for (const id of [...P.w.layout.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
       }
     } else {
@@ -1227,6 +1261,75 @@ function lineOrder(P: Player): number[] {
 }
 
 /**
+ * The depots of a line in the order that makes the shortest lap there and back (`routeGoods`), as a player orders a
+ * branched line's stops: the depth-first `order` leaves a branch's depots after the far end of the line, and a train,
+ * which turns back only at a line's end, crosses the map to reach them. Each way between two stops is the way a routed
+ * train goes from the first, heading as it came in (`legFromCursor`), so a spur that must be run into from the far side
+ * costs what it does. Improved from `order` by moving one depot, or turning a run of them round, while that's shorter.
+ */
+function shortestLap(w: World, order: readonly number[]): { order: number[]; was: number; lap: number } {
+  const n = order.length;
+  if (n < 3) return { order: [...order], was: 0, lap: 0 };
+  const L = w.layout;
+  const piece = order.map((d) => w.economy.depot(d)!.pieceId);
+  // The way from stop i (heading `rev`) to stop j: its length and the heading it comes in with, worked out once each.
+  const legs = new Map<number, { len: number; rev: boolean }>();
+  const leg = (i: number, rev: boolean, j: number): { len: number; rev: boolean } => {
+    const key = (i * n + j) * 2 + (rev ? 1 : 0);
+    let r = legs.get(key);
+    if (!r) {
+      const from = L.getPiece(piece[i])!;
+      const len = pathLength(getPieceDef(from.type, from.flipped).paths[0].geom);
+      const runs = piece[i] === piece[j] ? [] : legFromCursor(L, { pieceId: piece[i], pathIndex: 0, reversed: rev, s: len / 2 }, piece[j]);
+      const last = runs?.at(-1);
+      r = runs ? { len: runsLength(runs), rev: last ? last.s1 < last.s0 : rev } : { len: Infinity, rev };
+      legs.set(key, r);
+    }
+    return r;
+  };
+  // A lap of the line there and back (stops as indices into `order`): the second of two, from whichever heading is shorter.
+  const lap = (seq: readonly number[]): number => {
+    const stops = [...seq, ...seq.slice(1, -1).reverse()];
+    let best = Infinity;
+    for (const start of [false, true]) {
+      let rev = start;
+      let total = 0;
+      for (let k = 0; k < stops.length * 2; k++) {
+        const r = leg(stops[k % stops.length], rev, stops[(k + 1) % stops.length]);
+        if (k >= stops.length) total += r.len;
+        rev = r.rev;
+      }
+      best = Math.min(best, total);
+    }
+    return best;
+  };
+  let seq = order.map((_, i) => i);
+  let cost = lap(seq);
+  const was = cost;
+  for (let pass = 0; pass < 20; pass++) {
+    let better = false;
+    for (let a = 0; a < n; a++)
+      for (let b = 0; b < n; b++) {
+        if (a === b) continue;
+        // One depot moved to another place in the order, or the run between two turned round.
+        const moved = [...seq];
+        moved.splice(b, 0, ...moved.splice(a, 1));
+        const turned = a < b ? [...seq.slice(0, a), ...seq.slice(a, b + 1).reverse(), ...seq.slice(b + 1)] : null;
+        for (const t of turned ? [moved, turned] : [moved]) {
+          const c = lap(t);
+          if (c < cost - 1) {
+            seq = t;
+            cost = c;
+            better = true;
+          }
+        }
+      }
+    if (!better) break;
+  }
+  return { order: seq.map((i) => order[i]), was, lap: cost };
+}
+
+/**
  * On a line's stops, `kind` picked up only at the visits to a depot giving it that come nearest before a stop that
  * takes it (fewest stops on); that depot's other visits become "Only drop" (they still drop, but pick nothing up). On a
  * line there and back: the farm on the way to the mill, not on the way out.
@@ -1261,42 +1364,70 @@ describe("the goals guard", () => {
     expect(goalsMissed((id) => id === "a", { c: "later" }, goals)).toEqual({ missed: ["B (b)"], stale: [] });
     expect(goalsMissed((id) => id !== "b", { c: "later", x: "gone" }, goals)).toEqual({ missed: ["B (b)"], stale: ["c", "x"] });
     expect(goalsMissed(() => true, {}, goals)).toEqual({ missed: [], stale: [] });
-    // (Every allowance is a goal still.)
-    for (const id of Object.keys(GOALS_NOT_REACHED)) expect(GOALS.some((g) => g.id === id), id).toBe(true);
+    // (Every allowance of either part is a goal still, with why; the long part plays on from the fast one, so what it
+    // doesn't reach the fast part doesn't either.)
+    for (const allowed of [GOALS_NOT_REACHED, GOALS_LONG_NOT_REACHED])
+      for (const [id, why] of Object.entries(allowed)) {
+        expect(GOALS.some((g) => g.id === id), id).toBe(true);
+        expect(why.length, `why ${id}`).toBeGreaterThan(0);
+      }
+    for (const id of Object.keys(GOALS_LONG_NOT_REACHED)) expect(id in GOALS_NOT_REACHED, `${id}: allowed in the long part, met in the fast one`).toBe(true);
   });
 });
 
+/**
+ * The goals play-through to `minutes` (the old farm restored on a spur, as a player does on the starter map: no line
+ * end reaches it; past Quarries, the player picks research in the goals' order: `GOALS_WISH`), its goals checked
+ * against `allowed`, and what both parts check. The play-through, for the part's own checks.
+ */
+function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, part: string): Playthrough {
+  const P = new Playthrough(true, true);
+  const t0 = performance.now();
+  try {
+    P.play(minutes);
+  } catch (e) {
+    P.report();
+    throw e;
+  }
+  const seconds = (performance.now() - t0) / 1000;
+  console.log(`${part} goals play-through: ${minutes} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}`);
+  const { missed, stale } = goalsMissed((id) => P.p.goals.isDone(id), allowed);
+  if (missed.length > 0 || stale.length > 0 || ENV.BALANCE_GOALS_LOG) P.report();
+  expect(missed, "goals neither met nor allowed").toEqual([]);
+  expect(stale, "allowed but met (take them off the part's list), or not goals").toEqual([]);
+  // The old farm, restored (its Restore, paid for), not a new farm yard; its grain made, and carried to the mill.
+  const w = P.p.w;
+  const farm = w.layout.getPiece(P.farm);
+  expect(P.firsts["farm restored"], "the old farm restored").toBeDefined();
+  expect(w.landscape.sites!.find((x) => x.role === "farm")?.restored).toBe(true);
+  expect(farm?.type).toBe("depot-farm");
+  expect(w.economy.made[CARGO.grain.index], "grain made").toBeGreaterThan(0);
+  expect(w.economy.made[CARGO.flour.index], "flour milled of its grain").toBeGreaterThan(0);
+  // The quarry, on the line and working: its stone cut, and taken to a city that wants it.
+  expect(w.layout.getPiece(P.quarry)?.type, "the quarry on the map").toBe("depot-quarry");
+  expect(w.economy.made[CARGO.stone.index], "stone cut").toBeGreaterThan(0);
+  expect(P.p.progress.counts.get("delivered:stone") ?? 0, "stone delivered to a town").toBeGreaterThan(0);
+  return P;
+}
+
 describe.skipIf(RUN)("the goals play-through", () => {
   it(`meets every goal by minute ${GOALS_RUN_MINUTES} but those allowed (GOALS_NOT_REACHED), the old farm restored the player's way, its grain made and milled, a quarry's stone in a city`, () => {
-    // (The old farm restored on a spur, as a player does on the starter map: no line end reaches it. Past Quarries,
-    // the player picks research in the goals' order: `GOALS_WISH`.)
-    const P = new Playthrough(true, true);
-    const t0 = performance.now();
-    try {
-      P.play(GOALS_RUN_MINUTES);
-    } catch (e) {
-      P.report();
-      throw e;
-    }
-    const seconds = (performance.now() - t0) / 1000;
-    console.log(`goals play-through: ${GOALS_RUN_MINUTES} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}`);
-    const { missed, stale } = goalsMissed((id) => P.p.goals.isDone(id), GOALS_NOT_REACHED);
-    if (missed.length > 0 || stale.length > 0 || ENV.BALANCE_GOALS_LOG) P.report();
-    expect(missed, "goals neither met nor allowed").toEqual([]);
-    expect(stale, "allowed but met (take them off GOALS_NOT_REACHED), or not goals").toEqual([]);
-    // The old farm, restored (its Restore, paid for), not a new farm yard; its grain made, and carried to the mill.
-    const w = P.p.w;
-    const farm = w.layout.getPiece(P.farm);
-    expect(P.firsts["farm restored"], "the old farm restored").toBeDefined();
-    expect(w.landscape.sites!.find((x) => x.role === "farm")?.restored).toBe(true);
-    expect(farm?.type).toBe("depot-farm");
-    expect(w.economy.made[CARGO.grain.index], "grain made").toBeGreaterThan(0);
-    expect(w.economy.made[CARGO.flour.index], "flour milled of its grain").toBeGreaterThan(0);
-    // The quarry, on the line and working: its stone cut, and taken to a city that wants it.
-    expect(w.layout.getPiece(P.quarry)?.type, "the quarry on the map").toBe("depot-quarry");
-    expect(w.economy.made[CARGO.stone.index], "stone cut").toBeGreaterThan(0);
-    expect(P.p.progress.counts.get("delivered:stone") ?? 0, "stone delivered to a town").toBeGreaterThan(0);
+    goalsPlay(GOALS_RUN_MINUTES, GOALS_NOT_REACHED, "fast");
   }, 180_000);
+});
+
+describe.skipIf(RUN || !GOALS_LONG)("the long goals play-through (GOALS_LONG=1)", () => {
+  it(`meets every goal by minute ${GOALS_LONG_MINUTES} but those allowed (GOALS_LONG_NOT_REACHED), as the fast part does and on: the mine opened and working, every town joined`, () => {
+    const P = goalsPlay(GOALS_LONG_MINUTES, GOALS_LONG_NOT_REACHED, "long");
+    const w = P.p.w;
+    // The mine, on the line and working: coal or ore brought up, and carried on a train.
+    expect(w.layout.getPiece(P.mine)?.type, "the mine on the map").toBe("depot-mine");
+    expect(P.firsts["mine built"] ?? P.firsts["mine restored"], "the mine built or restored").toBeDefined();
+    expect(w.economy.made[CARGO.coal.index] + w.economy.made[CARGO.ore.index], "coal or ore brought up").toBeGreaterThan(0);
+    expect(P.firsts["mine's goods carried"], "the mine's coal or ore on a train").toBeDefined();
+    // Every town on the railway, joined to Larkfield's station.
+    expect(townsOnLine(P.p).map((i) => w.landscape.towns[i].name), "every town joined").toEqual(w.landscape.towns.map((t) => t.name));
+  }, 600_000);
 });
 
 describe.skipIf(!RUN)("balance play-through", () => {
@@ -2158,6 +2289,14 @@ class Playthrough {
     this.openIndustry("quarry");
     this.openIndustry("mine");
     this.openIndustry("harbour");
+    // (The mine's coal or ore on a train, the first minute it's seen: for the long goals play-through's check.)
+    if (this.mine >= 0 && this.firsts["mine's goods carried"] === undefined)
+      for (const id of w.sim.trainIds())
+        if (w.sim.getTrain(id)!.cars.some((c) => ["coal", "ore"].includes(w.economy.cargoOf(c.id).kind ?? ""))) {
+          this.firsts["mine's goods carried"] = Math.round(P.minute);
+          P.note("the mine's goods on a train");
+          break;
+        }
     // Every town on the railway (the goal "Connect every town"): `joinTowns`.
     this.joinTowns();
   }
@@ -2294,14 +2433,20 @@ class Playthrough {
   private joinTry = -99;
 
   /**
-   * "Connect every town": once the quarry is open (the goals before it done, as a player's are), every 10 minutes
-   * with planks to spare, the line run on from one of its ends to the nearest town not on it (as the third town was),
-   * the station's far side capped. The next nearest is tried if the nearest can't be reached.
+   * "Connect every town": once the quarry is open (the goals before it done, as a player's are; in the goals
+   * play-through, the mine too: "Open a mine" comes first in the goals' list, and the two towns' spurs make the lap
+   * half as long again: joined at 157 and 167, Mines was still not learned at minute 285), every 10 minutes with planks
+   * to spare, the line run on from one of its ends to the nearest town not on it (as the third town was), the station's
+   * far side capped. In the goals play-through, where no end can be run on (on the starter map from minute 157 each
+   * ends at a depot, boxed in by headroom, a town or a station: BALANCE_JOIN_TRACE=1 logs each try), a spur to it off a
+   * switch in the line instead (`spurTo`), as a player branches off mid-line. (Not in the balance run, to keep its
+   * pacing as it was: there an end reaches Ashcombe in the end, at 113 on seed 2027.) The next nearest is tried if the
+   * nearest can't be reached.
    */
   joinTowns(): void {
     const P = this.p;
     const w = P.w;
-    if (P.goals.isDone("join-all") || this.quarry < 0 || !this.joinedThird || P.minute - this.joinTry < 10 || P.planks() < PICK_SPARE) return;
+    if (P.goals.isDone("join-all") || this.quarry < 0 || (this.goalsFirst && this.mine < 0) || !this.joinedThird || P.minute - this.joinTry < 10 || P.planks() < PICK_SPARE) return;
     const on = townsOnLine(P);
     const ends = lineEnds(P).map((e) => w.layout.worldConnector(e.ref, peg));
     const dist = (i: number) => Math.min(...ends.map((e) => Math.hypot(w.landscape.towns[i].centre.x - e.x, w.landscape.towns[i].centre.z - e.z)));
@@ -2311,9 +2456,15 @@ class Playthrough {
       .sort((a, b) => dist(a) - dist(b));
     if (others.length === 0) return;
     this.joinTry = P.minute;
+    if (ENV.BALANCE_JOIN_TRACE) {
+      const pose = (id: number) => w.layout.getPiece(id)!.pose;
+      P.note(`  join trace: towns ${w.landscape.towns.map((t, i) => `${t.name} ${Math.round(t.centre.x)},${Math.round(t.centre.z)} station ${Math.round(pose(st(P, i)).x)},${Math.round(pose(st(P, i)).z)} h${Math.round((pose(st(P, i)).heading * 180) / Math.PI)}`).join("; ")}`);
+      P.note(`  join trace: ends ${lineEnds(P).map((e) => { const c = w.layout.worldConnector(e.ref, peg); return `${Math.round(c.x)},${Math.round(c.z)} h${Math.round((c.heading * 180) / Math.PI)} on ${w.layout.getPiece(pieceOfRef(e.ref))!.type}`; }).join("; ")}; open ends ${openEnds(P).length}`);
+    }
     for (const i of others.slice(0, 2)) {
       const station = st(P, i);
-      if (!extend(P, { target: () => [connectorRef(station, 0), connectorRef(station, 1)] })) continue;
+      const ends = () => [connectorRef(station, 0), connectorRef(station, 1)].filter((ref) => w.layout.joinedConnector(ref) === -1);
+      if (!extend(P, { target: ends }) && !(this.goalsFirst && P.progress.learned.has("switches") && spurTo(P, w.landscape.towns[i].centre, ends, 60, 2000, ENV.BALANCE_JOIN_TRACE) !== null)) continue;
       capEnd(P, freeEnd(P, station));
       P.happened++;
       P.note(`ran the line on to ${w.landscape.towns[i].name} (${on.length + 1} of ${w.landscape.towns.length} towns)`);
@@ -2531,8 +2682,16 @@ class Playthrough {
   routeGoods(): void {
     const P = this.p;
     const w = P.w;
-    const order = lineOrder(P);
-    if (order.length < 2) return;
+    const t0 = performance.now();
+    const dfs = lineOrder(P);
+    if (dfs.length < 2) return;
+    // (The goals play-through's player orders the line's stops for the shortest lap once the quarry stands, past the
+    // line's far end (`shortestLap`): the quarry's stone came by in hoppers full of the farm's grain, the farm a stop
+    // before it across the map, and the Mines blueprint's 20 stone never came. Not before: the planks came round to the
+    // workshop slower on the shortest lap from the mill on, and the quarry stood at minute 170, not 157.)
+    const short = this.goalsFirst && this.quarry >= 0 ? shortestLap(w, dfs) : null;
+    const order = short?.order ?? dfs;
+    if (ENV.BALANCE_STOPS && short) P.note(`  ordered for a lap of ${Math.round(short.lap)} mm (was ${Math.round(short.was)}), in ${(performance.now() - t0).toFixed(1)} ms`);
     const back = order.slice(1, -1).reverse();
     const stops: RouteStopDef[] = [...order, ...back].map((depotId) => ({ depotId, action: "auto" as const }));
     for (const kind of this.nearestPickup) onlyNearestPickup(w, stops, kind);
@@ -2543,6 +2702,17 @@ class Playthrough {
     for (const e of live) joinLine(w.economy, e, this.lineId);
     editLine(w.economy, live[0], (old) => old.splice(0, old.length, ...stops.map((x) => ({ ...x }))));
     P.note(`${live.length} train(s) on a line of ${stops.length} stops: ${order.map((d) => w.economy.depot(d)!.role).join(" → ")} and back`);
+    if (ENV.BALANCE_STOPS)
+      P.note(
+        `  stops: ${order
+          .map((id) => {
+            const d = w.economy.depot(id)!;
+            const p = w.layout.getPiece(d.pieceId)!;
+            const town = w.landscape.towns.find((t) => t.id === d.townId)?.name;
+            return `${d.role}#${id}${town ? `(${town}${w.layout.getPiece(d.pieceId)!.type.includes("halt") ? " halt" : ""})` : ""}@${Math.round(p.pose.x)},${Math.round(p.pose.z)}`;
+          })
+          .join(" ")}`,
+      );
   }
 
   report(): void {
