@@ -449,6 +449,38 @@ try {
   await inMode(c, "game");
   const offers = { c: await offersFor(c), d: await offersFor(d) };
   check("Game mode: one town's growth seen on both devices is one reward offer, not two (QA)", offers.c === 1 && offers.d === 1, JSON.stringify(offers));
+
+  // 10. A city's offer synced to both, and its 200 coins taken on both before they sync again: paid once (QA: 400).
+  await pastLimit();
+  const city = (p) => p.evaluate(() => window.woodrail.progress().offers.some((o) => o.from === "Testbury" && o.level === 3));
+  await c.evaluate(() => window.woodrail.progress().offers.push({ from: "Testbury", level: 3, cards: [{ kind: "coins", n: 200 }, { kind: "coins", n: 1 }] }));
+  await c.waitForFunction(() => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).offers.some((o) => o.from === "Testbury" && o.level === 3), null, { timeout: 15000 });
+  const g11 = await hideAndSettle(c, await remote2());
+  // (D, with nothing of its own to send, picks the cloud's copy up when it starts.)
+  await d.reload();
+  await inMode(d, "game");
+  const before = { c: await coins(c), d: await coins(d), offer: (await city(c)) && (await city(d)) };
+  const take = (p) =>
+    p.evaluate(async () => {
+      const w = window.woodrail;
+      const { takeCard } = await import("/src/game/rewards.ts");
+      const k = w.progress().offers.findIndex((o) => o.from === "Testbury" && o.level === 3);
+      return takeCard(w.progress(), w.world, k, 0) !== null;
+    });
+  const took = [await take(c), await take(d)];
+  for (const [p, n] of [[c, before.c], [d, before.d]]) await p.waitForFunction((n) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === n, n + 200, { timeout: 15000 }).catch(() => {});
+  await pastLimit();
+  const g12 = await hideAndSettle(c, g11);
+  await pastLimit();
+  await hideAndSettle(d, g12);
+  await c.reload();
+  await inMode(c, "game");
+  const after = { c: await coins(c), d: await coins(d), offer: (await city(c)) || (await city(d)) };
+  check(
+    "Game mode: a reward taken on both devices pays once (QA: 0 → 400)",
+    before.offer && before.c === before.d && took.every(Boolean) && after.c === before.c + 200 && after.d === before.c + 200 && !after.offer,
+    `before ${JSON.stringify(before)}; took ${took}; after ${JSON.stringify(after)} (want ${before.c + 200})`,
+  );
   await ctxC.close();
   await ctxD.close();
 } catch (e) {

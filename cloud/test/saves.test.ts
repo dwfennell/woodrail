@@ -131,6 +131,15 @@ describe("saves", () => {
     expect(await (await call("GET", { url: `${URL_}?prev=1` })).text()).toBe("first");
   });
 
+  it("of two first PUTs under a code at once, one is a 409", async () => {
+    const [a, b] = await Promise.all([put("from a", 100), put("from b", 200)]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const won = a.status === 200 ? "from a" : "from b";
+    expect(await (await call("GET")).text()).toBe(won);
+    // (Nothing before it.)
+    expect((await call("GET", { url: `${URL_}?prev=1` })).status).toBe(404);
+  });
+
   it("keeps when a layout edit was made and when it was stored, carried on by progress-only copies", async () => {
     const editedAt = Date.now() - 25_000;
     const first = await put("laid", 100, { headers: { "X-Edit-Kind": "layout", "X-Edited-At": String(editedAt) } });

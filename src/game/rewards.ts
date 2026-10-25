@@ -5,7 +5,7 @@ import type { Town } from "../landscape";
 import { workshops } from "./crafting";
 import { amountAt, BOOST_FLOOR, CARD_AMOUNTS, CARD_KINDS, CARDS_PER_OFFER, type CardKind, type GrowthCard, type Offer } from "./growth-cards";
 import { MARKET_BONUS, townLandmarks } from "./landmarks";
-import type { Progress } from "./progress";
+import { TAKEN_KEPT, type Progress, type Taken } from "./progress";
 import { deliver, lacking, lacks } from "./research";
 import { techOf } from "./tech";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
@@ -343,28 +343,42 @@ export function takeCard(p: Progress, world: World, k: number, i: number): CardV
   if (!card) return null;
   const view = cardView(p, world, card);
   if (!view.ok) return null;
+  const gave: Taken = { from: p.offers[k].from, level: p.offers[k].level };
+  const into = p.research.current;
+  const goods = (g: CargoKind, n: number) => {
+    const took = deliver(p, g, n);
+    if (took > 0 && into !== null) {
+      gave.to = into;
+      (gave.goods ??= []).push([g, took]);
+    }
+  };
   switch (card.kind) {
     case "planks":
       plankYards(world, card.n);
       break;
     case "coins":
       p.coins += card.n;
+      gave.coins = card.n;
       break;
     case "crate":
       for (const [id, n] of card.things) p.add(id, n);
+      gave.owned = card.things.map(([id, n]) => [id, n]);
       break;
     case "wagon":
       p.add(card.id, 1);
+      gave.owned = [[card.id, 1]];
       break;
     case "boost": {
       const bag = boostGoods(p, card.share);
-      for (const g of kindsOf(bag)) deliver(p, g, bag[g]!);
+      for (const g of kindsOf(bag)) goods(g, bag[g]!);
       break;
     }
     case "rare":
-      deliver(p, card.good, card.n);
+      goods(card.good, card.n);
       break;
   }
+  p.taken.push(gave);
+  if (p.taken.length > TAKEN_KEPT) p.taken.splice(0, p.taken.length - TAKEN_KEPT);
   p.offers.splice(k, 1);
   return view;
 }

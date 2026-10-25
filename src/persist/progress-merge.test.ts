@@ -64,6 +64,44 @@ describe("merging two devices' Game progress (cloud saves)", () => {
     expect(mergeOffers([larkfield, ashby], [ashby], [larkfield, ashby, brook])).toEqual([ashby, brook]);
   });
 
+  it("a reward taken on both pays once (QA: the city's 200 coins, taken on both, paid 400)", () => {
+    const city = { from: "Larkfield", level: 3, cards: [{ kind: "coins", n: 200 }, { kind: "crate", things: [["piece:switch", 2]] }] };
+    const coins = { from: "Larkfield", level: 3, coins: 200 };
+    const base = p({ coins: 0, offers: [city] });
+    expect(mergeProgress(base, p({ coins: 200, taken: [coins] }), p({ coins: 200, taken: [coins] }), "local").coins).toBe(200);
+    // What else each earned still adds up.
+    expect(mergeProgress(base, p({ coins: 230, taken: [coins] }), p({ coins: 250, taken: [coins] }), "remote").coins).toBe(280);
+    // Different cards of it: the remote's is the one undone (one reward, as if the local's was taken).
+    const crate = { from: "Larkfield", level: 3, owned: [["piece:switch", 2]] as [string, number][] };
+    const m = mergeProgress(p({ coins: 0, offers: [city], owned: [["piece:switch", 1]] }), p({ coins: 200, taken: [coins], owned: [["piece:switch", 1]] }), p({ coins: 0, taken: [crate], owned: [["piece:switch", 3]] }), "local");
+    expect(m.coins).toBe(200);
+    expect(m.owned).toEqual([["piece:switch", 1]]);
+    expect(m.taken).toEqual([coins]);
+    // Taken on one side only: paid, once.
+    expect(mergeProgress(base, p({ coins: 200, taken: [coins] }), p({ coins: 0, offers: [city] }), "local").coins).toBe(200);
+    // Not in the base (each had its own growth of it before they matched): each side's take stands.
+    expect(mergeProgress(p({}), p({ coins: 200, taken: [coins] }), p({ coins: 200, taken: [coins] }), "local").coins).toBe(400);
+  });
+
+  it("goods from a reward taken on both go into the research once", () => {
+    const need = costOf("bridges").goods;
+    const g = Object.keys(need)[0];
+    const n = Math.min(3, need[g]! - 1);
+    const offer = { from: "Ashby", level: 2, cards: [{ kind: "rare", good: g, n }] };
+    const took = { from: "Ashby", level: 2, goods: [[g, n]] as [string, number][], to: "bridges" };
+    const research = (k: number) => ({ current: "bridges", next: null, got: k > 0 ? ([[g, k]] as [string, number][]) : [], study: 0 });
+    const m = mergeProgress(p({ offers: [offer], research: research(0) }), p({ taken: [took], research: research(n) }), p({ taken: [took], research: research(n) }), "local");
+    expect(m.research!.got).toEqual([[g, n]]);
+  });
+
+  it("rewards taken are kept through a merge, from both, and read back", () => {
+    const a = { from: "Ashby", level: 1, coins: 20 };
+    const b = { from: "Brook", level: 2, owned: [["car:engine", 1]] as [string, number][] };
+    const m = mergeProgress(p({}), p({ taken: [a] }), p({ taken: [a, b, { from: 7 } as never] }), "local");
+    expect(m.taken).toEqual([a, b]);
+    expect(Progress.fromJSON(JSON.parse(JSON.stringify(m))).taken).toEqual([a, b]);
+  });
+
   it("the player's queue and fields go with the world kept (the later copy)", () => {
     const local = p({ orders: ["piece:switch"], making: true, fieldsPlanted: 2 });
     const remote = p({ orders: ["car:engine", "piece:switch"], making: false, fieldsPlanted: 1 });
