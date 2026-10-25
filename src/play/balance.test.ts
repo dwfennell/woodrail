@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
@@ -23,7 +23,8 @@ import { FEAT_FIELD, FEAT_TREE, isWater, looseHeight, type SiteRole } from "../l
 import { gamePayment, nearestRuin, restoreRuin } from "../game/restore";
 import { restorePrice, restoredType } from "../game/map-sites";
 import { LandEditor } from "../landscape/edit";
-import { propsInRect } from "../props/placement";
+import { loadFootprints } from "../props/footprints-testing";
+import { propsInRect, type Footprint } from "../props/placement";
 import { fieldPrice, fieldSpot, plantField } from "../game/fields";
 import { rng } from "../lib/rng";
 import { CAR_SPECS, COUPLER_GAP, SIM_HZ, type CarKind } from "../sim";
@@ -68,6 +69,17 @@ import { endOn, rulesFor, schoolOn } from "./rules";
 
 /** The environment (Node's, under Vitest), without Node's types. */
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
+
+/**
+ * The game's own prop footprints (`Game.footprintOf`: `PropLibrary.footprint`, measured from the models), so the
+ * harness keeps towns' lots and fields clear of props just as the game does. (Its props are towns' buildings.)
+ */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
 const RUN = !!ENV.BALANCE;
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
 /** Most trains on the line once routes are learned (1: only the goods train). */
@@ -335,7 +347,7 @@ class Player {
     this.w = w;
     this.fixed = fixedPieces(w);
     this.editor = new Editor(w.layout, w.sim, () => {}, (id) => this.fixed.has(id));
-    const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+    const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     this.town = new TownLife(host, {
       knows: (id) => this.progress.learned.has(id),
       school: (kind) => researchLacking(this.progress, kind) > 0,
@@ -1354,6 +1366,19 @@ function onlyNearestPickup(w: World, stops: RouteStopDef[], kind: CargoKind): vo
   }
 }
 
+describe("the harness's footprints", () => {
+  it("are the game's: every prop on the starter map has one, measured from its model (none left out as the game wouldn't)", () => {
+    const w = buildStarterWorld();
+    const props = [...w.props.all()];
+    expect(props.length).toBeGreaterThan(0);
+    for (const p of props) {
+      const fp = footprintOf(p.asset);
+      expect(fp, p.asset).toBeDefined();
+      expect(fp!.hw * fp!.hd, p.asset).toBeGreaterThan(16);
+    }
+  });
+});
+
 describe("the goals guard", () => {
   it("names a goal neither met nor allowed, and an allowance for a goal met or gone", () => {
     const goals = [
@@ -2228,7 +2253,7 @@ class Playthrough {
       const piece = w.layout.getPiece(this.farm);
       const r = piece && resourceAt(w.landscape, "farm", piece.pose);
       if (piece && r && r.count < r.need) {
-        const editor = new LandEditor(w.landscape, w.layout, { inRect: (x0, z0, x1, z1) => propsInRect(w.props, () => undefined, x0, z0, x1, z1) });
+        const editor = new LandEditor(w.landscape, w.layout, { inRect: (x0, z0, x1, z1) => propsInRect(w.props, footprintOf, x0, z0, x1, z1) });
         const cells = fieldSpot(w.landscape, editor, yardMiddle(piece.pose), SITE_RULES.farm!.reach);
         if (cells) {
           const price = fieldPrice(s.fieldsPlanted);
