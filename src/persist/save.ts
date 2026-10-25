@@ -63,7 +63,9 @@ const trainSchema = z.object({
         /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
         riders: z.object({ count: z.number().int().min(1).max(MAX_RIDERS), from: z.number().int().min(0) }).optional(),
         /** The line an engine runs (its id in `lines`), and the stop it heads for. */
-        line: z.object({ id: z.number().int().min(1), next: z.number().int().min(0) }).optional(),
+        // (`joined`: when it came to its line, a count, the newest being the one held when there's no room; `held`: its
+        // line had no room for it. Optional: older saves work them out afresh.)
+        line: z.object({ id: z.number().int().min(1), next: z.number().int().min(0), joined: z.number().int().min(0).optional(), held: z.literal(true).optional() }).optional(),
       }),
     )
     .min(1),
@@ -125,6 +127,8 @@ const saveSchema = z.object({
         colour: z.string().max(16),
         name: z.string().max(40),
         stops: z.array(z.tuple([z.number().int().min(0), z.enum(["auto", "both", "drop", "pick"]), z.boolean()])).min(1),
+        /** Its player has been told it has no room for a train put on it (said once a line). */
+        toldFull: z.literal(true).optional(),
       }),
     )
     .optional(),
@@ -187,11 +191,12 @@ export function serializeWorld(world: World): SaveData {
         lineId = line?.id ?? spareId++;
         savedLine.set(r.stops, lineId);
         const look = line ?? LINE_COLOURS[(lineId - 1) % LINE_COLOURS.length];
-        lines.push({ id: lineId, colour: look.colour, name: line?.name ?? `${LINE_COLOURS[(lineId - 1) % LINE_COLOURS.length].name} line`, stops });
+        const told = !!line && world.economy.sections.toldFullOn(line.id);
+        lines.push({ id: lineId, colour: look.colour, name: line?.name ?? `${LINE_COLOURS[(lineId - 1) % LINE_COLOURS.length].name} line`, stops, ...(told ? { toldFull: true as const } : {}) });
       }
       const kept = r.stops.slice(0, r.next).filter((s) => renumbered.has(s.depotId)).length;
       const n = lines.find((l) => l.id === lineId)!.stops.length;
-      lineSaved.set(car.id, { id: lineId, next: Math.min(kept, n - 1) });
+      lineSaved.set(car.id, { id: lineId, next: Math.min(kept, n - 1), ...(line ? world.economy.sections.savedPlace(car.id) : {}) });
     }
   const trains: SaveData["trains"] = sim.trainIds().map((id) => {
     const t = sim.getTrain(id)!;
@@ -420,7 +425,10 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       if (look && CAR_LOOKS[car.kind].includes(look)) sim.setLook(car.id, look);
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
       const on = t.cars[i].line;
-      if (car.kind === "engine" && on) joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next);
+      if (car.kind === "engine" && on) {
+        joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next);
+        if (economy.lineIdOf.get(car.id) === on.id) economy.sections.restorePlace(car.id, on.id, on);
+      }
       const cargo = t.cars[i].cargo;
       if (cargo && canCarry(car.kind, cargo.kind)) {
         economy.setCargo(car.id, cargo.kind, cargo.count);
@@ -431,6 +439,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") economy.setRiders(car.id, riders.count, riders.from);
     });
   }
+  for (const l of save.lines ?? []) if (l.toldFull && economy.lines.has(l.id)) economy.sections.markToldFull(l.id);
+  economy.sections.restored();
   if (broughtBack.length > 0) {
     // (Pinned as the editor pins: map pieces, lifts, and track under a train.)
     const fixed = fixedPieces({ stations, depots, ruins });

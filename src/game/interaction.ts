@@ -39,6 +39,7 @@ import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
+import { putAway, type PutAway } from "./put-away";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
@@ -2421,7 +2422,12 @@ export class Interaction {
       this.hud.updateDepotCard(r.piles, d.auto, null, r.note, !!r.idle);
       return;
     }
-    let piles = pilesOf(d.role).map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
+    const owed = RECIPES[d.role].owed;
+    const economy = this.game.economy;
+    // (A workshop's stone, taken only while a price needs it: listed while it holds some or some is owed.)
+    let piles = pilesOf(d.role)
+      .filter((kind) => !owed?.includes(kind) || d.piles[CARGO[kind].index] > 0 || (economy.owes?.(kind) ?? 0) > 0)
+      .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
@@ -2525,6 +2531,34 @@ export class Interaction {
     this.game.economy.prune();
     this.hud.hideCards();
     this.clearSelection();
+    this.changed();
+  }
+
+  /**
+   * "Put away" on the open engine's card: the train its line has no room for (this one, or the one held) back in the
+   * box, as one undo step (undo puts it back where it stood, on its line, held again).
+   */
+  putAwayFromCard(): void {
+    const engine = this.openEngineCarId;
+    const target = engine === -1 ? -1 : this.game.economy.sections.putAwayFor(engine);
+    if (target === -1) return;
+    const { sim, economy } = this.game;
+    let back: PutAway | null = null;
+    this.editor().editProps({
+      do: () => {
+        back = putAway(sim, economy, target);
+      },
+      undo: () => {
+        back?.restore();
+        back = null;
+      },
+      refuse: (way) => (way === "undo" && back && !back.fits() ? "There's no room to put it back there now" : null),
+    });
+    if (target === engine) {
+      this.hud.hideCards();
+      this.clearSelection();
+    }
+    this.hud.toast("Back in the box");
     this.changed();
   }
 

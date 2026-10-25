@@ -28,6 +28,24 @@ export interface SiteRule {
   readonly least?: number;
   /** Measured from this far across the yard (depot coordinate l; the yard's middle, 72, if not given). */
   readonly l?: number;
+  /**
+   * Squares a whole one of what it counts covers, when the player sees those, not squares: a farm field is a 2 × 2
+   * paddock. Its words then count fields (`amountText`): QA, "it needs four but I only have those two", read off
+   * "Needs farm fields nearby: 2 of 4", which counted squares, beside two whole fields.
+   */
+  readonly per?: number;
+}
+
+/**
+ * How much of its resource `squares` is, as the player counts it: squares for most ("12"), whole fields for a farm, to
+ * the half ("1½" of 6 squares; "½" of 2 or 3).
+ */
+export function amountText(rule: SiteRule, squares: number): string {
+  if (!rule.per) return String(squares);
+  const halves = Math.floor((squares * 2) / rule.per);
+  const whole = Math.floor(halves / 2);
+  const half = halves % 2 === 1 ? "½" : "";
+  return whole === 0 && half ? half : `${whole}${half}`;
 }
 
 /** The least of its resource an industry can be placed with: half its need, or its rule's own `least`. */
@@ -35,7 +53,7 @@ export const leastOf = (rule: SiteRule): number => rule.least ?? Math.ceil(rule.
 
 export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   forest: { what: "trees", counts: (land, i) => land.grid.feature[i] === FEAT_TREE, reach: 250, need: 10 },
-  farm: { what: "farm fields", counts: (land, i) => land.grid.feature[i] === FEAT_FIELD, reach: 250, need: 8 },
+  farm: { what: "farm fields", counts: (land, i) => land.grid.feature[i] === FEAT_FIELD, reach: 250, need: 8, per: 4 },
   // Stone is cut from the hills: raised squares nearby.
   quarry: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
   // Coal and ore are dug out of the hills too.
@@ -49,6 +67,11 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   // A school stands beside a town: one of its lots near the yard (see `schoolTown`, which also says which town).
   school: { what: "a town", counts: isTownLot, reach: SCHOOL_REACH, need: 1 },
 };
+
+/** A farm yard placed with no field square in its reach. */
+export const FARM_NO_FIELD = "Needs a farm field nearby";
+/** ...with part of one in reach, not enough. */
+export const FARM_FIELD_FAR = "Move it closer to a farm field";
 
 /** Not beside any town's lots. */
 export const SCHOOL_TOO_FAR = "Needs to be beside a town";
@@ -102,7 +125,11 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
   const r = role && resourceAt(land, role, pose);
   if (!r) return null;
   const least = leastOf(r.rule);
-  if (r.count < least) return `Needs ${r.rule.what} nearby: ${r.count} of ${least}`;
+  if (r.count < least) {
+    // (A farm's in fields: "Needs farm fields nearby: ½ of 1" is no help beside a whole one just out of reach.)
+    if (r.rule.per) return r.count === 0 ? FARM_NO_FIELD : FARM_FIELD_FAR;
+    return `Needs ${r.rule.what} nearby: ${r.count} of ${least}`;
+  }
   // A harbour's boats must be able to get to it.
   return role === "harbour" ? harbourWhy(land, pose) : null;
 }

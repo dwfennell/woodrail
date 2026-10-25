@@ -53,7 +53,7 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
     const pieceId = world.depots.get(d.id);
     const state = pieceId === undefined ? undefined : world.economy.depotAtPiece(pieceId);
     const kinds = pilesOf(d.kind);
-    const stock = state ? kinds.map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${state.piles[CARGO[k].index]}`).join(" · ") : "";
+    const stock = state ? kinds.filter((k) => !RECIPES[d.kind].owed?.includes(k) || state.piles[CARGO[k].index] > 0).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${state.piles[CARGO[k].index]}`).join(" · ") : "";
     out.push({ key: `depot:${d.id}`, kind: d.kind, x: d.centre.x, z: d.centre.z, title: DEPOT_NAMES[d.kind], detail: stock, glyph: depotGlyph(d.kind) });
   }
   // The industries the player has put down (a workshop): not the map's own, nor a town's station.
@@ -63,8 +63,8 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
     const piece = world.layout.getPiece(d.pieceId);
     const title = depotName(world, d);
     if (!piece || !title) continue;
-    // (A school's goods go into its research: it has no piles to list.)
-    const stock = (d.role === "school" ? [] : pilesOf(d.role)).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${d.piles[CARGO[k].index]}`).join(" · ");
+    // (A school's goods go into its research: it has no piles to list. A workshop's stone only while it holds some.)
+    const stock = (d.role === "school" ? [] : pilesOf(d.role).filter((k) => !RECIPES[d.role].owed?.includes(k) || d.piles[CARGO[k].index] > 0)).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${d.piles[CARGO[k].index]}`).join(" · ");
     out.push({ key: `site:${d.id}`, kind: d.role, x: piece.pose.x, z: piece.pose.z, title, detail: stock, glyph: depotGlyph(d.role) });
   }
   return out;

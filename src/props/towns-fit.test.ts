@@ -1,19 +1,20 @@
-import { Color, MeshStandardMaterial } from "three";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { CELL } from "../landscape";
 import { growToCity, noRoomForBlocks } from "../game/town-testing";
 import { buildStarterWorld, type World } from "../game/world";
-import type { Materials } from "../render/materials";
 import { PropLibrary } from "../render/props/library";
 import { scaleOf } from "../catalogue/scale";
+import { loadFootprints, stubMaterials } from "./footprints-testing";
+import type { Footprint } from "./placement";
 import { boxOf, townModels, townProps } from "./towns";
 
-/** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
-function stubMaterials(): Materials {
-  const m = (c = "#ffffff") => new MeshStandardMaterial({ color: new Color(c) });
-  const lacquer = (c: string) => m(c);
-  return new Proxy({ lacquer } as unknown as Materials, { get: (t, k) => (k in t ? t[k as keyof Materials] : m()) });
-}
+/** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
 
 describe("town models on their squares", () => {
   it("their boxes (as modelled) are the models' own, measured from the GLB at the scale they're drawn", async () => {
@@ -36,7 +37,7 @@ describe("town models on their squares", () => {
     for (const blocks of [true, false]) {
       const w = buildStarterWorld();
       if (!blocks) noRoomForBlocks(w.landscape);
-      for (const town of w.landscape.towns) growToCity(w, town);
+      for (const town of w.landscape.towns) growToCity(w, town, footprintOf);
       vi.restoreAllMocks();
       await noOverhang(lib, w);
     }

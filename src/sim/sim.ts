@@ -330,6 +330,22 @@ export class Sim {
     return true;
   }
 
+  /**
+   * Turn a standing train round now, as it would be at the end of its wait at the end of the line (`turnAround`): its
+   * pending turnback is dropped. Returns the turned train (a new id; its cars keep theirs), or null (nothing done) if
+   * it's moving, derailed, riding a deck, or there's no room to set it down turned round.
+   */
+  turnNow(trainId: number): Train | null {
+    const t = this.trains.get(trainId);
+    if (!t || t.derailed || t.speed >= 1 || t.bogies.length === 0) return null;
+    if (this.rides.size > 0 && this.riding(t)) return null;
+    const turned = this.turnAround(t);
+    if (!turned) return null;
+    turned.lastTurn = t.lastTurn;
+    this.events.push({ kind: "turned", trainId: t.id, newTrainId: turned.id });
+    return turned;
+  }
+
   /** Turn a car around in place (swaps which magnet faces which way). */
   flipCar(carId: number): boolean {
     const found = this.findCar(carId);
