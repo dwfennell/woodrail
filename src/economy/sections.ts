@@ -1296,6 +1296,8 @@ export class Sections {
     const target = this.host.target(engine);
     const m = st.move;
     if (m && m.dest === DEAD_END && !!m.deadEnd && m.deadEnd.has(target)) return true;
+    // (Its stop held by a train of its line it has no room for, standing there: it can't get in, however it shuttles.)
+    if (this.heldAt(engine, target)) return true;
     // (Past a dead end it has turned back short of before, while its line is still full: all the way round its cycle.)
     if (!st.lastDead) return false;
     if (!this.fullness(engine)) {
@@ -1332,9 +1334,11 @@ export class Sections {
     let info = this.lineInfo.get(lineId);
     if (info) return info;
     const engines = this.host.live(lineId);
-    // (Just come onto it, in the order of their ids when several come at once: the newest last.)
+    // (Just come onto it, in the order of their ids when several come at once: the newest last. The line first looked at,
+    // those it had already, as a save keeps them (`restorePlace`), aren't new: the same one stays the newest, and its
+    // player isn't told again.)
     const was = this.seenOn.get(lineId);
-    const fresh = engines.filter((e) => !was?.has(e) || !this.joinedAt.has(e)).sort((a, b) => a - b);
+    const fresh = engines.filter((e) => (was !== undefined && !was.has(e)) || !this.joinedAt.has(e)).sort((a, b) => a - b);
     for (const e of fresh) this.joinedAt.set(e, ++this.joins);
     if (fresh.length > 0 || !was || was.size !== engines.length) this.seenOn.set(lineId, new Set(engines));
     let longest = 0;
@@ -2044,12 +2048,76 @@ export class Sections {
     return false;
   }
 
+  /** Does a train this engine's line has no room for stand on this piece, or at the line end it's at? */
+  private heldAt(engine: number, pieceId: number): boolean {
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0 || pieceId < 0) return false;
+    const info = this.line(lineId);
+    if (!info.managed || !info.admitted.has(engine)) return false;
+    for (const e of info.engines) {
+      if (info.admitted.has(e)) continue;
+      const t = this.sim.findCar(e)?.train;
+      if (!t) continue;
+      for (const b of t.bogies) {
+        if (b.pieceId === pieceId) return true;
+        const sl = info.topo.slotOf.get(b.pieceId);
+        if (sl !== undefined && info.topo.slots[sl].kind === "end" && info.topo.slots[sl].pieces.has(pieceId)) return true;
+      }
+    }
+    return false;
+  }
+
   /** Is this engine one its line has no room for (held where it stands)? */
   heldForRoom(engine: number): boolean {
     const lineId = this.host.lineOf(engine);
     if (lineId < 0) return false;
     const info = this.line(lineId);
     return info.managed && info.engines.includes(engine) && !info.admitted.has(engine);
+  }
+
+  /**
+   * What a save keeps of an engine's place on its line: when it came (`joinedAt`: the newest is the one held), and
+   * whether its line has no room for it now.
+   */
+  savedPlace(engine: number): { joined?: number; held?: true } {
+    const joined = this.joinedAt.get(engine);
+    const lineId = this.host.lineOf(engine);
+    const info = this.enabled && lineId >= 0 ? this.line(lineId) : null;
+    const held = !!info?.managed && info.engines.includes(engine) && !info.admitted.has(engine);
+    return { ...(joined !== undefined ? { joined } : {}), ...(held ? { held: true as const } : {}) };
+  }
+
+  /** A loaded engine's place on its line, as saved (`savedPlace`): when it came, and (not held) that it has room. */
+  restorePlace(engine: number, lineId: number, place: { joined?: number; held?: boolean }): void {
+    if (place.joined !== undefined) {
+      this.joinedAt.set(engine, place.joined);
+      this.joins = Math.max(this.joins, place.joined);
+    }
+    if (place.held) this.heldOnLoad.add(lineId);
+    else {
+      let adm = this.admitted.get(lineId);
+      if (!adm) this.admitted.set(lineId, (adm = new Set()));
+      adm.add(engine);
+    }
+  }
+
+  /**
+   * Loading done: lines with no train held keep no admission of their own from the save (worked out afresh, as
+   * ever); those with one held keep theirs, so the same train stays held.
+   */
+  restored(): void {
+    for (const lineId of [...this.admitted.keys()]) if (!this.heldOnLoad.has(lineId)) this.admitted.delete(lineId);
+    this.heldOnLoad.clear();
+  }
+  private readonly heldOnLoad = new Set<number>();
+
+  /** Has this line's player been told it's full (`onFull`)? Kept in a save, so it isn't said again. */
+  toldFullOn(lineId: number): boolean {
+    return this.toldFull.has(lineId);
+  }
+
+  markToldFull(lineId: number): void {
+    this.toldFull.add(lineId);
   }
 
   putAwayFor(engine: number): number {

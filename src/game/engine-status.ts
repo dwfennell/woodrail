@@ -268,5 +268,6 @@ export function headOnTip(learned: ReadonlySet<string> | null): string {
  */
 export function fullLineToast(room: number, trains: number, more: number): string {
   const loops = room <= 1 && trains === 2 ? "a passing loop" : more === 1 ? "another passing loop" : `${more} more passing loops`;
-  return `This line has room for ${room} train${room === 1 ? "" : "s"}. Lay ${loops} to run ${trains}.`;
+  // (Or the one just put on it back in the box: "Put away" on its card.)
+  return `This line has room for ${room} train${room === 1 ? "" : "s"}. Lay ${loops}, or put one away (on its card).`;
 }

@@ -981,6 +981,8 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const seen: string[] = [];
       const { q, r } = n1((q) => [35, 60, 120, 200, 299].map((at) => ({ at, fn: (E: readonly number[]) => void seen.push(held(q, E)) })));
       if (ENV.SHOW) console.log(`TRAP held ${seen.join(" ; ")} goods ${r.goodsAt.length} (after 60 s ${goodsIn(r, 60, 300)})`);
+      // (Nor do the two with room say they're on their way to a stop the held one stands at: they can't reach it.)
+      expect(r.cardLog.filter((x) => x.t > 60 && x.e !== r.E[2] && /^On its way to forest/.test(x.c)).map((x) => x.c)).toEqual([]);
       expect(seen).toEqual(Array(5).fill("room/room/held"));
       expect(r.meet).toBe(0);
       // (Nothing delivers: the trap. The held one's card says lay a loop; the one waiting on it, that the line is full.)
@@ -1002,6 +1004,63 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
         160,
       );
       expect(told).toEqual(["1:2/3/1"]);
+    });
+
+    // (QA's notes on 688c4b6: after a reload, the oldest train was held instead (the room worked out afresh, by where they
+    // stand), and the player was told again. A save keeps each engine's place on its line, and that it was told.)
+    it("after a reload, the same train stays held, and the player isn't told again", () => {
+      const { q, r, told } = n1(() => [], 120);
+      expect(told).toHaveLength(1);
+      expect(held(q, r.E)).toBe("room/room/held");
+      // Reloaded, as `deserializeWorld` puts it back: a fresh sim and economy on the same track, the trains where they
+      // stood (in the order saved), their lines and stops, and what the save keeps of their places.
+      const reload = (keep: boolean, heldIs = 2) => {
+        const sim = new Sim(q.L);
+        const economy = new Economy(q.L, sim);
+        const depots = [...q.economy.allDepots()].map((d) => economy.addDepot(d.role, d.pieceId, d.townId));
+        const told2: string[] = [];
+        economy.sections.onFull = (lineId, room, trains, more) => told2.push(`${lineId}:${room}/${trains}/${more}`);
+        const E2: number[] = [];
+        let lineId = -1;
+        for (const e of r.E) {
+          const t = q.sim.findCar(e)!.train;
+          const placed = sim.addTrain(t.cars.map((c) => c.kind), { ...t.bogies[0] });
+          if (placed.kind !== "placed") throw new Error("not put back");
+          const t2 = sim.getTrain(placed.trainId)!;
+          t2.cars.forEach((c, i) => {
+            if (t.cars[i].facing !== c.facing) sim.flipCar(c.id);
+            if (c.kind === "engine") sim.setLever(c.id, t.cars[i].lever);
+          });
+          const e2 = t2.cars.find((c) => c.kind === "engine")!.id;
+          E2.push(e2);
+          const route = q.economy.routeOf(e)!;
+          if (lineId === -1) lineId = editLine(economy, e2, (st) => st.push(...route.stops.map((x) => ({ depotId: depots[x.depotId].id, action: "auto" as const }))))!.id;
+          else joinLine(economy, e2, lineId);
+          economy.routeOf(e2)!.next = route.next;
+          // (`heldIs` other than the one held: the save says so, and it's the save that decides, not where they stand.)
+          const k = E2.length - 1;
+          const place = heldIs === 2 ? q.economy.sections.savedPlace(e) : { joined: k === heldIs ? 99 : k + 1, held: k === heldIs };
+          if (keep) economy.sections.restorePlace(e2, lineId, place);
+        }
+        if (keep && q.economy.sections.toldFullOn(q.economy.lineIdOf.get(r.E[0])!)) economy.sections.markToldFull(lineId);
+        economy.sections.restored();
+        const seen: string[] = [];
+        for (let i = 0; i < 60 * SIM_HZ; i++) {
+          sim.tick();
+          economy.tick();
+          if (i % (10 * SIM_HZ) === 0) seen.push(held({ sim, economy } as unknown as Q, E2));
+        }
+        return { seen, told2 };
+      };
+      const kept = reload(true);
+      expect(kept.seen).toEqual(Array(6).fill("room/room/held"));
+      expect(kept.told2).toEqual([]);
+      // (The first one saved as the one held, say, it stays held: the room isn't worked out afresh by where they stand.)
+      expect(reload(true, 0).seen).toEqual(Array(6).fill("held/room/room"));
+      // (Without what the save keeps, as before: another train held, and the player told again.)
+      const lost = reload(false);
+      if (ENV.SHOW) console.log(`RELOAD kept ${kept.seen.join(" ; ")} lost ${lost.seen.join(" ; ")} told ${lost.told2.join(",")}`);
+      expect(lost.seen[0] !== "room/room/held" || lost.told2.length > 0).toBe(true);
     });
 
     it("Put away: the held train goes back in the box, the line counts 2, and the other two deliver as two trains do", () => {

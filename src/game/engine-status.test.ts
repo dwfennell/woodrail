@@ -314,9 +314,10 @@ describe("headOnTip", () => {
 
 describe("the full line's toast", () => {
   it("says what the line has room for, and what would run them all, short", () => {
-    expect(fullLineToast(2, 3, 1)).toBe("This line has room for 2 trains. Lay another passing loop to run 3.");
-    expect(fullLineToast(1, 2, 1)).toBe("This line has room for 1 train. Lay a passing loop to run 2.");
-    expect(fullLineToast(2, 4, 2)).toBe("This line has room for 2 trains. Lay 2 more passing loops to run 4.");
-    for (const t of [fullLineToast(2, 3, 1), fullLineToast(9, 12, 3)]) expect(t.length).toBeLessThanOrEqual(72);
+    expect(fullLineToast(2, 3, 1)).toBe("This line has room for 2 trains. Lay another passing loop, or put one away (on its card).");
+    expect(fullLineToast(1, 2, 1)).toBe("This line has room for 1 train. Lay a passing loop, or put one away (on its card).");
+    expect(fullLineToast(2, 4, 2)).toBe("This line has room for 2 trains. Lay 2 more passing loops, or put one away (on its card).");
+    // (Three lines at most on a 360 px phone: the toast wraps at 328 px, some 33 characters a line.)
+    for (const t of [fullLineToast(2, 3, 1), fullLineToast(9, 12, 3)]) expect(t.length).toBeLessThanOrEqual(96);
   });
 });

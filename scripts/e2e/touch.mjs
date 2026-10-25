@@ -957,9 +957,9 @@ async function shortUnderCar(ctx, p) {
   await p.keyboard.press("Escape");
 }
 
-// (E2E_ONLY=dead-end: only the Continue check, in Sandbox.)
+// (E2E_ONLY=dead-end or trap: only the Continue check, or the third-train trap, in Sandbox.)
 const ONLY = process.env.E2E_ONLY ?? "";
-for (const mode of ONLY === "dead-end" ? ["sandbox"] : ["sandbox", "game"]) {
+for (const mode of ONLY ? ["sandbox"] : ["sandbox", "game"]) {
   try {
     await runMode(mode);
   } catch (e) {
@@ -1098,66 +1098,207 @@ async function deadEndContinue(p) {
 }
 
 /**
- * The third-train trap: a line with a train too many shows "Put away" on its engines' cards. A tap on it puts that
- * train back in the box; undo puts it back. At 360 px wide: the button and the line's toast fit. (Which train the line
- * holds is the sections' to say, unit-tested there: here it's told this engine, so only the card and the tap are tested.)
+ * The third-train trap, by the player's path: a line with one passing loop and three trains. The third is held (the
+ * newest), the player's told once (the real toast, at 360 px), and its card offers "Put away": a touch tap puts it back
+ * in the box, and the other two deliver. Undo puts it back. A reload keeps the same train held, and says nothing again.
  */
 async function putAwayButton(p) {
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 360, height: 740 });
   await frames(p);
-  const placed = await p.evaluate(async () => {
+  const setup = await p.evaluate(async () => {
     const w = window.woodrail;
-    const { nearestCursor } = await import("/src/sim/nearest.ts");
-    const { poseForCentre } = await import("/src/editor/editor.ts");
-    const g = w.interaction.groundAt(180, 300);
-    // (A straight of its own under the finger, then the engine on it.)
-    w.editor().place("straight-216", poseForCentre("straight-216", false, g.x, g.z, 0), 0, false);
-    const near = nearestCursor(w.layout, g.x, g.z, 120, 0);
-    const r = near && w.sim.addTrainAround(["engine"], near.cursor);
-    if (!r || r.kind !== "placed") return null;
-    const e = w.sim.getTrain(r.trainId).cars[0].id;
-    // (Held for room: this engine is the one to put away.)
-    w.economy.sections.putAwayFor = (x) => (x === e && w.sim.findCar(e) ? e : -1);
-    w.invalidate();
-    return { e, trains: w.sim.trainIds().length };
+    const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
+    const { loopOn } = await import("/src/economy/loop-fixtures.ts");
+    const { editLine, joinLine } = await import("/src/game/lines.ts");
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    // (Open ground for the line, found outward from the view's target.)
+    const t = w.controls.target;
+    const clear = (x, z) =>
+      [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 900; }) &&
+      [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 500);
+    let g = null;
+    for (let d = 0; d <= 12000 && !g; d += 216) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 216));
+      for (let a = 0; a < n && !g; a++) {
+        const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+        const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+        if ([0, 500, 1000, 1500, 2000, 2500].every((dx) => clear(x + dx, z) && clear(x + dx, z + 300))) g = { x, z };
+      }
+    }
+    if (!g) throw new Error("no open ground for the line");
+    // Harness shortcut (setup, not what's tested): QA's N1 line (a forest, two straights, one passing loop, two
+    // straights, a sawmill, a turnback buffer at each end) worked out on a scratch layout and laid in one go, as the
+    // player's pieces would be.
+    const L = new Layout();
+    const a = L.addPiece("depot-forest", { x: g.x, z: g.z, heading: 0 });
+    appendPiece(L, "buffer-turnback", false, connectorRef(a, 0));
+    const chain = (n, from) => { const ids = []; for (let k = 0; k < n; k++) { ids.push(appendPiece(L, "straight-216", false, from)); from = connectorRef(ids[k], 1); } return ids; };
+    const west = chain(2, connectorRef(a, 1));
+    const loop = loopOn(L, connectorRef(west[1], 1), ["straight-216", "straight-216"], ["straight-216"]);
+    const east = chain(2, connectorRef(loop.s2, 0));
+    const b = appendPiece(L, "depot-sawmill", false, connectorRef(east[1], 1));
+    appendPiece(L, "buffer-turnback", false, connectorRef(b, 1));
+    const scratch = [...L.pieceIds()];
+    const run = w.editor().placeRun(scratch.map((id) => { const q = L.getPiece(id); return { type: q.type, pose: { ...q.pose }, y: 0, flipped: q.flipped }; }));
+    const real = (id) => run[scratch.indexOf(id)];
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const forest = depot(real(a), "forest");
+    const sawmill = depot(real(b), "sawmill");
+    // Harness shortcut (setup): the trains put down and joined to one line in code, as the tray and the card's line
+    // would; the third comes on a moment later, as the player adds it.
+    const put = (piece, s, next, lineId) => {
+      const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: real(piece), pathIndex: 0, reversed: false, s });
+      if (r.kind !== "placed") throw new Error("no room for a train");
+      const e = w.sim.getTrain(r.trainId).cars[0].id;
+      w.sim.setLever(e, 1);
+      const line = lineId === undefined ? editLine(w.economy, e, (st) => st.push({ depotId: forest.id, action: "auto" }, { depotId: sawmill.id, action: "auto" })) : joinLine(w.economy, e, lineId);
+      w.economy.routeOf(e).next = next;
+      return { e, lineId: line.id };
+    };
+    const first = put(west[0], 200, 1);
+    const second = put(east[0], 200, 0, first.lineId);
+    // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's
+    // few frames a second; the forest kept stocked (its logs aren't what's tested). Counts goods unloaded at the sawmill.
+    window.__run = (secs) => {
+      const { PILE_CAP } = window.__consts;
+      let goods = 0;
+      for (let i = 0; i < secs * 120; i++) {
+        const f = w.economy.depot(forest.id);
+        if (f && i % 120 === 0) f.piles[window.__logIndex] = PILE_CAP;
+        w.sim.tick();
+        w.economy.tick();
+        for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === sawmill.id) goods++;
+      }
+      w.invalidate();
+      return goods;
+    };
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    window.__consts = { PILE_CAP };
+    window.__logIndex = CARGO.log.index;
+    // What the player's told (the real toasts, recorded on their way).
+    window.__trapSaid = [];
+    const toast = w.hud.toast.bind(w.hud);
+    w.hud.toast = (m, ...rest) => (window.__trapSaid.push(m), toast(m, ...rest));
+    window.__run(30);
+    const third = put(west[1], 100, 1, first.lineId);
+    window.__run(1);
+    const at = { x: g.x + 1200, z: g.z };
+    w.director.glideTo(w.controls.target.clone().set(at.x, 0, at.z), frameDistance(1600, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    return { E: [first.e, second.e, third.e], forest: forest.id, sawmill: sawmill.id, lineId: first.lineId };
   });
-  check("put away: an engine goes on the track", !!placed, JSON.stringify(placed));
-  if (!placed) return;
+  // The toast, said as the third came on: once, in the line's numbers, and it fits a 360 px phone.
+  await p.waitForFunction(() => document.querySelector(".toast")?.classList.contains("show"), null, { timeout: 60000 }).catch(() => {});
+  const toast = await p.evaluate(() => {
+    const t = document.querySelector(".toast");
+    const r = t.getBoundingClientRect();
+    const cs = getComputedStyle(t);
+    const lh = parseFloat(cs.lineHeight) || 1.25 * parseFloat(cs.fontSize);
+    return { said: window.__trapSaid.filter((m) => /^This line has room/.test(m)), shown: t.textContent, left: r.left, right: r.right, lines: Math.round((r.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), vw: innerWidth };
+  });
+  check("trap: a third train on a 1-loop line: the player's told once, how to fix it", toast.said.length === 1 && toast.said[0] === "This line has room for 2 trains. Lay another passing loop, or put one away (on its card).", JSON.stringify(toast.said));
+  check("trap: the line's toast fits a 360 px phone (three lines at most)", toast.left >= 0 && toast.right <= toast.vw && toast.lines <= 3, JSON.stringify(toast));
+  // The newest is held; the line delivers nothing while it is (the trap).
+  const trapped = await p.evaluate(({ E }) => {
+    const s = window.woodrail.economy.sections;
+    return { held: E.map((e) => (s.heldForRoom(e) ? "held" : "room")).join("/"), goods: window.__run(90) };
+  }, setup);
+  check("trap: the newest train is the one held, and the line delivers nothing", trapped.held === "room/room/held" && trapped.goods === 0, JSON.stringify(trapped));
+  // Reloaded (saved as the page goes): the same train is held, and the player isn't told again.
+  const before = await p.evaluate(({ E }) => E.map((e) => { const q = window.woodrail.sim.findCar(e).train.world[0]; return [q.x, q.z]; }), setup);
+  await p.reload();
+  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
+  await p.evaluate(() => {
+    window.__trapSaid = [];
+    const h = window.woodrail.hud;
+    const toast = h.toast.bind(h);
+    h.toast = (m, ...rest) => (window.__trapSaid.push(m), toast(m, ...rest));
+    document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click();
+  });
+  await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
   await frames(p);
-  // Open its card: a tap on the engine.
-  await tapped(p, () => p.touchscreen.tap(180, 300));
-  await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 60000 });
-  await p.waitForFunction(() => !document.querySelector(".engine-card .put-away").hidden, null, { timeout: 60000 });
+  const reloaded = await p.evaluate(({ before }) => {
+    const w = window.woodrail;
+    // The same trains, found where they stood (car ids are given out afresh on loading; running ones went on a little
+    // before the page saved).
+    const E = before.map(([x, z]) => {
+      let best = -1;
+      let d = 400;
+      for (const id of w.sim.trainIds()) {
+        const t = w.sim.getTrain(id);
+        const q = t.world[0];
+        const k = Math.hypot(q.x - x, q.z - z);
+        if (k < d && t.cars[0].kind === "engine") [best, d] = [t.cars[0].id, k];
+      }
+      return best;
+    });
+    w.sim.tick();
+    w.economy.tick();
+    const s = w.economy.sections;
+    return { E, held: E.map((e) => (e < 0 ? "?" : s.heldForRoom(e) ? "held" : "room")).join("/"), said: window.__trapSaid.filter((m) => /^This line has room/.test(m)) };
+  }, { before });
+  check("trap: after a reload the same train is held, and the player isn't told again", reloaded.held === "room/room/held" && reloaded.said.length === 0, JSON.stringify(reloaded));
+  const E = reloaded.E;
+  // Harness shortcut: the run-ahead helper again (the page was reloaded); it's the same as above.
+  await p.evaluate(async ({ forest, sawmill }) => {
+    const w = window.woodrail;
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    window.__run = (secs) => {
+      let goods = 0;
+      for (let i = 0; i < secs * 120; i++) {
+        const f = w.economy.depot(forest);
+        if (f && i % 120 === 0) f.piles[CARGO.log.index] = PILE_CAP;
+        w.sim.tick();
+        w.economy.tick();
+        for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === sawmill) goods++;
+      }
+      w.invalidate();
+      return goods;
+    };
+  }, setup);
+  // The held train's card: "Put away" (opened in code: opening a card is tested above; the button is what's tested here).
+  await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), E[2]);
+  const shown = await p.waitForFunction(() => { const b = document.querySelector(".engine-card .put-away"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 60000 }).then(() => true, () => false);
   const fit = await p.evaluate(() => {
-    const b = document.querySelector(".engine-card .put-away").getBoundingClientRect();
+    const el = document.querySelector(".engine-card .put-away");
+    const b = el.getBoundingClientRect();
     const c = document.querySelector(".engine-card").getBoundingClientRect();
-    const lh = parseFloat(getComputedStyle(document.querySelector(".engine-card .put-away")).lineHeight) || 20;
-    return { left: b.left, right: b.right, h: b.height, lh, card: [c.left, c.right], vw: innerWidth };
+    const s = document.querySelector(".engine-card .engine-status");
+    return { left: b.left, right: b.right, h: b.height, card: [c.left, c.right], vw: innerWidth, status: s.textContent, statusLines: Math.round(s.getBoundingClientRect().height / (1.25 * parseFloat(getComputedStyle(s).fontSize))) };
   });
-  check("put away: the card's button fits at 360 px, on one line", fit.left >= 0 && fit.right <= fit.vw && fit.right <= fit.card[1] && fit.h < 2 * fit.lh + 24, JSON.stringify(fit));
-  const box = await (await p.$(".engine-card .put-away")).boundingBox();
-  await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
-  const gone = await p.evaluate((e) => ({ on: !!window.woodrail.sim.findCar(e), trains: window.woodrail.sim.trainIds().length, card: !document.querySelector(".engine-card").hidden }), placed.e);
-  check("put away: a tap on it puts the train back in the box, and the card closes", !gone.on && gone.trains === placed.trains - 1 && !gone.card, JSON.stringify(gone));
+  check("trap: the held train's card offers Put away, and it fits at 360 px", shown && fit.left >= 0 && fit.right <= fit.vw && fit.right <= fit.card[1] && fit.h >= 40 && fit.statusLines <= 2, JSON.stringify(fit));
+  if (!shown) return;
+  const n0 = await p.evaluate(() => window.woodrail.sim.trainIds().length);
+  const putAway = async () => {
+    // (Once the card has settled: its line's part comes in a frame or two after it opens, and the card, held at the
+    // bottom, grows up, moving the button. Still over four frames, SwiftShader's slow ones.)
+    await p.waitForFunction(() => new Promise((r) => {
+      const at = () => JSON.stringify(document.querySelector(".engine-card .put-away").getBoundingClientRect());
+      const route = document.querySelector(".engine-card .engine-extra");
+      const a = at();
+      let n = 0;
+      const step = () => (++n < 4 ? requestAnimationFrame(step) : r(at() === a && !!route && !route.hidden));
+      requestAnimationFrame(step);
+    }), null, { timeout: 60000, polling: 100 });
+    const box = await (await p.$(".engine-card .put-away")).boundingBox();
+    await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
+  };
+  await putAway();
+  const gone = await p.evaluate((E) => ({ on: E.map((e) => !!window.woodrail.sim.findCar(e)), card: !document.querySelector(".engine-card").hidden }), E);
+  check("trap: a tap on Put away puts the held train in the box", JSON.stringify(gone.on) === "[true,true,false]" && !gone.card, JSON.stringify(gone));
+  // Undo at once (its spot still free): back where it stood.
   await p.keyboard.press("Control+z");
   await frames(p);
-  const back = await p.evaluate((e) => ({ on: !!window.woodrail.sim.findCar(e), trains: window.woodrail.sim.trainIds().length }), placed.e);
-  check("put away: undo puts it back where it stood", back.on && back.trains === placed.trains, JSON.stringify(back));
-  // The line's toast, said once: on one phone toast at 360 px (two lines at most).
-  const toast = await p.evaluate(async () => {
-    const w = window.woodrail;
-    const { fullLineToast } = await import("/src/game/engine-status.ts");
-    const t = document.querySelector(".toast");
-    w.hud.toast(fullLineToast(2, 3, 1), false, 60000);
-    for (let i = 0; i < 600 && !(t.classList.contains("show") && getComputedStyle(t).transform.endsWith(", 0)")); i++) await new Promise((r) => setTimeout(r, 50));
-    const r = t.getBoundingClientRect();
-    const lh = parseFloat(getComputedStyle(t).lineHeight) || 20;
-    const out = { text: t.textContent, left: r.left, right: r.right, lines: Math.round((r.height - parseFloat(getComputedStyle(t).paddingTop) - parseFloat(getComputedStyle(t).paddingBottom)) / lh), vw: innerWidth };
-    w.hud.dismissToast();
-    return out;
-  });
-  check("put away: the line's toast fits one phone toast at 360 px", toast.left >= 0 && toast.right <= toast.vw && toast.lines <= 2, JSON.stringify(toast));
+  const back = await p.evaluate((e) => ({ n: window.woodrail.sim.trainIds().length, on: !!window.woodrail.sim.findCar(e) }), E[2]);
+  check("trap: undo puts it back", back.n === n0 && back.on, JSON.stringify({ n0, ...back }));
+  // Away again, from its card: the payoff, the other two deliver (QA's plain 2-train run: 24 goods in 150 s).
+  await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), E[2]);
+  await p.waitForFunction(() => { const b = document.querySelector(".engine-card .put-away"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 60000 });
+  await putAway();
+  const goods = await p.evaluate(() => window.__run(150));
+  check("trap: put away, the other two deliver", goods >= 12, `${goods} goods in 150 s`);
   await p.setViewportSize({ width: 390, height: 844 });
   await frames(p);
 }
@@ -1205,6 +1346,7 @@ async function runMode(mode) {
     check(`${mode}: a touch tap on Back goes back to the shelves (and stays there)`, !(await inGroup()));
   }
   if (mode === "sandbox" && ONLY === "dead-end") await deadEndContinue(p);
+  else if (mode === "sandbox" && ONLY === "trap") await putAwayButton(p);
   else if (mode === "sandbox") {
     await mapTaps(p);
     await selectThenDrag(ctx, p);
