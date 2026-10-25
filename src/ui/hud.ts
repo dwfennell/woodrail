@@ -183,6 +183,8 @@ const REFUSAL_BUMP_MS = 1000;
  * tick shown, then shown again whole once the workshop's card closed).
  */
 const TOAST_SEEN_MS = 1500;
+/** A tap coming down this soon after a card changed size is dropped (see the cards' ResizeObserver). */
+const CARD_MOVED_MS = 150;
 /** How far above its place a toast starts its slide in (px: `.toast` in style.css, translate −14 px till shown). */
 const TOAST_SLIDE = 14;
 /** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
@@ -388,10 +390,26 @@ export class Hud {
     // clear again (only when a card's size changes, not per frame).
     if (typeof ResizeObserver !== "undefined") {
       const refit = new ResizeObserver(() => {
+        this.cardResizedAt = performance.now();
         this.refitToast();
         this.onCardResize?.();
       });
-      for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) refit.observe(c);
+      for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
+        refit.observe(c);
+        // A tap that came down just as the card changed size (its buttons moved under the finger: Rail and road, a
+        // card growing upward on a slow phone) does nothing: the finger was meant for what was there before.
+        c.addEventListener("pointerdown", () => (this.tapOnMovedCard = performance.now() - this.cardResizedAt < CARD_MOVED_MS), true);
+        c.addEventListener(
+          "click",
+          (e) => {
+            if (!this.tapOnMovedCard) return;
+            this.tapOnMovedCard = false;
+            e.stopPropagation();
+            e.preventDefault();
+          },
+          true,
+        );
+      }
     }
 
     // Menu
@@ -1259,7 +1277,16 @@ export class Hud {
     // A new card starts the engine's own front first (a way turned round on another engine's card isn't carried over).
     this.engineWay = 1;
     this.updateEngineCard(lever, following);
+    // Its route filled in now, as it opens, not on the next frame: the card grew upward a frame or two later on a slow
+    // phone, Put away, Continue and Go moving up under the finger (Rail and road).
+    this.onEngineCardShown?.();
   }
+  /** When an open card last changed size (its buttons moved), and whether the tap now coming down came just after. */
+  private cardResizedAt = -Infinity;
+  private tapOnMovedCard = false;
+
+  /** The engine card has just opened (see `showEngineCard`): what's drawn into it from outside goes in at once. */
+  onEngineCardShown: (() => void) | null = null;
 
   updateEngineCard(lever: number, following: boolean): void {
     // Moving: Go keeps going that way. Stopped: the way it last went (or forward).

@@ -2420,6 +2420,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setEngineView(status, angle);
   }
 
+  hud.onEngineCardShown = () => {
+    showRoute();
+    showEngineView();
+  };
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
