@@ -21,6 +21,7 @@
     "e2e:cloud": "node scripts/e2e/cloud.mjs",
     "e2e:tutorial": "node scripts/e2e/tutorial.mjs",
     "e2e:joints": "node scripts/e2e/joints.mjs",
+    "e2e:ramps": "node scripts/e2e/ramps.mjs",
     "e2e:tray": "npm run build && node scripts/e2e/tray.mjs",
     "e2e:decks": "node tools/e2e/deck-taps.mjs",
     "e2e:kits": "node tools/e2e/track-props.mjs",

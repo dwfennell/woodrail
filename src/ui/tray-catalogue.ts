@@ -47,6 +47,8 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "double-straight", label: "Double track" },
   { kind: "piece", type: "double-curve", label: "Double curve" },
   { kind: "piece", type: "ramp-curve", label: "Curved ramp" },
+  { kind: "piece", type: "ramp-curve-small", label: "Tight curved ramp" },
+  { kind: "piece", type: "ramp-curve-wide", label: "Wide curved ramp" },
   { kind: "piece", type: "balloon-loop-small", label: "Small loop" },
   { kind: "piece", type: "wye", label: "Wye" },
   { kind: "piece", type: "ramp", label: "Ramp" },
@@ -95,7 +97,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
   { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45", "signal") },
-  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "riser") },
+  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
 ];
