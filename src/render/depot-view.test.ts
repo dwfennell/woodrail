@@ -134,3 +134,36 @@ describe("DepotView.depotAt: a tap on a depot's yard or buildings means that dep
     });
   }
 });
+
+describe("DepotView: a crane setting down a good its yard has a pile for or not (QA: iron or stone into a workshop threw)", () => {
+  const cases: [string, "workshop" | "town", "iron" | "stone"][] = [
+    ["a workshop's iron", "workshop", "iron"],
+    ["a workshop's stone (a harbour's, owed)", "workshop", "stone"],
+    ["a town's iron (no pile for it on the platform)", "town", "iron"],
+  ];
+  for (const [name, role, kind] of cases) {
+    it(`${name}: unloaded with the view drawing, nothing throws`, () => {
+      const layout = new Layout();
+      const ids = ["straight-216", "straight-216", "depot-workshop", "straight-216", "straight-216"].map((t, i) => layout.addPiece(t as "straight-216", { x: i * 216, z: 0, heading: 0 }));
+      const sim = new Sim(layout);
+      const placed = sim.addTrain(["engine", kind === "iron" ? "timber" : "hopper"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
+      if (placed.kind !== "placed") throw new Error("no room");
+      const economy = new Economy(layout, sim);
+      const d = economy.addDepot(role, ids[2], role === "town" ? 0 : -1);
+      economy.owes = () => 3;
+      const train = sim.getTrain(placed.trainId)!;
+      const wagon = train.cars[1].id;
+      economy.setCargo(wagon, kind, 3);
+      sim.setLever(train.cars[0].id, 1);
+      const view = new DepotView(stubMaterials());
+      view.setWorld(economy, layout);
+      for (let i = 0; i < 60 * 120; i++) {
+        sim.tick();
+        economy.tick();
+        if (i % 4 === 0) view.update(economy, [], 0, () => undefined, i * SIM_DT, false);
+      }
+      expect(economy.cargoOf(wagon).count).toBe(0);
+      if (role === "workshop") expect(d.piles[CARGO[kind].index]).toBe(3);
+    });
+  }
+});

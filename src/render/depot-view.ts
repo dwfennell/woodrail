@@ -53,6 +53,17 @@ const YARD = PAD_H + PALLET_H;
 /** A kit piece's depot (a Sandbox loader or unloader): nothing of its own drawn here, its kit's model does that. */
 const KIT_DEPOT: DepotLayout = { pad: null, crane: { kind: "jib", t: 108, l: 40, height: 72 }, piles: {}, trackT: 108 };
 
+/** A layout's first pile spot (or, with none, one under its crane): where a good it has no pile for is set down. */
+function firstSpot(layout: DepotLayout): PileSpot {
+  let spot = firstSpots.get(layout);
+  if (!spot) {
+    spot = CARGO_KINDS.map((k) => layout.piles[k]).find((s) => !!s) ?? { t: layout.crane.t, l: layout.crane.l, y: PAD_H, across: 1, axis: "t", show: 0 };
+    firstSpots.set(layout, spot);
+  }
+  return spot;
+}
+const firstSpots = new Map<DepotLayout, PileSpot>();
+
 /** Where everything stands at each kind of depot (depot coordinates; see PileSpot). */
 export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   forest: {
@@ -74,8 +85,13 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   workshop: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
-    // (Its yard holds up to WORKSHOP_CAP: the pile shows as many as it always has.)
-    piles: { planks: { t: 60, l: 84, y: YARD, across: 2, axis: "t", show: 12 } },
+    // (Its yard holds up to WORKSHOP_CAP: the pile shows as many as it always has.) Iron bars by the gate, and a
+    // harbour's stone (taken only while one's price needs it) between the planks and the shed.
+    piles: {
+      planks: { t: 60, l: 84, y: YARD, across: 2, axis: "t", show: 12 },
+      iron: { t: 24, l: 84, y: YARD, across: 2, axis: "l", show: 6 },
+      stone: { t: 98, l: 80, y: YARD, across: 2, rows: 2, axis: "t", show: 8 },
+    },
     trackT: 60,
   },
   // The farm chain: a farm yard (grain from the fields) and a mill (grain into flour), laid out like the others.
@@ -809,7 +825,9 @@ export class DepotView {
 
   /** World pose of pile unit k (its centre), written to `pos`; returns its yaw. */
   private pileUnit(site: Site, kind: CargoKind, k: number, pos: Vector3): number {
-    const spot = site.layout.piles[kind]!;
+    // (A good its yard has no pile for, a town's iron or tools: the crane sets it down where its first pile stands, and
+    // it's counted, not drawn. Before, the crane's move threw, every frame.)
+    const spot = site.layout.piles[kind] ?? firstSpot(site.layout);
     const slot = pileSlot(kind, k, spot.across, spot.rows);
     // Pile-local: x along the unit, z across. Turn into depot axes.
     const t = spot.axis === "t" ? spot.t + slot.x : spot.t + slot.z;

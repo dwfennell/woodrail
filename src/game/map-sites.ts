@@ -34,6 +34,7 @@ import { waterWay } from "./harbours";
 import { amountText, resourceAt, SITE_RULES, yardMiddle } from "./industries";
 import type { GameMode } from "./modes";
 import { techOf } from "./tech";
+import { owedText } from "./crafting";
 import { THING_RULES } from "./things";
 import { COIN_ICON } from "../economy/cargo";
 import { kindsOf, type Bag } from "../economy/goods";
@@ -677,6 +678,8 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   const fresh = THING_RULES[`piece:${restoredType(site.role)}`]?.label.toLowerCase() ?? name;
   const price = restorePrice(site.role);
   const priced = mode === "game" ? costTag(price.goods, price.coins) : "";
+  // (Stone, which a workshop takes only while a price like this needs it: where to bring it, "Needs 5🪨 at the workshop".)
+  const owed = mode === "game" ? owedText(price.goods) : null;
   // (A harbour whose water no longer leads off the land or out to sea: a river one in an old save, its river ending in
   // land bought since. New harbour sites are only where the sea is reached, which buying land can't cut. Restore would
   // fail, so the card says why instead of offering it.)
@@ -684,7 +687,7 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   return {
     title: `Old ${name}`,
     resource,
-    status: !open ? `🔒 Learn ${bp!.label} at a school to open this ${name}` : stranded ? HARBOUR_STRANDED : mode === "game" ? `🔧 ${RESTORE_SHARE === 0.5 ? "Half the price of" : "Cheaper than"} a new ${fresh}` : `🔧 Restore it to work again`,
+    status: !open ? `🔒 Learn ${bp!.label} at a school to open this ${name}` : stranded ? HARBOUR_STRANDED : mode === "game" ? `🔧 ${RESTORE_SHARE === 0.5 ? "Half the price of" : "Cheaper than"} a new ${fresh}${owed ? `. ${owed}` : ""}` : `🔧 Restore it to work again`,
     open,
     restore: open && !stranded ? (priced ? `Restore · ${priced}` : "Restore") : null,
     own: mode === "game" ? "Or build your own anywhere from the Industries tab." : null,
