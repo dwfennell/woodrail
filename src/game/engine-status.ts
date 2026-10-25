@@ -29,6 +29,8 @@ export type TrainState =
    * the line stands on each road of one of its loops; only moving it helps.
    */
   | { kind: "needs-loop"; more: number; trains: number; spare: boolean; parked: boolean; other?: boolean; pinned?: boolean }
+  /** Waiting on one of its own line its line has no room for (held where it stands): the line is full. */
+  | { kind: "full-wait"; full: { more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean } }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -107,6 +109,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
         const otherLine = economy.lineIdOf.get(otherEngine);
         if (otherLine !== undefined && !parked) return { kind: "line-wait", line: "", parked, other: true };
         return { kind: "line-wait", line: "", parked };
+      }
+      // (Waiting on one of its own the line has no room for: the line's full, and that's what to do something about.)
+      if (other >= 0 && economy.sections.heldForRoom(otherEngine)) {
+        const full = economy.sections.fullness(car.id);
+        if (full) return { kind: "full-wait", full };
       }
       return { kind: "line-wait", line: line?.name ?? "line" };
     }
@@ -195,6 +202,8 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       // (Not parked: running, or another line's train, it'll go; the card says only that it's in the way, meanwhile.)
       if (s.other) return "Waiting: another train is in the way";
       return s.parked ? `Waiting: ${SPARE_CUT}` : "Waiting: a train not on the line is in the way";
+    case "full-wait":
+      return `Waiting: ${fullText(s.full)}`;
     case "needs-loop":
       if (s.spare) return `Waiting: ${s.other ? OTHER_CUT : SPARE_CUT}`;
       if (s.pinned) return `Waiting: ${UNPIN}`;
@@ -251,4 +260,14 @@ export function headOnTip(learned: ReadonlySet<string> | null): string {
   if (!learned || learned.has("signals")) return "Trains met head on. A passing loop with signals lets them pass";
   if (learned.has("switches")) return "Trains met head on. Learn Signals so they can pass on a loop";
   return "Trains met head on. Learn Switches, then Signals, so they can pass";
+}
+
+/**
+ * Said once a line, when a train is put on it with no room for it: what the line has room for, and what would run
+ * them all ("Put away" on the card is the other way out).
+ */
+export function fullLineToast(room: number, trains: number, more: number): string {
+  const loops = room <= 1 && trains === 2 ? "a passing loop" : more === 1 ? "another passing loop" : `${more} more passing loops`;
+  // (Or the one just put on it back in the box: "Put away" on its card.)
+  return `This line has room for ${room} train${room === 1 ? "" : "s"}. Lay ${loops}, or put one away (on its card).`;
 }
