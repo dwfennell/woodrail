@@ -179,13 +179,14 @@ const GOALS_LONG = !!ENV.GOALS_LONG;
  * The long part's minutes: the mine stands at 220; Harbours is studied from 270 (30 planks and 20 stone, on the one
  * goods train) and learned at 354, the last town joined at 355; the harbour is ordered at the workshop then, its 15
  * planks and 10 stone come to the yard and it's built at 397. The mine's ore waits for a taker (the harbour: Foundry
- * comes after it) and is first on a train at 426, and a boat takes it off the quay at 432.
+ * comes after it): the quarry's visit before the mine is set to Only drop then (`roomForMine`), the ore is first on a
+ * train at 405, and a boat takes goods off the quay at 412 (stone, then the ore).
  */
 const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 440);
 /** The goals the fast part doesn't reach by `GOALS_RUN_MINUTES`, with why. */
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
   "open-mine": "Mines wants 20 stone delivered, 10 more at the school and the Goods engine, which this one goods train brings only at about minute 195; the mine stands at about 220: the long part's (GOALS_LONG=1)",
-  "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 432: the long part's (GOALS_LONG=1)",
+  "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 412: the long part's (GOALS_LONG=1)",
   "join-all": "the player joins Ashcombe and Brambleton once the mine is open (the goals' order), past this part's minutes: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
@@ -217,6 +218,11 @@ const YARD_SPARE = Number(ENV.BALANCE_YARD_SPARE ?? WORKSHOP_SPARE);
  * wants them, for comparing with the default (Shares with towns).
  */
 const GREEDY_WORKSHOP = ENV.BALANCE_WORKSHOP === "greedy";
+/**
+ * Which of the sensible reward cards the player takes (BALANCE_CARD, a robustness check): "first" or "last" of those on
+ * offer, in place of the seeded random pick (the default). For showing a play-through doesn't hang on one lucky card.
+ */
+const CARD_PICK = ENV.BALANCE_CARD === "first" || ENV.BALANCE_CARD === "last" ? ENV.BALANCE_CARD : null;
 const PICK_SPARE = GREEDY_WORKSHOP ? RESEARCH_SPARE : YARD_SPARE < 0 ? RESEARCH_SPARE : Math.min(RESEARCH_SPARE, YARD_SPARE);
 
 /** Wished for, but of no use to this player till much later: bought only with planks and coins to spare. */
@@ -298,8 +304,11 @@ class Player {
   counters = new Counters();
   tick = 0;
   readonly random = rng(Number(ENV.BALANCE_SEED ?? 2027));
-  /** The player's own pick among the cards that make sense (seeded per run, apart from the offers' draws). */
-  readonly picks = rng(Number(ENV.BALANCE_SEED ?? 2027) * 7919 + 1);
+  /**
+   * The player's own pick among the cards that make sense (seeded per run, apart from the offers' draws).
+   * BALANCE_CARD_SEED seeds it on its own, a robustness check: the same map and offers, another player's picks.
+   */
+  readonly picks = rng(ENV.BALANCE_CARD_SEED !== undefined ? Number(ENV.BALANCE_CARD_SEED) * 7919 + 1 : Number(ENV.BALANCE_SEED ?? 2027) * 7919 + 1);
   readonly people = new Map<number, number>();
   readonly lastDelivered = new Map<number, number>();
   fixed = new Set<number>();
@@ -1766,7 +1775,8 @@ class Playthrough {
         wagon: this.carsWait,
       };
       const choices = o.cards.map((_, k) => k).filter((k) => ok[k] && sensible[o.cards[k].kind]);
-      let i = choices.length > 0 ? choices[Math.floor(P.picks() * choices.length)] : -1;
+      // (The seeded pick drawn as before, also under BALANCE_CARD, so the draws after it stay the same.)
+      let i = choices.length > 0 ? choices[((k) => (CARD_PICK === "first" ? 0 : CARD_PICK === "last" ? choices.length - 1 : k))(Math.floor(P.picks() * choices.length))] : -1;
       if (i === -1) i = o.cards.findIndex((c, k) => c.kind === "coins" && ok[k]);
       if (i === -1) i = ok.indexOf(true);
       const card = o.cards[i];
@@ -1828,6 +1838,7 @@ class Playthrough {
     }
     this.build();
     this.unstick();
+    this.roomForMine();
     if (!this.why) {
       // Nothing to save for: say what's in the way (an empty board, what the towns want).
       const wants = w.landscape.towns
@@ -2754,6 +2765,46 @@ class Playthrough {
     P.happened++;
     P.note(`STUCK: the goods train's cars come by full of ${[...blocking].join(", ")}; now picked up only on the way to where it's taken (its other visits "Only drop")`);
   }
+
+  /**
+   * Room for the mine's goods: once the mine stands on the line and another stop takes its coal or ore (the harbour,
+   * or the school while Foundry wants coal), the player sets the stop the train calls at just before the mine to pick
+   * up only on its other visit (`onlyNearestPickup`, the engine card's stops, as `unstick` does), so the hoppers reach
+   * the mine with room. Done once; kept when the line is laid out again (`routeGoods`). (The goals play-through: the
+   * mine is a line end with the quarry beside it, and the hoppers left the quarry for the mine full of stone each lap.
+   * `unstick` counts only goods a town or the school wants, so the mine's ore, which only the harbour takes, never set
+   * it off: the ore first rode a train at 425 or 426, after the harbour at 385 or 397, on the one lap where the
+   * hoppers had room, and with origin/curved-ramps' card draws at 448, past the long part's 440. Set so, the ore rode at 405 with or without origin/curved-ramps.)
+   */
+  roomForMine(): void {
+    const P = this.p;
+    const w = P.w;
+    if (this.mine < 0 || this.mineRoom || ENV.BALANCE_NOUNSTICK) return;
+    const line = this.lineId >= 0 ? w.economy.lines.get(this.lineId) : undefined;
+    const mine = w.economy.depotAtPiece(this.mine);
+    if (!line || !mine || !w.sim.findCar(this.timber)) return;
+    const at = line.stops.findIndex((s) => s.depotId === mine.id);
+    if (at < 0) return;
+    const ore = RECIPES[mine.role].gives;
+    const takes = line.stops.some((s) => {
+      const d = w.economy.depot(s.depotId);
+      return !!d && d.id !== mine.id && ore.some((k) => RECIPES[d.role].takes.includes(k) && (!w.economy.accepts || w.economy.accepts(d, k)));
+    });
+    if (!takes) return;
+    this.mineRoom = true;
+    const n = line.stops.length;
+    const before = w.economy.depot(line.stops[(at - 1 + n) % n].depotId);
+    const goods = (before ? RECIPES[before.role].gives : []).filter((k) => !ore.includes(k) && !this.nearestPickup.has(k));
+    if (goods.length === 0) return;
+    for (const k of goods) this.nearestPickup.add(k);
+    editLine(w.economy, this.timber, (stops) => {
+      for (const k of goods) onlyNearestPickup(w, stops, k);
+    });
+    P.happened++;
+    P.note(`ROOM: the mine's goods have a taker; the ${before!.role}'s ${goods.join(", ")} now picked up only on the way to where it's taken (its visit before the mine "Only drop")`);
+  }
+  /** Has the stop before the mine been set so the hoppers reach it with room (`roomForMine`)? */
+  mineRoom = false;
 
   /**
    * Goods picked up only on the way to where they're taken (`unstick`) that the goods train still carries round while
