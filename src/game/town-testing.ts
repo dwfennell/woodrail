@@ -1,15 +1,19 @@
 import { vi } from "vitest";
 import { type Landscape, type Town } from "../landscape";
 import { LandEditor } from "../landscape/edit";
+import type { Footprint } from "../props/placement";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { townStatus } from "./towns";
 import type { World } from "./world";
 
 // Helpers for the tests of towns growing (not part of the game).
 
-/** Grow a town of the starter map to a city (its market and all), as deliveries would. */
-export function growToCity(w: World, t: Town): { levels: number[]; buildings: number[] } {
-  const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+/**
+ * Grow a town of the starter map to a city (its market and all), as deliveries would, its lots kept clear of props by
+ * `footprintOf`: the game's footprints (`loadFootprints(["bldg"])`, from `props/footprints-testing`).
+ */
+export function growToCity(w: World, t: Town, footprintOf: (asset: string) => Footprint | undefined): { levels: number[]; buildings: number[] } {
+  const host: TownLifeHost = Object.assign(w, { footprintOf, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
   const life = new TownLife(host, { grew: () => {}, received: () => {} });
   life.reset();
   const levels: number[] = [];
