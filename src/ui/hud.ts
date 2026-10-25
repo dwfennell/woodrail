@@ -394,16 +394,24 @@ export class Hud {
     // A card that grows once it's open (a workshop's list fills in a frame later) may come up under a toast: it's put
     // clear again (only when a card's size changes, not per frame).
     if (typeof ResizeObserver !== "undefined") {
-      const refit = new ResizeObserver(() => {
-        this.cardResizedAt = performance.now();
+      const refit = new ResizeObserver((entries) => {
+        for (const e of entries) this.noteMovedButtons(e.target as HTMLElement);
         this.refitToast();
         this.onCardResize?.();
       });
       for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
         refit.observe(c);
-        // A tap that came down just as the card changed size (its buttons moved under the finger: Rail and road, a
-        // card growing upward on a slow phone) does nothing: the finger was meant for what was there before.
-        c.addEventListener("pointerdown", () => (this.tapOnMovedCard = performance.now() - this.cardResizedAt < CARD_MOVED_MS), true);
+        // A tap that came down on a button that had just moved there (the card changed size under the finger: Rail and
+        // road, a card growing upward on a slow phone) does nothing: the finger was meant for what was there before.
+        // Only the button tapped counts: a card resizing elsewhere (a status line reflowing) leaves its taps alone.
+        c.addEventListener(
+          "pointerdown",
+          (e) => {
+            const b = (e.target as HTMLElement).closest("button");
+            this.tapOnMovedCard = !!b && performance.now() - (this.buttonMovedAt.get(b) ?? -Infinity) < CARD_MOVED_MS;
+          },
+          true,
+        );
         c.addEventListener(
           "click",
           (e) => {
@@ -1289,9 +1297,24 @@ export class Hud {
     // phone, Put away, Continue and Go moving up under the finger (Rail and road).
     this.onEngineCardShown?.();
   }
-  /** When an open card last changed size (its buttons moved), and whether the tap now coming down came just after. */
-  private cardResizedAt = -Infinity;
+  /**
+   * Where each of a card's buttons was when the card last changed size, and when one last moved (more than a few px)
+   * with it; whether the tap now coming down is on one that just moved. Read when a card's size changes, not per frame.
+   */
+  private readonly buttonAt = new WeakMap<Element, { x: number; y: number }>();
+  private readonly buttonMovedAt = new WeakMap<Element, number>();
   private tapOnMovedCard = false;
+
+  private noteMovedButtons(card: HTMLElement): void {
+    const now = performance.now();
+    for (const b of card.querySelectorAll("button")) {
+      const r = b.getBoundingClientRect();
+      const was = this.buttonAt.get(b);
+      // (Shown for the first time, or come into place as the card opened: moved, as far as a finger's concerned.)
+      if (!was || Math.abs(r.left - was.x) > 6 || Math.abs(r.top - was.y) > 6) this.buttonMovedAt.set(b, now);
+      this.buttonAt.set(b, { x: r.left, y: r.top });
+    }
+  }
 
   /** The engine card has just opened (see `showEngineCard`): what's drawn into it from outside goes in at once. */
   onEngineCardShown: (() => void) | null = null;
