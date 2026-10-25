@@ -177,15 +177,15 @@ const GOALS_RUN_MINUTES = Number(ENV.BALANCE_GOALS_MINUTES ?? 175);
 const GOALS_LONG = !!ENV.GOALS_LONG;
 /**
  * The long part's minutes: the mine stands at 220; Harbours is studied from 270 (30 planks and 20 stone, on the one
- * goods train) and learned at 354, the last town joined at 355; the harbour's 15 planks and 10 stone are in the
- * workshop's yard and it's built at 385. The mine's ore waits for a taker (the harbour: Foundry comes after it) and is
- * first on a train at 425, and a boat takes it off the quay at 430.
+ * goods train) and learned at 354, the last town joined at 355; the harbour is ordered at the workshop then, its 15
+ * planks and 10 stone come to the yard and it's built at 397. The mine's ore waits for a taker (the harbour: Foundry
+ * comes after it) and is first on a train at 426, and a boat takes it off the quay at 432.
  */
 const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 440);
 /** The goals the fast part doesn't reach by `GOALS_RUN_MINUTES`, with why. */
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
   "open-mine": "Mines wants 20 stone delivered, 10 more at the school and the Goods engine, which this one goods train brings only at about minute 195; the mine stands at about 220: the long part's (GOALS_LONG=1)",
-  "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 385, a boat trades at 430: the long part's (GOALS_LONG=1)",
+  "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 432: the long part's (GOALS_LONG=1)",
   "join-all": "the player joins Ashcombe and Brambleton once the mine is open (the goals' order), past this part's minutes: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
@@ -2517,6 +2517,17 @@ class Playthrough {
         P.note(`a ${rule.label.toLowerCase()} can't be made: its ${k} must be in the workshop's yard, which never takes ${k}`);
       }
     if (!P.canMake(new Map([[thing, 1]]))) {
+      // In the goals play-through, the harbour ordered at the workshop's card while it can't be made yet, as the mill
+      // is (`orderMill`), so the yard keeps its 15 planks (`yardKeeps`: a waiting order's). Without the order the yard
+      // keeps only `WORKSHOP_SPARE` (7) while a town on the line wants planks: from Harbours (minute 354) the yard sat
+      // at 2, then 7, planks to minute 440 with its 10 stone in. The harbour came at 385 only when Brambleton's card
+      // offered +8 planks, and when the cards drew otherwise (a new piece type in the tray, origin/curved-ramps) it
+      // took the coins and no harbour stood.
+      if (role === "harbour" && this.goalsFirst && !s.orders.includes(thing) && (s.owned.get(thing) ?? 0) === 0) {
+        P.crafting.order(thing);
+        P.happened++;
+        P.note(`ordered a harbour at the workshop (have ${describeGoods(workshopStock(w))}, ${s.coins} coins): its planks kept in the yard`);
+      }
       // Waiting on coins alone (the planks are there): counted, for the summary.
       if (s.coins < (rule.coins ?? 0) && P.planks() >= (rule.cost.planks ?? 0)) this.coinWait[role]++;
       this.why ||= `a ${rule.label.toLowerCase()} (${describeGoods(rule.cost)} + ${rule.coins} coins; have ${describeGoods(workshopStock(w))}, ${s.coins} coins)`;
@@ -2527,6 +2538,8 @@ class Playthrough {
     g.forEachCell((i) => {
       if (role === "harbour" ? isWater(g.surface[i]) : g.height[i] > 0) cells.push(i);
     });
+    // (A waiting order taken off when the harness makes it itself, so only one is made.)
+    P.crafting.cancel(thing);
     P.make(new Map([[thing, 1]]));
     const r = extend(P, { type, cells }) ?? (s.learned.has("switches") ? branchOff(P, type, cells) : null);
     if (r) opened(r.id, r.beyond, `built a ${rule.label.toLowerCase()} by the line`);
