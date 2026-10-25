@@ -1,3 +1,5 @@
+import type { CargoKind } from "../economy/cargo";
+
 /** Routed trains' switch throws are heard at most once in this long (ms). */
 export const SOFT_CLUNK_GAP_MS = 700;
 
@@ -6,6 +8,9 @@ export const SOFT_CLUNK_GAP_MS = 700;
  * so its audio thread sleeps while nothing's heard; the next sound wakes it (ms).
  */
 export const IDLE_SUSPEND_MS = 3000;
+
+/** A burst of deliveries clinks once in this long (ms). */
+export const COIN_GAP_MS = 400;
 
 /** Lets something through at most once every `ms` (by the times given). */
 export class Gate {
@@ -329,6 +334,73 @@ export class ToyAudio {
     src.loop = true;
     src.start(t);
     src.stop(t + 0.78);
+    return true;
+  }
+
+  /** A struck bit of metal: a short sine ping with an inharmonic overtone (a coin, a tool). */
+  private ping(freq: number, volume: number, decay: number, pan: number, delay = 0): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || this.muted || volume <= 0.001) return;
+    this.wake(delay * 1000 + decay * 1000 + 60);
+    const t = ctx.currentTime + delay;
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    panner.connect(this.master);
+    for (const [ratio, v] of [[1, 1], [2.76, 0.3]] as const) {
+      const osc = ctx.createOscillator();
+      osc.frequency.value = freq * ratio;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(volume * v, t + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + decay / ratio);
+      osc.connect(g).connect(panner);
+      osc.start(t);
+      osc.stop(t + decay / ratio + 0.02);
+    }
+  }
+
+  /**
+   * A crane moving one unit of `cargo` on or off a wagon, by what it is: wood knocks hollow, stone, coal and ore
+   * crunch, sacks of grain or flour thump softly, iron and tools clink. A load going on sits a little higher than one
+   * coming off. `volume` and `pan` as `listen` hears the depot.
+   */
+  goods(cargo: CargoKind, loaded: boolean, volume: number, pan: number): void {
+    if (this.muted || volume <= 0.02) return;
+    const up = loaded ? 1.12 : 1;
+    switch (cargo) {
+      case "log":
+      case "planks":
+      case "furniture":
+        this.knock(volume * 0.6, this.vary(cargo === "log" ? 150 : 210) * up, 0.16, pan);
+        this.knock(volume * 0.22, this.vary(420) * up, 0.05, pan);
+        break;
+      case "stone":
+      case "coal":
+      case "ore":
+        // Gravel: a dull thud under a few quick grains.
+        this.knock(volume * 0.4, this.vary(120) * up, 0.1, pan);
+        for (let i = 0; i < 3; i++) setTimeout(() => this.knock(volume * 0.16, this.vary(1600) * up, 0.025, pan), 15 + i * 22 + Math.random() * 10);
+        break;
+      case "grain":
+      case "flour":
+        this.knock(volume * 0.38, this.vary(180) * up, 0.12, pan);
+        break;
+      case "iron":
+      case "tools":
+        this.knock(volume * 0.35, this.vary(200) * up, 0.08, pan);
+        this.ping(this.vary(cargo === "iron" ? 1400 : 2100) * up, volume * 0.05, 0.25, pan, 0.02);
+        break;
+    }
+  }
+
+  private coinGate = new Gate(COIN_GAP_MS);
+
+  /** Coins earned (a delivery paid): a little two-note clink, at most once every COIN_GAP_MS. Returns whether it played. */
+  coins(volume: number, pan: number): boolean {
+    if (this.muted || volume <= 0.02 || !this.ctx || !this.coinGate.open(performance.now())) return false;
+    const f = this.vary(2093);
+    this.ping(f, volume * 0.06, 0.35, pan);
+    this.ping(f * 1.26, volume * 0.05, 0.45, pan, 0.075);
     return true;
   }
 

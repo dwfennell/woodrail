@@ -1,5 +1,6 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
+import { hearCranes } from "./audio/cues";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
@@ -1253,7 +1254,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     school: (kind) => researchLacking(progress, kind) > 0,
     received: (town, kind, n, before) => {
       const firstFlour = !progress.firstFlour;
-      payDelivery(progress, kind, n, before, town);
+      if (payDelivery(progress, kind, n, before, town) > 0) audio.coins(...listen(town.station.x, town.station.z));
       hud.setCoins(progress.coins);
       if (firstFlour && progress.firstFlour) note({ kind: "milestone", text: `First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus`, place: { x: town.station.x, z: town.station.z } }, 3600);
       // Logged quietly, one entry per town and kind for a burst of deliveries.
@@ -3701,14 +3702,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       audio.setWinding(game.paused ? 0 : wind);
     }
 
-    // Cranes: a clunk per unit, and a chime when planks reach a town. Saws buzz while they cut.
-    for (const e of game.economy.drainEvents()) {
-      const at = depotPoint(e.depotId);
-      if (!at) continue;
-      const [v, pan] = listen(at.x, at.z);
-      audio.clunk(v, pan);
-      if (e.kind === "unloaded" && game.economy.depot(e.depotId)?.role === "town") audio.chime();
-    }
+    // Cranes: each depot's moves heard by what they carry (coins clink as a town pays). Saws buzz while they cut.
+    hearCranes(game.economy.drainEvents(), audio, (id) => {
+      const at = depotPoint(id);
+      return at ? listen(at.x, at.z) : null;
+    });
     sawClock += dt;
     if (sawClock > 0.5 && !game.paused) {
       sawClock = 0;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IDLE_SUSPEND_MS, ToyAudio } from "./audio";
+import { COIN_GAP_MS, IDLE_SUSPEND_MS, ToyAudio } from "./audio";
 
 /** Any node or param the synth asks for: every method returns another such stub (connect() chains). */
 const stub = (): unknown =>
@@ -110,6 +110,15 @@ describe("the audio context sleeps when nothing's heard (and wakes for the next 
     expect(ctx.state).toBe("suspended");
     audio.tap();
     expect(ctx.state).toBe("suspended");
+  });
+
+  it("a burst of deliveries clinks once; the next after the gap clinks again", () => {
+    expect(audio.coins(0.6, 0)).toBe(true);
+    expect(audio.coins(0.6, 0)).toBe(false);
+    vi.advanceTimersByTime(COIN_GAP_MS - 50);
+    expect(audio.coins(0.6, 0)).toBe(false);
+    vi.advanceTimersByTime(100);
+    expect(audio.coins(0.6, 0)).toBe(true);
   });
 
   it("a tap starts it again if the system stopped it (iOS: interrupted by a call)", () => {
