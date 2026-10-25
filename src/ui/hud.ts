@@ -228,6 +228,8 @@ export class Hud {
   private readonly ruinResource = el("div", "ruin-resource");
   private readonly ruinStatus = el("div", "ruin-status");
   private readonly ruinOwn = el("div", "ruin-own");
+  /** Said when track can't be laid to it from the line (a terrace cut off, say). */
+  private readonly ruinReach = el("div", "ruin-reach");
   private ruinClearBtn!: HTMLButtonElement;
   private ruinRestoreBtn!: HTMLButtonElement;
   private landBuyBtn!: HTMLButtonElement;
@@ -561,7 +563,7 @@ export class Hud {
     this.ruinClearBtn = button("Clear the ruin", "Take the ruin and its track away", () => h.clearRuin?.(), "chip text ruin-clear");
     const ruinRow = el("div", "card-row");
     ruinRow.append(this.ruinRestoreBtn, this.ruinClearBtn);
-    this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
+    this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinReach, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.ruinCard);
 
     // Tray with tabs
@@ -1601,7 +1603,7 @@ export class Hud {
   }
 
   /** Show an old industry's card (see `ruinCard` in map-sites.ts). */
-  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string; restore: string | null }): void {
+  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string; restore: string | null; reach?: string | null }): void {
     this.hideCards();
     this.ruinTitle.textContent = card.title;
     this.ruinResource.textContent = card.resource;
@@ -1609,6 +1611,8 @@ export class Hud {
     this.ruinStatus.textContent = card.status;
     this.ruinOwn.textContent = card.own ?? "";
     this.ruinOwn.hidden = !card.own;
+    this.ruinReach.textContent = card.reach ?? "";
+    this.ruinReach.hidden = !card.reach;
     this.ruinClearBtn.textContent = card.clear;
     this.ruinRestoreBtn.textContent = card.restore ?? "";
     this.ruinRestoreBtn.hidden = !card.restore;
