@@ -1,4 +1,4 @@
-import type { ProgressData } from "../game/progress";
+import { isTaken, TAKEN_KEPT, type ProgressData, type Taken } from "../game/progress";
 import { costOf, type ResearchData } from "../game/research";
 import type { Merger } from "./cloud";
 
@@ -13,14 +13,15 @@ import type { Merger } from "./cloud";
  *   than it needs), and the most study; two different ones, the one further along stays current and the other waits
  *   next (or keeps its goods aside);
  * - the reward offers waiting: one per town and level; one taken on either side (in the base, gone from that side)
- *   stays taken;
+ *   stays taken; one taken on both pays once (`bothTook`: the remote's take is undone before the sums);
  * - the player's own queue (`orders`, `making`) and `fieldsPlanted` (fields are land) go with the world kept: the
  *   later copy's (`later`).
  *
  * `base` is the progress as both last had it (undefined: not known, so the remote's).
  */
-export function mergeProgress(base: ProgressData | undefined, local: ProgressData, remote: ProgressData, later: "local" | "remote"): ProgressData {
-  const b = base ?? remote;
+export function mergeProgress(base: ProgressData | undefined, local: ProgressData, theirs: ProgressData, later: "local" | "remote"): ProgressData {
+  const b = base ?? theirs;
+  const remote = undoTakes(theirs, bothTook(b, local, theirs));
   const latest = later === "local" ? local : remote;
   const sum = (bn: number | undefined, ln: number | undefined, rn: number | undefined) => Math.max(0, (bn ?? 0) + ((ln ?? 0) - (bn ?? 0)) + ((rn ?? 0) - (bn ?? 0)));
   const learned = [...new Set([...local.learned, ...remote.learned])];
@@ -37,7 +38,64 @@ export function mergeProgress(base: ProgressData | undefined, local: ProgressDat
     firstFlour: !!local.firstFlour || !!remote.firstFlour,
     counts: sumMaps(b.counts ?? [], local.counts ?? [], remote.counts ?? []),
     research: mergeResearch(local.research, remote.research, new Set(learned), base?.research),
+    ...mergeTaken(local, theirs),
   };
+}
+
+const offerKey = (from: unknown, level: unknown) => `${String(from ?? "")}\u0000${String(level ?? "")}`;
+const keyOf = (o: unknown) => offerKey((o as { from?: unknown } | null)?.from, (o as { level?: unknown } | null)?.level);
+/** A side's rewards taken (as stored: only the ones that read). */
+const takenOf = (d: ProgressData): Taken[] => (Array.isArray(d.taken) ? d.taken.filter(isTaken) : []);
+
+/**
+ * The remote's rewards from offers both sides took (in the base, gone from both, and a take of it recorded on both).
+ * (QA: a city's offer synced to two devices, the 200 coins taken on both, paid 400.)
+ */
+function bothTook(base: ProgressData, local: ProgressData, remote: ProgressData): Taken[] {
+  const offers = (d: ProgressData) => new Set((d.offers ?? []).map(keyOf));
+  const inBase = offers(base);
+  const inLocal = offers(local);
+  const inRemote = offers(remote);
+  const tookHere = new Set(takenOf(local).map(keyOf));
+  return takenOf(remote).filter((t) => {
+    const k = keyOf(t);
+    return inBase.has(k) && !inLocal.has(k) && !inRemote.has(k) && tookHere.has(k);
+  });
+}
+
+/** A side's progress as if these rewards weren't taken there (coins, things, and goods still in the same research). */
+function undoTakes(d: ProgressData, takes: readonly Taken[]): ProgressData {
+  if (takes.length === 0) return d;
+  const less = (bag: [string, number][], minus: readonly [string, number][]): [string, number][] => {
+    const m = new Map(bag);
+    for (const [k, n] of minus) m.set(k, (m.get(k) ?? 0) - n);
+    return [...m];
+  };
+  let coins = d.coins ?? 0;
+  let owned = d.owned;
+  let research = d.research;
+  for (const t of takes) {
+    coins -= t.coins ?? 0;
+    if (t.owned) owned = less(owned, t.owned);
+    if (t.goods && research && t.to !== undefined) {
+      if (research.current === t.to) research = { ...research, got: less(research.got, t.goods) };
+      else if (research.held?.some(([id]) => id === t.to)) research = { ...research, held: research.held.map(([id, h]) => [id, id === t.to ? { ...h, got: less(h.got, t.goods!) } : h]) };
+    }
+  }
+  return { ...d, coins, owned, research };
+}
+
+/** The rewards taken, from both (one per offer), the latest kept. */
+function mergeTaken(local: ProgressData, remote: ProgressData): { taken?: Taken[] } {
+  const seen = new Set<string>();
+  const out: Taken[] = [];
+  for (const t of [...takenOf(local), ...takenOf(remote)]) {
+    const k = keyOf(t);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+  }
+  return out.length > 0 ? { taken: out.slice(-TAKEN_KEPT) } : {};
 }
 
 /** Goals done on either. */
@@ -65,17 +123,13 @@ function sumMaps(base: readonly [string, number][], local: readonly [string, num
  * growth on two devices gave two rewards.)
  */
 export function mergeOffers(base: readonly unknown[], local: readonly unknown[], remote: readonly unknown[]): unknown[] {
-  const key = (o: unknown) => {
-    const x = o as { from?: unknown; level?: unknown } | null;
-    return `${String(x?.from ?? "")}\u0000${String(x?.level ?? "")}`;
-  };
-  const inBase = new Set(base.map(key));
-  const inLocal = new Set(local.map(key));
-  const inRemote = new Set(remote.map(key));
+  const inBase = new Set(base.map(keyOf));
+  const inLocal = new Set(local.map(keyOf));
+  const inRemote = new Set(remote.map(keyOf));
   const seen = new Set<string>();
   const out: unknown[] = [];
   for (const o of [...local, ...remote]) {
-    const k = key(o);
+    const k = keyOf(o);
     if (seen.has(k)) continue;
     seen.add(k);
     if (inBase.has(k) && !(inLocal.has(k) && inRemote.has(k))) continue;

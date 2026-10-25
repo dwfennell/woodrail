@@ -287,6 +287,26 @@ describe("taking a card", () => {
     expect(take({ kind: "rare", good: "grain", n: 6 }, researching()).p.research.got).toEqual({ grain: 6 });
   });
 
+  it("records what it gave, for a cloud merge to count it once (planks went into the world: only the offer)", () => {
+    const take = (card: GrowthCard, p = Progress.fresh()) => {
+      p.offers.push({ from: "Larkfield", level: 2, cards: [card] });
+      takeCard(p, world({ school: true }), 0, 0);
+      return p.taken.at(-1);
+    };
+    expect(take({ kind: "planks", n: 16 })).toEqual({ from: "Larkfield", level: 2 });
+    expect(take({ kind: "coins", n: 80 })).toEqual({ from: "Larkfield", level: 2, coins: 80 });
+    expect(take({ kind: "wagon", id: "car:engine" })).toEqual({ from: "Larkfield", level: 2, owned: [["car:engine", 1]] });
+    const p = researching();
+    expect(take({ kind: "rare", good: "grain", n: 6 }, p)).toEqual({ from: "Larkfield", level: 2, goods: [["grain", 6]], to: p.research.current });
+    // Only the last few are kept.
+    const q = Progress.fresh();
+    for (let i = 0; i < 20; i++) {
+      q.offers.push({ from: `T${i}`, level: 1, cards: [{ kind: "coins", n: 1 }] });
+      takeCard(q, world(), 0, 0);
+    }
+    expect(q.taken.map((t) => t.from)).toEqual(Array.from({ length: 12 }, (_, i) => `T${i + 8}`));
+  });
+
   it("the planks card gives only what fits now: nothing lost", () => {
     const p = Progress.fresh();
     const w = world();

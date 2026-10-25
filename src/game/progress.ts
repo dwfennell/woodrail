@@ -38,6 +38,11 @@ export class Progress {
   readonly landmarks = new Set<string>();
   /** What the schools are researching (see `research.ts`). */
   research: Research = newResearch();
+  /**
+   * The last few rewards taken, and what each gave (`takeCard`), so a cloud merge counts a reward taken on both
+   * devices once (`mergeProgress`). Planks went into the world, so they aren't here.
+   */
+  readonly taken: Taken[] = [];
 
   /**
    * A new game: the starting box. (Any blueprint ready to learn can be picked for research.)
@@ -88,7 +93,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -127,6 +132,7 @@ export class Progress {
     p.firstFlour = typeof d?.firstFlour === "boolean" ? d.firstFlour : (p.counts.get("delivered:flour") ?? 0) > 0;
     // Research: only blueprints still to learn.
     p.research = researchFromJSON(d?.research, (t) => (known(t) && !p.learned.has(known(t)!) ? known(t) : null), new Set(CARGO_KINDS));
+    if (d && Array.isArray(d.taken)) for (const t of d.taken) if (isTaken(t)) p.taken.push(t);
     return p;
   }
 }
@@ -146,6 +152,26 @@ export interface ProgressData {
   orders?: string[];
   making?: boolean;
   research?: ResearchData;
+  taken?: Taken[];
+}
+
+/** A reward taken: its offer (town and level) and what it gave (coins, things, goods to research `to`). */
+export interface Taken {
+  from: string;
+  level: number;
+  coins?: number;
+  owned?: [string, number][];
+  goods?: [string, number][];
+  to?: string;
+}
+
+/** How many rewards taken are kept (more than a session's worth between two syncs). */
+export const TAKEN_KEPT = 12;
+
+const isBag = (b: unknown) => b === undefined || (Array.isArray(b) && b.every((e) => Array.isArray(e) && typeof e[0] === "string" && Number.isFinite(e[1])));
+export function isTaken(t: unknown): t is Taken {
+  const x = t as Partial<Taken> | null;
+  return !!x && typeof x.from === "string" && Number.isFinite(x.level) && (x.coins === undefined || Number.isFinite(x.coins)) && isBag(x.owned) && isBag(x.goods) && (x.to === undefined || typeof x.to === "string");
 }
 
 /** How many of a thing are on the map. */

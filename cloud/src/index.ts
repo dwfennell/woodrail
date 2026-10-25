@@ -118,10 +118,11 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const editedAt = Number(request.headers.get("X-Edited-At"));
     const layoutAt = progressOnly ? (current?.customMetadata?.layoutAt ?? "0") : String(Number.isSafeInteger(editedAt) && editedAt > 0 ? Math.min(editedAt, now) : now);
     const layoutStoredAt = progressOnly ? (current?.customMetadata?.layoutStoredAt ?? "0") : String(now);
-    // Only over the copy checked above: another PUT that got in between wins, and this one is a 409.
+    // Only over the copy checked above, or only if there's still none: another PUT that got in between wins, and this
+    // one is a 409.
     const stored = await env.SAVES.put(key, body, {
       customMetadata: { savedAt: String(savedAt), saveVersion: String(saveVersion), gameVersion, putAt: String(now), layoutAt, layoutStoredAt },
-      onlyIf: current ? { etagMatches: current.etag } : undefined,
+      onlyIf: current ? { etagMatches: current.etag } : { etagDoesNotMatch: "*" },
     });
     if (stored === null) return text(409, "Changed since");
     if (old && oldBody) await env.SAVES.put(`${key}.prev`, oldBody, { customMetadata: old.customMetadata });
