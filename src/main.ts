@@ -2005,7 +2005,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress) : null);
   /** Stone the workshop takes from trains: only as much as a harbour's price still needs there (`shopOwes`). */
   const owes = (kind: CargoKind) => shopOwes(game.world, progress, kind);
-  /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid). */
+  /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid, a harbour built or restored). */
   let owing = false;
   function updatePlanksKept(): void {
     game.economy.reserved = mode === "game" ? keepPlanks : null;
