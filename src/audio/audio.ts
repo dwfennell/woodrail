@@ -9,6 +9,28 @@ export const SOFT_CLUNK_GAP_MS = 700;
  */
 export const IDLE_SUSPEND_MS = 3000;
 
+/** Milestones' tunes: within this long (ms) of one, only a bigger one is heard. */
+export const CUE_GAP_MS = 700;
+
+export type CueKind = "chime" | "goal" | "grew" | "learned" | "land";
+
+/**
+ * Each milestone's tune: its notes (semitones above C5, start s), the voice, loudness, and rank (a bigger news wins
+ * a burst). Short and in one key, so they sit together; the chime is the old towns-connected one (G5, D6).
+ */
+export const CUES: Record<CueKind, { rank: number; wave: "triangle" | "mallet"; vol: number; notes: readonly (readonly [number, number])[] }> = {
+  // Towns connected, a reward, something made, a field planted.
+  chime: { rank: 1, wave: "triangle", vol: 0.18, notes: [[7, 0], [14, 0.13]] },
+  // A goal ticked: a quick bright "ding-ding".
+  goal: { rank: 1, wave: "mallet", vol: 0.2, notes: [[7, 0], [12, 0.09]] },
+  // A town grew: three rising wooden notes.
+  grew: { rank: 2, wave: "mallet", vol: 0.2, notes: [[0, 0], [4, 0.1], [7, 0.2]] },
+  // Research learned: a rising run with a sparkle on top.
+  learned: { rank: 2, wave: "mallet", vol: 0.18, notes: [[0, 0], [7, 0.08], [12, 0.16], [16, 0.24]] },
+  // New land, an old industry restored: a little fanfare.
+  land: { rank: 3, wave: "triangle", vol: 0.16, notes: [[0, 0], [4, 0.12], [7, 0.24], [12, 0.38]] },
+};
+
 /** A burst of deliveries clinks once in this long (ms). */
 export const COIN_GAP_MS = 400;
 
@@ -176,24 +198,48 @@ export class ToyAudio {
     this.knock(volume * 0.25, 900, 0.03, pan);
   }
 
-  /** A cheerful two-note chime: towns connected. */
+  /** A cheerful two-note chime: towns connected, a reward, something made (the plainest cue). */
   chime(): void {
+    this.cue("chime");
+  }
+
+  private lastCue = -Infinity;
+  private lastCueRank = 0;
+
+  /**
+   * A milestone's little tune (CUES), not in the scene. A burst of them (a town grows and ticks a goal at once) plays
+   * one: within CUE_GAP_MS of a cue only a bigger one is heard. Returns whether it played.
+   */
+  cue(kind: CueKind): boolean {
     const ctx = this.ctx;
-    if (!ctx || !this.master || this.muted) return;
-    this.wake(900);
+    if (!ctx || !this.master || this.muted) return false;
+    const { rank, wave, notes, vol } = CUES[kind];
+    const now = performance.now();
+    if (now - this.lastCue < CUE_GAP_MS && rank <= this.lastCueRank) return false;
+    this.lastCue = now;
+    this.lastCueRank = rank;
+    const end = notes[notes.length - 1][1];
+    this.wake(end * 1000 + 900);
     const t = ctx.currentTime;
-    [784, 1175].forEach((f, k) => {
-      const osc = ctx.createOscillator();
-      osc.type = "triangle";
-      osc.frequency.value = f;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0, t + k * 0.13);
-      g.gain.linearRampToValueAtTime(0.18, t + k * 0.13 + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + k * 0.13 + 0.7);
-      osc.connect(g).connect(this.master!);
-      osc.start(t + k * 0.13);
-      osc.stop(t + k * 0.13 + 0.75);
+    notes.forEach(([semis, at], k) => {
+      const f = 523.25 * 2 ** (semis / 12);
+      // The last note rings on.
+      const decay = k === notes.length - 1 ? 0.9 : 0.5;
+      // A mallet: the note, and (for a wooden bar) its bright fourth partial dying fast.
+      for (const [ratio, v, d] of wave === "mallet" ? ([[1, 1, decay], [3.9, 0.25, 0.08]] as const) : ([[1, 1, decay]] as const)) {
+        const osc = ctx.createOscillator();
+        osc.type = wave === "mallet" ? "sine" : "triangle";
+        osc.frequency.value = f * ratio;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t + at);
+        g.gain.linearRampToValueAtTime(vol * v, t + at + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + at + d);
+        osc.connect(g).connect(this.master!);
+        osc.start(t + at);
+        osc.stop(t + at + d + 0.05);
+      }
     });
+    return true;
   }
 
   /** A wooden clunk: a log or plank bundle set down by a crane. */

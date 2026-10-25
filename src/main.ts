@@ -868,6 +868,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     console.info(`Woodrail: ruin restored in ${ms.toFixed(1)} ms (ruins tile rebuilt in ${game.ruinsView.lastBuildMs.toFixed(1)} ms)`);
     hud.toast(`Old ${site.role} restored! It works again`, true, 2600);
     audio.putdown(true);
+    audio.cue("land");
     if (mode === "game") {
       hud.refreshTrayBadges();
       scheduleSave();
@@ -922,7 +923,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const stations = bought.towns.map((id) => game.landscape.towns[id].station);
       milestone({ kind: "milestone", text: `Welcome to ${names.join(" and ")}!`, place: placeOf(stations) });
     } else hud.toast("New land added");
-    audio.chime();
+    audio.cue("land");
     chosen = null;
     game.landscapeView.showForSale(plotsForSale(game.landscape));
     hud.setLandCard("Tap a plot marked + to see what it brings.");
@@ -1261,6 +1262,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       note({ kind: "event", key: `deliver:${town.id}:${kind}`, qty: n, text: "", format: (q) => `Delivered ${describeGoods({ [kind]: q })} to ${town.name}`, place: { x: town.station.x, z: town.station.z } });
     },
     grew: (town, status, built) => {
+      // (First: the goal it ticks, below, is folded into its tune as into its entry.)
+      audio.cue("grew");
       const here = { x: town.station.x, z: town.station.z };
       // Its new houses may have felled trees a harvester counted.
       industriesChanged();
@@ -1297,7 +1300,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         note({ kind: "event", text: grew, place: where });
         checkGoals(true); // (its tick is logged after the growth)
       }
-      audio.chime();
       // (A town grown is the game's progress, gift or not.)
       cloud?.edited(mode, "progress");
       if (gift.length > 0 || offer) {
@@ -1359,7 +1361,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             else ticks.drop();
           }
         }
-        audio.chime();
+        audio.cue("goal");
         goalsPanel.celebrate();
       }
     }
@@ -1686,7 +1688,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
-    audio.chime();
+    audio.cue("learned");
     hud.refreshTrayBadges();
     hud.trayLearned();
     game.invalidate();

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COIN_GAP_MS, IDLE_SUSPEND_MS, ToyAudio } from "./audio";
+import { COIN_GAP_MS, CUE_GAP_MS, IDLE_SUSPEND_MS, ToyAudio } from "./audio";
 
 /** Any node or param the synth asks for: every method returns another such stub (connect() chains). */
 const stub = (): unknown =>
@@ -119,6 +119,15 @@ describe("the audio context sleeps when nothing's heard (and wakes for the next 
     expect(audio.coins(0.6, 0)).toBe(false);
     vi.advanceTimersByTime(100);
     expect(audio.coins(0.6, 0)).toBe(true);
+  });
+
+  it("a burst of milestones plays one tune, unless a bigger one comes; after the gap, any", () => {
+    expect(audio.cue("grew")).toBe(true);
+    expect(audio.cue("goal")).toBe(false); // (the goal its growth ticked)
+    expect(audio.cue("learned")).toBe(false); // (as big: not twice)
+    expect(audio.cue("land")).toBe(true); // (bigger news)
+    vi.advanceTimersByTime(CUE_GAP_MS + 10);
+    expect(audio.cue("goal")).toBe(true);
   });
 
   it("a tap starts it again if the system stopped it (iOS: interrupted by a call)", () => {
