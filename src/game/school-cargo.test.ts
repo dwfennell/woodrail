@@ -1,12 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
-import { Economy, SCHOOL_SHARE, type DepotState } from "../economy/economy";
+import { Economy, SCHOOL_SHARE, WORKSHOP_CAP, type DepotState } from "../economy/economy";
 import { loadFootprints } from "../props/footprints-testing";
 import type { Footprint } from "../props/placement";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
 import { Layout, type PieceTypeId } from "../track";
 import { Progress } from "./progress";
-import { WORKSHOP_SPARE, yardKeeps } from "./crafting";
+import { keepsForOrder, orderPlanks, shopSpare, WORKSHOP_SPARE, yardKeeps } from "./crafting";
 import { attachResearch, lacking, pick } from "./research";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { buildStarterWorld } from "./world";
@@ -278,6 +278,113 @@ describe("the workshop's yard while a town on the line wants planks (QA P5: it f
     w.run(90);
     expect(w.economy.delivered.get(0)).toBe(4);
     expect(w.depots[1].piles[CARGO.planks.index]).toBe(5);
+  });
+});
+
+describe("the yard's spare covers the next thing to build (`shopSpare`; QA: one plank short of the mill for an hour)", () => {
+  /** As main.ts has it: the spare worked out (once a second there; here once, nothing changes on the way). */
+  const spares = (w: ReturnType<typeof line>, p: Progress) => {
+    const world = { layout: w.layout, depots: new Map<number, number>() };
+    w.economy.shopKeeps = (kind) => (kind === "planks" ? yardKeeps(p, shopSpare(p, world).planks) : null);
+    return world;
+  };
+  const knowing = (...techs: string[]) => {
+    const p = Progress.fresh();
+    for (const t of techs) p.learned.add(t);
+    return p;
+  };
+  /** A piece of `type` built out of the line's way. */
+  const build = (w: ReturnType<typeof line>, type: PieceTypeId) => w.layout.addPiece(type, { x: 0, z: 5000, heading: 0 });
+
+  it("Mills learned, no order: the yard keeps the mill's 8 (the cheapest past the 7 it keeps anyway), the town the rest", () => {
+    // (Sawmills too: its 10 is dearer, so the mill is what the yard saves for first.)
+    const p = knowing("mills", "sawmills");
+    const w = line(["depot-workshop", "station"], p);
+    const world = spares(w, p);
+    expect(shopSpare(p, world)).toEqual({ planks: 8, for: "piece:depot-mill" });
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(8);
+    expect(w.economy.delivered.get(0)).toBe(1);
+  });
+
+  it("nothing known past the 7 (a fresh player: the cars and switches cost less): it keeps 7", () => {
+    const p = knowing("switches", "passengers", "farming");
+    const w = line(["depot-workshop", "station"], p);
+    expect(shopSpare(p, spares(w, p))).toEqual({ planks: WORKSHOP_SPARE, for: null });
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
+    expect(w.economy.delivered.get(0)).toBe(9 - WORKSHOP_SPARE);
+  });
+
+  it("the mill built, nothing else past the 7 unbuilt: back to 7; one in the toy box isn't built yet", () => {
+    const p = knowing("mills");
+    const w = line(["depot-workshop", "station"], p);
+    const world = spares(w, p);
+    p.owned.set("piece:depot-mill", 1);
+    expect(shopSpare(p, world).planks).toBe(8);
+    build(w, "depot-mill");
+    expect(shopSpare(p, world)).toEqual({ planks: WORKSHOP_SPARE, for: null });
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
+    expect(w.economy.delivered.get(0)).toBe(9 - WORKSHOP_SPARE);
+  });
+
+  it("the mill built with the sawmill known: it moves on to the sawmill's 10 (the yard takes the train's 9)", () => {
+    const p = knowing("mills", "sawmills");
+    const w = line(["depot-workshop", "station"], p);
+    const world = spares(w, p);
+    build(w, "depot-mill");
+    expect(shopSpare(p, world)).toEqual({ planks: 10, for: "piece:depot-sawmill" });
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(w.economy.delivered.get(0) ?? 0).toBe(0);
+  });
+
+  it("no more than the yard holds (`WORKSHOP_CAP`, or the cap asked for)", () => {
+    const p = knowing("mills", "sawmills");
+    const world = { layout: new Layout(), depots: new Map<number, number>() };
+    world.layout.addPiece("depot-mill", { x: 0, z: 0, heading: 0 });
+    expect(shopSpare(p, world, WORKSHOP_SPARE, 9).planks).toBe(9);
+    expect(shopSpare(p, world, WORKSHOP_CAP + 5).planks).toBe(WORKSHOP_CAP);
+  });
+
+  it("a queued order works as before: its planks kept for it, the spare the same with it or without", () => {
+    const p = knowing("mills", "sawmills");
+    const w = line(["depot-workshop", "station"], p);
+    const world = spares(w, p);
+    const before = shopSpare(p, world);
+    // The sawmill ordered: its 10 kept (more than the spare), the train's 9 all into the yard, kept from the town.
+    p.orders.push("piece:depot-sawmill");
+    expect(shopSpare(p, world)).toEqual(before);
+    expect(orderPlanks(p)).toBe(10);
+    expect(keepsForOrder(p, 9)).toBe(true);
+    expect(yardKeeps(p, before.planks)).toBe(10);
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    // A switch ordered: kept for until its 3 are there; the yard still keeps the mill's 8.
+    p.orders.length = 0;
+    p.orders.push("piece:switch");
+    expect(keepsForOrder(p, 3)).toBe(false);
+    expect(yardKeeps(p, shopSpare(p, world).planks)).toBe(8);
+  });
+
+  it("Takes all planks still fills the yard", () => {
+    const p = knowing("mills");
+    const w = line(["depot-workshop", "station"], p);
+    spares(w, p);
+    w.economy.setTakesAll(w.depots[0].id, true);
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+  });
+
+  it("a school further on still gets what its research lacks (`keptForSchool`)", () => {
+    const p = researching("switches");
+    p.learned.add("mills");
+    const w = line(["depot-workshop", "depot-school", "station"], p);
+    spares(w, p);
+    w.run(90);
+    expect(p.research.got).toEqual({ planks: 3 });
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(6);
   });
 });
 

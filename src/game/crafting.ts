@@ -63,7 +63,8 @@ export const WORKSHOP_SPARE = 7;
 
 /**
  * How many planks the workshop's yard takes while a town later on the line wants them (`Economy.shopKeeps`): its
- * waiting tray order's planks, or `WORKSHOP_SPARE` if more. The rest ride on to the towns.
+ * waiting tray order's planks, or the spare if more (`shopSpare`: the game works it out once a second and passes it
+ * here). The rest ride on to the towns.
  */
 export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
   return Math.max(orderPlanks(p), spare);
@@ -73,7 +74,19 @@ export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
  * Per progress: the most of each good any one thing it knows and hasn't built costs, and what that was worked out
  * from: how many blueprints were learned, and which map's pieces as of which `Layout.piecesVersion`.
  */
-const dearestOf = new WeakMap<Progress, { learned: number; layout: World["layout"] | null; pieces: number; most: Int32Array }>();
+const dearestOf = new WeakMap<Progress, Needs>();
+
+/**
+ * What the workshop may be asked to make, from the things a progress knows and hasn't built (`needsOf`): the most of
+ * each good any one of them costs (`shopNeeds`), and those that cost planks, cheapest first (`shopSpare`).
+ */
+interface Needs {
+  learned: number;
+  layout: World["layout"] | null;
+  pieces: number;
+  most: Int32Array;
+  byPlanks: readonly { id: ThingId; planks: number }[];
+}
 
 /**
  * Of the piece types in `types`, those the player has standing on `world`'s map: placed, or an old one restored
@@ -110,31 +123,56 @@ function builtOf(world: Pick<World, "layout" | "depots">, types: ReadonlySet<str
  * (`Layout.piecesVersion`: a miss is one pass over the pieces); the orders are a few, read each time.
  */
 export function shopNeeds(p: Progress, kind: CargoKind, world?: Pick<World, "layout" | "depots">, yardCap = WORKSHOP_CAP): number {
-  let c = dearestOf.get(p);
-  const layout = world?.layout ?? null;
-  const pieces = layout?.piecesVersion ?? 0;
-  if (!c || c.learned !== p.learned.size || c.layout !== layout || c.pieces !== pieces) {
-    const known: ThingId[] = [];
-    const types = new Set<string>();
-    for (const id of Object.keys(THING_RULES) as ThingId[]) {
-      if (!p.knows(id) || isFree(id) || total(THING_RULES[id]!.cost) === 0) continue;
-      known.push(id);
-      if (id.startsWith("piece:")) types.add(id.slice("piece:".length));
-    }
-    const built = world && types.size > 0 ? builtOf(world, types) : null;
-    const most = new Int32Array(CARGO_KINDS.length);
-    for (const id of known) {
-      if (id.startsWith("piece:") && built?.has(id.slice("piece:".length))) continue;
-      const cost = THING_RULES[id]!.cost;
-      for (const k of kindsOf(cost)) most[CARGO[k].index] = Math.max(most[CARGO[k].index], cost[k]!);
-    }
-    c = { learned: p.learned.size, layout, pieces, most };
-    dearestOf.set(p, c);
-  }
+  const c = needsOf(p, world);
   let ordered = 0;
   // (The order being made has had its goods taken already.)
   for (let i = p.making ? 1 : 0; i < p.orders.length; i++) ordered += THING_RULES[p.orders[i]]?.cost[kind] ?? 0;
   return Math.min(yardCap, Math.max(c.most[CARGO[kind].index], ordered));
+}
+
+/** The things `p` knows and hasn't built on `world`'s map, as `shopNeeds` and `shopSpare` read them (cached: see there). */
+function needsOf(p: Progress, world?: Pick<World, "layout" | "depots">): Needs {
+  const c = dearestOf.get(p);
+  const layout = world?.layout ?? null;
+  const pieces = layout?.piecesVersion ?? 0;
+  if (c && c.learned === p.learned.size && c.layout === layout && c.pieces === pieces) return c;
+  const known: ThingId[] = [];
+  const types = new Set<string>();
+  for (const id of Object.keys(THING_RULES) as ThingId[]) {
+    if (!p.knows(id) || isFree(id) || total(THING_RULES[id]!.cost) === 0) continue;
+    known.push(id);
+    if (id.startsWith("piece:")) types.add(id.slice("piece:".length));
+  }
+  const built = world && types.size > 0 ? builtOf(world, types) : null;
+  const most = new Int32Array(CARGO_KINDS.length);
+  const byPlanks: { id: ThingId; planks: number }[] = [];
+  for (const id of known) {
+    if (id.startsWith("piece:") && built?.has(id.slice("piece:".length))) continue;
+    const cost = THING_RULES[id]!.cost;
+    for (const k of kindsOf(cost)) most[CARGO[k].index] = Math.max(most[CARGO[k].index], cost[k]!);
+    if (cost.planks) byPlanks.push({ id, planks: cost.planks });
+  }
+  byPlanks.sort((a, b) => a.planks - b.planks);
+  const out: Needs = { learned: p.learned.size, layout, pieces, most, byPlanks };
+  dearestOf.set(p, out);
+  return out;
+}
+
+/**
+ * The planks the workshop's yard keeps with no order waiting while a town ahead wants them (`yardKeeps`): enough for
+ * the cheapest thing the player knows and hasn't built that `spare` (`WORKSHOP_SPARE`) doesn't cover already, or
+ * `spare` if there's none; no more than `yardCap`. `for`: that thing (null: just the spare). (QA: the mill costs 8; a
+ * player who didn't order it at the workshop sat one plank short for most of an hour while the rest rode on to the
+ * towns. The balance play-through, spur on: seed 5's yard held 7 from minute 30 to 80.)
+ * What `spare` covers (the switches, the cars) leaves it as it is: the cheapest past it is what the yard saves for
+ * next. "Hasn't built" as `shopNeeds` has it: a piece none of which stands on the map (one in the toy box doesn't
+ * count); cars and props are made again and again, so always count, but none costs more than `WORKSHOP_SPARE` planks,
+ * so none raises it. Once that thing is built the spare moves on to the next cheapest, or back to `spare`.
+ * Cached with `shopNeeds` (blueprints learned, the map's pieces): the game asks once a second, not per train.
+ */
+export function shopSpare(p: Progress, world?: Pick<World, "layout" | "depots">, spare = WORKSHOP_SPARE, yardCap = WORKSHOP_CAP): { planks: number; for: ThingId | null } {
+  for (const t of needsOf(p, world).byPlanks) if (t.planks > spare) return { planks: Math.min(t.planks, yardCap), for: t.id };
+  return { planks: Math.min(spare, yardCap), for: null };
 }
 
 /**
