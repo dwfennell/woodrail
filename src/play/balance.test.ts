@@ -3,9 +3,9 @@ import { Editor } from "../editor/editor";
 import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
 import { describe as describeGoods } from "../economy/goods";
-import { craftNow, craftShort, Crafting, keepsForOrder, lacking, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
+import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
-import { GOALS, GoalTracker, OPEN_INDUSTRY_GOALS } from "../game/goals";
+import { GOALS, GoalTracker } from "../game/goals";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
@@ -113,7 +113,9 @@ const RUIN_REACH = Number(ENV.BALANCE_RUIN_REACH ?? 1500);
 /**
  * BALANCE_SPUR (an A/B, off by default: the CoS's choice, spec §7): an old industry no line end can be run on to is
  * restored on a short spur (`spurTo`). Off, it's restored only from a line end (step 2's rule), which on the starter
- * map never reaches the old farm: a new farm yard is built.
+ * map never reaches the old farm: a new farm yard is built. (On, the nine seeds all restore the old farm, at minute 15
+ * to 23, but seed 5's City comes at 109, past the band's 90: its grain waits on the spur's switch till Routes. So the
+ * balance run keeps it off; the goals play-through, which must see the old farm restored, has it on.)
  */
 const SPUR = !!ENV.BALANCE_SPUR;
 /**
@@ -122,6 +124,27 @@ const SPUR = !!ENV.BALANCE_SPUR;
  * Routes before Mills instead (Mills waits for it).
  */
 const ROUTES_FIRST = ENV.BALANCE_SPUR === "routes";
+
+/**
+ * The goals play-through (part of `npm test`, not only BALANCE=1): the same player on the starter map, this many
+ * minutes of play (about 20 s on a laptop), and every goal of GOALS must be met by then but those listed here, each
+ * with why. A goal listed that is met fails too, so the list only ever shrinks.
+ */
+const GOALS_RUN_MINUTES = 70;
+export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
+  "open-quarry": "Quarries is learned after minute 70 (the play-through builds its quarry by its own rules then): phase 2",
+  "open-mine": "the play-through doesn't build or restore a mine yet: phase 2",
+  "open-harbour": "the play-through doesn't build or restore a harbour yet: phase 2",
+  "join-all": "the play-through joins the towns it trades with, not every town: phase 2",
+};
+
+/** The goals neither met nor listed in `allowed` (with why), and those listed but met or not goals at all. */
+export function goalsMissed(isDone: (id: string) => boolean, allowed: Readonly<Record<string, string>>, goals: readonly { id: string; title: string }[] = GOALS): { missed: string[]; stale: string[] } {
+  return {
+    missed: goals.filter((g) => !isDone(g.id) && !(g.id in allowed)).map((g) => `${g.title} (${g.id})`),
+    stale: Object.keys(allowed).filter((id) => isDone(id) || !goals.some((g) => g.id === id)),
+  };
+}
 
 /** Planks a player keeps in the workshop's yard before picking another research (BALANCE_SPARE to try others). */
 const RESEARCH_SPARE = Number(ENV.BALANCE_SPARE ?? 10);
@@ -304,6 +327,8 @@ class Player {
     attachPassengers(w, () => this.progress, () => {});
     w.economy.reserved = (kind) => kind === "planks" && this.planksKept;
     w.economy.shopKeeps = YARD_SPARE < 0 ? null : (kind) => (kind === "planks" ? yardKeeps(this.progress, YARD_SPARE) : null);
+    // Stone into the workshop only while a harbour's price needs it there (as the game does).
+    w.economy.owes = (kind) => shopOwes(w, this.progress, kind);
     // Goods into a school go into the research (as the game does).
     attachResearch(w.economy, () => this.progress, () => (this.researchFed = this.tick));
     this.progress.coverMap(w);
@@ -349,8 +374,15 @@ class Player {
 
   /** The workshop keeps planks only for a tray order waiting to be made (as the game does: never for blueprints). */
   planksKept = false;
+  /** Was stone owed at the workshop at the last look (routed lines plan again when it changes, as the game's do). */
+  owing = false;
   updatePlanksKept(): void {
     if (GREEDY_WORKSHOP) for (const d of workshops(this.w)) d.takesAll = true;
+    const owing = shopOwing(this.w, this.progress);
+    if (owing !== this.owing) {
+      this.owing = owing;
+      this.w.economy.acceptsChanged();
+    }
     if (workshops(this.w).length === 0) {
       this.planksKept = false;
       return;
@@ -1202,6 +1234,49 @@ function onlyNearestPickup(w: World, stops: RouteStopDef[], kind: CargoKind): vo
   }
 }
 
+describe("the goals guard", () => {
+  it("names a goal neither met nor allowed, and an allowance for a goal met or gone", () => {
+    const goals = [
+      { id: "a", title: "A" },
+      { id: "b", title: "B" },
+      { id: "c", title: "C" },
+    ];
+    expect(goalsMissed((id) => id === "a", { c: "later" }, goals)).toEqual({ missed: ["B (b)"], stale: [] });
+    expect(goalsMissed((id) => id !== "b", { c: "later", x: "gone" }, goals)).toEqual({ missed: ["B (b)"], stale: ["c", "x"] });
+    expect(goalsMissed(() => true, {}, goals)).toEqual({ missed: [], stale: [] });
+    // (Every allowance is a goal still.)
+    for (const id of Object.keys(GOALS_NOT_REACHED)) expect(GOALS.some((g) => g.id === id), id).toBe(true);
+  });
+});
+
+describe.skipIf(RUN)("the goals play-through", () => {
+  it(`meets every goal by minute ${GOALS_RUN_MINUTES} but those allowed (GOALS_NOT_REACHED), the old farm restored the player's way, its grain made and milled`, () => {
+    // (The old farm restored on a spur, as a player does on the starter map: no line end reaches it.)
+    const P = new Playthrough(true);
+    const t0 = performance.now();
+    try {
+      P.play(GOALS_RUN_MINUTES);
+    } catch (e) {
+      P.report();
+      throw e;
+    }
+    const seconds = (performance.now() - t0) / 1000;
+    console.log(`goals play-through: ${GOALS_RUN_MINUTES} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}`);
+    const { missed, stale } = goalsMissed((id) => P.p.goals.isDone(id), GOALS_NOT_REACHED);
+    if (missed.length > 0 || stale.length > 0) P.report();
+    expect(missed, "goals neither met nor allowed").toEqual([]);
+    expect(stale, "allowed but met (take them off GOALS_NOT_REACHED), or not goals").toEqual([]);
+    // The old farm, restored (its Restore, paid for), not a new farm yard; its grain made, and carried to the mill.
+    const w = P.p.w;
+    const farm = w.layout.getPiece(P.farm);
+    expect(P.firsts["farm restored"], "the old farm restored").toBeDefined();
+    expect(w.landscape.sites!.find((x) => x.role === "farm")?.restored).toBe(true);
+    expect(farm?.type).toBe("depot-farm");
+    expect(w.economy.made[CARGO.grain.index], "grain made").toBeGreaterThan(0);
+    expect(w.economy.made[CARGO.flour.index], "flour milled of its grain").toBeGreaterThan(0);
+  }, 180_000);
+});
+
 describe.skipIf(!RUN)("balance play-through", () => {
   it("a new player's Game-mode game, from the start to a city ★★", () => {
     const P = new Playthrough();
@@ -1217,6 +1292,8 @@ describe.skipIf(!RUN)("balance play-through", () => {
 
 /** The new player's decisions, a minute at a time. */
 class Playthrough {
+  /** `spur`: an old industry no line end reaches is restored on a short spur (BALANCE_SPUR's rule). */
+  constructor(readonly spur = SPUR) {}
   readonly p = new Player(buildStarterWorld());
   shop = -1;
   /** The school's piece (−1: not placed yet). */
@@ -1286,7 +1363,7 @@ class Playthrough {
   readonly nearestPickup = new Set<CargoKind>();
   stuckFor = 0;
 
-  play(): void {
+  play(minutes = MAX_MINUTES): void {
     const P = this.p;
     const w = () => P.w;
     P.note(`new game: towns ${w().landscape.towns.map((t) => t.name).join(", ")}; box ${[...P.progress.owned].map(([id, n]) => `${n} ${id}`).join(", ")}`);
@@ -1311,7 +1388,7 @@ class Playthrough {
     this.trains.set(t, "timber");
     P.note("timber train (engine, 3 flatbeds) out of the box and set going");
 
-    for (let minute = 1; minute <= MAX_MINUTES; minute++) {
+    for (let minute = 1; minute <= minutes; minute++) {
       P.happened = 0;
       P.run(60);
       if (ENV.BALANCE_TRACE && minute >= Number(ENV.BALANCE_TRACE.split("-")[0]) && minute <= Number(ENV.BALANCE_TRACE.split("-")[1])) P.trains();
@@ -1547,10 +1624,10 @@ class Playthrough {
     const P = this.p;
     const w = P.w;
     const s = P.progress;
-    // The goal the player works on, in the goals' order. "Open a farm" (map sites step 2), and a quarry, a mine and a
-    // harbour (step 3), are passed over: those industries come by their own rules below, as they did before there were
-    // goals for them, so the goals after them come when they did.
-    const goal = GOALS.find((x) => !OPEN_INDUSTRY_GOALS.includes(x.id) && !P.goals.isDone(x.id) && (x.needs ?? []).every((id) => s.learned.has(id)))?.id;
+    // The goal the player works on, in the goals' order, "Open a farm" and the other old industries' too: those come by
+    // their own rules below (the old farm restored, a quarry built), and the goals after them wait for them, as a
+    // player's do.
+    const goal = GOALS.find((x) => !P.goals.isDone(x.id) && (x.needs ?? []).every((id) => s.learned.has(id)))?.id;
     const g = w.landscape.grid;
 
     // The school (the first village's present), as soon as it's in the box: on the straight of the line beside a
@@ -2194,7 +2271,7 @@ class Playthrough {
     // only when the player sets the switch for the farm by hand (`tendSpur`; BALANCE_SPUR=routes: Routes learned
     // first instead): the trade-off a player takes for the cheaper farm.
     let spur = -1;
-    if (!r && s.learned.has("switches") && SPUR) {
+    if (!r && s.learned.has("switches") && this.spur) {
       spur = spurTo(P, site.centre, free) ?? -1;
       if (spur !== -1) r = { id: stub, beyond: -1 };
     }

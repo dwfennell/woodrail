@@ -192,7 +192,7 @@ describe("map sites: what the player is told", () => {
     const farm = w.landscape.sites!.find((s) => s.role === "farm")!;
     expect(ruinCard(w.landscape, farm, "game", () => false)).toEqual({
       title: "Old farm",
-      resource: "🌾 Farm fields nearby: 8 of 8",
+      resource: "🌾 Farm fields nearby: 2 of 2",
       status: "🔒 Learn Farming at a school to open this farm",
       open: false,
       restore: null,

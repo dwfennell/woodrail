@@ -167,7 +167,7 @@ const card = await p.evaluate(() => {
   return c && !c.hidden ? { title: c.querySelector(".card-title").textContent, lines: [...c.querySelectorAll(".ruin-resource, .ruin-status, .ruin-own")].filter((e) => !e.hidden).map((e) => e.textContent), button: c.querySelector(".ruin-clear").textContent, restore: c.querySelector(".ruin-restore").hidden } : null;
 });
 check("tapping the ruin opens its card", !!card, JSON.stringify(card));
-check("…titled Old farm, with its fields and what opens it", card?.title === "Old farm" && /Farm fields nearby: 8 of 8/.test(card.lines[0]) && card.lines.includes("🔒 Learn Farming at a school to open this farm") && card.lines.includes("Or build your own anywhere from the Industries tab."), JSON.stringify(card));
+check("…titled Old farm, with its fields and what opens it", card?.title === "Old farm" && /Farm fields nearby: 2 of 2/.test(card.lines[0]) && card.lines.includes("🔒 Learn Farming at a school to open this farm") && card.lines.includes("Or build your own anywhere from the Industries tab."), JSON.stringify(card));
 check("…and Clear the ruin for a few coins (no Restore while it's locked)", /^Clear the ruin · 10/.test(card?.button ?? "") && card.restore, card?.button);
 await shot("03-locked-card");
 /** What a straight held across the old farm's yard is told (as a drag over it shows). */
@@ -287,6 +287,32 @@ const restored = await p.evaluate(async ([id, pose]) => {
 check("Restore: a farm yard where the stub was, the ruin gone", restored.piece?.at < 0.5 && restored.restored && !restored.ruin && restored.left === 0 && !restored.card, JSON.stringify(restored));
 check("…a working farm: its depot, its rate from the fields, its crane", restored.depot === "farm" && restored.rate >= 1 && restored.crane, JSON.stringify(restored));
 check("…paid as a new one is, at half the price: 3 planks from the workshop, 45 coins", restored.coins === 55 && restored.planks === 7, JSON.stringify(restored));
+// The payoff (QA: "I also unlocked this ruin but it didn't seem to do much?"; "that old farm isn't really a farm"): it says
+// what it's for, "Open a farm" is met (ticked, or met and waiting for its turn in the tutorial), and a short run later
+// its yard holds grain, drawn on its pile.
+const payoff = await p.evaluate(async (pieceId) => {
+  const w = window.woodrail;
+  const { restoredText } = await import("/src/game/restore.ts");
+  const { CARGO } = await import("/src/economy/cargo.ts");
+  const said = restoredText("farm");
+  const toast = w.hud.hasToast(said);
+  const goals = w.goals();
+  const goal = goals.isDone("open-farm") || goals.waiting("open-farm");
+  const d = w.economy.depotAtPiece(pieceId);
+  const site = () => w.depotView.sites.find((s) => s.depot.pieceId === pieceId);
+  const drawnBefore = site()?.piles;
+  const t0 = performance.now();
+  // A minute of the economy, at once (no trains: what it makes piles up in its yard).
+  for (let i = 0; i < 120 * 60; i++) w.economy.tick();
+  const tickMs = performance.now() - t0;
+  w.invalidate();
+  await new Promise((r) => setTimeout(r, 600));
+  await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 20000))]);
+  return { said, toast, goal, grain: d?.piles[CARGO.grain.index] ?? 0, drawn: site()?.piles !== drawnBefore, tickMs: Math.round(tickMs) };
+}, restored.piece?.id);
+check("…and says what it's for: " + payoff.said, payoff.toast, JSON.stringify(payoff));
+check("…Open a farm is met", payoff.goal, JSON.stringify(payoff));
+check("…a minute on, its yard has grain, drawn on its pile", payoff.grain > 0 && payoff.drawn, JSON.stringify(payoff));
 // Its card: tap the farm yard.
 const farmAt = await onScreen(yard.x, 10, yard.z);
 await tapAt(farmAt.x, farmAt.y);

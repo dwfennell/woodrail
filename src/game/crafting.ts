@@ -1,6 +1,7 @@
-import { CARGO, CARGO_KINDS } from "../economy/cargo";
-import { WORKSHOP_CAP, type DepotState } from "../economy/economy";
+import { CARGO, CARGO_KINDS, type CargoKind } from "../economy/cargo";
+import { RECIPES, WORKSHOP_CAP, type DepotState } from "../economy/economy";
 import { covers, kindsOf, minus, total, type Bag } from "../economy/goods";
+import { costTag } from "../ui/cost-tag";
 import type { Progress } from "./progress";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
 import type { World } from "./world";
@@ -66,6 +67,59 @@ export const WORKSHOP_SPARE = 7;
  */
 export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
   return Math.max(orderPlanks(p), spare);
+}
+
+/** Per progress: the most of each good any one thing it knows costs, and how many blueprints were learned then. */
+const dearestOf = new WeakMap<Progress, { learned: number; most: Int32Array }>();
+
+/**
+ * How many of `kind` the workshop needs for what the player may pay for there: the dearest thing they know how to
+ * make (a harbour's 10 stone once Harbours is learned), or all their waiting tray orders' if more, no more than the
+ * yard holds. That covers restoring a ruin too: its price is a share of the new one's (`restorePrice`), and its card
+ * offers Restore only once the same blueprint is learned. (There is no "wanted" list to go by: the harbour's card
+ * shows its price from the moment it's learned, so the stone has to be welcome from then, not only after a tap.)
+ * Cached per progress until another blueprint is learned; the orders are a few, read each time.
+ */
+export function shopNeeds(p: Progress, kind: CargoKind, yardCap = WORKSHOP_CAP): number {
+  let c = dearestOf.get(p);
+  if (!c || c.learned !== p.learned.size) {
+    const most = new Int32Array(CARGO_KINDS.length);
+    for (const id of Object.keys(THING_RULES) as ThingId[]) {
+      const rule = THING_RULES[id]!;
+      if (!p.knows(id) || isFree(id)) continue;
+      for (const k of kindsOf(rule.cost)) most[CARGO[k].index] = Math.max(most[CARGO[k].index], rule.cost[k]!);
+    }
+    c = { learned: p.learned.size, most };
+    dearestOf.set(p, c);
+  }
+  let ordered = 0;
+  // (The order being made has had its goods taken already.)
+  for (let i = p.making ? 1 : 0; i < p.orders.length; i++) ordered += THING_RULES[p.orders[i]]?.cost[kind] ?? 0;
+  return Math.min(yardCap, Math.max(c.most[CARGO[kind].index], ordered));
+}
+
+/**
+ * How many more of `kind` the workshops take from trains (`Economy.owes`, for the goods a workshop takes only while
+ * owed: stone): what's needed (`shopNeeds`) less what their yards hold. 0 once that's covered.
+ */
+export function shopOwes(world: World, p: Progress, kind: CargoKind): number {
+  const need = shopNeeds(p, kind);
+  if (need <= 0) return 0;
+  let have = 0;
+  for (const d of world.economy.allDepots()) if (d.role === "workshop" && world.layout.getPiece(d.pieceId)) have += d.piles[CARGO[kind].index];
+  return Math.max(0, need - have);
+}
+
+/** Is any good a workshop takes only while owed (`RECIPES.workshop.owed`) owed now? (Routed lines plan again when this flips.) */
+export function shopOwing(world: World, p: Progress): boolean {
+  return (RECIPES.workshop.owed ?? []).some((k) => shopOwes(world, p, k) > 0);
+}
+
+/** The text on a price with goods only a workshop takes while owed: "Needs 5🪨 at the workshop" (none: null). */
+export function owedText(goods: Bag): string | null {
+  const owed: Bag = {};
+  for (const k of RECIPES.workshop.owed ?? []) if (goods[k]) owed[k] = goods[k];
+  return total(owed) > 0 ? `Needs ${costTag(owed)} at the workshop` : null;
 }
 
 /** Said beside a second engine before Signals (see `makeNote`). */
