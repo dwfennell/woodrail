@@ -377,8 +377,10 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
   a train takes that loop and a second must be held. Anywhere else it's at an end, where the stops are, or on the
   single track. So the player gets the way out:
   - The room rule holds the newest: the train last put down or joined (`Sections.joinedAt`), the ties of where
-    trains stand as before. The held-train hand-over doesn't hand that one the room when the line has more trains
-    than loops + 1. The player put it there and can put it away; handing it room would hold another, laden maybe.
+    trains stand as before. The held-train hand-over still hands it the room where that lets a train deliver. It's skipped
+    (the newest stays held) only when the line has more trains than loops + 1 and the train it would hold stands at
+    a stop, or at a line end with a stop in it: then no train could reach that stop anyway (N1; and Fix 2's case,
+    where the hand-over's runner made 13 trips and delivered nothing). Game Mode's pinned harness runs as on main.
   - Said once a line, when a train comes onto it with no room (`Sections.onFull`): "This line has room for 2
     trains. Lay another passing loop to run 3."
   - "Put away" on the card of the held train, and of its line's others: the held one (the newest held) back in the

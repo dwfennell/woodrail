@@ -1795,10 +1795,12 @@ export class Sections {
         const lineId = this.host.lineOf(e);
         const adm = this.admitted.get(lineId);
         const at = this.swappedAt.get(lineId) ?? -Infinity;
-        // (Not the newest, held as the line has a train too many: the player put it there, its card says to put it
-        // away or lay a loop, and handing it room would only hold another, laden maybe, where it can't be put away.)
+        // (Not to the newest, held as the line has a train too many, when the hand-over would let none deliver anyway:
+        // the one it would hold stands at a stop, or at the end of the line a stop is at, so no train could reach that
+        // stop past it (QA's N1). Then the newest stays held, its card says to put it away or lay a loop. Where the
+        // one held would leave the stops clear, the hand-over goes ahead: a line that runs on by itself is better.)
         const newestOn = info.engines.reduce((x, y) => ((this.joinedAt.get(y) ?? 0) > (this.joinedAt.get(x) ?? 0) ? y : x), info.engines[0]);
-        const tooMany = info.engines.length > info.loops + 1 && h === newestOn;
+        const tooMany = info.engines.length > info.loops + 1 && h === newestOn && this.blocksStop(last, info);
         if (adm && h !== undefined && !tooMany && st && !(st.move && !st.move.free) && standing(last) && now - at > SWAP_S * 120) {
           adm.delete(last);
           adm.add(h);
@@ -1995,6 +1997,23 @@ export class Sections {
    * The train "Put away" on this engine's card puts back in the box: itself if its line has no room for it, else the
    * newest of its line's held for room (its card says the line is full); −1: none (the line has room for all).
    */
+  /**
+   * Held where it stands, would this train keep the line's trains from a stop: it stands on one, or at a line end
+   * (`end` slot) with one in it?
+   */
+  private blocksStop(engine: number, info: LineInfo): boolean {
+    const t = this.sim.findCar(engine)?.train;
+    if (!t) return false;
+    const stops = new Set(this.host.stopPieces(this.host.lineOf(engine)));
+    for (const b of t.bogies) {
+      if (stops.has(b.pieceId)) return true;
+      const sl = info.topo.slotOf.get(b.pieceId);
+      if (sl === undefined || info.topo.slots[sl].kind !== "end") continue;
+      for (const p of info.topo.slots[sl].pieces) if (stops.has(p)) return true;
+    }
+    return false;
+  }
+
   /** Is this engine one its line has no room for (held where it stands)? */
   heldForRoom(engine: number): boolean {
     const lineId = this.host.lineOf(engine);

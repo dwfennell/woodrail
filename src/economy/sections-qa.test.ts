@@ -1025,8 +1025,10 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
   });
   // Fix 2's case, built directly: no passing place (the loop pinned to one road both ways), the working train standing
   // at its end of the line, a second put down right in front of it on the single track, held for room where it
-  // stands. 7034c25 handed the second the room and held the first. Now the newest stays held (the third-train trap):
-  // the working one's card says what to do (unpin), and "Put away" on it puts the second away; then it runs.
+  // stands. 7034c25 handed the second the room and held the first: the second ran (13 arrivals) but delivered nothing,
+  // the first held at the forest's end in its way. The hand-over is kept only where it lets a train deliver, so here
+  // the newest stays held (the third-train trap): the cards say what to do (unpin), and "Put away" puts the second
+  // away; then the first runs and delivers. (Game Mode's pinned harness, seeds 2027, 3, 1, 5: as on main.)
   for (const onLoop of [false, true])
     it(`held train in front of the working one at its line end (${onLoop ? "on the pinned loop" : "just past the end"}): the card says what to do, Put away frees it`, () => {
       const q = line0({ loops: 1, ends: 2 });
@@ -1056,6 +1058,9 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       // a section: held there it would block the single track, so the first is held instead, and put away.)
       expect(away).toBe(onLoop ? r.E[0] : r.E[1]);
       expect(after[onLoop ? 1 : 0]).toBeGreaterThan(3);
+      // (And delivers: loads unloaded after the put-away. Before it, none either way.)
+      expect(r.goodsAt.filter((t) => t > 100).length).toBeGreaterThan(3);
+      expect(r.goodsAt.filter((t) => t > 30 && t < 100).length).toBe(0);
       // (Before it's put away, the cards say what to do: unpin, or for the one put down, the same.)
       expect([...r.cards].some((c) => c.endsWith("unpin the passing loop's switches so trains can pass"))).toBe(true);
     });
