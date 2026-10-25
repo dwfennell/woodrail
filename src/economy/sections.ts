@@ -520,14 +520,39 @@ export class Sections {
   /** The speed limit sections put on a powered train (Infinity: none). */
   cap(train: Train): number {
     if (!this.enabled) return Infinity;
-    if (!this.timing) return this.capIn(train);
+    if (!this.timing) return this.capWith(train);
     const t0 = performance.now();
     try {
-      return this.capIn(train);
+      return this.capWith(train);
     } finally {
       this.capMs += performance.now() - t0;
       this.capCalls++;
     }
+  }
+
+  /**
+   * `capIn`, and for a train of a managed line with trains not on it about: short of any of those ahead of it too. A
+   * train on no line goes where it likes, into a loop road the line's train is in: the line's slots don't keep them
+   * apart there, and they met head on (QA's N2).
+   */
+  private capWith(train: Train): number {
+    const c = this.capIn(train);
+    if (c === 0) return 0;
+    const lineId = this.lineIdOfTrain(train);
+    if (lineId < 0) return c;
+    const info = this.lineInfo.get(lineId);
+    if (!info?.managed || info.foreign.length === 0) return c;
+    return Math.min(c, this.clearCap(train, info.foreign, false));
+  }
+
+  /** The line of a train's first engine on one (−1: none). */
+  private lineIdOfTrain(train: Train): number {
+    for (const car of train.cars) {
+      if (car.kind !== "engine") continue;
+      const l = this.host.lineOf(car.id);
+      if (l >= 0) return l;
+    }
+    return -1;
   }
 
   private capIn(train: Train): number {
@@ -1496,7 +1521,7 @@ export class Sections {
    * stopping distance). For trains on no line, where a line is managed: the line's trains keep out of its way, and it
    * doesn't run into them while they do.
    */
-  private clearCap(train: Train): number {
+  private clearCap(train: Train, among: readonly Train[] | null = null, turn = true): number {
     const net = this.host.drive(train);
     if (net === 0 || train.turnback >= 0) return Infinity;
     const c = this.front(train, net < 0);
@@ -1504,13 +1529,16 @@ export class Sections {
     const gap = 2 * CAR_SPECS[lead.kind].bogieInset + COUPLER_GAP;
     const look = (train.speed * train.speed) / (2 * ACCELERATION) + gap + 4 * CLEAR_STEP;
     const others: Train[] = [];
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id);
-      if (t && t !== train && !t.derailed) others.push(t);
-    }
+    if (among) {
+      for (const t of among) if (t !== train && !t.derailed) others.push(t);
+    } else
+      for (const id of this.sim.trainIds()) {
+        const t = this.sim.getTrain(id);
+        if (t && t !== train && !t.derailed) others.push(t);
+      }
     if (others.length === 0) return Infinity;
-    const held = this.clearHeld.get(train.id);
-    this.clearHeld.delete(train.id);
+    const held = turn ? this.clearHeld.get(train.id) : undefined;
+    if (turn) this.clearHeld.delete(train.id);
     let walked = 0;
     for (let k = 0; walked <= look; k++) {
       if (k > 0) {
@@ -1527,6 +1555,8 @@ export class Sections {
             const room = walked - gap;
             // (Within a step of it: as good as there; the sim may hold it touching.)
             if (room > CLEAR_STEP) return Math.sqrt(2 * ACCELERATION * (room - CLEAR_STEP));
+            // (A line's train: it waits there, its line's sections say when it goes.)
+            if (!turn) return 0;
             // (Stood short of it a while: it turns back, as it would have on bumping it, but without the bump.)
             const since = held ?? this.sim.ticks;
             this.clearHeld.set(train.id, since);
