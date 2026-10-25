@@ -884,8 +884,8 @@ export class Economy {
    * May a train (with this route, or none) pick up `kind` at this depot? A routed train only at the stop it's heading
    * for, as it says (`picksAt`); an unrouted one anywhere but a warehouse.
    */
-  private picksUpAt(d: DepotState, route: Route | null, kind: CargoKind): boolean {
-    return route ? this.picksAt(route, d, kind) : !RECIPES[d.role].routedOnly;
+  private picksUpAt(d: DepotState, route: Route | null, kind: CargoKind, train: Train | null = null): boolean {
+    return route ? this.picksAt(route, d, kind, train) : !RECIPES[d.role].routedOnly;
   }
 
   /**
@@ -922,9 +922,11 @@ export class Economy {
    * only on its visit to the stop it's heading for. "pick" picks up everything (but at a warehouse, not where it
    * drops too: it would take back what it left); "drop" nothing. "auto" (and "both"): only what a later stop takes (at
    * a warehouse, what a later stop other than a warehouse uses, so two warehouses don't hand goods back and forth; a
-   * harbour's landed goods by the normal rule); riders only with a town's station later on.
+   * harbour's landed goods by the normal rule); riders only with a town's station later on. Given the train, an "auto"
+   * stop picks up a good only while those later stops have room for more of it than the train has on board
+   * (`roomAhead`): grain isn't carried round for a mill that's full (it waits at the farm for the next lap).
    */
-  private picksAt(route: Route, d: DepotState, kind: CargoKind | null): boolean {
+  private picksAt(route: Route, d: DepotState, kind: CargoKind | null, train: Train | null = null): boolean {
     const routedOnly = RECIPES[d.role].routedOnly;
     const n = route.stops.length;
     let pick = false;
@@ -937,10 +939,69 @@ export class Economy {
       if (s.action === "drop") drop = true;
       if (s.action === "pick" || s.action === "drop") continue;
       const later = this.laterOf(route.stops, i);
-      if (kind === null ? later.town : (routedOnly ? later.uses : later.takes) & (1 << CARGO[kind].index)) return true;
+      if (kind === null ? later.town : (routedOnly ? later.uses : later.takes) & (1 << CARGO[kind].index) && (!train || this.roomAhead(route.stops, i, kind, train))) return true;
     }
     return pick && !(routedOnly && drop);
   }
+
+  /**
+   * Have the stops after stop `i` of a line (round it, as `laterOf` counts them) room now for more of `kind` than this
+   * train has on board? Each depot that would take it from the train there is counted once, at the moment of loading:
+   * a town (or a school) the mode says still wants it counts as room (it takes what it wants even with its platform's
+   * pile full); any other depot its pile's room (`capAt` less the pile), and for a good it takes only while owed, no
+   * more than is owed (`owes`). A halt, or a depot with that good landed on it, counts none; from a warehouse, only
+   * depots that use it count (as `picksAt` has it). A warehouse or a harbour counts only where the train would drop it
+   * there (`dropsAt`: no stop after it uses it but this one, which gave it): grain isn't loaded for a harbour's quay
+   * while the mill on the way back is full (QA, the goals play-through: the hoppers rode round with it).
+   * Other trains on the line aren't counted. Cheap: one pass over the stops, run only as a crane would load (at a
+   * stop, a unit at a time), with `laterOf` cached (a second pass only past a warehouse or a harbour).
+   */
+  private roomAhead(stops: readonly RouteStopDef[], i: number, kind: CargoKind, train: Train): boolean {
+    const n = stops.length;
+    const index = CARGO[kind].index;
+    const fromStore = RECIPES[this.depots[stops[i].depotId]?.role ?? "town"].routedOnly;
+    if (this.roomMark.length < this.depots.length) this.roomMark = new Int32Array(this.depots.length + 8);
+    const mark = ++this.roomStamp;
+    const need = this.onBoard(train, kind);
+    let room = 0;
+    for (let k = 1; k < n; k++) {
+      const j = (i + k) % n;
+      const s = stops[j];
+      if (s.depotId === stops[i].depotId || s.action === "pick") continue;
+      const d = this.depots[s.depotId];
+      if (!d || !d.auto || this.roomMark[d.id] === mark || !this.takesNow(d, kind) || !this.layout.getPiece(d.pieceId)) continue;
+      if (fromStore && RECIPES[d.role].routedOnly) continue;
+      if (this.isHalt(d) || (this.landed.get(d.id)?.[index] ?? 0) > 0) continue;
+      if (this.accepts && !this.accepts(d, kind)) continue;
+      if ((RECIPES[d.role].routedOnly || d.role === "harbour") && s.action !== "drop" && this.laterOf(stops, j).uses & (1 << index) && this.usedAfter(stops, j, kind, stops[i].depotId)) continue;
+      this.roomMark[d.id] = mark;
+      if (this.accepts && (d.role === "town" || d.role === "school")) return true;
+      let here = capAt(d) - d.piles[index];
+      if (!RECIPES[d.role].takes.includes(kind) && this.owes) here = Math.min(here, this.owes(kind));
+      if (here > 0) room += here;
+      if (room > need) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Does a stop after stop `j` (round the line, as `Later.uses` counts them) use `kind`, other than at `j`'s depot, at
+   * warehouses, and at depot `but` (where the train got it: it isn't taken back there)?
+   */
+  private usedAfter(stops: readonly RouteStopDef[], j: number, kind: CargoKind, but: number): boolean {
+    const n = stops.length;
+    for (let k = 1; k < n; k++) {
+      const s = stops[(j + k) % n];
+      if (s.depotId === stops[j].depotId || s.depotId === but || s.action === "pick") continue;
+      const d = this.depots[s.depotId];
+      if (!d || !d.auto || RECIPES[d.role].routedOnly || !this.layout.getPiece(d.pieceId)) continue;
+      if (this.takesNow(d, kind) && (!this.accepts || this.accepts(d, kind))) return true;
+    }
+    return false;
+  }
+  /** Which depots `roomAhead` has counted this call (by depot id: its stamp), so one twice on a line counts once. */
+  private roomMark = new Int32Array(0);
+  private roomStamp = 0;
 
   /** Is the stop a routed train is heading for (this visit) at this depot set to Only drop? */
   private onlyDropsAt(route: Route, depotId: number): boolean {
@@ -1026,7 +1087,7 @@ export class Economy {
     let best: CargoKind | null = null;
     let fewest = Infinity;
     for (const k of this.givesAt(d)) {
-      if ((c.kind !== null && c.kind !== k) || !canCarry(car, k) || d.piles[CARGO[k].index] <= 0 || !this.picksUpAt(d, route, k)) continue;
+      if ((c.kind !== null && c.kind !== k) || !canCarry(car, k) || d.piles[CARGO[k].index] <= 0 || !this.picksUpAt(d, route, k, found.train)) continue;
       if (c.kind !== null) return k;
       // An empty wagon takes the good its train carries least of: a train of hoppers at a mine takes coal and ore both.
       let n = 0;
@@ -1060,7 +1121,7 @@ export class Economy {
     const done = this.services.get(found.train.id)?.done;
     if (found.train.cars.some((o) => o.id !== carId && !done?.has(o.id) && this.canUnload(d, o.id))) return false;
     const car = found.train.cars[found.index].kind;
-    const kind = RECIPES[d.role].gives.find((k) => (c.kind === null || c.kind === k) && canCarry(car, k) && this.picksUpAt(d, route, k));
+    const kind = RECIPES[d.role].gives.find((k) => (c.kind === null || c.kind === k) && canCarry(car, k) && this.picksUpAt(d, route, k, found.train));
     if (kind === undefined) return false;
     return d.piles[CARGO[kind].index] > 0 || this.working(d);
   }

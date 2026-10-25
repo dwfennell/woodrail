@@ -77,7 +77,7 @@ function clearTrains(q: { sim: Sim; economy: Economy }): void {
   q.economy.prune();
 }
 
-/** QA's `H.scen`: trains (piece, next stop, s, added at), one line of `stops`, `secs` seconds; forest piles topped up. */
+/** QA's `H.scen`: trains (piece, next stop, s, added at), one line of `stops`, `secs` seconds; forest piles topped up, sawmills' logs taken away. */
 function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolean; at?: number; spare?: boolean; when?: (E: readonly number[]) => boolean; offAt?: number; ps?: readonly number[]; ss?: readonly number[]; shared?: boolean }[], stops: number[], secs: number, cars: CarKind[] = ["engine", "timber", "timber"], events: { at: number; fn: (E: readonly number[]) => void }[] = []) {
   // (Depots made once per world: a sequence of runs in one world reuses them.)
   const depots = depotsOf.get(q) ?? new Map<number, ReturnType<Economy["addDepot"]>>();
@@ -156,7 +156,12 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
         whenDone.add(t);
         whenAt = tick / SIM_HZ;
       }
-    for (const d of q.economy.allDepots()) if (d.role === "forest") d.piles[CARGO.log.index] = Math.max(d.piles[CARGO.log.index], 6);
+    // (And the sawmill's logs taken away, so it always has room for them: the trains have work at both depots, run after
+    // run in one world. Trains load only what a later stop has room for: with the sawmill full they'd run empty.)
+    for (const d of q.economy.allDepots()) {
+      if (d.role === "forest") d.piles[CARGO.log.index] = Math.max(d.piles[CARGO.log.index], 6);
+      if (d.role === "sawmill") d.piles[CARGO.log.index] = 0;
+    }
     const t0 = performance.now();
     q.sim.tick();
     q.economy.tick();
