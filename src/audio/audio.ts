@@ -40,8 +40,11 @@ export const CUES: Record<CueKind, { rank: number; wave: "triangle" | "mallet"; 
   land: { rank: 3, wave: "triangle", vol: 0.16, notes: [[0, 0], [4, 0.12], [7, 0.24], [12, 0.38]] },
 };
 
-/** A burst of deliveries clinks once in this long (ms). */
-export const COIN_GAP_MS = 400;
+/** A burst of deliveries (a train unloading at a town) clinks once in this long (ms). */
+export const COIN_GAP_MS = 1500;
+
+/** The lead given to sounds scheduled while a sleeping context starts again (s). */
+export const RESUME_LEAD_S = 0.05;
 
 /** Lets something through at most once every `ms` (by the times given). */
 export class Gate {
@@ -99,9 +102,24 @@ export class ToyAudio {
   private wake(ms: number): void {
     const ctx = this.ctx;
     if (!ctx || document.hidden) return;
-    if (ctx.state !== "running") void ctx.resume().catch(() => {});
+    if (ctx.state !== "running" && !this.resuming) {
+      this.resuming = true;
+      const done = () => (this.resuming = false);
+      void ctx.resume().then(done, done);
+    }
     this.quietAt = Math.max(this.quietAt, performance.now() + ms);
     if (!this.sleepTimer) this.sleepTimer = setTimeout(this.sleepWhenQuiet, ms + IDLE_SUSPEND_MS);
+  }
+
+  /** True from a resume() till it's done: what's scheduled meanwhile is given a little lead. */
+  private resuming = false;
+
+  /**
+   * When a sound about to play should start: now, or, while a sleeping context is still starting up again, a little
+   * after (RESUME_LEAD_S), so the first sound after a sleep isn't clipped at its start.
+   */
+  private startTime(ctx: AudioContext): number {
+    return ctx.currentTime + (this.resuming ? RESUME_LEAD_S : 0);
   }
 
   private sleepWhenQuiet = (): void => {
@@ -176,7 +194,7 @@ export class ToyAudio {
     const osc = ctx.createOscillator();
     if (!this.voice(osc)) return;
     this.wake(decay * 1200 + 40);
-    const t = ctx.currentTime;
+    const t = this.startTime(ctx);
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
     panner.connect(this.master);
@@ -249,7 +267,7 @@ export class ToyAudio {
     this.lastCueRank = rank;
     const end = notes[notes.length - 1][1];
     this.wake(end * 1000 + 900);
-    const t = ctx.currentTime;
+    const t = this.startTime(ctx);
     notes.forEach(([semis, at], k) => {
       const f = 523.25 * 2 ** (semis / 12);
       // The last note rings on.
@@ -303,7 +321,7 @@ export class ToyAudio {
     const osc = ctx.createOscillator();
     if (!this.voice(osc)) return;
     this.wake(560);
-    const t = ctx.currentTime;
+    const t = this.startTime(ctx);
     osc.type = "sawtooth";
     osc.frequency.setValueAtTime(190 * this.vary(1), t);
     osc.frequency.linearRampToValueAtTime(160, t + 0.45);
@@ -326,7 +344,7 @@ export class ToyAudio {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted) return;
     this.wake(1600);
-    const t = ctx.currentTime;
+    const t = this.startTime(ctx);
     for (const k of [0, 0.16]) {
       // A bell: a bright fundamental plus inharmonic partials, each fading at its own rate.
       for (const [ratio, vol, decay] of [[1, 0.12, 0.9], [2.76, 0.05, 0.45], [5.4, 0.025, 0.2]] as const) {
@@ -366,7 +384,7 @@ export class ToyAudio {
     this.lastWhistle = now;
     this.lastWhistleVolume = volume;
     this.wake(1400);
-    const t = ctx.currentTime;
+    const t = this.startTime(ctx);
     const out = ctx.createGain();
     out.connect(this.master);
     this.whistleOut = out;
@@ -420,7 +438,7 @@ export class ToyAudio {
     const first = ctx.createOscillator();
     if (!this.voice(first)) return;
     this.wake(delay * 1000 + decay * 1000 + 60);
-    const t = ctx.currentTime + delay;
+    const t = this.startTime(ctx) + delay;
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
     panner.connect(this.master);

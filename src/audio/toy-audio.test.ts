@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COIN_GAP_MS, CUE_GAP_MS, IDLE_SUSPEND_MS, MAX_VOICES, ToyAudio } from "./audio";
+import { COIN_GAP_MS, CUE_GAP_MS, IDLE_SUSPEND_MS, MAX_VOICES, RESUME_LEAD_S, ToyAudio } from "./audio";
 
 /** Any node or param the synth asks for: every method returns another such stub (connect() chains). */
 const stub = (): unknown =>
@@ -166,6 +166,26 @@ describe("the audio context sleeps when nothing's heard (and wakes for the next 
     expect(master.gain.value).toBe(0);
     audio.setMuted(false);
     expect(master.gain.value).toBeCloseTo(0.2);
+  });
+
+  it("every cargo a crane moves has its sound (on and off), none throwing", () => {
+    for (const cargo of ["log", "planks", "furniture", "stone", "coal", "ore", "grain", "flour", "iron", "tools"] as const) {
+      const before = oscillators.length;
+      expect(() => audio.goods(cargo, false, 0.8, 0)).not.toThrow();
+      expect(() => audio.goods(cargo, true, 0.8, -0.5)).not.toThrow();
+      expect(oscillators.length, cargo).toBeGreaterThan(before);
+    }
+    vi.runAllTimers(); // (gravel's grains, a little after)
+  });
+
+  it("the first sound after a sleep is given a little lead while the context starts up again", async () => {
+    vi.advanceTimersByTime(IDLE_SUSPEND_MS * 2);
+    expect(ctx.state).toBe("suspended");
+    const start = () => (audio as unknown as { startTime(c: unknown): number }).startTime(ctx);
+    audio.tap();
+    expect(start()).toBeCloseTo(ctx.currentTime + RESUME_LEAD_S);
+    await Promise.resolve();
+    expect(start()).toBe(ctx.currentTime);
   });
 
   it("a tap starts it again if the system stopped it (iOS: interrupted by a call)", () => {
