@@ -91,6 +91,8 @@ export interface HudHandlers {
   /** Depot card: trains wait for a full load, or not. */
   depotWaitFull(): void;
   toggleSound(): void;
+  /** The menu's volume slider moved (0..1); `done`: let go (a good time to keep it). */
+  setVolume(v: number, done: boolean): void;
   /** Any HUD button pressed (for a soft click). */
   buttonTap(): void;
   /** The Land tab's tool chosen (null: land editing off). */
@@ -112,6 +114,8 @@ export interface HudOptions {
   /** Rendered pictures of tray items by key (`piece:<type>` or `train:<label>`); SVG drawings are the fallback. */
   thumbnails?: ReadonlyMap<string, string>;
   muted: boolean;
+  /** The sound volume, 0..1. */
+  volume: number;
 }
 
 
@@ -429,7 +433,20 @@ export class Hud {
     this.soundItem = narrow(opts.muted ? "Sound: off" : "Sound: on", "Sound on or off", h.toggleSound);
     this.redoItem = narrow("Redo", "Redo what was undone", h.redo);
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
-    this.menu.append(this.redoItem, this.landItem, this.soundItem);
+    // Volume: a slider in the menu (a tap on it doesn't shut the menu, so it can be tried and set again).
+    const volume = el("label", "menu-item volume-item");
+    volume.title = "Sound volume";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "100";
+    slider.step = "5";
+    slider.value = String(Math.round(opts.volume * 100));
+    slider.setAttribute("aria-label", "Sound volume");
+    slider.addEventListener("input", () => h.setVolume(Number(slider.value) / 100, false));
+    slider.addEventListener("change", () => h.setVolume(Number(slider.value) / 100, true));
+    volume.append("Volume", slider);
+    this.menu.append(this.redoItem, this.landItem, this.soundItem, volume);
     this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
       this.menu.hidden = true;
       h.openLines();

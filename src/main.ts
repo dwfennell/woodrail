@@ -79,7 +79,7 @@ import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { propsInRect } from "./props/placement";
-import { loadMuted, saveMuted } from "./ui/prefs";
+import { loadMuted, loadVolume, saveMuted, saveVolume } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
@@ -306,6 +306,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
+  const volume = loadVolume();
+  audio.setVolume(volume);
   // Tray pictures: saved from an earlier visit to this build, or drawn now (and saved for next time). The industries'
   // wait for Game mode's models (`ensureGameModels`), so they're never drawn from stand-ins.
   const industryItems = INDUSTRY_GROUPS.flatMap((g) => g.items);
@@ -442,6 +444,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         saveMuted(muted);
         hud.setMuted(muted);
       },
+      setVolume: (v, done) => {
+        audio.setVolume(v);
+        // Let go: kept, and a knock at the new level to hear it by.
+        if (done) {
+          saveVolume(v);
+          audio.putdown(true);
+        }
+      },
       buttonTap: () => audio.tap(),
       depotAuto: () => interaction.toggleDepotAuto(),
       trayTurn: () => {
@@ -476,7 +486,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
     },
     () => (game.quality.tier === "high" ? "High" : "Battery saver"),
-    { thumbnails, muted },
+    { thumbnails, muted, volume },
   );
   // "Send to Claude", where reports can go (resolved after start-up: on claude.ai the page's capabilities answer later).
   void reporter().then((r) => {

@@ -9,6 +9,15 @@ export const SOFT_CLUNK_GAP_MS = 700;
  */
 export const IDLE_SUSPEND_MS = 3000;
 
+/**
+ * At most this many sounds play at once (a busy map: many trains clacking, cranes, saws); one more is dropped till
+ * one ends. Milestones' tunes don't count, and are never dropped.
+ */
+export const MAX_VOICES = 24;
+
+/** The master level at full volume (the compressor after it keeps a pile-up from clipping). */
+const MASTER = 0.8;
+
 /** Milestones' tunes: within this long (ms) of one, only a bigger one is heard. */
 export const CUE_GAP_MS = 700;
 
@@ -60,6 +69,10 @@ export class ToyAudio {
   private lastClack = 0;
   private humLevel = 0;
   muted = false;
+  /** The player's volume, 0..1 (the menu's slider). */
+  private volume = 1;
+  /** Sounds playing now (each ends with its `onended`), held under MAX_VOICES. */
+  private voices = 0;
 
   /** When (performance.now(), ms) everything scheduled so far will have died away. */
   private quietAt = 0;
@@ -116,7 +129,7 @@ export class ToyAudio {
     const ctx = new Ctor();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = 0.8;
+    this.master.gain.value = this.muted ? 0 : MASTER * this.volume;
     const comp = ctx.createDynamicsCompressor();
     this.master.connect(comp).connect(ctx.destination);
     const len = ctx.sampleRate * 0.5;
@@ -132,7 +145,7 @@ export class ToyAudio {
 
   setMuted(m: boolean): void {
     this.muted = m;
-    if (this.master) this.master.gain.value = m ? 0 : 0.8;
+    if (this.master) this.master.gain.value = m ? 0 : MASTER * this.volume;
     // (Its winding's level is set again by the next frame that hears a lift ride.)
     if (m) {
       this.setWinding(0);
@@ -141,10 +154,27 @@ export class ToyAudio {
     }
   }
 
+  /** The player's volume, 0..1: everything, tunes and all, scaled by it. */
+  setVolume(v: number): void {
+    this.volume = Math.min(1, Math.max(0, v));
+    if (this.master && !this.muted) this.master.gain.value = MASTER * this.volume;
+  }
+
+  /** A voice for a sound about to start, if there's room: `ends` counts it out again when it's over. */
+  private voice(ends: AudioScheduledSourceNode): boolean {
+    if (this.voices >= MAX_VOICES) return false;
+    this.voices++;
+    ends.onended = () => this.voices--;
+    return true;
+  }
+
   /** A short filtered noise burst plus a resonant "tock": the sound of wood on wood. */
   private knock(volume: number, freq: number, decay: number, pan: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || !this.noise || this.muted || volume <= 0.001) return;
+    // (The tock rings longest: its end is the sound's.)
+    const osc = ctx.createOscillator();
+    if (!this.voice(osc)) return;
     this.wake(decay * 1200 + 40);
     const t = ctx.currentTime;
     const panner = ctx.createStereoPanner();
@@ -163,7 +193,6 @@ export class ToyAudio {
     src.connect(band).connect(ng).connect(panner);
     src.start(t, Math.random() * 0.4, decay + 0.02);
 
-    const osc = ctx.createOscillator();
     osc.type = "sine";
     osc.frequency.setValueAtTime(freq, t);
     osc.frequency.exponentialRampToValueAtTime(freq * 0.7, t + decay);
@@ -271,9 +300,10 @@ export class ToyAudio {
   saw(volume: number, pan: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || volume <= 0.02) return;
+    const osc = ctx.createOscillator();
+    if (!this.voice(osc)) return;
     this.wake(560);
     const t = ctx.currentTime;
-    const osc = ctx.createOscillator();
     osc.type = "sawtooth";
     osc.frequency.setValueAtTime(190 * this.vary(1), t);
     osc.frequency.linearRampToValueAtTime(160, t + 0.45);
@@ -387,13 +417,15 @@ export class ToyAudio {
   private ping(freq: number, volume: number, decay: number, pan: number, delay = 0): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || volume <= 0.001) return;
+    const first = ctx.createOscillator();
+    if (!this.voice(first)) return;
     this.wake(delay * 1000 + decay * 1000 + 60);
     const t = ctx.currentTime + delay;
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
     panner.connect(this.master);
     for (const [ratio, v] of [[1, 1], [2.76, 0.3]] as const) {
-      const osc = ctx.createOscillator();
+      const osc = ratio === 1 ? first : ctx.createOscillator();
       osc.frequency.value = freq * ratio;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, t);

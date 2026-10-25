@@ -71,3 +71,23 @@ export function unmarkHintSeen(id: string): void {
     // storage unavailable: nothing was kept
   }
 }
+
+const VOLUME_KEY = "woodrail.volume";
+
+/** The player's sound volume, 0..1 (1 when never set). */
+export function loadVolume(): number {
+  try {
+    const v = Number(localStorage.getItem(VOLUME_KEY) ?? "1");
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function saveVolume(v: number): void {
+  try {
+    localStorage.setItem(VOLUME_KEY, String(v));
+  } catch {
+    // storage unavailable: the choice lasts for this session only
+  }
+}

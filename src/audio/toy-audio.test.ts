@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COIN_GAP_MS, CUE_GAP_MS, IDLE_SUSPEND_MS, ToyAudio } from "./audio";
+import { COIN_GAP_MS, CUE_GAP_MS, IDLE_SUSPEND_MS, MAX_VOICES, ToyAudio } from "./audio";
 
 /** Any node or param the synth asks for: every method returns another such stub (connect() chains). */
 const stub = (): unknown =>
@@ -30,7 +30,20 @@ class FakeContext {
     return { getChannelData: (_: number) => new Float32Array(100) };
   }
 }
-for (const m of ["createGain", "createDynamicsCompressor", "createStereoPanner", "createBufferSource", "createBiquadFilter", "createOscillator"])
+/** Each oscillator made: its `onended`, to end it by hand. */
+let oscillators: { onended?: () => void }[] = [];
+(FakeContext.prototype as unknown as Record<string, unknown>).createOscillator = () => {
+  const ends: { onended?: () => void } = {};
+  oscillators.push(ends);
+  return new Proxy(ends, {
+    get: (t, k) => (k === "onended" ? t.onended : k === "then" ? undefined : stub()),
+    set: (t, k, v) => {
+      if (k === "onended") t.onended = v;
+      return true;
+    },
+  });
+};
+for (const m of ["createGain", "createDynamicsCompressor", "createStereoPanner", "createBufferSource", "createBiquadFilter"])
   (FakeContext.prototype as unknown as Record<string, unknown>)[m] = () => stub();
 
 describe("the audio context sleeps when nothing's heard (and wakes for the next sound)", () => {
@@ -42,6 +55,7 @@ describe("the audio context sleeps when nothing's heard (and wakes for the next 
   beforeEach(() => {
     vi.useFakeTimers();
     listeners = {};
+    oscillators = [];
     doc = { hidden: false };
     const on = (type: string, f: () => void) => (listeners[type] = f);
     vi.stubGlobal("window", { addEventListener: on, AudioContext: class extends FakeContext {} });
@@ -128,6 +142,30 @@ describe("the audio context sleeps when nothing's heard (and wakes for the next 
     expect(audio.cue("land")).toBe(true); // (bigger news)
     vi.advanceTimersByTime(CUE_GAP_MS + 10);
     expect(audio.cue("goal")).toBe(true);
+  });
+
+  it("a pile-up of sounds is held to MAX_VOICES; one ending makes room", () => {
+    for (let i = 0; i < MAX_VOICES + 10; i++) audio.tap();
+    const started = oscillators.filter((o) => o.onended).length;
+    expect(started).toBe(MAX_VOICES);
+    oscillators.find((o) => o.onended)!.onended!();
+    audio.tap();
+    expect(oscillators.filter((o) => o.onended).length).toBe(MAX_VOICES + 1);
+    // Tunes aren't held back by it.
+    expect(audio.cue("land")).toBe(true);
+  });
+
+  it("the volume scales the master level, and mute still silences it", () => {
+    const master = { gain: { value: -1 } };
+    (audio as unknown as { master: unknown }).master = master;
+    audio.setVolume(0.5);
+    expect(master.gain.value).toBeCloseTo(0.4);
+    audio.setMuted(true);
+    expect(master.gain.value).toBe(0);
+    audio.setVolume(0.25);
+    expect(master.gain.value).toBe(0);
+    audio.setMuted(false);
+    expect(master.gain.value).toBeCloseTo(0.2);
   });
 
   it("a tap starts it again if the system stopped it (iOS: interrupted by a call)", () => {
