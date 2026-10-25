@@ -39,6 +39,11 @@ export class Progress {
   /** What the schools are researching (see `research.ts`). */
   research: Research = newResearch();
   /**
+   * Which game this is: made when it starts, and kept through saves and cloud copies. A cloud merge with no copy in
+   * common to count from tells one game on two devices from two games (`mergeProgress`).
+   */
+  origin = newOrigin();
+  /**
    * The last few rewards taken, and what each gave (`takeCard`), so a cloud merge counts a reward taken on both
    * devices once (`mergeProgress`). Planks went into the world, so they aren't here.
    */
@@ -93,7 +98,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), origin: this.origin, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -133,6 +138,8 @@ export class Progress {
     // Research: only blueprints still to learn.
     p.research = researchFromJSON(d?.research, (t) => (known(t) && !p.learned.has(known(t)!) ? known(t) : null), new Set(CARGO_KINDS));
     if (d && Array.isArray(d.taken)) for (const t of d.taken) if (isTaken(t)) p.taken.push(t);
+    // (A save from before games had one: a new one, kept from now on.)
+    if (typeof d?.origin === "string" && d.origin.length > 0) p.origin = d.origin;
     return p;
   }
 }
@@ -153,6 +160,14 @@ export interface ProgressData {
   making?: boolean;
   research?: ResearchData;
   taken?: Taken[];
+  origin?: string;
+}
+
+/** A new game's `origin`: random, long enough that two games never share one. */
+export function newOrigin(): string {
+  const b = new Uint8Array(9);
+  crypto.getRandomValues(b);
+  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 /** A reward taken: its offer (town and level) and what it gave (coins, things, goods to research `to`). */

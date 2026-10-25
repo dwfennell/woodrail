@@ -348,10 +348,11 @@ export class CloudSync {
     const edited = (m: GameMode) => ({ ...freshMode(), changedAt: this.meta.modes[m].changedAt });
     this.meta = { code: null, modes: { sandbox: edited("sandbox"), game: edited("game") } };
     this.writeMeta();
+    // (The copy last matched stays: turned on again, maybe on a new code with another device that had it too, it's
+    // what the two have in common. A merge uses it only for the same game: see `mergeProgress`.)
     for (const m of MODES) {
       try {
         this.o.storage.removeItem(backupKey(m));
-        this.o.storage.removeItem(baseKey(m));
       } catch {
         // gone with the code anyway
       }

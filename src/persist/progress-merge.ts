@@ -1,4 +1,4 @@
-import { isTaken, TAKEN_KEPT, type ProgressData, type Taken } from "../game/progress";
+import { isTaken, Progress, TAKEN_KEPT, type ProgressData, type Taken } from "../game/progress";
 import { costOf, type ResearchData } from "../game/research";
 import type { Merger } from "./cloud";
 
@@ -17,10 +17,10 @@ import type { Merger } from "./cloud";
  * - the player's own queue (`orders`, `making`) and `fieldsPlanted` (fields are land) go with the world kept: the
  *   later copy's (`later`).
  *
- * `base` is the progress as both last had it (undefined: not known, so the remote's).
+ * `base` is the progress as both last had it (undefined: not known; see `baseFor`).
  */
 export function mergeProgress(base: ProgressData | undefined, local: ProgressData, theirs: ProgressData, later: "local" | "remote"): ProgressData {
-  const b = base ?? theirs;
+  const b = baseFor(base, local, theirs);
   const remote = undoTakes(theirs, bothTook(b, local, theirs));
   const latest = later === "local" ? local : remote;
   const sum = (bn: number | undefined, ln: number | undefined, rn: number | undefined) => Math.max(0, (bn ?? 0) + ((ln ?? 0) - (bn ?? 0)) + ((rn ?? 0) - (bn ?? 0)));
@@ -37,8 +37,38 @@ export function mergeProgress(base: ProgressData | undefined, local: ProgressDat
     bestLevel: Math.max(local.bestLevel ?? 0, remote.bestLevel ?? 0),
     firstFlour: !!local.firstFlour || !!remote.firstFlour,
     counts: sumMaps(b.counts ?? [], local.counts ?? [], remote.counts ?? []),
-    research: mergeResearch(local.research, remote.research, new Set(learned), base?.research),
+    research: mergeResearch(local.research, remote.research, new Set(learned), b.research),
     ...mergeTaken(local, theirs),
+    // (The game it is now: the cloud's copy's, whichever railway is kept, so the next merge between these two has the
+    // cloud's copy, of the same game, to count from. Else two games merged would add up again at every sync.)
+    ...((theirs.origin ?? local.origin) !== undefined ? { origin: theirs.origin ?? local.origin } : {}),
+  };
+}
+
+/**
+ * What the two had in common, to count each side's gains from (CoS, QA's first-PUT race: with the winner's copy as
+ * the base, its gains counted as nothing). By the game each is (`origin`, made when a game starts):
+ * - the copy both last matched (`base`), when it's of this same game: exact;
+ * - none, and two games (or a fresh code, each device with its own): a new game's progress, so each side's gains
+ *   on top of its starting box both count, and the box once;
+ * - none, but one game on both (it reached the other device through the cloud, whose copy in common is gone): the
+ *   least of each, so nothing they had in common counts twice. (A gain on both sides may count as one; it never
+ *   counts as two.)
+ */
+function baseFor(base: ProgressData | undefined, local: ProgressData, remote: ProgressData): ProgressData {
+  if (base && base.origin === local.origin && base.origin === remote.origin) return base;
+  if (local.origin !== remote.origin) return Progress.fresh().toJSON();
+  const min = (a: readonly [string, number][], b: readonly [string, number][]): [string, number][] => {
+    const m = new Map(b);
+    return a.filter(([k]) => m.has(k)).map(([k, n]) => [k, Math.min(n, m.get(k)!)]);
+  };
+  return {
+    owned: min(local.owned, remote.owned),
+    learned: [],
+    coins: Math.min(local.coins ?? 0, remote.coins ?? 0),
+    riders: Math.min(local.riders ?? 0, remote.riders ?? 0),
+    counts: min(local.counts ?? [], remote.counts ?? []),
+    origin: local.origin,
   };
 }
 

@@ -12,8 +12,50 @@ describe("merging two devices' Game progress (cloud saves)", () => {
     expect(mergeProgress(p({ coins: 1000 }), p({ coins: 700 }), p({ coins: 1200 }), "local").coins).toBe(900);
     // Never below nothing.
     expect(mergeProgress(p({ coins: 100 }), p({ coins: 0 }), p({ coins: 0 }), "local").coins).toBe(0);
-    // No base known: the remote's is it (so the local's change on it counts once).
+    // No base known, one game: what both had (the least) counted once, so the local's change on it counts once.
     expect(mergeProgress(undefined, p({ coins: 1300 }), p({ coins: 1000 }), "remote").coins).toBe(1300);
+  });
+
+  describe("with no copy in common known (QA: a first-PUT race kept only one side's coins)", () => {
+    const box = Progress.fresh().toJSON().owned;
+    const engines = (d: { owned: [string, number][] }) => new Map(d.owned).get("car:engine") ?? 0;
+    it("two games (each device its own, or a fresh code): each side's gains count, the starting box once", () => {
+      const a = p({ origin: "game-a", coins: 48, owned: box });
+      const b = p({ origin: "game-b", coins: 72, owned: box });
+      const m = mergeProgress(undefined, a, b, "remote");
+      expect(m.coins).toBe(120);
+      expect(engines(m)).toBe(engines({ owned: box }));
+      // (It's the cloud's copy's game now, whichever railway is kept: so the next sync counts from that copy, and the
+      // two don't add up again. QA run: 48 + 72 came to 312 after a few rounds.)
+      expect(m.origin).toBe("game-b");
+      expect(mergeProgress(undefined, a, b, "local").origin).toBe("game-b");
+      const again = mergeProgress(b, p({ ...m, coins: m.coins }), p({ ...b, coins: 72 + 5 }), "local");
+      expect(again.coins).toBe(125);
+      // A base left from another game (turned off, then on again with another device's game) isn't theirs: the same.
+      expect(mergeProgress(p({ origin: "game-c", coins: 500 }), a, b, "local").coins).toBe(120);
+    });
+
+    it("one game on both, with the copy both last matched (kept through turning off and on): counted from it", () => {
+      const shared = p({ origin: "game-a", coins: 100, owned: box });
+      const m = mergeProgress(shared, p({ origin: "game-a", coins: 148, owned: box }), p({ origin: "game-a", coins: 172, owned: box }), "local");
+      expect(m.coins).toBe(220);
+      expect(engines(m)).toBe(engines({ owned: box }));
+    });
+
+    it("one game on both, nothing in common known: what both have counts once, never twice", () => {
+      const m = mergeProgress(undefined, p({ origin: "game-a", coins: 148, owned: box }), p({ origin: "game-a", coins: 172, owned: box }), "local");
+      // (100 in common, unknown: at most what one side has plus the other's lead; never 320.)
+      expect(m.coins).toBe(172);
+      expect(engines(m)).toBe(engines({ owned: box }));
+    });
+
+    it("a game keeps its origin through a save, and an older save gets one", () => {
+      const g = Progress.fresh();
+      expect(g.origin).toMatch(/^[0-9a-f]{18}$/);
+      expect(Progress.fresh().origin).not.toBe(g.origin);
+      expect(Progress.fromJSON(JSON.parse(JSON.stringify(g.toJSON()))).origin).toBe(g.origin);
+      expect(Progress.fromJSON({ owned: [], learned: [], coins: 5 }).origin).toMatch(/^[0-9a-f]{18}$/);
+    });
   });
 
   it("counters (riders, counts): the base plus each side's", () => {

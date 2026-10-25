@@ -338,6 +338,9 @@ try {
   // its own copy kept to restore), but its earnings are merged in (CoS: not rolled back by one piece of track), and
   // go up on D's railway.
   await pastLimit();
+  // (C kept offline meanwhile, so its own timer doesn't take D's railway before the test has it earn: QA's race, and
+  // a slow upload of D's here, left C's page reloading under the next step.)
+  await ctxC.setOffline(true);
   const piecesD = await d.evaluate(() => {
     const w = window.woodrail;
     const g = w.interaction.groundAt(innerWidth / 2, innerHeight / 2);
@@ -360,8 +363,12 @@ try {
   }
   const dCoins = await coins(d);
   const more = await c.evaluate(() => (window.woodrail.progress().coins += 55));
-  await c.waitForFunction((n) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === n, more, { timeout: 15000 });
-  // (C's next upload, now rather than in a minute.)
+  await c.waitForFunction((n) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === n, more, { timeout: 30000 }).catch(async (e) => {
+    console.log("(C at +55:", JSON.stringify(await c.evaluate(() => ({ live: window.woodrail?.progress?.().coins, saved: JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins, status: document.querySelector(".cloud-status")?.textContent, title: window.woodrail?.title?.shown, paused: window.woodrail?.game?.paused }))), ")");
+    throw e;
+  });
+  // (C's next upload, now rather than in a minute: back online, its earnings saved here.)
+  await ctxC.setOffline(false);
   await untilTaken(c);
   await inMode(c, "game");
   const toldC = await c.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
@@ -400,8 +407,18 @@ try {
   const g5 = await hideAndSettle(c, g4);
   await pastLimit();
   const g6 = await hideAndSettle(d, g5);
+  // (D's merged copy in: sent again till it is, as its timer would.)
+  for (let i = 0; i < 24 && (await remote2()).savedAt === g5.savedAt; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    await d.evaluate(() => dispatchEvent(new Event("online"))).catch(() => {});
+  }
   await c.reload();
   await inMode(c, "game");
+  // (C takes it as it starts: give it the moment that takes.)
+  await c.waitForFunction((n) => window.woodrail?.progress?.().coins === n, syncedCoins + 230, { timeout: 30000 }).catch(async () => {
+    await c.waitForLoadState("load").catch(() => {});
+    await inMode(c, "game").catch(() => {});
+  });
   const both = { c: await coins(c), d: await coins(d), toasts: await d.evaluate(() => document.querySelector(".toast")?.textContent ?? "") };
   check(
     "Game mode: both earn; after each syncs and reloads, both have the sum (and no toast)",
@@ -420,8 +437,18 @@ try {
   const g7 = await hideAndSettle(c, g6);
   await pastLimit();
   await hideAndSettle(d, g7);
+  // (D's merged copy in: sent again till it is, as its timer would.)
+  for (let i = 0; i < 24 && (await remote2()).savedAt === g7.savedAt; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    await d.evaluate(() => dispatchEvent(new Event("online"))).catch(() => {});
+  }
   await c.reload();
   await inMode(c, "game");
+  // (C takes it as it starts: give it the moment that takes, reloading onto it if it does.)
+  await c.waitForFunction((n) => window.woodrail?.progress?.().coins === n, both.d + earned2, { timeout: 30000 }).catch(async () => {
+    await c.waitForLoadState("load").catch(() => {});
+    await inMode(c, "game").catch(() => {});
+  });
   const kept = await Promise.all([c, d].map((p) => p.evaluate((id) => ({ learned: window.woodrail.progress().learned.has(id), coins: window.woodrail.progress().coins }), learnt)));
   check(
     "Game mode: one learns a blueprint while the other earns: both keep both",
@@ -456,9 +483,13 @@ try {
   await c.evaluate(() => window.woodrail.progress().offers.push({ from: "Testbury", level: 3, cards: [{ kind: "coins", n: 200 }, { kind: "coins", n: 1 }] }));
   await c.waitForFunction(() => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).offers.some((o) => o.from === "Testbury" && o.level === 3), null, { timeout: 15000 });
   const g11 = await hideAndSettle(c, await remote2());
-  // (D, with nothing of its own to send, picks the cloud's copy up when it starts.)
+  // (D, with nothing of its own to send, picks the cloud's copy up when it starts: give it the moment that takes.)
   await d.reload();
   await inMode(d, "game");
+  await d.waitForFunction(() => window.woodrail?.progress?.().offers.some((o) => o.from === "Testbury" && o.level === 3), null, { timeout: 30000 }).catch(async () => {
+    await d.waitForLoadState("load").catch(() => {});
+    await inMode(d, "game").catch(() => {});
+  });
   const before = { c: await coins(c), d: await coins(d), offer: (await city(c)) && (await city(d)) };
   const take = (p) =>
     p.evaluate(async () => {
@@ -483,6 +514,61 @@ try {
   );
   await ctxC.close();
   await ctxD.close();
+
+  // 11. A first-PUT race (QA): a code with only a Sandbox railway on it, on two new devices; each starts its own Game
+  // and earns, and both send their first Game copy at the same moment. One gets in first, the other merges: two
+  // games, no copy in common, so each one's coins count (QA: the first one's were lost, 48 + 72 came to 72).
+  const ctxE = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const e = await device(ctxE);
+  await menu(e, "Cloud save");
+  await tap(e, "Turn on");
+  await e.waitForFunction(() => /Saved online/.test(document.querySelector(".cloud-status")?.textContent ?? ""), null, { timeout: 30000 });
+  const code3 = (await e.evaluate(() => document.querySelector(".cloud-code").textContent)).trim().replace(/ /g, "-");
+  await tap(e, "Done");
+  const ctxF = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const f = await device(ctxF);
+  await menu(f, "Cloud save");
+  await tap(f, "I have a code");
+  await f.fill(".cloud-input", code3);
+  const fIn = f.waitForEvent("load", { timeout: 60000 });
+  await tap(f, "Load");
+  await fIn;
+  await inSandbox(f);
+  const nothingYet = (await remote(code3, "game")).status;
+  // Each into Game: a new game of its own (the menu's Title screen, then Game's card, as a player would).
+  for (const p of [e, f]) {
+    await menu(p, "Title screen");
+    await inMode(p, "game");
+  }
+  await pastLimit();
+  const eCoins = await earnOn(e, 48);
+  const fCoins = await earnOn(f, 72);
+  const origins = await Promise.all([e, f].map((p) => p.evaluate(() => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).origin)));
+  // Both send at once.
+  await Promise.all([e, f].map((p) => p.evaluate(() => dispatchEvent(new Event("online")))));
+  const remote3 = async () => {
+    const res = await fetch(`${WORKER}/v1/saves/game`, { method: "HEAD", headers: { "X-Woodrail-Code": code3 } });
+    return { status: res.status, savedAt: Number(res.headers.get("X-Saved-At")) };
+  };
+  // Then each again (the one that got the 409 merges and sends the merged copy; the other takes it on starting again).
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    await pastLimit();
+    for (const p of [e, f]) await p.evaluate(() => dispatchEvent(new Event("online"))).catch(() => {});
+  }
+  await new Promise((r) => setTimeout(r, 5000));
+  for (const p of [e, f]) {
+    await p.reload();
+    await inMode(p, "game");
+  }
+  const raced = { e: await coins(e), f: await coins(f), cloud: (await remote3()).status, before: nothingYet, origins };
+  check(
+    "Game mode: a first-copy race between two new games on one code: both games' coins are kept (QA: 48 + 72 came to 72)",
+    raced.before === 404 && origins[0] !== origins[1] && raced.e === eCoins + fCoins && raced.f === eCoins + fCoins,
+    `${JSON.stringify(raced)} (want ${eCoins} + ${fCoins} = ${eCoins + fCoins})`,
+  );
+  await ctxE.close();
+  await ctxF.close();
 } catch (e) {
   check("ran to the end", false, String(e?.stack ?? e));
 }

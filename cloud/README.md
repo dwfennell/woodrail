@@ -91,6 +91,10 @@ These limits aren't in v1:
   the workshop and the harbour boats all run on game time). Running both at once is rare, so this is accepted for now.
 - **Spending more than both had** (both sides spend the same coins before they sync) leaves coins at 0, not below.
 - **Up to one autosave of earnings** (about 5 s) can be lost when a copy is merged or taken.
+- **One game on two devices with no copy in common known** (the copy both last matched lost from both, say by
+  clearing site data): merged from the least each has, so nothing counts twice, but a gain made on both sides may
+  count once. Two different games (or a fresh code) need no copy in common: each game's gains count, the starting
+  box once. Which is which is told by the game's `origin`, made when a game starts.
 
 To undo, delete the variable, so the menu item goes with the next deploy. Then, if you want, run `npx wrangler delete`
 and `npx wrangler r2 bucket delete woodrail-saves`.
