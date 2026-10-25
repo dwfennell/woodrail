@@ -31,7 +31,7 @@ import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapFramePoints, mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, owedText, shopOwes, shopOwing, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
@@ -2002,9 +2002,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
   /** What the workshop's yard takes while a town on the line wants planks: its order's, or a few (`yardKeeps`). */
   const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress) : null);
+  /** Stone the workshop takes from trains: only as much as a harbour's price still needs there (`shopOwes`). */
+  const owes = (kind: CargoKind) => shopOwes(game.world, progress, kind);
+  /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid). */
+  let owing = false;
   function updatePlanksKept(): void {
     game.economy.reserved = mode === "game" ? keepPlanks : null;
     game.economy.shopKeeps = mode === "game" ? shopKeeps : null;
+    game.economy.owes = mode === "game" ? owes : null;
+    const owingNow = mode === "game" && shopOwing(game.world, progress);
+    if (owingNow !== owing) {
+      owing = owingNow;
+      game.economy.acceptsChanged();
+    }
     if (mode !== "game" || workshops(game.world).length === 0) {
       planksKept = false;
       return;
@@ -2210,7 +2220,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         queued: progress.orders.filter((o) => o === tid).length,
         shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : RAILWAY_THINGS.has(tid) ? "Railway" : "Track",
         // A second engine before Signals: said, not barred (on a line of its own it runs fine).
-        note: makeNote(progress, tid),
+        // (A harbour's stone: where it goes, "Needs 10🪨 at the workshop".)
+        note: makeNote(progress, tid) ?? owedText(rule.cost),
       });
     }
     rows.sort((a, b) => SHELVES.indexOf(a.shelf) - SHELVES.indexOf(b.shelf));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CARGO, type CargoKind } from "../economy/cargo";
+import { CARGO } from "../economy/cargo";
 import { RECIPES } from "../economy/economy";
 import { Editor } from "../editor/editor";
 import { deserializeWorld, serializeWorld } from "../persist/save";
@@ -10,6 +10,7 @@ import { restorePrice, ruinCard } from "./map-sites";
 import { Progress } from "./progress";
 import { clearRuinEdit, gamePayment, goodsGoTo, nearestRuin, restoredText, restoreRuin, restoreWhy, RUIN_NO_WAY, trackCanReach } from "./restore";
 import { buildStarterWorld, createWorld, fixedPieces, plotsForSale, syncIndustries, unlockPlot, type World } from "./world";
+import { deliverByTrain, owesAsTheGameDoes } from "./workshop-testing";
 
 /**
  * QA (a phone, github.io): "I also unlocked this ruin but it didn't seem to do much?", the goal still "Open a farm".
@@ -116,14 +117,28 @@ describe("a restored old industry works (QA: \"that old farm isn't really a farm
         if (s.cleared || seen.has(s.role)) continue;
         const p = Progress.fresh();
         p.coins = 1000;
+        // (Each ruin's blueprint learned, as its card's Restore asks: a harbour's is Harbours.)
+        p.learned.add(s.role === "harbour" ? "harbours" : s.role === "farm" ? "farming" : s.role === "quarry" ? "quarries" : "mines");
         const shop = w.layout.addPiece("depot-workshop", { x: -40000 - seen.size * 1000, z: -40000, heading: 0 });
         syncIndustries(w, true);
-        // (Its price's goods in the workshop's yard: planks, and a harbour's stone.)
-        for (const [k, n] of Object.entries(restorePrice(s.role).goods)) w.economy.depotAtPiece(shop)!.piles[CARGO[k as CargoKind].index] = n!;
+        owesAsTheGameDoes(w, p);
+        // Its price's goods in the workshop's yard: its planks, and a harbour's stone brought by a hopper train, as the
+        // player brings it (QA: the workshop took no stone from trains, so a harbour could never be paid for).
+        const price = restorePrice(s.role).goods;
+        w.economy.depotAtPiece(shop)!.piles[CARGO.planks.index] = price.planks ?? 0;
+        // (With Harbours learned the workshop takes a new harbour's 10, the most it may be asked for; the train keeps
+        // the rest. The restore takes its 5 of them.)
+        if (price.stone) {
+          expect(price.stone).toBe(5);
+          expect(deliverByTrain(w, shop, "stone", 12), `seed ${seed}: the train keeps what isn't owed`).toBe(2);
+          expect(w.economy.depotAtPiece(shop)!.piles[CARGO.stone.index]).toBe(10);
+        }
+        for (const k of Object.keys(price)) expect(["planks", "stone"], k).toContain(k);
         const fixed = fixedPieces(w);
         const editor = new Editor(w.layout, w.sim, () => syncIndustries(w, true), (id) => fixed.has(id));
         const done = restoreRuin(w, editor, s.id, { pay: gamePayment(w, p, s.role) });
         if (!("pieceId" in done)) throw new Error(`seed ${seed} ${s.role}: ${done.why}`);
+        if (price.stone) expect(w.economy.depotAtPiece(shop)!.piles[CARGO.stone.index]).toBe(10 - price.stone);
         updateRates(w);
         const piece = w.layout.getPiece(done.pieceId)!;
         const d = w.economy.depotAtPiece(done.pieceId)!;
