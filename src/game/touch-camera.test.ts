@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isTilt, TouchGestures } from "./touch-camera";
 
 const view = { width: 400, height: 800 };
-const limits = { minDistance: 120, maxDistance: 14000, maxPolarAngle: 1.42 };
+const limits = { minDistance: 120, maxDistance: 14000, maxPolarAngle: 1.42, minPolarAngle: 0 };
 
 function rig() {
   const camera = new PerspectiveCamera(45, view.width / view.height, 1, 100000);
@@ -73,6 +73,24 @@ describe("touch camera", () => {
     const phi1 = Math.acos((camera.position.y - target.y) / camera.position.distanceTo(target));
     expect(phi1).toBeGreaterThan(phi0 + 0.3);
     expect(target.length()).toBeLessThan(1e-6);
+  });
+
+  it("dragged down together, the tilt stops at the pitch cap (nearer top-down, things at the screen's edges lean and squash)", () => {
+    const camera = new PerspectiveCamera(45, view.width / view.height, 1, 100000);
+    const target = new Vector3(0, 0, 0);
+    camera.position.set(0, 900, 700);
+    camera.lookAt(target);
+    camera.updateMatrixWorld();
+    const g = new TouchGestures(camera, target, { ...limits, minPolarAngle: 0.45 });
+    g.begin([{ x: 150, y: 300 }, { x: 250, y: 305 }], view);
+    for (let k = 1; k <= 30; k++) g.move([{ x: 150, y: 300 + k * 15 }, { x: 250, y: 305 + k * 15 }], view, k / 60);
+    const phi = Math.acos((camera.position.y - target.y) / camera.position.distanceTo(target));
+    expect(phi).toBeCloseTo(0.45, 3);
+    // Without a cap, the same drag goes further.
+    const free = rig();
+    free.g.begin([{ x: 150, y: 300 }, { x: 250, y: 305 }], view);
+    for (let k = 1; k <= 30; k++) free.g.move([{ x: 150, y: 300 + k * 15 }, { x: 250, y: 305 + k * 15 }], view, k / 60);
+    expect(Math.acos((free.camera.position.y - free.target.y) / free.camera.position.distanceTo(free.target))).toBeLessThan(0.4);
   });
 
   it("a fling glides on and comes smoothly to rest; a slow release doesn't", () => {
