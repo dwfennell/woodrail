@@ -1397,6 +1397,9 @@ export class Sim {
       car.facing = facings[i];
       car.lever = levers[i];
     });
+    // Turned round with its new front on a switch it had trailed through from a branch (set the other way): the rest
+    // follow its front's path, not the switch's setting, or the train splits across both roads.
+    this.rememberStraddledSwitches(t);
     return t;
   }
 
