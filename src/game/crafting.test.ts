@@ -103,6 +103,10 @@ describe("the workshop's plank choice: Shares with towns / Takes all planks", ()
     expect(share).toMatch(/class="chip text" data-yard="all" aria-pressed="false"/);
     expect(yardHint({ takesAll: false, keeps: 7, cap: 30 })).toBe("Leaves planks for towns further on, keeping 7 for you");
     expect(yardHint({ takesAll: false, keeps: 8, cap: 30 })).toBe("Leaves planks for towns further on, keeping 8 for you");
+    // What they're for (an order, or the next thing to build: `shopSpare`).
+    expect(yardHint({ takesAll: false, keeps: 8, keptFor: "Mill", cap: 30 })).toBe("Leaves planks for towns further on, keeping 8 for you, enough for a Mill");
+    expect(yardHint({ takesAll: false, keeps: 12, keptFor: "Engine shed", cap: 30 })).toBe("Leaves planks for towns further on, keeping 12 for you, enough for an Engine shed");
+    expect(yardHint({ takesAll: true, keeps: 8, keptFor: "Mill", cap: 30 })).toBe("Fills its yard first, up to 30");
     expect(yardHint({ takesAll: true, keeps: 7, cap: 30 })).toBe("Fills its yard first, up to 30");
     // With a school on the map, it says the school still gets what it needs (QA N3).
     expect(yardHint({ takesAll: true, keeps: 7, cap: 30, school: true })).toBe("Fills its yard first, up to 30 (your school still gets what it needs)");

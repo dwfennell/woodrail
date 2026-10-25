@@ -4,7 +4,7 @@ import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
 import { describe as describeGoods, total, type Bag } from "../economy/goods";
 import { HarbourTrade } from "../game/harbours";
-import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
+import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, shopSpare, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
@@ -209,6 +209,12 @@ const RESEARCH_SPARE = Number(ENV.BALANCE_SPARE ?? 10);
  */
 const YARD_SPARE = Number(ENV.BALANCE_YARD_SPARE ?? WORKSHOP_SPARE);
 /**
+ * The yard's spare covers the industry the current goal points at or research waits on, if dearer than `YARD_SPARE`
+ * (the game's `shopSpare`: a mine's 10 for "Open a mine", a mill's 8 while Quarries waits for flour).
+ * BALANCE_SPARE_COVERS=off for the old rule, `YARD_SPARE` alone.
+ */
+const SPARE_COVERS = ENV.BALANCE_SPARE_COVERS !== "off";
+/**
  * Planks in the yard that are planks to spare for picking research: `RESEARCH_SPARE`, or what the yard holds while a
  * town on the line wants planks (`YARD_SPARE`) if fewer, since it fills no further then (with the old rule the player
  * waited for 10 that never came, and research sat idle for the rest of the game).
@@ -395,7 +401,7 @@ class Player {
     attachEngines(w);
     attachPassengers(w, () => this.progress, () => {});
     w.economy.reserved = (kind) => kind === "planks" && this.planksKept;
-    w.economy.shopKeeps = YARD_SPARE < 0 ? null : (kind) => (kind === "planks" ? yardKeeps(this.progress, YARD_SPARE) : null);
+    w.economy.shopKeeps = YARD_SPARE < 0 ? null : (kind) => (kind === "planks" ? yardKeeps(this.progress, this.yardSpare) : null);
     // Stone into the workshop only while a harbour's price needs it there (as the game does).
     w.economy.owes = (kind) => shopOwes(w, this.progress, kind);
     // Goods into a school go into the research (as the game does).
@@ -452,6 +458,8 @@ class Player {
 
   /** The workshop keeps planks only for a tray order waiting to be made (as the game does: never for blueprints). */
   planksKept = false;
+  /** Planks the yard keeps with no order while a town ahead wants them (as the game works it out once a second: `shopSpare`). */
+  yardSpare = YARD_SPARE;
   /** Was stone owed at the workshop at the last look (routed lines plan again when it changes, as the game's do). */
   owing = false;
   updatePlanksKept(): void {
@@ -466,6 +474,7 @@ class Player {
       return;
     }
     this.planksKept = keepsForOrder(this.progress, workshopStock(this.w).planks ?? 0);
+    this.yardSpare = SPARE_COVERS ? shopSpare(this.progress, this.w, this.goals.current()?.id ?? null, YARD_SPARE).planks : YARD_SPARE;
   }
 
   /** The research's clock (a second of play), as the game's workshop clock runs it; counts its waits for goods. */
@@ -2446,7 +2455,9 @@ class Playthrough {
    * 87 and 70; on the other seeds the coins came last and the mill at the same minute. (Not with the farm on the line:
    * there the order moved the mill up enough to put seed 2's City before
    * the band's 60, at 57, and seed 4's research stall past 15 minutes.) A waiting order is taken off when the harness
-   * makes the mill itself (`build`), so only one is made.
+   * makes the mill itself (`build`), so only one is made. Still needed with the game's `shopSpare`: it raises the
+   * spare for the mill only while a research waits for flour, and this player picks no research till the mill is
+   * built, so the yard would keep 7 (all 18 runs were the same with it as without).
    */
   orderMill(): void {
     const P = this.p;
