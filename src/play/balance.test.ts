@@ -4,7 +4,7 @@ import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
 import { describe as describeGoods, total, type Bag } from "../economy/goods";
 import { HarbourTrade } from "../game/harbours";
-import { craftNow, craftShort, Crafting, keepsForOrder, lacking, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
+import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
@@ -368,6 +368,8 @@ class Player {
     attachPassengers(w, () => this.progress, () => {});
     w.economy.reserved = (kind) => kind === "planks" && this.planksKept;
     w.economy.shopKeeps = YARD_SPARE < 0 ? null : (kind) => (kind === "planks" ? yardKeeps(this.progress, YARD_SPARE) : null);
+    // Stone into the workshop only while a harbour's price needs it there (as the game does).
+    w.economy.owes = (kind) => shopOwes(w, this.progress, kind);
     // Goods into a school go into the research (as the game does).
     attachResearch(w.economy, () => this.progress, () => (this.researchFed = this.tick));
     this.progress.coverMap(w);
@@ -421,8 +423,15 @@ class Player {
 
   /** The workshop keeps planks only for a tray order waiting to be made (as the game does: never for blueprints). */
   planksKept = false;
+  /** Was stone owed at the workshop at the last look (routed lines plan again when it changes, as the game's do). */
+  owing = false;
   updatePlanksKept(): void {
     if (GREEDY_WORKSHOP) for (const d of workshops(this.w)) d.takesAll = true;
+    const owing = shopOwing(this.w, this.progress);
+    if (owing !== this.owing) {
+      this.owing = owing;
+      this.w.economy.acceptsChanged();
+    }
     if (workshops(this.w).length === 0) {
       this.planksKept = false;
       return;
