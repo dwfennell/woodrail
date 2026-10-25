@@ -7,7 +7,7 @@ import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
-import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
+import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
@@ -37,7 +37,7 @@ import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type Thing
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
-import { rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
+import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
@@ -786,10 +786,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!site || site.cleared || mode !== "game") return;
     interaction.clearSelection();
     ruinShown = siteId;
-    hud.showRuinCard(ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)));
+    hud.showRuinCard({ ...ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)), reach: canReach(siteId) ? null : RUIN_NO_WAY });
     audio.tap();
   }
   interaction.onRuinTap = openRuin;
+
+  /**
+   * Can track be laid to this ruin from the line (`trackCanReach`: a flood fill of the land)? Worked out as its card
+   * opens, and again only when the land or the pieces have changed since.
+   */
+  let reachShown = { key: "", yes: true };
+  function canReach(siteId: number): boolean {
+    const key = `${siteId}:${game.landscape.grid.revision}:${game.layout.piecesVersion}`;
+    if (key !== reachShown.key) reachShown = { key, yes: trackCanReach(game.world, siteId) };
+    return reachShown.yes;
+  }
 
   /** Can this ruin (a site of the map shown) be restored now (its card offers Restore)? Kept till a blueprint is learned. */
   const restorable = new WeakMap<object, { learned: number; yes: boolean }>();
@@ -863,7 +874,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     ruinShown = -1;
     hud.hideCards();
     console.info(`Woodrail: ruin restored in ${ms.toFixed(1)} ms (ruins tile rebuilt in ${game.ruinsView.lastBuildMs.toFixed(1)} ms)`);
-    hud.toast(`Old ${site.role} restored! It works again`, true, 2600);
+    // What it makes, what to do next and where its goods go (from the recipes), once; a tap frames it.
+    const at = game.layout.getPiece(done.pieceId)?.pose;
+    const said = restoredText(site.role);
+    hud.toast(said, true, 6000, at ? () => showSpot(yardMiddle(at)) : undefined);
     audio.putdown(true);
     if (mode === "game") {
       hud.refreshTrayBadges();
@@ -887,6 +901,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     journal.add({ kind: "event", text, place });
     goalsPanel.newsChanged();
     hud.toast(text, true, 4200, () => showRuin(site.id));
+  }
+
+  /** Frame a spot and ring it (a tapped toast: an old industry just restored). */
+  function showSpot(at: { x: number; z: number }): void {
+    flyTo({ x: at.x, z: at.z });
+    const i = game.landscape.grid.cellAtWorld(at.x, at.z);
+    const marks = goalMarks(game.scene, [{ x: at.x, y: i < 0 ? 0 : game.landscape.grid.groundY(i), z: at.z }]);
+    if (marks) game.flourishes.add(marks);
+    game.invalidate();
   }
 
   /** Frame a ruin and ring it (a tapped toast: "Old farm by Larkfield can be restored"). */
@@ -1919,7 +1942,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const line = document.createElement("div");
     line.className = "farm-fields";
     const speed = Math.round(rateFor(r.count, r.need) * 100);
-    line.textContent = `Field squares nearby: ${r.count} (works at ${speed}% speed; full speed at ${r.need})`;
+    // (In whole fields, as the player sees them: `amountText`. Short of full speed, how to get there.)
+    line.textContent = `Farm fields nearby: ${amountText(r.rule, r.count)} of ${amountText(r.rule, r.need)} (works at ${speed}% speed)${r.count < r.need ? ". Plant a field to work faster" : ""}`;
     const plant = document.createElement("button");
     plant.className = "chip text farm-plant";
     plant.textContent = `Plant a field · ${costTag({}, price)}`;
@@ -3734,7 +3758,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, trayThumbnailsSaved: () => trayThumbnailsSaved });
   if (cloud) {
     const card = new CloudCard(hud.root, cloud, {
       mode: () => mode,
