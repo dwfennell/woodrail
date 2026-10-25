@@ -37,6 +37,8 @@ export interface HudHandlers {
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
+  /** The engine card of a line with a train too many: that train (this one, or the one held) back in the box. */
+  putAway(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
@@ -246,6 +248,9 @@ export class Hud {
   private readonly flipBtn: HTMLButtonElement;
   /** The engine card: Go/Stop, the way it goes (an arrow as on screen), what it's doing, and the rest tucked away. */
   private readonly goBtn: HTMLButtonElement;
+  /** "Put away", on an engine card whose line has a train too many (see `setPutAway`). */
+  private readonly putAwayBtn: HTMLButtonElement;
+  private putAwayShown = false;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
@@ -473,6 +478,9 @@ export class Hud {
     this.engineCard.append(this.followBtn, more);
     this.engineStatus.setAttribute("aria-live", "polite");
     this.engineCard.appendChild(this.engineStatus);
+    this.putAwayBtn = button("Put away", "Put this line's extra train back in the box: then the others can run", h.putAway, "chip text put-away");
+    this.putAwayBtn.hidden = true;
+    this.engineCard.appendChild(this.putAwayBtn);
     const controls = el("div", "engine-controls");
     // One big button: Go (the way the arrow shows) or Stop.
     // (Held at its stop for spacing: "Go now" sends it on with one tap, the lever as it is.)
@@ -1302,6 +1310,16 @@ export class Hud {
   }
 
   /** The open engine's train is (or isn't) held at its stop for spacing: Go reads "Go now", and one tap sends it on. */
+  /** The open engine's line has a train too many: "Put away" shows (this train, or the one held, back in the box). */
+  setPutAway(on: boolean, self: boolean): void {
+    const title = self ? "Put this train back in the box: the line has no room for it" : "Put the train this line has no room for back in the box";
+    if (on === this.putAwayShown && this.putAwayBtn.title === title) return;
+    this.putAwayShown = on;
+    this.putAwayBtn.hidden = !on;
+    this.putAwayBtn.title = title;
+    this.putAwayBtn.setAttribute("aria-label", title);
+  }
+
   setGoNow(on: boolean): void {
     if (on === this.goNow) return;
     this.goNow = on;
