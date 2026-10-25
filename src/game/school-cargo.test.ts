@@ -281,11 +281,11 @@ describe("the workshop's yard while a town on the line wants planks (QA P5: it f
   });
 });
 
-describe("the yard's spare covers the next thing to build (`shopSpare`; QA: one plank short of the mill for an hour)", () => {
-  /** As main.ts has it: the spare worked out (once a second there; here once, nothing changes on the way). */
-  const spares = (w: ReturnType<typeof line>, p: Progress) => {
+describe("the yard's spare covers the next industry (`shopSpare`; QA: one plank short of the mill for an hour)", () => {
+  /** As main.ts has it: the spare worked out with the current goal (once a second there; here once). */
+  const spares = (w: ReturnType<typeof line>, p: Progress, goal: string | null = null) => {
     const world = { layout: w.layout, depots: new Map<number, number>() };
-    w.economy.shopKeeps = (kind) => (kind === "planks" ? yardKeeps(p, shopSpare(p, world).planks) : null);
+    w.economy.shopKeeps = (kind) => (kind === "planks" ? yardKeeps(p, shopSpare(p, world, goal).planks) : null);
     return world;
   };
   const knowing = (...techs: string[]) => {
@@ -296,9 +296,10 @@ describe("the yard's spare covers the next thing to build (`shopSpare`; QA: one 
   /** A piece of `type` built out of the line's way. */
   const build = (w: ReturnType<typeof line>, type: PieceTypeId) => w.layout.addPiece(type, { x: 0, z: 5000, heading: 0 });
 
-  it("Mills learned, no order: the yard keeps the mill's 8 (the cheapest past the 7 it keeps anyway), the town the rest", () => {
-    // (Sawmills too: its 10 is dearer, so the mill is what the yard saves for first.)
+  it("research waiting on the mill (Quarries needs flour, no mill on the map): the yard keeps its 8, the town the rest", () => {
+    // (Sawmills known too: no goal or research waits on it, so it doesn't count.)
     const p = knowing("mills", "sawmills");
+    p.research.current = "quarries";
     const w = line(["depot-workshop", "station"], p);
     const world = spares(w, p);
     expect(shopSpare(p, world)).toEqual({ planks: 8, for: "piece:depot-mill" });
@@ -307,17 +308,24 @@ describe("the yard's spare covers the next thing to build (`shopSpare`; QA: one 
     expect(w.economy.delivered.get(0)).toBe(1);
   });
 
-  it("nothing known past the 7 (a fresh player: the cars and switches cost less): it keeps 7", () => {
-    const p = knowing("switches", "passengers", "farming");
+  it("Quarries up next, none being researched: the same", () => {
+    const p = knowing("mills");
+    p.research.next = "quarries";
+    expect(shopSpare(p, { layout: new Layout(), depots: new Map() }).planks).toBe(8);
+  });
+
+  it("nothing waiting on an industry: 7, whatever else is known and unbuilt (the mill, the station kits, the sawmill)", () => {
+    const p = knowing("mills", "halts", "sawmills", "turntable");
     const w = line(["depot-workshop", "station"], p);
-    expect(shopSpare(p, spares(w, p))).toEqual({ planks: WORKSHOP_SPARE, for: null });
+    expect(shopSpare(p, spares(w, p), "join-three")).toEqual({ planks: WORKSHOP_SPARE, for: null });
     w.run(90);
     expect(w.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
     expect(w.economy.delivered.get(0)).toBe(9 - WORKSHOP_SPARE);
   });
 
-  it("the mill built, nothing else past the 7 unbuilt: back to 7; one in the toy box isn't built yet", () => {
+  it("the mill built: back to 7 (one in the toy box isn't built yet)", () => {
     const p = knowing("mills");
+    p.research.current = "quarries";
     const w = line(["depot-workshop", "station"], p);
     const world = spares(w, p);
     p.owned.set("piece:depot-mill", 1);
@@ -329,27 +337,28 @@ describe("the yard's spare covers the next thing to build (`shopSpare`; QA: one 
     expect(w.economy.delivered.get(0)).toBe(9 - WORKSHOP_SPARE);
   });
 
-  it("the mill built with the sawmill known: it moves on to the sawmill's 10 (the yard takes the train's 9)", () => {
-    const p = knowing("mills", "sawmills");
+  it("the goal \"Open a mine\": the mine's 10 (the yard takes the train's 9); a goal's industry costing 7 or less leaves 7", () => {
+    const p = knowing("mines", "quarries");
     const w = line(["depot-workshop", "station"], p);
-    const world = spares(w, p);
-    build(w, "depot-mill");
-    expect(shopSpare(p, world)).toEqual({ planks: 10, for: "piece:depot-sawmill" });
+    const world = spares(w, p, "open-mine");
+    expect(shopSpare(p, world, "open-mine")).toEqual({ planks: 10, for: "piece:depot-mine" });
+    expect(shopSpare(p, world, "open-quarry")).toEqual({ planks: WORKSHOP_SPARE, for: null });
     w.run(90);
     expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
     expect(w.economy.delivered.get(0) ?? 0).toBe(0);
   });
 
   it("no more than the yard holds (`WORKSHOP_CAP`, or the cap asked for)", () => {
-    const p = knowing("mills", "sawmills");
+    const p = knowing("harbours");
     const world = { layout: new Layout(), depots: new Map<number, number>() };
-    world.layout.addPiece("depot-mill", { x: 0, z: 0, heading: 0 });
-    expect(shopSpare(p, world, WORKSHOP_SPARE, 9).planks).toBe(9);
-    expect(shopSpare(p, world, WORKSHOP_CAP + 5).planks).toBe(WORKSHOP_CAP);
+    expect(shopSpare(p, world, "open-harbour")).toEqual({ planks: 15, for: "piece:depot-harbour" });
+    expect(shopSpare(p, world, "open-harbour", WORKSHOP_SPARE, 9).planks).toBe(9);
+    expect(shopSpare(p, world, null, WORKSHOP_CAP + 5).planks).toBe(WORKSHOP_CAP);
   });
 
   it("a queued order works as before: its planks kept for it, the spare the same with it or without", () => {
     const p = knowing("mills", "sawmills");
+    p.research.current = "quarries";
     const w = line(["depot-workshop", "station"], p);
     const world = spares(w, p);
     const before = shopSpare(p, world);
@@ -370,6 +379,7 @@ describe("the yard's spare covers the next thing to build (`shopSpare`; QA: one 
 
   it("Takes all planks still fills the yard", () => {
     const p = knowing("mills");
+    p.research.current = "quarries";
     const w = line(["depot-workshop", "station"], p);
     spares(w, p);
     w.economy.setTakesAll(w.depots[0].id, true);
@@ -377,11 +387,11 @@ describe("the yard's spare covers the next thing to build (`shopSpare`; QA: one 
     expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
   });
 
-  it("a school further on still gets what its research lacks (`keptForSchool`)", () => {
+  it("a school further on still gets what its research lacks (`keptForSchool`), the spare raised or not", () => {
     const p = researching("switches");
-    p.learned.add("mills");
+    p.learned.add("mines");
     const w = line(["depot-workshop", "depot-school", "station"], p);
-    spares(w, p);
+    expect(shopSpare(p, spares(w, p, "open-mine"), "open-mine").planks).toBe(10);
     w.run(90);
     expect(p.research.got).toEqual({ planks: 3 });
     expect(w.depots[0].piles[CARGO.planks.index]).toBe(6);

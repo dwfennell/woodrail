@@ -2000,7 +2000,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
   let planksKept = false;
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
-  /** Planks the yard keeps with no order: enough for the next thing to build (`shopSpare`; worked out once a second). */
+  /** Planks the yard keeps with no order: enough for the next industry (`shopSpare`; worked out once a second). */
   let yardSpare = shopSpare(progress);
   /** What the workshop's yard takes while a town on the line wants planks: its order's, or the spare (`yardKeeps`). */
   const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress, yardSpare.planks) : null);
@@ -2022,8 +2022,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return;
     }
     planksKept = keepsForOrder(progress, workshopStock(game.world).planks ?? 0);
-    // (Cached by blueprints learned and the map's pieces: a lookup unless one changed.)
-    yardSpare = shopSpare(progress, game.world);
+    // (Cached by its inputs: blueprints learned, the map's pieces, the goal, the research.)
+    yardSpare = shopSpare(progress, game.world, goals.current()?.id ?? null);
   }
 
   setInterval(() => {
@@ -2236,7 +2236,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const shortCoins = nowRule ? Math.max(0, (nowRule.coins ?? 0) - progress.coins) : 0;
     const need = now?.waiting ? [total(shortGoods) > 0 ? costTag(shortGoods) : "", shortCoins > 0 ? costTag({}, shortCoins) : ""].filter(Boolean).join(" ") || null : null;
     const yard = game.economy.depot(id)!;
-    // What the planks it keeps are for: its waiting order, or the next thing to build (`shopSpare`); none if the yard
+    // What the planks it keeps are for: its waiting order, or the next industry (`shopSpare`); none if the yard
     // holds fewer, or it's only the spare.
     const keeps = yardKeeps(progress, yardSpare.planks);
     const keptFor = keeps > capAt(yard) ? null : orderPlanks(progress) >= yardSpare.planks ? progress.orders[0] : yardSpare.for;

@@ -208,8 +208,9 @@ const RESEARCH_SPARE = Number(ENV.BALANCE_SPARE ?? 10);
  */
 const YARD_SPARE = Number(ENV.BALANCE_YARD_SPARE ?? WORKSHOP_SPARE);
 /**
- * The yard's spare covers the cheapest thing the player knows and hasn't built that `YARD_SPARE` doesn't (the game's
- * `shopSpare`: a mill's 8 once Mills is learned). BALANCE_SPARE_COVERS=off for the old rule, `YARD_SPARE` alone.
+ * The yard's spare covers the industry the current goal points at or research waits on, if dearer than `YARD_SPARE`
+ * (the game's `shopSpare`: a mine's 10 for "Open a mine", a mill's 8 while Quarries waits for flour).
+ * BALANCE_SPARE_COVERS=off for the old rule, `YARD_SPARE` alone.
  */
 const SPARE_COVERS = ENV.BALANCE_SPARE_COVERS !== "off";
 /**
@@ -464,7 +465,7 @@ class Player {
       return;
     }
     this.planksKept = keepsForOrder(this.progress, workshopStock(this.w).planks ?? 0);
-    this.yardSpare = SPARE_COVERS ? shopSpare(this.progress, this.w, YARD_SPARE).planks : YARD_SPARE;
+    this.yardSpare = SPARE_COVERS ? shopSpare(this.progress, this.w, this.goals.current()?.id ?? null, YARD_SPARE).planks : YARD_SPARE;
   }
 
   /** The research's clock (a second of play), as the game's workshop clock runs it; counts its waits for goods. */
@@ -2451,7 +2452,9 @@ class Playthrough {
    * 87 and 70; on the other seeds the coins came last and the mill at the same minute. (Not with the farm on the line:
    * there the order moved the mill up enough to put seed 2's City before
    * the band's 60, at 57, and seed 4's research stall past 15 minutes.) A waiting order is taken off when the harness
-   * makes the mill itself (`build`), so only one is made.
+   * makes the mill itself (`build`), so only one is made. Still needed with the game's `shopSpare`: it raises the
+   * spare for the mill only while a research waits for flour, and this player picks no research till the mill is
+   * built, so the yard would keep 7 (all 18 runs were the same with it as without).
    */
   orderMill(): void {
     const P = this.p;

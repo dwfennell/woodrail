@@ -33,7 +33,7 @@ export interface YardMode {
   takesAll: boolean;
   /** Planks it keeps while sharing (`yardKeeps`). */
   keeps: number;
-  /** What those planks are for (a waiting order, or the next thing to build: `shopSpare`), said in the hint. */
+  /** What those planks are for (a waiting order, or the next industry: `shopSpare`), said in the hint. */
   keptFor?: string;
   /** Its yard's cap. */
   cap: number;
