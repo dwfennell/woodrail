@@ -1,9 +1,10 @@
 import { CARGO, type CargoKind } from "../economy/cargo";
 import { WAGON_CAPACITY } from "../economy/constants";
 import { SIM_HZ, type CarKind } from "../sim";
+import type { PieceTypeId } from "../track";
 import { shopOwes } from "./crafting";
 import type { Progress } from "./progress";
-import type { World } from "./world";
+import { syncIndustries, type World } from "./world";
 
 // Helpers for the tests of what the workshop takes from trains (not part of the game).
 
@@ -16,12 +17,13 @@ export function owesAsTheGameDoes(w: World, p: Progress): void {
  * The player's way to get stone into the workshop: a goods train of hoppers holding `units` of `kind` (3 a wagon),
  * run along a line laid through the workshop's piece (straights either side, heading as it does), its crane
  * unloading what the workshop takes. Returns how many are still on the train when it has run its line
- * (the train is then taken off the map).
+ * (the train is then taken off the map). `ahead`: the 216 mm pieces laid on past the workshop, when the line is laid
+ * (its first train): two straights, or a school and more (their depots added as the game adds them).
  */
 /** Each map's lines laid through a workshop: the piece its trains start on, by the workshop's piece. */
 const lines = new WeakMap<object, Map<number, number>>();
 
-export function deliverByTrain(w: World, shopPiece: number, kind: CargoKind, units: number, seconds = 120): number {
+export function deliverByTrain(w: World, shopPiece: number, kind: CargoKind, units: number, seconds = 120, ahead: readonly PieceTypeId[] = ["straight-216", "straight-216"]): number {
   const at = w.layout.getPiece(shopPiece)!.pose;
   const c = Math.cos(at.heading);
   const s = Math.sin(at.heading);
@@ -30,7 +32,8 @@ export function deliverByTrain(w: World, shopPiece: number, kind: CargoKind, uni
   let start = lines.get(w.layout)?.get(shopPiece);
   if (start === undefined) {
     const before = [-6, -5, -4, -3, -2, -1].map((k) => w.layout.addPiece("straight-216", along(k)));
-    for (const k of [1, 2]) w.layout.addPiece("straight-216", along(k));
+    ahead.forEach((t, k) => w.layout.addPiece(t, along(k + 1)));
+    if (ahead.some((t) => t.startsWith("depot-"))) syncIndustries(w, true);
     start = before[before.length - 1];
     if (!lines.has(w.layout)) lines.set(w.layout, new Map());
     lines.get(w.layout)!.set(shopPiece, start);

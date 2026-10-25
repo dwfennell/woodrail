@@ -69,27 +69,66 @@ export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
   return Math.max(orderPlanks(p), spare);
 }
 
-/** Per progress: the most of each good any one thing it knows costs, and how many blueprints were learned then. */
-const dearestOf = new WeakMap<Progress, { learned: number; most: Int32Array }>();
+/**
+ * Per progress: the most of each good any one thing it knows and hasn't built costs, and what that was worked out
+ * from: how many blueprints were learned, and which map's pieces as of which `Layout.piecesVersion`.
+ */
+const dearestOf = new WeakMap<Progress, { learned: number; layout: World["layout"] | null; pieces: number; most: Int32Array }>();
+
+/**
+ * Of the piece types in `types`, those the player has standing on `world`'s map: placed, or an old one restored
+ * (`restoreRuin` swaps the ruin's stub for it). A depot that came with the map isn't theirs and doesn't count.
+ * One pass over the pieces.
+ */
+function builtOf(world: Pick<World, "layout" | "depots">, types: ReadonlySet<string>): Set<string> {
+  const n = new Map<string, number>();
+  for (const pid of world.layout.pieceIds()) {
+    const type = world.layout.getPiece(pid)!.type;
+    if (types.has(type)) n.set(type, (n.get(type) ?? 0) + 1);
+  }
+  if (n.size > 0) {
+    for (const pid of world.depots.values()) {
+      const type = world.layout.getPiece(pid)?.type;
+      if (type && n.has(type)) n.set(type, n.get(type)! - 1);
+    }
+  }
+  return new Set([...n].filter(([, k]) => k > 0).map(([t]) => t));
+}
 
 /**
  * How many of `kind` the workshop needs for what the player may pay for there: the dearest thing they know how to
- * make (a harbour's 10 stone once Harbours is learned), or all their waiting tray orders' if more, no more than the
- * yard holds. That covers restoring a ruin too: its price is a share of the new one's (`restorePrice`), and its card
- * offers Restore only once the same blueprint is learned. (There is no "wanted" list to go by: the harbour's card
- * shows its price from the moment it's learned, so the stone has to be welcome from then, not only after a tap.)
- * Cached per progress until another blueprint is learned; the orders are a few, read each time.
+ * make and haven't built (a harbour's 10 stone once Harbours is learned, until one stands on `world`'s map), or all
+ * their waiting tray orders' if more (a second harbour queued still gets its stone), no more than the yard holds.
+ * That covers restoring a ruin too: its price is a share of the new one's (`restorePrice`), and its card offers
+ * Restore only once the same blueprint is learned; one restored counts as built. (There is no "wanted" list to go
+ * by: the harbour's card shows its price from the moment it's learned, so the stone has to be welcome from then, not
+ * only after a tap. Once one is built the stone rides on to research: QA, Foundry sat at 9/10 stone for an hour of
+ * the goals play-through while the workshop kept 10 for a harbour already standing.)
+ * "Built" is for pieces only, on the map (one in the toy box isn't yet); cars and props are made again and again.
+ * Without `world`, nothing is built.
+ * Cached per progress until another blueprint is learned or a piece is added to or taken from the map
+ * (`Layout.piecesVersion`: a miss is one pass over the pieces); the orders are a few, read each time.
  */
-export function shopNeeds(p: Progress, kind: CargoKind, yardCap = WORKSHOP_CAP): number {
+export function shopNeeds(p: Progress, kind: CargoKind, world?: Pick<World, "layout" | "depots">, yardCap = WORKSHOP_CAP): number {
   let c = dearestOf.get(p);
-  if (!c || c.learned !== p.learned.size) {
-    const most = new Int32Array(CARGO_KINDS.length);
+  const layout = world?.layout ?? null;
+  const pieces = layout?.piecesVersion ?? 0;
+  if (!c || c.learned !== p.learned.size || c.layout !== layout || c.pieces !== pieces) {
+    const known: ThingId[] = [];
+    const types = new Set<string>();
     for (const id of Object.keys(THING_RULES) as ThingId[]) {
-      const rule = THING_RULES[id]!;
-      if (!p.knows(id) || isFree(id)) continue;
-      for (const k of kindsOf(rule.cost)) most[CARGO[k].index] = Math.max(most[CARGO[k].index], rule.cost[k]!);
+      if (!p.knows(id) || isFree(id) || total(THING_RULES[id]!.cost) === 0) continue;
+      known.push(id);
+      if (id.startsWith("piece:")) types.add(id.slice("piece:".length));
     }
-    c = { learned: p.learned.size, most };
+    const built = world && types.size > 0 ? builtOf(world, types) : null;
+    const most = new Int32Array(CARGO_KINDS.length);
+    for (const id of known) {
+      if (id.startsWith("piece:") && built?.has(id.slice("piece:".length))) continue;
+      const cost = THING_RULES[id]!.cost;
+      for (const k of kindsOf(cost)) most[CARGO[k].index] = Math.max(most[CARGO[k].index], cost[k]!);
+    }
+    c = { learned: p.learned.size, layout, pieces, most };
     dearestOf.set(p, c);
   }
   let ordered = 0;
@@ -103,7 +142,7 @@ export function shopNeeds(p: Progress, kind: CargoKind, yardCap = WORKSHOP_CAP):
  * owed: stone): what's needed (`shopNeeds`) less what their yards hold. 0 once that's covered.
  */
 export function shopOwes(world: World, p: Progress, kind: CargoKind): number {
-  const need = shopNeeds(p, kind);
+  const need = shopNeeds(p, kind, world);
   if (need <= 0) return 0;
   let have = 0;
   for (const d of world.economy.allDepots()) if (d.role === "workshop" && world.layout.getPiece(d.pieceId)) have += d.piles[CARGO[kind].index];
