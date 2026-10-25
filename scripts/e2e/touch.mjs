@@ -957,7 +957,9 @@ async function shortUnderCar(ctx, p) {
   await p.keyboard.press("Escape");
 }
 
-for (const mode of ["sandbox", "game"]) {
+// (E2E_ONLY=dead-end: only the Continue check, in Sandbox.)
+const ONLY = process.env.E2E_ONLY ?? "";
+for (const mode of ONLY === "dead-end" ? ["sandbox"] : ["sandbox", "game"]) {
   try {
     await runMode(mode);
   } catch (e) {
@@ -1002,6 +1004,99 @@ async function toastTapsThrough(p) {
   check("a toast takes a tap, but lets it through to the map (the canvas) while picking pieces or drawing (QA)", r.idle === "toast" && r.drawing === "CANVAS" && r.picking === "CANVAS" && r.after === "toast", JSON.stringify(r));
 }
 
+/**
+ * A routed train held at a forest where the track just stops (waiting to fill, with no logs): its card offers
+ * Continue, and a touch tap on it turns the train round, engine first, and sends it back to its next stop.
+ */
+async function deadEndContinue(p) {
+  await p.keyboard.press("Escape");
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    // (A run of its own on open ground, found outward from the view's target.)
+    const t = w.controls.target;
+    const clear = (x, z) =>
+      [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
+      [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
+    let g = null;
+    for (let d = 0; d <= 8000 && !g; d += 216) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 216));
+      for (let a = 0; a < n && !g; a++) {
+        const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+        const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+        if ([0, 400, 800, 1200, 1600].every((dx) => clear(x + dx, z))) g = t.clone().set(x, 0, z);
+      }
+    }
+    if (!g) throw new Error("no open ground for the run");
+    // Harness shortcuts, for setup only (not what's tested): the track laid and the route set straight through the
+    // editor and economy, as dropping pieces and planning the route on the card would.
+    const types = ["depot-sawmill", "straight-216", "straight-216", "straight-216", "straight-216", "depot-forest"];
+    const run = w.editor().placeRun(types.map((type, i) => ({ type, pose: { x: g.x + i * 216, z: g.z, heading: 0 }, y: 0, flipped: false })));
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const sawmill = depot(run[0], "sawmill");
+    const forest = depot(run[5], "forest");
+    const placed = w.sim.addTrain(["engine", "timber"], { pieceId: run[3], pathIndex: 0, s: 150, reversed: false });
+    if (placed.kind !== "placed") throw new Error("no room for the train");
+    const engine = w.sim.getTrain(placed.trainId).cars[0].id;
+    w.economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "both", waitFill: true }, { depotId: sawmill.id, action: "both" }], next: 0 });
+    w.sim.setLever(engine, 1);
+    // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of the frames, which
+    // SwiftShader draws only a few a second: to the forest, and a while held there.
+    let held = 0;
+    for (let i = 0; i < 120 * 60 && held < 120 * 3; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      const tr = w.sim.findCar(engine).train;
+      if (tr.turnback >= 0 && tr.lastTurn?.cause === "open-end") held++;
+    }
+    const at = g.clone();
+    at.x = g.x + 4 * 216;
+    w.director.glideTo(at, frameDistance(900, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    w.interaction.openEngineCard(engine);
+    w.invalidate();
+    return { engine, run };
+  });
+  // Up to the forest at the end of the track, held there: Continue shows.
+  const shown = await p.waitForFunction(() => { const b = document.querySelector(".engine-card .continue"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 120000 }).then(() => true, () => false);
+  const card = await p.evaluate(() => {
+    const c = document.querySelector(".engine-card");
+    const s = c.querySelector(".engine-status");
+    const b = c.querySelector(".continue").getBoundingClientRect();
+    // (Two lines at most: under 2.8 of its font's size tall.)
+    const two = s.getBoundingClientRect().height < 2.8 * parseFloat(getComputedStyle(s).fontSize);
+    return { status: s.textContent, two, w: Math.round(c.getBoundingClientRect().width), bw: Math.round(b.width), bh: Math.round(b.height) };
+  });
+  check("dead end: a routed train held where the track ends shows Continue", shown && card.status === "Turning back: the track ends here", JSON.stringify(card));
+  check("dead end: Continue is a thumb's size, the card fits the phone (its status in 2 lines)", card.bh >= 44 && card.bw >= 120 && card.w <= 390 - 32 && card.two, JSON.stringify(card));
+  if (!shown) return;
+  const [x, y] = await p.evaluate(() => { const r = document.querySelector(".engine-card .continue").getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  await tapped(p, () => p.touchscreen.tap(x, y));
+  const after = await p.evaluate(({ engine }) => {
+    const t = window.woodrail.sim.findCar(engine).train;
+    return { first: t.cars[0].kind, turnback: t.turnback, hidden: document.querySelector(".engine-card .continue").hidden };
+  }, setup);
+  check("dead end: a tap on Continue turns the train round, engine first", after.first === "engine" && after.turnback === -1 && after.hidden, JSON.stringify(after));
+  // The payoff: off back down the line, engine leading all the way, to the sawmill (its next stop). (Ticked ahead as
+  // above: the same ticks the game runs.)
+  const reached = await p.evaluate(({ engine, run }) => {
+    const w = window.woodrail;
+    for (let i = 0; i < 120 * 60; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      const t = w.sim.findCar(engine)?.train;
+      if (!t || t.cars[0].kind !== "engine") return false;
+      if (t.bogies.some((b) => b.pieceId === run[0])) return true;
+    }
+    return false;
+  }, setup);
+  const end = await p.evaluate(({ engine }) => {
+    const t = window.woodrail.sim.findCar(engine)?.train;
+    return { first: t?.cars[0].kind, next: window.woodrail.economy.routeOf(engine)?.next };
+  }, setup);
+  check("dead end: …and it runs back to its next stop with the engine leading", reached && end.next === 1, JSON.stringify(end));
+  await p.keyboard.press("Escape");
+}
+
 async function runMode(mode) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -1044,7 +1139,8 @@ async function runMode(mode) {
     await tapOn(".scroller .tray-back");
     check(`${mode}: a touch tap on Back goes back to the shelves (and stays there)`, !(await inGroup()));
   }
-  if (mode === "sandbox") {
+  if (mode === "sandbox" && ONLY === "dead-end") await deadEndContinue(p);
+  else if (mode === "sandbox") {
     await mapTaps(p);
     await selectThenDrag(ctx, p);
     await redrawnControl(ctx, p);
@@ -1052,6 +1148,7 @@ async function runMode(mode) {
     await leverPins(ctx, p);
     await shortUnderCar(ctx, p);
     await toastTapsThrough(p);
+    await deadEndContinue(p);
   }
   await ctx.close();
 }

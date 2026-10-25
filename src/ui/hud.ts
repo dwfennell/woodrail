@@ -41,6 +41,8 @@ export interface HudHandlers {
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
   swapEnds(): void;
+  /** The engine card, waiting to turn back where the track ends: turn round now and run on to the next stop. */
+  continueOn(): void;
   /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
   decouple(): void;
   rotate(): void;
@@ -243,6 +245,8 @@ export class Hud {
   /** The engine card: Go/Stop, the way it goes (an arrow as on screen), what it's doing, and the rest tucked away. */
   private readonly goBtn: HTMLButtonElement;
   private readonly wayBtn: HTMLButtonElement;
+  /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
+  private readonly continueBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
   private readonly engineMore = el("div", "engine-more");
   private readonly followBtn: HTMLButtonElement;
@@ -480,6 +484,9 @@ export class Hud {
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
     controls.append(this.goBtn, this.wayBtn);
     this.engineCard.appendChild(controls);
+    this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
+    this.continueBtn.hidden = true;
+    this.engineCard.appendChild(this.continueBtn);
     this.engineMore.hidden = true;
     this.engineMore.append(
       button("Swap ends", "Move the engine to the other end of its train", () => {
@@ -1297,6 +1304,12 @@ export class Hud {
     if (on === this.goNow) return;
     this.goNow = on;
     this.drawEngine();
+  }
+
+  /** Waiting to turn back where the track ends (see `canContinue`): Continue shows. */
+  setContinue(on: boolean): void {
+    if (on === !this.continueBtn.hidden) return;
+    this.continueBtn.hidden = !on;
   }
 
   private drawEngine(): void {
