@@ -3,7 +3,7 @@ import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
-import { Game, type GameWorld } from "./game/game";
+import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
@@ -3116,6 +3116,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     mapReturn = { target: c.target.clone(), distance: sph.radius, phi: sph.phi, theta: sph.theta };
     mapView.setOpen(true);
     hud.setMapOpen(true);
+    game.steepAllowed = true;
     // Every place marked on the player's land (its ruins too), fitted between the map's bars (where the labels and badges
     // go), as far out as the camera may go: on a big map they can't all be, and a drag pans to the rest (QA: on 22 plots
     // the view sat on the land's middle, the bars not allowed for, and no harbour on the coast was in view).
@@ -3134,9 +3135,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!mapView.open) return;
     mapView.setOpen(false);
     hud.setMapOpen(false);
+    game.steepAllowed = false;
     if (back && mapReturn) {
       const r = mapReturn;
       game.director.glideTo(r.target, r.distance, { phi: r.phi, theta: r.theta, duration: 0.9 });
+    } else if (!game.director.busy) {
+      // Left where the map looked (nearly straight down): eased up to the pitch cap, not snapped there by the controls.
+      const sph = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
+      if (sph.phi < MIN_PITCH) game.director.glideTo(game.controls.target.clone(), sph.radius, { phi: MIN_PITCH, duration: 0.5 });
     }
     mapReturn = null;
     game.invalidate();
