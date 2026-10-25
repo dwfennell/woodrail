@@ -3,6 +3,7 @@ import { Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { editLine, joinLine, stopLine } from "../game/lines";
 import { engineStatus } from "../game/engine-status";
+import { putAway, type PutAway } from "../game/put-away";
 import { CARGO } from "./cargo";
 import { Economy } from "./economy";
 import { topologyOf, trainLength, YIELD_S } from "./sections";
@@ -96,6 +97,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
   let longestRing = 0;
   const meets: number[] = [];
   const arrAt: { e: number; t: number }[] = [];
+  const goodsAt: number[] = [];
   const cardLog: { e: number; t: number; c: string }[] = [];
   let stale = 0;
   // (How often each train's card changed, and the turn-backs sections made, over the run.)
@@ -161,6 +163,8 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     q.sim.tick();
     q.economy.tick();
     tickMs += performance.now() - t0;
+    // (Goods delivered: each load unloaded at a stop, as QA counts them.)
+    for (const ev of q.economy.drainEvents()) if (ev.kind === "unloaded") goodsAt.push(tick / SIM_HZ);
     // (The longest stretch with every train of the line standing still.)
     let moving = false;
     for (let k = 0; k < E.length; k++) if (!spare[k] && (q.sim.findCar(E[k])?.train.speed ?? 0) >= 1) moving = true;
@@ -241,7 +245,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     }
     return all ? n / all : 0;
   };
-  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, cardLog, stale, flips, turns: sec0.turnedShort + sec0.yielded + sec0.gaveWay - turns0, share, allStill, lineStill, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
+  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, cardLog, stale, flips, turns: sec0.turnedShort + sec0.yielded + sec0.gaveWay - turns0, share, allStill, lineStill, goodsAt, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
 }
 
 describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
@@ -953,25 +957,193 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       expect([...r.cards].some((c) => /lay 1 more passing loop for 3 trains/.test(c))).toBe(true);
       expect(loads).toEqual([0, 0, 0]);
     });
+  // The third-train trap (QA's N1 setup): 3 trains on a 1-loop line deliver nothing, wherever one's held (on a loop's
+  // road it takes the loop; elsewhere it's at an end, and both ends are stops). The newest is held, the player's told
+  // once, and its card (and its line's) offers "Put away": back in the box, the other two run.
+  describe("the third-train trap", () => {
+    type Ev = { at: number; fn: (E: readonly number[]) => void };
+    const n1 = (events: (q: Q) => Ev[] = () => [], secs = 300) => {
+      const q = line0({ loops: 1, ends: 2 });
+      const told: string[] = [];
+      q.economy.sections.onFull = (lineId, room, trains, more) => told.push(`${lineId}:${room}/${trains}/${more}`);
+      const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: q.west[1], next: 1, s: 100, at: 30 }], [q.a, q.b], secs, cars, events(q));
+      return { q, r, told };
+    };
+    // (A plain 2-train run on the same line: the rate to match once the third is put away.)
+    const two = () => {
+      const q = line0({ loops: 1, ends: 2 });
+      return scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }], [q.a, q.b], 300, cars);
+    };
+    const goodsIn = (r: ReturnType<typeof scen>, from: number, to: number) => r.goodsAt.filter((t) => t >= from && t < to).length;
+    const held = (q: Q, E: readonly number[]) => E.map((e) => (q.sim.findCar(e) ? (q.economy.sections.heldForRoom(e) ? "held" : "room") : "gone")).join("/");
+
+    it("the newest is held, and stays held: no hand-over moves its hold onto another (laden, where it can't be put away)", () => {
+      const seen: string[] = [];
+      const { q, r } = n1((q) => [35, 60, 120, 200, 299].map((at) => ({ at, fn: (E: readonly number[]) => void seen.push(held(q, E)) })));
+      if (ENV.SHOW) console.log(`TRAP held ${seen.join(" ; ")} goods ${r.goodsAt.length} (after 60 s ${goodsIn(r, 60, 300)})`);
+      // (Nor do the two with room say they're on their way to a stop the held one stands at: they can't reach it.)
+      expect(r.cardLog.filter((x) => x.t > 60 && x.e !== r.E[2] && /^On its way to forest/.test(x.c)).map((x) => x.c)).toEqual([]);
+      expect(seen).toEqual(Array(5).fill("room/room/held"));
+      expect(r.meet).toBe(0);
+      // (Nothing delivers: the trap. The held one's card says lay a loop; the one waiting on it, that the line is full.)
+      expect(goodsIn(r, 60, 300)).toBe(0);
+      const last = (e: number) => r.cardLog.filter((x) => x.e === e).at(-1)!.c;
+      expect(last(r.E[2])).toBe("Waiting: lay 1 more passing loop for 3 trains");
+      expect([...r.cards]).toContain("Waiting: the line is full. Lay 1 more passing loop");
+      // ("Put away" on any of their cards puts the held one away.)
+      for (const e of r.E) expect(q.economy.sections.putAwayFor(e)).toBe(r.E[2]);
+    });
+
+    it("the player's told once a line, with the line's numbers (not again when it's put away and back)", () => {
+      let undo: PutAway | null = null;
+      const { told } = n1(
+        (q) => [
+          { at: 120, fn: (E) => void (undo = putAway(q.sim, q.economy, E[2])) },
+          { at: 120 + 1 / SIM_HZ, fn: () => void expect(undo!.restore()).toBe(true) },
+        ],
+        160,
+      );
+      expect(told).toEqual(["1:2/3/1"]);
+    });
+
+    // (QA's notes on 688c4b6: after a reload, the oldest train was held instead (the room worked out afresh, by where they
+    // stand), and the player was told again. A save keeps each engine's place on its line, and that it was told.)
+    it("after a reload, the same train stays held, and the player isn't told again", () => {
+      const { q, r, told } = n1(() => [], 120);
+      expect(told).toHaveLength(1);
+      expect(held(q, r.E)).toBe("room/room/held");
+      // Reloaded, as `deserializeWorld` puts it back: a fresh sim and economy on the same track, the trains where they
+      // stood (in the order saved), their lines and stops, and what the save keeps of their places.
+      const reload = (keep: boolean, heldIs = 2) => {
+        const sim = new Sim(q.L);
+        const economy = new Economy(q.L, sim);
+        const depots = [...q.economy.allDepots()].map((d) => economy.addDepot(d.role, d.pieceId, d.townId));
+        const told2: string[] = [];
+        economy.sections.onFull = (lineId, room, trains, more) => told2.push(`${lineId}:${room}/${trains}/${more}`);
+        const E2: number[] = [];
+        let lineId = -1;
+        for (const e of r.E) {
+          const t = q.sim.findCar(e)!.train;
+          const placed = sim.addTrain(t.cars.map((c) => c.kind), { ...t.bogies[0] });
+          if (placed.kind !== "placed") throw new Error("not put back");
+          const t2 = sim.getTrain(placed.trainId)!;
+          t2.cars.forEach((c, i) => {
+            if (t.cars[i].facing !== c.facing) sim.flipCar(c.id);
+            if (c.kind === "engine") sim.setLever(c.id, t.cars[i].lever);
+          });
+          const e2 = t2.cars.find((c) => c.kind === "engine")!.id;
+          E2.push(e2);
+          const route = q.economy.routeOf(e)!;
+          if (lineId === -1) lineId = editLine(economy, e2, (st) => st.push(...route.stops.map((x) => ({ depotId: depots[x.depotId].id, action: "auto" as const }))))!.id;
+          else joinLine(economy, e2, lineId);
+          economy.routeOf(e2)!.next = route.next;
+          // (`heldIs` other than the one held: the save says so, and it's the save that decides, not where they stand.)
+          const k = E2.length - 1;
+          const place = heldIs === 2 ? q.economy.sections.savedPlace(e) : { joined: k === heldIs ? 99 : k + 1, held: k === heldIs };
+          if (keep) economy.sections.restorePlace(e2, lineId, place);
+        }
+        if (keep && q.economy.sections.toldFullOn(q.economy.lineIdOf.get(r.E[0])!)) economy.sections.markToldFull(lineId);
+        economy.sections.restored();
+        const seen: string[] = [];
+        for (let i = 0; i < 60 * SIM_HZ; i++) {
+          sim.tick();
+          economy.tick();
+          if (i % (10 * SIM_HZ) === 0) seen.push(held({ sim, economy } as unknown as Q, E2));
+        }
+        return { seen, told2 };
+      };
+      const kept = reload(true);
+      expect(kept.seen).toEqual(Array(6).fill("room/room/held"));
+      expect(kept.told2).toEqual([]);
+      // (The first one saved as the one held, say, it stays held: the room isn't worked out afresh by where they stand.)
+      expect(reload(true, 0).seen).toEqual(Array(6).fill("held/room/room"));
+      // (Without what the save keeps, as before: another train held, and the player told again.)
+      const lost = reload(false);
+      if (ENV.SHOW) console.log(`RELOAD kept ${kept.seen.join(" ; ")} lost ${lost.seen.join(" ; ")} told ${lost.told2.join(",")}`);
+      expect(lost.seen[0] !== "room/room/held" || lost.told2.length > 0).toBe(true);
+    });
+
+    it("Put away: the held train goes back in the box, the line counts 2, and the other two deliver as two trains do", () => {
+      const base = two();
+      let gone = false;
+      const { q, r } = n1((q) => [
+        {
+          at: 90,
+          fn: (E) => {
+            const e = q.economy.sections.putAwayFor(E[0]);
+            expect(e).toBe(E[2]);
+            gone = putAway(q.sim, q.economy, e) !== null;
+          },
+        },
+      ]);
+      expect(gone).toBe(true);
+      expect(q.sim.findCar(r.E[2])).toBeUndefined();
+      expect(q.economy.lineIdOf.has(r.E[2])).toBe(false);
+      expect(q.economy.lineIdOf.size).toBe(2);
+      // (Over 150 s from the start, and from the put-away: the sawmill fills after some 24 loads, here and there.)
+      const after = goodsIn(r, 90, 240);
+      const plain = goodsIn(base, 0, 150);
+      if (ENV.SHOW) console.log(`TRAP put away at 90 s: goods 90-240 s ${after} (a plain 2-train run, 0-150 s: ${plain}); 60-90 s, before it: ${goodsIn(r, 60, 90)}; goods at ${r.goodsAt.map((t) => t.toFixed(0)).join(",")} plain at ${base.goodsAt.map((t) => t.toFixed(0)).join(",")}`);
+      expect(after).toBeGreaterThanOrEqual(plain);
+      expect(r.meet).toBe(0);
+    });
+
+    it("undo brings it back where it stood, on its line, held again", () => {
+      let undo: PutAway | null = null;
+      const states: string[] = [];
+      const { q, r } = n1(
+        (q) => [
+          { at: 90, fn: (E) => void (undo = putAway(q.sim, q.economy, E[2])) },
+          { at: 90 + 1 / SIM_HZ, fn: (E) => void states.push(held(q, E)) },
+          { at: 90 + 2 / SIM_HZ, fn: () => void expect(undo!.restore()).toBe(true) },
+          { at: 100, fn: (E) => void states.push(held(q, E)) },
+        ],
+        110,
+      );
+      expect(states).toEqual(["room/room/gone", "room/room/held"]);
+      expect(q.economy.lineIdOf.get(r.E[2])).toBe(q.economy.lineIdOf.get(r.E[0]));
+      expect(r.meet).toBe(0);
+    });
+  });
   // Fix 2's case, built directly: no passing place (the loop pinned to one road both ways), the working train standing
-  // at its end of the line, a second put down right in front of it on the single track. Held for room where it
-  // stood, it blocked the working train, which had nowhere to turn: it waited on it for good. Held by rule, not by
-  // the track, the second takes the room and runs; the first is held where it stands, clear of its way.
+  // at its end of the line, a second put down right in front of it on the single track, held for room where it
+  // stands. 7034c25 handed the second the room and held the first: the second ran (13 arrivals) but delivered nothing,
+  // the first held at the forest's end in its way. The hand-over is kept only where it lets a train deliver, so here
+  // the newest stays held (the third-train trap): the cards say what to do (unpin), and "Put away" puts the second
+  // away; then the first runs and delivers. (Game Mode's pinned harness, seeds 2027, 3, 1, 5: as on main.)
   for (const onLoop of [false, true])
-    it(`held train in front of the working one at its line end (${onLoop ? "on the pinned loop" : "just past the end"}): no lock-up`, () => {
+    it(`held train in front of the working one at its line end (${onLoop ? "on the pinned loop" : "just past the end"}): the card says what to do, Put away frees it`, () => {
       const q = line0({ loops: 1, ends: 2 });
       const l = q.loops[0];
       pin(q, l, ["main", "main"]);
       const t0 = q.sim.ticks / SIM_HZ;
       const ahead = onLoop ? [l.main[0], l.main[1]] : [q.west[q.west.length - 1]];
+      let away = -1;
       const r = show(
         `held in front ${onLoop}`,
-        scen(q, [{ p: q.west[0], next: 1, s: 100, rev: true }, { p: ahead[0], ps: ahead, ss: [60, 100, 140], next: 1, s: 100, when: () => q.sim.ticks / SIM_HZ >= t0 + 1 }], [q.a, q.b], 300, cars),
+        scen(q, [{ p: q.west[0], next: 1, s: 100, rev: true }, { p: ahead[0], ps: ahead, ss: [60, 100, 140], next: 1, s: 100, when: () => q.sim.ticks / SIM_HZ >= t0 + 1 }], [q.a, q.b], 300, cars, [
+          ...(ENV.SHOW ? [1.5, 2, 3, 5, 10, 30, 60, 99].map((at) => ({ at, fn: (E: readonly number[]) => console.log(`INFRONT ${onLoop} t${at}: ${E.map((e) => `e${e} ${q.economy.sections.heldForRoom(e) ? "held" : "room"} @${[...new Set(q.sim.findCar(e)!.train.bogies.map((b) => b.pieceId))].join("+")} ${JSON.stringify(q.economy.sectionWait(e))}`).join(" ; ")}`) })) : []),
+          {
+            at: 100,
+            fn: (E) => {
+              away = q.economy.sections.putAwayFor(E[0]);
+              if (away !== -1) putAway(q.sim, q.economy, away);
+            },
+          },
+        ]),
       );
-      if (ENV.SHOW) console.log(`INFRONT ${onLoop}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} put ${r.whenAt} swapped ${q.economy.sections.swapped}`);
+      const after = r.E.map((e) => r.arrAt.filter((x) => x.e === e && x.t >= 100).length);
+      if (ENV.SHOW) console.log(`INFRONT ${onLoop}: ${r.arrivals.join("/")} after 100 s ${after.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} put ${r.whenAt} away ${away} cards ${[...r.cards].filter((c) => /pin|lay|full/.test(c)).join(" | ")}`);
       expect(r.E.length).toBe(2);
       expect(r.meet).toBe(0);
-      expect(r.allStill).toBeLessThan(60);
-      expect(r.arrivals.some((a) => a > 5)).toBe(true);
+      // (The one put down last is held, and put away; the other runs after. On the loop it stands across a switch, in
+      // a section: held there it would block the single track, so the first is held instead, and put away.)
+      expect(away).toBe(onLoop ? r.E[0] : r.E[1]);
+      expect(after[onLoop ? 1 : 0]).toBeGreaterThan(3);
+      // (And delivers: loads unloaded after the put-away. Before it, none either way.)
+      expect(r.goodsAt.filter((t) => t > 100).length).toBeGreaterThan(3);
+      expect(r.goodsAt.filter((t) => t > 30 && t < 100).length).toBe(0);
+      // (Before it's put away, the cards say what to do: unpin, or for the one put down, the same.)
+      expect([...r.cards].some((c) => c.endsWith("unpin the passing loop's switches so trains can pass"))).toBe(true);
     });
 });
