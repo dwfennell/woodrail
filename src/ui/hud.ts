@@ -1852,8 +1852,45 @@ export class Hud {
     // Wherever it went, clear of the tray (QA, 667x375: a three-line toast beside a docked card reached 2 px into it).
     const t = this.toastEl;
     const floor = this.toastFloor();
-    if (t.offsetTop + t.offsetHeight > floor) t.style.top = `${Math.max(8, Math.round(floor - t.offsetHeight))}px`;
+    if (t.offsetTop + t.offsetHeight > floor) t.style.top = `${Math.max(this.toastAbove, Math.round(floor - t.offsetHeight))}px`;
     return true;
+  }
+
+  /** How high the tray's clamp may lift the toast: clear of the goals it was put under (see `fitToast`). */
+  private toastAbove = 8;
+
+  /**
+   * In the room left of a docked card (`card`), down to `floor`: the highest place clear of what's pinned under the
+   * top bar (the goals: below them or beside them), at the width it has there, else narrower a step at a time down to
+   * 200 px (more lines). False if none: it's left as it was. A few layouts, as it shows.
+   */
+  private besideNarrower(card: DOMRect, floor: number): boolean {
+    const t = this.toastEl;
+    const was = [t.style.left, t.style.top, t.style.maxWidth];
+    const pinned = [...this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")]
+      .filter((p) => !p.hidden && p.offsetParent !== null && getComputedStyle(p).visibility !== "hidden")
+      .map((p) => p.getBoundingClientRect())
+      .filter((q) => q.width > 0)
+      // (8 px kept from them, as under them: `clearSpot` keeps 4 of its own.)
+      .map((q) => ({ left: q.left - 4, top: q.top - 4, right: q.right + 4, bottom: q.bottom + 4 }));
+    t.style.top = t.style.left = "";
+    const area = { left: 0, right: card.left - 8, top: t.offsetTop, bottom: floor };
+    const widest = Math.round(card.left - 24);
+    const widths: number[] = [];
+    for (let w = widest; w > 200 && widths.length < 6; w *= 0.85) widths.push(Math.round(w));
+    widths.push(200);
+    for (const width of widths) {
+      t.style.maxWidth = `${width}px`;
+      const spot = clearSpot(pinned, t.offsetWidth, t.offsetHeight, area);
+      if (spot) {
+        t.style.left = `${spot.x}px`;
+        t.style.top = `${spot.top}px`;
+        this.toastAbove = spot.top;
+        return true;
+      }
+    }
+    [t.style.left, t.style.top, t.style.maxWidth] = was;
+    return false;
   }
 
   /**
@@ -1918,6 +1955,7 @@ export class Hud {
     const t = this.toastEl;
     t.textContent = message;
     t.style.top = t.style.left = t.style.maxWidth = "";
+    this.toastAbove = 8;
     let r = t.getBoundingClientRect();
     const cardEls = [...this.root.querySelectorAll<HTMLElement>(".card")].filter((c) => !c.hidden && c.offsetParent !== null && !c.classList.contains("group"));
     const cards = cardEls.map((c) => c.getBoundingClientRect());
@@ -1943,6 +1981,8 @@ export class Hud {
         t.style.top = `${Math.round(below + 22)}px`;
         r = t.getBoundingClientRect();
       }
+      // (The tray's clamp never lifts it back into them: QA, a toast over a docked card went up into the goals pill.)
+      this.toastAbove = below > 0 ? below + 8 : 8;
       return below;
     };
     const below = underPinned();
@@ -1955,8 +1995,11 @@ export class Hud {
         t.style.top = `${Math.round(floor - t.offsetHeight)}px`;
         return true;
       }
-      // Too tall for the room beside the card (QA, 667 wide: six lines, pushed up off the tray over the goals and the
-      // date): over the card instead, where it covers none of its controls if it can (see `overCard`).
+      // Narrower, more lines, anywhere in the room left of the card clear of the goals (beside them too), down to
+      // 200 px (QA: three lines at 740x360 went over the card's Go).
+      if (this.besideNarrower(beside, floor)) return true;
+      // Nowhere there (QA, 667 wide: six lines, pushed up off the tray over the goals and the date): over the card
+      // instead, where it covers none of its controls if it can (see `overCard`).
       this.overCard(cardEls[cards.indexOf(beside)], beside, below);
       return true;
     }
