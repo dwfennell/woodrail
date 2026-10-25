@@ -1,8 +1,9 @@
 import { CARGO, CARGO_KINDS, type CargoKind } from "../economy/cargo";
-import { RECIPES, WORKSHOP_CAP, type DepotState } from "../economy/economy";
+import { RECIPES, WORKSHOP_CAP, type DepotRole, type DepotState } from "../economy/economy";
 import { covers, kindsOf, minus, total, type Bag } from "../economy/goods";
 import { costTag } from "../ui/cost-tag";
 import type { Progress } from "./progress";
+import { costOf as researchCost } from "./research";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
 import type { World } from "./world";
 
@@ -63,7 +64,8 @@ export const WORKSHOP_SPARE = 7;
 
 /**
  * How many planks the workshop's yard takes while a town later on the line wants them (`Economy.shopKeeps`): its
- * waiting tray order's planks, or `WORKSHOP_SPARE` if more. The rest ride on to the towns.
+ * waiting tray order's planks, or the spare if more (`shopSpare`: the game works it out once a second and passes it
+ * here). The rest ride on to the towns.
  */
 export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
   return Math.max(orderPlanks(p), spare);
@@ -73,7 +75,23 @@ export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
  * Per progress: the most of each good any one thing it knows and hasn't built costs, and what that was worked out
  * from: how many blueprints were learned, and which map's pieces as of which `Layout.piecesVersion`.
  */
-const dearestOf = new WeakMap<Progress, { learned: number; layout: World["layout"] | null; pieces: number; most: Int32Array }>();
+const dearestOf = new WeakMap<Progress, Needs>();
+
+/**
+ * What the workshop may be asked to make, from the things a progress knows and hasn't built (`needsOf`): the most of
+ * each good any one of them costs (`shopNeeds`); and for `shopSpare`, the industries among them, and the goods some
+ * industry on the map makes.
+ */
+interface Needs {
+  learned: number;
+  layout: World["layout"] | null;
+  pieces: number;
+  most: Int32Array;
+  /** Industries known and not built ("piece:depot-…", as their role: "mill"). */
+  industries: readonly DepotRole[];
+  /** Goods some industry on the map makes (`RECIPES[role].gives`), the map's own included. */
+  made: ReadonlySet<CargoKind>;
+}
 
 /**
  * Of the piece types in `types`, those the player has standing on `world`'s map: placed, or an old one restored
@@ -110,31 +128,83 @@ function builtOf(world: Pick<World, "layout" | "depots">, types: ReadonlySet<str
  * (`Layout.piecesVersion`: a miss is one pass over the pieces); the orders are a few, read each time.
  */
 export function shopNeeds(p: Progress, kind: CargoKind, world?: Pick<World, "layout" | "depots">, yardCap = WORKSHOP_CAP): number {
-  let c = dearestOf.get(p);
-  const layout = world?.layout ?? null;
-  const pieces = layout?.piecesVersion ?? 0;
-  if (!c || c.learned !== p.learned.size || c.layout !== layout || c.pieces !== pieces) {
-    const known: ThingId[] = [];
-    const types = new Set<string>();
-    for (const id of Object.keys(THING_RULES) as ThingId[]) {
-      if (!p.knows(id) || isFree(id) || total(THING_RULES[id]!.cost) === 0) continue;
-      known.push(id);
-      if (id.startsWith("piece:")) types.add(id.slice("piece:".length));
-    }
-    const built = world && types.size > 0 ? builtOf(world, types) : null;
-    const most = new Int32Array(CARGO_KINDS.length);
-    for (const id of known) {
-      if (id.startsWith("piece:") && built?.has(id.slice("piece:".length))) continue;
-      const cost = THING_RULES[id]!.cost;
-      for (const k of kindsOf(cost)) most[CARGO[k].index] = Math.max(most[CARGO[k].index], cost[k]!);
-    }
-    c = { learned: p.learned.size, layout, pieces, most };
-    dearestOf.set(p, c);
-  }
+  const c = needsOf(p, world);
   let ordered = 0;
   // (The order being made has had its goods taken already.)
   for (let i = p.making ? 1 : 0; i < p.orders.length; i++) ordered += THING_RULES[p.orders[i]]?.cost[kind] ?? 0;
   return Math.min(yardCap, Math.max(c.most[CARGO[kind].index], ordered));
+}
+
+/** The things `p` knows and hasn't built on `world`'s map, as `shopNeeds` and `shopSpare` read them (cached: see there). */
+function needsOf(p: Progress, world?: Pick<World, "layout" | "depots">): Needs {
+  const c = dearestOf.get(p);
+  const layout = world?.layout ?? null;
+  const pieces = layout?.piecesVersion ?? 0;
+  if (c && c.learned === p.learned.size && c.layout === layout && c.pieces === pieces) return c;
+  const known: ThingId[] = [];
+  const types = new Set<string>();
+  for (const id of Object.keys(THING_RULES) as ThingId[]) {
+    if (!p.knows(id) || isFree(id) || total(THING_RULES[id]!.cost) === 0) continue;
+    known.push(id);
+    if (id.startsWith("piece:")) types.add(id.slice("piece:".length));
+  }
+  const built = world && types.size > 0 ? builtOf(world, types) : null;
+  const most = new Int32Array(CARGO_KINDS.length);
+  const industries: DepotRole[] = [];
+  for (const id of known) {
+    if (id.startsWith("piece:") && built?.has(id.slice("piece:".length))) continue;
+    const cost = THING_RULES[id]!.cost;
+    for (const k of kindsOf(cost)) most[CARGO[k].index] = Math.max(most[CARGO[k].index], cost[k]!);
+    if (id.startsWith(DEPOT) && RECIPES[id.slice(DEPOT.length) as DepotRole]) industries.push(id.slice(DEPOT.length) as DepotRole);
+  }
+  const made = new Set<CargoKind>();
+  if (layout) {
+    for (const pid of layout.pieceIds()) {
+      const type = layout.getPiece(pid)!.type;
+      if (type.startsWith("depot-")) for (const k of RECIPES[type.slice("depot-".length) as DepotRole]?.gives ?? []) made.add(k);
+    }
+  }
+  const out: Needs = { learned: p.learned.size, layout, pieces, most, industries, made };
+  dearestOf.set(p, out);
+  return out;
+}
+
+const DEPOT = "piece:depot-";
+
+/** Per progress: the last spare worked out (`shopSpare`), and from what. */
+const spareOf = new WeakMap<Progress, { needs: Needs; key: string; out: { planks: number; for: ThingId | null } }>();
+
+/**
+ * The planks the workshop's yard keeps with no order waiting while a town ahead wants them (`yardKeeps`): `spare`
+ * (`WORKSHOP_SPARE`), or enough for the next industry if that costs more, no more than `yardCap`. `for`: that industry
+ * (null: just the spare). The next industry is one the player knows and hasn't built (as `shopNeeds` has it) that
+ *  - the current goal points at (`goal`: the GoalTracker's current goal's id, "Open a mine" → the mine), or
+ *  - research is waiting on: the research being done (or up next, with none being done) costs a good no industry on
+ *    the map makes, and this one would (Quarries' flour → the mill).
+ * The cheapest of those, if two. Nothing else raises it: no railway kit, no car. (QA: the mill costs 8; a player who
+ * didn't order it sat one plank short for most of an hour while the rest rode on to the towns. Raised for anything
+ * known and unbuilt, the yard held a plank more for the rest of the game for station kits the player never built, and
+ * a town went 54 minutes without planks in the balance play-through.)
+ * Cached by its inputs (blueprints learned, the map's pieces, the goal, the research): the game asks once a second.
+ */
+export function shopSpare(p: Progress, world?: Pick<World, "layout" | "depots">, goal: string | null = null, spare = WORKSHOP_SPARE, yardCap = WORKSHOP_CAP): { planks: number; for: ThingId | null } {
+  const needs = needsOf(p, world);
+  const research = p.research.current ?? p.research.next;
+  const key = `${goal ?? ""}|${research ?? ""}|${spare}|${yardCap}`;
+  const c = spareOf.get(p);
+  if (c && c.needs === needs && c.key === key) return c.out;
+  const wanted = new Set<DepotRole>();
+  if (goal?.startsWith("open-")) wanted.add(goal.slice("open-".length) as DepotRole);
+  const lacks = research ? kindsOf(researchCost(research).goods).filter((k) => !needs.made.has(k)) : [];
+  for (const role of lacks.length > 0 ? needs.industries : []) if (RECIPES[role].gives.some((k) => lacks.includes(k))) wanted.add(role);
+  let out: { planks: number; for: ThingId | null } = { planks: Math.min(spare, yardCap), for: null };
+  for (const role of needs.industries) {
+    const id = `${DEPOT}${role}` as ThingId;
+    const planks = THING_RULES[id]?.cost.planks ?? 0;
+    if (wanted.has(role) && planks > spare && (out.for === null || planks < out.planks)) out = { planks: Math.min(planks, yardCap), for: id };
+  }
+  spareOf.set(p, { needs, key, out });
+  return out;
 }
 
 /**
