@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { loadFootprints } from "../props/footprints-testing";
+import type { Footprint } from "../props/placement";
 import { townProps } from "../props/towns";
 import { CITY_SCHOOL_ID } from "./blueprints";
 import { TECHS } from "./tech";
@@ -11,8 +13,16 @@ import { TownLife, type TownLifeHost } from "./town-life";
 import { townStatus } from "./towns";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 
+/** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
+
 function life(w: World) {
-  const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+  const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
   const grew: string[] = [];
   const town = new TownLife(host, { grew: (t, s) => grew.push(`${t.name} ${s.name}`), received: () => {} });
   town.reset();
