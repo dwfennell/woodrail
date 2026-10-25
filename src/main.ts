@@ -3,11 +3,11 @@ import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
-import { Game, type GameWorld } from "./game/game";
+import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
-import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
+import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
@@ -31,13 +31,13 @@ import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapFramePoints, mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, owedText, shopOwes, shopOwing, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
-import { rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
+import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
@@ -46,6 +46,7 @@ import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, point
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
+import { canContinue, continueOn } from "./game/continue-on";
 import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
@@ -390,6 +391,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       removeTrain: () => interaction.removeSelectedTrain(),
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
+      continueOn: () => continueTrain(),
       decouple: () => decouple(),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
@@ -786,10 +788,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!site || site.cleared || mode !== "game") return;
     interaction.clearSelection();
     ruinShown = siteId;
-    hud.showRuinCard(ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)));
+    hud.showRuinCard({ ...ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)), reach: canReach(siteId) ? null : RUIN_NO_WAY });
     audio.tap();
   }
   interaction.onRuinTap = openRuin;
+
+  /**
+   * Can track be laid to this ruin from the line (`trackCanReach`: a flood fill of the land)? Worked out as its card
+   * opens, and again only when the land or the pieces have changed since.
+   */
+  let reachShown = { key: "", yes: true };
+  function canReach(siteId: number): boolean {
+    const key = `${siteId}:${game.landscape.grid.revision}:${game.layout.piecesVersion}`;
+    if (key !== reachShown.key) reachShown = { key, yes: trackCanReach(game.world, siteId) };
+    return reachShown.yes;
+  }
 
   /** Can this ruin (a site of the map shown) be restored now (its card offers Restore)? Kept till a blueprint is learned. */
   const restorable = new WeakMap<object, { learned: number; yes: boolean }>();
@@ -863,7 +876,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     ruinShown = -1;
     hud.hideCards();
     console.info(`Woodrail: ruin restored in ${ms.toFixed(1)} ms (ruins tile rebuilt in ${game.ruinsView.lastBuildMs.toFixed(1)} ms)`);
-    hud.toast(`Old ${site.role} restored! It works again`, true, 2600);
+    // What it makes, what to do next and where its goods go (from the recipes), once; a tap frames it.
+    const at = game.layout.getPiece(done.pieceId)?.pose;
+    const said = restoredText(site.role);
+    hud.toast(said, true, 6000, at ? () => showSpot(yardMiddle(at)) : undefined);
     audio.putdown(true);
     if (mode === "game") {
       hud.refreshTrayBadges();
@@ -887,6 +903,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     journal.add({ kind: "event", text, place });
     goalsPanel.newsChanged();
     hud.toast(text, true, 4200, () => showRuin(site.id));
+  }
+
+  /** Frame a spot and ring it (a tapped toast: an old industry just restored). */
+  function showSpot(at: { x: number; z: number }): void {
+    flyTo({ x: at.x, z: at.z });
+    const i = game.landscape.grid.cellAtWorld(at.x, at.z);
+    const marks = goalMarks(game.scene, [{ x: at.x, y: i < 0 ? 0 : game.landscape.grid.groundY(i), z: at.z }]);
+    if (marks) game.flourishes.add(marks);
+    game.invalidate();
   }
 
   /** Frame a ruin and ring it (a tapped toast: "Old farm by Larkfield can be restored"). */
@@ -1919,7 +1944,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const line = document.createElement("div");
     line.className = "farm-fields";
     const speed = Math.round(rateFor(r.count, r.need) * 100);
-    line.textContent = `Field squares nearby: ${r.count} (works at ${speed}% speed; full speed at ${r.need})`;
+    // (In whole fields, as the player sees them: `amountText`. Short of full speed, how to get there.)
+    line.textContent = `Farm fields nearby: ${amountText(r.rule, r.count)} of ${amountText(r.rule, r.need)} (works at ${speed}% speed)${r.count < r.need ? ". Plant a field to work faster" : ""}`;
     const plant = document.createElement("button");
     plant.className = "chip text farm-plant";
     plant.textContent = `Plant a field · ${costTag({}, price)}`;
@@ -1976,9 +2002,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
   /** What the workshop's yard takes while a town on the line wants planks: its order's, or a few (`yardKeeps`). */
   const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress) : null);
+  /** Stone the workshop takes from trains: only as much as a harbour's price still needs there (`shopOwes`). */
+  const owes = (kind: CargoKind) => shopOwes(game.world, progress, kind);
+  /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid). */
+  let owing = false;
   function updatePlanksKept(): void {
     game.economy.reserved = mode === "game" ? keepPlanks : null;
     game.economy.shopKeeps = mode === "game" ? shopKeeps : null;
+    game.economy.owes = mode === "game" ? owes : null;
+    const owingNow = mode === "game" && shopOwing(game.world, progress);
+    if (owingNow !== owing) {
+      owing = owingNow;
+      game.economy.acceptsChanged();
+    }
     if (mode !== "game" || workshops(game.world).length === 0) {
       planksKept = false;
       return;
@@ -2184,7 +2220,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         queued: progress.orders.filter((o) => o === tid).length,
         shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : RAILWAY_THINGS.has(tid) ? "Railway" : "Track",
         // A second engine before Signals: said, not barred (on a line of its own it runs fine).
-        note: makeNote(progress, tid),
+        // (A harbour's stone: where it goes, "Needs 10🪨 at the workshop".)
+        note: makeNote(progress, tid) ?? owedText(rule.cost),
       });
     }
     rows.sort((a, b) => SHELVES.indexOf(a.shelf) - SHELVES.indexOf(b.shelf));
@@ -2246,6 +2283,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // It faces the open way now: Go sends it off engine first.
     hud.setEngineWay(1);
     if (game.following !== carId) keepEngineInView(carId);
+    game.invalidate();
+    onChange();
+  }
+
+  /** Continue (the engine card, at the end of the track): it turns round now and runs on to its next stop. */
+  function continueTrain(): void {
+    const carId = interaction.openEngineCarId;
+    if (carId === -1) return;
+    const r = continueOn(game.sim, game.economy, carId);
+    if (r === "no-room") return hud.toast("No room to turn the train round here", false, 2500);
+    if (r !== "continued") return;
+    hud.setContinue(false);
+    const found = game.sim.findCar(carId);
+    if (found) hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     game.invalidate();
     onChange();
   }
@@ -2325,6 +2376,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
     // Held at its stop for spacing: one tap ("Go now") sends it on.
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
+    // Waiting to turn back where the track ends: Continue sends it on now.
+    hud.setContinue(canContinue(game.sim, game.economy, carId));
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go
@@ -3074,6 +3127,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     mapReturn = { target: c.target.clone(), distance: sph.radius, phi: sph.phi, theta: sph.theta };
     mapView.setOpen(true);
     hud.setMapOpen(true);
+    game.steepAllowed = true;
     // Every place marked on the player's land (its ruins too), fitted between the map's bars (where the labels and badges
     // go), as far out as the camera may go: on a big map they can't all be, and a drag pans to the rest (QA: on 22 plots
     // the view sat on the land's middle, the bars not allowed for, and no harbour on the coast was in view).
@@ -3092,9 +3146,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!mapView.open) return;
     mapView.setOpen(false);
     hud.setMapOpen(false);
+    game.steepAllowed = false;
     if (back && mapReturn) {
       const r = mapReturn;
       game.director.glideTo(r.target, r.distance, { phi: r.phi, theta: r.theta, duration: 0.9 });
+    } else if (!game.director.busy) {
+      // Left where the map looked (nearly straight down): eased up to the pitch cap, not snapped there by the controls.
+      const sph = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
+      if (sph.phi < MIN_PITCH) game.director.glideTo(game.controls.target.clone(), sph.radius, { phi: MIN_PITCH, duration: 0.5 });
     }
     mapReturn = null;
     game.invalidate();
@@ -3734,7 +3793,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, trayThumbnailsSaved: () => trayThumbnailsSaved });
   if (cloud) {
     const card = new CloudCard(hud.root, cloud, {
       mode: () => mode,

@@ -1,12 +1,22 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FEAT_BUILDING, FEAT_NONE, SURF_ROAD, type Landscape } from "../landscape";
 import { LandEditor } from "../landscape/edit";
 import { scaleOf } from "../catalogue/scale";
+import { loadFootprints } from "../props/footprints-testing";
+import type { Footprint } from "../props/placement";
 import { fitScale, fitsLot, townModels, townProps } from "../props/towns";
 import { appendPiece, connectorRef } from "../track";
 import { LANDMARKS } from "./landmarks";
 import { growToCity, noRoomForBlocks } from "./town-testing";
 import { buildStarterWorld } from "./world";
+
+/** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
 
 /** Is this a 2×2 block of squares with a street along one side? */
 function isBlock(land: Landscape, cells: readonly number[]): boolean {
@@ -26,7 +36,7 @@ describe("big landmarks on 2×2 lots", () => {
   it("a city grows its market on a 2×2 block facing a street, with its own model", () => {
     const w = buildStarterWorld();
     const t = w.landscape.towns[0];
-    growToCity(w, t);
+    growToCity(w, t, footprintOf);
     const props = townProps(w.landscape, t);
     for (const id of ["market"]) {
       const b = t.buildings.find((x) => x.landmark === id)!;
@@ -43,7 +53,7 @@ describe("big landmarks on 2×2 lots", () => {
       const w = buildStarterWorld();
       noRoomForBlocks(w.landscape);
       const t = w.landscape.towns[k];
-      growToCity(w, t);
+      growToCity(w, t, footprintOf);
       vi.restoreAllMocks();
       const props = townProps(w.landscape, t);
       for (const id of ["market"]) {
@@ -67,10 +77,10 @@ describe("big landmarks on 2×2 lots", () => {
     let blocks = 0;
     for (const k of [0, 1, 2]) {
       const a = buildStarterWorld();
-      const withBlocks = growToCity(a, a.landscape.towns[k]);
+      const withBlocks = growToCity(a, a.landscape.towns[k], footprintOf);
       const b = buildStarterWorld();
       noRoomForBlocks(b.landscape);
-      const without = growToCity(b, b.landscape.towns[k]);
+      const without = growToCity(b, b.landscape.towns[k], footprintOf);
       vi.restoreAllMocks();
       expect(withBlocks.levels).toEqual(without.levels);
       expect(withBlocks.buildings, a.landscape.towns[k].name).toEqual(without.buildings);
@@ -87,7 +97,7 @@ describe("big landmarks on 2×2 lots", () => {
       let last = w.stations.get(town.id)!;
       for (let i = 0; i < 4; i++) last = appendPiece(w.layout, "straight-216", false, connectorRef(last, 0));
     }
-    for (const town of land.towns) growToCity(w, town);
+    for (const town of land.towns) growToCity(w, town, footprintOf);
     const g = land.grid;
     let blocks = 0;
     for (const town of land.towns) {

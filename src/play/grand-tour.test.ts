@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
+import { loadFootprints } from "../props/footprints-testing";
+import type { Footprint } from "../props/placement";
 import { CARGO } from "../economy";
 import { describe as describeGoods } from "../economy/goods";
 import { siteWhy, updateRates } from "../game/industries";
@@ -32,6 +34,14 @@ import { endOn, rulesFor } from "./rules";
  * workshop and the board are the main playthrough's), and pieces aren't drawn from the toy box.
  */
 
+/** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
+
 const minutes = (ticks: number) => (ticks / SIM_HZ / 60).toFixed(1);
 const peg = { x: 0, z: 0, heading: 0, y: 0, kind: "peg" as const };
 
@@ -60,7 +70,7 @@ class Tour {
     this.w = w;
     this.fixed = fixedPieces(w);
     this.editor = new Editor(w.layout, w.sim, () => {}, (id) => this.fixed.has(id));
-    const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+    const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     this.town = new TownLife(host, {
       received: (t, kind, n, before) => {
         const paid = payDelivery(this.progress, kind, n, before, t);

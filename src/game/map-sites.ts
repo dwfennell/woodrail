@@ -31,9 +31,10 @@ import {
 } from "../landscape";
 import { rng } from "../lib/rng";
 import { waterWay } from "./harbours";
-import { resourceAt, SITE_RULES, yardMiddle } from "./industries";
+import { amountText, resourceAt, SITE_RULES, yardMiddle } from "./industries";
 import type { GameMode } from "./modes";
 import { techOf } from "./tech";
+import { owedText } from "./crafting";
 import { THING_RULES } from "./things";
 import { COIN_ICON } from "../economy/cargo";
 import { kindsOf, type Bag } from "../economy/goods";
@@ -637,7 +638,7 @@ export function siteBlueprint(role: SiteRole): { id: string; label: string } | n
 export interface RuinCard {
   /** "Old farm". */
   title: string;
-  /** "🌾 Farm fields nearby: 8 of 8". */
+  /** "🌾 Farm fields nearby: 2 of 2" (whole fields: `amountText`). */
   resource: string;
   /**
    * What opens it: "🔒 Learn Farming at a school to open this farm", or once that's learned (and in Sandbox) what
@@ -670,12 +671,15 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   const r = resourceAt(land, site.role, site.piece);
   const res = RESOURCE[site.role];
   // (All it needs: "8 of 8", however many more there are.)
-  const resource = r ? `${res.icon} ${res.what} nearby: ${Math.min(r.count, r.need)} of ${r.need}` : "";
+  // (A farm's in whole fields, "2 of 2", as the player sees them: not squares, "8 of 8", beside two fields.)
+  const resource = r ? `${res.icon} ${res.what} nearby: ${amountText(r.rule, Math.min(r.count, r.need))} of ${amountText(r.rule, r.need)}` : "";
   const bp = siteBlueprint(site.role);
   const open = mode === "sandbox" || !bp || learned(bp.id);
   const fresh = THING_RULES[`piece:${restoredType(site.role)}`]?.label.toLowerCase() ?? name;
   const price = restorePrice(site.role);
   const priced = mode === "game" ? costTag(price.goods, price.coins) : "";
+  // (Stone, which a workshop takes only while a price like this needs it: where to bring it, "Needs 5🪨 at the workshop".)
+  const owed = mode === "game" ? owedText(price.goods) : null;
   // (A harbour whose water no longer leads off the land or out to sea: a river one in an old save, its river ending in
   // land bought since. New harbour sites are only where the sea is reached, which buying land can't cut. Restore would
   // fail, so the card says why instead of offering it.)
@@ -683,7 +687,7 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   return {
     title: `Old ${name}`,
     resource,
-    status: !open ? `🔒 Learn ${bp!.label} at a school to open this ${name}` : stranded ? HARBOUR_STRANDED : mode === "game" ? `🔧 ${RESTORE_SHARE === 0.5 ? "Half the price of" : "Cheaper than"} a new ${fresh}` : `🔧 Restore it to work again`,
+    status: !open ? `🔒 Learn ${bp!.label} at a school to open this ${name}` : stranded ? HARBOUR_STRANDED : mode === "game" ? `🔧 ${RESTORE_SHARE === 0.5 ? "Half the price of" : "Cheaper than"} a new ${fresh}${owed ? `. ${owed}` : ""}` : `🔧 Restore it to work again`,
     open,
     restore: open && !stranded ? (priced ? `Restore · ${priced}` : "Restore") : null,
     own: mode === "game" ? "Or build your own anywhere from the Industries tab." : null,

@@ -2421,7 +2421,12 @@ export class Interaction {
       this.hud.updateDepotCard(r.piles, d.auto, null, r.note, !!r.idle);
       return;
     }
-    let piles = pilesOf(d.role).map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
+    const owed = RECIPES[d.role].owed;
+    const economy = this.game.economy;
+    // (A workshop's stone, taken only while a price needs it: listed while it holds some or some is owed.)
+    let piles = pilesOf(d.role)
+      .filter((kind) => !owed?.includes(kind) || d.piles[CARGO[kind].index] > 0 || (economy.owes?.(kind) ?? 0) > 0)
+      .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;

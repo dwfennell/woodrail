@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { CARGO } from "../economy/cargo";
 import { describe as describeGoods } from "../economy/goods";
@@ -17,6 +17,8 @@ import { rng } from "../lib/rng";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { SIM_HZ, type CarKind } from "../sim";
 import { looseHeight } from "../landscape";
+import { loadFootprints } from "../props/footprints-testing";
+import type { Footprint } from "../props/placement";
 import { connectorRef, getPieceDef, type PieceTypeId } from "../track";
 import { play, type Blocked } from "./player";
 import { endOn, layOn, rulesFor, schoolOn } from "./rules";
@@ -29,9 +31,17 @@ import { endOn, layOn, rulesFor, schoolOn } from "./rules";
  * The log it keeps is the report.
  */
 
+/** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
+
 /** The headless stand-in for the Game: the world, and nothing to redraw. */
 function hostFor(w: World): TownLifeHost {
-  return Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+  return Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
 }
 
 const minutes = (ticks: number) => (ticks / SIM_HZ / 60).toFixed(1);

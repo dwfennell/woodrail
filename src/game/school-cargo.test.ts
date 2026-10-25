@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { Economy, SCHOOL_SHARE, type DepotState } from "../economy/economy";
+import { loadFootprints } from "../props/footprints-testing";
+import type { Footprint } from "../props/placement";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
 import { Layout, type PieceTypeId } from "../track";
 import { Progress } from "./progress";
@@ -8,6 +10,14 @@ import { WORKSHOP_SPARE, yardKeeps } from "./crafting";
 import { attachResearch, lacking, pick } from "./research";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { buildStarterWorld } from "./world";
+
+/** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
 
 /**
  * A line along +x of the given pieces, with a train of an engine and three flatbeds of 3 planks each on the first two
@@ -351,7 +361,7 @@ describe("Game mode's say in what a school takes", () => {
   it("TownLife's accepts asks the research, a lookup per good", () => {
     const w = buildStarterWorld();
     const p = researching("switches");
-    const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+    const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     new TownLife(host, { grew: () => {}, received: () => {}, school: (kind) => lacking(p, kind) > 0 }).reset();
     const school = w.economy.addDepot("school", w.layout.addPiece("depot-school", { x: 5000, z: 5000, heading: 0 }));
     expect(w.economy.accepts!(school, "planks")).toBe(true);

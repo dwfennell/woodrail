@@ -109,6 +109,12 @@ const KEY_TURN_SPEED = 1.6;
 /** R / F tilting speed (radians per second), and the most top-down it goes (as a finger tilt). */
 const KEY_TILT_SPEED = 0.8;
 const KEY_TILT_MIN = 0.12;
+/**
+ * The steepest a player may tilt the view (polar angle from straight down). Nearer top-down, trees and buildings at the
+ * screen's top edge drew 1.5-2x their length in the middle and those at the bottom 0.15-0.33x, leaning and squashed
+ * (QA, a phone held upright); at this, 1.33x and 0.53x. The map view and the director's glides may go steeper.
+ */
+export const MIN_PITCH = 0.45;
 
 /** Is the user typing into a text field (where keys aren't for the game)? */
 function isTyping(target: EventTarget | null): boolean {
@@ -289,6 +295,14 @@ export class Game {
     this.landChanged();
 
     window.addEventListener("resize", () => this.resize());
+    // The canvas's box can change size with no resize event, or one only at the end: iOS Safari's toolbars showing or
+    // going change the viewport it fills. Its drawing then stayed the old size, stretched to the new box: the whole
+    // scene squashed or stretched (QA: "things are taller somehow"). Sized afresh to its real box when that changes.
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => {
+        if (this.canvas.clientWidth !== this.sizedW || this.canvas.clientHeight !== this.sizedH) this.resize();
+      }).observe(this.canvas);
+    }
     // Any input may change what's drawn, and set things easing (a held piece after the finger, a selection).
     for (const type of ["pointerdown", "pointermove", "pointerup", "wheel", "keydown"]) window.addEventListener(type, () => (this.woken = true), { passive: true });
     // WASD / arrow keys pan the view (desktop).
@@ -700,8 +714,17 @@ export class Game {
     return this.followCarId;
   }
 
+  /** The view may look steeper than `MIN_PITCH` (the map view, which looks nearly straight down). */
+  steepAllowed = false;
+
+  /** The canvas box's size the drawing was last sized to (see `resize`). */
+  private sizedW = 0;
+  private sizedH = 0;
+
   resize(): void {
     this.invalidate();
+    this.sizedW = this.canvas.clientWidth;
+    this.sizedH = this.canvas.clientHeight;
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
@@ -825,6 +848,9 @@ export class Game {
     else if (!this.touchCamera.touching) this.touchCamera.gestures.glide(dt);
     this.keyPan(dt);
     this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight, elapsed);
+    // The pitch cap, but not for the map view or a glide (to the map's view, or back from it): the controls would clamp
+    // them every update.
+    this.controls.minPolarAngle = this.steepAllowed || this.director.busy ? 0 : MIN_PITCH;
     this.controls.update(dt);
     // After the controls' own pan, so the view never renders past the mat's edge.
     this.director.constrain();
@@ -1006,7 +1032,7 @@ export class Game {
     const t = this.controls.target;
     this.tiltOffset.subVectors(this.camera.position, t);
     this.tiltSph.setFromVector3(this.tiltOffset);
-    this.tiltSph.phi = Math.min(this.controls.maxPolarAngle, Math.max(KEY_TILT_MIN, this.tiltSph.phi + this.tiltVelocity * dt));
+    this.tiltSph.phi = Math.min(this.controls.maxPolarAngle, Math.max(KEY_TILT_MIN, this.controls.minPolarAngle, this.tiltSph.phi + this.tiltVelocity * dt));
     this.tiltOffset.setFromSpherical(this.tiltSph);
     this.camera.position.copy(t).add(this.tiltOffset);
     this.camera.lookAt(t);

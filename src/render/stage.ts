@@ -70,7 +70,7 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   const sky = buildSky();
   group.add(sky);
 
-  // Light: warm, low late-afternoon sun, soft sky fill.
+  // Light: warm afternoon sun, soft sky fill.
   const sun = new DirectionalLight(new Color("#ffd2a1"), 5.4);
   sun.castShadow = true;
   sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
@@ -96,7 +96,11 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   scene.add(sun.target);
   scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), 0.12));
 
-  const sunDir = { x: 0.72, y: 0.5, z: 0.48 };
+  // From the same side as ever (its bearing over the ground: 0.72, 0.48), 55° up: shadows about 0.7× a thing's height
+  // (it was 30°, 1.7×: trees' shadows reached well past them), long enough that depth still reads.
+  const SUN_ELEVATION = (55 * Math.PI) / 180;
+  const bearing = Math.hypot(0.72, 0.48);
+  const sunDir = { x: (0.72 / bearing) * Math.cos(SUN_ELEVATION), y: Math.sin(SUN_ELEVATION), z: (0.48 / bearing) * Math.cos(SUN_ELEVATION) };
   const shadowFit = { x: 0, z: 0, radius: 2000 };
   const fitShadow = (x: number, z: number, radius: number) => {
     shadowFit.x = x;

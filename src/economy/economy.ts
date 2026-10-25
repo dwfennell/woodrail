@@ -53,6 +53,11 @@ export const KIT_DEPOT_ROLES: readonly KitDepotRole[] = ["loader-log", "loader-g
  */
 export interface Recipe {
   readonly takes: readonly CargoKind[];
+  /**
+   * Goods it takes only while the mode says some are owed (`Economy.owes`), and only as many: a workshop's stone, for
+   * a harbour's price. It keeps a pile of each. None owed (or no mode to say: Sandbox), trains keep them.
+   */
+  readonly owed?: readonly CargoKind[];
   readonly gives: readonly CargoKind[];
   /**
    * One cycle every `seconds` (at rate 1): uses `uses` from its piles, adds `makes` to them. Runs while it has what it
@@ -90,7 +95,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
   town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
-  workshop: { takes: ["planks", "iron"], gives: [], cap: WORKSHOP_CAP },
+  // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
+  // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
+  workshop: { takes: ["planks", "iron"], owed: ["stone"], gives: [], cap: WORKSHOP_CAP },
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
   farm: { takes: [], gives: ["grain"], cycle: { uses: {}, makes: { grain: 1 }, seconds: 12 } },
   mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },
@@ -136,7 +143,7 @@ export function capAt(d: DepotState): number {
 
 export function pilesOf(role: DepotRole): CargoKind[] {
   const r = RECIPES[role];
-  return CARGO_KINDS.filter((k) => r.takes.includes(k) || r.gives.includes(k));
+  return CARGO_KINDS.filter((k) => r.takes.includes(k) || r.gives.includes(k) || !!r.owed?.includes(k));
 }
 
 /**
@@ -635,7 +642,7 @@ export class Economy {
     const r = RECIPES[d.role];
     // A sink the mode has a say in (a school) takes by hand only what it would take from a train: nothing is lost in it.
     if (r.sink && this.intoSink && this.accepts && !this.accepts(d, kind)) return false;
-    return (r.takes.includes(kind) || r.gives.includes(kind)) && d.piles[CARGO[kind].index] < capAt(d);
+    return (this.takesNow(d, kind) || r.gives.includes(kind)) && d.piles[CARGO[kind].index] < capAt(d);
   }
 
   /** Can this car take one more unit of `kind`? */
@@ -732,6 +739,8 @@ export class Economy {
         return;
       }
       d.piles[CARGO[kind].index] = Math.min(capAt(d), d.piles[CARGO[kind].index] + 1);
+      // Less is owed now: what routed lines plan to bring here may have changed.
+      if (RECIPES[d.role].owed?.includes(kind)) this.wantsStamp++;
       if (d.role === "town" && kind === "planks") this.delivered.set(d.townId, (this.delivered.get(d.townId) ?? 0) + 1);
       if (d.role === "town") {
         this.wantsStamp++;
@@ -795,9 +804,15 @@ export class Economy {
     return this.canUnload(d, carId) || this.loadKind(d, carId) !== null || this.waitsForLoad(d, carId);
   }
 
+  /** Does this depot take `kind` now: its recipe's goods, or one it takes only while some is owed (`owes`)? */
+  private takesNow(d: DepotState, kind: CargoKind): boolean {
+    const r = RECIPES[d.role];
+    return r.takes.includes(kind) || (!!r.owed?.includes(kind) && !!this.owes && this.owes(kind) > 0);
+  }
+
   private canUnload(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
-    if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind)) return false;
+    if (c.kind === null || c.count <= 0 || !this.takesNow(d, c.kind)) return false;
     // A halt is for people only: goods trains run through.
     if (this.isHalt(d)) return false;
     // Goods landed here for trains to take away aren't taken back (from any car, nor a car that took them here).
@@ -973,6 +988,7 @@ export class Economy {
       let mask = 0;
       const on = !!d && d.auto && s.action !== "pick" && !!this.layout.getPiece(d.pieceId);
       if (on) for (const k of RECIPES[d.role].takes) if (!this.accepts || this.accepts(d, k)) mask |= 1 << CARGO[k].index;
+      if (on && RECIPES[d.role].owed) for (const k of RECIPES[d.role].owed!) if (this.takesNow(d, k)) mask |= 1 << CARGO[k].index;
       takes.push(mask);
       town.push(on && d.role === "town");
     }
@@ -1109,6 +1125,22 @@ export class Economy {
   }
 
   /**
+   * Nothing more for this train at the depot it's beside, this visit (Continue, on its engine's card): the crane lets
+   * it go, and it runs on. False if it's beside none.
+   */
+  skipVisit(trainId: number): boolean {
+    const train = this.sim.getTrain(trainId);
+    const d = train && this.depotUnder(train);
+    if (!train || !d) return false;
+    const s = this.service(trainId);
+    if (s.depotId !== d.id) this.endVisit(s);
+    s.depotId = d.id;
+    s.phase = NONE;
+    for (const car of train.cars) s.done.add(car.id);
+    return true;
+  }
+
+  /**
    * What the crane is doing for this train at this depot, as far as its cars still need: unloading (goods it takes,
    * riders getting off) and/or loading (goods it may pick up, riders getting on). With nothing left to do (a moment
    * as it finishes), what the depot does that this train may have done: a Drop stop only unloads.
@@ -1124,7 +1156,7 @@ export class Economy {
     const r = RECIPES[d.role];
     return {
       load: route ? r.gives.some((k) => this.picksAt(route, d, k)) : r.gives.length > 0 && !r.routedOnly,
-      unload: route ? r.takes.some((k) => this.dropsAt(route, d, k)) : r.takes.length > 0,
+      unload: route ? r.takes.some((k) => this.dropsAt(route, d, k)) || !!r.owed?.some((k) => this.takesNow(d, k) && this.dropsAt(route, d, k)) : r.takes.length > 0,
     };
   }
 
@@ -1506,6 +1538,14 @@ export class Economy {
    * workshop set to take all (`takesAll`), the yard fills.
    */
   shopKeeps: ((kind: CargoKind) => number | null) | null = null;
+
+  /**
+   * How many more of `kind` (one a recipe takes only while `owed`: a workshop's stone) the workshops take: what's
+   * needed there less what they hold (Game mode: `shopOwes` in crafting.ts). Called as trains unload (not each frame),
+   * so keep it cheap. When it goes from none to some for any other reason than goods landing here (a blueprint
+   * learned, an order, a price paid), call `acceptsChanged` so routed lines plan again. Null: none owed (Sandbox).
+   */
+  owes: ((kind: CargoKind) => number) | null = null;
 
   /**
    * Goods landed at a depot for trains to take away (Game mode: what a boat brought to a harbour), by depot id and

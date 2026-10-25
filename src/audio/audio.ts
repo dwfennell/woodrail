@@ -1,6 +1,12 @@
 /** Routed trains' switch throws are heard at most once in this long (ms). */
 export const SOFT_CLUNK_GAP_MS = 700;
 
+/**
+ * This long after the last sound has died away (no motor hum or lift winding either), the AudioContext is suspended
+ * so its audio thread sleeps while nothing's heard; the next sound wakes it (ms).
+ */
+export const IDLE_SUSPEND_MS = 3000;
+
 /** Lets something through at most once every `ms` (by the times given). */
 export class Gate {
   private last = -Infinity;
@@ -25,20 +31,59 @@ export class ToyAudio {
   private noise: AudioBuffer | null = null;
   private hum: { gain: GainNode; osc: OscillatorNode; lfo: OscillatorNode } | null = null;
   private lastClack = 0;
+  private humLevel = 0;
   muted = false;
 
+  /** When (performance.now(), ms) everything scheduled so far will have died away. */
+  private quietAt = 0;
+  private sleepTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
-    const start = () => {
-      this.ensure();
-      window.removeEventListener("pointerdown", start);
-      window.removeEventListener("keydown", start);
+    // The context starts on a user gesture. Later gestures start it again if the system stopped it (iOS "interrupted"
+    // by a call or Siri, or a first start the browser didn't count as a gesture): a sound played from a frame can't.
+    const gesture = () => {
+      const fresh = !this.ctx;
+      const ctx = this.ensure();
+      if (ctx && (fresh || ctx.state !== "running") && !this.muted && !document.hidden) this.wake(300);
     };
-    window.addEventListener("pointerdown", start);
-    window.addEventListener("keydown", start);
+    for (const type of ["pointerdown", "pointerup", "keydown"]) window.addEventListener(type, gesture, { passive: true });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.sleep();
+    });
+  }
+
+  /**
+   * About to play a sound lasting `ms`: the context is started if it sleeps, and kept awake until that sound and
+   * IDLE_SUSPEND_MS more have passed. (No per-frame work: one timer, armed while awake.)
+   */
+  private wake(ms: number): void {
+    const ctx = this.ctx;
+    if (!ctx || document.hidden) return;
+    if (ctx.state !== "running") void ctx.resume().catch(() => {});
+    this.quietAt = Math.max(this.quietAt, performance.now() + ms);
+    if (!this.sleepTimer) this.sleepTimer = setTimeout(this.sleepWhenQuiet, ms + IDLE_SUSPEND_MS);
+  }
+
+  private sleepWhenQuiet = (): void => {
+    this.sleepTimer = null;
+    // (A motor humming or a lift winding holds it awake: checked again a while later.)
+    const held = this.humLevel > 0 || this.windingLevel > 0;
+    const left = held ? IDLE_SUSPEND_MS : this.quietAt + IDLE_SUSPEND_MS - performance.now();
+    if (left > 0) this.sleepTimer = setTimeout(this.sleepWhenQuiet, left);
+    else this.sleep();
+  };
+
+  /** Suspend the context (its thread sleeps) until the next sound. */
+  private sleep(): void {
+    if (this.sleepTimer) clearTimeout(this.sleepTimer);
+    this.sleepTimer = null;
+    this.quietAt = 0;
+    if (this.ctx?.state === "running") void this.ctx.suspend().catch(() => {});
   }
 
   private ensure(): AudioContext | null {
     if (this.ctx) return this.ctx;
+    if (typeof window === "undefined") return null;
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
     const ctx = new Ctor();
@@ -62,13 +107,18 @@ export class ToyAudio {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : 0.8;
     // (Its winding's level is set again by the next frame that hears a lift ride.)
-    if (m) this.setWinding(0);
+    if (m) {
+      this.setWinding(0);
+      this.setHum(0);
+      this.sleep();
+    }
   }
 
   /** A short filtered noise burst plus a resonant "tock": the sound of wood on wood. */
   private knock(volume: number, freq: number, decay: number, pan: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || !this.noise || this.muted || volume <= 0.001) return;
+    this.wake(decay * 1200 + 40);
     const t = ctx.currentTime;
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
@@ -125,6 +175,7 @@ export class ToyAudio {
   chime(): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted) return;
+    this.wake(900);
     const t = ctx.currentTime;
     [784, 1175].forEach((f, k) => {
       const osc = ctx.createOscillator();
@@ -169,6 +220,7 @@ export class ToyAudio {
   saw(volume: number, pan: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || volume <= 0.02) return;
+    this.wake(560);
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
     osc.type = "sawtooth";
@@ -192,6 +244,7 @@ export class ToyAudio {
   bell(): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted) return;
+    this.wake(1600);
     const t = ctx.currentTime;
     for (const k of [0, 0.16]) {
       // A bell: a bright fundamental plus inharmonic partials, each fading at its own rate.
@@ -231,6 +284,7 @@ export class ToyAudio {
     }
     this.lastWhistle = now;
     this.lastWhistleVolume = volume;
+    this.wake(1400);
     const t = ctx.currentTime;
     const out = ctx.createGain();
     out.connect(this.master);
@@ -353,6 +407,7 @@ export class ToyAudio {
     const target = this.muted ? 0 : Math.min(1, Math.max(0, level)) * 0.03;
     if (!ctx || !this.master || target === this.windingLevel || (!this.winding && target === 0)) return;
     this.windingLevel = target;
+    this.wake(400);
     if (!this.winding) {
       const osc = ctx.createOscillator();
       osc.type = "triangle";
@@ -382,7 +437,11 @@ export class ToyAudio {
   /** Motor hum level 0..1 from the number and nearness of running engines. */
   setHum(level: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master) return;
+    const target = this.muted ? 0 : Math.min(1, Math.max(0, level)) * 0.045;
+    // (Called each frame trains run: a level that's hardly changed, or silence that's already silent, does nothing.)
+    if (!ctx || !this.master || target === this.humLevel || (target > 0 && Math.abs(target - this.humLevel) < 0.0005) || (!this.hum && target === 0)) return;
+    this.humLevel = target;
+    this.wake(600);
     if (!this.hum) {
       const osc = ctx.createOscillator();
       osc.type = "sawtooth";
@@ -402,7 +461,6 @@ export class ToyAudio {
       lfo.start();
       this.hum = { gain, osc, lfo };
     }
-    const target = this.muted ? 0 : Math.min(1, level) * 0.045;
     this.hum.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.15);
   }
 }

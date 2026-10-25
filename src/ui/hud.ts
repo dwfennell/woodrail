@@ -41,6 +41,8 @@ export interface HudHandlers {
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
   swapEnds(): void;
+  /** The engine card, waiting to turn back where the track ends: turn round now and run on to the next stop. */
+  continueOn(): void;
   /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
   decouple(): void;
   rotate(): void;
@@ -226,6 +228,8 @@ export class Hud {
   private readonly ruinResource = el("div", "ruin-resource");
   private readonly ruinStatus = el("div", "ruin-status");
   private readonly ruinOwn = el("div", "ruin-own");
+  /** Said when track can't be laid to it from the line (a terrace cut off, say). */
+  private readonly ruinReach = el("div", "ruin-reach");
   private ruinClearBtn!: HTMLButtonElement;
   private ruinRestoreBtn!: HTMLButtonElement;
   private landBuyBtn!: HTMLButtonElement;
@@ -243,6 +247,8 @@ export class Hud {
   /** The engine card: Go/Stop, the way it goes (an arrow as on screen), what it's doing, and the rest tucked away. */
   private readonly goBtn: HTMLButtonElement;
   private readonly wayBtn: HTMLButtonElement;
+  /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
+  private readonly continueBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
   private readonly engineMore = el("div", "engine-more");
   private readonly followBtn: HTMLButtonElement;
@@ -480,6 +486,9 @@ export class Hud {
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
     controls.append(this.goBtn, this.wayBtn);
     this.engineCard.appendChild(controls);
+    this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
+    this.continueBtn.hidden = true;
+    this.engineCard.appendChild(this.continueBtn);
     this.engineMore.hidden = true;
     this.engineMore.append(
       button("Swap ends", "Move the engine to the other end of its train", () => {
@@ -554,7 +563,7 @@ export class Hud {
     this.ruinClearBtn = button("Clear the ruin", "Take the ruin and its track away", () => h.clearRuin?.(), "chip text ruin-clear");
     const ruinRow = el("div", "card-row");
     ruinRow.append(this.ruinRestoreBtn, this.ruinClearBtn);
-    this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
+    this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinReach, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.ruinCard);
 
     // Tray with tabs
@@ -1299,6 +1308,12 @@ export class Hud {
     this.drawEngine();
   }
 
+  /** Waiting to turn back where the track ends (see `canContinue`): Continue shows. */
+  setContinue(on: boolean): void {
+    if (on === !this.continueBtn.hidden) return;
+    this.continueBtn.hidden = !on;
+  }
+
   private drawEngine(): void {
     const moving = this.engineLever !== 0;
     const now = moving && this.goNow;
@@ -1588,7 +1603,7 @@ export class Hud {
   }
 
   /** Show an old industry's card (see `ruinCard` in map-sites.ts). */
-  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string; restore: string | null }): void {
+  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string; restore: string | null; reach?: string | null }): void {
     this.hideCards();
     this.ruinTitle.textContent = card.title;
     this.ruinResource.textContent = card.resource;
@@ -1596,6 +1611,8 @@ export class Hud {
     this.ruinStatus.textContent = card.status;
     this.ruinOwn.textContent = card.own ?? "";
     this.ruinOwn.hidden = !card.own;
+    this.ruinReach.textContent = card.reach ?? "";
+    this.ruinReach.hidden = !card.reach;
     this.ruinClearBtn.textContent = card.clear;
     this.ruinRestoreBtn.textContent = card.restore ?? "";
     this.ruinRestoreBtn.hidden = !card.restore;
