@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { CARGO, Economy, MAX_WAGON_CAPACITY } from "../economy";
 import { ticks } from "../economy/constants";
+import { loadFootprints } from "../props/footprints-testing";
+import type { Footprint } from "../props/placement";
 import { ENGINE_SPEED, Sim } from "../sim";
 import { appendPiece, connectorRef, Layout } from "../track";
 import { tooHeavy, topSpeed } from "./engines";
@@ -10,6 +12,14 @@ import { ready, techOf } from "./tech";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { applyCranes } from "./upgrades";
 import { buildStarterWorld, type World } from "./world";
+
+/** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
 
 describe("Phase C, the rest", () => {
   it("a carpenter's yard makes furniture of planks; a smithy tools of iron; a power station burns coal", () => {
@@ -31,7 +41,7 @@ describe("Phase C, the rest", () => {
 
   it("towns always take made goods (furniture, tools), wanted or not", () => {
     const w = buildStarterWorld();
-    const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+    const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     new TownLife(host, { grew: () => {}, received: () => {} }).reset();
     const station = w.economy.depotAtPiece(w.stations.get(w.landscape.towns[0].id)!)!;
     expect(w.economy.accepts!(station, "furniture")).toBe(true);

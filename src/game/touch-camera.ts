@@ -16,6 +16,8 @@ export interface TouchCameraLimits {
   minDistance: number;
   maxDistance: number;
   maxPolarAngle: number;
+  /** The steepest the view may look down (the game's pitch cap: see `MIN_PITCH` in game.ts). */
+  minPolarAngle: number;
 }
 
 type Point = { x: number; y: number };
@@ -198,7 +200,7 @@ export class TouchGestures {
   private tilt(dPhi: number): void {
     this.off.subVectors(this.camera.position, this.target);
     this.sph.setFromVector3(this.off);
-    this.sph.phi = Math.min(this.limits.maxPolarAngle, Math.max(MIN_POLAR, this.sph.phi + dPhi));
+    this.sph.phi = Math.min(this.limits.maxPolarAngle, Math.max(MIN_POLAR, this.limits.minPolarAngle, this.sph.phi + dPhi));
     this.camera.position.copy(this.target).add(this.off.setFromSpherical(this.sph));
     this.camera.lookAt(this.target);
   }
