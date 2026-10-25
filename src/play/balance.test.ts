@@ -144,8 +144,9 @@ const RUIN_REACH = Number(ENV.BALANCE_RUIN_REACH ?? 1500);
  * BALANCE_SPUR (an A/B, off by default: the CoS's choice, spec §7): an old industry no line end can be run on to is
  * restored on a short spur (`spurTo`). Off, it's restored only from a line end (step 2's rule), which on the starter
  * map never reaches the old farm: a new farm yard is built. (On, the nine seeds all restore the old farm, at minute 15
- * to 23, but seed 5's City comes at 109, past the band's 90: its grain waits on the spur's switch till Routes. So the
- * balance run keeps it off; the goals play-through, which must see the old farm restored, has it on.)
+ * to 23. Seeds 5 and 9 once missed the City's band, at 109 and 98: the workshop's yard sat one plank short of the
+ * mill for most of an hour. The player now orders the mill at the workshop (`orderMill`), and all nine pass. The
+ * goals play-through, which must see the old farm restored, has it on.)
  */
 const SPUR = !!ENV.BALANCE_SPUR;
 /**
@@ -2059,12 +2060,15 @@ class Playthrough {
         this.why = `a farm yard (${describeGoods(ruleOf("piece:depot-farm")!.cost)} + ${ruleOf("piece:depot-farm")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
       }
     }
+    // The mill ordered at the workshop's card while it can't be made yet (`orderMill`), so the yard keeps its planks.
+    this.orderMill();
     // The mill, after the farm yard.
     if (this.farm >= 0 && this.mill === -1 && s.learned.has("mills")) {
       if (P.canMake(new Map([["piece:depot-mill", 1]]))) {
         const end = freeEnd(P, this.farm);
         const buf = end === -1 ? lineEnds(P).find((e) => pieceOfRef(e.ref) === this.farm) : { buffer: -1, ref: end };
         if (buf && (buf.buffer === -1 || !w.sim.pieceOccupied(buf.buffer))) {
+          P.crafting.cancel("piece:depot-mill");
           P.make(new Map([["piece:depot-mill", 1]]));
           if (buf.buffer !== -1) P.editor.remove(buf.buffer);
           const id = industryAt(P, "depot-mill", buf.ref);
@@ -2088,6 +2092,7 @@ class Playthrough {
       if (P.canMake(new Map([["piece:depot-mill", 1]]))) {
         this.millTry = P.minute;
         const near = [this.farm, ...w.stations.values()].map((id) => w.layout.getPiece(id)).filter((p) => !!p).map((p) => g.cellAtWorld(p!.pose.x, p!.pose.z)).filter((i) => i !== -1);
+        P.crafting.cancel("piece:depot-mill");
         P.make(new Map([["piece:depot-mill", 1]]));
         const r = extend(P, { type: "depot-mill", cells: near }) ?? (s.learned.has("switches") ? branchOff(P, "depot-mill", near) : null);
         if (r) {
@@ -2427,6 +2432,30 @@ class Playthrough {
     }
     if ((L.switchState(sw) === 1) !== want) w.sim.toggleSwitch(sw);
   }
+  /**
+   * A farm on a spur (`spurSwitch`): the mill ordered at the workshop's card (as the switch is for its goal) once Mills
+   * is learned, while the workshop can't make it yet, so the yard keeps the mill's 8 planks (`yardKeeps`: a waiting
+   * order's). Without the order the yard keeps only `WORKSHOP_SPARE` (7) while a town on the line wants planks, one
+   * short of the mill, and research waits on the mill (`building`). With the farm on the line that wait is short (the
+   * planks come round soon); with it on a spur, the routed train's trip down it and back each round leaves the sawmill
+   * waiting for logs, and the yard sat at 7 planks, the coins there, for most of an hour (BALANCE_SPUR=1: seed 5, Mills
+   * at 33, the mill at 85 and the City at 109; seed 9, 43, 76 and 98). Ordered, the mill came at 46 and 45, the City at
+   * 87 and 70; on the other seeds the coins came last and the mill at the same minute. (Not with the farm on the line:
+   * there the order moved the mill up enough to put seed 2's City before
+   * the band's 60, at 57, and seed 4's research stall past 15 minutes.) A waiting order is taken off when the harness
+   * makes the mill itself (`build`), so only one is made.
+   */
+  orderMill(): void {
+    const P = this.p;
+    const s = P.progress;
+    const id: ThingId = "piece:depot-mill";
+    if (this.spurSwitch < 0 || this.farm < 0 || this.mill >= 0 || !s.learned.has("mills") || s.orders.includes(id) || (s.owned.get(id) ?? 0) > 0) return;
+    if (P.canMake(new Map([[id, 1]]))) return;
+    P.crafting.order(id);
+    P.happened++;
+    P.note(`ordered a mill at the workshop (have ${P.planks()} planks, ${s.coins} coins): its planks kept in the yard`);
+  }
+
   /** Ruins found out of reach, or that couldn't be restored: not tried again. */
   private readonly ruinsPassed = new Set<number>();
   /** When the line last couldn't be run to a ruin (it's tried again 5 minutes on). */
