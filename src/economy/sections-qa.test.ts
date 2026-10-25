@@ -5,7 +5,7 @@ import { editLine, joinLine, stopLine } from "../game/lines";
 import { engineStatus } from "../game/engine-status";
 import { putAway, type PutAway } from "../game/put-away";
 import { CARGO } from "./cargo";
-import { Economy } from "./economy";
+import { capAt, Economy } from "./economy";
 import { topologyOf, trainLength, YIELD_S } from "./sections";
 import { loopOn } from "./loop-fixtures";
 import { next, waysFrom } from "./steer";
@@ -67,6 +67,8 @@ function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTy
 type Q = ReturnType<typeof line0>;
 
 const depotsOf = new WeakMap<object, Map<number, ReturnType<Economy["addDepot"]>>>();
+/** Worlds whose trains run idle: wagons put down full of logs, the sawmill kept full (nothing to load or unload). */
+const idleOf = new WeakSet<object>();
 
 /** QA's `H.clearTrains`: every train off its line and off the track, the world kept (its history with it). */
 function clearTrains(q: { sim: Sim; economy: Economy }): void {
@@ -125,6 +127,8 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
       throw new Error(`no room on ${t.p}`);
     }
     const e = q.sim.getTrain(placed.trainId)!.cars[0].id;
+    // (PREFILL: its wagons put down full of logs, so they've nothing to load at the forest.)
+    if (ENV.PREFILL || idleOf.has(q)) for (const c of q.sim.getTrain(placed.trainId)!.cars) if (c.kind !== "engine") q.economy.setCargo(c.id, "log", q.economy.wagonCapacity);
     E.push(e);
     spare.push(!!t.spare);
     // (A spare: standing, lever off, not on the line.)
@@ -141,6 +145,9 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
   const prevAt = new Map<number, boolean>();
   const lastTurn = new Map<number, number>();
   let meet = 0;
+  let overlaps = 0;
+  let shared = new Set<string>();
+  let overlapAt = "";
   const cards = new Set<string>();
   // (Each train's cards, and how many samples, a sample a quarter second.)
   const cardsOf = new Map<number, Map<string, number>>();
@@ -159,6 +166,8 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
         whenAt = tick / SIM_HZ;
       }
     for (const d of q.economy.allDepots()) if (d.role === "forest") d.piles[CARGO.log.index] = Math.max(d.piles[CARGO.log.index], 6);
+    // (SAW_FULL, or an idle world: the sawmill's logs kept at its cap, so trains can't unload there and run through.)
+    if (ENV.SAW_FULL || idleOf.has(q)) for (const d of q.economy.allDepots()) if (d.role === "sawmill") d.piles[CARGO.log.index] = capAt(d);
     const t0 = performance.now();
     q.sim.tick();
     q.economy.tick();
@@ -192,6 +201,25 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     }
     if (!ring) ringFrom = tick;
     else longestRing = Math.max(longestRing, (tick - ringFrom) / SIM_HZ);
+    // (Two trains on one piece at once: from each one's last axle to its first, as sections count it.)
+    // (The line's own trains, each pair counted as it comes to share one: not a spare put down beside one.)
+    const under = new Map<number, number>();
+    const sharing = new Set<string>();
+    for (let k = 0; k < E.length; k++) {
+      const tr = q.sim.findCar(E[k])?.train;
+      if (!tr || spare[k] || !q.economy.lineIdOf.has(E[k])) continue;
+      for (const p of q.sim.piecesUnder(tr.id)) {
+        const o = under.get(p);
+        if (o !== undefined && o !== k) sharing.add(`${o}-${k}`);
+        under.set(p, k);
+      }
+    }
+    for (const pair of sharing)
+      if (!shared.has(pair)) {
+        if (overlaps === 0) overlapAt = `${(tick / SIM_HZ).toFixed(1)}s e${pair}`;
+        overlaps++;
+      }
+    shared = sharing;
     for (const e of E) {
       const tr = q.sim.findCar(e)?.train;
       if (!tr) continue;
@@ -245,7 +273,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     }
     return all ? n / all : 0;
   };
-  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, cardLog, stale, flips, turns: sec0.turnedShort + sec0.yielded + sec0.gaveWay - turns0, share, allStill, lineStill, goodsAt, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
+  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, overlaps, overlapAt, cards, cardsOf, cardLog, stale, flips, turns: sec0.turnedShort + sec0.yielded + sec0.gaveWay - turns0, share, allStill, lineStill, goodsAt, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
 }
 
 describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
@@ -478,7 +506,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
           const meets = r.meets.filter((t) => t < at || t > at + 3).length;
           // (Can't do better: every train of the line held, or a card saying what to build or move.)
           const says = [...r.cards].some((c) => /Lay \d+ more|lay \d+ more|Move it|unpin/.test(c));
-          const line = `${kind} ${road} at ${at}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${meets} released ${r.released} turns ${r.turns} flips ${r.E.map((e) => r.flips.get(e) ?? 0).join("/")}`;
+          const line = `${kind} ${road} at ${at}: ov ${r.overlaps} ${r.overlapAt} goods ${r.goodsAt.length} ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${meets} released ${r.released} turns ${r.turns} flips ${r.E.map((e) => r.flips.get(e) ?? 0).join("/")}`;
           if (ENV.SHOW) console.log(`B5 ${line}`);
           if (ENV.SHOW && ENV.CARDS) for (const e of r.E) console.log(`B5C e${e}`, [...(r.cardsOf.get(e) ?? [])].map(([c, n]) => `${c} x${n}`).join(" | "));
           if (meets > 0 || r.released > 0 || r.longestRing > YIELD_S + 3 || (r.allStill > 60 && !says)) bad.push(line);
@@ -494,10 +522,11 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
   // into the road ("heading": a move to it granted, under way, not on it yet) or standing on it ("behind"), then put
   // a spare (lever off, no line) on the road's first free piece; run 180 s. On 4ffce95 it froze at l1.main, 45 s,
   // heading: the runner between the loops waited on no one named, for good.
-  it("B5: QA's spare sweep, in order in one world: never all still for a minute", () => {
+  const qb5 = (idle: boolean, only?: string) => {
     const bad: string[] = [];
     const { q, l0, l1, R3 } = two();
-    const roads: [string, readonly number[]][] = [["l0.main", l0.main], ["l0.side", l0.side], ["l1.main", l1.main]];
+    if (idle) idleOf.add(q);
+    const roads = ([["l0.main", l0.main], ["l0.side", l0.side], ["l1.main", l1.main]] as [string, readonly number[]][]).filter(([rn]) => !only || rn === only);
     for (const [rn, pieces] of roads)
       for (const T of [10, 20, 30, 45])
         for (const mode of ["heading", "behind"] as const) {
@@ -523,8 +552,19 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
           const line = `${rn} T${T} ${mode}: put ${after < 0 ? "none" : after.toFixed(0)} -> ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} meets ${meets} released ${r.released}`;
           if (ENV.SHOW) console.log(`QB5 ${line}${says ? " (says)" : ""}`);
           if (meets > 0 || r.released > 0 || (r.allStill > 60 && !says)) bad.push(line);
+          // (Nor two of the line's trains on one piece: one split across a loop's roads, say.)
+          if (r.overlaps > 0) bad.push(`${line}: two trains on one piece at ${r.overlapAt}`);
         }
-    expect(bad).toEqual([]);
+    return bad;
+  };
+  it("B5: QA's spare sweep, in order in one world: never all still for a minute", () => {
+    expect(qb5(false)).toEqual([]);
+  });
+  // (Game Mode's idle head-on: with nothing to load or unload, trains run through the depots, and one turned back short
+  // with its tail on a loop's switch it had trailed through from the side road, set for the main: the rest of it
+  // followed the switch, the train split across both roads, and met the one coming the other way (l0.main T45).)
+  it("B5: QA's spare sweep with the trains idle (laden, the sawmill full): no head-on, no train split across a loop", () => {
+    expect(qb5(true, "l0.main")).toEqual([]);
   });
   // B5's state, set up directly: a runner between the loops with its nose on loop 1's switch, set for the main road, a
   // spare on that road (the side road free), a line-mate at the far end waiting on it, the third held at the near end.
