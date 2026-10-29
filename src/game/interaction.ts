@@ -3891,7 +3891,7 @@ export class Interaction {
       // turns it least, the next curve often came backwards). Not once Flip's been pressed for it: then it's as the
       // player holds it. (No more snaps: it's seated by the same end on the same end, and the second pass takes that.)
       if (m.pieceId === -1 && !keepingTurn && !m.auto) {
-        const keep = keepTurning(this.game.layout, m.type, m.heldFlipped, m.snap, this.flipPressed);
+        const keep = keepTurning(this.game.layout, m.type, m.heldFlipped, m.heading, m.snap, this.flipPressed);
         if (keep?.kind === "snapped") {
           this.mirrorHeld(m, keep.flipped);
           this.updateDrag(x, y, keep);

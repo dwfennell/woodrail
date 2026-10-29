@@ -94,7 +94,7 @@ describe("the next curve from the tray keeps turning (#8: after one was put down
         const pose = P(end.x + Math.cos(end.heading) * 40, end.z + Math.sin(end.heading) * 40, (k * Math.PI) / 4);
         let s = findSnap(l, type, held, pose, 0, -1, 400);
         if (s.kind !== "snapped" || s.target !== connectorRef(c, 1)) continue;
-        const keep = keepTurning(l, type, held, s, flipPressed);
+        const keep = keepTurning(l, type, held, pose.heading, s, flipPressed);
         if (keep) s = keep;
         if (s.kind !== "snapped") continue;
         const flipped = s.flipped;
@@ -132,7 +132,7 @@ describe("the next curve from the tray keeps turning (#8: after one was put down
     const l = new Layout();
     const c = l.addPiece("curve-large", P(0, 0));
     const snap = { kind: "snapped", pose: P(0, 0), y: 0, connector: 0, target: connectorRef(c, 1), distance: 0, flipped: false } as const;
-    for (const type of ["straight-216", "ramp", "switch"] as const) expect(keepTurning(l, type, false, snap, false), type).toBeNull();
+    for (const type of ["straight-216", "ramp", "switch"] as const) expect(keepTurning(l, type, false, 0, snap, false), type).toBeNull();
   });
 });
 

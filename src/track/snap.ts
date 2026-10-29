@@ -70,20 +70,34 @@ export function flipToKeepTurning(layout: Layout, type: PieceTypeId, connector: 
 }
 
 /**
- * A piece from the tray, held mirrored or not (`heldFlipped`) and seated as `snap`: seated instead mirrored the way that
- * keeps turning as the curve it meets (see `flipToKeepTurning`), by the same end on the same end, or null to stay as
- * held: it already does, there's nothing to keep, or Flip was pressed for it (`flipPressed`: then it's as the player
- * holds it). Seated directly, not snapped again: a mirrored piece snapped afresh may seat by its other end, which turns
+ * A piece from the tray, held mirrored or not (`heldFlipped`) at `heading` and seated as `snap`: seated instead
+ * mirrored the way that keeps turning as the curve it meets (see `flipToKeepTurning`), or null to stay as held: it
+ * already does, there's nothing to keep, or Flip was pressed for it (`flipPressed`: then it's as the player holds it).
+ * Either of its ends may seat on that end, each mirrored to keep turning: one not below the floor (a ramp by its top
+ * on track on the ground would go down into it), then the one that turns it least from how it's held, as `findSnap`
+ * chooses. Seated directly, not snapped again: a mirrored piece snapped afresh may seat by its other end, which turns
  * it back (#8).
  */
-export function keepTurning(layout: Layout, type: PieceTypeId, heldFlipped: boolean, snap: SnapResult, flipPressed: boolean): SnapResult | null {
+export function keepTurning(layout: Layout, type: PieceTypeId, heldFlipped: boolean, heading: number, snap: SnapResult, flipPressed: boolean): SnapResult | null {
   if (flipPressed || snap.kind !== "snapped" || snap.target < 0) return null;
   const keep = flipToKeepTurning(layout, type, snap.connector, snap.target);
   if (keep === null || keep === heldFlipped) return null;
-  const c = getPieceDef(type, keep).connectors[snap.connector];
   const t = layout.worldConnector(snap.target, target);
-  const pose = solveParentPose(c.pose, { x: t.x, z: t.z, heading: t.heading + Math.PI }, { x: 0, z: 0, heading: 0 });
-  return { ...snap, pose, y: t.y - c.y, flipped: keep };
+  let best: SnapResult | null = null;
+  let bestScore = Infinity;
+  for (let i = 0; i < getPieceDef(type, false).connectors.length; i++) {
+    const flipped = flipToKeepTurning(layout, type, i, snap.target);
+    if (flipped === null) continue;
+    const c = getPieceDef(type, flipped).connectors[i];
+    const pose = solveParentPose(c.pose, { x: t.x, z: t.z, heading: t.heading + Math.PI }, { x: 0, z: 0, heading: 0 });
+    const y = t.y - c.y;
+    const score = (y < 0 ? 10 : 0) + angleDiff(pose.heading, heading);
+    if (score >= bestScore) continue;
+    bestScore = score;
+    best = { ...snap, pose, y, connector: i, flipped };
+  }
+  // (As held, but seated by its other end: the same mirroring, so no flip, but a different seat.)
+  return best;
 }
 
 export function findSnap(
