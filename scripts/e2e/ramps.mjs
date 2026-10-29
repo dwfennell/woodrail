@@ -5,8 +5,8 @@
 // - the spiral: a straight, the curve, its curved ramp, the curve on top, and another curved ramp: two levels up, each
 //   ramp turning on as the curve before it does, with no Flip (QA: it came unflipped, an S-bend);
 // - the wide: a straight, the wide curve flipped (Flip), and its curved ramp, which turns on that way too;
-// - the drag (#8): a curve dragged out of the tray, then the next two waiting at its end tapped (turning on, not an
-//   S-bend), and a fourth Flipped while it waits (an S, as the player chose).
+// - the drag (#8): a curve dragged out of the tray, then the next five waiting at its end tapped (turning on, not an
+//   S-bend), and a seventh Flipped while it waits (an S, as the player chose).
 // A ramp from the ground stands on its own support (no riser put under it). On each, an engine from the Trains tab on
 // the straight, started with its card's Go, climbs to the top and runs on to the line's end there, where it stops, on
 // the rails. Starts its own dev server on any free port. Chromium as for e2e:roads.
@@ -350,8 +350,7 @@ for (const { name, steps } of LANES) {
 }
 
 // #8, the drag: a curve dragged out of the tray onto open ground; the next waits at its free end, ready (as after any
-// drag), and a tap on it puts it down: it turns on as the curve it joins (round, not an S-bend), and the next after it
-// too. Then Flip pressed while the next waits: it's shown again mirrored, and a tap puts down what's shown (an S, as
+// drag), and a tap on it puts it down: it turns on as the curve it joins (round, not an S-bend), and so on, five. Then Flip pressed while the next waits: it's shown again mirrored, and a tap puts down what's shown (an S, as
 // the player chose).
 if (!process.env.ONLY || "the drag".includes(process.env.ONLY)) {
   /** Which way (degrees) a train turns running through two joined pieces, from the first's free end to the second's. */
@@ -382,7 +381,8 @@ if (!process.env.ONLY || "the drag".includes(process.env.ONLY)) {
     return { id, shown: wt.flipped };
   };
   await tab("Track");
-  const steps = [["curve-large", false], ["curve-large", "same"], ["curve-large", "same"], ["curve-large", "other"]];
+  // (Six round: three-quarters of a circle, so some wait well turned from the tray's heading, where they came backwards.)
+  const steps = [["curve-large", false], ...Array(5).fill(["curve-large", "same"]), ["curve-large", "other"]];
   const SPOTS = await spotsFor(steps, HEADING);
   let ids = [];
   let shown = [];
@@ -406,15 +406,15 @@ if (!process.env.ONLY || "the drag".includes(process.env.ONLY)) {
     if ((await p.evaluate(() => window.woodrail.layout.pieceCount)) <= before) continue;
     ids = [await p.evaluate(() => Math.max(...[...window.woodrail.layout.pieceIds()].filter((i) => window.woodrail.layout.getPiece(i).type !== "riser")))];
     shown = [];
-    // The next two: as they come, tapped where they wait.
-    for (let k = 0; k < 2; k++) {
+    // The next five: as they come, tapped where they wait.
+    for (let k = 0; k < 5; k++) {
       const t = await tapWaiting();
       if (t.id === null) break;
       ids.push(t.id);
       shown.push(t.shown);
     }
-    if (ids.length < 3) continue;
-    // The fourth: Flip pressed while it waits (the tray's ⇋ Flip), then tapped.
+    if (ids.length < 6) continue;
+    // The seventh: Flip pressed while it waits (the tray's ⇋ Flip), then tapped.
     const w0 = await waiting();
     const fb = await flipButton();
     if (fb) {
@@ -436,8 +436,8 @@ if (!process.env.ONLY || "the drag".includes(process.env.ONLY)) {
   const turns = [];
   for (let i = 1; i < ids.length; i++) turns.push((await piecesJoined(ids[i - 1], ids[i])) ? await turnThrough(ids[i - 1], ids[i]) : null);
   const say = `${pieces.map((q) => `${q.type}${q.flipped ? "'" : ""}`).join(" → ")}; turns through each two ${JSON.stringify(turns)}; shown ${JSON.stringify(shown)}; flip ${JSON.stringify(flipSeen)}`;
-  check("the drag: a curve dragged out of the tray, the next two waiting at its end and tapped: each joins, turning on the same way (a quarter turn through each two, not an S-bend: #8)", ids.length >= 3 && turns.slice(0, 2).every((d) => d !== null && Math.abs(Math.abs(d) - 90) <= 1) && Math.sign(turns[0]) === Math.sign(turns[1]), say);
-  check("the drag: Flip pressed while the next waits shows it mirrored, and the tap puts down what's shown: an S-bend, as the player chose", ids.length === 4 && flipSeen.before !== flipSeen.after && shown[2] === pieces[3].flipped && turns[2] !== null && Math.abs(turns[2]) <= 1, say);
+  check("the drag: a curve dragged out of the tray, the next five waiting at its end and tapped: each joins, turning on the same way (a quarter turn through each two, not an S-bend: #8)", ids.length >= 6 && turns.slice(0, 5).every((d) => d !== null && Math.abs(Math.abs(d) - 90) <= 1 && Math.sign(d) === Math.sign(turns[0])), say);
+  check("the drag: Flip pressed while the next waits shows it mirrored, and the tap puts down what's shown: an S-bend, as the player chose", ids.length === 7 && flipSeen.before !== flipSeen.after && shown[5] === pieces[6].flipped && turns[5] !== null && Math.abs(turns[5]) <= 1, say);
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));

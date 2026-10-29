@@ -70,14 +70,20 @@ export function flipToKeepTurning(layout: Layout, type: PieceTypeId, connector: 
 }
 
 /**
- * A piece from the tray, held mirrored or not (`heldFlipped`) and seated as `snap`: the flip it should take to keep
- * turning as the curve it meets (see `flipToKeepTurning`), or null to stay as held: it already does, there's nothing to
- * keep, or Flip was pressed for it (`flipPressed`: then it's as the player holds it).
+ * A piece from the tray, held mirrored or not (`heldFlipped`) and seated as `snap`: seated instead mirrored the way that
+ * keeps turning as the curve it meets (see `flipToKeepTurning`), by the same end on the same end, or null to stay as
+ * held: it already does, there's nothing to keep, or Flip was pressed for it (`flipPressed`: then it's as the player
+ * holds it). Seated directly, not snapped again: a mirrored piece snapped afresh may seat by its other end, which turns
+ * it back (#8).
  */
-export function keepTurning(layout: Layout, type: PieceTypeId, heldFlipped: boolean, snap: SnapResult, flipPressed: boolean): boolean | null {
+export function keepTurning(layout: Layout, type: PieceTypeId, heldFlipped: boolean, snap: SnapResult, flipPressed: boolean): SnapResult | null {
   if (flipPressed || snap.kind !== "snapped" || snap.target < 0) return null;
   const keep = flipToKeepTurning(layout, type, snap.connector, snap.target);
-  return keep !== null && keep !== heldFlipped ? keep : null;
+  if (keep === null || keep === heldFlipped) return null;
+  const c = getPieceDef(type, keep).connectors[snap.connector];
+  const t = layout.worldConnector(snap.target, target);
+  const pose = solveParentPose(c.pose, { x: t.x, z: t.z, heading: t.heading + Math.PI }, { x: 0, z: 0, heading: 0 });
+  return { ...snap, pose, y: t.y - c.y, flipped: keep };
 }
 
 export function findSnap(

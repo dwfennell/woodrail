@@ -1020,7 +1020,7 @@ export class Interaction {
    * Put the ready piece down at screen point x, y (where its ghost waits), as if dragged there from the tray and let
    * go: onto the free end there. True if one was tried (placed, or refused with the reason shown).
    */
-  private placeArmedAt(x: number, y: number): boolean {
+  private placeArmedAt(x: number, y: number, flipped?: boolean): boolean {
     const item = this.armed;
     if (!item) return false;
     // The ready piece comes out of the toy box like one taken from the tray (Game mode: owned, or made on the spot).
@@ -1029,6 +1029,8 @@ export class Interaction {
     const m = this.mode;
     if (m.kind !== "drag-piece") return false;
     m.tapReach = TAP_REACH;
+    // (The waiting one tapped: mirrored as it was shown.)
+    if (flipped !== undefined) this.mirrorHeld(m, flipped);
     // A tap puts it where the finger is, not above it (as a held piece floats).
     const touch = this.lastPointerWasTouch;
     this.lastPointerWasTouch = false;
@@ -1093,13 +1095,17 @@ export class Interaction {
     this.game.invalidate();
   }
 
-  /** The waiting ghost worked out again where it waits (the piece in the tray was flipped). */
+  /** The waiting ghost worked out again where it waits, mirrored from how it was shown (Flip was pressed for it). */
   private reshowPreview(): void {
     const at = this.previewAt;
-    if (!at) return;
+    const item = this.armed;
+    if (!at || !this.preview || item?.kind !== "piece") return;
+    const flipped = !this.preview.flipped;
     const v = at.clone().project(this.game.camera);
     const r = this.game.canvas.getBoundingClientRect();
     this.hidePreview();
+    this.preview = { ...this.pieceFromTray(item, -2), tapReach: TAP_REACH };
+    this.mirrorHeld(this.preview, flipped);
     this.showPreview(r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height, false, true);
     if (this.preview?.ghost.visible) this.previewAt = at;
     else this.hidePreview();
@@ -1894,10 +1900,12 @@ export class Interaction {
         }
         if (f.ghost) {
           // On the waiting piece: put it down where it waits.
+          // (Mirrored as shown: turning on as the curve it meets, or as Flip left it.)
           const at = this.previewAt?.clone().project(this.game.camera);
           const r = this.game.canvas.getBoundingClientRect();
+          const shown = this.preview?.flipped;
           this.hidePreview();
-          if (at) this.placeArmedAt(r.left + ((at.x + 1) / 2) * r.width, r.top + ((1 - at.y) / 2) * r.height);
+          if (at) this.placeArmedAt(r.left + ((at.x + 1) / 2) * r.width, r.top + ((1 - at.y) / 2) * r.height, shown);
           this.lastTap = null;
           return;
         }
@@ -3727,6 +3735,17 @@ export class Interaction {
   }
 
   /** Put a held piece's stand-in away (and its buildings, which are its own). */
+  /** A held piece made mirrored (or not), its ghost made anew to match. */
+  private mirrorHeld(m: Extract<Mode, { kind: "drag-piece" }>, flipped: boolean): void {
+    if (m.heldFlipped === flipped && m.flipped === flipped) return;
+    m.heldFlipped = flipped;
+    m.flipped = flipped;
+    const visible = m.ghost.visible;
+    this.dropHeld(m.ghost);
+    m.ghost = this.heldMesh(m.type, flipped);
+    m.ghost.visible = visible;
+  }
+
   private dropHeld(mesh: Mesh): void {
     this.game.scene.remove(mesh);
     for (const child of [...mesh.children]) {
@@ -3735,7 +3754,7 @@ export class Interaction {
     }
   }
 
-  private updateDrag(x: number, y: number, keepingTurn = false): void {
+  private updateDrag(x: number, y: number, keepingTurn: SnapResult | null = null): void {
     const m = this.mode;
     if (m.kind === "drag-group") {
       this.lastX = x;
@@ -3835,10 +3854,11 @@ export class Interaction {
       const capture = this.captureRadius(x, y);
       // Look for track ends on the floor, up to a few risers up, and on whatever the piece is over. Any end joins, peg or
       // hole: the piece keeps the turn and the hand it's held with (it never turns or mirrors itself to fit).
-      m.snap = { kind: "none" };
+      // (Mirrored to keep turning: seated as worked out, below.)
+      m.snap = keepingTurn ?? { kind: "none" };
       // A free end under the finger wins: the piece goes where it's pointed. Else the nearest end to the held piece's.
       let atFinger = false;
-      for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
+      for (const level of keepingTurn ? [] : new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
         const held = heldAt(level) ?? m.pose;
         const finger = this.planeAt(x, sy, level);
         const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, Math.max(capture, m.tapReach ?? 0)) : null;
@@ -3869,17 +3889,12 @@ export class Interaction {
       // A curve or curved ramp from the tray (held, carried, or waiting at the end of the last one put down) seated on
       // the end of a curve goes on turning that way: round, or a spiral, not an S-bend (QA; #8: seated by whichever end
       // turns it least, the next curve often came backwards). Not once Flip's been pressed for it: then it's as the
-      // player holds it. (At most one more snap a move: the second pass doesn't flip again.)
+      // player holds it. (No more snaps: it's seated by the same end on the same end, and the second pass takes that.)
       if (m.pieceId === -1 && !keepingTurn && !m.auto) {
         const keep = keepTurning(this.game.layout, m.type, m.heldFlipped, m.snap, this.flipPressed);
-        if (keep !== null) {
-          m.heldFlipped = keep;
-          m.flipped = keep;
-          const visible = m.ghost.visible;
-          this.dropHeld(m.ghost);
-          m.ghost = this.heldMesh(m.type, m.flipped);
-          m.ghost.visible = visible;
-          this.updateDrag(x, y, true);
+        if (keep?.kind === "snapped") {
+          this.mirrorHeld(m, keep.flipped);
+          this.updateDrag(x, y, keep);
           return;
         }
       }

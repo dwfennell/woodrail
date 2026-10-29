@@ -83,7 +83,7 @@ describe("the next curve from the tray keeps turning (#8: after one was put down
     return Math.sign(Math.sin(w(b).heading - w(a).heading - Math.PI));
   };
   // As the game does each move (held, carried, or waiting at the end): snap as held, then, if it should keep turning,
-  // flipped and snapped once more. Every way it may be held (eight turns, mirrored or not) near the curve's free end.
+  // seated mirrored on the same end. Every way it may be held (eight turns, mirrored or not) near the curve's free end.
   const laid = (type: "curve-large" | "curve-small" | "curve-wide" | "ramp-curve", curveFlipped: boolean, flipPressed: boolean) => {
     const out: { turn: number; flipped: boolean; held: boolean }[] = [];
     for (const held of [false, true]) {
@@ -95,10 +95,12 @@ describe("the next curve from the tray keeps turning (#8: after one was put down
         let s = findSnap(l, type, held, pose, 0, -1, 400);
         if (s.kind !== "snapped" || s.target !== connectorRef(c, 1)) continue;
         const keep = keepTurning(l, type, held, s, flipPressed);
-        const flipped = keep ?? held;
-        if (keep !== null) s = findSnap(l, type, keep, pose, 0, -1, 400);
-        if (s.kind !== "snapped" || s.target !== connectorRef(c, 1)) continue;
+        if (keep) s = keep;
+        if (s.kind !== "snapped") continue;
+        const flipped = s.flipped;
+        expect(s.target).toBe(connectorRef(c, 1));
         const id = l.addPiece(type, s.pose, s.y, flipped);
+        expect(l.joinedConnector(connectorRef(c, 1)), "seated on the end it met").toBe(connectorRef(id, s.connector));
         out.push({ turn: turnOf(l, id, s.connector, 1 - s.connector), flipped, held });
       }
     }
