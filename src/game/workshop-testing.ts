@@ -8,7 +8,7 @@ import { syncIndustries, type World } from "./world";
 
 // Helpers for the tests of what the workshop takes from trains (not part of the game).
 
-/** Game mode's say in what the workshop takes only while owed (stone): as main.ts sets it. */
+/** Game mode's say in what the workshop takes only while owed (stone, iron): as main.ts sets it. */
 export function owesAsTheGameDoes(w: World, p: Progress): void {
   w.economy.owes = (kind) => shopOwes(w, p, kind);
 }

@@ -55,7 +55,7 @@ export interface Recipe {
   readonly takes: readonly CargoKind[];
   /**
    * Goods it takes only while the mode says some are owed (`Economy.owes`), and only as many: a workshop's stone, for
-   * a harbour's price. It keeps a pile of each. None owed (or no mode to say: Sandbox), trains keep them.
+   * a harbour's price, and its iron. It keeps a pile of each. None owed (or no mode to say: Sandbox), trains keep them.
    */
   readonly owed?: readonly CargoKind[];
   readonly gives: readonly CargoKind[];
@@ -96,8 +96,10 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
-  // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
-  workshop: { takes: ["planks", "iron"], owed: ["stone"], gives: [], cap: WORKSHOP_CAP },
+  // good, so it isn't kept for its own sake, and doesn't take the towns' stone. Iron the same way, while a smithy's, a
+  // power station's or a signal's price needs it, and a small spare (`shopOwes`): taken always, it went into the yard
+  // while research starved (balance play-through, seed 1: Smithy waited 65 minutes for the foundry's iron).
+  workshop: { takes: ["planks"], owed: ["stone", "iron"], gives: [], cap: WORKSHOP_CAP },
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
   farm: { takes: [], gives: ["grain"], cycle: { uses: {}, makes: { grain: 1 }, seconds: 12 } },
   mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },
@@ -1601,7 +1603,7 @@ export class Economy {
   shopKeeps: ((kind: CargoKind) => number | null) | null = null;
 
   /**
-   * How many more of `kind` (one a recipe takes only while `owed`: a workshop's stone) the workshops take: what's
+   * How many more of `kind` (one a recipe takes only while `owed`: a workshop's stone or iron) the workshops take: what's
    * needed there less what they hold (Game mode: `shopOwes` in crafting.ts). Called as trains unload (not each frame),
    * so keep it cheap. When it goes from none to some for any other reason than goods landing here (a blueprint
    * learned, an order, a price paid), call `acceptsChanged` so routed lines plan again. Null: none owed (Sandbox).

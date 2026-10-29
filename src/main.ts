@@ -2005,7 +2005,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let yardSpare = shopSpare(progress);
   /** What the workshop's yard takes while a town on the line wants planks: its order's, or the spare (`yardKeeps`). */
   const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress, yardSpare.planks) : null);
-  /** Stone the workshop takes from trains: only as much as a harbour's price still needs there (`shopOwes`). */
+  /** Stone and iron the workshop takes from trains: only as much as a price it may be asked for still needs there (`shopOwes`). */
   const owes = (kind: CargoKind) => shopOwes(game.world, progress, kind);
   /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid, a harbour built or restored). */
   let owing = false;
@@ -2225,7 +2225,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         queued: progress.orders.filter((o) => o === tid).length,
         shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : RAILWAY_THINGS.has(tid) ? "Railway" : "Track",
         // A second engine before Signals: said, not barred (on a line of its own it runs fine).
-        // (A harbour's stone: where it goes, "Needs 10🪨 at the workshop".)
+        // (A harbour's stone, a smithy's iron: where it goes, "Needs 10🪨 at the workshop", "Needs 4🔩 at the workshop".)
         note: makeNote(progress, tid) ?? owedText(rule.cost),
       });
     }

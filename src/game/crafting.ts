@@ -87,6 +87,8 @@ interface Needs {
   layout: World["layout"] | null;
   pieces: number;
   most: Int32Array;
+  /** The least of each good any one of them costs, of those that cost some (0: none does): for `owedSpare`. */
+  least: Int32Array;
   /** Industries known and not built ("piece:depot-…", as their role: "mill"). */
   industries: readonly DepotRole[];
   /** Goods some industry on the map makes (`RECIPES[role].gives`), the map's own included. */
@@ -150,11 +152,16 @@ function needsOf(p: Progress, world?: Pick<World, "layout" | "depots">): Needs {
   }
   const built = world && types.size > 0 ? builtOf(world, types) : null;
   const most = new Int32Array(CARGO_KINDS.length);
+  const least = new Int32Array(CARGO_KINDS.length);
   const industries: DepotRole[] = [];
   for (const id of known) {
     if (id.startsWith("piece:") && built?.has(id.slice("piece:".length))) continue;
     const cost = THING_RULES[id]!.cost;
-    for (const k of kindsOf(cost)) most[CARGO[k].index] = Math.max(most[CARGO[k].index], cost[k]!);
+    for (const k of kindsOf(cost)) {
+      const i = CARGO[k].index;
+      most[i] = Math.max(most[i], cost[k]!);
+      least[i] = least[i] === 0 ? cost[k]! : Math.min(least[i], cost[k]!);
+    }
     if (id.startsWith(DEPOT) && RECIPES[id.slice(DEPOT.length) as DepotRole]) industries.push(id.slice(DEPOT.length) as DepotRole);
   }
   const made = new Set<CargoKind>();
@@ -164,7 +171,7 @@ function needsOf(p: Progress, world?: Pick<World, "layout" | "depots">): Needs {
       if (type.startsWith("depot-")) for (const k of RECIPES[type.slice("depot-".length) as DepotRole]?.gives ?? []) made.add(k);
     }
   }
-  const out: Needs = { learned: p.learned.size, layout, pieces, most, industries, made };
+  const out: Needs = { learned: p.learned.size, layout, pieces, most, least, industries, made };
   dearestOf.set(p, out);
   return out;
 }
@@ -207,12 +214,29 @@ export function shopSpare(p: Progress, world?: Pick<World, "layout" | "depots">,
   return out;
 }
 
+/** The goods owed at the workshop with a spare on top (`owedSpare`): iron, not a harbour's stone. */
+const SPARE_OWED: ReadonlySet<CargoKind> = new Set(["iron"]);
+
+/**
+ * The spare of `kind` the workshop takes on top of what's owed (`shopOwes`), for iron only: while some thing the
+ * player knows and hasn't built costs iron (as `shopNeeds` has it), the cheapest such thing's iron (a smithy's 4; a
+ * colour-light signal's 1 beside a power station's 6), so the next one can be made straight after the dearest one,
+ * with no train to wait for. None once every such thing is built (only waiting orders are owed for then), and no
+ * more than the yard holds with what's owed. Small, as the yard's iron is out of research's reach: Electricity asks
+ * for 10 while a smithy is still to build. (Not for stone: a harbour's 10 is the only stone price, and a second one
+ * is a tray order.) Cached with `shopNeeds` (blueprints learned, the map's pieces): a read, however often trains ask.
+ */
+export function owedSpare(p: Progress, kind: CargoKind, world?: Pick<World, "layout" | "depots">): number {
+  return SPARE_OWED.has(kind) ? needsOf(p, world).least[CARGO[kind].index] : 0;
+}
+
 /**
  * How many more of `kind` the workshops take from trains (`Economy.owes`, for the goods a workshop takes only while
- * owed: stone): what's needed (`shopNeeds`) less what their yards hold. 0 once that's covered.
+ * owed: stone, iron): what's needed (`shopNeeds`) and the spare (`owedSpare`), no more than a yard holds, less what
+ * their yards hold. 0 once that's covered.
  */
 export function shopOwes(world: World, p: Progress, kind: CargoKind): number {
-  const need = shopNeeds(p, kind, world);
+  const need = Math.min(WORKSHOP_CAP, shopNeeds(p, kind, world) + owedSpare(p, kind, world));
   if (need <= 0) return 0;
   let have = 0;
   for (const d of world.economy.allDepots()) if (d.role === "workshop" && world.layout.getPiece(d.pieceId)) have += d.piles[CARGO[kind].index];
@@ -224,7 +248,7 @@ export function shopOwing(world: World, p: Progress): boolean {
   return (RECIPES.workshop.owed ?? []).some((k) => shopOwes(world, p, k) > 0);
 }
 
-/** The text on a price with goods only a workshop takes while owed: "Needs 5🪨 at the workshop" (none: null). */
+/** The text on a price with goods only a workshop takes while owed: "Needs 5🪨 at the workshop", "Needs 4🔩 at the workshop" (none: null). */
 export function owedText(goods: Bag): string | null {
   const owed: Bag = {};
   for (const k of RECIPES.workshop.owed ?? []) if (goods[k]) owed[k] = goods[k];
