@@ -72,6 +72,11 @@ function factsOf(g: LandscapeGrid): GridFacts {
   return facts;
 }
 
+/** Each square's stretch of land (river and sea part them; −1 on water), as `acrossRiver` tells what's across. */
+export function landStretches(g: LandscapeGrid): Int32Array {
+  return factsOf(g).region;
+}
+
 /**
  * Industry ground (`GridFacts.site`): each rule's squares on the same stretch of land, counted over a disc round each
  * square (its resource over the river is no reason to cross). On the plots' bounding box, square by square.

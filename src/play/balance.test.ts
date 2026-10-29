@@ -14,12 +14,13 @@ import { attachPassengers, peopleArrive } from "../game/passengers";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, learnGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { built, techOf, TECHS, unlocksOf } from "../game/tech";
+import { landStretches } from "../game/across-river";
 import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, setSpeed, studying, tick as researchTick } from "../game/research";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
 import { buildStarterWorld, haltTown, haltWhy, INDUSTRY_ROLE, syncIndustries, type World, fixedPieces } from "../game/world";
-import { FEAT_FIELD, FEAT_TREE, isWater, looseHeight, type SiteRole } from "../landscape";
+import { FEAT_FIELD, FEAT_TREE, inRiver, isWater, looseHeight, type SiteRole } from "../landscape";
 import { gamePayment, nearestRuin, restoreRuin } from "../game/restore";
 import { restorePrice, restoredType } from "../game/map-sites";
 import { LandEditor } from "../landscape/edit";
@@ -28,11 +29,11 @@ import { propsInRect, type Footprint } from "../props/placement";
 import { fieldPrice, fieldSpot, plantField } from "../game/fields";
 import { rng } from "../lib/rng";
 import { CAR_SPECS, COUPLER_GAP, SIM_HZ, type CarKind } from "../sim";
-import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
+import { appendPiece, connectorRef, getPieceDef, indexOfRef, isBridge, pieceOfRef, type PieceTypeId, type Pose } from "../track";
 import { legFromCursor, lineLegs, runsLength } from "../game/route-path";
 import { topologyOf, trainLength } from "../economy/sections";
 import { play, type Blocked } from "./player";
-import { pathLength } from "../track/path";
+import { createSample, pathLength, samplePath } from "../track/path";
 import { endOn, rulesFor, schoolOn } from "./rules";
 
 /**
@@ -339,6 +340,14 @@ interface Row {
   riders: number;
 }
 
+/** How often (ticks) the pieces under the trains' bogies are noted (`Player.ridden`): ten times a second of play. */
+const RIDE_EVERY = SIM_HZ / 10;
+/** The pieces that meet a goal, by the goal's id: noted as it's ticked off (`Player.goalPieces`). */
+const GOAL_PIECES: Readonly<Record<string, (type: PieceTypeId, flipped: boolean) => boolean>> = {
+  "lay-switch": (type, flipped) => !!getPieceDef(type, flipped).isSwitch,
+  "build-bridge": (type) => isBridge(type),
+};
+
 class Player {
   w!: World;
   editor!: Editor;
@@ -359,6 +368,10 @@ class Player {
   fixed = new Set<number>();
   /** Done each second of play, as a player watching the trains does it (a spur's switch set by hand: `tendSpur`). */
   everySecond: (() => void) | null = null;
+  /** Every piece a train's bogie has been seen on (sampled every `RIDE_EVERY` ticks): the track trains have run over. */
+  readonly ridden = new Set<number>();
+  /** The pieces on the map that met "Lay a switch" (its switches) and "Build a bridge" (its bridges), as each was ticked off. */
+  readonly goalPieces = new Map<string, number[]>();
   /** The boats of the harbours (`HarbourTrade`), and what they took: loads and coins. */
   readonly harbours = new HarbourTrade();
   readonly boatTook = { loads: 0, coins: 0 };
@@ -609,6 +622,8 @@ class Player {
       this.w.sim.tick();
       this.w.economy.tick();
       this.tick++;
+      if (this.tick % RIDE_EVERY === 0)
+        for (const id of this.w.sim.trainIds()) for (const b of this.w.sim.getTrain(id)!.bogies) this.ridden.add(b.pieceId);
       if (this.tick % SIM_HZ !== 0) continue;
       this.updatePlanksKept();
       if (ENV.BALANCE_CARGO) this.cargoTrace();
@@ -673,6 +688,8 @@ class Player {
       for (const g of this.goals.update(this.w, { learned: this.progress.learned, owned: this.progress.owned, orders: this.progress.orders })) {
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
+        const test = GOAL_PIECES[g.id];
+        if (test) this.goalPieces.set(g.id, [...this.w.layout.pieceIds()].filter((id) => test(this.w.layout.getPiece(id)!.type, this.w.layout.getPiece(id)!.flipped)));
       }
       if (this.tick % (SIM_HZ * 30) === 0) updateRates(this.w, (role) => boostOf(this.progress, role));
     }
@@ -818,7 +835,8 @@ class Player {
 
 // --- laying track (from the tours) ---
 
-function* sitesNear(P: Player, type: PieceTypeId, cells: number[], after?: PieceTypeId): Generator<{ pose: Pose; y: number }> {
+/** Sites for `type` near `cells` (with room for `after` beyond), those `keep` passes if given (`fullRate`). */
+function* sitesNear(P: Player, type: PieceTypeId, cells: number[], after?: PieceTypeId, keep?: (pose: Pose) => boolean): Generator<{ pose: Pose; y: number }> {
   const w = P.w;
   const g = w.landscape.grid;
   const rules = rulesFor(w);
@@ -832,7 +850,7 @@ function* sitesNear(P: Player, type: PieceTypeId, cells: number[], after?: Piece
           if (cell === -1) continue;
           const pose = { x: x - Math.cos(heading) * 108, z: z - Math.sin(heading) * 108, heading };
           const y = g.groundY(cell);
-          if (siteWhy(w.landscape, type, pose) || rules(type, false, pose, y, -1)) continue;
+          if (siteWhy(w.landscape, type, pose) || rules(type, false, pose, y, -1) || (keep && !keep(pose))) continue;
           if (after) {
             const id = w.layout.addPiece(type, pose, y);
             const end = w.layout.worldConnector(connectorRef(id, 1), peg);
@@ -1053,7 +1071,7 @@ function nearEnd(P: Player, id: number, n: number): boolean {
  * and a short straight, and track runs from the switch to a site for `type` near `cells` (with room for `after`). The
  * industry's piece must be in the box. Its piece and its free end, or null with everything put back.
  */
-function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceTypeId): { id: number; beyond: number } | null {
+function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceTypeId, keep?: (pose: Pose) => boolean): { id: number; beyond: number } | null {
   const w = P.w;
   const g = w.landscape.grid;
   if (!P.canMake(new Map([["piece:switch", 1]]))) return null;
@@ -1074,7 +1092,7 @@ function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceT
         const at = w.layout.worldConnector(connectorRef(sw, 2), peg);
         const near = cells.filter((i) => Math.hypot(g.centreX(g.colOf(i)) - at.x, g.centreZ(g.rowOf(i)) - at.z) < 1200);
         let n = 0;
-        for (const site of sitesNear(P, type, near.filter((_, k) => k % 2 === 0).slice(0, 40), after)) {
+        for (const site of sitesNear(P, type, near.filter((_, k) => k % 2 === 0).slice(0, 40), after, keep)) {
           if (++n > 20) break;
           const q = P.editor.place(type, site.pose, site.y, false);
           const had = new Set(w.layout.pieceIds());
@@ -1241,7 +1259,7 @@ function industryAt(P: Player, type: PieceTypeId, ref: number): number {
  * The industry's piece is placed (it must already be in the toy box). Returns the new piece (or the target's piece),
  * and the free end beyond it; or null, with everything put back.
  */
-function extend(P: Player, to: { type: PieceTypeId; cells: number[]; after?: PieceTypeId } | { target: () => number[] }, maxSites = 30): { id: number; beyond: number } | null {
+function extend(P: Player, to: { type: PieceTypeId; cells: number[]; after?: PieceTypeId; keep?: (pose: Pose) => boolean } | { target: () => number[] }, maxSites = 30): { id: number; beyond: number } | null {
   for (const end of lineEnds(P).sort((a, b) => 0 * a.ref - 0 * b.ref)) {
     if (P.w.sim.pieceOccupied(end.buffer)) continue;
     const bufPose = P.w.layout.getPiece(end.buffer)!;
@@ -1270,7 +1288,7 @@ function extend(P: Player, to: { type: PieceTypeId; cells: number[]; after?: Pie
       const straight = to.after ? -1 : industryAt(P, to.type, from);
       if (straight !== -1) return { id: straight, beyond: freeEnd(P, straight) };
       let n = 0;
-      for (const site of sitesNear(P, to.type, near.filter((_, k) => k % 2 === 0).slice(0, 50), to.after)) {
+      for (const site of sitesNear(P, to.type, near.filter((_, k) => k % 2 === 0).slice(0, 50), to.after, to.keep)) {
         if (++n > maxSites) break;
         const q = P.editor.place(to.type, site.pose, site.y, false);
         const had = new Set(P.w.layout.pieceIds());
@@ -1508,7 +1526,50 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   expect(w.layout.getPiece(P.quarry)?.type, "the quarry on the map").toBe("depot-quarry");
   expect(w.economy.made[CARGO.stone.index], "stone cut").toBeGreaterThan(0);
   expect(P.p.progress.counts.get("delivered:stone") ?? 0, "stone delivered to a town").toBeGreaterThan(0);
+  // "Lay a switch", met by the old farm's spur: its switch on the line (all three ends joined), and trains through it
+  // onto the spur (the piece off its branch) and on to the farm.
+  const L = w.layout;
+  const joined = (id: number) => getPieceDef(L.getPiece(id)!.type, L.getPiece(id)!.flipped).connectors.every((_, c) => L.joinedConnector(connectorRef(id, c)) !== -1);
+  const switches = P.p.goalPieces.get("lay-switch") ?? [];
+  expect(switches, "the switch that met its goal is the farm's spur's").toEqual([P.spurSwitch]);
+  const sw = P.spurSwitch;
+  expect(L.getPiece(sw) && joined(sw), "the spur's switch on the line, all its ends joined").toBe(true);
+  expect(P.p.ridden.has(sw), "a train over the spur's switch").toBe(true);
+  expect(P.p.ridden.has(pieceOfRef(L.joinedConnector(connectorRef(sw, 2)))), "a train through the switch onto the spur").toBe(true);
+  expect(P.p.ridden.has(P.farm), "a train down the spur to the farm").toBe(true);
+  // "Build a bridge", met by the line over the river to the quarry: its bridges on the line, trains over them, and
+  // over the water as the game tells it (`inRiver`, what a piece needs a bridge for).
+  const bridges = P.p.goalPieces.get("build-bridge") ?? [];
+  expect(bridges.length, "bridges on the map when the goal was met").toBeGreaterThan(0);
+  for (const id of bridges) {
+    expect(L.getPiece(id) && joined(id), `bridge ${id} on the line, both ends joined`).toBe(true);
+    expect(P.p.ridden.has(id), `a train over bridge ${id}`).toBe(true);
+  }
+  expect(bridges.some((id) => spansWater(w, id)), "a bridge of the goal's over the river").toBe(true);
+  expect(P.p.ridden.has(P.quarry), "a train on to the quarry across the river").toBe(true);
   return P;
+}
+
+/** An industry here works at full speed: its resource round its yard enough for the most it makes (`rateFor`). */
+function fullRate(w: World, role: Parameters<typeof resourceAt>[1], pose: Pose): boolean {
+  const r = resourceAt(w.landscape, role, pose);
+  return !r || rateFor(r.count, r.need) >= rateFor(Infinity, 1);
+}
+
+/** Does a piece cross the river as the game draws it (`inRiver`: where a piece would need a bridge)? Along its paths. */
+function spansWater(w: World, id: number): boolean {
+  const p = w.layout.getPiece(id)!;
+  const ch = Math.cos(p.pose.heading);
+  const sh = Math.sin(p.pose.heading);
+  const at = createSample();
+  for (const path of getPieceDef(p.type, p.flipped).paths) {
+    const len = pathLength(path.geom);
+    for (let k = 0; k <= 16; k++) {
+      samplePath(path.geom, (len * k) / 16, at);
+      if (inRiver(w.landscape.grid, p.pose.x + at.x * ch - at.z * sh, p.pose.z + at.x * sh + at.z * ch)) return true;
+    }
+  }
+  return false;
 }
 
 describe("research toward a goods chain (towardChains)", () => {
@@ -1957,8 +2018,9 @@ class Playthrough {
     const s = P.progress;
     // The goal the player works on, in the goals' order, "Open a farm" and the other old industries' too: those come by
     // their own rules below (the old farm restored, a quarry built), and the goals after them wait for them, as a
-    // player's do.
-    const goal = GOALS.find((x) => !P.goals.isDone(x.id) && (x.needs ?? []).every((id) => s.learned.has(id)))?.id;
+    // player's do. In the goals play-through "Build a bridge" waits too, for the quarry across the river (`quarryAcross`):
+    // the goals after it are worked on meanwhile (it's an open goal: the game ticks them off as they're met).
+    const goal = GOALS.find((x) => !P.goals.isDone(x.id) && (x.needs ?? []).every((id) => s.learned.has(id)) && !(this.goalsFirst && x.id === "build-bridge"))?.id;
     const g = w.landscape.grid;
 
     // The school (the first village's present), as soon as it's in the box: on the straight of the line beside a
@@ -2014,8 +2076,10 @@ class Playthrough {
       P.note("ordered a switch at the workshop for the goal");
     }
 
-    // The switch goal: a switch on the map (there's nothing to branch to yet: it goes down beside the line).
-    if (!this.switchLaid && s.learned.has("switches") && goal === "lay-switch") {
+    // The switch goal, in the default run: a switch on the map (there's nothing to branch to yet: it goes down beside
+    // the line). The goals play-through's player keeps the switch for a real branch: the old farm's spur (`restoreOld`,
+    // once Farming is learned), the goal met by the switch its trains then run through (checked in `goalsPlay`).
+    if (!this.goalsFirst && !this.switchLaid && s.learned.has("switches") && goal === "lay-switch") {
       const why = P.make(new Map([["piece:switch", 1]]));
       if (!why) {
         const c = w.landscape.towns[1].centre;
@@ -2062,7 +2126,8 @@ class Playthrough {
       }
       if (!this.joinedThird) this.why = "couldn't join a third town yet";
     }
-    // The bridge goal, if joining towns didn't need one: a bridge by itself.
+    // The bridge goal in the default run, if joining towns didn't need one: a bridge by itself. (The goals
+    // play-through's player bridges the river to the quarry ground across it instead: `quarryAcross`.)
     if (goal === "build-bridge" && s.learned.has("bridges") && (this.joinedThird || this.idle > 3)) {
       const why = P.make(new Map([["piece:bridge", 1]]));
       if (!why) {
@@ -2655,9 +2720,35 @@ class Playthrough {
     // (A waiting order taken off when the harness makes it itself, so only one is made.)
     P.crafting.cancel(thing);
     P.make(new Map([[thing, 1]]));
-    const r = extend(P, { type, cells }) ?? (s.learned.has("switches") ? branchOff(P, type, cells) : null);
-    if (r) opened(r.id, r.beyond, `built a ${rule.label.toLowerCase()} by the line`);
+    const across = role === "quarry" ? this.quarryAcross(cells) : [];
+    const keep = (pose: Pose) => fullRate(w, role, pose);
+    const there = across.length > 0 ? (extend(P, { type, cells: across, keep }) ?? (s.learned.has("switches") ? branchOff(P, type, across, undefined, keep) : null)) : null;
+    if (across.length > 0 && !there) P.note("COULDN'T run the line over the river to the quarry ground across it: a quarry this side");
+    const r = there ?? extend(P, { type, cells }) ?? (s.learned.has("switches") ? branchOff(P, type, cells) : null);
+    if (r) opened(r.id, r.beyond, there ? "built a quarry across the river, the line bridged over to it" : `built a ${rule.label.toLowerCase()} by the line`);
     else P.note(`COULDN'T reach a ${role} site from the line's ends (or a branch)`);
+  }
+
+  /**
+   * The goals play-through's quarry ground for "Build a bridge": of `cells`, those across the river from the line (on a
+   * stretch of land it has no part of: `landStretches`, as the goal's Show me finds what's across). On the starter map
+   * the nearest thing across is hillside by the sawmill, where Show me points; no town, depot or old industry is
+   * across, so the quarry is the first reason a player has to bridge it. None in the default run, or once a bridge is
+   * down.
+   */
+  quarryAcross(cells: readonly number[]): number[] {
+    const P = this.p;
+    const w = P.w;
+    if (!this.goalsFirst || P.goals.isDone("build-bridge") || !P.progress.learned.has("bridges")) return [];
+    const g = w.landscape.grid;
+    const land = landStretches(g);
+    const ours = new Set<number>();
+    for (const id of w.layout.pieceIds()) {
+      const p = w.layout.getPiece(id)!;
+      const i = g.cellAtWorld(p.pose.x, p.pose.z);
+      if (i !== -1 && land[i] !== -1) ours.add(land[i]);
+    }
+    return cells.filter((i) => land[i] !== -1 && !ours.has(land[i]));
   }
 
   /** When the line was last run on to another town for "Connect every town" (minutes). */
@@ -2752,7 +2843,10 @@ class Playthrough {
       }
     }
     const free = () => [0, 1].map((c) => connectorRef(stub, c)).filter((ref) => w.layout.joinedConnector(ref) === -1);
-    let r = extend(P, { target: free });
+    // The goals play-through's player with "Lay a switch" still to do (the switch made, kept for a branch worth one)
+    // lays the spur first: the goal met by a switch its trains run through to the farm, not one by itself.
+    const branchFirst = this.goalsFirst && this.spur && role === "farm" && s.learned.has("switches") && !P.goals.isDone("lay-switch");
+    let r = branchFirst ? null : extend(P, { target: free });
     // Else (BALANCE_SPUR) a short spur to it off a switch in the line (as its Show me frames it: the ruin and the line).
     // Before Routes the line's train runs end to end with the switch set for the line, so its grain reaches the line
     // only when the player sets the switch for the farm by hand (`tendSpur`; BALANCE_SPUR=routes: Routes learned
@@ -2762,6 +2856,7 @@ class Playthrough {
       spur = spurTo(P, site.centre, free) ?? -1;
       if (spur !== -1) r = { id: stub, beyond: -1 };
     }
+    if (!r && branchFirst) r = extend(P, { target: free });
     if (!r) {
       // A new one instead, now (as without ruins: waiting on the ruin held the farm back 10 minutes, and a branch to it
       // is one the unrouted goods train never takes). Tried again 5 minutes on if there's still no farm.
