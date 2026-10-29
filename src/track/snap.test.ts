@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { connectorRef, Layout } from "./layout";
 import { solveParentPose, transformPose, type Pose } from "./math";
 import { getPieceDef } from "./pieces";
-import { appendPiece, findSnap, findSnapAhead, findSnapAtPoint } from "./snap";
+import { appendPiece, findSnap, findSnapAhead, findSnapAtPoint, flipToKeepTurning } from "./snap";
 import { RAMP_LENGTH, RISER_HEIGHT } from "./constants";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
@@ -40,6 +40,39 @@ describe("curved ramps", () => {
         expect(top.kind, `${ramp} ${flipped}`).toBe("snapped");
       }
     }
+  });
+});
+
+describe("a curved ramp after a curve keeps turning the same way (QA: it made an S-bend)", () => {
+  it("takes the flip that turns on as the curve it meets does, off either end of it", () => {
+    for (const curveFlipped of [false, true]) {
+      const l = new Layout();
+      const c = l.addPiece("curve-large", P(0, 0), 0, curveFlipped);
+      for (const ramp of ["ramp-curve", "ramp-curve-small", "ramp-curve-wide"] as const) {
+        // On its far end, by the ramp's foot: mirrored as the curve is.
+        expect(flipToKeepTurning(l, ramp, 0, connectorRef(c, 1)), `${ramp} ${curveFlipped}`).toBe(curveFlipped);
+        // On its near end (going back round it), by the ramp's top: the same.
+        expect(flipToKeepTurning(l, ramp, 1, connectorRef(c, 0)), `${ramp} ${curveFlipped} back`).toBe(curveFlipped);
+      }
+      // A ramp laid on and run on along: the next curved ramp turns on too (a spiral).
+      const r = appendPiece(l, "ramp-curve", curveFlipped, connectorRef(c, 1));
+      expect(flipToKeepTurning(l, "ramp-curve", 0, connectorRef(r, 1))).toBe(curveFlipped);
+      // …and it does: the two together turn a three-quarter turn.
+      const r2 = appendPiece(l, "ramp-curve", flipToKeepTurning(l, "ramp-curve", 0, connectorRef(r, 1))!, connectorRef(r, 1));
+      const h = l.getPiece(r2)!;
+      const end = transformPose(h.pose, getPieceDef(h.type, h.flipped).connectors[1].pose, P(0, 0));
+      expect(Math.cos(end.heading - (curveFlipped ? -1 : 1) * (Math.PI / 4 + Math.PI))).toBeCloseTo(1, 6);
+    }
+  });
+
+  it("nothing to keep on straight track or at a switch", () => {
+    const l = new Layout();
+    const s = l.addPiece("straight-216", P(0, 0));
+    const w = l.addPiece("switch", P(0, 600));
+    expect(flipToKeepTurning(l, "ramp-curve", 0, connectorRef(s, 1))).toBeNull();
+    expect(flipToKeepTurning(l, "ramp-curve", 0, connectorRef(w, 0))).toBeNull();
+    // (A straight ramp turns no way.)
+    expect(flipToKeepTurning(l, "ramp", 0, connectorRef(s, 1))).toBeNull();
   });
 });
 

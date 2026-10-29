@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, flipToKeepTurning, getPieceDef, isBridge, isLift, isRamp, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -778,6 +778,7 @@ export class Interaction {
     if (item && item.kind !== "piece") item = null;
     if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
     this.armed = item;
+    this.flipPressed = false;
     if (this.carried) this.carryCursor(false);
     this.carried = false;
     this.carryAt = null;
@@ -1145,6 +1146,12 @@ export class Interaction {
   /** How pieces come out of the tray: eighth turns from facing away from the camera, and mirrored or not. */
   trayTurns = 0;
   trayFlipped = false;
+  /**
+   * Flip pressed for the piece in hand (till it's put down, or another's taken): a curved ramp is then as the player
+   * flips it, not turned on as the curve it meets. (On a desktop the piece in hand is made anew each time the mouse
+   * comes back over the map, from the tray's turn and flip: this outlasts it.)
+   */
+  private flipPressed = false;
 
   /**
    * Which way the next model from the tray faces (its front, world heading): the way the last one placed or turned
@@ -1264,6 +1271,7 @@ export class Interaction {
     const holding = this.mode.kind === "drag-piece";
     if (holding) this.flipSelected();
     this.trayFlipped = !this.trayFlipped;
+    this.flipPressed = true;
     this.guided = null;
     // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out. (Carried, its ghost flips.)
     if (this.carried && !holding) this.refreshCarry();
@@ -3013,6 +3021,7 @@ export class Interaction {
       }
       m.heldFlipped = !m.heldFlipped;
       m.flipped = m.heldFlipped;
+      this.flipPressed = true;
       const visible = m.ghost.visible;
       this.dropHeld(m.ghost);
       m.ghost = this.heldMesh(m.type, m.flipped);
@@ -3682,7 +3691,7 @@ export class Interaction {
     }
   }
 
-  private updateDrag(x: number, y: number): void {
+  private updateDrag(x: number, y: number, keepingTurn = false): void {
     const m = this.mode;
     if (m.kind === "drag-group") {
       this.lastX = x;
@@ -3811,6 +3820,21 @@ export class Interaction {
           if (isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
           m.snap = s;
           break;
+        }
+      }
+      // A curved ramp from the tray seated on the end of a curve goes on turning that way: a spiral, not an S-bend
+      // (QA). Not once Flip's been pressed for it: then it's as the player holds it.
+      if (m.pieceId === -1 && !this.flipPressed && !keepingTurn && isRamp(m.type) && m.snap.kind === "snapped" && m.snap.target >= 0) {
+        const keep = flipToKeepTurning(this.game.layout, m.type, m.snap.connector, m.snap.target);
+        if (keep !== null && keep !== m.heldFlipped) {
+          m.heldFlipped = keep;
+          m.flipped = keep;
+          const visible = m.ghost.visible;
+          this.dropHeld(m.ghost);
+          m.ghost = this.heldMesh(m.type, m.flipped);
+          m.ghost.visible = visible;
+          this.updateDrag(x, y, true);
+          return;
         }
       }
       if (m.auto) {
@@ -4026,6 +4050,8 @@ export class Interaction {
           : isNew
             ? ed.place(m.type, pose, y, m.flipped, risers)
             : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped, fill), m.pieceId);
+        // (The next one from the tray turns on with the curve it meets again, till Flip's pressed for it.)
+        if (isNew) this.flipPressed = false;
         if (covers) this.hud.toast(covers.length === 1 ? "Straight back in the box" : `${covers.length} straights back in the box`);
         else if (fill.length > 0) this.hud.toast(fill.length === 1 ? "A straight closes the gap" : "Straights close the gap");
         g.trackView.setHidden(id, true);

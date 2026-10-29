@@ -1,7 +1,7 @@
 import { SNAP_CAPTURE_RADIUS, SNAP_HEIGHT_TOLERANCE } from "./constants";
-import { createWorldConnector, pieceOfRef, type Layout } from "./layout";
+import { createWorldConnector, indexOfRef, pieceOfRef, type Layout } from "./layout";
 import { angleDiff, solveParentPose, transformPose, type Pose } from "./math";
-import { getPieceDef, type PieceTypeId } from "./pieces";
+import { getPieceDef, type PieceDef, type PieceTypeId } from "./pieces";
 
 export type SnapResult =
   | {
@@ -36,6 +36,36 @@ const candidates: number[] = [];
  * it's turned: of the ends that could seat, the one that turns it least from how it's held wins (then the nearest), and
  * none that would turn it more than a quarter turn. Called on pointer move, so returning a fresh result is fine.
  */
+/**
+ * Which way a train turns on `def` going through its end `c`, leaving (`out`) or entering: 1 left, -1 right, 0 straight
+ * on; null where more than one track meets there (a switch).
+ */
+function turnAt(def: PieceDef, c: number, out: boolean): number | null {
+  const at = def.paths.filter((p) => p.from === c || p.to === c);
+  if (at.length !== 1) return null;
+  const g = at[0].geom;
+  if (g.kind !== "arc") return 0;
+  // Along the path from its start, it turns as its sweep does; run the other way, the other way.
+  const forward = out ? at[0].to === c : at[0].from === c;
+  return Math.sign(g.sweep) * (forward ? 1 : -1);
+}
+
+/**
+ * The flip (mirrored or not) that has a piece seated by its end `connector` on the end `target` turn on the same way
+ * as the track it meets: a curve after a curve, round and round (a spiral up curved ramps, not an S-bend). Null when
+ * either turns no way there (straight track, a switch) or the piece turns the same mirrored or not.
+ */
+export function flipToKeepTurning(layout: Layout, type: PieceTypeId, connector: number, target: number): boolean | null {
+  const p = layout.getPiece(pieceOfRef(target));
+  if (!p) return null;
+  const out = turnAt(getPieceDef(p.type, p.flipped), indexOfRef(target), true);
+  if (!out) return null;
+  const plain = turnAt(getPieceDef(type, false), connector, false);
+  const mirrored = turnAt(getPieceDef(type, true), connector, false);
+  if (!plain || !mirrored || plain === mirrored) return null;
+  return mirrored === out;
+}
+
 export function findSnap(
   layout: Layout,
   type: PieceTypeId,

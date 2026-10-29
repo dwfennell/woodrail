@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BRIDGE_LENGTH, Layout, LIFT_LENGTH, LIFT_RISE, RAMP_LENGTH, RISER_HEIGHT } from "../track";
+import { BRIDGE_LENGTH, connectorRef, findOverlap, getPieceDef, Layout, LIFT_LENGTH, LIFT_RISE, RAMP_LENGTH, RISER_HEIGHT, transformPose } from "../track";
+import { appendPiece } from "../track/snap";
 import { gridWithPlots } from "./grid";
 import type { Landscape } from "./generate";
 import { archFloors, bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
@@ -98,6 +99,26 @@ describe("checkSupport", () => {
       }
       for (const y of [0, RISER_HEIGHT / 2, 5 * RISER_HEIGHT]) {
         expect(checkSupport(flat(), new Layout(), type, false, P(0, Z), y, -1), `${type} at ${y}`).toEqual({ kind: "unsupported" });
+      }
+    }
+  });
+
+  it("track on a ramp's top rests there (held by the ramp's support): a riser only under its far end (QA: a curve on a curved ramp was “in the way”)", () => {
+    for (const [before, ramp, top] of [["curve-small", "ramp-curve-small", "curve-small"], ["curve-large", "ramp-curve", "curve-large"], ["straight-144", "ramp", "straight-144"]] as const) {
+      for (const flipped of [false, true]) {
+        const l = new Layout();
+        const s = l.addPiece("straight-216", P(0, Z));
+        const c = appendPiece(l, before, false, connectorRef(s, 1));
+        const r = appendPiece(l, ramp, flipped, connectorRef(c, 1));
+        const q = l.getPiece(r)!;
+        const k = getPieceDef(q.type, q.flipped).connectors[1];
+        const at = transformPose(q.pose, k.pose, P(0, 0));
+        const held = checkSupport(flat(), l, top, false, at, RISER_HEIGHT, -1);
+        expect(held.kind, `${ramp} ${flipped}`).toBe("held");
+        if (held.kind !== "held") continue;
+        // One riser, under its far end, and it stands clear of the ramp.
+        expect(held.risers, `${ramp} ${flipped}`).toHaveLength(1);
+        expect(findOverlap(l, "riser", false, held.risers[0].pose, held.risers[0].y, -1), `${ramp} ${flipped}`).toBe(-1);
       }
     }
   });

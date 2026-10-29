@@ -180,8 +180,9 @@ function restHeights(land: Landscape, near: readonly Holder[], x: number, z: num
   for (const p of near) {
     if (p.type === "riser") {
       if (Math.hypot(p.pose.x - x, p.pose.z - z) <= RISER_REACH) out.push(p.y + RISER_HEIGHT);
-    } else if (isBridge(p.type) || isLift(p.type) || bridgeLevels(land, p.type, p.flipped, p.pose, p.y) > 0) {
-      // Bridge ends, the ends of a ramp on arches, and a train lift's (its high end held up by its tower).
+    } else if (isBridge(p.type) || isLift(p.type) || isRamp(p.type) || bridgeLevels(land, p.type, p.flipped, p.pose, p.y) > 0) {
+      // Bridge ends, a ramp's (held up by its own support, or its arches), and a train lift's (its high end held up by
+      // its tower). (QA: a curve on a curved ramp's top wanted a riser there, standing in the ramp.)
       for (const f of feet(p.type, p.flipped, p.pose)) {
         if (Math.hypot(f.x - x, f.z - z) <= JOINT_POS_TOLERANCE) out.push(p.y + f.dy);
       }
