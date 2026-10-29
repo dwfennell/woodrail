@@ -1590,7 +1590,12 @@ export class Sections {
           if (Math.abs(gb - g) <= CLEAR_STEP) {
             const room = walked - gap;
             // (Within a step of it: as good as there; the sim may hold it touching.)
-            if (room > CLEAR_STEP) return Math.sqrt(2 * ACCELERATION * (room - CLEAR_STEP));
+            if (room > CLEAR_STEP) {
+              // (Edging up as the one ahead edges on, still close behind it: the wait goes on. Else a line's train easing
+              // up to its slot's end keeps the wait new, and neither ever gives way: QA's OFF k2 at20 stood 180 s.)
+              if (held !== undefined && room <= 2 * CLEAR_STEP) this.clearHeld.set(train.id, held);
+              return Math.sqrt(2 * ACCELERATION * (room - CLEAR_STEP));
+            }
             // (A line's train: it waits there, its line's sections say when it goes.)
             if (!turn) return 0;
             // (Stood short of it a while: it turns back, as it would have on bumping it, but without the bump.)
