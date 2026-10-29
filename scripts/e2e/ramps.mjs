@@ -250,6 +250,11 @@ for (const [flat, ramp, name] of CURVES) {
   // Its card: a click on it, then Go (if it isn't running already).
   await p.mouse.click(onLine[0], onLine[1]);
   await frames();
+  // As a finger would: once Go has been drawn and has stood in place longer than the card tap guard's window
+  // (`CARD_MOVED_MS`). Shown in the DOM isn't drawn: under SwiftShader the next frame may be seconds away, and a click
+  // sent before it lands just after the frame that first lays Go out, which the guard rightly drops (#19).
+  await frames();
+  await p.waitForTimeout(250);
   // (The engine card's Go: `button.go`, showing.)
   const go = await p.evaluate(() => { const e = [...document.querySelectorAll("button.go")].find((x) => x.offsetParent !== null && x.textContent.trim() === "Go"); if (!e) return null; const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
   if (go) await p.mouse.click(go[0], go[1]);
