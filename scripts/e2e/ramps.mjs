@@ -1,8 +1,8 @@
 // End-to-end: curved ramps on the player's path (`npm run e2e:ramps`). On a desktop Sandbox (#seed-24), for each curve
 // (tight, the curve, wide): a straight, then that curve, then its curved ramp, each taken from the tray and clicked on
 // at the free end before it, so each joins; the ramp stands on its own support (no riser put under it). An engine from
-// the Trains tab on the straight, started with its card's Go, climbs the ramp to the top a level up, turns back at
-// its free end and comes down again, on the rails. Starts its own dev server on any free port. Chromium as for e2e:roads.
+// the Trains tab on the straight, started with its card's Go, climbs the ramp to its top end a level up, where it stops
+// (as at any open end), on the rails. Starts its own dev server on any free port. Chromium as for e2e:roads.
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
@@ -263,18 +263,18 @@ for (const [flat, ramp, name] of CURVES) {
         let topS = 0;
         let topY = -Infinity;
         const t0 = performance.now();
-        let still = t0;
+        const sim0 = w.simSeconds;
         const step = () => {
           const t = w.sim.getTrain(train);
           if (!t || t.derailed) return resolve({ derailed: true, topS, topY, before, after: poses() });
           for (const bg of t.bogies) if (bg.pieceId === up) topS = Math.max(topS, bg.reversed ? 0 : bg.s);
           for (const c of t.world ?? []) if (typeof c?.y === "number") topY = Math.max(topY, c.y);
-          // Stopped on the ramp (for 3 s: not a moment's pause on the way).
-          const stopped = t.speed === 0 && t.bogies.some((bg) => bg.pieceId === up && !bg.reversed);
-          if (!stopped) still = performance.now();
-          if ((stopped && topS > 0 && performance.now() - still > 3000) || performance.now() - t0 > 240000) {
+          // At the top: turned at the ramp's open end (the payoff). Else, out of time: by the game's own clock (a
+          // slow machine runs it slowly), with a long wall-clock bound too.
+          const atTop = t.lastTurn?.cause === "open-end" && t.lastTurn.pieceId === up;
+          if (atTop || w.simSeconds - sim0 > 300 || performance.now() - t0 > 1200000) {
             // (Standing at the top a while: it stays on.)
-            return setTimeout(() => resolve({ derailed: !!w.sim.getTrain(train)?.derailed, topS: Math.max(topS, ...t.bogies.filter((bg) => bg.pieceId === up && !bg.reversed).map((bg) => bg.s)), topY: Math.max(topY, ...t.world.map((c) => c.y)), speed: t.speed, lastTurn: t.lastTurn, turnback: t.turnback, lever: t.cars.map((c) => c.lever).join(""), bogies: t.bogies.map((bg) => `${bg.pieceId}${bg.reversed ? "r" : ""}@${bg.s.toFixed(0)}`).join(","), before, after: poses() }), 30000);
+            return setTimeout(() => resolve({ derailed: !!w.sim.getTrain(train)?.derailed, topS: Math.max(topS, ...t.bogies.filter((bg) => bg.pieceId === up && !bg.reversed).map((bg) => bg.s)), topY: Math.max(topY, ...t.world.map((c) => c.y)), speed: t.speed, lastTurn: t.lastTurn, simSeconds: Math.round(w.simSeconds - sim0), bogies: t.bogies.map((bg) => `${bg.pieceId}${bg.reversed ? "r" : ""}@${bg.s.toFixed(0)}`).join(","), before, after: poses() }), 30000);
           }
           requestAnimationFrame(step);
         };
