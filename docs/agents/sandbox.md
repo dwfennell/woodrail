@@ -40,6 +40,7 @@
 - **When `main.ts` or the cards change,** run touch, click and workshop.
 
 **Known flakes under load:**
+- A card button tapped as soon as it's in the DOM is dropped by the card tap guard (mobile-ux.md §5). Wait `frames()` then 250 ms. To check, record `performance.now() - hud.buttonMovedAt.get(button)` on pointerdown: under 150 means dropped.
 - The sim runs slower than the wall clock. Bound waits by `w.simSeconds`, not wall time.
 - Reading straight after `reload()` can beat the device's start-up take. Wait for the expected value, or for the copy to be in.
 - A device's own 60 s timer can fire mid-step. Hold a device offline with `setOffline` while the other works.
@@ -100,9 +101,9 @@
 Before going wide: rate-limit HEAD/GET, and codes with nothing saved yet.
 
 ## 4. Open items
-1. **curved-ramps, e2e fix:** `curved-ramps-2-dont-land` 15494b1. curved-ramps fdbd51c is **not** on main yet.
-   - The wide climb check now waits for `lastTurn.cause === "open-end"`, bounded by 300 s of sim time. The header claim is fixed.
-   - Next: run e2e:ramps alone, then hand off.
+1. **curved-ramps:** `claude/curved-ramps-land` (curved-ramps-2-dont-land on main 0d5410e, plus the e2e fix) is ready to land: e2e:ramps 7/7 twice.
+   - **Cause of the 4/7:** the test clicked the engine card's Go before it was drawn. Its pointerdown came 43 ms after Go came into place, inside `CARD_MOVED_MS`, so the card tap guard dropped it (#19). It wasn't the sim: `crossMasks` is 0 for one-path pieces (straights, all ramps), so `crossCap` never holds them.
+   - **Fix (test only):** two frames and 250 ms before tapping Go, as e2e:touch does.
 2. **cloud-saves-5** deb8623:
    - **The bug:** a false "changed on another device too" toast at step 8a. It means D thought it held an unsent layout edit (`m.layout`).
    - **Step 11** also needs to wait until both devices reach the sum.
