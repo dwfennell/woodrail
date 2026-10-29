@@ -45,6 +45,17 @@ const SIGNAL_LOOK = 300;
 const SIGNAL_STEP = 12;
 /** A block runs on through at most this many pieces (a loop with no signal in it ends somewhere). */
 const MAX_BLOCK = 64;
+/**
+ * Where paths meet (a crossing, a switch's roads by its stem: see `crossMasks`): how far (mm) past its stopping
+ * distance a train looks for a piece another train is on or coming onto by a path that meets its own, and how far
+ * (mm) short of that piece its front face stops.
+ */
+const CROSS_LOOK = 24;
+const CROSS_GAP = 4;
+/** A train stood short of such a piece this long, the train it waits for standing all the while, turns back. */
+const CROSS_TURN_TICKS = 5 * SIM_HZ;
+/** Paths a piece may have, for keying a piece's path (`crossClaims`). */
+const MAX_PATHS = 16;
 
 export interface Car {
   readonly id: number;
@@ -156,6 +167,8 @@ interface Cover {
   pieces: ReadonlySet<number>;
 }
 const lookAdv = createAdvance();
+const crossAdv = createAdvance();
+const crossAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };
 const face = { x: 0, y: 0, z: 0 };
 const otherFace = { x: 0, y: 0, z: 0 };
 const followFace = { x: 0, y: 0, z: 0 };
@@ -984,6 +997,13 @@ export class Sim {
 
   /** When each train was last on a lift (`Sim.ticks`), for `comingOffLift`: kept a moment, then forgotten. */
   private readonly offLift = new Map<number, number>();
+  /**
+   * Who's on the way onto each piece where paths meet, by the path it'll take (`pieceId * MAX_PATHS + path`): the train,
+   * and the tick it said so (good that tick and the next). See `crossCap`.
+   */
+  private readonly crossClaims = new Map<number, { trainId: number; tick: number }>();
+  /** Trains held short of a piece where paths meet: since when both have stood, and the tick it was last held. */
+  private readonly crossWaits = new Map<number, { since: number; tick: number }>();
 
   /** Is any of this train on a lift's platform? */
   private onLift(t: Train): boolean {
@@ -1328,6 +1348,8 @@ export class Sim {
     // Behind another train's engine, it closes up only to the gap it holds back at (else it would step into it each
     // tick and be stopped after: a creep that reads as standing still).
     if (v > 0 && this.trains.size > 1 && hasEngine(train)) v = Math.min(v, this.followRoom(train, v) / SIM_DT);
+    // Coming to a crossing, or a switch, another train is on or coming onto by the other road: it stops short and waits.
+    if (v > 0 && this.trains.size > 1) v = Math.min(v, this.crossCap(train, v));
     // (Too slow to see: standing.)
     if (v < MIN_SPEED) v = 0;
     train.speed = v;
@@ -1528,6 +1550,91 @@ export class Sim {
     return room;
   }
 
+  /**
+   * The speed a train may run at to stop short of the next piece where its path meets another's (a crossing, a
+   * switch's other road: `crossMasks`) that another train is on, or is coming onto (it said so this tick or last, in
+   * `crossClaims`), by a path that meets its own: Infinity when there's none within its stopping distance. Else it
+   * says it's coming onto each such piece it'll reach, so the first to come near one goes over and the other waits
+   * (whichever lines they're on, or none). Only pieces where paths meet cost more than a lookup.
+   */
+  private crossCap(train: Train, v: number): number {
+    const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
+    const look = (v * v) / (2 * ACCELERATION) + v * SIM_DT + CROSS_LOOK + inset + CROSS_GAP;
+    const c = crossAt;
+    Object.assign(c, train.bogies[0]);
+    // How far ahead of the front axle the start of the piece c is on.
+    let dist = -c.s;
+    for (let k = 0; k < MAX_BLOCK; k++) {
+      const piece = this.layout.getPiece(c.pieceId);
+      if (!piece) break;
+      const def = getPieceDef(piece.type, piece.flipped);
+      const mask = crossMasks(def)[c.pathIndex] ?? 0;
+      if (mask !== 0) {
+        // (On it already: it goes on over, saying so.)
+        const by = k === 0 ? null : this.crossHeld(train, c.pieceId, mask);
+        if (by) {
+          const room = dist - inset - CROSS_GAP;
+          this.crossWait(train, by);
+          return room < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (room - 0.5));
+        }
+        const key = c.pieceId * MAX_PATHS + c.pathIndex;
+        const claim = this.crossClaims.get(key);
+        if (claim) {
+          claim.trainId = train.id;
+          claim.tick = this.ticks;
+        } else this.crossClaims.set(key, { trainId: train.id, tick: this.ticks });
+      }
+      const len = pathLength(def.paths[c.pathIndex].geom);
+      dist += len;
+      if (dist - inset - CROSS_GAP > look) break;
+      // (Onto the next piece, a whisker in.)
+      advanceCursor(this.layout, c, len - c.s + 0.01, null, crossAdv);
+      if (crossAdv.status !== ADV_OK) break;
+      // (Measured from the piece's start.)
+      c.s = 0;
+    }
+    this.crossWaits.delete(train.id);
+    return Infinity;
+  }
+
+  /** Another train on, or coming onto, a piece by one of the paths in `mask` (a bit each), or null. */
+  private crossHeld(train: Train, pieceId: number, mask: number): Train | null {
+    for (const t of this.trains.values()) {
+      if (t === train || t.derailed) continue;
+      for (const b of t.bogies) if (b.pieceId === pieceId && (mask >> b.pathIndex) & 1) return t;
+    }
+    for (let m = mask, p = 0; m !== 0; m >>= 1, p++) {
+      if ((m & 1) === 0) continue;
+      const claim = this.crossClaims.get(pieceId * MAX_PATHS + p);
+      if (!claim || claim.trainId === train.id || claim.tick < this.ticks - 1) continue;
+      const t = this.trains.get(claim.trainId);
+      if (t && !t.derailed) return t;
+    }
+    return null;
+  }
+
+  /**
+   * A train held short of a piece where paths meet, by `by`: a wait that lasts while both stand (the one on it
+   * stopped there, levers off, or waiting on something else) can't end on its own, so after `CROSS_TURN_TICKS` it
+   * turns back, as it would have on running into it.
+   */
+  private crossWait(train: Train, by: Train): void {
+    let w = this.crossWaits.get(train.id);
+    if (!w || w.tick < this.ticks - 1) {
+      w = { since: this.ticks, tick: this.ticks };
+      this.crossWaits.set(train.id, w);
+      // (Trains come and go, and turn round as new ones: what's said of gone ones goes.)
+      if (this.crossWaits.size > 4 * this.trains.size) for (const id of this.crossWaits.keys()) if (!this.trains.has(id)) this.crossWaits.delete(id);
+      if (this.crossClaims.size > 64) for (const [key, cl] of this.crossClaims) if (cl.tick < this.ticks - 1) this.crossClaims.delete(key);
+    }
+    w.tick = this.ticks;
+    if (train.speed >= 1 || by.speed >= 1) w.since = this.ticks;
+    else if (this.ticks - w.since > CROSS_TURN_TICKS) {
+      this.crossWaits.delete(train.id);
+      this.meet(train);
+    }
+  }
+
   /** A train stopped by another meeting it head on: it waits, then turns back (as at the end of the line). */
   private meet(t: Train): void {
     t.speed = 0;
@@ -1626,21 +1733,48 @@ function pathsApart(def: PieceDef): boolean {
   let apart = apartCache.get(def);
   if (apart !== undefined) return apart;
   apart = true;
-  const step = 8;
-  for (let i = 0; i < def.paths.length && apart; i++)
-    for (let j = i + 1; j < def.paths.length && apart; j++) {
-      const a = def.paths[i].geom;
-      const b = def.paths[j].geom;
-      const la = pathLength(a);
-      const lb = pathLength(b);
-      for (let s = 0; s <= la && apart; s += step) {
-        samplePath(a, Math.min(s, la), apartA);
-        for (let t = 0; t <= lb && apart; t += step) {
-          samplePath(b, Math.min(t, lb), apartB);
-          if (Math.hypot(apartA.x - apartB.x, apartA.z - apartB.z) < TRACK_WIDTH) apart = false;
-        }
-      }
-    }
+  for (let i = 0; i < def.paths.length && apart; i++) for (let j = i + 1; j < def.paths.length && apart; j++) if (pathsMeet(def, i, j)) apart = false;
   apartCache.set(def, apart);
   return apart;
+}
+
+/** Do two of a piece's paths come within a track's width of each other somewhere? */
+function pathsMeet(def: PieceDef, i: number, j: number): boolean {
+  const step = 8;
+  const a = def.paths[i].geom;
+  const b = def.paths[j].geom;
+  const la = pathLength(a);
+  const lb = pathLength(b);
+  for (let s = 0; s <= la; s += step) {
+    samplePath(a, Math.min(s, la), apartA);
+    for (let t = 0; t <= lb; t += step) {
+      samplePath(b, Math.min(t, lb), apartB);
+      if (Math.hypot(apartA.x - apartB.x, apartA.z - apartB.z) < TRACK_WIDTH) return true;
+    }
+  }
+  return false;
+}
+
+const crossCache = new WeakMap<PieceDef, readonly number[]>();
+
+/**
+ * For each of a piece's paths, the others (a bit each) that meet it (`pathsMeet`): a train on one would run into a
+ * train on the other (a crossing's two lines, a switch's roads by its stem). None on a deck or lift (a train has it
+ * to itself), or on double track. Worked out once per piece def.
+ */
+function crossMasks(def: PieceDef): readonly number[] {
+  let masks = crossCache.get(def);
+  if (masks) return masks;
+  const n = def.paths.length;
+  const out = new Array<number>(n).fill(0);
+  if (n > 1 && n <= MAX_PATHS && !def.gated && !def.lift)
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++)
+        if (pathsMeet(def, i, j)) {
+          out[i] |= 1 << j;
+          out[j] |= 1 << i;
+        }
+  crossCache.set(def, out);
+  masks = out;
+  return masks;
 }
