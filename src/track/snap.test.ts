@@ -14,6 +14,35 @@ function curveChain(l: Layout, count: number): number[] {
   return ids;
 }
 
+describe("curved ramps", () => {
+  it("each carries on round its own curve: off a flat curve, it ends where two more of it would, a level up", () => {
+    for (const [flat, ramp] of [["curve-small", "ramp-curve-small"], ["curve-large", "ramp-curve"], ["curve-wide", "ramp-curve-wide"]] as const) {
+      for (const flipped of [false, true]) {
+        const l = new Layout();
+        const first = l.addPiece(flat, P(0, 0));
+        const r = appendPiece(l, ramp, flipped, connectorRef(first, 1));
+        const flats = new Layout();
+        let id = flats.addPiece(flat, P(0, 0));
+        for (let i = 0; i < 2; i++) id = appendPiece(flats, flat, flipped, connectorRef(id, 1));
+        const end = (lay: Layout, pid: number) => {
+          const p = lay.getPiece(pid)!;
+          const c = getPieceDef(p.type, p.flipped).connectors[1];
+          return { ...transformPose(p.pose, c.pose, P(0, 0)), y: p.y + c.y };
+        };
+        const a = end(l, r);
+        const b = end(flats, id);
+        expect(a.x, `${ramp} ${flipped}`).toBeCloseTo(b.x, 6);
+        expect(a.z, `${ramp} ${flipped}`).toBeCloseTo(b.z, 6);
+        expect(Math.cos(a.heading - b.heading), `${ramp} ${flipped}`).toBeCloseTo(1, 6);
+        expect(a.y).toBe(RISER_HEIGHT);
+        // And a flat curve snaps on at the top.
+        const top = findSnap(l, flat, flipped, P(a.x + 3, a.z - 3, a.heading), RISER_HEIGHT - 6);
+        expect(top.kind, `${ramp} ${flipped}`).toBe("snapped");
+      }
+    }
+  });
+});
+
 describe("findSnap", () => {
   it("snaps a nearby dragged piece exactly onto a free peg", () => {
     const l = new Layout();

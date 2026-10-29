@@ -27,7 +27,9 @@ describe("buildPieceGeometry", () => {
     for (const type of ["bridge", "bridge-curve"] as const) {
       for (const levels of [1, 3]) {
         const box = new Box3().setFromObject(new Mesh(buildPieceGeometry(getPieceDef(type, false), levels), new MeshBasicMaterial()));
-        expect(box.min.y, `${type} ${levels}`).toBeCloseTo(-levels * RISER_HEIGHT - 1, 0);
+        // Down to the ground (a sliver of a cut can sit a hair below it, out of sight).
+        expect(box.min.y, `${type} ${levels}`).toBeLessThan(-levels * RISER_HEIGHT + 0.5);
+        expect(box.min.y, `${type} ${levels}`).toBeGreaterThan(-levels * RISER_HEIGHT - 4);
         expect(box.max.y, `${type} ${levels}`).toBeCloseTo(TRACK_THICKNESS, 0);
       }
     }
@@ -64,6 +66,27 @@ describe("buildPieceGeometry", () => {
     for (const x of [8, RAMP_LENGTH - 8]) {
       const ray = new Raycaster(new Vector3(x, -RISER_HEIGHT + 2, -100), new Vector3(0, 0, 1));
       expect(ray.intersectObject(m).length, `x ${x}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("a curved ramp stands on its own support as the straight one does, following the curve (user: it floated)", () => {
+    for (const type of ["ramp-curve", "ramp-curve-small", "ramp-curve-wide"] as const) {
+      for (const levels of [0, 1]) {
+        const def = getPieceDef(type, false);
+        const m = new Mesh(buildPieceGeometry(def, levels), new MeshBasicMaterial());
+        const box = new Box3().setFromObject(m);
+        // Down to the ground (a sliver of a cut can sit a hair below it, out of sight).
+        expect(box.min.y, `${type} ${levels}`).toBeLessThan(-levels * RISER_HEIGHT + 0.5);
+        expect(box.min.y, `${type} ${levels}`).toBeGreaterThan(-levels * RISER_HEIGHT - 4);
+        expect(box.max.y, `${type} ${levels}`).toBeGreaterThan(RISER_HEIGHT);
+        // Just in from the high end, a little above the ground (well below the deck): the support is there.
+        const geom = def.paths[0].geom;
+        const p = createSample();
+        samplePath(geom, pathLength(geom) - 8, p);
+        const across = new Vector3(-Math.sin(p.heading), 0, Math.cos(p.heading));
+        const ray = new Raycaster(new Vector3(p.x, 6 - levels * RISER_HEIGHT, p.z).addScaledVector(across, -100), across);
+        expect(ray.intersectObject(m).length, `${type} ${levels}`).toBeGreaterThan(0);
+      }
     }
   });
 

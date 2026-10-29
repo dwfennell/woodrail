@@ -26,6 +26,7 @@ import {
   createSample,
   GROOVE_SPACING,
   GROOVE_WIDTH,
+  isRamp,
   pathLength,
   RISER_HEIGHT,
   samplePath,
@@ -329,13 +330,14 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
     samplePath(path, at, p);
     frames.push({ x: p.x, y: p.y, z: p.z, heading: p.heading, s: at });
   }
-  // On a slope (a bridge ramp) the body hangs deeper at the high end, then is cut level at the ground.
-  const rise = path.kind === "line" ? path.rise : 0;
+  // On a slope (a ramp, straight or curved) the body hangs deeper at the high end, then is cut level at the ground.
+  const rise = path.kind === "line" || path.kind === "arc" ? path.rise : 0;
   let result = brush(sweep(viaductProfile(height + rise), frames), PAINT);
   const ground = -height;
   if (rise > 0) {
-    const below = onlyCsgAttributes(nonIndexed(new BoxGeometry(len * 2, rise * 2, TRACK_WIDTH * 2)));
-    below.translate(len / 2, ground - 1 - rise, 0);
+    // (Wide enough for a curve's sweep too: all of it within its length of the start.)
+    const below = onlyCsgAttributes(nonIndexed(new BoxGeometry(len * 4, rise * 2, len * 4)));
+    below.translate(0, ground - 1 - rise, 0);
     result = csgEvaluate(evaluator, result, brush(below), SUBTRACTION);
   }
   // Arch tops a spandrel below the deck; the openings reach the ground. A low viaduct's arches are smaller, so each
@@ -567,7 +569,7 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
 
   // A ramp brings its own support: a sloping viaduct from the ground up under its high end (so it stands, and turns,
   // without a riser). Up off the ground, it stands on arches as a bridge does.
-  const ownSupport = def.type === "ramp" && def.paths.length === 1;
+  const ownSupport = isRamp(def.type) && def.paths.length === 1;
   if ((levels > 0 || ownSupport) && def.paths.length === 1) {
     // Keep the viaduct's own (painted) group through the union.
     const support = new CsgBrush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [PAINT, PAINT, PAINT]);

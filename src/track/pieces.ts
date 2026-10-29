@@ -74,6 +74,8 @@ export type PieceTypeId =
   | "crossover"
   | "double-curve"
   | "ramp-curve"
+  | "ramp-curve-small"
+  | "ramp-curve-wide"
   | "balloon-loop-small"
   | "wye"
   | "station"
@@ -152,6 +154,22 @@ function arcEnd(radius: number, sweep: number): Pose {
   return pose(radius * Math.sin(a), sign * radius * (1 - Math.cos(a)), sweep);
 }
 
+
+/** A ramp round a quarter turn of radius `radius`, up one level (its high end a peg). */
+function rampCurve(type: PieceTypeId, radius: number): PieceDef {
+  const sweep = 2 * CURVE_SWEEP;
+  return {
+    type,
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: arcEnd(radius, sweep), y: RISER_HEIGHT },
+    ],
+    paths: [{ from: 0, to: 1, geom: { kind: "arc", start: pose(0, 0, 0), radius, sweep, y0: 0, rise: RISER_HEIGHT } }],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  };
+}
 
 function curve(type: PieceTypeId, radius: number): PieceDef {
   return {
@@ -381,18 +399,11 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     supportHeight: 0,
     web: { kind: "arc", start: pose(0, DOUBLE_TRACK_SPACING / 2, 0), radius: LARGE_CURVE_RADIUS + DOUBLE_TRACK_SPACING / 2, sweep: CURVE_SWEEP, y0: 0, rise: 0 },
   },
-  // A ramp round a quarter turn (two large curves' worth), up one level: for spiralling up a hill.
-  "ramp-curve": {
-    type: "ramp-curve",
-    connectors: [
-      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
-      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, 2 * CURVE_SWEEP), y: RISER_HEIGHT },
-    ],
-    paths: [{ from: 0, to: 1, geom: { kind: "arc", start: pose(0, 0, 0), radius: LARGE_CURVE_RADIUS, sweep: 2 * CURVE_SWEEP, y0: 0, rise: RISER_HEIGHT } }],
-    flippable: true,
-    isSwitch: false,
-    supportHeight: 0,
-  },
+  // Ramps round a quarter turn (two curves' worth), up one level: for spiralling up a hill. One for each curve: tight,
+  // the curve, and wide.
+  "ramp-curve": rampCurve("ramp-curve", LARGE_CURVE_RADIUS),
+  "ramp-curve-small": rampCurve("ramp-curve-small", SMALL_CURVE_RADIUS),
+  "ramp-curve-wide": rampCurve("ramp-curve-wide", WIDE_CURVE_RADIUS),
   // A tighter turning loop: peels off on the tight curve round a smaller circle (still longer round than a train).
   "balloon-loop-small": {
     type: "balloon-loop-small",
@@ -523,8 +534,11 @@ export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 /** Bridges stand on their own arches, down to the ground under them. */
 export const isBridge = (type: PieceTypeId): boolean => type === "bridge" || type === "bridge-curve";
 
+/** Ramps up a level: the straight one, and the curved ones. Each stands on its own sloping support. */
+export const isRamp = (type: PieceTypeId): boolean => type === "ramp" || type === "ramp-curve" || type === "ramp-curve-small" || type === "ramp-curve-wide";
+
 /** Pieces that stand on arches when raised: bridges always, a ramp when its low end is up off the ground. */
-export const canStandOnArches = (type: PieceTypeId): boolean => isBridge(type) || type === "ramp";
+export const canStandOnArches = (type: PieceTypeId): boolean => isBridge(type) || isRamp(type);
 
 const mirrorPose = (p: Pose): Pose => pose(p.x, -p.z, normalizeAngle(-p.heading));
 

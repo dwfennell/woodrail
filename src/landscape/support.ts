@@ -1,4 +1,4 @@
-import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, createSample, getPieceDef, ignores, isBridge, isLift, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
+import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, createSample, getPieceDef, ignores, isBridge, isLift, isRamp, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { hillsOf } from "./hill-shape";
 
@@ -232,7 +232,7 @@ export function checkSupport(
     if (restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - fy) <= TOL)) continue;
     // A ramp's high end stands on the ramp's own support, down to where its low end rests (no riser); a train lift's
     // on its tower.
-    if ((type === "ramp" || isLift(type)) && f.dy > 0 && restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - y) <= TOL)) continue;
+    if ((isRamp(type) || isLift(type)) && f.dy > 0 && restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - y) <= TOL)) continue;
     // In the air: stack risers from the ground right under the foot, or on top of a riser stack there.
     const stack = stackIn(near, f.x, f.z);
     const ground = hillsOf(land.grid).groundAt(f.x, f.z);

@@ -50,6 +50,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:balloon-loop-small": { label: "Small loop", cost: { planks: 3 }, tech: "junctions" },
   "piece:ramp": { label: "Ramp", cost: { planks: 2 }, tech: "bridges" },
   "piece:ramp-curve": { label: "Curved ramp", cost: { planks: 2 }, tech: "bridges" },
+  "piece:ramp-curve-small": { label: "Tight curved ramp", cost: { planks: 2 }, tech: "bridges" },
+  "piece:ramp-curve-wide": { label: "Wide curved ramp", cost: { planks: 2 }, tech: "bridges" },
   "piece:riser": { label: "Riser", cost: { planks: 1 }, tech: "bridges" },
   "piece:bridge": { label: "Bridge", cost: { planks: 4 }, tech: "bridges" },
   "piece:bridge-curve": { label: "Curved bridge", cost: { planks: 5 }, tech: "bridges" },
