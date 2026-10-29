@@ -4,7 +4,9 @@
 //   "Another piece is in the way");
 // - the spiral: a straight, the curve, its curved ramp, the curve on top, and another curved ramp: two levels up, each
 //   ramp turning on as the curve before it does, with no Flip (QA: it came unflipped, an S-bend);
-// - the wide: a straight, the wide curve flipped (Flip), and its curved ramp, which turns on that way too.
+// - the wide: a straight, the wide curve flipped (Flip), and its curved ramp, which turns on that way too;
+// - the drag (#8): a curve dragged out of the tray, then the next two waiting at its end tapped (turning on, not an
+//   S-bend), and a fourth Flipped while it waits (an S, as the player chose).
 // A ramp from the ground stands on its own support (no riser put under it). On each, an engine from the Trains tab on
 // the straight, started with its card's Go, climbs to the top and runs on to the line's end there, where it stops, on
 // the rails. Starts its own dev server on any free port. Chromium as for e2e:roads.
@@ -134,7 +136,8 @@ const LANES = [
   { name: "the wide", steps: [["straight-216"], ["curve-wide", true], ["ramp-curve-wide", "auto"]] },
   { name: "the S", steps: [["straight-216"], ["curve-small", false], ["ramp-curve-small", "other"], ["curve-small"]] },
   // (Two straights first: with one, the line's start is under its top on screen, and a click there can take it.)
-  { name: "the spiral", steps: [["straight-216"], ["straight-216"], ["curve-large", false], ["ramp-curve", "auto"], ["curve-large", "same"], ["ramp-curve", "auto"]] },
+  // (The curve on top left to itself too: a flat curve turns on as the ramp it meets does, #8.)
+  { name: "the spiral", steps: [["straight-216"], ["straight-216"], ["curve-large", false], ["ramp-curve", "auto"], ["curve-large", "auto"], ["ramp-curve", "auto"]] },
 ];
 
 /**
@@ -344,6 +347,97 @@ for (const { name, steps } of LANES) {
     `${JSON.stringify(ride)}; last piece ${last}; Go ${go ? "pressed" : "not shown"}`,
   );
   // (It stands at the end of its own line, out of the next one's way.)
+}
+
+// #8, the drag: a curve dragged out of the tray onto open ground; the next waits at its free end, ready (as after any
+// drag), and a tap on it puts it down: it turns on as the curve it joins (round, not an S-bend), and the next after it
+// too. Then Flip pressed while the next waits: it's shown again mirrored, and a tap puts down what's shown (an S, as
+// the player chose).
+if (!process.env.ONLY || "the drag".includes(process.env.ONLY)) {
+  /** Which way (degrees) a train turns running through two joined pieces, from the first's free end to the second's. */
+  const turnThrough = (a, bb) =>
+    p.evaluate(async ([a, bb]) => {
+      const w = window.woodrail;
+      const { connectorRef, pieceOfRef } = await import("/src/track/layout.ts");
+      const { getPieceDef } = await import("/src/track/pieces.ts");
+      const { transformPose } = await import("/src/track/math.ts");
+      const free = (id, other) => {
+        const q = w.layout.getPiece(id);
+        const cs = getPieceDef(q.type, q.flipped).connectors;
+        const i = cs.findIndex((_, k) => pieceOfRef(w.layout.joinedConnector(connectorRef(id, k))) !== other);
+        return transformPose(q.pose, cs[i].pose, { x: 0, z: 0, heading: 0 }).heading;
+      };
+      const d = free(bb, a) - free(a, bb) - Math.PI;
+      return Math.round((Math.atan2(Math.sin(d), Math.cos(d)) * 180) / Math.PI);
+    }, [a, bb]);
+  const waiting = () => p.evaluate(() => { const i = window.woodrail.interaction; const m = i.preview; if (!m?.ghost.visible || !i.previewAt) return null; const v = i.previewAt.clone().project(window.woodrail.camera); const r = window.woodrail.canvas.getBoundingClientRect(); return { flipped: m.flipped, snap: m.snap.kind, at: [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height] }; });
+  const tapWaiting = async () => {
+    const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
+    const wt = await waiting();
+    if (!wt) return { id: null, shown: null };
+    await p.mouse.click(wt.at[0], wt.at[1]);
+    await frames();
+    const after = await p.evaluate(() => window.woodrail.layout.pieceCount);
+    const id = after > before ? await p.evaluate(() => Math.max(...[...window.woodrail.layout.pieceIds()].filter((i) => window.woodrail.layout.getPiece(i).type !== "riser"))) : null;
+    return { id, shown: wt.flipped };
+  };
+  await tab("Track");
+  const steps = [["curve-large", false], ["curve-large", "same"], ["curve-large", "same"], ["curve-large", "other"]];
+  const SPOTS = await spotsFor(steps, HEADING);
+  let ids = [];
+  let shown = [];
+  let flipSeen = null;
+  for (const spot of SPOTS.slice(0, 6)) {
+    await glide(spot.mid, 1400);
+    const e0 = spot.ends[0];
+    const e1 = spot.ends[1];
+    const drop = await screen((e0.x + e1.x) / 2, 0, (e0.z + e1.z) / 2);
+    if (!clearOnScreen(drop)) continue;
+    // Dragged out of the tray as a player would: pressed on it, moved over the map, let go.
+    const r = await item("piece:curve-large");
+    if (!r) break;
+    const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
+    await p.mouse.move(r[0], r[1]);
+    await p.mouse.down();
+    await p.mouse.move(drop[0], drop[1], { steps: 12 });
+    await frames();
+    await p.mouse.up();
+    await frames();
+    if ((await p.evaluate(() => window.woodrail.layout.pieceCount)) <= before) continue;
+    ids = [await p.evaluate(() => Math.max(...[...window.woodrail.layout.pieceIds()].filter((i) => window.woodrail.layout.getPiece(i).type !== "riser")))];
+    shown = [];
+    // The next two: as they come, tapped where they wait.
+    for (let k = 0; k < 2; k++) {
+      const t = await tapWaiting();
+      if (t.id === null) break;
+      ids.push(t.id);
+      shown.push(t.shown);
+    }
+    if (ids.length < 3) continue;
+    // The fourth: Flip pressed while it waits (the tray's ⇋ Flip), then tapped.
+    const w0 = await waiting();
+    const fb = await flipButton();
+    if (fb) {
+      await p.mouse.click(fb[0], fb[1]);
+      await frames();
+    }
+    const w1 = await waiting();
+    flipSeen = { before: w0?.flipped, after: w1?.flipped };
+    const t = await tapWaiting();
+    if (t.id !== null) {
+      ids.push(t.id);
+      shown.push(t.shown);
+    }
+    break;
+  }
+  await p.keyboard.press("Escape");
+  const pieces = [];
+  for (const id of ids) pieces.push(await pieceOf(id));
+  const turns = [];
+  for (let i = 1; i < ids.length; i++) turns.push((await piecesJoined(ids[i - 1], ids[i])) ? await turnThrough(ids[i - 1], ids[i]) : null);
+  const say = `${pieces.map((q) => `${q.type}${q.flipped ? "'" : ""}`).join(" → ")}; turns through each two ${JSON.stringify(turns)}; shown ${JSON.stringify(shown)}; flip ${JSON.stringify(flipSeen)}`;
+  check("the drag: a curve dragged out of the tray, the next two waiting at its end and tapped: each joins, turning on the same way (a quarter turn through each two, not an S-bend: #8)", ids.length >= 3 && turns.slice(0, 2).every((d) => d !== null && Math.abs(Math.abs(d) - 90) <= 1) && Math.sign(turns[0]) === Math.sign(turns[1]), say);
+  check("the drag: Flip pressed while the next waits shows it mirrored, and the tap puts down what's shown: an S-bend, as the player chose", ids.length === 4 && flipSeen.before !== flipSeen.after && shown[2] === pieces[3].flipped && turns[2] !== null && Math.abs(turns[2]) <= 1, say);
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));

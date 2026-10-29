@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, flipToKeepTurning, getPieceDef, isBridge, isLift, isRamp, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -1093,6 +1093,18 @@ export class Interaction {
     this.game.invalidate();
   }
 
+  /** The waiting ghost worked out again where it waits (the piece in the tray was flipped). */
+  private reshowPreview(): void {
+    const at = this.previewAt;
+    if (!at) return;
+    const v = at.clone().project(this.game.camera);
+    const r = this.game.canvas.getBoundingClientRect();
+    this.hidePreview();
+    this.showPreview(r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height, false, true);
+    if (this.preview?.ghost.visible) this.previewAt = at;
+    else this.hidePreview();
+  }
+
   /** Where (world) the ghost was shown from: a tap on the ghost puts the piece down there. */
   private previewAt: Vector3 | null = null;
 
@@ -1276,6 +1288,9 @@ export class Interaction {
     this.guided = null;
     // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out. (Carried, its ghost flips.)
     if (this.carried && !holding) this.refreshCarry();
+    // Waiting at the end of the last one put down: it's shown again there, mirrored (as the player has it now, not
+    // turning on as the curve it meets: #8), so a tap on it puts down what's shown.
+    else if (!holding && this.preview?.ghost.visible && this.previewAt) this.reshowPreview();
     else if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
     this.onTurned?.();
   }
@@ -3851,11 +3866,13 @@ export class Interaction {
           break;
         }
       }
-      // A curved ramp from the tray seated on the end of a curve goes on turning that way: a spiral, not an S-bend
-      // (QA). Not once Flip's been pressed for it: then it's as the player holds it.
-      if (m.pieceId === -1 && !this.flipPressed && !keepingTurn && isRamp(m.type) && m.snap.kind === "snapped" && m.snap.target >= 0) {
-        const keep = flipToKeepTurning(this.game.layout, m.type, m.snap.connector, m.snap.target);
-        if (keep !== null && keep !== m.heldFlipped) {
+      // A curve or curved ramp from the tray (held, carried, or waiting at the end of the last one put down) seated on
+      // the end of a curve goes on turning that way: round, or a spiral, not an S-bend (QA; #8: seated by whichever end
+      // turns it least, the next curve often came backwards). Not once Flip's been pressed for it: then it's as the
+      // player holds it. (At most one more snap a move: the second pass doesn't flip again.)
+      if (m.pieceId === -1 && !keepingTurn && !m.auto) {
+        const keep = keepTurning(this.game.layout, m.type, m.heldFlipped, m.snap, this.flipPressed);
+        if (keep !== null) {
           m.heldFlipped = keep;
           m.flipped = keep;
           const visible = m.ghost.visible;

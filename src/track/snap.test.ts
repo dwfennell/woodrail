@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { connectorRef, Layout } from "./layout";
 import { solveParentPose, transformPose, type Pose } from "./math";
 import { getPieceDef } from "./pieces";
-import { appendPiece, findSnap, findSnapAhead, findSnapAtPoint, flipToKeepTurning } from "./snap";
+import { appendPiece, findSnap, findSnapAhead, findSnapAtPoint, flipToKeepTurning, keepTurning } from "./snap";
 import { RAMP_LENGTH, RISER_HEIGHT } from "./constants";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
@@ -73,6 +73,64 @@ describe("a curved ramp after a curve keeps turning the same way (QA: it made an
     expect(flipToKeepTurning(l, "ramp-curve", 0, connectorRef(w, 0))).toBeNull();
     // (A straight ramp turns no way.)
     expect(flipToKeepTurning(l, "ramp", 0, connectorRef(s, 1))).toBeNull();
+  });
+});
+
+describe("the next curve from the tray keeps turning (#8: after one was put down, the next came up an S-bend)", () => {
+  // Which way (sign) a piece turns run in by its end `a` and out by `b`.
+  const turnOf = (l: Layout, id: number, a: number, b: number) => {
+    const w = (i: number) => l.worldConnector(connectorRef(id, i), { x: 0, z: 0, heading: 0, y: 0, kind: "socket" });
+    return Math.sign(Math.sin(w(b).heading - w(a).heading - Math.PI));
+  };
+  // As the game does each move (held, carried, or waiting at the end): snap as held, then, if it should keep turning,
+  // flipped and snapped once more. Every way it may be held (eight turns, mirrored or not) near the curve's free end.
+  const laid = (type: "curve-large" | "curve-small" | "curve-wide" | "ramp-curve", curveFlipped: boolean, flipPressed: boolean) => {
+    const out: { turn: number; flipped: boolean; held: boolean }[] = [];
+    for (const held of [false, true]) {
+      for (let k = 0; k < 8; k++) {
+        const l = new Layout();
+        const c = l.addPiece("curve-large", P(0, 0), 0, curveFlipped);
+        const end = l.worldConnector(connectorRef(c, 1), { x: 0, z: 0, heading: 0, y: 0, kind: "socket" });
+        const pose = P(end.x + Math.cos(end.heading) * 40, end.z + Math.sin(end.heading) * 40, (k * Math.PI) / 4);
+        let s = findSnap(l, type, held, pose, 0, -1, 400);
+        if (s.kind !== "snapped" || s.target !== connectorRef(c, 1)) continue;
+        const keep = keepTurning(l, type, held, s, flipPressed);
+        const flipped = keep ?? held;
+        if (keep !== null) s = findSnap(l, type, keep, pose, 0, -1, 400);
+        if (s.kind !== "snapped" || s.target !== connectorRef(c, 1)) continue;
+        const id = l.addPiece(type, s.pose, s.y, flipped);
+        out.push({ turn: turnOf(l, id, s.connector, 1 - s.connector), flipped, held });
+      }
+    }
+    return out;
+  };
+
+  it("without a Flip, a flat curve or a curved ramp seated on a curve turns on the same way, however it's held", () => {
+    for (const curveFlipped of [false, true]) {
+      const l = new Layout();
+      const want = turnOf(l, l.addPiece("curve-large", P(0, 0), 0, curveFlipped), 0, 1);
+      for (const type of ["curve-large", "curve-small", "curve-wide", "ramp-curve"] as const) {
+        const got = laid(type, curveFlipped, false);
+        // (Held both ways, some turns seat it by its far end: the backwards ones that made the S.)
+        expect(got.length, `${type} ${curveFlipped}`).toBeGreaterThan(2);
+        for (const g of got) expect(g.turn, `${type} after ${curveFlipped ? "a flipped" : "a"} curve`).toBe(want);
+      }
+    }
+  });
+
+  it("after a Flip, it's as the player holds it (an S if they like)", () => {
+    for (const type of ["curve-large", "ramp-curve"] as const) {
+      const got = laid(type, false, true);
+      for (const g of got) expect(g.flipped, type).toBe(g.held);
+      expect(new Set(got.map((g) => g.turn)).size, `${type}: both ways, as held`).toBe(2);
+    }
+  });
+
+  it("only curves keep turning: a straight, a switch, or the straight ramp stays as held", () => {
+    const l = new Layout();
+    const c = l.addPiece("curve-large", P(0, 0));
+    const snap = { kind: "snapped", pose: P(0, 0), y: 0, connector: 0, target: connectorRef(c, 1), distance: 0, flipped: false } as const;
+    for (const type of ["straight-216", "ramp", "switch"] as const) expect(keepTurning(l, type, false, snap, false), type).toBeNull();
   });
 });
 

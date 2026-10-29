@@ -52,10 +52,13 @@ function turnAt(def: PieceDef, c: number, out: boolean): number | null {
 
 /**
  * The flip (mirrored or not) that has a piece seated by its end `connector` on the end `target` turn on the same way
- * as the track it meets: a curve after a curve, round and round (a spiral up curved ramps, not an S-bend). Null when
- * either turns no way there (straight track, a switch) or the piece turns the same mirrored or not.
+ * as the track it meets: a curve after a curve, round and round (a spiral up curved ramps, not an S-bend). Only for
+ * a curve or a curved ramp (one track, an arc: not a switch). Null when the track it meets turns no way there
+ * (straight track, a switch), or the piece isn't a curve.
  */
 export function flipToKeepTurning(layout: Layout, type: PieceTypeId, connector: number, target: number): boolean | null {
+  const paths = getPieceDef(type, false).paths;
+  if (paths.length !== 1 || paths[0].geom.kind !== "arc") return null;
   const p = layout.getPiece(pieceOfRef(target));
   if (!p) return null;
   const out = turnAt(getPieceDef(p.type, p.flipped), indexOfRef(target), true);
@@ -64,6 +67,17 @@ export function flipToKeepTurning(layout: Layout, type: PieceTypeId, connector: 
   const mirrored = turnAt(getPieceDef(type, true), connector, false);
   if (!plain || !mirrored || plain === mirrored) return null;
   return mirrored === out;
+}
+
+/**
+ * A piece from the tray, held mirrored or not (`heldFlipped`) and seated as `snap`: the flip it should take to keep
+ * turning as the curve it meets (see `flipToKeepTurning`), or null to stay as held: it already does, there's nothing to
+ * keep, or Flip was pressed for it (`flipPressed`: then it's as the player holds it).
+ */
+export function keepTurning(layout: Layout, type: PieceTypeId, heldFlipped: boolean, snap: SnapResult, flipPressed: boolean): boolean | null {
+  if (flipPressed || snap.kind !== "snapped" || snap.target < 0) return null;
+  const keep = flipToKeepTurning(layout, type, snap.connector, snap.target);
+  return keep !== null && keep !== heldFlipped ? keep : null;
 }
 
 export function findSnap(

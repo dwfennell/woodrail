@@ -61,6 +61,8 @@
 
 **Carving** stays in workers; the arch variants for levels 1–3 are carved in the background at load.
 
+**Keep turning:** a curve or curved ramp from the tray takes the flip that turns on as the curve it meets (never a switch or a straight); Flip pressed for that piece wins. Draw doesn't (its rule: never mirror a held piece to fit).
+
 **Performance:** pointer moves are hot. The keep-turning check re-runs a snap at most once per move. Put numbers in commits.
 
 **Cloud merge rules:**
@@ -110,13 +112,11 @@ Before going wide: rate-limit HEAD/GET, and codes with nothing saved yet.
    - **Next:**
      - log `meta.modes.game.layout` on D before 8a. Suspects: town growth, or world changes after load (unconfirmed);
      - rerun alone, twice.
-3. **ramps-2** (`ramps-2-dont-land` 9876b80; issue #8 is related):
-   - **Done:**
-     - a curved ramp keeps the turn of the curve it meets (`flipToKeepTurning`), unless Flip was pressed during that carry;
-     - the riser-in-ramp refusal is fixed;
-     - unit tests for both.
-   - **e2e:** the wide and S lanes pass. The spiral lane's second ramp click doesn't snap: click a little ahead of the free end, or shorten the spiral.
-   - **Next:** port the ride wait into its lanes, and run click/touch, since `interaction.ts` changed.
+3. **ramps-2 + #8 keep-turning** (`claude/keep-turning`):
+   - a curve or curved ramp from the tray (held, carried, or waiting at the end of the last one put down) seated on a curve keeps its turn (`keepTurning` in `snap.ts`), unless Flip was pressed for it. **#8's cause:** the waiting piece (`previewNextAt`) seats by whichever end turns it least from the tray's heading, so a flat curve often came backwards (an S); only ramps were kept turning.
+   - Flip while the next piece waits shows it again mirrored (`reshowPreview`), so a tap puts down what's shown.
+   - the riser-in-ramp refusal is fixed;
+   - unit tests in `snap.test.ts`; e2e:ramps lanes the wide, the S, the spiral and the drag (#8).
 4. **Issue #10:** piece names on piece cards.
 
 ## 5. Gotchas
