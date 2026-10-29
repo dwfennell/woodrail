@@ -10,7 +10,8 @@ import { chain, train, type World } from "./loop-fixtures";
  * never run into each other: one goes through, the other stops short and waits, then goes (no turning back).
  */
 
-type Routing = "both" | "one" | "none";
+/** Which are routed: both, one (the first train: X's), other (the second: P's), or none. */
+type Routing = "both" | "one" | "other" | "none";
 
 /** A line of two stops for an engine, heading for `next` first (`routed`), or none (lever on, going where it likes). */
 function route(w: World, engine: number, stops: number[], next: number, routed: boolean): void {
@@ -113,8 +114,8 @@ function crossingWorld(type: "crossing" | "crossing-45", routing: Routing) {
   w.dx = dx;
   const a = train(w, w1, false);
   const b = train(w, s1, false);
-  route(w, a, [dx.id, dy.id], 1, routing !== "none");
-  route(w, b, [dp.id, dq.id], 1, routing === "both");
+  route(w, a, [dx.id, dy.id], 1, routing === "both" || routing === "one");
+  route(w, b, [dp.id, dq.id], 1, routing === "both" || routing === "other");
   return { w, a, b, cross };
 }
 
@@ -142,14 +143,14 @@ function junctionWorld(routing: Routing) {
   const fromSwitch = curve(c1) + (216 - 100);
   const b = train(w, p1, true, undefined, 100);
   const a = train(w, x2, true, undefined, 216 - (fromSwitch - 216));
-  route(w, a, [dx.id, dy.id], 1, routing !== "none");
-  route(w, b, [dp.id, dy.id], 1, routing === "both");
+  route(w, a, [dx.id, dy.id], 1, routing === "both" || routing === "one");
+  route(w, b, [dp.id, dy.id], 1, routing === "both" || routing === "other");
   return { w, a, b, sw, past: t2, t1 };
 }
 
 describe("trains of different lines at a crossing (issue #2)", () => {
   for (const type of ["crossing", "crossing-45"] as const)
-    for (const routing of ["both", "one", "none"] as const)
+    for (const routing of ["both", "one", "other", "none"] as const)
       it(`${type}, routed: ${routing}: one goes over at a time, the other waits and goes; no overlap, no turn-back`, () => {
         const { w, a, b, cross } = crossingWorld(type, routing);
         const { s, run } = watch(w, [a, b], cross);
@@ -164,7 +165,7 @@ describe("trains of different lines at a crossing (issue #2)", () => {
 });
 
 describe("trains of different lines joining at a switch (issue #2)", () => {
-  for (const routing of ["both", "one", "none"] as const)
+  for (const routing of ["both", "one", "other", "none"] as const)
     it(`routed: ${routing}: one goes onto the shared track, the other waits and follows; no overlap, no turn-back`, () => {
       const { w, a, b, sw, past } = junctionWorld(routing);
       const { s, run } = watch(w, [a, b], sw);
