@@ -19,6 +19,11 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
   - **Saved:** per engine, `line.joined` and `line.held`; per line, `toldFull`. Loading restores them (`Sections.restorePlace`). **Car ids change on load,** so never key anything persistent by car id.
 - **Shorter shadows:** sun elevation 55°, bearing (0.72, 0.48), in `src/render/stage.ts`.
 - **Straddled-switch lift-turn:** `Sim.turnAround` calls `rememberStraddledSwitches`.
+- **Crossings and joining switches (#2)** (`Sim.crossCap`, tests in `src/economy/crossing-merge.test.ts`).
+  - **Cause:** sections only keep a line's own trains apart, and a line with one train isn't managed at all. Between lines (or lineless trains), the sim only reacted on `hitsSide`, when a train's front was already 12 mm from the other's centreline, so the trains ended up inside each other.
+  - **Now:** a moving train looks ahead `v²/2a + CROSS_LOOK` for a piece whose path meets another path (`crossMasks`: a crossing's two lines, a switch's roads; not decks, lifts or double track). It stops `CROSS_GAP` short when another train is on that piece by a meeting path, or has claimed it (`crossClaims`, valid this tick and the next). Otherwise it claims the piece itself, so the first to come near goes first, whatever its line.
+  - **Waits:** a wait where both trains stand for 5 s (`CROSS_TURN_TICKS`) turns the waiter back, as a bump used to.
+  - **Cost:** it only runs when there's more than one train, and walks a piece or two.
 
 ## 2. How to test
 
@@ -111,7 +116,7 @@ Any operation that turns, flips or splits a train must call `rememberStraddledSw
 
 ## 4. Open items
 - **GitHub issues, from the user's play-test:**
-  - #2: trains merge at crossings;
+  - #2: trains merge at crossings (fixed on `claude/crossing-merge`, waiting to land);
   - #3: derailment when a switch is thrown for the train behind;
   - #4: only one route;
   - #5: routes set switches and restore them;
@@ -133,4 +138,5 @@ Any operation that turns, flips or splits a train must call `rememberStraddledSw
 - SwiftShader frames are slow, and the sim is capped at 0.1 s a frame. Tick ahead in `evaluate`, and say so in a comment.
 - A `pgrep -f` wait loop matches itself; use background-job completion instead.
 - **Known flakes:** touch's "how to pin was said once", touch's "no frames once settled", and the spacing and restore-survey timeouts.
+- **QA's all-still can miss a stall:** trains edging along under `clearCap` read as moving. Check positions (or arrivals) over time when a row's arrivals drop. For example, OFF k2 at20 stood 180 s while reporting "still 3", until `clearCap` kept a lineless train's wait while it edged within 2 × `CLEAR_STEP`.
 - Any sim change shifts RND and OFF arrivals in the sections QA rows. Explain the drift, and watch meets, all-still over 60 s and rings.
