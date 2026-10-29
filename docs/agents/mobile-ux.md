@@ -74,6 +74,7 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 - Temporary scripts go inside the worktree (scripts/.x.mjs) so they can import playwright-core and vite. Delete them afterwards.
 - Use `bash -c` with && chains; write commit messages to a file and use `git commit -F`.
 - ResizeObserver callbacks arrive only with a rendering update. Wait for conditions.
+- **Tapping a card button that has just shown** (e2e): wait for `frames(p)` and then more than `CARD_MOVED_MS` before the tap. A button shown in the DOM may not have been drawn yet: under SwiftShader the next frame can be seconds away. A tap sent before then lands just after the frame that first lays the button out, and the card tap guard drops it, correctly (#19, the dead-end Continue).
 - TypeScript-private fields are reachable from page JS, but prefer public paths in tests.
 - Check computed visibility, not offsetParent. position: fixed elements have a null offsetParent.
 - Spies on hud.toast: start each section with its own list.

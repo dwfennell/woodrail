@@ -1069,6 +1069,11 @@ async function deadEndContinue(p) {
   check("dead end: a routed train held where the track ends shows Continue", shown && card.status === "Turning back: the track ends here", JSON.stringify(card));
   check("dead end: Continue is a thumb's size, the card fits the phone (its status in 2 lines)", card.bh >= 44 && card.bw >= 120 && card.w <= 390 - 32 && card.two, JSON.stringify(card));
   if (!shown) return;
+  // As a finger would: once Continue has been drawn, and has stood in place longer than the card tap guard's window
+  // (`CARD_MOVED_MS`). Shown in the DOM isn't drawn: SwiftShader may take seconds to the next frame, and a tap sent
+  // before it lands just after the frame that first lays the button out, which the guard rightly drops (#19).
+  await frames(p);
+  await p.waitForTimeout(250);
   const [x, y] = await p.evaluate(() => { const r = document.querySelector(".engine-card .continue").getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
   await tapped(p, () => p.touchscreen.tap(x, y));
   const after = await p.evaluate(({ engine }) => {
