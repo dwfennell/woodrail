@@ -303,9 +303,14 @@ for (const { name, steps } of LANES) {
     check(`${name}: an engine goes on the line`, false, `trains ${n0}; at ${onLine}`);
     continue;
   }
-  // Its card: a click on it, then Go. (The engine card's Go: `button.go`, showing.)
+  // Its card: a click on it, then Go.
   await p.mouse.click(onLine[0], onLine[1]);
   await frames();
+  // As a finger would: once Go has been drawn and has stood in place longer than the card tap guard's window
+  // (`CARD_MOVED_MS`). Shown in the DOM isn't drawn: under SwiftShader the next frame may be seconds away, and a click
+  // sent before it lands just after the frame that first lays Go out, which the guard rightly drops (#19).
+  await frames();
+  await p.waitForTimeout(250);
   const go = await p.evaluate(() => { const e = [...document.querySelectorAll("button.go")].find((x) => x.offsetParent !== null && x.textContent.trim() === "Go"); if (!e) return null; const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
   if (go) await p.mouse.click(go[0], go[1]);
   // Watch it up to the top and on to the line's end there, where it stops (as at any open end), on the rails.
@@ -315,17 +320,17 @@ for (const { name, steps } of LANES) {
         const w = window.woodrail;
         let topY = -Infinity;
         const t0 = performance.now();
-        let still = t0;
+        const sim0 = w.simSeconds;
         const step = () => {
           const t = w.sim.getTrain(train);
           if (!t || t.derailed) return resolve({ derailed: true, topY });
           for (const c of t.world ?? []) if (typeof c?.y === "number") topY = Math.max(topY, c.y);
-          // Stopped on the last piece (for 3 s: not a moment's pause on the way).
-          const stopped = t.speed === 0 && t.bogies.some((bg) => bg.pieceId === last);
-          if (!stopped) still = performance.now();
-          if ((stopped && performance.now() - still > 3000) || performance.now() - t0 > 900000) {
+          // At the line's end: turned at the last piece's open end (the payoff). Else, out of time: by the game's own
+          // clock (a slow machine runs it slowly), with a long wall-clock bound too.
+          const atEnd = t.lastTurn?.cause === "open-end" && t.lastTurn.pieceId === last;
+          if (atEnd || w.simSeconds - sim0 > 300 || performance.now() - t0 > 1200000) {
             // (Standing at the top a while: it stays on.)
-            return setTimeout(() => resolve({ derailed: !!w.sim.getTrain(train)?.derailed, topY: Math.max(topY, ...t.world.map((c) => c.y)), speed: t.speed, lastTurn: t.lastTurn, bogies: t.bogies.map((bg) => `${bg.pieceId}${bg.reversed ? "r" : ""}@${bg.s.toFixed(0)}`).join(",") }), 30000);
+            return setTimeout(() => resolve({ derailed: !!w.sim.getTrain(train)?.derailed, topY: Math.max(topY, ...t.world.map((c) => c.y)), speed: t.speed, lastTurn: t.lastTurn, simSeconds: Math.round(w.simSeconds - sim0), bogies: t.bogies.map((bg) => `${bg.pieceId}${bg.reversed ? "r" : ""}@${bg.s.toFixed(0)}`).join(",") }), 30000);
           }
           requestAnimationFrame(step);
         };

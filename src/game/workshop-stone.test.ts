@@ -4,11 +4,16 @@ import { Economy, RECIPES } from "../economy/economy";
 import { kindsOf } from "../economy/goods";
 import { Sim, SIM_HZ } from "../sim";
 import { Layout, type PieceTypeId } from "../track";
-import { craftNow, owedText, shopNeeds, shopOwes } from "./crafting";
+import { Editor } from "../editor/editor";
+import { deserializeWorld, serializeWorld } from "../persist/save";
+import { craftNow, owedText, shopNeeds, shopOwes, shopOwing } from "./crafting";
+import { coastWorld, harbourSite } from "./harbours-testing";
 import { restorePrice, SITE_NAMES } from "./map-sites";
 import { Progress } from "./progress";
+import { attachResearch, lacking as researchLacking } from "./research";
+import { gamePayment, restoreRuin } from "./restore";
 import { THING_RULES, type ThingId } from "./things";
-import { buildStarterWorld, syncIndustries, type World } from "./world";
+import { buildStarterWorld, createWorld, fixedPieces, plotsForSale, syncIndustries, unlockPlot, type World } from "./world";
 import { deliverByTrain, inYards, owesAsTheGameDoes } from "./workshop-testing";
 
 /**
@@ -77,7 +82,7 @@ describe("the workshop takes stone only while a harbour's price still needs it (
     expect(inYards(w, "stone")).toBe(10);
   });
 
-  it("then the harbour gets built from the tray, and the workshop takes stone for the next one", () => {
+  it("then the harbour gets made from the tray: in the toy box, not yet on the map, so its stone is still owed", () => {
     const { w, p, shop } = setup(true);
     deliverByTrain(w, shop, "planks", 15);
     deliverByTrain(w, shop, "stone", 12);
@@ -107,6 +112,141 @@ describe("the workshop takes stone only while a harbour's price still needs it (
     deliverByTrain(w, shop, "stone", 12);
     expect(inYards(w, "planks")).toBe(9);
     expect(inYards(w, "stone")).toBe(10);
+  });
+});
+
+/**
+ * QA (goals play-through): once a harbour stood, the workshop still kept 10 stone for it, forever, and research
+ * starved (Foundry sat at 9/10 stone from minute 410 to 470). A thing already built isn't owed for any more; only
+ * queued orders, and things not yet built, are.
+ */
+describe("once a harbour stands, the workshop stops taking stone for it", { timeout: 60_000 }, () => {
+  /** The coast plot bought, a workshop out of the way (`ahead`: what's laid on past it), and a Game player knowing Harbours. */
+  function coast(ahead?: PieceTypeId[]): { w: World; p: Progress; shop: number; deliver: (kind: "planks" | "stone", n: number) => number } {
+    const w = coastWorld();
+    const p = Progress.fresh();
+    p.coins = 1000;
+    p.learned.add("harbours");
+    const shop = w.layout.addPiece("depot-workshop", { x: -40000, z: -40000, heading: 0 });
+    syncIndustries(w, true);
+    owesAsTheGameDoes(w, p);
+    return { w, p, shop, deliver: (kind, n) => deliverByTrain(w, shop, kind, n, 120, ahead) };
+  }
+
+  /**
+   * Build a harbour as the player does: its goods brought by train, made from the tray (paid from the yard), then
+   * put down by the water where its site rule allows, its depot added as the game adds it after a drop.
+   */
+  function buildHarbour(w: World, p: Progress, deliver: (kind: "planks" | "stone", n: number) => number): number {
+    deliver("planks", 15);
+    deliver("stone", 12);
+    expect(craftNow(w, p, new Map([[HARBOUR, 1]]))).toBeNull();
+    const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+    syncIndustries(w, true);
+    // (The one made is the one on the map.)
+    expect(p.available(w, HARBOUR)).toBe(0);
+    return id;
+  }
+
+  it("before any harbour is built: 10 owed", () => {
+    const { w, p } = coast();
+    expect(shopOwes(w, p, "stone")).toBe(10);
+    expect(shopOwing(w, p)).toBe(true);
+  });
+
+  it("built: nothing owed, and a stone train passing the workshop drops none", () => {
+    const { w, p, deliver } = coast();
+    buildHarbour(w, p, deliver);
+    expect(shopOwes(w, p, "stone")).toBe(0);
+    expect(shopOwing(w, p)).toBe(false);
+    expect(deliver("stone", 6)).toBe(6);
+    expect(inYards(w, "stone")).toBe(0);
+  });
+
+  it("a second harbour queued: 10 owed again, and the next train leaves them", () => {
+    const { w, p, deliver } = coast();
+    buildHarbour(w, p, deliver);
+    p.orders.push(HARBOUR);
+    expect(shopOwes(w, p, "stone")).toBe(10);
+    expect(deliver("stone", 12)).toBe(2);
+    expect(inYards(w, "stone")).toBe(10);
+  });
+
+  it("the harbour taken up again: owed again (none stands)", () => {
+    const { w, p, deliver } = coast();
+    const id = buildHarbour(w, p, deliver);
+    expect(shopOwes(w, p, "stone")).toBe(0);
+    w.layout.removePiece(id);
+    expect(shopOwes(w, p, "stone")).toBe(10);
+  });
+
+  it("Foundry gets its stone once the harbour stands: a stone train past the workshop takes it on to the school", () => {
+    // The line runs on from the workshop through a school (as Game mode has it, a school takes only what its research lacks).
+    const { w, p, deliver } = coast(["depot-school", "straight-216", "straight-216"]);
+    w.economy.accepts = (d, kind) => (d.role === "school" ? researchLacking(p, kind) > 0 : true);
+    attachResearch(w.economy, () => p);
+    buildHarbour(w, p, deliver);
+    // With the harbour built and no research wanting stone, a stone train leaves none at the workshop: it isn't
+    // piled up there (out of the research's reach) for a harbour already standing, as it was (QA: 10 kept forever).
+    expect(deliver("stone", 12)).toBe(12);
+    expect(inYards(w, "stone")).toBe(0);
+    // (Setup shortcut, not what's tested: Foundry being studied, its stone and coal still to come.)
+    p.research.current = "foundry";
+    p.research.got = {};
+    expect(researchLacking(p, "stone")).toBe(10);
+    // The next stone train: past the workshop, which takes none, the school takes all Foundry lacks.
+    expect(deliver("stone", 12)).toBe(2);
+    expect(inYards(w, "stone")).toBe(0);
+    expect(p.research.got.stone).toBe(10);
+    expect(researchLacking(p, "stone")).toBe(0);
+  });
+
+  it("saved and loaded: a built harbour still owes nothing, a queued one still owes 10", () => {
+    const { w, p, deliver } = coast();
+    buildHarbour(w, p, deliver);
+    const load = (q: Progress) => {
+      const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+      if (!r.ok) throw new Error(r.error);
+      return { w2: r.value, p2: Progress.fromJSON(JSON.parse(JSON.stringify(q.toJSON()))) };
+    };
+    const a = load(p);
+    expect(shopOwes(a.w2, a.p2, "stone")).toBe(0);
+    p.orders.push(HARBOUR);
+    const b = load(p);
+    expect(shopOwes(b.w2, b.p2, "stone")).toBe(10);
+  });
+
+  it("an old harbour restored counts as built, and still does after a save and load", () => {
+    let done = false;
+    for (const seed of [7, 1, 2]) {
+      const w = createWorld(seed, true);
+      for (const q of plotsForSale(w.landscape)) unlockPlot(w, q.px, q.pz);
+      const site = w.landscape.sites?.find((s) => s.role === "harbour" && !s.cleared);
+      if (!site) continue;
+      const p = Progress.fresh();
+      p.coins = 1000;
+      p.learned.add("harbours");
+      const shop = w.layout.addPiece("depot-workshop", { x: -40000, z: -40000, heading: 0 });
+      syncIndustries(w, true);
+      owesAsTheGameDoes(w, p);
+      expect(shopOwes(w, p, "stone")).toBe(10);
+      // Its price brought by train (8 planks, 5 stone: the train leaves the 10 owed), then Restore on its card.
+      deliverByTrain(w, shop, "planks", 8);
+      expect(deliverByTrain(w, shop, "stone", 12)).toBe(2);
+      const fixed = fixedPieces(w);
+      const editor = new Editor(w.layout, w.sim, () => syncIndustries(w, true), (id) => fixed.has(id));
+      const r = restoreRuin(w, editor, site.id, { pay: gamePayment(w, p, "harbour") });
+      if (!("pieceId" in r)) throw new Error(`seed ${seed}: ${r.why}`);
+      expect(inYards(w, "stone")).toBe(5);
+      expect(shopOwes(w, p, "stone")).toBe(0);
+      expect(deliverByTrain(w, shop, "stone", 6)).toBe(6);
+      const back = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+      if (!back.ok) throw new Error(back.error);
+      expect(shopOwes(back.value, Progress.fromJSON(JSON.parse(JSON.stringify(p.toJSON()))), "stone")).toBe(0);
+      done = true;
+      break;
+    }
+    expect(done, "a map with an old harbour").toBe(true);
   });
 });
 

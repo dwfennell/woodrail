@@ -37,6 +37,8 @@ export interface HudHandlers {
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
+  /** The engine card of a line with a train too many: that train (this one, or the one held) back in the box. */
+  putAway(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
@@ -183,6 +185,8 @@ const REFUSAL_BUMP_MS = 1000;
  * tick shown, then shown again whole once the workshop's card closed).
  */
 const TOAST_SEEN_MS = 1500;
+/** A tap coming down this soon after a card changed size is dropped (see the cards' ResizeObserver). */
+const CARD_MOVED_MS = 150;
 /** How far above its place a toast starts its slide in (px: `.toast` in style.css, translate −14 px till shown). */
 const TOAST_SLIDE = 14;
 /** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
@@ -246,6 +250,9 @@ export class Hud {
   private readonly flipBtn: HTMLButtonElement;
   /** The engine card: Go/Stop, the way it goes (an arrow as on screen), what it's doing, and the rest tucked away. */
   private readonly goBtn: HTMLButtonElement;
+  /** "Put away", on an engine card whose line has a train too many (see `setPutAway`). */
+  private readonly putAwayBtn: HTMLButtonElement;
+  private putAwayShown = false;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
@@ -387,11 +394,35 @@ export class Hud {
     // A card that grows once it's open (a workshop's list fills in a frame later) may come up under a toast: it's put
     // clear again (only when a card's size changes, not per frame).
     if (typeof ResizeObserver !== "undefined") {
-      const refit = new ResizeObserver(() => {
+      const refit = new ResizeObserver((entries) => {
+        for (const e of entries) this.noteMovedButtons(e.target as HTMLElement);
         this.refitToast();
         this.onCardResize?.();
       });
-      for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) refit.observe(c);
+      for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
+        refit.observe(c);
+        // A tap that came down on a button that had just moved there (the card changed size under the finger: Rail and
+        // road, a card growing upward on a slow phone) does nothing: the finger was meant for what was there before.
+        // Only the button tapped counts: a card resizing elsewhere (a status line reflowing) leaves its taps alone.
+        c.addEventListener(
+          "pointerdown",
+          (e) => {
+            const b = (e.target as HTMLElement).closest("button");
+            this.tapOnMovedCard = !!b && performance.now() - (this.buttonMovedAt.get(b) ?? -Infinity) < CARD_MOVED_MS;
+          },
+          true,
+        );
+        c.addEventListener(
+          "click",
+          (e) => {
+            if (!this.tapOnMovedCard) return;
+            this.tapOnMovedCard = false;
+            e.stopPropagation();
+            e.preventDefault();
+          },
+          true,
+        );
+      }
     }
 
     // Menu
@@ -473,6 +504,9 @@ export class Hud {
     this.engineCard.append(this.followBtn, more);
     this.engineStatus.setAttribute("aria-live", "polite");
     this.engineCard.appendChild(this.engineStatus);
+    this.putAwayBtn = button("Put away", "Put this line's extra train back in the box: then the others can run", h.putAway, "chip text put-away");
+    this.putAwayBtn.hidden = true;
+    this.engineCard.appendChild(this.putAwayBtn);
     const controls = el("div", "engine-controls");
     // One big button: Go (the way the arrow shows) or Stop.
     // (Held at its stop for spacing: "Go now" sends it on with one tap, the lever as it is.)
@@ -1259,7 +1293,31 @@ export class Hud {
     // A new card starts the engine's own front first (a way turned round on another engine's card isn't carried over).
     this.engineWay = 1;
     this.updateEngineCard(lever, following);
+    // Its route filled in now, as it opens, not on the next frame: the card grew upward a frame or two later on a slow
+    // phone, Put away, Continue and Go moving up under the finger (Rail and road).
+    this.onEngineCardShown?.();
   }
+  /**
+   * Where each of a card's buttons was when the card last changed size, and when one last moved (more than a few px)
+   * with it; whether the tap now coming down is on one that just moved. Read when a card's size changes, not per frame.
+   */
+  private readonly buttonAt = new WeakMap<Element, { x: number; y: number }>();
+  private readonly buttonMovedAt = new WeakMap<Element, number>();
+  private tapOnMovedCard = false;
+
+  private noteMovedButtons(card: HTMLElement): void {
+    const now = performance.now();
+    for (const b of card.querySelectorAll("button")) {
+      const r = b.getBoundingClientRect();
+      const was = this.buttonAt.get(b);
+      // (Shown for the first time, or come into place as the card opened: moved, as far as a finger's concerned.)
+      if (!was || Math.abs(r.left - was.x) > 6 || Math.abs(r.top - was.y) > 6) this.buttonMovedAt.set(b, now);
+      this.buttonAt.set(b, { x: r.left, y: r.top });
+    }
+  }
+
+  /** The engine card has just opened (see `showEngineCard`): what's drawn into it from outside goes in at once. */
+  onEngineCardShown: (() => void) | null = null;
 
   updateEngineCard(lever: number, following: boolean): void {
     // Moving: Go keeps going that way. Stopped: the way it last went (or forward).
@@ -1302,6 +1360,16 @@ export class Hud {
   }
 
   /** The open engine's train is (or isn't) held at its stop for spacing: Go reads "Go now", and one tap sends it on. */
+  /** The open engine's line has a train too many: "Put away" shows (this train, or the one held, back in the box). */
+  setPutAway(on: boolean, self: boolean): void {
+    const title = self ? "Put this train back in the box: the line has no room for it" : "Put the train this line has no room for back in the box";
+    if (on === this.putAwayShown && this.putAwayBtn.title === title) return;
+    this.putAwayShown = on;
+    this.putAwayBtn.hidden = !on;
+    this.putAwayBtn.title = title;
+    this.putAwayBtn.setAttribute("aria-label", title);
+  }
+
   setGoNow(on: boolean): void {
     if (on === this.goNow) return;
     this.goNow = on;

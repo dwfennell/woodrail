@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
-import { Layout } from "../track";
+import { connectorRef, createWorldConnector, Layout, type PieceTypeId } from "../track";
+import { editLine } from "../game/lines";
 import { CARGO } from "./cargo";
-import { CRAWL_SPEED } from "./constants";
+import { CRAWL_SPEED, PILE_CAP } from "./constants";
 import { Economy, type DepotRole, type DepotState, type RouteStopDef } from "./economy";
 
 /**
@@ -456,5 +457,188 @@ describe("unrouted trains are unchanged", () => {
     forest.rate = 1;
     w.economy.setWaitFull(forest.id, true);
     expect(w.economy.needsService(forest, wagon)).toBe(true);
+  });
+});
+
+/**
+ * An oval of straights and large curves with a depot of each role on a straight in a row along one side, and a train
+ * of `cars` on the last curve behind the first, its lever forward. `left` counts the times it has left each stop (its
+ * route's `next` moving on from it).
+ */
+function ring(roles: DepotRole[], cars: CarKind[]) {
+  const layout = new Layout();
+  const side: PieceTypeId[] = [...Array<PieceTypeId>(roles.length + 1).fill("straight-216"), ...Array<PieceTypeId>(4).fill("curve-large")];
+  const c = createWorldConnector();
+  let pose = { x: 0, z: 0, heading: 0 };
+  const ids: number[] = [];
+  for (const type of [...side, ...side]) {
+    const id = layout.addPiece(type, pose);
+    ids.push(id);
+    layout.worldConnector(connectorRef(id, 1), c);
+    pose = { x: c.x, z: c.z, heading: c.heading };
+  }
+  const sim = new Sim(layout);
+  const economy = new Economy(layout, sim);
+  const depots = roles.map((role, k) => economy.addDepot(role, ids[k], role === "town" ? k : -1));
+  for (const d of depots) d.rate = 0;
+  const placed = sim.addTrain(cars, { pieceId: ids[ids.length - 1], pathIndex: 0, reversed: false, s: 60 });
+  if (placed.kind !== "placed") throw new Error("no room");
+  const train = () => sim.getTrain(placed.trainId)! as Train;
+  const engine = train().cars[0].id;
+  const wagons = () => train().cars.filter((x) => x.kind !== "engine").map((x) => x.id);
+  sim.setLever(engine, 1);
+  const left = new Map<number, number>();
+  const run = (seconds: number, until?: () => boolean) => {
+    for (let i = 0; i < seconds * SIM_HZ && !until?.(); i++) {
+      const before = economy.routeOf(engine)?.next;
+      sim.tick();
+      economy.tick();
+      const after = economy.routeOf(engine)?.next;
+      if (before !== undefined && after !== before) left.set(before, (left.get(before) ?? 0) + 1);
+    }
+  };
+  const onBoard = (kind: keyof typeof CARGO) => wagons().reduce((n, id) => n + (economy.cargoOf(id).kind === kind ? economy.cargoOf(id).count : 0), 0);
+  return { economy, depots, engine, run, left, onBoard };
+}
+
+describe("an auto stop picks up only what a later stop has room for now", () => {
+  it("a farm whose only taker, the mill, is full: no grain loaded, and no wait at the farm, even set to wait till full", () => {
+    const w = line(["farm", "mill"], ["engine", "hopper"]);
+    const [farm, mill] = w.depots;
+    const [hopper] = w.wagons();
+    farm.piles[CARGO.grain.index] = 6;
+    mill.piles[CARGO.grain.index] = PILE_CAP;
+    w.route([
+      { depotId: farm.id, action: "auto", waitFill: true },
+      { depotId: mill.id, action: "auto" },
+    ]);
+    expect(w.economy.needsService(farm, hopper)).toBe(false);
+    const r = drive(w, 20);
+    expect(r.held(farm)).toBe(0);
+    expect(w.economy.cargoOf(hopper).count).toBe(0);
+    expect(pile(farm, "grain")).toBe(6);
+  });
+
+  it("round a loop: laps go by with no grain on while the mill is full, then it loads again once the mill has room, no more than that room", () => {
+    const w = ring(["farm", "mill"], ["engine", "hopper", "hopper"]);
+    const [farm, mill] = w.depots;
+    farm.piles[CARGO.grain.index] = 12;
+    mill.piles[CARGO.grain.index] = PILE_CAP;
+    editLine(w.economy, w.engine, (s) => s.push({ depotId: farm.id, action: "auto" }, { depotId: mill.id, action: "auto" }));
+    w.run(300, () => (w.left.get(0) ?? 0) >= 3);
+    // Lap after lap it leaves the farm and the mill, never loading the grain no one has room for.
+    expect(w.left.get(0) ?? 0).toBeGreaterThanOrEqual(3);
+    expect(w.left.get(1) ?? 0).toBeGreaterThanOrEqual(2);
+    expect(w.onBoard("grain")).toBe(0);
+    expect(pile(farm, "grain")).toBe(12);
+    // Room for 4 at the mill: the next farm visit loads 4 (both hoppers together), and the mill takes them.
+    mill.piles[CARGO.grain.index] = PILE_CAP - 4;
+    const farmVisits = w.left.get(0)!;
+    w.run(300, () => (w.left.get(0) ?? 0) > farmVisits);
+    expect(w.onBoard("grain")).toBe(4);
+    expect(pile(farm, "grain")).toBe(8);
+    const millVisits = w.left.get(1)!;
+    w.run(300, () => (w.left.get(1) ?? 0) > millVisits);
+    expect(w.onBoard("grain")).toBe(0);
+    expect(pile(mill, "grain")).toBe(PILE_CAP);
+  });
+
+  it("counts what the train already has on board for that taker, and a depot on the line twice once", () => {
+    const w = line(["farm", "mill", "town"], ["engine", "hopper", "hopper"]);
+    const [farm, mill, town] = w.depots;
+    const [a, b] = w.wagons();
+    farm.piles[CARGO.grain.index] = 6;
+    mill.piles[CARGO.grain.index] = PILE_CAP - 3;
+    w.route(w.auto(farm, mill, town, mill));
+    expect(w.economy.needsService(farm, b)).toBe(true);
+    w.economy.setCargo(a, "grain", 2);
+    expect(w.economy.needsService(farm, b)).toBe(true);
+    // 3 on board fill the mill's room: no more (the mill twice on the line is still room for 3).
+    w.economy.setCargo(a, "grain", 3);
+    expect(w.economy.needsService(farm, a)).toBe(false);
+    expect(w.economy.needsService(farm, b)).toBe(false);
+  });
+
+  it("grain the mill has no room for leaves the hoppers free for the quarry's stone (the stuck-cargo trap)", () => {
+    const w = line(["farm", "quarry", "mill", "town"], ["engine", "hopper", "hopper"]);
+    const [farm, quarry, mill, town] = w.depots;
+    farm.piles[CARGO.grain.index] = 12;
+    quarry.piles[CARGO.stone.index] = 12;
+    mill.piles[CARGO.grain.index] = PILE_CAP;
+    w.route(w.auto(farm, quarry, mill, town));
+    drive(w, 120, () => (w.economy.deliveredGoods.get(town.townId)?.stone ?? 0) >= 12);
+    expect(pile(farm, "grain")).toBe(12);
+    expect(pile(quarry, "stone")).toBe(0);
+    expect(w.economy.deliveredGoods.get(town.townId)?.stone).toBe(12);
+  });
+
+  it("a harbour's quay counts only where the train would leave the good there: not grain a full mill after it uses", () => {
+    const w = line(["farm", "harbour", "mill", "warehouse"], ["engine", "hopper"]);
+    const [farm, harbour, mill, store] = w.depots;
+    const [hopper] = w.wagons();
+    farm.piles[CARGO.grain.index] = 6;
+    mill.piles[CARGO.grain.index] = PILE_CAP;
+    // (The quay keeps grain for the mill on the way: it's no room for it.)
+    w.route(w.auto(farm, harbour, mill));
+    expect(w.economy.needsService(farm, hopper)).toBe(false);
+    // Nor a warehouse's, for the same reason.
+    w.route(w.auto(farm, store, mill));
+    expect(w.economy.needsService(farm, hopper)).toBe(false);
+    // With no mill on the line, the quay takes it: room there.
+    w.route(w.auto(farm, harbour));
+    expect(w.economy.needsService(farm, hopper)).toBe(true);
+    // And the mill with room: loaded for the mill.
+    mill.piles[CARGO.grain.index] = 0;
+    w.route(w.auto(farm, harbour, mill));
+    expect(w.economy.needsService(farm, hopper)).toBe(true);
+  });
+
+  it("a mill that uses its grain as it goes has room as soon as it has used some", () => {
+    const w = line(["farm", "mill"], ["engine", "hopper"]);
+    const [farm, mill] = w.depots;
+    const [hopper] = w.wagons();
+    farm.piles[CARGO.grain.index] = 6;
+    mill.piles[CARGO.grain.index] = PILE_CAP;
+    mill.rate = 1;
+    w.route(w.auto(farm, mill));
+    expect(w.economy.needsService(farm, hopper)).toBe(false);
+    // One milling (8 s): a grain used, a flour made.
+    for (let i = 0; i < 9 * SIM_HZ; i++) w.step();
+    expect(pile(mill, "grain")).toBe(PILE_CAP - 1);
+    expect(w.economy.needsService(farm, hopper)).toBe(true);
+  });
+
+  it("a town that still wants a good has room for it with its platform's pile full; one that doesn't, none", () => {
+    const w = line(["sawmill", "town"]);
+    const [saw, town] = w.depots;
+    const [wagon] = w.wagons();
+    saw.piles[CARGO.planks.index] = 6;
+    town.piles[CARGO.planks.index] = PILE_CAP;
+    w.route(w.auto(saw, town));
+    // Sandbox (no say from a mode): the town's pile is its room, and it's full.
+    expect(w.economy.needsService(saw, wagon)).toBe(false);
+    // Game mode: what the town still wants it takes in, pile or no.
+    let wants = true;
+    w.economy.accepts = (d, kind) => d.role !== "town" || kind !== "planks" || wants;
+    w.economy.acceptsChanged();
+    expect(w.economy.needsService(saw, wagon)).toBe(true);
+    wants = false;
+    w.economy.acceptsChanged();
+    expect(w.economy.needsService(saw, wagon)).toBe(false);
+  });
+
+  it("Only pick up and unrouted trains load as before, room or none; Only drop picks nothing up", () => {
+    const w = line(["farm", "mill"], ["engine", "hopper"]);
+    const [farm, mill] = w.depots;
+    const [hopper] = w.wagons();
+    farm.piles[CARGO.grain.index] = 6;
+    mill.piles[CARGO.grain.index] = PILE_CAP;
+    w.route([{ depotId: farm.id, action: "pick" }, ...w.auto(mill)]);
+    expect(w.economy.needsService(farm, hopper)).toBe(true);
+    w.route([]);
+    expect(w.economy.needsService(farm, hopper)).toBe(true);
+    mill.piles[CARGO.grain.index] = 0;
+    w.route([{ depotId: farm.id, action: "drop" }, ...w.auto(mill)]);
+    expect(w.economy.needsService(farm, hopper)).toBe(false);
   });
 });

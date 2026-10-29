@@ -212,8 +212,8 @@ export class Editor {
     this.run({ do: c.do, undo: c.undo, roads: { slots: c.slots, trees: c.trees } });
   }
 
-  /** Do a props edit as one undo step. */
-  editProps(c: { do(): void; undo(): void }): void {
+  /** Do a props edit (or one of trains, off the track: a train put away) as one undo step. `refuse` as `Command`'s. */
+  editProps(c: { do(): void; undo(): void; refuse?: (way: "undo" | "redo") => string | null }): void {
     this.run({ ...c, props: true });
   }
 

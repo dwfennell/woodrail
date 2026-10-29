@@ -31,7 +31,7 @@ import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapFramePoints, mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, owedText, shopOwes, shopOwing, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
@@ -47,7 +47,7 @@ import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
-import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
+import { engineStatus, fullLineToast, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
@@ -389,6 +389,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lever: (v) => interaction.setLever(v),
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
+      putAway: () => interaction.putAwayFromCard(),
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
@@ -2000,11 +2001,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
   let planksKept = false;
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
-  /** What the workshop's yard takes while a town on the line wants planks: its order's, or a few (`yardKeeps`). */
-  const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress) : null);
+  /** Planks the yard keeps with no order: enough for the next industry (`shopSpare`; worked out once a second). */
+  let yardSpare = shopSpare(progress);
+  /** What the workshop's yard takes while a town on the line wants planks: its order's, or the spare (`yardKeeps`). */
+  const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress, yardSpare.planks) : null);
   /** Stone the workshop takes from trains: only as much as a harbour's price still needs there (`shopOwes`). */
   const owes = (kind: CargoKind) => shopOwes(game.world, progress, kind);
-  /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid). */
+  /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid, a harbour built or restored). */
   let owing = false;
   function updatePlanksKept(): void {
     game.economy.reserved = mode === "game" ? keepPlanks : null;
@@ -2020,6 +2023,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return;
     }
     planksKept = keepsForOrder(progress, workshopStock(game.world).planks ?? 0);
+    // (Cached by its inputs: blueprints learned, the map's pieces, the goal, the research.)
+    yardSpare = shopSpare(progress, game.world, goals.current()?.id ?? null);
   }
 
   setInterval(() => {
@@ -2232,9 +2237,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const shortCoins = nowRule ? Math.max(0, (nowRule.coins ?? 0) - progress.coins) : 0;
     const need = now?.waiting ? [total(shortGoods) > 0 ? costTag(shortGoods) : "", shortCoins > 0 ? costTag({}, shortCoins) : ""].filter(Boolean).join(" ") || null : null;
     const yard = game.economy.depot(id)!;
+    // What the planks it keeps are for: its waiting order, or the next industry (`shopSpare`); none if the yard
+    // holds fewer, or it's only the spare.
+    const keeps = yardKeeps(progress, yardSpare.planks);
+    const keptFor = keeps > capAt(yard) ? null : orderPlanks(progress) >= yardSpare.planks ? progress.orders[0] : yardSpare.for;
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows, {
       takesAll: yard.takesAll,
-      keeps: Math.min(yardKeeps(progress), capAt(yard)),
+      keeps: Math.min(keeps, capAt(yard)),
+      keptFor: keptFor ? thingLabel(keptFor) : undefined,
       cap: capAt(yard),
       school: game.economy.allDepots().some((d) => d.role === "school"),
     });
@@ -2376,6 +2386,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
     // Held at its stop for spacing: one tap ("Go now") sends it on.
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
+    // Its line has a train too many: "Put away" (this one, if it's the one held; else the one held).
+    const away = game.economy.sections.putAwayFor(carId);
+    hud.setPutAway(away !== -1, away === carId);
     // Waiting to turn back where the track ends: Continue sends it on now.
     hud.setContinue(canContinue(game.sim, game.economy, carId));
     const opened = carId !== viewCar;
@@ -2420,6 +2433,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setEngineView(status, angle);
   }
 
+  hud.onEngineCardShown = () => {
+    showRoute();
+    showEngineView();
+  };
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
@@ -3640,6 +3657,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const tooLong = new TooLongNotice();
   /** The lifts heard riding (for the clunk as each gets there), and where. */
   const liftsHeard = new Map<number, { x: number; z: number }>();
+  const fullToast = (_lineId: number, room: number, trains: number, more: number) => hud.toast(fullLineToast(room, trains, more), false, 6000);
   function showLoopTip(): void {
     loopTipShown = true;
     try {
@@ -3778,6 +3796,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     animateDiscs();
     showRoute();
     showLines();
+    // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
+    if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
     showEngineView();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;

@@ -266,6 +266,36 @@ describe("reversing through a switch", () => {
     }
     expect(t.bogies.some((b) => b.pieceId === branchA || b.pieceId === branchB)).toBe(true);
   });
+
+  it("a train turned round (lifted, as at the end of the line) while straddling a switch goes back the way it came, all of it", () => {
+    // As above, but turned back where it stands (sections' turn short of a held line end): lifted and set down the other
+    // way round, its new front on the switch's curved path, the switch set straight. (Game Mode's idle head-on: the rest
+    // followed the switch onto the straight branch, the train split across both roads of a loop.)
+    const { layout, ids } = chain(["straight-216", "straight-216", "switch", "curve-large", "curve-large"]);
+    const branchA = appendPiece(layout, "straight-216", false, connectorRef(ids[2], 2));
+    const branchB = appendPiece(layout, "straight-216", false, connectorRef(branchA, 1));
+    const sim = new Sim(layout);
+    layout.setSwitchState(ids[2], 1);
+    const r = sim.addTrain(["engine", "passenger", "passenger"], { pieceId: branchA, pathIndex: 0, reversed: true, s: 120 });
+    if (r.kind !== "placed") throw new Error("not placed");
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    sim.setLever(engine, 1);
+    run(sim, 3.2);
+    const mid = sim.findCar(engine)!.train;
+    expect(mid.bogies.some((b) => b.pieceId === ids[2] && b.pathIndex === 1)).toBe(true);
+    layout.setSwitchState(ids[2], 0);
+    mid.speed = 0;
+    expect(sim.turnBack(mid.id)).toBe(true);
+    run(sim, 6);
+    const t = sim.findCar(engine)!.train;
+    expect(t.id).not.toBe(mid.id);
+    expect(t.derailed).toBe(false);
+    for (const b of t.bogies) {
+      expect([ids[3], ids[4]]).not.toContain(b.pieceId);
+      if (b.pieceId === ids[2]) expect(b.pathIndex).toBe(1);
+    }
+    expect(t.bogies.some((b) => b.pieceId === branchA || b.pieceId === branchB)).toBe(true);
+  });
 });
 
 describe("coupling", () => {
