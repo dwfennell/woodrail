@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
 import { HarnessRun, INVARIANTS, runScenario, type Report, type Scenario } from "./harness";
-import { ShadowPlans, WHY } from "./shadow";
+import { planStats } from "./plan";
 import * as S from "./scenarios";
 
 /**
  * The routing harness (spec §12): each scenario runs once, then each invariant is its own test, as is each scenario's
- * payoff. Today's router (step 1) doesn't meet them all: those are expected failures (`it.fails`) naming the step
- * that should fix them, so that step flips them to passing (an expected failure that passes fails the run).
+ * payoff. Today's router (step 4: locks, setting and restore) doesn't meet them all: those are expected failures
+ * (`it.fails`) naming the step that should fix them, so that step flips them to passing (an expected failure that
+ * passes fails the run).
  *
  *   npx vitest run src/routing/harness.test.ts          (SHOW=1 prints each scenario's report)
  */
@@ -15,7 +16,6 @@ import * as S from "./scenarios";
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 
 /** The steps (spec §13) expected to fix today's failures. */
-const LOCKS = "step 4 (locks, setting and restore)";
 const WAITS = "step 5 (waits at points)";
 
 interface Case {
@@ -38,8 +38,21 @@ const KID: Case[] = [
     scenario: S.roundAndRound,
     checks: { "payoff: 100+ stops in 30 min": arrivals(100), "never turns back": (r) => expect(r.turns[0]).toEqual({ buffer: 0, "open-end": 0, train: 0, short: 0 }) },
   },
-  { scenario: S.branchDelivery, checks: { "payoff: 100+ stops in 30 min": arrivals(100), "turns back only at the buffers": endsOnly }, fails: { restore: LOCKS } },
-  { scenario: S.twoTrainsOneLoop, checks: { "payoff: 80+ stops each in 30 min": arrivals(80), "turns back only at the buffers": endsOnly }, fails: { restore: LOCKS } },
+  {
+    scenario: S.branchDelivery,
+    checks: {
+      "payoff: 100+ stops in 30 min": arrivals(100),
+      "turns back only at the buffers": endsOnly,
+      // (§8.3: set for the siding, then put back, so the loop is as the player left it: twice a visit to the mine.)
+      "the wye set for the mine and put back each time": (r) => {
+        expect(r.restored).toBeGreaterThanOrEqual(50);
+        // (Set and put back, each time; set once more if the run ends on its way to the mine.)
+        expect(r.throws - 2 * r.restored).toBeGreaterThanOrEqual(0);
+        expect(r.throws - 2 * r.restored).toBeLessThanOrEqual(1);
+      },
+    },
+  },
+  { scenario: S.twoTrainsOneLoop, checks: { "payoff: 80+ stops each in 30 min": arrivals(80), "turns back only at the buffers": endsOnly } },
   {
     scenario: S.balloon,
     checks: { "payoff: 100+ stops in 30 min": arrivals(100), "turns back only at the buffers": endsOnly, "engine first at every stop": (r) => expect(r.pushed).toEqual([0]) },
@@ -55,7 +68,8 @@ const LONE_ROUTED = "654196e5";
 
 const OTHERS: Case[] = [
   { scenario: S.loneUnrouted, checks: { "trajectory as at step 1": (r) => expect(r.trajectory).toBe(LONE_UNROUTED) } },
-  { scenario: S.loneRouted, checks: { "trajectory as at step 1": (r) => expect(r.trajectory).toBe(LONE_ROUTED) }, fails: { restore: LOCKS } },
+  // (Routed, its points now go back after it: the same moves, as the hash (trains only) shows.)
+  { scenario: S.loneRouted, checks: { "trajectory as at step 1": (r) => expect(r.trajectory).toBe(LONE_ROUTED) } },
   { scenario: S.followerSameRoad, checks: { "payoff: both at their stops": arrivals(1) } },
   ...[S.followerOtherRoad, S.wyeFromBranch, S.crossoverAt3].map((scenario) => ({
     scenario,
@@ -74,54 +88,55 @@ const OTHERS: Case[] = [
   {
     scenario: S.deadEndSiding,
     checks: { "payoff: 20+ stops": arrivals(20), "never onto the siding": (r) => expect(r.onWatched).toBe(0) },
-    fails: { restore: LOCKS },
   },
   {
     scenario: S.balloonBehindOpenRoad,
-    // (Both ways reach the stop; which one is taken is the shadow's finding: see "shadow plans" below.)
-    checks: { "payoff: 5+ stops": arrivals(5) },
-    fails: { restore: LOCKS },
+    // (Both ways reach the stop. Step 3's finding: `distanceTo` overcounted the balloon, so the train took the siding
+    // and reversed; the plan, deciding from step 4, takes the balloon.)
+    checks: { "payoff: 5+ stops": arrivals(5), "round the balloon, never into the siding (the plan's way)": (r) => expect(r.onWatched).toBe(0) },
   },
   {
     scenario: S.crossoverRing,
     checks: { "payoff: 10+ stops each": arrivals(10), "turns back only at the buffers": endsOnly },
-    fails: { restore: LOCKS, "payoff: 10+ stops each": WAITS, "turns back only at the buffers": WAITS },
+    // (Step 4: each locks both crossovers to its clear point, so the other, refused, runs over them as they lie (no
+    // wait yet) and takes the wrong road. Before locks each threw them for itself, and they met head on in the middle.)
+    fails: { wrongRoad: WAITS, "payoff: 10+ stops each": WAITS, "turns back only at the buffers": WAITS },
   },
   {
     scenario: S.threeTrainsOneLoop,
     // (One train has no room (loops + 1): held, by design. The other two carry on.)
     checks: { "payoff: the line delivers (30+ stops)": (r) => expect(r.arrivals.reduce((a, b) => a + b)).toBeGreaterThanOrEqual(30) },
-    fails: { restore: LOCKS },
   },
-  { scenario: S.leverDuringLock, checks: { "payoff: 15+ stops": arrivals(15) }, fails: { restore: LOCKS } },
-  { scenario: S.saveDuringLock, checks: { "payoff: 15+ stops": arrivals(15) }, fails: { restore: LOCKS } },
-  { scenario: S.removedUnderLock, checks: { "payoff: on to Town (10+ stops)": arrivals(10) }, fails: { restore: LOCKS } },
+  {
+    scenario: S.leverDuringLock,
+    checks: {
+      "payoff: 15+ stops": arrivals(15),
+      // (§16 Q1: the tap moved points set for the train; it went round the oval as tapped, not thrown back for it.)
+      "the tap sticks: not thrown back for the train": (r) => expect(r.tapStuck).toBe(true),
+    },
+  },
+  { scenario: S.saveDuringLock, checks: { "payoff: 15+ stops": arrivals(15) } },
+  { scenario: S.removedUnderLock, checks: { "payoff: on to Town (10+ stops)": arrivals(10) } },
 ];
 
 /** The router's cost: mean µs per tick over the §8 runs (10 µs a steer every 8 ticks, today: about 1–2 µs a tick). */
 const ROUTER_US = 25;
 
-/**
- * Each case's run, once, with the plan search watching in shadow (step 3): it never acts, so the lone trains' hashes
- * (recorded before it existed) prove it changes nothing.
- */
-const runs = new Map<Case, { report: Report; shadow: ShadowPlans }>();
-function runCase(c: Case): { report: Report; shadow: ShadowPlans } {
+/** Each case's run, once. */
+const runs = new Map<Case, Report>();
+function runCase(c: Case): Report {
   let r = runs.get(c);
   if (!r) {
-    const run = new HarnessRun(new Layout(), c.scenario);
-    const shadow = new ShadowPlans();
-    run.watchPlans(shadow);
-    r = { report: run.run(c.scenario.seconds), shadow };
+    r = new HarnessRun(new Layout(), c.scenario).run(c.scenario.seconds);
     runs.set(c, r);
-    if (ENV.SHOW) show(r.report);
+    if (ENV.SHOW) show(r);
   }
   return r;
 }
 
 function describeCase(c: Case): void {
   describe(c.scenario.name, () => {
-    const run = () => runCase(c).report;
+    const run = () => runCase(c);
     const named: [string, (r: Report) => void][] = [
       ...INVARIANTS.map((k): [string, (r: Report) => void] => [k, (r) => expect(r.broke[k].first, `${k} broke ${r.broke[k].count} times`).toEqual([])]),
       ...Object.entries(c.checks ?? {}),
@@ -135,7 +150,7 @@ function describeCase(c: Case): void {
 }
 
 function show(r: Report): void {
-  console.log(`${r.name}: ${(r.ticks / 120).toFixed(0)} s in ${r.ms.toFixed(0)} ms, router ${r.routerUs.toFixed(2)} µs/tick; stops ${r.arrivals.join("/")}; turns ${r.turns.map((t) => `${t.buffer}b ${t.train}t ${t.short}s ${t["open-end"]}e`).join(", ")}; longest still ${r.longestStill.map((s) => (s / 120).toFixed(1)).join("/")} s; facing ${r.facing}, throws ${r.throws}; trajectory ${r.trajectory}`);
+  console.log(`${r.name}: ${(r.ticks / 120).toFixed(0)} s in ${r.ms.toFixed(0)} ms, router ${r.routerUs.toFixed(2)} µs/tick; stops ${r.arrivals.join("/")}; turns ${r.turns.map((t) => `${t.buffer}b ${t.train}t ${t.short}s ${t["open-end"]}e`).join(", ")}; longest still ${r.longestStill.map((s) => (s / 120).toFixed(1)).join("/")} s; facing ${r.facing}, throws ${r.throws}; locks ${r.locks}, refused ${r.refused}, put back ${r.restored}; ${r.looks} looks, ${r.lookUs.toFixed(1)} µs each, ${r.pieceUs.toFixed(1)} µs a piece; trajectory ${r.trajectory}`);
   for (const k of INVARIANTS) if (r.broke[k].count) console.log(`  ${k} ×${r.broke[k].count}: ${r.broke[k].first.join(" | ")}`);
 }
 
@@ -171,39 +186,19 @@ describe("every expected failure names a step", () => {
   });
 });
 
-describe("shadow plans (step 3): the plan search beside today's steering, in every case", () => {
-  /** Why the plan may choose otherwise today: each is explained (see shadow.ts); nothing unexplained. */
-  const allowed = new Set<string>([WHY.granted, WHY.overcount, WHY.unreached]);
-  const all = () => {
-    const total = new ShadowPlans();
-    for (const c of [...KID, ...OTHERS]) total.add(runCase(c).shadow);
-    return total;
-  };
-  it("compares choices at points, and every difference has a known reason", () => {
-    const total = all();
-    if (ENV.SHOW) console.log(total.summary());
-    expect(total.compared).toBeGreaterThan(100);
-    expect([...total.why.keys()].filter((w) => !allowed.has(w))).toEqual([]);
-  }, 120_000);
-  it("where they differ: a balloon behind points with an open road (today's distanceTo overcounts it), the plan takes the balloon", () => {
-    const c = OTHERS.find((c) => c.scenario === S.balloonBehindOpenRoad)!;
-    const { report, shadow } = runCase(c);
-    expect(shadow.why.get(WHY.overcount)).toBeGreaterThan(0);
-    expect([...shadow.why.keys()]).toEqual([WHY.overcount]);
-    // Today it takes the siding every time (the shadow changes nothing).
-    expect(report.onWatched).toBeGreaterThan(0);
-  }, 120_000);
-  it("plans are cached by the track, the pins and the choice: most choices come from the cache", () => {
-    const total = all();
-    expect(total.hits).toBeGreaterThan(total.choices);
-  }, 120_000);
-  it("a choice's searches take well under 1 ms (mean over every case)", () => {
-    const total = all();
-    expect(total.ms / Math.max(1, total.choices)).toBeLessThan(1);
-  }, 120_000);
-});
-
 describe("routing's cost", () => {
+  it("a look ahead (asking for the points, locks included) takes well under 0.1 ms, mean over every case", () => {
+    const all = [...KID, ...OTHERS].map(runCase);
+    const looks = all.reduce((t, r) => t + r.looks, 0);
+    const us = all.reduce((t, r) => t + r.lookUs * r.looks, 0) / Math.max(1, looks);
+    const pieces = all.reduce((t, r) => t + r.pieces, 0);
+    const perPiece = all.reduce((t, r) => t + r.pieceUs * r.pieces, 0) / Math.max(1, pieces);
+    if (ENV.SHOW) console.log(`looks: ${looks}, mean ${us.toFixed(2)} µs; ${pieces} pieces come onto, ${perPiece.toFixed(1)} µs of router time each; plan choices ${planStats.choices} worked out, ${planStats.hits} cached`);
+    expect(looks).toBeGreaterThan(1000);
+    expect(us).toBeLessThan(100);
+    // (The plan's choices at points are cached by the track and the pins: most come from the cache.)
+    expect(planStats.hits).toBeGreaterThan(planStats.choices);
+  }, 120_000);
   it(`the router takes under ${ROUTER_US} µs a tick on the §8 runs (best of 3 short runs each)`, () => {
     for (const s of S.KID) {
       // (A warm-up, then the best of three 2-minute runs: load can slow one, not all three.)

@@ -9,16 +9,25 @@ import { capAt, Economy } from "./economy";
 import { topologyOf, trainLength, YIELD_S } from "./sections";
 import { loopOn } from "./loop-fixtures";
 import { next, waysFrom } from "../routing/graph";
-import { ShadowPlans } from "../routing/shadow";
+import { planStats } from "../routing/plan";
+import type { Router } from "../routing/router";
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const TRACE = !!ENV.TRACE;
 /**
- * SHADOW=1: the plan search (routing step 3) watches every world's steering in shadow, never acting; at the end, how
- * often its choice at points differed from today's, why, and its search time (with --silent=false).
+ * ROUTING=1: every world's router is timed; at the end, its looks ahead (a routed train asking for its points), their
+ * mean time, locks granted, asks refused and points put back, and the plan choices worked out and cached (with
+ * --silent=false).
  */
-const SHADOW = ENV.SHADOW ? new ShadowPlans() : null;
-if (SHADOW) afterAll(() => console.log(`QA ${SHADOW.summary()}`));
+const ROUTERS: Router[] | null = ENV.ROUTING ? [] : null;
+if (ROUTERS)
+  afterAll(() => {
+    const sum = (f: (r: Router) => number) => ROUTERS.reduce((t, r) => t + f(r), 0);
+    const looks = sum((r) => r.looks);
+    console.log(
+      `QA routing: ${ROUTERS.length} worlds, ${looks} looks, ${((sum((r) => r.ms) * 1000) / Math.max(1, looks)).toFixed(2)} µs a look (locks included); ${sum((r) => r.granted)} locks, ${sum((r) => r.refused)} asks refused, ${sum((r) => r.restored)} points put back; plan choices ${planStats.choices} worked out, ${planStats.hits} cached, ${planStats.searches} searches`,
+    );
+  });
 
 /** QA's layout builder (scratchpad/qa/ss/lib.js `H.line0`), on a plain Layout. */
 function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTypeId[] | null; branch?: PieceTypeId[]; branchFlips?: boolean[]; eastT?: PieceTypeId[]; sideAt?: boolean }) {
@@ -68,7 +77,10 @@ function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTy
   put("buffer-turnback", false, connectorRef(east[east.length - 1], 1));
   const sim = new Sim(L);
   const economy = new Economy(L, sim);
-  economy.router.shadow = SHADOW;
+  if (ROUTERS) {
+    economy.router.timing = true;
+    ROUTERS.push(economy.router);
+  }
   return { L, sim, economy, a, b: east[east.length - 1], west, east, loops, middle, br };
 }
 

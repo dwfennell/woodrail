@@ -387,7 +387,7 @@ export class Economy {
       },
       drive: (train) => this.drive(train),
       granted: (engine) => this.sections.steerHint(engine),
-      heldFor: (engine, pieceId) => this.sections.switchHeld(engine, pieceId),
+      awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
       soon: this.sections.steerSoon,
     });
   }

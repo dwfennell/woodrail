@@ -1,10 +1,11 @@
 /**
- * Plans: the way a routed train goes to its stop, piece by piece. Step 1 (docs/superpowers/specs/2026-10-30-train-routing.md
- * §13): a walk choosing at each switch as the router steers (`wayToward`, the shortest way on by the piece-count
- * `distanceTo`), so the way drawn on the map is the way the train takes.
+ * Plans: the way a routed train goes to its stop, piece by piece (docs/superpowers/specs/2026-10-30-train-routing.md
+ * §3.1). The plan search (`plan`, a Dijkstra over (piece, entry, engine leading)) decides at every points: the router's
+ * steering, sections' ways (`wayOn`), and the way drawn on the map (`walkTo`) all choose by `planWay`, so the map and
+ * the train agree (step 4).
  */
 import { getPieceDef, MAX_CONNECTORS, pathLength, type Layout } from "../track";
-import { distanceTo, next, SEARCH, TURN_COST, wayToward, waysFrom, type PinnedTest } from "./graph";
+import { next, SEARCH, TURN_COST, waysFrom, type PinnedTest } from "./graph";
 
 /** A stretch of one path of one piece, from s0 to s1 along the path's own geometry (s0 > s1 when run backwards). */
 export interface PathRun {
@@ -26,20 +27,12 @@ export interface At {
 }
 
 /**
- * The way a routed train goes from `start` to the middle of piece `target`, choosing at each switch as the router steers
- * (`wayToward`, the shortest way on by `distanceTo`) and turning back at the end of a line. Null if it never gets
- * there: no way leads there, or it would go round for ever. Bounded by `SEARCH` steps; `distanceTo` is memoised per
- * call, so each (piece, entry) is searched from at most once. `pinned`: which switches stay as they're set (by default the
- * layout's pinned ones).
+ * The way a routed train goes from `start` to the middle of piece `target`, choosing at each switch as the router does
+ * (`planWay`) and turning back at the end of a line. Null if it never gets there: no way leads there, or it would go
+ * round for ever. Bounded by `SEARCH` steps. `pinned`: which switches stay as they're set (by default the layout's
+ * pinned ones).
  */
 export function walkTo(layout: Layout, start: At, target: number, pinned?: PinnedTest): Leg {
-  const memo = new Map<number, number>();
-  const dist = (at: { pieceId: number; entry: number }) => {
-    const key = at.pieceId * 8 + at.entry;
-    let d = memo.get(key);
-    if (d === undefined) memo.set(key, (d = distanceTo(layout, at, target, pinned)));
-    return d;
-  };
   const runs: PathRun[] = [];
   const visited = new Set<number>();
   let at = { ...start };
@@ -65,7 +58,7 @@ export function walkTo(layout: Layout, start: At, target: number, pinned?: Pinne
     }
     let option = 0;
     if (n.pieceId !== target && ways.length > 1) {
-      option = wayToward(layout, n.pieceId, ways, target, dist);
+      option = planWay(layout, n.pieceId, n.entry, ways, target, pinned);
       // No way on leads there: the switch stays as it's set.
       if (option === -1) option = layout.switchState(n.pieceId) % ways.length;
     } else if (ways.length > 1) option = layout.switchState(n.pieceId) % ways.length;
@@ -83,7 +76,7 @@ export function walkTo(layout: Layout, start: At, target: number, pinned?: Pinne
   return null;
 }
 
-// ── The plan search (step 3: in shadow; spec §3.1, §6) ─────────────────────────────────────────────────────────────────
+// ── The plan search (spec §3.1, §6) ─────────────────────────────────────────────────────────────────────────────────────
 
 /** Where a plan stands: on a piece, come in by `entry`, the engine leading or not (it changes at a turn-back). */
 export interface PlanState {
@@ -112,8 +105,8 @@ export interface PlanCosts {
 }
 
 /**
- * Piece-count costs, as `distanceTo` counts (step 3, to compare with today's choices): a piece is 1, a turn-back
- * `TURN_COST`, and pushing costs no more. Step 6 brings costs in mm (`MM_COSTS`).
+ * Piece-count costs, as `distanceTo` counted (the metric before plans): a piece is 1, a turn-back `TURN_COST`, and
+ * pushing costs no more. Used by `planWay` until step 6 brings costs in mm (`MM_COSTS`).
  */
 export const PIECE_COSTS: PlanCosts = { through: () => 1, turn: () => TURN_COST, push: 1 };
 
@@ -142,8 +135,8 @@ export interface Plan {
 
 const stateKey = (s: PlanState) => (s.pieceId * MAX_CONNECTORS + s.entry) * 2 + (s.lead ? 1 : 0);
 
-/** Searches done and states taken off the heap, since the counters were last read (for measuring). */
-export const planStats = { searches: 0, states: 0 };
+/** Searches done, states taken off the heap, and `planWay`'s choices worked out and taken from its cache (for measuring). */
+export const planStats = { searches: 0, states: 0, choices: 0, hits: 0 };
 
 /**
  * The cheapest way from `start` to piece `target` (a Dijkstra over (piece, entry, engine leading) with a binary heap,
@@ -257,7 +250,7 @@ class Heap {
 /**
  * The plan's choice at points (`pieceId`, come in by `entry`, `ways` out from `waysFrom`): the way whose plan to `target`
  * costs least, the earlier on a tie (as `wayToward`); −1 if none reaches it. `costs` per way (Infinity: none) are filled
- * in when given, for saying why a choice differs.
+ * in when given. `pinned` as for `waysFrom`.
  */
 export function planChoice(
   layout: Layout,
@@ -267,6 +260,7 @@ export function planChoice(
   target: number,
   costs: PlanCosts = PIECE_COSTS,
   out?: number[],
+  pinned?: PinnedTest,
 ): number {
   let best = -1;
   let bestC = Infinity;
@@ -274,7 +268,7 @@ export function planChoice(
     const n = next(layout, pieceId, w.exit);
     let c = Infinity;
     if (n) {
-      const rest = n.pieceId === target ? { cost: 0 } : plan(layout, { pieceId: n.pieceId, entry: n.entry, lead }, target, costs);
+      const rest = n.pieceId === target ? { cost: 0 } : plan(layout, { pieceId: n.pieceId, entry: n.entry, lead }, target, costs, pinned);
       if (rest) c = costs.through(layout, pieceId, w.path) * (lead ? 1 : costs.push) + rest.cost;
     }
     if (out) out[w.option] = c;
@@ -284,4 +278,67 @@ export function planChoice(
     }
   }
   return best;
+}
+
+/**
+ * The plan's choice at points (`pieceId`, come in by `entry`, `ways` out from `waysFrom` with the same `pinned`): the
+ * option whose way to `target` costs least (piece counts, `PIECE_COSTS`), the earlier on a tie; −1 if none reaches it.
+ * The one choice at points for everything that decides (the router, sections, the drawn line). Cached per layout by the
+ * track, the pins and the decks (a throw of unpinned points changes nothing a plan sees); a caller's own `pinned` test
+ * isn't cached.
+ */
+export function planWay(
+  layout: Layout,
+  pieceId: number,
+  entry: number,
+  ways: readonly { option: number; path: number; exit: number }[],
+  target: number,
+  pinned?: PinnedTest,
+): number {
+  if (pinned) return planChoice(layout, pieceId, true, ways, target, PIECE_COSTS, undefined, pinned);
+  const cache = cacheOf(layout);
+  const key = pieceId * MAX_CONNECTORS + entry;
+  let byTarget = cache.choices.get(target);
+  if (!byTarget) cache.choices.set(target, (byTarget = new Map()));
+  let c = byTarget.get(key);
+  if (c === undefined) {
+    planStats.choices++;
+    byTarget.set(key, (c = planChoice(layout, pieceId, true, ways, target)));
+  } else planStats.hits++;
+  return c;
+}
+
+/** Per layout: `planWay`'s choices, for the track, pins and decks as `key` says. */
+interface ChoiceCache {
+  key: string;
+  choices: Map<number, Map<number, number>>;
+  switchesAt: number;
+  piecesAt: number;
+  decks: number[];
+}
+const caches = new WeakMap<Layout, ChoiceCache>();
+
+/** The layout's choice cache, emptied if the track, the pins or the decks have changed since it was filled. */
+function cacheOf(layout: Layout): ChoiceCache {
+  let c = caches.get(layout);
+  if (!c) caches.set(layout, (c = { key: "", choices: new Map(), switchesAt: -1, piecesAt: -1, decks: [] }));
+  // (Only when a switch has moved, or pieces come or gone, is the key worked out again: pins and decks are few.)
+  if (c.switchesAt === layout.switchesVersion && c.piecesAt === layout.piecesVersion && c.key.startsWith(`${layout.revision}:${layout.jointsVersion}:`)) return c;
+  if (c.piecesAt !== layout.piecesVersion) {
+    c.piecesAt = layout.piecesVersion;
+    c.decks = [];
+    for (const id of layout.pieceIds()) {
+      const p = layout.getPiece(id)!;
+      if (getPieceDef(p.type, p.flipped).gated) c.decks.push(id);
+    }
+  }
+  c.switchesAt = layout.switchesVersion;
+  let key = `${layout.revision}:${layout.jointsVersion}:`;
+  for (const id of layout.pinnedIds()) key += `${id}=${layout.switchState(id)},`;
+  for (const id of c.decks) key += `d${id}=${layout.deckTurning(id) ? "t" : layout.switchState(id)},`;
+  if (key !== c.key) {
+    c.key = key;
+    c.choices.clear();
+  }
+  return c;
 }

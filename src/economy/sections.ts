@@ -1,6 +1,7 @@
 import { getPieceDef, pathLength, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, type Cursor, type Sim, type Train } from "../sim";
-import { distanceTo, next, SEARCH, waysFrom, wayToward } from "../routing/graph";
+import { next, SEARCH, waysFrom } from "../routing/graph";
+import { plan, planWay } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
 
 /**
@@ -863,13 +864,6 @@ export class Sections {
     const { layout } = this;
     const topo = info.topo;
     const target = this.host.target(st.engine);
-    const memo = new Map<number, number>();
-    const dist = (at: { pieceId: number; entry: number }) => {
-      const k = at.pieceId * 8 + at.entry;
-      let d = memo.get(k);
-      if (d === undefined) memo.set(k, (d = target < 0 ? -1 : distanceTo(layout, at, target)));
-      return d;
-    };
     const steps: Step[] = [];
     const sections: number[] = [];
     const through: number[] = [];
@@ -980,7 +974,8 @@ export class Sections {
         w = ways.find((x) => x.path === p) ?? w;
       }
       else if (ways.length > 1) {
-        const best = wayToward(layout, at.pieceId, ways, target, dist);
+        // (The router's choice: the plan's way to its stop.)
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target);
         w = best === -1 ? (ways[layout.switchState(at.pieceId) % ways.length] ?? ways[0]) : ways[best];
       }
       steps.push({ pieceId: at.pieceId, path: w.path, entry: at.entry });
@@ -1263,19 +1258,13 @@ export class Sections {
   }
 
   /**
-   * Is a switch on the granted way of another train of this engine's line (its move's steps)? Then this one mustn't
-   * throw it: steering for a held train (or one still short of its move) would send that train onto a road it doesn't
-   * hold (QA B1: a train held on a branch set the loop's switch back under the move of one coming in).
+   * Is this a train of a line sections manage, with no move granted (routing §5.2)? It sets no points: only a granted
+   * move's train does, so a train held on a branch never throws the points under another's move (QA B1).
    */
-  switchHeld(engine: number, pieceId: number): boolean {
+  awaitingGrant(engine: number): boolean {
     if (!this.enabled) return false;
-    const lineId = this.host.lineOf(engine);
-    if (lineId < 0) return false;
-    for (const [u, st] of this.states) {
-      if (u === engine || !st.move || st.move.free) continue;
-      if (st.move.steps.some((x) => x.pieceId === pieceId) && this.host.lineOf(u) === lineId) return true;
-    }
-    return false;
+    const st = this.states.get(engine);
+    return !!st && !st.move;
   }
 
   /**
@@ -2001,14 +1990,7 @@ export class Sections {
     if (!p) return out;
     const def = getPieceDef(p.type, p.flipped);
     for (let c = 0; c < def.connectors.length; c++) {
-      if (distanceTo(layout, { pieceId: from, entry: c }, to) < 0) continue;
-      const memo = new Map<number, number>();
-      const dist = (x: { pieceId: number; entry: number }) => {
-        const k = x.pieceId * 8 + x.entry;
-        let d = memo.get(k);
-        if (d === undefined) memo.set(k, (d = distanceTo(layout, x, to)));
-        return d;
-      };
+      if (!plan(layout, { pieceId: from, entry: c, lead: true }, to)) continue;
       let at: { pieceId: number; entry: number } | null = { pieceId: from, entry: c };
       const seen = new Set<number>();
       for (let k = 0; at && k < SEARCH && at.pieceId !== to; k++) {
@@ -2018,7 +2000,7 @@ export class Sections {
         out.push(at.pieceId);
         const ways = waysFrom(layout, at.pieceId, at.entry);
         if (ways.length === 0) break;
-        const best: number = ways.length > 1 ? wayToward(layout, at.pieceId, ways, to, dist) : 0;
+        const best: number = ways.length > 1 ? planWay(layout, at.pieceId, at.entry, ways, to) : 0;
         const w: { exit: number } = ways[best === -1 ? 0 : best];
         // (The end of the line: back the way it came.)
         at = next(layout, at.pieceId, w.exit) ?? next(layout, at.pieceId, at.entry);

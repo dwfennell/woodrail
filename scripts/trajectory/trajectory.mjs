@@ -5,7 +5,8 @@
  *
  *   node scripts/trajectory/trajectory.mjs [--base origin/main] [--out <dir>] [--env K=V]... -- <vitest args>
  *
- * e.g. `--env BALANCE=1 --env BALANCE_SEED=1 -- src/play/balance.test.ts`. The base is checked out in a worktree
+ * e.g. `--env BALANCE=1 --env BALANCE_SEED=1 -- src/play/balance.test.ts`; `--env TRAJ_SWITCHES=0` hashes the trains
+ * only (points restored after a train has gone change the switches, not where it runs). The base is checked out in a worktree
  * (.trajectory/base-<sha>, node_modules linked) and reused, and so is its recording (`--fresh` redoes it); its tests
  * run unchanged, only the recorder is added. Prints
  * each test's sims and seconds compared, and the first second that differs; exits 1 on any difference. Each run's

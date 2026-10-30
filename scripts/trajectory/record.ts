@@ -1,7 +1,7 @@
 /**
  * Trajectory recorder, a vitest setup file (see trajectory.mjs): with TRAJ_OUT set, every Sim the tests tick records a
- * hash of its trains (each bogie's piece, path, way and position, the speed) and its switch states once a simulated
- * second. Written per test file to TRAJ_OUT, one line a second: `test#sim  second  hash`. It patches the Sim of the tree
+ * hash of its trains (each bogie's piece, path, way and position, the speed) and its switch states (not with
+ * TRAJ_SWITCHES=0) once a simulated second. Written per test file to TRAJ_OUT, one line a second: `test#sim  second  hash`. It patches the Sim of the tree
  * under test (the vitest root), so the same recorder runs on main and on a branch without changing either.
  */
 import { afterAll, expect } from "vitest";
@@ -39,8 +39,12 @@ if (OUT) {
       s += `T${id}:${t.speed}:${t.derailed ? 1 : 0}`;
       for (const b of t.bogies) s += `|${b.pieceId},${b.pathIndex},${b.reversed ? 1 : 0},${b.s}`;
     }
-    const states = [...(this.layout.switchStates as Map<number, number>)].sort((a, b) => a[0] - b[0]);
-    s += `S${states.join(";")}`;
+    // (TRAJ_SWITCHES=0 leaves the switches out: routes restoring points after a train (routing step 4) change them, not
+    // where the trains run.)
+    if (process.env.TRAJ_SWITCHES !== "0") {
+      const states = [...(this.layout.switchStates as Map<number, number>)].sort((a, b) => a[0] - b[0]);
+      s += `S${states.join(";")}`;
+    }
     lines.push(`${this.ticks / SIM_HZ}\t${fnv(s)}`);
     return r;
   };

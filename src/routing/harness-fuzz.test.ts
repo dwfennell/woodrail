@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
 import { HarnessRun, INVARIANTS, type Invariant, type Report } from "./harness";
-import { ShadowPlans, WHY } from "./shadow";
 import { fuzz } from "./scenarios";
 
 /**
  * Seeded fuzz over the loop fixtures (spec §12): random lines (0–2 passing loops, stops on loop roads, a dead-end
  * siding), 1–3 trains on one line or each on its own, switches left either way, lever taps. Every invariant is
- * checked; those today's router doesn't meet are expected failures naming the step expected to fix them.
+ * checked; any today's router doesn't meet would be an expected failure naming the step expected to fix it (none since
+ * step 4's restore).
  *
  *   npx vitest run src/routing/harness-fuzz.test.ts                         (8 seeds × 5 min: a few seconds)
  *   ROUTING_FUZZ=200 ROUTING_FUZZ_SECONDS=1800 npx vitest run --silent=false src/routing/harness-fuzz.test.ts
@@ -20,16 +20,13 @@ const SECONDS = Number(ENV.ROUTING_FUZZ_SECONDS ?? 300);
 const LONG = ENV.ROUTING_FUZZ !== undefined;
 
 /** Expected to fail today, and the step expected to fix each (spec §13). */
-const FAILS: Partial<Record<Invariant, string>> = { restore: "step 4 (locks, setting and restore)" };
+const FAILS: Partial<Record<Invariant, string>> = {};
 
 describe(`routing fuzz: ${SEEDS} seeds × ${SECONDS} s`, () => {
   let reports: Report[] | undefined;
-  // (The plan search watches every run in shadow (step 3); it never acts.)
-  const shadow = new ShadowPlans();
   const run = () =>
     (reports ??= Array.from({ length: SEEDS }, (_, k) => {
       const h = new HarnessRun(new Layout(), fuzz(k + 1, SECONDS));
-      h.watchPlans(shadow);
       const r = h.run(SECONDS);
       const broke = INVARIANTS.filter((i) => r.broke[i].count > 0);
       if (LONG && broke.length > 0) console.log(`seed ${k + 1}: ${broke.map((i) => `${i} ×${r.broke[i].count} (${r.broke[i].first[0]})`).join("; ")}`);
@@ -47,10 +44,5 @@ describe(`routing fuzz: ${SEEDS} seeds × ${SECONDS} s`, () => {
   }
   it("trains deliver: at least one stop come to in each run", () => {
     expect(run().filter((r) => r.arrivals.every((a) => a === 0)).map((r) => r.name)).toEqual([]);
-  });
-  it("shadow plans: where the plan's choice at points differs from today's, the reason is known", () => {
-    run();
-    if (ENV.SHOW || LONG) console.log(shadow.summary());
-    expect([...shadow.why.keys()].filter((w) => w !== WHY.granted && w !== WHY.overcount && w !== WHY.unreached)).toEqual([]);
   });
 });
