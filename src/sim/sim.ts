@@ -625,7 +625,7 @@ export class Sim {
 
   /**
    * Step a switch to its next route (two-way switches flip; a three-way steps round its three; a turntable's deck turns
-   * to its next road). False if it can't: a deck doesn't turn with a train on it.
+   * to its next road). False if it can't: a deck doesn't turn with a train on it, and points don't move under one.
    */
   toggleSwitch(pieceId: number): boolean {
     const piece = this.layout.getPiece(pieceId);
@@ -635,6 +635,7 @@ export class Sim {
       this.toggleSignal(pieceId, 0);
       return true;
     }
+    if (this.pointsHeld(pieceId)) return false;
     if (def?.gated && this.deckRefusal(pieceId)) return false;
     // A lift sends its platform to its other end, with any train standing on it.
     if (def?.lift) return this.carry(pieceId, (this.layout.switchState(pieceId) + 1) % def.paths.length, def.lift.seconds) !== null;
@@ -654,12 +655,43 @@ export class Sim {
   }
 
   /**
+   * Are these points held by a train on or over them (any car, `piecesUnder`)? Then they can't be thrown: the cars still
+   * to come onto them would take the other road (a wye's or a crossover's choice from a branch isn't remembered), and the
+   * train would split. Decks, lifts and signals aren't points.
+   */
+  pointsHeld(pieceId: number): boolean {
+    const piece = this.layout.getPiece(pieceId);
+    const def = piece && getPieceDef(piece.type, piece.flipped);
+    return !!def?.isSwitch && !def.gated && !def.signal && this.pieceOccupied(pieceId);
+  }
+
+  /**
+   * Is a train other than `train` on this piece going the same way, ahead of it (steering: it comes to the switch on from
+   * here first)? With `from` (the train's front, on this piece): one on the same path, the same way, further along. Else:
+   * one heading out of the piece at connector `exit`. A lone train has none (nothing looked at).
+   */
+  trainAhead(train: Train, pieceId: number, exit: number, from?: Cursor): boolean {
+    if (this.trains.size < 2) return false;
+    const piece = this.layout.getPiece(pieceId);
+    if (!piece) return false;
+    const def = getPieceDef(piece.type, piece.flipped);
+    for (const t of this.trains.values()) {
+      if (t === train || t.derailed) continue;
+      for (const b of t.bogies) {
+        if (b.pieceId !== pieceId) continue;
+        if (from ? b.pathIndex === from.pathIndex && b.reversed === from.reversed && b.s > from.s : pathExitConnector(def, b.pathIndex, b.reversed) === exit) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Why a deck (a turntable's) can't turn now: a train partly on it (it would be torn apart), or one on it that's
    * moving or waiting to turn back, or it's still carrying one round. Null if it can: empty, or carrying trains
    * standing wholly on it (they turn with it: an engine turned round).
    */
   deckRefusal(pieceId: number): DeckRefusal | null {
-    // (Points and signals are thrown whatever stands on them.)
+    // (Points: see `pointsHeld`. Signals are thrown whatever stands on them.)
     const piece = this.layout.getPiece(pieceId);
     const def = piece && getPieceDef(piece.type, piece.flipped);
     if (!def?.gated) return null;

@@ -24,6 +24,10 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
   - **Now:** a moving train looks ahead `v²/2a + CROSS_LOOK` for a piece whose path meets another path (`crossMasks`: a crossing's two lines, a switch's roads; not decks, lifts or double track). It stops `CROSS_GAP` short when another train is on that piece by a meeting path, or has claimed it (`crossClaims`, valid this tick and the next). Otherwise it claims the piece itself, so the first to come near goes first, whatever its line.
   - **Waits:** a wait where both trains stand for 5 s (`CROSS_TURN_TICKS`) turns the waiter back, as a bump used to.
   - **Cost:** it only runs when there's more than one train, and walks a piece or two.
+- **Points never move under a train (#3)** (tests in `src/economy/switch-under-train.test.ts`).
+  - **Causes:** two. (1) Route steering ran each routed train in turn, and the one behind re-threw the points the one ahead was about to take (the last writer won every 8 ticks), sending the first down the second's road. (2) A lever tap threw points whatever stood on them. The sim's switch memory keeps a train together through points entered from the trunk, but a wye entered from a branch, or a crossover from its connector 3, picks its road by the lever and isn't remembered, so the cars still to come took the other road and the train split.
+  - **Now:** `steerSwitch` takes `ahead` (`Sim.trainAhead`): points another train is ahead on the way to, going the same way, are left for it. `Sim.toggleSwitch` refuses points with any car on or over them (`Sim.pointsHeld`, `piecesUnder` occupancy), and the lever tap toasts "These points move once the train is off them". Decks, lifts and signals are unchanged.
+  - **Cost:** `trainAhead` is asked only when a switch is about to be thrown, and returns at once for a lone train.
 
 ## 2. How to test
 
@@ -94,6 +98,8 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 ### The sim around switches
 Any operation that turns, flips or splits a train must call `rememberStraddledSwitches`. Today that's runAround, decouple, flipTrain and turnAround.
 
+Nothing may change points under a train. The switch memory only covers points entered from the trunk; a wye's branch or a crossover's connector 3 choose by the lever, so a change there splits the train. Anything new that sets switch state (routes setting and restoring switches, #5) must check `Sim.pointsHeld` and steer's `ahead`.
+
 ### Cards
 - Cards fit 2 lines at 360 px; toasts 3 lines at most (about 33 characters a line).
 - Buttons are 44 px or more.
@@ -117,7 +123,7 @@ Any operation that turns, flips or splits a train must call `rememberStraddledSw
 ## 4. Open items
 - **GitHub issues, from the user's play-test:**
   - #2: trains merge at crossings (fixed on `claude/crossing-merge`, waiting to land);
-  - #3: derailment when a switch is thrown for the train behind;
+  - #3: derailment when a switch is thrown for the train behind (fixed on `claude/switch-derail`, waiting to land);
   - #4: only one route;
   - #5: routes set switches and restore them;
   - #6: a gap behind the train ahead;

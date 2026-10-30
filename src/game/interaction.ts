@@ -4705,7 +4705,11 @@ export class Interaction {
     const g = this.game;
     const piece = g.layout.getPiece(pieceId);
     if (piece && getPieceDef(piece.type, piece.flipped).signal) g.sim.toggleSignal(pieceId, road);
-    else {
+    else if (g.sim.pointsHeld(pieceId)) {
+      // Points never move under a train (it would split): they wait till it's off them.
+      this.hud.toast("These points move once the train is off them");
+      return;
+    } else {
       // A turntable's deck turns a train standing still wholly on it, not one partly on it or moving.
       const refused = g.sim.deckRefusal(pieceId);
       const kit = kitOf(g.layout.getPiece(pieceId)!.type);

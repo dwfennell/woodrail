@@ -159,6 +159,11 @@ export function chooseWay(
  *
  * `occupied` (a train on the piece): a switch with a train on it is left as it is, never thrown under it (its cars behind
  * would take the other road).
+ *
+ * `ahead` (another train on the way to the switch, going the same way, ahead of this one): it comes to the switch first,
+ * so the switch is left as it is for it (thrown for the one behind, it would send the first down the other road). Asked
+ * of the front's piece with the front's cursor (only one ahead of it on its path counts), and of each piece on the way by
+ * the connector the way leaves it.
  */
 export function steer(
   layout: Layout,
@@ -168,9 +173,19 @@ export function steer(
   avoid?: AvoidTest,
   follow?: AvoidTest,
   occupied?: (pieceId: number) => boolean,
+  ahead?: AheadTest,
 ): boolean {
-  return steerSwitch(layout, train, forward, target, avoid, follow, occupied) !== -1;
+  return steerSwitch(layout, train, forward, target, avoid, follow, occupied, ahead) !== -1;
 }
+
+/**
+ * Is another train on piece `pieceId`, going the way a train would, ahead of it? On the train's front piece, `from` (its
+ * front's cursor, `exit` −1): one ahead of the front on its path. On a piece further on: one heading out at `exit`.
+ */
+export type AheadTest = (pieceId: number, exit: number, from?: Cursor) => boolean;
+
+/** (`steerSwitch`'s pieces on the way, reused: piece, exit, piece, exit, ...) */
+const way: number[] = [];
 
 /** `steer`, saying which switch it threw (its piece id), or −1 if none (for showing it thrown: its lever swings). */
 export function steerSwitch(
@@ -181,6 +196,7 @@ export function steerSwitch(
   avoid?: AvoidTest,
   follow?: AvoidTest,
   occupied?: (pieceId: number) => boolean,
+  ahead?: AheadTest,
 ): number {
   // The cursor at the train's front, pointing the way it goes.
   const b = forward ? train.bogies[0] : train.bogies[train.bogies.length - 1];
@@ -192,6 +208,8 @@ export function steerSwitch(
   const path = def.paths[c.pathIndex];
   let exit = c.reversed ? path.from : (path.to ?? -1);
   let at = c.pieceId;
+  // (The pieces on the way, and where the way leaves each: asked of `ahead` only if a switch is to be thrown.)
+  way.length = 0;
   for (let k = 0; k < LOOK_AHEAD; k++) {
     const n = next(layout, at, exit);
     if (!n || n.pieceId === target) return -1;
@@ -202,12 +220,18 @@ export function steerSwitch(
       if (best === -1 || layout.switchState(n.pieceId) % ways.length === best) return -1;
       // (Never under a train: its cars behind would take the other road.)
       if (occupied?.(n.pieceId)) return -1;
+      // (Nor before one ahead on the way: it comes to it first.)
+      if (ahead) {
+        if (ahead(c.pieceId, -1, c)) return -1;
+        for (let i = 0; i < way.length; i += 2) if (ahead(way[i], way[i + 1])) return -1;
+      }
       layout.setSwitchState(n.pieceId, best);
       return n.pieceId;
     }
     if (ways.length === 0) return -1;
     at = n.pieceId;
     exit = ways[0].exit;
+    way.push(at, exit);
   }
   return -1;
 }

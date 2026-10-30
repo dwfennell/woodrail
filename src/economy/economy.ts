@@ -1709,7 +1709,10 @@ export class Economy {
       const held = this.sections.steerHint(engine);
       // (Nor a switch on another train's granted way: it would send that train onto a road it doesn't hold.)
       const occupied = (pieceId: number) => this.occupied(pieceId) || this.sections.switchHeld(engine, pieceId);
-      const thrown = steerSwitch(this.layout, found.train, net > 0, held?.aim ?? d.pieceId, undefined, held?.follow, occupied);
+      // (Nor one another train ahead on the way comes to first: thrown for the one behind, it would send that one down
+      // the other road (issue #3).)
+      const ahead = (pieceId: number, exit: number, from?: Cursor) => this.sim.trainAhead(found.train, pieceId, exit, from);
+      const thrown = steerSwitch(this.layout, found.train, net > 0, held?.aim ?? d.pieceId, undefined, held?.follow, occupied, ahead);
       if (thrown !== -1) this.onSwitch?.(thrown);
     }
   }
