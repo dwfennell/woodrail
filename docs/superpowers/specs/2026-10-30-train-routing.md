@@ -352,18 +352,30 @@ lone-train check.
 - **#6 (a gap behind the train ahead):** `followRoom` stays in the sim, and the router's overlap stop must not stack
   with it.
 
-## 16. Open questions for the user
+## 16. Decisions (the user, 2026-10-30)
 
-1. **Tapping a lever on points a train is about to use:** say no with a toast ("These points are set for the Red
-   train"), or move them and make the train wait? *Suggest: say no.*
-2. **When a train behind needs the other road:** should it wait, or go another way if there is one? *Suggest: another
-   way only if it's no more than about 1.5× as long.*
-3. **How much further should a train go to keep its engine in front, rather than back up?** *Suggest: up to twice as
-   far.*
-4. **Pushing:** is it fine for a train to push its cars for a while, or should it always turn round where it can?
-5. **Trains you drive by hand:** today they give up and turn back after waiting 2–5 s. Should they wait longer, say
-   15 s, while the train in the way is still moving?
-6. **Should routes ever set switches for a train you drive by hand?** *Suggest no.*
-7. **Points going back:** should the lever visibly swing back, with a soft click? *Suggest yes.*
-8. **A dead end with no way to turn:** should we suggest a loop there once ("Add a loop at the end so it can turn
-   round"), or say nothing?
+These override anything earlier in this spec that disagrees.
+
+1. **Lever taps on points:**
+   - The tap is refused only while a car is on the points (`pointsHeld`, as today).
+   - Points that are locked for a train that hasn't reached them yet still move when tapped. That train's lock is
+     dropped, and it re-plans or waits.
+2. **A following train that needs the other road always waits.** It doesn't go another way, unless waiting would
+   cause another problem, such as a deadlock the wait can't clear (§5).
+3. **Turning around:**
+   - A train turns around only at the end of the track: a dead end, or buffers.
+   - It never turns because a train blocks it. It waits instead.
+   - This replaces:
+     - the turn-backs used to clear waits (the crossCap 5 s turn-back, a lineless train's 2 s turn-back);
+     - plans that reverse mid-line to stay engine-first (§6's reverse cost applies only to where track ends);
+     - §7's ring toast "went round to let … by".
+   - **Still to settle with the user:** what breaks a true deadlock, where two trains wait on each other with no way
+     past. The proposal is: a turn-back as the last resort, only when nothing else can clear it, counted in the
+     harness (target 0 on the §8 automations), with a card that names the fix (a passing loop).
+4. **Pushing (running engine-last):** asked again in plain words. Should a train push its cars from behind for a
+   stretch, or should the engine always run round to the front when it can? Until the user answers, keep today's
+   behaviour.
+5. **Hand-run trains** wait up to about 15 s while the train in the way is still moving.
+6. **Routes never set switches for hand-run trains.**
+7. **Points going back:** the lever visibly swings back, with a soft click.
+8. **Dead ends:** keep today's automatic Swap ends at a dead end. Don't suggest adding a loop.
