@@ -14,3 +14,4 @@ dist-artifact/
 
 # Screenshots belong in a scratch folder, not the repo root.
 /*.png
+.trajectory/

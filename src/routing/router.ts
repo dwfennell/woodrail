@@ -1,118 +1,17 @@
-import { connectorRef, getPieceDef, indexOfRef, MAX_CONNECTORS, pieceOfRef, type Layout } from "../track";
-import { flipCursor, type Cursor, type Train } from "../sim";
+/**
+ * Routing: the one owner of which way a routed train goes, and of setting points for it (and of a lever tap on points).
+ * Migration step 1 (docs/superpowers/specs/2026-10-30-train-routing.md §13): today's steering, moved here unchanged:
+ * every `STEER_TICKS`, or at once for a train sections just granted a move, the next switch ahead of each routed train
+ * is set toward its stop (`steerSwitch`), never under a train, on another's granted way, or before a train ahead.
+ */
+import { getPieceDef, type Layout } from "../track";
+import { flipCursor, type Cursor, type Sim, type Train } from "../sim";
+import { next, waysFrom, wayToward } from "./graph";
 
 /** How far ahead of a train (pieces) a switch is set for it: the next one it will choose at, within this many. */
 const LOOK_AHEAD = 6;
-/** The most track pieces a search for the way to a stop goes through. */
-export const SEARCH = 4000;
-
-/** Which switches count as pinned (the layout's own, by default; a caller may ask "what if this one weren't?"). */
-export type PinnedTest = (pieceId: number) => boolean;
-
-/**
- * The way out of a piece entered through `entry`: each path from that end (`option` counts them, as switch states do;
- * `path` is its index in the piece's paths), and where it leaves (−1: a buffer). A pinned switch (or a deck) has just
- * the one way it's set to, so `steer` passes it by and `distanceTo` follows only that route. `pinned` says which
- * switches are pinned (the layout's by default).
- */
-export function waysFrom(
-  layout: Layout,
-  pieceId: number,
-  entry: number,
-  pinned: PinnedTest = (id) => layout.isPinned(id),
-): { option: number; path: number; exit: number }[] {
-  const piece = layout.getPiece(pieceId);
-  if (!piece) return [];
-  const def = getPieceDef(piece.type, piece.flipped);
-  const paths = def.paths;
-  // A deck (a turntable's): only the way it lies now goes anywhere (steering doesn't turn it).
-  const open = def.gated ? (layout.deckTurning(pieceId) ? paths.length : layout.switchState(pieceId) % paths.length) : -1;
-  const out: { option: number; path: number; exit: number }[] = [];
-  for (let i = 0; i < paths.length; i++) {
-    const p = paths[i];
-    if (open !== -1 && i !== open) continue;
-    if (p.from !== entry && p.to !== entry) continue;
-    out.push({ option: out.length, path: i, exit: p.from === entry ? (p.to ?? -1) : p.from });
-  }
-  // A pinned switch: only the route it's set to goes anywhere (steering doesn't throw it), picked as `routeFrom` does.
-  if (out.length > 1 && pinned(pieceId)) {
-    const set = out[layout.switchState(pieceId) % out.length];
-    return [{ option: 0, path: set.path, exit: set.exit }];
-  }
-  return out;
-}
-
-/** Where track leaving `pieceId` through connector `exit` goes on: the next piece and the end it's entered by. */
-export function next(layout: Layout, pieceId: number, exit: number): { pieceId: number; entry: number } | null {
-  if (exit < 0) return null;
-  const joined = layout.joinedConnector(connectorRef(pieceId, exit));
-  return joined === -1 ? null : { pieceId: pieceOfRef(joined), entry: indexOfRef(joined) };
-}
-
-/** What turning back at the end of a line costs a way to a stop, in pieces: a way straight on is better. */
-export const TURN_COST = 12;
-
-/**
- * How many pieces from (piece, entry) to `target` along the track; −1 if it can't be reached. A train turns back at
- * the end of a line (a buffer, or track that just stops), so a way may too, at a cost (`TURN_COST`). `pinned` as for
- * `waysFrom`.
- */
-export function distanceTo(
-  layout: Layout,
-  start: { pieceId: number; entry: number },
-  target: number,
-  pinned: PinnedTest = (id) => layout.isPinned(id),
-): number {
-  const seen = new Set<number>([start.pieceId * MAX_CONNECTORS + start.entry]);
-  // Ways by length: turning back puts a way further down the list.
-  const byDepth: { pieceId: number; entry: number }[][] = [[start]];
-  let count = 1;
-  for (let depth = 0; depth < byDepth.length && count < SEARCH; depth++) {
-    for (const at of byDepth[depth] ?? []) {
-      if (at.pieceId === target) return depth;
-      const push = (n: { pieceId: number; entry: number }, d: number) => {
-        if (seen.has(n.pieceId * MAX_CONNECTORS + n.entry)) return;
-        seen.add(n.pieceId * MAX_CONNECTORS + n.entry);
-        (byDepth[d] ??= []).push(n);
-        count++;
-      };
-      for (const w of waysFrom(layout, at.pieceId, at.entry, pinned)) {
-        const n = next(layout, at.pieceId, w.exit);
-        if (n) push(n, depth + 1);
-        // The end of the line: the train comes back the way it came, through this piece and out where it came in.
-        else {
-          const back = next(layout, at.pieceId, at.entry);
-          if (back) push(back, depth + TURN_COST);
-        }
-      }
-    }
-  }
-  return -1;
-}
-
-/**
- * At a choice (`ways` out of `pieceId`, from `waysFrom`), the option that reaches `target` soonest (as `steer` chooses);
- * −1 if none does. `dist` is the search (`distanceTo` by default; a caller may pass a memo of it).
- */
-export function wayToward(
-  layout: Layout,
-  pieceId: number,
-  ways: readonly { option: number; exit: number }[],
-  target: number,
-  dist: (at: { pieceId: number; entry: number }) => number = (at) => distanceTo(layout, at, target),
-): number {
-  let best = -1;
-  let bestD = Infinity;
-  for (const w of ways) {
-    const after = next(layout, pieceId, w.exit);
-    const d = after ? (after.pieceId === target ? 0 : dist(after)) : -1;
-    if (d >= 0 && d < bestD) {
-      bestD = d;
-      best = w.option;
-    }
-  }
-  return best;
-}
+/** How often (sim ticks) the switches ahead of routed trains are set. */
+const STEER_TICKS = 8;
 
 /** Pieces and paths a train would rather keep off (see `steer`). */
 export type AvoidTest = (pieceId: number, pathIndex: number) => boolean;
@@ -234,4 +133,81 @@ export function steerSwitch(
     way.push(at, exit);
   }
   return -1;
+}
+
+/** What a lever tap on points came to: thrown, or refused while a car is on or over them (`Sim.pointsHeld`). */
+export type LeverResult = { ok: true } | { refused: "under-train" };
+
+/** What the router asks of the game (the economy, today): its routed trains and their stops, and sections' hints. */
+export interface RouterHost {
+  readonly layout: Layout;
+  readonly sim: Pick<Sim, "findCar" | "pieceOccupied" | "pointsHeld" | "toggleSwitch" | "trainAhead">;
+  /** The routed engines, in the order they're steered (the economy's routes). */
+  readonly routed: { readonly size: number; keys(): Iterable<number> };
+  /** The piece of a routed engine's next stop; −1 while it has none on the map. */
+  goal(engine: number): number;
+  /** A train's net drive toward its front (sign only matters; 0: not driven). */
+  drive(train: Train): number;
+  /** Sections' hint for a train holding a move: its way (`follow`), aimed at a piece of the slot it goes to. */
+  granted(engine: number): { follow: AvoidTest; aim: number } | undefined;
+  /** Is a switch on the granted way of another train of this engine's line (sections)? Then it isn't thrown for this one. */
+  heldFor(engine: number, pieceId: number): boolean;
+  /** Engines sections just granted a move (steered at once, and cleared here). */
+  readonly soon: Set<number>;
+}
+
+/**
+ * The one owner of routing decisions. Step 1: today's steering (`steerSwitch`), on today's cadence, and the lever gate.
+ * Costs nothing with no routed train; otherwise a look a few pieces ahead per routed train every `STEER_TICKS`.
+ */
+export class Router {
+  /** Called when a route has set a switch (its piece id: the game redraws its lever, swinging it over if it's in view). */
+  onSwitch: ((pieceId: number) => void) | null = null;
+  private steerTicks = 0;
+
+  constructor(private readonly host: RouterHost) {}
+
+  /** One sim tick: the switches ahead of routed trains, a few times a second (a train covers a few mm a tick). */
+  tick(): void {
+    const h = this.host;
+    if (h.routed.size === 0) return;
+    if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
+    // (And any just granted a move: the switches on its way, now.)
+    else if (h.soon.size > 0) this.steerTrains(h.soon);
+    h.soon.clear();
+  }
+
+  /**
+   * A lever tap on points (not a signal, a deck or a lift): thrown, unless a car is on or over them (the cars still to
+   * come would take the other road, and the train would split).
+   */
+  lever(pieceId: number): LeverResult {
+    const sim = this.host.sim;
+    if (sim.pointsHeld(pieceId) || !sim.toggleSwitch(pieceId)) return { refused: "under-train" };
+    return { ok: true };
+  }
+
+  /** Set the switches ahead of each routed train (or just `only`) toward its next stop. */
+  private steerTrains(only?: ReadonlySet<number>): void {
+    const { layout, sim } = this.host;
+    for (const engine of this.host.routed.keys()) {
+      if (only && !only.has(engine)) continue;
+      const found = sim.findCar(engine);
+      if (!found || found.train.derailed) continue;
+      const net = this.host.drive(found.train);
+      const goal = this.host.goal(engine);
+      if (net === 0 || goal === -1) continue;
+      // (Holding a move (sections): its way, aimed past it into the slot it goes to, so a stop on the way doesn't end the
+      // look ahead short of the switch beyond it.)
+      const held = this.host.granted(engine);
+      // (Never under a train, nor a switch on another train's granted way: it would send that train onto a road it
+      // doesn't hold.)
+      const occupied = (pieceId: number) => sim.pieceOccupied(pieceId) || this.host.heldFor(engine, pieceId);
+      // (Nor one another train ahead on the way comes to first: thrown for the one behind, it would send that one down
+      // the other road (issue #3).)
+      const ahead = (pieceId: number, exit: number, from?: Cursor) => sim.trainAhead(found.train, pieceId, exit, from);
+      const thrown = steerSwitch(layout, found.train, net > 0, held?.aim ?? goal, undefined, held?.follow, occupied, ahead);
+      if (thrown !== -1) this.onSwitch?.(thrown);
+    }
+  }
 }

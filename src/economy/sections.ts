@@ -1,6 +1,7 @@
 import { getPieceDef, pathLength, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, type Cursor, type Sim, type Train } from "../sim";
-import { distanceTo, next, SEARCH, waysFrom, wayToward, type AvoidTest } from "./steer";
+import { distanceTo, next, SEARCH, waysFrom, wayToward } from "../routing/graph";
+import type { AvoidTest } from "../routing/router";
 
 /**
  * Sections and slots: trains of a line that wait for each other (token working on a single line). See
