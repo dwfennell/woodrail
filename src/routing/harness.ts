@@ -16,9 +16,9 @@
 import { Sim, SIM_HZ, type CarKind, type Cursor, type Train } from "../sim";
 import { getPieceDef, type Layout } from "../track";
 import { Sections } from "../economy/sections";
-import { chooseWay, Router } from "./router";
-import { distanceTo, next, waysFrom } from "./graph";
-import type { ShadowPlans } from "./shadow";
+import { Router } from "./router";
+import { next, waysFrom } from "./graph";
+import { planChoice, PIECE_COSTS } from "./plan";
 
 /** A train in a scenario. No `stops`: hand-run (its lever on, no route). */
 export interface TrainSpec {
@@ -83,6 +83,21 @@ export interface Report {
   ms: number;
   /** The router's time (`Router.tick`), mean µs a tick. */
   routerUs: number;
+  /** Its looks ahead (a routed train asking for its points: every 8 ticks), and their mean µs (locks included). */
+  looks: number;
+  lookUs: number;
+  /** Routed trains' fronts coming onto a new piece, and the router's time per one (µs: its whole cost, spread over them). */
+  pieces: number;
+  pieceUs: number;
+  /** Locks granted, asks refused (all or none), and points put back to their default (step 4). */
+  locks: number;
+  refused: number;
+  restored: number;
+  /**
+   * A lever tap on points set for a train (§16 Q1): true once one has been made, while the points weren't thrown back
+   * for that train before it was by them.
+   */
+  tapStuck: boolean;
   /**
    * A hash of every train's place and speed once a second (for "identical to a recorded trajectory"). Not the switches:
    * restoring them after a train has gone (step 4) doesn't change where it runs.
@@ -125,8 +140,6 @@ export class HarnessRun {
   routes = new Map<number, RouteState>();
   lineOf = new Map<number, number>();
   tick = 0;
-  /** Set to watch the plan search beside today's steering (step 3): carried over a save round-trip. */
-  shadow: ShadowPlans | null = null;
 
   private readonly report: Report;
   private readonly specs: TrainSpec[];
@@ -183,6 +196,14 @@ export class HarnessRun {
       ticks: 0,
       ms: 0,
       routerUs: 0,
+      looks: 0,
+      lookUs: 0,
+      pieces: 0,
+      pieceUs: 0,
+      locks: 0,
+      refused: 0,
+      restored: 0,
+      tapStuck: false,
       trajectory: "",
     };
     this.still = this.specs.map(() => 0);
@@ -250,16 +271,10 @@ export class HarnessRun {
       },
       drive,
       granted: (engine) => this.sections.steerHint(engine),
-      heldFor: (engine, pieceId) => this.sections.switchHeld(engine, pieceId),
+      awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
       soon: this.sections.steerSoon,
     });
-    this.router.shadow = this.shadow;
-  }
-
-  /** Watch the plan search beside today's steering (step 3), from now on. */
-  watchPlans(shadow: ShadowPlans): void {
-    this.shadow = shadow;
-    this.router.shadow = shadow;
+    this.router.timing = true;
   }
 
   /** The player's switch positions (the default each is restored to): as laid, then each lever tap's (the router's). */
@@ -288,6 +303,7 @@ export class HarnessRun {
         this.report.throws++;
         if (this.sim.pointsHeld(pieceId)) this.broke("underTrain", `points ${pieceId} thrown to ${state} under a train`);
         if (layout.isPinned(pieceId)) this.broke("pinned", `pinned points ${pieceId} thrown to ${state}`);
+        if (pieceId === this.tapped && this.tappedFor(pieceId)) this.report.tapStuck = false;
       }
       set(pieceId, state);
     };
@@ -312,7 +328,18 @@ export class HarnessRun {
 
   /** A lever tap on points (through the router, as `throwLever`): thrown, it's the player's new default (the router's). */
   lever(pieceId: number): boolean {
-    return "ok" in this.router.lever(pieceId);
+    const ok = "ok" in this.router.lever(pieceId);
+    if (ok && this.tappedFor(pieceId)) {
+      this.tapped = pieceId;
+      this.report.tapStuck = true;
+    }
+    return ok;
+  }
+
+  /** Points tapped while set for a train (watched: they mustn't be thrown back for it). */
+  private tapped = -1;
+  private tappedFor(pieceId: number): boolean {
+    return this.engines.some((e) => this.router.tappedFor(e, pieceId));
   }
 
   pin(pieceId: number, on: boolean): void {
@@ -390,6 +417,14 @@ export class HarnessRun {
     this.report.ms += performance.now() - t0;
     this.report.ticks = this.tick;
     this.report.routerUs = (this.routerMs * 1000) / Math.max(1, this.tick);
+    // (Counted on the router of this run; a save round-trip starts a new one, so these are since the last load.)
+    const r = this.router;
+    this.report.looks = r.looks;
+    this.report.lookUs = (r.ms * 1000) / Math.max(1, r.looks);
+    this.report.pieceUs = (this.routerMs * 1000) / Math.max(1, this.report.pieces);
+    this.report.locks = r.granted;
+    this.report.refused = r.refused;
+    this.report.restored = r.restored;
     this.report.trajectory = this.traj.toString(16).padStart(8, "0");
     return this.report;
   }
@@ -470,12 +505,12 @@ export class HarnessRun {
   }
 
   /**
-   * Restore: a switch nobody holds or stands on for `RESTORE_TICKS` is at its default. "Holds" today is a car on or over
-   * it (`pointsHeld`); step 4's locks add the trains it's locked for.
+   * Restore: a switch nobody holds or stands on for `RESTORE_TICKS` is at its default. Held: a car on or over it
+   * (`pointsHeld`), or a route lock (a train it's set for).
    */
   private checkRestore(): void {
     for (const id of this.switches) {
-      if (this.sim.pointsHeld(id)) {
+      if (this.sim.pointsHeld(id) || this.router.locked(id)) {
         this.freeSince.delete(id);
         continue;
       }
@@ -496,7 +531,8 @@ export class HarnessRun {
 
   /**
    * No wrong road: when a routed train's front comes onto facing points with a choice, the way it takes is its way to
-   * its stop: the way sections granted it (`steerHint`'s follow), else one no longer to its target than the best.
+   * its stop: the way sections granted it (`steerHint`'s follow), else one whose plan costs no more than the best (the
+   * plan search, as the router chooses). Points the player threw while they were set for it (§16 Q1) go as tapped.
    */
   private checkRoad(t: Train, k: number, engine: number, net: number): void {
     const f = this.front[k];
@@ -510,6 +546,7 @@ export class HarnessRun {
     }
     if (b.pieceId === f.pieceId) return;
     f.pieceId = b.pieceId;
+    this.report.pieces++;
     const piece = this.layout.getPiece(b.pieceId);
     if (!piece) return;
     const path = getPieceDef(piece.type, piece.flipped).paths[b.pathIndex];
@@ -522,21 +559,16 @@ export class HarnessRun {
     if (ways.length < 2 || target === -1 || b.pieceId === target) return;
     this.report.facing++;
     const taken = ways.find((w) => w.path === b.pathIndex);
-    if (!taken) return;
+    if (!taken || this.router.tappedFor(engine, b.pieceId)) return;
     const held = this.sections.steerHint(engine);
     const followed = held ? ways.filter((w) => held.follow(b.pieceId, w.path)) : [];
     let wrong: boolean;
     if (followed.length === 1) wrong = followed[0].option !== taken.option;
     else {
-      const aim = held?.aim ?? target;
-      const best = chooseWay(this.layout, b.pieceId, ways, aim, undefined);
+      const costs: number[] = [];
+      const best = planChoice(this.layout, b.pieceId, true, ways, held?.aim ?? target, PIECE_COSTS, costs);
       if (best === -1 || best === taken.option) return;
-      const dist = (w: { exit: number }) => {
-        const n = next(this.layout, b.pieceId, w.exit);
-        return !n ? -1 : n.pieceId === aim ? 0 : distanceTo(this.layout, n, aim);
-      };
-      const dt = dist(taken);
-      wrong = dt === -1 || dt > dist(ways[best]);
+      wrong = !(costs[taken.option] <= costs[best]);
     }
     if (wrong) this.broke("wrongRoad", `train ${k} took road ${taken.option} at points ${b.pieceId} (${followed.length === 1 ? "not the way granted" : `not its way to ${target}`})`);
   }

@@ -10,6 +10,14 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **Routing, step 4: locks, setting and restore (#5)** (on `claude/routing-4`; spec §13 has the design as built).
+  - **Now:** the plan (`planWay`, cached per layout) chooses at points for the router, sections' `wayOn`/`unreachable`/`wayPieces` and the drawn line. A routed train, within braking distance + `SET_LOOK` (400 mm) of its next points, asks for every lock up to the next clear point, all or none; shared by a train behind for the same road; let go behind the last car, then the points swing back to the player's default with the soft clunk (`onSwitch`). A line's train with no grant sets nothing (`Sections.awaitingGrant`, §5.2). Hand-run trains take no locks.
+  - **Lever taps (§16 Q1):** refused only with a car on the points. Points set for a train move; its lock drops and the points count as pinned for it until it's by them (`Router.tappedFor`).
+  - **Deleted:** `steerSwitch`, `steer`, `chooseWay`, `Sim.trainAhead`, `Sections.switchHeld`, `shadow.ts`.
+  - **Not yet (step 5):** a train refused a lock (points held for another road) runs over them as they lie, as before: the crossover ring takes the wrong road (`wrongRoad` expected to fail, step 5). With `trainAhead` gone, a routed train may set points ahead of a hand-run or lineless one (step 7).
+  - **Proof:** trains-only hashes (`--env TRAJ_SWITCHES=0`) identical to main for the lone-train harness cases, every fuzz seed, seeds 1 and 2 (1 and 2 trains a line) and 2027 with 2. Seed 2027 with 1 train a line (two lines over shared points) drifts from minute 129, all bands hold or improve (riders 207 → 242, coins 1104 → 1216, research stall 14.8 → 13.0 min). Goals 19/22 and 22/22, later goals sooner (every town 355 → 219, harbour 397 → 295 min).
+  - **Sections QA drift** (85/85; meets 0, releases 0 everywhere; arrivals over the changed rows 210 → 225). Causes: (1) a held line train no longer sets points (before, it threw the next ones ahead while waiting); (2) points go back to the player's default after each train, so lineless, taken-off and parked trains, which take points as they lie, meet the default rather than the last route's way; (3) points locked for one train aren't thrown for another (all or none), and `trainAhead` no longer protects a lineless train ahead. Rows: RND 3 23 → 21 arrivals, still 0 → 2 s; RND 22 still 164 → 178 s (arrivals the same); B5 pinned l0.side 3 → 9 arrivals, still 115 → 2 s (its stand-still card row goes); B5 pinned l0.main flips 40 → 39; PARK offline 15 → 14; OFF k0 at40 15 → 14; OFF k1 53 → 58; OFF k2 37 → 38; PARK stopLine 14 → 12 (STOPLINE off e4 8 → 6; a new card, "Waiting: a parked train is in the way. Move it"); UNRING road 7 → 17; LINELESS k0/k2/k4 6/3/0 → 4/5/0 (same total), k3 8 → 9, line still 9 → 10 s.
+  - **Cost:** a look 2.7 µs mean (harness, 157,557 looks); about 90 µs of router time per piece a routed train comes onto (its looks every 8 ticks while on it). QA (`ROUTING=1`): 919,853 looks over 321 worlds, 5.6 µs each; 13,033 locks, 7 asks refused, 6,016 points put back; plan choices 1,008 worked out, 123,597 cached. 0 idle frames (`E2E_ONLY=restore`).
 - **Routing, steps 2 (defaults) and 3 (shadow plans)** (on `claude/routing-3`; spec §13). No behaviour change: trajectory hashes identical to main (sections QA with the shadow on, its SHOW rows byte-identical; goals play-through; harness and fuzz; seed 2027).
   - **Defaults:** `Router.defaultOf`, written by `router.lever` and by `laid()` (points laid take the way they lie; called from `Economy.prune` on every track edit). Never written by routing. Saved as `switchDefaults` only where they differ from the switch's state; old saves load with defaults as the points lie. e2e: `E2E_ONLY=defaults`. Its spot is found outward from wherever the full run leaves the view; it once landed points on flat ground beside a hill's square, their lever buried in the block (not seen, so rightly not tapped: a tap picked null). The spot must now be flat for 500 mm round, and the tap waits until the view is still and a pick there is the lever (turning the view a quarter if a hill's between).
   - **Plans:** `plan.ts` `plan` (Dijkstra over piece, entry, engine leading; `PIECE_COSTS` now, `MM_COSTS` for step 6) and `planChoice`. `shadow.ts` `ShadowPlans` sits on `Router.shadow` (null in the game), compares the plan's choice with today's once per approach to points, caches plans by track, pins and decks.
@@ -57,7 +65,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Timing guards:** use a warm-up, best of N, and a mean or median bound, so a 10× slowdown fails but load doesn't.
 
 **Browser e2e:**
-- `npm run e2e:touch`: 80 checks, about 25 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min; `E2E_ONLY=defaults` about 2 min (`routes,defaults`: the two in the full run's order, after a reload). Open item: `routes: a train picked up and moved…` failed once in four full runs (79/80, `lifted: "idle"`, the hold didn't pick the train up); its message now says what the finger came down on (`pressed`), for next time.
+- `npm run e2e:touch`: 87 checks, about 22 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min; `E2E_ONLY=defaults` about 2 min (`routes,defaults`: the two in the full run's order, after a reload); `E2E_ONLY=restore` (a route throws points and they swing back) about 2 min. Open item: `routes: a train picked up and moved…` failed once in four full runs (79/80, `lifted: "idle"`, the hold didn't pick the train up); its message now says what the finger came down on (`pressed`), for next time.
 - `node scripts/e2e/draw.mjs` with `E2E_ONLY=` one of `junctions` (27), `qa-slant` (49, slow), `specials` (10), `phone`, `terrace-repeat`, `terrace-qa`, `ghosts`, `lift` or `loop`. The full run takes 2 h or more.
 - `npm run e2e:joints`.
 - **Screenshots and idle:** a small Playwright script. Load playwright-core with `createRequire("<repo>/package.json")`, wait for `settled()`, then check `framesDrawn` stays at 0 over 5 s.
@@ -77,10 +85,10 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 
 **Routing harness** (`src/routing/harness.ts`, spec §12): scripted layouts on a `Sim`, `Sections` and `Router`, no `Economy`; the routing invariants checked every tick.
 - `npx vitest run src/routing/harness.test.ts` (about 13 s; `SHOW=1 … --silent=false` prints each case's report: stops, turn-backs by cause, the longest stand-still, router µs a tick, each broken invariant's first few times).
-- **Shadow plans** watch every harness case and fuzz seed (`SHOW=1` prints the summary). Sections QA: `SHADOW=1 SHOW=1 … --silent=false src/economy/sections-qa.test.ts`. `plan.test.ts` compares every choice on 56 layouts. A new difference needs a reason in `shadow.ts` `WHY`, or the tests fail.
+- **Router cost:** the harness's `SHOW=1` report gives each case's locks, refusals, points put back, looks and µs. Sections QA: `ROUTING=1 … --silent=false src/economy/sections-qa.test.ts` prints the same over every world. (The step-3 shadow is gone: the plan decides.) `plan.test.ts` still compares the plan with `distanceTo` on 56 layouts.
 - `src/routing/harness-fuzz.test.ts`: 8 seeds × 5 min. Long: `ROUTING_FUZZ=200 ROUTING_FUZZ_SECONDS=1800 npx vitest run --silent=false src/routing/harness-fuzz.test.ts` prints a line per seed that broke anything.
 - Cases are in `scenarios.ts`. Each invariant and payoff is its own test; one today's router fails is `it.fails` with the step expected to fix it (in `fails`). **When a step fixes one, flip it to passing** (an `it.fails` that passes fails the run).
-- The lone-train trajectory hashes (`LONE_UNROUTED`, `LONE_ROUTED`) must hold through step 5; record them again only with a reason.
+- The lone-train trajectory hashes (`LONE_UNROUTED`, `LONE_ROUTED`) must hold through step 5; record them again only with a reason. They hash trains only (not switches): restores change switches, not where a train runs. For the same with `trajectory.mjs`, pass `--env TRAJ_SWITCHES=0`.
 - The harness's stand-ins for the economy are named in its header: trains run through stops (no dwell) and turn only where the track ends.
 
 **Play-through:** `BALANCE=1 BALANCE_SEED=<n> npx vitest run --silent=false src/play/balance.test.ts`. See game-mode.md for the flags.
@@ -128,7 +136,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 ### The sim around switches
 Any operation that turns, flips or splits a train must call `rememberStraddledSwitches`. Today that's runAround, decouple, flipTrain and turnAround.
 
-Nothing may change points under a train. The switch memory only covers points entered from the trunk; a wye's branch or a crossover's connector 3 choose by the lever, so a change there splits the train. Anything new that sets switch state (routes setting and restoring switches, #5) must check `Sim.pointsHeld` and steer's `ahead`.
+Nothing may change points under a train. The switch memory only covers points entered from the trunk; a wye's branch or a crossover's connector 3 choose by the lever, so a change there splits the train. Only the router sets points for trains (locks, restore), and it checks `Sim.pointsHeld` before every throw; anything else that sets switch state must too, and must not move locked points (`Router.locked`) except by the player's lever.
 
 ### Cards
 - Cards fit 2 lines at 360 px; toasts 3 lines at most (about 33 characters a line).
@@ -155,13 +163,13 @@ Nothing may change points under a train. The switch memory only covers points en
   - #2: trains merge at crossings (fixed on `claude/crossing-merge`, waiting to land);
   - #3: derailment when a switch is thrown for the train behind (fixed on `claude/switch-derail`, waiting to land);
   - #4: only one route (fixed on `claude/one-route`, waiting to land);
-  - #5: routes set switches and restore them;
+  - #5: routes set switches and restore them (step 4 on `claude/routing-4`, waiting to land);
   - #6: a gap behind the train ahead;
   - #7: trains reverse too often;
   - #8: curves flip when auto-placing (shared with Sandbox);
   - #15: wyes;
   - #16: signals.
-- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Steps 1 and 2's harness are on main; step 2's defaults and step 3's shadow plans are on `claude/routing-3`. Next: step 4 (locks, setting and restore), which should call `router.laid()` before any throw, and replace `distanceTo` (its overcount) in sections and the drawn line along with steering. Don't patch `steerSwitch` for these; follow the spec's migration steps.
+- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Steps 0–3 are on main; step 4 (locks, setting and restore) is on `claude/routing-4`. Next: step 5 (waits: a train refused a lock stops short and waits, `RouteWait`, card text), which flips the follower and crossover-ring expected failures. Follow the spec's migration steps.
 - **Loop proposal,** waiting on the user: "Show me where" plus a ghost loop, a one-tap Build loop, and a toast.
 - **Parked:** routes-blocks and routes-loops, and sections P3 (sidings as slots).
 - **Stand-still card on admitted trains** after a trap stall: revisit with the loop proposal.

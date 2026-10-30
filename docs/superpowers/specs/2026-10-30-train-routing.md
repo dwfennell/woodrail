@@ -2,8 +2,8 @@
 
 ## Status
 
-A design, being built step by step (§13): steps 0 to 3 are done (step 2: the §12 harness and defaults; step 3: shadow
-plans). It covers four play-test
+A design, being built step by step (§13): steps 0 to 4 are done (step 2: the §12 harness and defaults; step 3: shadow
+plans; step 4: locks, setting and restore). It covers four play-test
 issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
@@ -432,6 +432,67 @@ lone-train check.
        plan on the biggest fuzz layout (31 pieces): 17 µs median over all 961 pairs (bound 1 ms, in `plan.test.ts`).
 4. **Locks, setting and restore (#5).** These replace the step-1 wrappers. Delete `steerSwitch`, `trainAhead` and
    `switchHeld`.
+   - **Done** (`claude/routing-4`). The first step that changes how trains run.
+     - **The plan decides everywhere.** `plan.ts` `planWay(layout, points, entry, ways, target, pinned?)`: the plan's
+       choice (`PIECE_COSTS`, ties to the earlier way), cached per layout by the track, pins and decks (a throw of
+       unpinned points changes nothing a plan sees). The router's steering, sections' `wayOn` (so `unreachable`) and
+       `wayPieces`, and the drawn line (`walkTo`, so `legFromCursor`, `lineLegs`, `pinnedBlocking`) all choose by it, so
+       the map and the train agree. `distanceTo` and `wayToward` stay in `graph.ts` only for the tests that compare
+       with them (`plan.test.ts`); step 8 deletes them. `balloonBehindOpenRoad`: the train now goes round the balloon,
+       never into the siding.
+     - **Grants:** inside a granted move, the way sections granted (`follow`) wins at points, as before; that's the
+       62 QA shadow differences, now the router's own choice. The shadow (`shadow.ts`, `Router.shadow`) is deleted.
+     - **Locks** (`router.ts`; §3.2). Each `STEER_TICKS` (8), a routed train with a goal, driven, and not a line's
+       train awaiting a grant (`Sections.awaitingGrant`, §5.2) walks its way from its front: the first points with a
+       choice within its set distance (braking distance + `SET_LOOK` 400 mm: past the sim's farthest look through
+       points, a red signal's 300 mm, so nothing reads the points before they're set), or any it already holds, then
+       every points on to the next clear point (plain track as long as the train, its stop, or the grant's slot). It
+       asks for all of them: granted all or none. Each is free or held by others for the same road (shared:
+       `holders`), and points that must move have no car on them (`pointsHeld`). Granted, points that differ are thrown
+       (`onSwitch`). Refused, it holds nothing new and runs over the points as they lie (today's behaviour; step 5 makes
+       it wait): counted in `Router.refused`.
+     - **Release behind:** a lock is let go once the train's last car is off its points, having been on them
+       (`piecesUnder`), or when the train no longer wants it (its way, goal or direction changed; stopped; awaiting a
+       grant; gone, derailed, no longer routed). The last holder gone, the points go back to `defaultOf` (unless
+       pinned) with `onSwitch` (the lever swings back with the soft clunk, `softSwitchClunk`, in view), or once a car on
+       them is off (`pending`). If another routed train is asking for them the way they're set, the lock passes to it
+       with no move. Locks on pieces taken up are dropped.
+     - **Lever taps (§16 Q1):** refused only with a car on the points. Points locked for a train (or on its last look's
+       way) move; its lock is dropped, and for that train the points count as pinned (`tapped`) until it has been on
+       and off them, or it heads elsewhere (a new target or direction): it re-plans with them as they lie, and they're
+       never thrown back for it. The tap is the new default. `Router.tappedFor`.
+     - **Hand-run trains (§16 Q6)** take no locks and get nothing set. With `trainAhead` gone, points ahead of a
+       hand-run or lineless train may be set for a routed one (as `Sections.switchHeld`'s same-line case is now
+       covered by §5.2: a line's held train sets nothing). Step 7 makes hand-run trains respect locks.
+     - **Load (§4):** locks aren't saved. At the first look after `restore`, a routed train takes locks on points under
+       it that aren't at their default, and asks again for those ahead; then points off their default that no train holds
+       go back (a route's points saved mid-way). Nothing is put back in the load itself.
+     - **Deleted:** `steerSwitch`, `steer`, `chooseWay`, `LOOK_AHEAD`, `Sim.trainAhead`, `Sections.switchHeld`,
+       `RouterHost.heldFor` (now `awaitingGrant`), `shadow.ts`.
+     - **The proof** (`scripts/trajectory/trajectory.mjs --env TRAJ_SWITCHES=0`: trains only, since restoring points
+       changes the switches, not where trains run):
+       - **Identical to main:** the lone-train harness hashes (`LONE_UNROUTED`, `LONE_ROUTED` unchanged), every fuzz
+         seed, the play-through on seeds 1 and 2 (1 and 2 trains a line) and 2027 with 2 trains a line.
+       - **Differ, as meant:** harness `balloonBehindOpenRoad` (the balloon), `leverDuringLock` (the tap sticks), the
+         crossover ring (below). Seed 2027 with 1 train a line from minute 129 (two lines, goods and coaches, over
+         shared points): every band holds or improves (riders 207 → 242, coins 1104 → 1216, research stall 14.8 →
+         13.0 min). Goals play-through from minute 68: 19/22 fast and 22/22 long, each later goal sooner (quarry
+         157 → 147, mine 220 → 209, every town 355 → 219, harbour 397 → 295 min).
+       - **Sections QA:** 85/85; 42 of 256 sims drift, all with more than one train among a line's (lineless, taken
+         off, put down, parked, pinned loops). Meets and releases 0 everywhere. The SHOW rows that change, and why, are
+         in rail-road.md. Arrivals over those rows 210 → 225.
+       - **Harness:** every step-4 expected failure (restore, in 11 cases and the fuzz) flipped to passing, and new
+         payoffs: §8.3's wye set for the mine and put back each visit, the tap sticks, the balloon taken. New expected
+         failure: the crossover ring's `wrongRoad` (each locks both crossovers to its clear point, the other is refused
+         and runs over them as they lie; before, each threw them for itself and they met head on). Step 5.
+       - **Player's path:** `E2E_ONLY=restore` in `e2e:touch` (also in the full run): points laid, their lever thrown
+         for the curve, a route Forest, Sawmill planned by taps; the route throws them just before the train, never
+         with a car on them; once it's by, the lever swings back to the curve, its swing and soft click both times;
+         logs delivered; 0 frames once settled.
+     - **Cost:** a look (walk, locks and release) 2.7 µs mean in the harness (157,557 looks), about 90 µs of router
+       time per piece a train comes onto (its 8-tick looks while on it); plan choices 37 worked out, 12,399 from the
+       cache. QA: 919,853 looks, 5.6 µs each (13,033 locks, 7 refused, 6,016 put back; 1,008 plan choices worked out, 123,597 cached). Nothing per frame: with no routed train and no lock, `tick` is a size check; a
+       restore is one `setSwitchState` and a lever swing (0 idle frames, checked in the e2e).
 5. **Waits (#3 follow-up).** The `speedCap` overlap stop, `RouteWait`, the card text from §7, and waits fed into
    sections' chains.
 6. **Forward costs (#7, routed)** behind `ROUTE_FORWARD`. Compare balance windows and reversal counts (seed 2027 with

@@ -666,26 +666,6 @@ export class Sim {
   }
 
   /**
-   * Is a train other than `train` on this piece going the same way, ahead of it (steering: it comes to the switch on from
-   * here first)? With `from` (the train's front, on this piece): one on the same path, the same way, further along. Else:
-   * one heading out of the piece at connector `exit`. A lone train has none (nothing looked at).
-   */
-  trainAhead(train: Train, pieceId: number, exit: number, from?: Cursor): boolean {
-    if (this.trains.size < 2) return false;
-    const piece = this.layout.getPiece(pieceId);
-    if (!piece) return false;
-    const def = getPieceDef(piece.type, piece.flipped);
-    for (const t of this.trains.values()) {
-      if (t === train || t.derailed) continue;
-      for (const b of t.bogies) {
-        if (b.pieceId !== pieceId) continue;
-        if (from ? b.pathIndex === from.pathIndex && b.reversed === from.reversed && b.s > from.s : pathExitConnector(def, b.pathIndex, b.reversed) === exit) return true;
-      }
-    }
-    return false;
-  }
-
-  /**
    * Why a deck (a turntable's) can't turn now: a train partly on it (it would be torn apart), or one on it that's
    * moving or waiting to turn back, or it's still carrying one round. Null if it can: empty, or carrying trains
    * standing wholly on it (they turn with it: an engine turned round).
