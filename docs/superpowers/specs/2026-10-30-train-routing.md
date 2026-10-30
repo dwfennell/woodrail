@@ -2,7 +2,7 @@
 
 ## Status
 
-A design, not yet built. It covers four play-test issues:
+A design, being built step by step (§13): steps 0 and 1 are done. It covers four play-test issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
 - **#4:** more than one route.
@@ -323,6 +323,29 @@ lone-train check.
        main;
      - `e2e:touch` passes.
    - Known gaps (no restore, wrong road under a follower) go on the harness's expected-failure list.
+   - **Done** (`claude/routing-1`):
+     - `graph.ts` holds `waysFrom`, `next`, `distanceTo`, `wayToward`, `SEARCH`, `TURN_COST` (sections and
+       route-path import them). `plan.ts` holds `walkTo`, moved from `route-path.ts`: the piece-count walk the map
+       draws. `router.ts` holds `steerSwitch`, `steer`, `chooseWay`, `AvoidTest`, `AheadTest` and `Router`.
+       `steer.ts` is deleted; its tests are `src/routing/router.test.ts`.
+     - `Router` is built by the economy (`economy.router`); `Router.tick` is the old `steerTrains` with its cadence.
+       `router.onSwitch` replaces `economy.onSwitch`. A lever tap on points goes through `router.lever`, which
+       returns `{ ok }` or `{ refused: "under-train" }`; signals, decks and lifts keep their own path.
+     - **The proof:** `scripts/trajectory/trajectory.mjs` (reusable) hashes every Sim's trains and switches each
+       simulated second, on `origin/main` and on the branch. Identical: the whole sections QA (256 sims, 106,610 s),
+       the play-through on seeds 2027, 1 and 2 with 1 and with 2 trains a line (180 min each), the fast goals
+       play-through (175 min, 19/22) and `GOALS_LONG=1` (440 min, 22/22). The QA `SHOW=1` rows are byte-identical
+       except for the CLEARCAP microseconds (wall time). `e2e:touch` 76/76.
+     - **Cost:** the same steering calls (123,300 on seed 2027, 2 trains a line), at about 10 µs each; an economy
+       tick is 2.8 µs on both. With no routed train, `Router.tick` is one size check.
+     - **Surprises and differences from §4:**
+       - The router has no `setGoal` yet. It asks its host for each routed engine's goal when it steers, in the
+         economy's routes order, because a pushed goal could change when or in what order switches are thrown.
+         `setGoal` comes with plans.
+       - `Sim.trainAhead` and `Sections.switchHeld` stay where they are until step 4. The router reaches them
+         through `RouterHost` (`sim`, `heldFor`), and `steerHint` and `steerSoon` through `granted` and `soon`.
+       - Vitest 5 hides a passing test's console, so `SHOW=1` rows need `--silent=false`.
+       - The §12 harness wasn't started. It begins at step 2.
 2. **Defaults.** Lever taps and laid switches write defaults, which are saved and loaded. Player-path test: tap a
    lever, then save and reload. No behaviour change.
 3. **Shadow plans.** `plan.ts` (piece-count costs) is compared against step 1's choices in the harness and QA, with no
