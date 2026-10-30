@@ -28,6 +28,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
   - **Causes:** two. (1) Route steering ran each routed train in turn, and the one behind re-threw the points the one ahead was about to take (the last writer won every 8 ticks), sending the first down the second's road. (2) A lever tap threw points whatever stood on them. The sim's switch memory keeps a train together through points entered from the trunk, but a wye entered from a branch, or a crossover from its connector 3, picks its road by the lever and isn't remembered, so the cars still to come took the other road and the train split.
   - **Now:** `steerSwitch` takes `ahead` (`Sim.trainAhead`): points another train is ahead on the way to, going the same way, are left for it. `Sim.toggleSwitch` refuses points with any car on or over them (`Sim.pointsHeld`, `piecesUnder` occupancy), and the lever tap toasts "These points move once the train is off them". Decks, lifts and signals are unchanged.
   - **Cost:** `trainAhead` is asked only when a switch is about to be thrown, and returns at once for a lone train.
+  - **Sections QA drift:** only OFF k1 at20 (7/1/6 → 6/1/5) and OFF k2 at20 (4/5/1 → 5/6/1). A lineless train runs among the line's trains there, and the line's steering now leaves points to it when it's ahead on the way. Meets stay at 0.
 
 ## 2. How to test
 
@@ -145,4 +146,5 @@ Nothing may change points under a train. The switch memory only covers points en
 - A `pgrep -f` wait loop matches itself; use background-job completion instead.
 - **Known flakes:** touch's "how to pin was said once", touch's "no frames once settled", and the spacing and restore-survey timeouts.
 - **QA's all-still can miss a stall:** trains edging along under `clearCap` read as moving. Check positions (or arrivals) over time when a row's arrivals drop. For example, OFF k2 at20 stood 180 s while reporting "still 3", until `clearCap` kept a lineless train's wait while it edged within 2 × `CLEAR_STEP`.
+- **Joint gaps read as splits:** a split detector that compares axle spacing against the car's wheelbase fires at loose joints too (QA B1's loop closes about 5 mm open between pieces 6 and 10, even with a lone train). Check the axles' pieces and paths, not only the distance.
 - Any sim change shifts RND and OFF arrivals in the sections QA rows. Explain the drift, and watch meets, all-still over 60 s and rings.
