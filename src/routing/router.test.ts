@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
-import { Economy } from "./economy";
-import { distanceTo, steer, steerSwitch, waysFrom } from "./steer";
+import { Economy } from "../economy/economy";
+import { distanceTo, waysFrom } from "./graph";
+import { steer, steerSwitch } from "./router";
 
 /** Lay `type` on free end `ref` (seated by an end of the other kind); returns its id. */
 function lay(layout: Layout, ref: number, type: PieceTypeId): number {

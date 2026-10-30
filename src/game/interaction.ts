@@ -4706,11 +4706,14 @@ export class Interaction {
   private throwLever(pieceId: number, road = 0): void {
     const g = this.game;
     const piece = g.layout.getPiece(pieceId);
-    if (piece && getPieceDef(piece.type, piece.flipped).signal) g.sim.toggleSignal(pieceId, road);
-    else if (g.sim.pointsHeld(pieceId)) {
-      // Points never move under a train (it would split): they wait till it's off them.
-      this.hud.toast("These points move once the train is off them");
-      return;
+    const pd = piece && getPieceDef(piece.type, piece.flipped);
+    if (pd?.signal) g.sim.toggleSignal(pieceId, road);
+    else if (pd?.isSwitch && !pd.gated) {
+      // Points: the router's gate. They never move under a train (it would split): they wait till it's off them.
+      if ("refused" in g.economy.router.lever(pieceId)) {
+        this.hud.toast("These points move once the train is off them");
+        return;
+      }
     } else {
       // A turntable's deck turns a train standing still wholly on it, not one partly on it or moving.
       const refused = g.sim.deckRefusal(pieceId);
@@ -4742,8 +4745,7 @@ export class Interaction {
       }
     }
     // A switch's points swing over (its chevrons slide across) with a clunk; a signal or a deck just shows how it's set.
-    const def = piece && getPieceDef(piece.type, piece.flipped);
-    const points = !!def?.isSwitch && !def.gated;
+    const points = !!pd?.isSwitch && !pd.gated;
     g.switchesChanged(points ? (id) => id === pieceId : undefined);
     if (points) {
       this.onLeverThrown?.(pieceId);

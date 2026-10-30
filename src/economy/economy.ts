@@ -5,11 +5,8 @@ import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./con
 import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
-import { steerSwitch } from "./steer";
 import { Sections, type BlockWait } from "./sections";
-
-/** How often (sim ticks) the switches ahead of routed trains are set. */
-const STEER_TICKS = 8;
+import { Router } from "../routing/router";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -379,6 +376,20 @@ export class Economy {
         }
       },
     });
+    this.router = new Router({
+      layout,
+      sim,
+      routed: this.routes,
+      goal: (engine) => {
+        const r = this.routes.get(engine)!;
+        const d = this.depots[r.stops[r.next % r.stops.length].depotId];
+        return d && this.onMap(d) ? d.pieceId : -1;
+      },
+      drive: (train) => this.drive(train),
+      granted: (engine) => this.sections.steerHint(engine),
+      heldFor: (engine, pieceId) => this.sections.switchHeld(engine, pieceId),
+      soon: this.sections.steerSoon,
+    });
   }
 
   /**
@@ -386,6 +397,8 @@ export class Economy {
    * goes on into the single track ahead only holding it and a slot at its far end.
    */
   readonly sections: Sections;
+  /** Which way routed trains go, and the points set for them (and lever taps on points): see routing/router.ts. */
+  readonly router: Router;
 
   /** Why a routed engine is held by sections (null: it isn't). */
   sectionWait(engine: number): BlockWait | null {
@@ -1529,14 +1542,9 @@ export class Economy {
     this.ticksRun++;
     this.work();
     this.kitStops.tick();
-    if (this.routes.size > 0) {
-      this.advanceRoutes();
-      // Switches ahead of routed trains, a few times a second (a train covers a few mm a tick).
-      if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
-      // (And any just granted a move: the switches on its way, now.)
-      else if (this.sections.steerSoon.size > 0) this.steerTrains(this.sections.steerSoon);
-      this.sections.steerSoon.clear();
-    }
+    if (this.routes.size > 0) this.advanceRoutes();
+    // Switches ahead of routed trains (routing/router.ts; nothing with none).
+    this.router.tick();
     // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
     for (const d of this.allDepots()) {
       if (!this.working(d)) {
@@ -1642,9 +1650,6 @@ export class Economy {
   /** Loads the cranes have moved, since this economy began. */
   loadsMoved = 0;
 
-  /** Called when a route has set a switch (its piece id: the game redraws its lever, swinging it over if it's in view). */
-  onSwitch: ((pieceId: number) => void) | null = null;
-  private steerTicks = 0;
   /**
    * Is this engine's train held at its stop for spacing (see spacing.ts)? Its line, and how long it has waited and has
    * at most left (s; null while it waits behind another train of the line), for its card.
@@ -1689,31 +1694,6 @@ export class Economy {
           if (r.stops[r.next].depotId !== stop.depotId) break;
         }
       }
-    }
-  }
-
-  /** Is a (railed) train on this piece? A switch steering mustn't throw under it. */
-  private readonly occupied = (pieceId: number): boolean => this.sim.pieceOccupied(pieceId);
-
-  /** Set the switches ahead of each routed train toward its next stop. */
-  private steerTrains(only?: ReadonlySet<number>): void {
-    for (const [engine, r] of this.routes) {
-      if (only && !only.has(engine)) continue;
-      const found = this.sim.findCar(engine);
-      if (!found || found.train.derailed) continue;
-      const net = this.drive(found.train);
-      const d = this.depots[r.stops[r.next % r.stops.length].depotId];
-      if (net === 0 || !d || !this.onMap(d)) continue;
-      // (Holding a move (sections): its way, aimed past it into the slot it goes to, so a stop on the way doesn't end the
-      // look ahead short of the switch beyond it.)
-      const held = this.sections.steerHint(engine);
-      // (Nor a switch on another train's granted way: it would send that train onto a road it doesn't hold.)
-      const occupied = (pieceId: number) => this.occupied(pieceId) || this.sections.switchHeld(engine, pieceId);
-      // (Nor one another train ahead on the way comes to first: thrown for the one behind, it would send that one down
-      // the other road (issue #3).)
-      const ahead = (pieceId: number, exit: number, from?: Cursor) => this.sim.trainAhead(found.train, pieceId, exit, from);
-      const thrown = steerSwitch(this.layout, found.train, net > 0, held?.aim ?? d.pieceId, undefined, held?.follow, occupied, ahead);
-      if (thrown !== -1) this.onSwitch?.(thrown);
     }
   }
 

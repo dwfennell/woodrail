@@ -1107,7 +1107,7 @@ export class Game {
    * is just set.
    */
   private watchSwitches(): void {
-    this.economy.onSwitch = (pieceId) => {
+    this.economy.router.onSwitch = (pieceId) => {
       const seen = this.inView(pieceId);
       this.switchesChanged((id) => id === pieceId && seen);
       if (seen) this.onThrownInView?.(pieceId);

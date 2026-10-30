@@ -8,7 +8,7 @@ import { CARGO } from "./cargo";
 import { capAt, Economy } from "./economy";
 import { topologyOf, trainLength, YIELD_S } from "./sections";
 import { loopOn } from "./loop-fixtures";
-import { next, waysFrom } from "./steer";
+import { next, waysFrom } from "../routing/graph";
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const TRACE = !!ENV.TRACE;
