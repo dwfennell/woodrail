@@ -447,6 +447,44 @@ describe("save format", () => {
     expect(old.value.layout.pinnedCount).toBe(0);
     expect("pinned" in serializeWorld(old.value)).toBe(false);
   });
+
+  it("round-trips points' defaults where they differ from how the points lie; an older save's default to how they lie", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const sw = appendPiece(world.layout, "switch", false, connectorRef(station, 1));
+    const other = appendPiece(world.layout, "switch", false, connectorRef(sw, 1));
+    // (Laid: the track edit tells the economy, which tells the router.)
+    world.economy.prune();
+    const router = world.economy.router;
+    expect(router.defaultOf(sw)).toBe(0);
+    // A lever tap: the player's new default. Then the points thrown by something else (a route, from step 4).
+    expect("ok" in router.lever(sw)).toBe(true);
+    expect(router.defaultOf(sw)).toBe(1);
+    world.layout.setSwitchState(sw, 0);
+    // A tap on the other: its default is how it lies, so it isn't saved.
+    expect("ok" in router.lever(other)).toBe(true);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    expect(data.switchDefaults).toEqual([[sw, 1]]);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.layout.switchState(sw)).toBe(0);
+    expect(r.value.economy.router.defaultOf(sw)).toBe(1);
+    expect(r.value.economy.router.defaultOf(other)).toBe(1);
+    expect(serializeWorld(r.value).switchDefaults).toEqual([[sw, 1]]);
+    // An older save (no field): every default is how the points lie, and none is saved.
+    delete data.switchDefaults;
+    const old = deserializeWorld(data);
+    expect(old.ok).toBe(true);
+    if (!old.ok) return;
+    expect(old.value.economy.router.defaultOf(sw)).toBe(0);
+    expect("switchDefaults" in serializeWorld(old.value)).toBe(false);
+    // A default for a piece that isn't points (or isn't there) is dropped on load.
+    const odd = deserializeWorld({ ...data, switchDefaults: [[station, 1], [99999, 1]] });
+    expect(odd.ok).toBe(true);
+    if (odd.ok) expect(serializeWorld(odd.value).switchDefaults).toBeUndefined();
+  });
 });
 
 describe("station binding", () => {

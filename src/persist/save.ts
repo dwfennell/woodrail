@@ -92,6 +92,11 @@ const saveSchema = z.object({
   joints: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])).optional(),
   /** Pinned switches, by piece id: routed engines don't throw them (optional: older saves load with none). */
   pinned: z.array(z.number().int().positive()).optional(),
+  /**
+   * Points' defaults (the way the player last set them by hand, which routes put them back to), only where one differs
+   * from how the switch is set (optional: older saves, and points not named, default to how they're set).
+   */
+  switchDefaults: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])).optional(),
   trains: z.array(trainSchema),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(
@@ -169,6 +174,8 @@ export function serializeWorld(world: World): SaveData {
     const state = layout.switchState(id);
     if (state !== 0) switches.push([id, state]);
   }
+  // (Points' defaults, where they differ from how the points are set: §3.4 of the routing spec.)
+  const defaults = world.economy.router.save();
   // Depots on the map now (one whose industry piece was taken up is left out), numbered afresh.
   const kept = world.economy.allDepots().filter((d) => world.layout.getPiece(d.pieceId));
   const renumbered = new Map(kept.map((d, i) => [d.id, i]));
@@ -229,6 +236,7 @@ export function serializeWorld(world: World): SaveData {
     switches,
     joints: [...layout.joints()].map((j) => [pieceOfRef(j.a), indexOfRef(j.a), pieceOfRef(j.b), indexOfRef(j.b)] as [number, number, number, number]),
     ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
+    ...(defaults ? { switchDefaults: defaults } : {}),
     trains,
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
@@ -362,6 +370,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);
+  economy.router.restore(save.switchDefaults);
   const expected = new Map<number, { role: string; townId: number }>();
   for (const [townId, pieceId] of stations) expected.set(pieceId, { role: "town", townId });
   for (const [depotId, pieceId] of depots) expected.set(pieceId, { role: landscape.depots[depotId].kind, townId: -1 });

@@ -18,6 +18,7 @@ import { getPieceDef, type Layout } from "../track";
 import { Sections } from "../economy/sections";
 import { chooseWay, Router } from "./router";
 import { distanceTo, next, waysFrom } from "./graph";
+import type { ShadowPlans } from "./shadow";
 
 /** A train in a scenario. No `stops`: hand-run (its lever on, no route). */
 export interface TrainSpec {
@@ -123,9 +124,9 @@ export class HarnessRun {
   /** Routes by engine (in the order they were set: the router steers in this order, as the economy's routes). */
   routes = new Map<number, RouteState>();
   lineOf = new Map<number, number>();
-  /** The player's switch positions (the default each is restored to): as laid, then each lever tap's. */
-  readonly defaults = new Map<number, number>();
   tick = 0;
+  /** Set to watch the plan search beside today's steering (step 3): carried over a save round-trip. */
+  shadow: ShadowPlans | null = null;
 
   private readonly report: Report;
   private readonly specs: TrainSpec[];
@@ -193,8 +194,9 @@ export class HarnessRun {
       this.lineOf.set(this.engines[k], t.line ?? 1000 + k);
     });
     this.wire();
+    // (Points as laid are the defaults, as the game's track edit tells the router: `Economy.prune`.)
+    this.router.laid();
     this.switchesChanged();
-    for (const id of this.switches) this.defaults.set(id, layout.switchState(id));
     this.spy();
   }
 
@@ -251,6 +253,18 @@ export class HarnessRun {
       heldFor: (engine, pieceId) => this.sections.switchHeld(engine, pieceId),
       soon: this.sections.steerSoon,
     });
+    this.router.shadow = this.shadow;
+  }
+
+  /** Watch the plan search beside today's steering (step 3), from now on. */
+  watchPlans(shadow: ShadowPlans): void {
+    this.shadow = shadow;
+    this.router.shadow = shadow;
+  }
+
+  /** The player's switch positions (the default each is restored to): as laid, then each lever tap's (the router's). */
+  defaultOf(pieceId: number): number {
+    return this.router.defaultOf(pieceId);
   }
 
   /** Where a routed engine is going: its next stop, or (standing at it) the next different one; −1: none on the map. */
@@ -292,16 +306,13 @@ export class HarnessRun {
       const def = getPieceDef(p.type, p.flipped);
       if (def.isSwitch && !def.gated && !def.signal) this.switches.push(id);
     }
-    for (const id of [...this.defaults.keys()]) if (!this.layout.getPiece(id)) this.defaults.delete(id);
   }
 
   // ── What the player does ──────────────────────────────────────────────────────────────────────────────────────────
 
-  /** A lever tap on points (through the router, as `throwLever`): thrown, it's the player's new default. */
+  /** A lever tap on points (through the router, as `throwLever`): thrown, it's the player's new default (the router's). */
   lever(pieceId: number): boolean {
-    const r = this.router.lever(pieceId);
-    if ("ok" in r) this.defaults.set(pieceId, this.layout.switchState(pieceId));
-    return "ok" in r;
+    return "ok" in this.router.lever(pieceId);
   }
 
   pin(pieceId: number, on: boolean): void {
@@ -321,6 +332,8 @@ export class HarnessRun {
   /** Saved and loaded: every train put back where it stood on a new sim (new car ids), routing and sections afresh. */
   saveAndLoad(): void {
     const old = this.sim;
+    // (The points' defaults go through the save as the game's do: only those that differ from how the points lie.)
+    const defaults = this.router.save();
     const saved = this.engines.map((engine) => {
       const t = old.findCar(engine)?.train;
       return t && !t.derailed ? { kinds: t.cars.map((c) => c.kind), lead: { ...t.bogies[0] }, facing: t.cars.map((c) => c.facing), levers: t.cars.map((c) => c.lever), speed: t.speed, place: this.sections.savedPlace(engine) } : null;
@@ -350,6 +363,7 @@ export class HarnessRun {
     this.routes = routes;
     this.lineOf = lines;
     this.wire();
+    this.router.restore(defaults);
     saved.forEach((s, k) => {
       const line = lines.get(this.engines[k]);
       if (s && line !== undefined) this.sections.restorePlace(this.engines[k], line, s.place);
@@ -466,7 +480,7 @@ export class HarnessRun {
         continue;
       }
       const state = this.layout.switchState(id);
-      if (state === (this.defaults.get(id) ?? state)) {
+      if (state === this.router.defaultOf(id)) {
         this.freeSince.delete(id);
         this.restoreBroken.delete(id);
         continue;
@@ -475,7 +489,7 @@ export class HarnessRun {
       if (since === undefined) this.freeSince.set(id, this.tick);
       else if (this.tick - since >= RESTORE_TICKS && !this.restoreBroken.has(id)) {
         this.restoreBroken.add(id);
-        this.broke("restore", `points ${id} left at ${state} (default ${this.defaults.get(id)}), no train on them`);
+        this.broke("restore", `points ${id} left at ${state} (default ${this.router.defaultOf(id)}), no train on them`);
       }
     }
   }
