@@ -10,7 +10,8 @@
  * run unchanged, only the recorder is added. Prints
  * each test's sims and seconds compared, and the first second that differs; exits 1 on any difference. Each run's
  * vitest output is kept beside its hashes (vitest.log: for SHOW=1 rows and the like).
- * `--diff <a> <b>` compares two recorded folders; `--base-only` records just the base (to reuse later).
+ * `--rename <new>=<old>` runs a moved test file under its old path on the base. `--diff <a> <b>` compares two recorded
+ * folders; `--base-only` records just the base (to reuse later).
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -35,7 +36,8 @@ function read(dir) {
     for (const line of readFileSync(join(dir, f), "utf8").split("\n")) {
       if (!line) continue;
       const [key, t, h] = line.split("\t");
-      const k = `${f}: ${key}`;
+      // (Keyed by the test's name and the sim's number in it, not the file: a test file may move.)
+      const k = key;
       if (!out.has(k)) out.set(k, []);
       out.get(k).push([t, h]);
     }
@@ -68,10 +70,14 @@ function diff(a, b) {
   return bad === 0;
 }
 
-function record(tree, out) {
+/** `--rename new=old`: a test file the base has under another path (the base's run asks for the old one). */
+const renames = opts.flatMap((o, i) => (opts[i - 1] === "--rename" ? [o.split("=")] : []));
+const baseArgs = vitestArgs.map((a) => renames.find(([n]) => n === a)?.[1] ?? a);
+
+function record(tree, out, args) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  const r = spawnSync("npx", ["vitest", "run", "-c", config, ...vitestArgs], {
+  const r = spawnSync("npx", ["vitest", "run", "-c", config, ...args], {
     cwd: tree,
     env: { ...process.env, ...envs, TRAJ_OUT: out },
     stdio: ["ignore", "pipe", "pipe"],
@@ -94,13 +100,13 @@ if (!existsSync(wt)) {
   symlinkSync(join(repo, "node_modules"), join(wt, "node_modules"));
 }
 // (The base's recording is kept per base commit, env and args, and reused: the base doesn't change.)
-const key = createHash("sha1").update(JSON.stringify([sha, envs, vitestArgs])).digest("hex").slice(0, 12);
+const key = createHash("sha1").update(JSON.stringify([sha, envs, baseArgs])).digest("hex").slice(0, 12);
 const baseRec = join(repo, ".trajectory", `rec-${key}`);
 if (!existsSync(join(baseRec, ".done")) || opts.includes("--fresh")) {
-  record(wt, baseRec);
+  record(wt, baseRec, baseArgs);
   writeFileSync(join(baseRec, ".done"), "");
 } else console.log(`[base] reused ${baseRec}`);
 // (`--base-only`: just record the base, to be reused by a later run.)
 if (opts.includes("--base-only")) process.exit(0);
-record(repo, join(out, "head"));
+record(repo, join(out, "head"), vitestArgs);
 process.exit(diff(baseRec, join(out, "head")) ? 0 : 1);

@@ -7,8 +7,13 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Sharing lines:** sections and slots (`src/economy/sections.ts`).
 - **Engine-card commands:** Go/Stop, ⇄, Swap ends, Continue, Put away.
 - **The sim** (`src/sim/sim.ts`), where it bears on any of the above.
+- **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **Routing, step 1: one owner** (on `claude/routing-1`; spec §13).
+  - **Moved, behaviour unchanged:** `src/routing/graph.ts` (`waysFrom`, `next`, `distanceTo`, `wayToward`, `SEARCH`, `TURN_COST`), `plan.ts` (`walkTo`, from `route-path.ts`: the way drawn on the map), `router.ts` (`steerSwitch`, `steer`, `chooseWay`, `AvoidTest`, `AheadTest`, and `Router`). `steer.ts` is gone; its tests are `src/routing/router.test.ts`.
+  - **`Router`** is built by the economy (`economy.router`). `Router.tick` replaces `Economy.steerTrains` (8-tick cadence, `steerSoon`); it reads the goals from its host each steer, in the routes' order. `router.onSwitch` replaces `economy.onSwitch`. A lever tap on points goes `throwLever` → `router.lever` → `Sim.toggleSwitch`; signals, decks and lifts don't.
+  - **Still outside:** `Sim.trainAhead`, `Sections.switchHeld`, `steerHint`, `steerSoon` (read through `RouterHost`), until step 4.
 - **Continue at a dead end** (`src/game/continue-on.ts`).
   - **Shows when:** the train is routed, its route has ≥ 2 different stops, and it's waiting to turn back at an open end. Hidden at buffers.
   - **A tap:** `Economy.skipVisit`, then `Sim.turnNow`. A pushing train's engine runs round. Sections admit the move. Not undoable.
@@ -57,6 +62,12 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **To isolate a sim change:** keep the branch's test file and swap in `sim.ts` from main. Restore it afterwards.
 - **Flags:** `TRACE=1`, `PREFILL=1`, `SAW_FULL=1`, `CARDS`; `idleOf.add(q)` marks a world idle.
 - Count goods, not arrivals.
+
+**Trajectory hashes** (`scripts/trajectory/trajectory.mjs`): for a change that must not change behaviour.
+- `node scripts/trajectory/trajectory.mjs [--env K=V]... -- <vitest args>` runs the tests on `origin/main` (a worktree in `.trajectory/`) and on this tree, records a hash of every Sim's trains and switches each simulated second, and prints the first second that differs. The base's recording is reused.
+- e.g. `--env BALANCE=1 --env BALANCE_SEED=1 -- --silent=false src/play/balance.test.ts`, or `--env SHOW=1 -- --silent=false src/economy/sections-qa.test.ts`. Each run's output is kept (`.trajectory/…/vitest.log`), so SHOW rows can be diffed from it.
+- `--rename new=old` for a test file that moved. It samples once a second, so a change that comes back together within a second can slip by: a negative control (`LOOK_AHEAD` 2) shows at 24 s.
+- **Vitest 5 hides a passing test's console:** SHOW rows and play-through logs need `--silent=false`.
 
 **Play-through:** `BALANCE=1 BALANCE_SEED=<n> npx vitest run --silent=false src/play/balance.test.ts`. See game-mode.md for the flags.
 - **Pinned repro:** `BALANCE_SEED=2027 BALANCE_SECOND_GOODS=15 BALANCE_LOOP_PIN=1`, also seeds 3, 1 and 5.
@@ -136,7 +147,7 @@ Nothing may change points under a train. The switch memory only covers points en
   - #8: curves flip when auto-placing (shared with Sandbox);
   - #15: wyes;
   - #16: signals.
-- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md`, with open questions for the user. Don't patch `steerSwitch` for these; follow the spec's migration steps.
+- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Step 1 (consolidate) is on `claude/routing-1`; next is step 2 (defaults, and the §12 harness). Don't patch `steerSwitch` for these; follow the spec's migration steps.
 - **Loop proposal,** waiting on the user: "Show me where" plus a ghost loop, a one-tap Build loop, and a toast.
 - **Parked:** routes-blocks and routes-loops, and sections P3 (sidings as slots).
 - **Stand-still card on admitted trains** after a trap stall: revisit with the loop proposal.
