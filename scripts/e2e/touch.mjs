@@ -1093,9 +1093,12 @@ async function twoRoutes(ctx, p) {
   const [ax, ay] = await onScreen({ depot: setup.places[0][1] });
   const toward = Math.hypot(ax - hx, ay - hy) || 1;
   const ts = Date.now() / 1000;
+  // (What the finger came down on, for a failure's message.)
+  const pressed = { under: await p.evaluate(([x, y]) => window.woodrail.interaction.pick(x, y, true)?.kind ?? null, [hx, hy]) };
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: ts, touchPoints: [{ x: hx, y: hy, id: 1 }] });
   // (Past the hold's time by the page's clock, and its frame: then the moves lift it.)
   await p.waitForFunction(() => window.woodrail.interaction.mode.hold?.armed === true, null, { timeout: 10000 }).catch(() => {});
+  Object.assign(pressed, await p.evaluate(() => { const m = window.woodrail.interaction.mode; return { mode: m.kind, press: m.press?.kind ?? null, armed: m.hold?.armed ?? null }; }));
   // (40 px, in 12 moves; each stamped after the last, the finger's lift too.)
   let last = ts;
   for (let k = 1; k <= 12; k++) {
@@ -1112,7 +1115,7 @@ async function twoRoutes(ctx, p) {
   const moved = await p.evaluate((e) => !!window.woodrail.sim.findCar(e), setup.engines[0]);
   const lines = () => p.evaluate((E) => E.map((e) => { const w = window.woodrail; const id = w.economy.lineIdOf.get(e); return { line: id === undefined ? null : w.economy.lines.get(id)?.name ?? null, stops: w.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null }; }), setup.engines);
   const afterHold = await lines();
-  check("routes: a train picked up and moved keeps its route, and the other keeps its own (#4)", lifted === "drag-train" && moved && afterHold.every((x, k) => JSON.stringify(x.stops) === JSON.stringify(setup.places[k])) && afterHold[0].line === planned[0].line && afterHold[1].line === planned[1].line, JSON.stringify({ lifted, moved, afterHold }));
+  check("routes: a train picked up and moved keeps its route, and the other keeps its own (#4)", lifted === "drag-train" && moved && afterHold.every((x, k) => JSON.stringify(x.stops) === JSON.stringify(setup.places[k])) && afterHold[0].line === planned[0].line && afterHold[1].line === planned[1].line, JSON.stringify({ lifted, moved, afterHold, pressed }));
   // Each card shows its own line.
   const cards = [];
   for (const e of setup.engines) {
@@ -1162,14 +1165,19 @@ async function leverDefault(ctx, p) {
   const touch = (type, x, y, timestamp) => cdp.send("Input.dispatchTouchEvent", { type, ...(timestamp ? { timestamp } : {}), touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   await p.keyboard.press("Escape");
-  // Points on open ground (clear of what the checks before put down), framed close: found outward from the view's target.
+  // Points on open, flat ground (clear of what the checks before put down), framed close: found outward from the view's
+  // target. (Flat for 500 mm round: a hill's square beside them would bury their lever in its block, unseen and not
+  // to be tapped, as a player would see. The full run once found such a spot, from where the steps before left the view.)
   const id = await p.evaluate(async () => {
     const w = window.woodrail;
     const { poseForCentre } = await import("/src/editor/editor.ts");
     const t = w.controls.target;
     const bounds = w.director.bounds;
+    const grid = w.landscape.grid;
+    const ground = (x, z) => { const i = grid.cellAtWorld(x, z); return i === -1 ? 0 : grid.groundY(i); };
+    const flat = (x, z) => { for (let dx = -500; dx <= 500; dx += 100) for (let dz = -500; dz <= 500; dz += 100) if (ground(x + dx, z + dz) !== 0) return false; return true; };
     const clear = (x, z) =>
-      x > bounds.x0 + 500 && x < bounds.x1 - 500 && z > bounds.z0 + 500 && z < bounds.z1 - 500 &&
+      x > bounds.x0 + 500 && x < bounds.x1 - 500 && z > bounds.z0 + 500 && z < bounds.z1 - 500 && flat(x, z) &&
       [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
       [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
     for (let d = 0; d <= 8000; d += 216) {
@@ -1192,9 +1200,13 @@ async function leverDefault(ctx, p) {
     check("defaults: points go down for the lever-default check", false);
     return;
   }
-  /** Framed on the points, the lever on screen and nothing in hand: where its lever is on screen (null: not yet). */
-  const frame = () =>
-    p.evaluate(async (id) => {
+  /**
+   * Framed on the points, the view still, the lever on screen, nothing in hand, and the lever what a tap there picks (as
+   * a player taps what they see): where its lever is on screen (null: not yet). Seen but not to be picked (a hill
+   * between, from this side), the view turns a quarter round, as a player would turn it.
+   */
+  const frame = (turn) =>
+    p.evaluate(async ([id, turn]) => {
       const w = window.woodrail;
       const { frameDistance } = await import("/src/game/camera-director.ts");
       const [x, z] = window.__defaultAt;
@@ -1202,19 +1214,25 @@ async function leverDefault(ctx, p) {
       if (lever) {
         lever.updateMatrixWorld(true);
         const v = new w.camera.position.constructor(0, 14, 0).applyMatrix4(lever.matrixWorld).project(w.camera);
-        if (Math.hypot(w.controls.target.x - x, w.controls.target.z - z) < 60 && Math.abs(v.x) < 0.8 && Math.abs(v.y) < 0.8 && w.interaction.mode.kind === "idle") {
-          return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight];
-        }
-      }
-      w.director.glideTo(w.controls.target.clone().set(x, 0, z), frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3 });
-      window.__defaultWhy = { lever: !!lever, off: Math.round(Math.hypot(w.controls.target.x - x, w.controls.target.z - z)), mode: w.interaction.mode.kind };
+        // (On the canvas as the game reads a tap: from its own box.)
+        const r = w.canvas.getBoundingClientRect();
+        const at = [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+        const framed = Math.hypot(w.controls.target.x - x, w.controls.target.z - z) < 60 && Math.abs(v.x) < 0.8 && Math.abs(v.y) < 0.8 && !w.director.busy && w.interaction.mode.kind === "idle";
+        const picked = framed ? w.interaction.pick(at[0], at[1], true) : null;
+        if (picked?.kind === "lever" && picked.pieceId === id) return at;
+        window.__defaultWhy = { lever: true, framed, picked: picked?.kind ?? null, hidden: w.interaction.leverHidden(id) };
+      } else window.__defaultWhy = { lever: false };
+      const theta = turn ? new w.camera.position.constructor().subVectors(w.camera.position, w.controls.target) : null;
+      w.director.glideTo(w.controls.target.clone().set(x, 0, z), frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3, ...(theta ? { theta: Math.atan2(theta.x, theta.z) + Math.PI / 2 } : {}) });
+      Object.assign(window.__defaultWhy, { off: Math.round(Math.hypot(w.controls.target.x - x, w.controls.target.z - z)), mode: w.interaction.mode.kind });
       return null;
-    }, id);
+    }, [id, turn]);
   let at = null;
   // (Escape first: pressed after, it would cut the glide short.)
   for (let tries = 0; tries < 6 && !at; tries++) {
     await p.keyboard.press("Escape");
-    at = await frame();
+    // (Turned only once framed on the points: a hill between, from this side.)
+    at = await frame(tries > 0 && (await p.evaluate(() => window.__defaultWhy.framed === true)));
     if (at) break;
     await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
     await settled();
@@ -1228,7 +1246,10 @@ async function leverDefault(ctx, p) {
   }
   // A tap on the lever (its touches stamped 50 ms apart: a tap, never a pin's hold). What's under the finger, and what
   // was said, for a failure's message.
-  const under = await p.evaluate(([x, y]) => ({ pick: window.woodrail.interaction.pick(x, y, true)?.kind ?? null, mode: window.woodrail.interaction.mode.kind }), at);
+  const under = await p.evaluate(([[x, y], id]) => {
+    const w = window.woodrail;
+    return { pick: w.interaction.pick(x, y, true)?.kind ?? null, mode: w.interaction.mode.kind, hidden: w.interaction.leverHidden(id) };
+  }, [at, id]);
   await p.evaluate(() => {
     window.__defaultSaid = [];
     const h = window.woodrail.hud;
