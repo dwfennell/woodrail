@@ -10,6 +10,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **Routing, step 2: the §12 harness** (on `claude/routing-2`; spec §13). Test code only. See "Routing harness" in §2. Today's gaps, as expected failures: no restore (step 4); a follower needing the other road takes the first train's road (step 5); pinned points in the way: the train shuttles (step 5); two single-train lines over a crossover pair turn each other back forever and deliver nothing (step 5).
 - **Routing, step 1: one owner** (on `claude/routing-1`; spec §13).
   - **Moved, behaviour unchanged:** `src/routing/graph.ts` (`waysFrom`, `next`, `distanceTo`, `wayToward`, `SEARCH`, `TURN_COST`), `plan.ts` (`walkTo`, from `route-path.ts`: the way drawn on the map), `router.ts` (`steerSwitch`, `steer`, `chooseWay`, `AvoidTest`, `AheadTest`, and `Router`). `steer.ts` is gone; its tests are `src/routing/router.test.ts`.
   - **`Router`** is built by the economy (`economy.router`). `Router.tick` replaces `Economy.steerTrains` (8-tick cadence, `steerSoon`); it reads the goals from its host each steer, in the routes' order. `router.onSwitch` replaces `economy.onSwitch`. A lever tap on points goes `throwLever` → `router.lever` → `Sim.toggleSwitch`; signals, decks and lifts don't.
@@ -69,6 +70,13 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - e.g. `--env BALANCE=1 --env BALANCE_SEED=1 -- --silent=false src/play/balance.test.ts`, or `--env SHOW=1 -- --silent=false src/economy/sections-qa.test.ts`. Each run's output is kept (`.trajectory/…/vitest.log`), so SHOW rows can be diffed from it.
 - `--rename new=old` for a test file that moved. It samples once a second, so a change that comes back together within a second can slip by: a negative control (`LOOK_AHEAD` 2) shows at 24 s.
 - **Vitest 5 hides a passing test's console:** SHOW rows and play-through logs need `--silent=false`.
+
+**Routing harness** (`src/routing/harness.ts`, spec §12): scripted layouts on a `Sim`, `Sections` and `Router`, no `Economy`; the routing invariants checked every tick.
+- `npx vitest run src/routing/harness.test.ts` (about 13 s; `SHOW=1 … --silent=false` prints each case's report: stops, turn-backs by cause, the longest stand-still, router µs a tick, each broken invariant's first few times).
+- `src/routing/harness-fuzz.test.ts`: 8 seeds × 5 min. Long: `ROUTING_FUZZ=200 ROUTING_FUZZ_SECONDS=1800 npx vitest run --silent=false src/routing/harness-fuzz.test.ts` prints a line per seed that broke anything.
+- Cases are in `scenarios.ts`. Each invariant and payoff is its own test; one today's router fails is `it.fails` with the step expected to fix it (in `fails`). **When a step fixes one, flip it to passing** (an `it.fails` that passes fails the run).
+- The lone-train trajectory hashes (`LONE_UNROUTED`, `LONE_ROUTED`) must hold through step 5; record them again only with a reason.
+- The harness's stand-ins for the economy are named in its header: trains run through stops (no dwell) and turn only where the track ends.
 
 **Play-through:** `BALANCE=1 BALANCE_SEED=<n> npx vitest run --silent=false src/play/balance.test.ts`. See game-mode.md for the flags.
 - **Pinned repro:** `BALANCE_SEED=2027 BALANCE_SECOND_GOODS=15 BALANCE_LOOP_PIN=1`, also seeds 3, 1 and 5.
@@ -148,7 +156,7 @@ Nothing may change points under a train. The switch memory only covers points en
   - #8: curves flip when auto-placing (shared with Sandbox);
   - #15: wyes;
   - #16: signals.
-- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Step 1 (consolidate) is on `claude/routing-1`; next is step 2 (defaults, and the §12 harness). Don't patch `steerSwitch` for these; follow the spec's migration steps.
+- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Step 1 (consolidate) is on main; step 2's §12 harness is on `claude/routing-2` (its expected failures name steps 4 and 5). Still to do in step 2: defaults. Don't patch `steerSwitch` for these; follow the spec's migration steps.
 - **Loop proposal,** waiting on the user: "Show me where" plus a ghost loop, a one-tap Build loop, and a toast.
 - **Parked:** routes-blocks and routes-loops, and sections P3 (sidings as slots).
 - **Stand-still card on admitted trains** after a trap stall: revisit with the loop proposal.

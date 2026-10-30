@@ -2,7 +2,8 @@
 
 ## Status
 
-A design, being built step by step (§13): steps 0 and 1 are done. It covers four play-test issues:
+A design, being built step by step (§13): steps 0 and 1 are done, and step 2's harness (§12). It covers four play-test
+issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
 - **#4:** more than one route.
@@ -345,9 +346,39 @@ lone-train check.
        - `Sim.trainAhead` and `Sections.switchHeld` stay where they are until step 4. The router reaches them
          through `RouterHost` (`sim`, `heldFor`), and `steerHint` and `steerSoon` through `granted` and `soon`.
        - Vitest 5 hides a passing test's console, so `SHOW=1` rows need `--silent=false`.
-       - The §12 harness wasn't started. It begins at step 2.
+       - The §12 harness wasn't started then. It's done at step 2.
 2. **Defaults.** Lever taps and laid switches write defaults, which are saved and loaded. Player-path test: tap a
    lever, then save and reload. No behaviour change.
+   - **The §12 harness: done** (`claude/routing-2`), test code only (nothing in `src/` outside tests changed; the
+     trajectory hashes are identical to main). Defaults themselves are still to do.
+     - `src/routing/harness.ts`: `HarnessRun` builds a `Sim`, `Sections` and a `Router` on a scripted `Layout`, with
+       no `Economy`. Its stand-ins, named in its header: routes as stop pieces (come to when an axle is on the stop,
+       left when none is; no dwell, so trains run through stops and turn only where the track ends), lines by
+       number, sections' speed cap alone, and a save round-trip (a new sim, new car ids, places restored).
+     - **Checked every tick:** wrong road (a routed train's front onto facing points takes the way sections granted,
+       else one no longer to its target than the best); split (each axle joins the next along the track, by pieces
+       and paths); points moved under a train and pinned points moved (`setSwitchState` spied); restore (points
+       nobody stands on for 1 s are at the player's default: as laid, or the last lever tap); stuck (a lever-on train
+       still over 60 s, or `maxStill`; a held-for-room train is exempt), a wait naming a train that isn't there, and
+       sections' 30 s net. Also kept: stops come to, those made pushing, turn-backs by cause, router µs a tick, and a
+       hash of the trains each second.
+     - **Cases** (`scenarios.ts`, `harness.test.ts`): each invariant and each payoff is its own test; today's
+       failures are `it.fails` naming the step to fix them, so that step flips them. The five §8 automations (30
+       game minutes, no wait over 20 s, turning only at buffers); the lone train unrouted and routed (trajectory
+       hashes recorded at step 1); a follower on the same road, and on the other road through a switch, a wye from
+       its branch and a crossover at connector 3; pinned points on the route; a dead-end siding left set for it;
+       two lines over a crossover pair; three trains on one loop's line; a lever tap, a save and load, and the stop
+       taken up while points are set for a train; controls proving the split, under-train, pinned and stuck checks
+       fire. `harness-fuzz.test.ts`: 8 seeds × 5 min over the loop fixtures (`ROUTING_FUZZ`,
+       `ROUTING_FUZZ_SECONDS` for long runs).
+     - **Expected failures today:** restore everywhere a route throws points (step 4); the follower needing the
+       other road takes the first train's road, at a switch, a wye and a crossover, and doesn't reach its stop (step
+       5); pinned points in the way: the train shuttles rather than standing (step 5); two single-train lines over
+       a crossover pair meet head on in the middle, turn back, and neither reaches a stop in 5 min (step 5).
+     - **Passing today:** no split, nothing thrown under a train or pinned, no stuck train and no net in every case
+       and fuzz seed; the §8 automations deliver (the balloon engine-first, round and round never turning).
+     - **Cost:** the router takes 0.3–2.6 µs a tick in these runs (bound: 25 µs, best of 3). The default cases take
+       about 13 s.
 3. **Shadow plans.** `plan.ts` (piece-count costs) is compared against step 1's choices in the harness and QA, with no
    effect in game. Measure search time.
 4. **Locks, setting and restore (#5).** These replace the step-1 wrappers. Delete `steerSwitch`, `trainAhead` and
