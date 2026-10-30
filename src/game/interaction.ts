@@ -4205,8 +4205,10 @@ export class Interaction {
       return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, look: sim.lookOf(c.id), ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
     });
     const origin = t.derailed ? null : { ...t.bogies[0] };
-    sim.removeTrain(t.id);
+    // (Told before it's lifted: a change prunes the economy, and a train not on the track then would lose its line and
+    // route, #4. Back in the box, `dropTrain` prunes it.)
     this.changed();
+    sim.removeTrain(t.id);
     this.mode = { kind: "drag-train", pointerId, cars, origin, ghost: this.trainGhost(cars), target: null, overTray: false };
   }
 

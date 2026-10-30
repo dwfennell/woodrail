@@ -29,6 +29,10 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
   - **Now:** `steerSwitch` takes `ahead` (`Sim.trainAhead`): points another train is ahead on the way to, going the same way, are left for it. `Sim.toggleSwitch` refuses points with any car on or over them (`Sim.pointsHeld`, `piecesUnder` occupancy), and the lever tap toasts "These points move once the train is off them". Decks, lifts and signals are unchanged.
   - **Cost:** `trainAhead` is asked only when a switch is about to be thrown, and returns at once for a lone train.
   - **Sections QA drift:** only OFF k1 at20 (7/1/6 → 6/1/5) and OFF k2 at20 (4/5/1 → 5/6/1). A lineless train runs among the line's trains there, and the line's steering now leaves points to it when it's ahead on the way. Meets stay at 0.
+- **Only one route (#4)** (on `claude/one-route`; e2e `E2E_ONLY=routes` in `e2e:touch`).
+  - **Cause:** not the line storage. Picking a train up (a 380 ms rest then a move on touch, or any drag on the train whose card is open) took it off the sim, then called `changed()`, whose `trackChanged()` runs `economy.prune()`. The train in the hand wasn't on the track, so prune dropped its route, its line entry and (as its last train) the line. Put down again, it ran no line and its card showed "Plan a route". Cargo survived only because the hand carries it; coach riders were lost the same way.
+  - **Fix:** `beginTrainPickup` calls `changed()` before `removeTrain` (`src/game/interaction.ts`). Dropped over the tray, `dropTrain` still prunes it.
+  - **Rule:** nothing may prune the economy while a train is off the sim but coming back. A routed engine missing from the sim is skipped by the economy's loops, so keeping its entries meanwhile is safe.
 
 ## 2. How to test
 
@@ -42,7 +46,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Timing guards:** use a warm-up, best of N, and a mean or median bound, so a 10× slowdown fails but load doesn't.
 
 **Browser e2e:**
-- `npm run e2e:touch`: 71 checks, about 25 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min.
+- `npm run e2e:touch`: 76 checks, about 25 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min.
 - `node scripts/e2e/draw.mjs` with `E2E_ONLY=` one of `junctions` (27), `qa-slant` (49, slow), `specials` (10), `phone`, `terrace-repeat`, `terrace-qa`, `ghosts`, `lift` or `loop`. The full run takes 2 h or more.
 - `npm run e2e:joints`.
 - **Screenshots and idle:** a small Playwright script. Load playwright-core with `createRequire("<repo>/package.json")`, wait for `settled()`, then check `framesDrawn` stays at 0 over 5 s.
@@ -125,7 +129,7 @@ Nothing may change points under a train. The switch memory only covers points en
 - **GitHub issues, from the user's play-test:**
   - #2: trains merge at crossings (fixed on `claude/crossing-merge`, waiting to land);
   - #3: derailment when a switch is thrown for the train behind (fixed on `claude/switch-derail`, waiting to land);
-  - #4: only one route;
+  - #4: only one route (fixed on `claude/one-route`, waiting to land);
   - #5: routes set switches and restore them;
   - #6: a gap behind the train ahead;
   - #7: trains reverse too often;
@@ -143,6 +147,7 @@ Nothing may change points under a train. The switch memory only covers points en
 - **The click shield:** wait for a control's rect to hold still before tapping.
 - **Shared recorders:** give toast recorders unique names, or other checks' toasts get double-counted.
 - **Reloads:** car ids change. Find trains by world position (the nearest within 400 mm).
+- **Lifting a train by touch:** a still hold only arms it; it lifts on the first move past the slop (10 px). Move a fixed distance (not a fraction of a distance that may be tiny), stamp every CDP event after the last, the touchEnd too, or Playwright's next tap gets no click. A drag can pan the view at the edge: re-frame before tapping something else.
 - SwiftShader frames are slow, and the sim is capped at 0.1 s a frame. Tick ahead in `evaluate`, and say so in a comment.
 - A `pgrep -f` wait loop matches itself; use background-job completion instead.
 - **Known flakes:** touch's "how to pin was said once", touch's "no frames once settled", and the spacing and restore-survey timeouts.

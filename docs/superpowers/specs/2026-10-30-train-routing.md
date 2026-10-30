@@ -47,8 +47,8 @@ A design, not yet built. It covers four play-test issues:
   wrong road, and its search later turns it back at a dead end.
 - Nothing restores switches.
 - The search doesn't know which way the engine faces, so a reverse is cheap.
-- **#4:** each engine has its own `Route` and `lineIdOf` entry, and `startLine` replaces only that engine's line, so the
-  cause isn't known yet. It's found by a failing test along the player's path (§13, step 0).
+- **#4:** not routing. Picking a train up pruned the economy while the train was off the track, so it lost its route
+  and line (§13, step 0, done).
 
 ## 2. The one owner: what moves, what's deleted
 
@@ -309,8 +309,10 @@ piece removed), and a budget.
 Every step runs: typecheck, vitest, build, a diff of the sections-qa `SHOW=1` rows against main, `e2e:touch`, and the
 lone-train check.
 
-0. **#4, independently.** A failing play-through test: two trains given routes by the card buttons, then a save and
-   load. Find the cause and fix it.
+0. **#4, independently.** Done (`claude/one-route`). The e2e `E2E_ONLY=routes` (in `e2e:touch`) plans two routes by
+   taps on the cards and the map, lifts one train and moves it, then checks both cards, deliveries and a reload. The
+   cause wasn't routing: `beginTrainPickup` removed the train and then called `changed()`, whose `economy.prune()`
+   dropped the lifted engine's route and line. It now calls `changed()` first. No sim or sections change.
 1. **Consolidate, with behaviour unchanged.**
    - Create `src/routing/` and move the pieces per §2.
    - `Router` wraps today's logic exactly: the 8-tick cadence, `steerSwitch`, `trainAhead`, `switchHeld`.
