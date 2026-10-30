@@ -2,8 +2,8 @@
 
 ## Status
 
-A design, being built step by step (§13): steps 0 to 4 are done (step 2: the §12 harness and defaults; step 3: shadow
-plans; step 4: locks, setting and restore). It covers four play-test
+A design, being built step by step (§13): steps 0 to 5 are done (step 2: the §12 harness and defaults; step 3: shadow
+plans; step 4: locks, setting and restore; step 5: waits). It covers four play-test
 issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
@@ -199,13 +199,13 @@ with a hint toward the fix.
 | Mistake | What happens | What the card says |
 |---|---|---|
 | No track joins a stop | The train stands at its last good place | "Can't reach Mill: no track goes there." |
-| A pinned switch is in the way (`pinnedBlocking`) | The train stands; the red lever pulses | "A red switch is in the way. Tap and hold it to unpin." |
+| A pinned switch is in the way (`pinnedBlocking`) | The train stands short of it (step 5; the lever's pulse not yet) | "A red switch is in the way. Tap and hold it to unpin" |
 | More trains than passing loops | Held, as today | "The line is full. Lay 1 more passing loop." (existing) |
 | A loop pinned so no one can pass | Held, as today | "Unpin the passing loop's switches so trains can pass." (existing) |
-| Waiting for points another train holds | Stops short and waits | "Waiting for the Blue train to pass the points." |
+| Waiting for points another train holds | Stops short and waits | "Waiting for the Blue line train to pass the points" |
 | Two lines need each other's points (a ring) | One gives way within `YIELD_S` | Toast: "The Red train went round to let the Blue one by." |
 | The only way is backwards (a dead end, no loop) | It reverses, as it must | Once per line: "Add a loop at the end so it can turn round." |
-| A lever tap on points set for a train (Q1) | Refused | "These points are set for the Red train. Try again once it's by." |
+| A lever tap on points set for a train (Q1) | They stay set for it; the tap is their new default | "Set for the Red line train. They'll switch to your way after it passes" |
 | A lever tap on points under a train | Refused, as today | "These points move once the train is off them." (existing) |
 
 **Rules for the text:**
@@ -495,6 +495,51 @@ lone-train check.
        restore is one `setSwitchState` and a lever swing (0 idle frames, checked in the e2e).
 5. **Waits (#3 follow-up).** The `speedCap` overlap stop, `RouteWait`, the card text from §7, and waits fed into
    sections' chains.
+   - **Done** (`claude/routing-5`).
+     - **The wait** (`router.ts`, §3.3). A routed train whose ask is refused (points locked for another train's road, or
+       for the same road coming onto them from the other end; or points that must move with a car on them) holds
+       nothing new, lets go any lock it held beyond where it now stops, and waits: `RouteWait { kind: "points", pieceId,
+       by }`, `by` the first other holder (or the train on the points). `Router.speedCap` (composed into the sim's cap in
+       `Economy.capFor` and the harness) brakes it to stand `STAND_SHORT` (6) + `OVERLAP` (30 mm) short of the first
+       points on its way it doesn't hold, measured along the pieces its last walk followed (`gapTo`), so a wait begins
+       with normal braking: the ask is made at braking distance + `SET_LOOK`. It never runs over points set against it.
+       No wait: one size check.
+     - **Hand-over:** when the holder lets go (release behind), a waiter for those points asks again at once, first come
+       first served, before any restore: granted, the points move once, straight to its road (§3.2). Otherwise they go
+       back to their default as before. A same-road lock is shared only by trains coming onto the points the same way
+       (`Lock.entry`; a lock taken on load shares with any).
+     - **Red switches (§7):** points pinned on a road from which no way leads to the train's stop, where unpinned they
+       would, end its walk: `RouteWait { kind: "pinned" }`, and it stands short of them (before, it ran over them and
+       shuttled). The pinned way's plan is the cached `planWay`; only when it leads nowhere is the unpinned one worked out,
+       kept per train by the track and switches. Unpinned, it goes on.
+     - **Wait chains:** `SectionsHost.routeWait` (`Router.waitingOn`: the engine waited for, and since when). Sections'
+       `unring` follows it like a line's own wait (CHECK_TICKS, rings, `YIELD_S`), for a line's train and through a
+       foreign train that is itself waiting at points. Rule 2 (§5) holds: a line's trains lock only inside a granted
+       move, so a route wait inside a line names a train of another line, or none of one.
+     - **Card text:** "Waiting for the Red line train to pass the points" (or "for another train", a name over 14
+       characters too); "A red switch is in the way. Tap and hold it to unpin". Both two lines at 360 px
+       (`engine-status.ts`, `trainState` kinds `points-wait` and `red-switch`).
+     - **Lever taps (§16 Q1, as the user changed it during this step):** a tap on locked points no longer moves them or
+       drops the lock. It sets their default at once (from the way they're shown; more taps on the same lock go on
+       round, `Router.deferred`), toasts "Set for the Red line train. They'll switch to your way after it passes"
+       (`pointsSetFor`), and they go back to it once the train has passed. `LeverResult` gains `{ deferred, by }`.
+       `Router.tappedFor` and the tapped-as-pinned walk are deleted.
+     - **§16 Q3 (turning):** no new turn-back. Today's breakers are kept as the last resort and counted: the harness's
+       `Report.breakers` (sim crossing turn-back "cross", sections' `yielded`, `turnedShort`, `gaveWay`, `clearTurns`);
+       the §8 automations assert 0. Where they still fire is in rail-road.md.
+     - **Q5 (hand-run trains wait about 15 s while the train in the way moves):** not here. Hand-run trains take no locks
+       and get no route wait; their waits are `crossCap` and `clearCap`, which step 7 replaces.
+     - **Proof** (`trajectory.mjs --env TRAJ_SWITCHES=0`): lone-train hashes unchanged (`LONE_UNROUTED`, `LONE_ROUTED`)
+       and the 8 default fuzz seeds identical; the play-through on seeds 2027, 1 and 2 with 1 and 2 trains a line, and
+       the goals play-through fast and `GOALS_LONG=1` (19/22, 22/22), identical to main (no ask is refused there, so no
+       train waits). Sections QA: 85/85; 3 of 256 sims differ (B5 park sweeps), SHOW rows the same but two (B5 l0.side
+       flips 39 → 38, B5 l0.main ring 2.0 → 1.9 s); meets and releases 0; its 7 refused asks now waits.
+     - **Harness:** every step-5 expected failure flipped (the follower at a switch, a wye and a crossover; pinned
+       points: stands rather than shuttles; the crossover ring now 19/18 stops, 0 wrong roads, 0 turn-backs but at
+       buffers); no `it.fails` left. New: the user's #3 case (two routed trains at one switch, the second stands 0.8 s
+       its nose 36 mm short of the points, then goes; the points move once for it and once back), the follower cases'
+       waits, and "no turn-back breaks a wait" on the §8 automations and the waiting cases.
+     - **Player's path:** `E2E_ONLY=wait` in `e2e:touch` (also in the full run).
 6. **Forward costs (#7, routed)** behind `ROUTE_FORWARD`. Compare balance windows and reversal counts (seed 2027 with
    1–3 trains; seeds 1 and 2 with 2 trains), then switch it on.
 7. **Hand-run trains respect locks.** Router locks replace `crossClaims` at points, and the crossCap turn-back is tuned
@@ -522,10 +567,15 @@ lone-train check.
 
 These override anything earlier in this spec that disagrees.
 
-1. **Lever taps on points:**
+1. **Lever taps on points** (changed by the user during step 5: routed trains keep their route):
    - The tap is refused only while a car is on the points (`pointsHeld`, as today).
-   - Points that are locked for a train that hasn't reached them yet still move when tapped. That train's lock is
-     dropped, and it re-plans or waits.
+   - Points locked for a routed train don't move when tapped, and the lock stays. The tap sets their default at once
+     (the way the tap shows, from how they're set; more taps on the same lock go on round), a soft toast says so ("Set
+     for the Red line train. They'll switch to your way after it passes"), and they go back to that default once the
+     train has passed.
+   - Unlocked points, and points ahead of hand-run trains, move at once, as before.
+   - (At step 4 a tap moved locked points and dropped the lock, and the train went as they lay, `Router.tappedFor`. That
+     is replaced.)
 2. **A following train that needs the other road always waits.** It doesn't go another way, unless waiting would
    cause another problem, such as a deadlock the wait can't clear (§5).
 3. **Turning around:**
@@ -538,9 +588,10 @@ These override anything earlier in this spec that disagrees.
    - **Still to settle with the user:** what breaks a true deadlock, where two trains wait on each other with no way
      past. The proposal is: a turn-back as the last resort, only when nothing else can clear it, counted in the
      harness (target 0 on the §8 automations), with a card that names the fix (a passing loop).
-4. **Pushing (running engine-last):** asked again in plain words. Should a train push its cars from behind for a
-   stretch, or should the engine always run round to the front when it can? Until the user answers, keep today's
-   behaviour.
+4. **Pushing (running engine-last):** avoid it, unless the player set it up themselves (coupled the engine at the back
+   by hand, or pressed Swap ends). Keep the automatic end-of-line flip (Swap ends at a dead end): not realistic, but a
+   big quality-of-life feature, as in OpenTTD. Step 6 plans for this: forward costs that strongly avoid running
+   engine-last, with the end-of-line flip as the normal way to turn.
 5. **Hand-run trains** wait up to about 15 s while the train in the way is still moving.
 6. **Routes never set switches for hand-run trains.**
 7. **Points going back:** the lever visibly swings back, with a soft click.

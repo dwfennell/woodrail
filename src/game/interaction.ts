@@ -23,6 +23,7 @@ import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
+import { pointsSetFor } from "./engine-status";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
@@ -4709,9 +4710,17 @@ export class Interaction {
     const pd = piece && getPieceDef(piece.type, piece.flipped);
     if (pd?.signal) g.sim.toggleSignal(pieceId, road);
     else if (pd?.isSwitch && !pd.gated) {
-      // Points: the router's gate. They never move under a train (it would split): they wait till it's off them.
-      if ("refused" in g.economy.router.lever(pieceId)) {
+      // Points: the router's gate. They never move under a train (it would split): they wait till it's off them. Set
+      // for a routed train, they stay set for it (it keeps its route), and go the tapped way once it has passed.
+      const r = g.economy.router.lever(pieceId);
+      if ("refused" in r) {
         this.hud.toast("These points move once the train is off them");
+        return;
+      }
+      if ("deferred" in r) {
+        this.hud.toast(pointsSetFor(g.economy, r.by));
+        // (The new default is saved with the game.)
+        this.onSwitched?.();
         return;
       }
     } else {

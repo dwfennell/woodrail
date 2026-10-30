@@ -361,6 +361,7 @@ export class Economy {
       },
       drive: (train) => this.drive(train),
       atStop: (engine) => !!this.routes.get(engine)?.at,
+      routeWait: (engine) => this.router.waitingOn(engine),
       skipStops: (engine, pieces) => {
         const r = this.routes.get(engine);
         if (!r || r.stops.length === 0 || r.at) return;
@@ -1303,7 +1304,7 @@ export class Economy {
     if (depot === 0) return 0;
     const kit = this.kitStops.cap(train);
     if (kit === 0) return 0;
-    return Math.min(depot, kit, this.sections.cap(train));
+    return Math.min(depot, kit, this.sections.cap(train), this.router.speedCap(train));
   }
 
   /**

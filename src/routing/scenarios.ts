@@ -48,11 +48,12 @@ function ovalWithSiding(layout: Layout) {
 }
 
 /**
- * A trunk ⊐ Y ══ ══ ══ into points of `type`, entered at its connector `at`; two ways on (`ways`, connectors), each
+ * A trunk ⊐ Y ══ ══ ══ (or `trunk` straights) into points of `type`, entered at its connector `at`; two ways on (`ways`, connectors), each
  * ══ ══ stop ⊏. Its pieces: the trunk's straights (t1 nearest the points), the points and the two stops.
  */
-function junction(layout: Layout, type: "switch" | "wye" | "crossover", at: number, ways: [number, number]) {
-  const [y, , t2, t1] = chain(layout, [STOP, S, S, S]);
+function junction(layout: Layout, type: "switch" | "wye" | "crossover", at: number, ways: [number, number], trunk = 3) {
+  const ids = chain(layout, [STOP, ...Array<PieceTypeId>(trunk).fill(S)]);
+  const [y, t2, t1] = [ids[0], ids[ids.length - 2], ids[ids.length - 1]];
   appendPiece(layout, BUFFER, false, connectorRef(y, 0));
   const sw = appendPiece(layout, type, false, connectorRef(t1, 1), at);
   const stops = ways.map((c, k) => {
@@ -61,7 +62,7 @@ function junction(layout: Layout, type: "switch" | "wye" | "crossover", at: numb
     appendPiece(layout, BUFFER, false, connectorRef(ids[ids.length - 1], 1));
     return ids[ids.length - 3];
   });
-  return { y, t1, t2, sw, x: stops[0], p: stops[1] };
+  return { y, t1, t2, sw, x: stops[0], p: stops[1], trunk: ids };
 }
 
 /** `⊐ A ══ ══ (loop) ══ ══ B ⊏`: a shuttle line with one passing loop in the middle. */
@@ -194,6 +195,27 @@ export const wyeFromBranch = follower("a wye from its branch, with a follower ne
 /** A crossover entered at its connector 3: on along its line (to 2) or over by the link (to 0), picked by the lever. */
 export const crossoverAt3 = follower("a crossover at connector 3, with a follower needing the other road", "crossover", 3, [2, 0], false);
 
+/**
+ * The user's #3 (follow-up): two routed trains at one switch needing different roads. The first, for X, is near the
+ * points; the second, for P, comes up behind at speed from Y. The points are set for the first; the second must stop a
+ * little short of them, wait (never run over them set for X, nor have them thrown under the first), and go to P once the
+ * first is by and the points are set for it.
+ */
+export const twoRoadsOneSwitch: Scenario = {
+  name: "#3: two routed trains needing different roads at one switch",
+  seconds: 30,
+  build: (layout) => {
+    const j = junction(layout, "switch", 0, [1, 2], 6);
+    return {
+      trains: [
+        // (A long train for X: the points stay set for it a good while after the second comes up.)
+        { pieceId: j.t1, stops: [j.x, j.y], cars: ["engine", "timber", "timber", "timber", "timber"], s: 200 },
+        { pieceId: j.trunk[4], stops: [j.p, j.y], cars: CARS, s: 150 },
+      ],
+    };
+  },
+};
+
 /** Pinned points on the route: set (and pinned) for X, the train routed for P. It never gets there; the pin holds. */
 export const pinnedOnRoute: Scenario = {
   name: "pinned points on the route",
@@ -315,6 +337,7 @@ export const removedUnderLock = duringLock("the stop taken up while points are s
 
 export const OTHERS: readonly Scenario[] = [
   followerSameRoad,
+  twoRoadsOneSwitch,
   followerOtherRoad,
   wyeFromBranch,
   crossoverAt3,

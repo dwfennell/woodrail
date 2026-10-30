@@ -31,6 +31,13 @@ export type TrainState =
   | { kind: "needs-loop"; more: number; trains: number; spare: boolean; parked: boolean; other?: boolean; pinned?: boolean }
   /** Waiting on one of its own line its line has no room for (held where it stands): the line is full. */
   | { kind: "full-wait"; full: { more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean } }
+  /**
+   * A routed train standing short of points set for another train (routing §3.3): that train's line (its name), or ""
+   * for one on no line (or a name too long for the card).
+   */
+  | { kind: "points-wait"; line: string }
+  /** A routed train standing short of a red (pinned) switch set against its way, with its stop only the other way (§7). */
+  | { kind: "red-switch" }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -85,6 +92,14 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const wait = economy.spacingWait(car.id);
     if (wait) return { kind: "spacing", line: wait.line.name, left: wait.left };
   }
+  // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
+  if (train.speed < 1)
+    for (const car of train.cars) {
+      const w = car.kind === "engine" ? economy.router.waitOf(car.id) : null;
+      if (!w) continue;
+      if (w.kind === "pinned") return { kind: "red-switch" };
+      return { kind: "points-wait", line: lineNameOf(sim, economy, w.by) };
+    }
   // Waiting for a train of its line on the single track ahead, or held for want of a passing loop (sections).
   if (train.speed < 1)
     for (const car of train.cars) {
@@ -128,6 +143,25 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   // Gathering speed after Go.
   if (train.speed < STARTING_SPEED && train.leverTick !== undefined && (sim.ticks - train.leverTick) * SIM_DT < STARTING_FOR_S) return { kind: "starting" };
   return { kind: "running" };
+}
+
+/** The longest line name the points wait names (two lines at 360 px); longer, it says "another train". */
+const POINTS_NAME = 14;
+
+/** The name of the line a train (any of its cars) runs, for a short text; "" for none, or one too long. */
+function lineNameOf(sim: Sim, economy: Economy, carId: number): string {
+  const by = sim.findCar(carId)?.train.cars.find((c) => economy.lineIdOf.has(c.id))?.id;
+  const name = by === undefined ? undefined : economy.lines.get(economy.lineIdOf.get(by)!)?.name;
+  return name && name.length <= POINTS_NAME ? name : "";
+}
+
+/**
+ * The toast for a lever tap on points set for a routed train (`by`, an engine): they stay set for it, and go the
+ * player's way once it has passed (routing §16 Q1). Three lines at most at 360 px.
+ */
+export function pointsSetFor(economy: Economy, by: number): string {
+  const name = lineNameOf(economy.sim, economy, by);
+  return `Set for ${name ? `the ${name} train` : "a train"}. They'll switch to your way after it passes`;
 }
 
 /** A train not on the line stands on each road of a passing loop: no loop laid elsewhere gets past it. */
@@ -204,6 +238,10 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return s.parked ? `Waiting: ${SPARE_CUT}` : "Waiting: a train not on the line is in the way";
     case "full-wait":
       return `Waiting: ${fullText(s.full)}`;
+    case "points-wait":
+      return s.line ? `Waiting for the ${s.line} train to pass the points` : "Waiting for another train to pass the points";
+    case "red-switch":
+      return "A red switch is in the way. Tap and hold it to unpin";
     case "needs-loop":
       if (s.spare) return `Waiting: ${s.other ? OTHER_CUT : SPARE_CUT}`;
       if (s.pinned) return `Waiting: ${UNPIN}`;

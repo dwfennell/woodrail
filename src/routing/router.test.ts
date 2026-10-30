@@ -128,20 +128,31 @@ describe("routes steer", () => {
 });
 
 describe("pinned switches", () => {
-  it("a routed engine leaves a pinned switch alone; a stop only the other route reaches is out of reach", () => {
+  it("a routed engine leaves a pinned switch alone; a stop only the other route reaches: it stands short of it", () => {
     const j = junction();
     j.layout.setPinned(j.sw, true); // set to its straight way, toward A
     j.economy.setRoute(j.engine().id, { stops: [{ depotId: j.depotB.id, action: "both" }], next: 0 });
     expect(plan(j.layout, { pieceId: j.sw, entry: 0, lead: true }, j.b)).toBeNull();
     expect(plan(j.layout, { pieceId: j.sw, entry: 0, lead: true }, j.a)).not.toBeNull();
-    expect(j.run(20)[0]).toBe(j.a);
+    // (Step 5, §7: it never runs over the red switch to A; it stands short of it, saying why, till it's unpinned.)
+    expect(j.run(20)).toEqual([]);
+    expect(j.economy.router.waitOf(j.engine().id)).toEqual({ kind: "pinned", pieceId: j.sw });
+    expect(j.sim.piecesUnder(j.sim.trainIds()[0]).has(j.sw)).toBe(false);
     expect(j.layout.switchState(j.sw)).toBe(0);
-    // Pinned to the curve, B is reached that way (and the switch is still never thrown).
+    j.layout.setPinned(j.sw, false);
+    expect(j.run(20)[0]).toBe(j.b);
+    expect(j.economy.router.waitOf(j.engine().id)).toBeNull();
+    // Pinned to the curve: B is reached that way; routed to A, it stands short of them too (the switch never thrown).
     const k = junction();
     k.layout.setSwitchState(k.sw, 1);
     k.layout.setPinned(k.sw, true);
     k.economy.setRoute(k.engine().id, { stops: [{ depotId: k.depotA.id, action: "both" }], next: 0 });
     expect(plan(k.layout, { pieceId: k.sw, entry: 0, lead: true }, k.b)).not.toBeNull();
+    expect(k.run(20)).toEqual([]);
+    expect(k.economy.router.waitOf(k.engine().id)?.kind).toBe("pinned");
+    expect(k.layout.switchState(k.sw)).toBe(1);
+    // (Routed to B, the way they're pinned: on it goes.)
+    k.economy.setRoute(k.engine().id, { stops: [{ depotId: k.depotB.id, action: "both" }], next: 0 });
     expect(k.run(20)[0]).toBe(k.b);
     expect(k.layout.switchState(k.sw)).toBe(1);
   });
@@ -421,26 +432,46 @@ describe("route locks: two trains", () => {
   });
 });
 
-describe("a lever tap on points set for a train (§16 Q1)", () => {
-  it("moves them, drops the train's lock, and the router doesn't throw them back", () => {
+describe("a lever tap on points set for a train (§16 Q1, as changed at step 5)", () => {
+  it("doesn't move them: the train keeps its route, the tap is their new default, and they go to it once it has passed", () => {
     const j = junction();
     const engine = j.engine().id;
     const r = routerOn(j.layout, j.sim, new Map([[engine, j.b]]));
     r.look();
+    // (Laid set for A (0), their default; locked for the train, for B.)
     expect(j.layout.switchState(j.sw)).toBe(1);
-    expect(r.router.lever(j.sw)).toEqual({ ok: true });
-    expect(j.layout.switchState(j.sw)).toBe(0);
-    expect(r.router.locked(j.sw)).toBe(false);
-    expect(r.router.tappedFor(engine, j.sw)).toBe(true);
-    // It goes as tapped, to A, the points never thrown back (till it turns at A's end and heads for B again).
+    expect(r.router.lever(j.sw)).toEqual({ deferred: true, by: engine });
+    expect(j.layout.switchState(j.sw)).toBe(1);
+    expect(r.router.locked(j.sw)).toBe(true);
+    // (From the way they're set, as seen: the other road, A. A second tap goes on round, to B; a third back to A.)
+    expect(r.router.defaultOf(j.sw)).toBe(0);
+    r.router.lever(j.sw);
+    expect(r.router.defaultOf(j.sw)).toBe(1);
+    r.router.lever(j.sw);
+    expect(r.router.defaultOf(j.sw)).toBe(0);
+    // It goes on to B as set, never moved under it; once it's off them they go back to the tap's way.
     const train = j.sim.getTrain(j.sim.trainIds()[0])!;
-    for (let i = 0; i < 20 * SIM_HZ && !train.bogies.some((x) => x.pieceId === j.a); i++) {
+    const underTrain = spyThrows(j.layout, j.sim);
+    for (let i = 0; i < 20 * SIM_HZ && !train.bogies.some((x) => x.pieceId === j.b); i++) {
       j.sim.tick();
       r.router.tick();
-      expect(j.layout.switchState(j.sw)).toBe(0);
     }
-    expect(train.bogies.some((x) => x.pieceId === j.a)).toBe(true);
-    expect(r.router.defaultOf(j.sw)).toBe(0);
+    expect(train.bogies.some((x) => x.pieceId === j.b)).toBe(true);
+    for (let i = 0; i < 5 * SIM_HZ; i++) {
+      j.sim.tick();
+      r.router.tick();
+    }
+    expect(underTrain()).toBe(0);
+    expect(r.router.locked(j.sw)).toBe(false);
+    expect(j.layout.switchState(j.sw)).toBe(0);
+  });
+
+  it("moves points no train holds at once", () => {
+    const j = junction();
+    const r = routerOn(j.layout, j.sim, new Map());
+    expect(r.router.lever(j.sw)).toEqual({ ok: true });
+    expect(j.layout.switchState(j.sw)).toBe(1);
+    expect(r.router.defaultOf(j.sw)).toBe(1);
   });
 
   it("is refused with a car on the points", () => {
