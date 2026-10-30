@@ -978,10 +978,11 @@ async function twoRoutes(ctx, p) {
   const cdp = await ctx.newCDPSession(p);
   const setup = await p.evaluate(async () => {
     const w = window.woodrail;
-    const { frameDistance } = await import("/src/game/camera-director.ts");
-    // (Open ground for two runs side by side, found outward from the view's target.)
+    // (Open ground for two runs side by side, found outward from the view's target, where the view can go.)
     const t = w.controls.target;
+    const bounds = w.director.bounds;
     const clear = (x, z) =>
+      x > bounds.x0 + 500 && x < bounds.x1 - 500 && z > bounds.z0 + 500 && z < bounds.z1 - 500 &&
       [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
       [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
     let g = null;
@@ -1007,8 +1008,6 @@ async function twoRoutes(ctx, p) {
       w.sim.setLever(e, 1);
       return e;
     });
-    const view = { x: g.x + 432, z: g.z + 250, d: frameDistance(1300, w.camera.fov, w.camera.aspect) };
-    w.director.glideTo(new t.constructor(view.x, 0, view.z), view.d, { duration: 0.2 });
     // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's
     // few frames a second; the forests kept stocked (their logs aren't what's tested). Counts goods unloaded at each
     // run's sawmill (only that run's train can reach it).
@@ -1025,34 +1024,42 @@ async function twoRoutes(ctx, p) {
       w.invalidate();
       return goods;
     };
-    return { engines, places, view };
+    return { engines, places };
   });
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
-  await frames(p);
-  // Where a thing is on the screen: an engine (between its bogies), a place (its piece's middle).
-  const onScreen = (what) => p.evaluate((what) => {
+  // Where a thing is in the world: an engine (between its bogies), a place (its piece's middle).
+  const worldAt = (what) => p.evaluate((what) => {
     const w = window.woodrail;
-    let v;
     if (what.engine !== undefined) {
       const t = w.sim.findCar(what.engine).train;
       const [a, b] = [t.world[0], t.world[1]];
-      v = new w.camera.position.constructor((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-    } else {
-      // (A piece's pose is at its start: its middle is half its 216 mm on.)
-      const piece = w.layout.getPiece(w.economy.depot(what.depot).pieceId);
-      const q = piece.pose;
-      v = new w.camera.position.constructor(q.x + Math.cos(q.heading) * 108, piece.y, q.z + Math.sin(q.heading) * 108);
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
     }
-    const c = v.project(w.camera);
-    return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
+    // (A piece's pose is at its start: its middle is half its 216 mm on.)
+    const piece = w.layout.getPiece(w.economy.depot(what.depot).pieceId);
+    const q = piece.pose;
+    return { x: q.x + Math.cos(q.heading) * 108, y: piece.y, z: q.z + Math.sin(q.heading) * 108 };
   }, what);
-  // (The view glides when planning starts, to frame the train and its places: still first, then where it's seen.)
+  const onScreen = async (what) => {
+    const v = await worldAt(what);
+    return p.evaluate((v) => {
+      const w = window.woodrail;
+      const c = new w.camera.position.constructor(v.x, v.y, v.z).project(w.camera);
+      return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
+    }, v);
+  };
   const still = async () => {
     await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
     await frames(p);
   };
-  const tapOn = async (what) => {
+  // A thing tapped as a player does: the view panned to it first (the steps before, and planning's own framing, may
+  // have left it off screen), then a tap where it's seen.
+  const showing = async (what) => {
+    const v = await worldAt(what);
+    await p.evaluate((v) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), 1500, { duration: 0.2 }), v);
     await still();
+  };
+  const tapOn = async (what) => {
+    await showing(what);
     const [x, y] = await onScreen(what);
     await tapped(p, () => p.touchscreen.tap(x, y));
   };
@@ -1079,7 +1086,7 @@ async function twoRoutes(ctx, p) {
   check("routes: each train's route planned by taps on its card and the map", planned.every((x, k) => x.open === setup.engines[k] && ownStops(k)) && planned[0].line !== planned[1].line, JSON.stringify(planned));
   // A finger rests on the first train (a pickup's hold), moves it a little along its track, and lets go there: the
   // train moved, as a player does to make room or tidy up (or, on a slow tap, by accident).
-  await still();
+  await showing({ engine: setup.engines[0] });
   const [hx, hy] = await onScreen({ engine: setup.engines[0] });
   // (Along its track: toward its sawmill, at the run's far end from where it's heading.)
   const [ax, ay] = await onScreen({ depot: setup.places[0][1] });
@@ -1107,8 +1114,6 @@ async function twoRoutes(ctx, p) {
   check("routes: a train picked up and moved keeps its route, and the other keeps its own (#4)", lifted === "drag-train" && moved && afterHold.every((x, k) => JSON.stringify(x.stops) === JSON.stringify(setup.places[k])) && afterHold[0].line === planned[0].line && afterHold[1].line === planned[1].line, JSON.stringify({ lifted, moved, afterHold }));
   // Each card shows its own line.
   const cards = [];
-  // (Both runs back in view: the drag may have panned it at the screen's edge.)
-  await p.evaluate((view) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(view.x, 0, view.z), view.d, { duration: 0.2 }), setup.view);
   for (const e of setup.engines) {
     await tapOn({ engine: e });
     await frames(p);
