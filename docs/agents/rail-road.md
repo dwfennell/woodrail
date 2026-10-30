@@ -132,6 +132,7 @@ Nothing may change points under a train. The switch memory only covers points en
   - #8: curves flip when auto-placing (shared with Sandbox);
   - #15: wyes;
   - #16: signals.
+- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md`, with open questions for the user. Don't patch `steerSwitch` for these; follow the spec's migration steps.
 - **Loop proposal,** waiting on the user: "Show me where" plus a ghost loop, a one-tap Build loop, and a toast.
 - **Parked:** routes-blocks and routes-loops, and sections P3 (sidings as slots).
 - **Stand-still card on admitted trains** after a trap stall: revisit with the loop proposal.
