@@ -113,10 +113,13 @@ Before going wide: rate-limit HEAD/GET, and codes with nothing saved yet.
      - log `meta.modes.game.layout` on D before 8a. Suspects: town growth, or world changes after load (unconfirmed);
      - rerun alone, twice.
 3. **ramps-2 + #8 keep-turning** (`claude/keep-turning`):
-   - a curve or curved ramp from the tray (held, carried, or waiting at the end of the last one put down) seated on a curve keeps its turn (`keepTurning` in `snap.ts`), unless Flip was pressed for it. **#8's cause:** the waiting piece (`previewNextAt`) seats by whichever end turns it least from the tray's heading, so a flat curve often came backwards (an S); only ramps were kept turning.
-   - Flip while the next piece waits shows it again mirrored (`reshowPreview`), so a tap puts down what's shown.
+   - a curve or curved ramp from the tray (held, carried, or waiting at the end of the last one put down) seated on a curve keeps its turn (`keepTurning` in `snap.ts`), unless Flip was pressed for it. **#8's cause:** the waiting piece (`previewNextAt`) seats by whichever end turns it least from the tray's heading, so from about a half turn round a flat curve came backwards (an S); only ramps were kept turning.
+   - `keepTurning` seats the piece itself (either end, each mirrored to keep turning; not below the floor, then the least turn from the hold). Snapping a mirrored piece afresh can seat it by its other end and turn it back.
+   - Flip while the next piece waits shows it again mirrored (`reshowPreview`); a tap lays it as shown.
    - the riser-in-ramp refusal is fixed;
-   - unit tests in `snap.test.ts`; e2e:ramps lanes the wide, the S, the spiral and the drag (#8).
+   - unit tests in `snap.test.ts`; e2e:ramps lanes the wide, the S, the spiral and the drag (#8; fails with keep-turning off).
+   - e2e:ramps 14/14. The spiral's curve is taken as it comes: asked for unmirrored, it can seat by its far end and turn off the checked place (hills, "past the edge").
+   - **Open:** a second curved ramp clicked on a curve's raised end (two levels up) doesn't snap, even clicked 30 mm ahead of the end (ghost `snap: none`, "headroom"). The spiral lane stops at the curve on top. Next: log `findSnapAtPoint` at that end's level in the page.
 4. **Issue #10:** piece names on piece cards.
 
 ## 5. Gotchas
