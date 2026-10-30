@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { editLine, joinLine, stopLine } from "../game/lines";
@@ -9,9 +9,16 @@ import { capAt, Economy } from "./economy";
 import { topologyOf, trainLength, YIELD_S } from "./sections";
 import { loopOn } from "./loop-fixtures";
 import { next, waysFrom } from "../routing/graph";
+import { ShadowPlans } from "../routing/shadow";
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const TRACE = !!ENV.TRACE;
+/**
+ * SHADOW=1: the plan search (routing step 3) watches every world's steering in shadow, never acting; at the end, how
+ * often its choice at points differed from today's, why, and its search time (with --silent=false).
+ */
+const SHADOW = ENV.SHADOW ? new ShadowPlans() : null;
+if (SHADOW) afterAll(() => console.log(`QA ${SHADOW.summary()}`));
 
 /** QA's layout builder (scratchpad/qa/ss/lib.js `H.line0`), on a plain Layout. */
 function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTypeId[] | null; branch?: PieceTypeId[]; branchFlips?: boolean[]; eastT?: PieceTypeId[]; sideAt?: boolean }) {
@@ -61,6 +68,7 @@ function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTy
   put("buffer-turnback", false, connectorRef(east[east.length - 1], 1));
   const sim = new Sim(L);
   const economy = new Economy(L, sim);
+  economy.router.shadow = SHADOW;
   return { L, sim, economy, a, b: east[east.length - 1], west, east, loops, middle, br };
 }
 

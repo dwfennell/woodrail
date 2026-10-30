@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
-import { INVARIANTS, runScenario, type Invariant, type Report } from "./harness";
+import { HarnessRun, INVARIANTS, type Invariant, type Report } from "./harness";
+import { ShadowPlans, WHY } from "./shadow";
 import { fuzz } from "./scenarios";
 
 /**
@@ -23,9 +24,13 @@ const FAILS: Partial<Record<Invariant, string>> = { restore: "step 4 (locks, set
 
 describe(`routing fuzz: ${SEEDS} seeds × ${SECONDS} s`, () => {
   let reports: Report[] | undefined;
+  // (The plan search watches every run in shadow (step 3); it never acts.)
+  const shadow = new ShadowPlans();
   const run = () =>
     (reports ??= Array.from({ length: SEEDS }, (_, k) => {
-      const r = runScenario(new Layout(), fuzz(k + 1, SECONDS));
+      const h = new HarnessRun(new Layout(), fuzz(k + 1, SECONDS));
+      h.watchPlans(shadow);
+      const r = h.run(SECONDS);
       const broke = INVARIANTS.filter((i) => r.broke[i].count > 0);
       if (LONG && broke.length > 0) console.log(`seed ${k + 1}: ${broke.map((i) => `${i} ×${r.broke[i].count} (${r.broke[i].first[0]})`).join("; ")}`);
       return r;
@@ -42,5 +47,10 @@ describe(`routing fuzz: ${SEEDS} seeds × ${SECONDS} s`, () => {
   }
   it("trains deliver: at least one stop come to in each run", () => {
     expect(run().filter((r) => r.arrivals.every((a) => a === 0)).map((r) => r.name)).toEqual([]);
+  });
+  it("shadow plans: where the plan's choice at points differs from today's, the reason is known", () => {
+    run();
+    if (ENV.SHOW || LONG) console.log(shadow.summary());
+    expect([...shadow.why.keys()].filter((w) => w !== WHY.granted && w !== WHY.overcount && w !== WHY.unreached)).toEqual([]);
   });
 });

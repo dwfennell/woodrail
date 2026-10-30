@@ -7,9 +7,10 @@
 import { getPieceDef, type Layout } from "../track";
 import { flipCursor, type Cursor, type Sim, type Train } from "../sim";
 import { next, waysFrom, wayToward } from "./graph";
+import type { ShadowObserver } from "./shadow";
 
 /** How far ahead of a train (pieces) a switch is set for it: the next one it will choose at, within this many. */
-const LOOK_AHEAD = 6;
+export const LOOK_AHEAD = 6;
 /** How often (sim ticks) the switches ahead of routed trains are set. */
 const STEER_TICKS = 8;
 
@@ -135,6 +136,16 @@ export function steerSwitch(
   return -1;
 }
 
+/** Is this piece points (a switch with a lever: not a signal, a deck or a lift)? */
+function isPoints(layout: Layout, pieceId: number): boolean {
+  const p = layout.getPiece(pieceId);
+  const def = p && getPieceDef(p.type, p.flipped);
+  return !!def?.isSwitch && !def.gated && !def.signal;
+}
+
+/** Switch defaults as saved: `[pieceId, state]`, only where the default differs from how the switch is set (§4). */
+export type SavedDefaults = [number, number][];
+
 /** What a lever tap on points came to: thrown, or refused while a car is on or over them (`Sim.pointsHeld`). */
 export type LeverResult = { ok: true } | { refused: "under-train" };
 
@@ -163,7 +174,19 @@ export interface RouterHost {
 export class Router {
   /** Called when a route has set a switch (its piece id: the game redraws its lever, swinging it over if it's in view). */
   onSwitch: ((pieceId: number) => void) | null = null;
+  /**
+   * A shadow beside today's steering (step 3: the plan search, compared at each switch ahead, with no effect on the game).
+   * Null in the game; the harness and the sections QA set it.
+   */
+  shadow: ShadowObserver | null = null;
   private steerTicks = 0;
+  /**
+   * Each switch's default (§3.4): the way the player last set it by hand, or as laid. Written by a lever tap the router
+   * allowed and when points are laid, never by routing. Points not in it (not seen since laid) default to how they lie.
+   */
+  private readonly defaults = new Map<number, number>();
+  /** The layout's `piecesVersion` the defaults were last brought up to date with (points laid and taken up). */
+  private laidAt = -1;
 
   constructor(private readonly host: RouterHost) {}
 
@@ -183,8 +206,47 @@ export class Router {
    */
   lever(pieceId: number): LeverResult {
     const sim = this.host.sim;
+    this.laid();
     if (sim.pointsHeld(pieceId) || !sim.toggleSwitch(pieceId)) return { refused: "under-train" };
+    // (The player's new default for these points.)
+    this.defaults.set(pieceId, this.host.layout.switchState(pieceId));
     return { ok: true };
+  }
+
+  /** The way points go back to once trains have passed (§3.4): the player's last lever tap, or as laid. */
+  defaultOf(pieceId: number): number {
+    this.laid();
+    return this.defaults.get(pieceId) ?? this.host.layout.switchState(pieceId);
+  }
+
+  /**
+   * Bring the defaults up to date with the track: points laid since take the way they lie as their default; points taken
+   * up lose theirs (put back by undo, they're laid again). Only when pieces have come or gone (`piecesVersion`).
+   */
+  laid(): void {
+    const layout = this.host.layout;
+    if (this.laidAt === layout.piecesVersion) return;
+    this.laidAt = layout.piecesVersion;
+    for (const id of this.defaults.keys()) if (!layout.getPiece(id)) this.defaults.delete(id);
+    for (const id of layout.pieceIds()) if (!this.defaults.has(id) && isPoints(layout, id)) this.defaults.set(id, layout.switchState(id));
+  }
+
+  /** The defaults to save: only those that differ from how their switch is set (the rest load as they lie). */
+  save(): SavedDefaults | undefined {
+    this.laid();
+    const layout = this.host.layout;
+    const out: SavedDefaults = [];
+    for (const [id, state] of this.defaults) if (state !== layout.switchState(id)) out.push([id, state]);
+    return out.length > 0 ? out : undefined;
+  }
+
+  /** Loaded with the save (after its switches are set): its defaults; points it doesn't name default to how they lie. */
+  restore(saved?: readonly (readonly [number, number])[]): void {
+    this.defaults.clear();
+    this.laidAt = -1;
+    const layout = this.host.layout;
+    for (const [id, state] of saved ?? []) if (isPoints(layout, id)) this.defaults.set(id, state);
+    this.laid();
   }
 
   /** Set the switches ahead of each routed train (or just `only`) toward its next stop. */
@@ -206,6 +268,8 @@ export class Router {
       // (Nor one another train ahead on the way comes to first: thrown for the one behind, it would send that one down
       // the other road (issue #3).)
       const ahead = (pieceId: number, exit: number, from?: Cursor) => sim.trainAhead(found.train, pieceId, exit, from);
+      // (The plan search in shadow, when one is watching: it reads, never throws.)
+      this.shadow?.steering(layout, engine, found.train, net > 0, held?.aim ?? goal, held?.follow);
       const thrown = steerSwitch(layout, found.train, net > 0, held?.aim ?? goal, undefined, held?.follow, occupied, ahead);
       if (thrown !== -1) this.onSwitch?.(thrown);
     }

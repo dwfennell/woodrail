@@ -3,8 +3,8 @@
  * §13): a walk choosing at each switch as the router steers (`wayToward`, the shortest way on by the piece-count
  * `distanceTo`), so the way drawn on the map is the way the train takes.
  */
-import { getPieceDef, pathLength, type Layout } from "../track";
-import { distanceTo, next, SEARCH, wayToward, waysFrom, type PinnedTest } from "./graph";
+import { getPieceDef, MAX_CONNECTORS, pathLength, type Layout } from "../track";
+import { distanceTo, next, SEARCH, TURN_COST, wayToward, waysFrom, type PinnedTest } from "./graph";
 
 /** A stretch of one path of one piece, from s0 to s1 along the path's own geometry (s0 > s1 when run backwards). */
 export interface PathRun {
@@ -81,4 +81,207 @@ export function walkTo(layout: Layout, start: At, target: number, pinned?: Pinne
     at = { pieceId: n.pieceId, pathIndex: w.path, reversed, s: reversed ? nLen : 0 };
   }
   return null;
+}
+
+// ── The plan search (step 3: in shadow; spec §3.1, §6) ─────────────────────────────────────────────────────────────────
+
+/** Where a plan stands: on a piece, come in by `entry`, the engine leading or not (it changes at a turn-back). */
+export interface PlanState {
+  pieceId: number;
+  entry: number;
+  lead: boolean;
+}
+
+/** One piece of a plan: run through on `path` from `entry` out at `exit`; `reverse`: it turns back there (the end of a line). */
+export interface Step {
+  pieceId: number;
+  path: number;
+  entry: number;
+  exit: number;
+  reverse?: boolean;
+}
+
+/**
+ * What a plan's moves cost. `through`: running through a piece on a path; `turn`: running on to the end of the line on it
+ * and back through it (the turn-back's own cost included); `push`: the factor on `through` with the engine not leading.
+ */
+export interface PlanCosts {
+  through(layout: Layout, pieceId: number, path: number): number;
+  turn(layout: Layout, pieceId: number, path: number): number;
+  push: number;
+}
+
+/**
+ * Piece-count costs, as `distanceTo` counts (step 3, to compare with today's choices): a piece is 1, a turn-back
+ * `TURN_COST`, and pushing costs no more. Step 6 brings costs in mm (`MM_COSTS`).
+ */
+export const PIECE_COSTS: PlanCosts = { through: () => 1, turn: () => TURN_COST, push: 1 };
+
+/** A reverse (§6): about 2 m, on top of the run back. */
+export const REVERSE_COST = 2000;
+/** Running engine-last (§6). */
+export const PUSH_FACTOR = 1.5;
+
+/** Costs in mm (§6, step 6; not used yet): the length run, a reverse `REVERSE_COST` plus the run there and back. */
+export const MM_COSTS: PlanCosts = {
+  through: (layout, pieceId, path) => lengthOf(layout, pieceId, path),
+  turn: (layout, pieceId, path) => REVERSE_COST + 2 * lengthOf(layout, pieceId, path),
+  push: PUSH_FACTOR,
+};
+
+function lengthOf(layout: Layout, pieceId: number, path: number): number {
+  const p = layout.getPiece(pieceId)!;
+  return pathLength(getPieceDef(p.type, p.flipped).paths[path].geom);
+}
+
+/** A found plan: what it costs, and its steps from the start up to (not into) the target's piece. */
+export interface Plan {
+  cost: number;
+  steps: Step[];
+}
+
+const stateKey = (s: PlanState) => (s.pieceId * MAX_CONNECTORS + s.entry) * 2 + (s.lead ? 1 : 0);
+
+/** Searches done and states taken off the heap, since the counters were last read (for measuring). */
+export const planStats = { searches: 0, states: 0 };
+
+/**
+ * The cheapest way from `start` to piece `target` (a Dijkstra over (piece, entry, engine leading) with a binary heap,
+ * capped at `SEARCH` states), or null if none reaches it. A train turns back where the track ends; pinned switches
+ * offer only the road they're set to (`waysFrom`). Equal costs go to the earlier way out of each piece, as `wayToward`
+ * breaks ties.
+ */
+export function plan(layout: Layout, start: PlanState, target: number, costs: PlanCosts = PIECE_COSTS, pinned?: PinnedTest): Plan | null {
+  planStats.searches++;
+  if (start.pieceId === target) return { cost: 0, steps: [] };
+  const best = new Map<number, number>();
+  const from = new Map<number, { prev: PlanState | null; step: Step | null }>();
+  const heap = new Heap();
+  best.set(stateKey(start), 0);
+  from.set(stateKey(start), { prev: null, step: null });
+  heap.push(0, 0, start);
+  let order = 1;
+  const done = new Set<number>();
+  while (heap.size > 0 && done.size < SEARCH) {
+    const { cost, state } = heap.pop();
+    const key = stateKey(state);
+    if (done.has(key)) continue;
+    done.add(key);
+    planStats.states++;
+    if (state.pieceId === target) {
+      const steps: Step[] = [];
+      for (let k = key; ; ) {
+        const f = from.get(k)!;
+        if (!f.prev) break;
+        steps.push(f.step!);
+        k = stateKey(f.prev);
+      }
+      return { cost, steps: steps.reverse() };
+    }
+    const factor = state.lead ? 1 : costs.push;
+    for (const w of waysFrom(layout, state.pieceId, state.entry, pinned)) {
+      const n = next(layout, state.pieceId, w.exit);
+      let to: PlanState | null;
+      let c: number;
+      let step: Step;
+      if (n) {
+        to = { pieceId: n.pieceId, entry: n.entry, lead: state.lead };
+        c = cost + costs.through(layout, state.pieceId, w.path) * factor;
+        step = { pieceId: state.pieceId, path: w.path, entry: state.entry, exit: w.exit };
+      } else {
+        // The end of the line: back through this piece and out where it came in, the engine now at the other end.
+        const back = next(layout, state.pieceId, state.entry);
+        if (!back) continue;
+        to = { pieceId: back.pieceId, entry: back.entry, lead: !state.lead };
+        c = cost + costs.turn(layout, state.pieceId, w.path) * factor;
+        step = { pieceId: state.pieceId, path: w.path, entry: state.entry, exit: w.exit, reverse: true };
+      }
+      const k = stateKey(to);
+      if (done.has(k) || (best.get(k) ?? Infinity) <= c) continue;
+      best.set(k, c);
+      from.set(k, { prev: state, step });
+      heap.push(c, order++, to);
+    }
+  }
+  return null;
+}
+
+/** A binary min-heap of plan states by cost, then by when they were pushed (so ties go to the earlier way). */
+class Heap {
+  private costs: number[] = [];
+  private orders: number[] = [];
+  private states: PlanState[] = [];
+  get size(): number {
+    return this.costs.length;
+  }
+  private less(i: number, j: number): boolean {
+    return this.costs[i] < this.costs[j] || (this.costs[i] === this.costs[j] && this.orders[i] < this.orders[j]);
+  }
+  private swap(i: number, j: number): void {
+    [this.costs[i], this.costs[j]] = [this.costs[j], this.costs[i]];
+    [this.orders[i], this.orders[j]] = [this.orders[j], this.orders[i]];
+    [this.states[i], this.states[j]] = [this.states[j], this.states[i]];
+  }
+  push(cost: number, order: number, state: PlanState): void {
+    this.costs.push(cost);
+    this.orders.push(order);
+    this.states.push(state);
+    for (let i = this.costs.length - 1; i > 0; ) {
+      const parent = (i - 1) >> 1;
+      if (!this.less(i, parent)) break;
+      this.swap(i, parent);
+      i = parent;
+    }
+  }
+  pop(): { cost: number; state: PlanState } {
+    const top = { cost: this.costs[0], state: this.states[0] };
+    const last = this.costs.length - 1;
+    this.swap(0, last);
+    this.costs.pop();
+    this.orders.pop();
+    this.states.pop();
+    for (let i = 0; ; ) {
+      const l = 2 * i + 1;
+      const r = l + 1;
+      let m = i;
+      if (l < this.costs.length && this.less(l, m)) m = l;
+      if (r < this.costs.length && this.less(r, m)) m = r;
+      if (m === i) break;
+      this.swap(i, m);
+      i = m;
+    }
+    return top;
+  }
+}
+
+/**
+ * The plan's choice at points (`pieceId`, come in by `entry`, `ways` out from `waysFrom`): the way whose plan to `target`
+ * costs least, the earlier on a tie (as `wayToward`); −1 if none reaches it. `costs` per way (Infinity: none) are filled
+ * in when given, for saying why a choice differs.
+ */
+export function planChoice(
+  layout: Layout,
+  pieceId: number,
+  lead: boolean,
+  ways: readonly { option: number; path: number; exit: number }[],
+  target: number,
+  costs: PlanCosts = PIECE_COSTS,
+  out?: number[],
+): number {
+  let best = -1;
+  let bestC = Infinity;
+  for (const w of ways) {
+    const n = next(layout, pieceId, w.exit);
+    let c = Infinity;
+    if (n) {
+      const rest = n.pieceId === target ? { cost: 0 } : plan(layout, { pieceId: n.pieceId, entry: n.entry, lead }, target, costs);
+      if (rest) c = costs.through(layout, pieceId, w.path) * (lead ? 1 : costs.push) + rest.cost;
+    }
+    if (out) out[w.option] = c;
+    if (c < bestC) {
+      bestC = c;
+      best = w.option;
+    }
+  }
+  return best;
 }

@@ -10,6 +10,10 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **Routing, steps 2 (defaults) and 3 (shadow plans)** (on `claude/routing-3`; spec §13). No behaviour change: trajectory hashes identical to main (sections QA with the shadow on, its SHOW rows byte-identical; goals play-through; harness and fuzz; seed 2027).
+  - **Defaults:** `Router.defaultOf`, written by `router.lever` and by `laid()` (points laid take the way they lie; called from `Economy.prune` on every track edit). Never written by routing. Saved as `switchDefaults` only where they differ from the switch's state; old saves load with defaults as the points lie. e2e: `E2E_ONLY=defaults`.
+  - **Plans:** `plan.ts` `plan` (Dijkstra over piece, entry, engine leading; `PIECE_COSTS` now, `MM_COSTS` for step 6) and `planChoice`. `shadow.ts` `ShadowPlans` sits on `Router.shadow` (null in the game), compares the plan's choice with today's once per approach to points, caches plans by track, pins and decks.
+  - **Findings:** the plan agrees with today except (1) inside a sections grant (a loop's side road, one piece longer: 62 of 27,329 QA choices), and (2) `distanceTo` overcounts behind a switch with an open road: it marks states seen when pushed, so a turn-back hides a shorter way round a balloon (`balloonBehindOpenRoad`: today the siding and a reverse, the plan the balloon). Cost: 0.09 ms a choice mean, 99% cached.
 - **Routing, step 2: the §12 harness** (on `claude/routing-2`; spec §13). Test code only. See "Routing harness" in §2. Today's gaps, as expected failures: no restore (step 4); a follower needing the other road takes the first train's road (step 5); pinned points in the way: the train shuttles (step 5); two single-train lines over a crossover pair turn each other back forever and deliver nothing (step 5).
 - **Routing, step 1: one owner** (on `claude/routing-1`; spec §13).
   - **Moved, behaviour unchanged:** `src/routing/graph.ts` (`waysFrom`, `next`, `distanceTo`, `wayToward`, `SEARCH`, `TURN_COST`), `plan.ts` (`walkTo`, from `route-path.ts`: the way drawn on the map), `router.ts` (`steerSwitch`, `steer`, `chooseWay`, `AvoidTest`, `AheadTest`, and `Router`). `steer.ts` is gone; its tests are `src/routing/router.test.ts`.
@@ -53,7 +57,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Timing guards:** use a warm-up, best of N, and a mean or median bound, so a 10× slowdown fails but load doesn't.
 
 **Browser e2e:**
-- `npm run e2e:touch`: 76 checks, about 25 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min.
+- `npm run e2e:touch`: 81 checks, about 25 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min; `E2E_ONLY=defaults` about 2 min.
 - `node scripts/e2e/draw.mjs` with `E2E_ONLY=` one of `junctions` (27), `qa-slant` (49, slow), `specials` (10), `phone`, `terrace-repeat`, `terrace-qa`, `ghosts`, `lift` or `loop`. The full run takes 2 h or more.
 - `npm run e2e:joints`.
 - **Screenshots and idle:** a small Playwright script. Load playwright-core with `createRequire("<repo>/package.json")`, wait for `settled()`, then check `framesDrawn` stays at 0 over 5 s.
@@ -73,6 +77,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 
 **Routing harness** (`src/routing/harness.ts`, spec §12): scripted layouts on a `Sim`, `Sections` and `Router`, no `Economy`; the routing invariants checked every tick.
 - `npx vitest run src/routing/harness.test.ts` (about 13 s; `SHOW=1 … --silent=false` prints each case's report: stops, turn-backs by cause, the longest stand-still, router µs a tick, each broken invariant's first few times).
+- **Shadow plans** watch every harness case and fuzz seed (`SHOW=1` prints the summary). Sections QA: `SHADOW=1 SHOW=1 … --silent=false src/economy/sections-qa.test.ts`. `plan.test.ts` compares every choice on 56 layouts. A new difference needs a reason in `shadow.ts` `WHY`, or the tests fail.
 - `src/routing/harness-fuzz.test.ts`: 8 seeds × 5 min. Long: `ROUTING_FUZZ=200 ROUTING_FUZZ_SECONDS=1800 npx vitest run --silent=false src/routing/harness-fuzz.test.ts` prints a line per seed that broke anything.
 - Cases are in `scenarios.ts`. Each invariant and payoff is its own test; one today's router fails is `it.fails` with the step expected to fix it (in `fails`). **When a step fixes one, flip it to passing** (an `it.fails` that passes fails the run).
 - The lone-train trajectory hashes (`LONE_UNROUTED`, `LONE_ROUTED`) must hold through step 5; record them again only with a reason.
@@ -156,7 +161,7 @@ Nothing may change points under a train. The switch memory only covers points en
   - #8: curves flip when auto-placing (shared with Sandbox);
   - #15: wyes;
   - #16: signals.
-- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Step 1 (consolidate) is on main; step 2's §12 harness is on `claude/routing-2` (its expected failures name steps 4 and 5). Still to do in step 2: defaults. Don't patch `steerSwitch` for these; follow the spec's migration steps.
+- **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Steps 1 and 2's harness are on main; step 2's defaults and step 3's shadow plans are on `claude/routing-3`. Next: step 4 (locks, setting and restore), which should call `router.laid()` before any throw, and replace `distanceTo` (its overcount) in sections and the drawn line along with steering. Don't patch `steerSwitch` for these; follow the spec's migration steps.
 - **Loop proposal,** waiting on the user: "Show me where" plus a ghost loop, a one-tap Build loop, and a toast.
 - **Parked:** routes-blocks and routes-loops, and sections P3 (sidings as slots).
 - **Stand-still card on admitted trains** after a trap stall: revisit with the loop proposal.

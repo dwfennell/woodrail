@@ -1719,6 +1719,8 @@ export class Economy {
     this.sections.prune(new Set(this.lineIdOf.keys()));
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
     this.kitStops.prune();
+    // (Points laid take the way they lie as their default; points taken up lose theirs.)
+    this.router.laid();
   }
 }
 

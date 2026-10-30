@@ -2,7 +2,8 @@
 
 ## Status
 
-A design, being built step by step (§13): steps 0 and 1 are done, and step 2's harness (§12). It covers four play-test
+A design, being built step by step (§13): steps 0 to 3 are done (step 2: the §12 harness and defaults; step 3: shadow
+plans). It covers four play-test
 issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
@@ -350,7 +351,7 @@ lone-train check.
 2. **Defaults.** Lever taps and laid switches write defaults, which are saved and loaded. Player-path test: tap a
    lever, then save and reload. No behaviour change.
    - **The §12 harness: done** (`claude/routing-2`), test code only (nothing in `src/` outside tests changed; the
-     trajectory hashes are identical to main). Defaults themselves are still to do.
+     trajectory hashes are identical to main). Defaults: done at `claude/routing-3` (below).
      - `src/routing/harness.ts`: `HarnessRun` builds a `Sim`, `Sections` and a `Router` on a scripted `Layout`, with
        no `Economy`. Its stand-ins, named in its header: routes as stop pieces (come to when an axle is on the stop,
        left when none is; no dwell, so trains run through stops and turn only where the track ends), lines by
@@ -379,8 +380,56 @@ lone-train check.
        and fuzz seed; the §8 automations deliver (the balloon engine-first, round and round never turning).
      - **Cost:** the router takes 0.3–2.6 µs a tick in these runs (bound: 25 µs, best of 3). The default cases take
        about 13 s.
+   - **Defaults: done** (`claude/routing-3`). No behaviour change: trajectory hashes identical to main (the sections QA
+     with its SHOW rows byte-identical, the goals play-through, the harness and its fuzz, seed 2027).
+     - `Router` holds `defaults` (§3.4): `lever` writes the tapped way when it allows the tap; `laid()` gives points
+       laid since the way they lie and drops those taken up (keyed by `piecesVersion`; called from `Economy.prune`, so
+       on every track edit, and before a lever tap or a save). `defaultOf(pieceId)`: no entry is the way the points lie.
+       Nothing in routing writes one.
+     - **Saved** as `switchDefaults?: [pieceId, state][]`, only where a default differs from the switch's state
+       (`Router.save`); loaded by `Router.restore` right after the economy is made. Old saves (no field), and points
+       not named, default to the way they lie. An entry for a piece that isn't points is dropped. Save version
+       unchanged (13): the field is optional.
+     - The harness's own map of defaults is gone: it asks the router, and its save round-trip carries them through
+       `save`/`restore` as the game does.
+     - **Player's path:** `E2E_ONLY=defaults` in `e2e:touch` (also in the full run): points laid (default as laid), a
+       tap on their lever by touch (default the tap's), the points thrown by something else (a harness shortcut
+       standing in for step 4's routes), saved on page hide and reloaded: the points lie as saved, the default is the
+       tap's. A negative control (restore skipped) fails it. Also `save.test.ts` and the harness.
 3. **Shadow plans.** `plan.ts` (piece-count costs) is compared against step 1's choices in the harness and QA, with no
    effect in game. Measure search time.
+   - **Done** (`claude/routing-3`). No behaviour change (the hashes above were recorded with the shadow watching).
+     - `plan.ts`: `plan(layout, { pieceId, entry, lead }, target, costs)`, a Dijkstra with a binary heap over (piece,
+       entry, engine leading), capped at `SEARCH` states, returning the cost and `Step`s (`reverse` where it turns
+       back at the end of a line, the engine then at the other end). Pinned switches and decks offer only their set
+       way (`waysFrom`). Ties go to the way pushed first, as `wayToward` breaks them. `planChoice` is the choice at
+       points (each way's cost through it). Costs are a `PlanCosts`: `PIECE_COSTS` (1 a piece, `TURN_COST` a
+       turn-back, no push factor: today's metric) is used now; `MM_COSTS` (path lengths, `REVERSE_COST` 2000 plus
+       the run there and back, `PUSH_FACTOR` 1.5) waits for step 6.
+     - `shadow.ts`: `ShadowPlans`, set as `Router.shadow` (null in the game; type-only import, so not in the game's
+       bundle). Each steer, it finds the next points ahead with a choice (as `steerSwitch` looks), and once per
+       approach compares the plan's choice with today's (the granted way, else `wayToward`), keeping each difference
+       with why. Plans are cached by (points, entry, engine leading, target) for a key of the layout's `revision`,
+       `jointsVersion` and the pins' and decks' states (recomputed only when `switchesVersion` moves). Nothing per
+       frame and nothing idle: it runs only inside a steer.
+     - **Where it runs:** every harness case and the fuzz (`harness.test.ts`, `harness-fuzz.test.ts`, always on), the
+       sections QA with `SHADOW=1` (summary at the end, with `--silent=false`), and exhaustively in `plan.test.ts`
+       (every points, entry and target, engine leading or not, on 56 layouts: 5,496 choices).
+     - **Findings:**
+       - **Harness, fuzz and exhaustive:** the plan agrees with today everywhere except one layout:
+         `balloonBehindOpenRoad` (added). `distanceTo` marks a (piece, entry) seen when it's pushed, so a turn-back
+         at a switch's open road, pushed first at +12, hides the shorter way round a balloon loop to the same place.
+         Its distance is too long (e.g. 17 where it's 8), so today's steering sends the train into a dead-end
+         siding to reverse; the plan sends it round the balloon (engine first, no reverse). A train heading away
+         from its stop there: 10 of 10 approaches differ; exhaustively, 8 of 5,496 choices, all on that layout. Open roads on points are common in unfinished layouts.
+         `distanceTo` also feeds sections (`wayOn`, `unreachable`) and the drawn line, so step 4 should replace it
+         there too, or the map and the train will disagree.
+       - **Sections QA (`SHADOW=1`):** 27,329 choices, 27,267 agree. All 62 differences are a sections grant: the
+         granted way is a passing loop's side road, one piece longer (plan cost 27 vs 28), taken so trains can pass.
+         Steps 4–5 make the plan follow the grant inside a granted move. No search difference.
+     - **Cost:** QA: 199 plans for 27,329 choices (99% from the cache), 357 searches, 5,248 states, 17.5 ms in all
+       (mean 0.09 ms a choice, longest 2.3 ms, a cold first one). Harness: mean 0.1 ms, longest 0.6 ms. A single
+       plan on the biggest fuzz layout (31 pieces): 17 µs median over all 961 pairs (bound 1 ms, in `plan.test.ts`).
 4. **Locks, setting and restore (#5).** These replace the step-1 wrappers. Delete `steerSwitch`, `trainAhead` and
    `switchHeld`.
 5. **Waits (#3 follow-up).** The `speedCap` overlap stop, `RouteWait`, the card text from §7, and waits fed into

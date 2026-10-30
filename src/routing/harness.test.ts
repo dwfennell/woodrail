@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
-import { INVARIANTS, runScenario, type Report, type Scenario } from "./harness";
+import { HarnessRun, INVARIANTS, runScenario, type Report, type Scenario } from "./harness";
+import { ShadowPlans, WHY } from "./shadow";
 import * as S from "./scenarios";
 
 /**
@@ -76,6 +77,12 @@ const OTHERS: Case[] = [
     fails: { restore: LOCKS },
   },
   {
+    scenario: S.balloonBehindOpenRoad,
+    // (Both ways reach the stop; which one is taken is the shadow's finding: see "shadow plans" below.)
+    checks: { "payoff: 5+ stops": arrivals(5) },
+    fails: { restore: LOCKS },
+  },
+  {
     scenario: S.crossoverRing,
     checks: { "payoff: 10+ stops each": arrivals(10), "turns back only at the buffers": endsOnly },
     fails: { restore: LOCKS, "payoff: 10+ stops each": WAITS, "turns back only at the buffers": WAITS },
@@ -94,16 +101,27 @@ const OTHERS: Case[] = [
 /** The router's cost: mean µs per tick over the §8 runs (10 µs a steer every 8 ticks, today: about 1–2 µs a tick). */
 const ROUTER_US = 25;
 
+/**
+ * Each case's run, once, with the plan search watching in shadow (step 3): it never acts, so the lone trains' hashes
+ * (recorded before it existed) prove it changes nothing.
+ */
+const runs = new Map<Case, { report: Report; shadow: ShadowPlans }>();
+function runCase(c: Case): { report: Report; shadow: ShadowPlans } {
+  let r = runs.get(c);
+  if (!r) {
+    const run = new HarnessRun(new Layout(), c.scenario);
+    const shadow = new ShadowPlans();
+    run.watchPlans(shadow);
+    r = { report: run.run(c.scenario.seconds), shadow };
+    runs.set(c, r);
+    if (ENV.SHOW) show(r.report);
+  }
+  return r;
+}
+
 function describeCase(c: Case): void {
   describe(c.scenario.name, () => {
-    let report: Report | undefined;
-    const run = () => {
-      if (!report) {
-        report = runScenario(new Layout(), c.scenario);
-        if (ENV.SHOW) show(report);
-      }
-      return report;
-    };
+    const run = () => runCase(c).report;
     const named: [string, (r: Report) => void][] = [
       ...INVARIANTS.map((k): [string, (r: Report) => void] => [k, (r) => expect(r.broke[k].first, `${k} broke ${r.broke[k].count} times`).toEqual([])]),
       ...Object.entries(c.checks ?? {}),
@@ -151,6 +169,38 @@ describe("every expected failure names a step", () => {
       }
     }
   });
+});
+
+describe("shadow plans (step 3): the plan search beside today's steering, in every case", () => {
+  /** Why the plan may choose otherwise today: each is explained (see shadow.ts); nothing unexplained. */
+  const allowed = new Set<string>([WHY.granted, WHY.overcount, WHY.unreached]);
+  const all = () => {
+    const total = new ShadowPlans();
+    for (const c of [...KID, ...OTHERS]) total.add(runCase(c).shadow);
+    return total;
+  };
+  it("compares choices at points, and every difference has a known reason", () => {
+    const total = all();
+    if (ENV.SHOW) console.log(total.summary());
+    expect(total.compared).toBeGreaterThan(100);
+    expect([...total.why.keys()].filter((w) => !allowed.has(w))).toEqual([]);
+  }, 120_000);
+  it("where they differ: a balloon behind points with an open road (today's distanceTo overcounts it), the plan takes the balloon", () => {
+    const c = OTHERS.find((c) => c.scenario === S.balloonBehindOpenRoad)!;
+    const { report, shadow } = runCase(c);
+    expect(shadow.why.get(WHY.overcount)).toBeGreaterThan(0);
+    expect([...shadow.why.keys()]).toEqual([WHY.overcount]);
+    // Today it takes the siding every time (the shadow changes nothing).
+    expect(report.onWatched).toBeGreaterThan(0);
+  }, 120_000);
+  it("plans are cached by the track, the pins and the choice: most choices come from the cache", () => {
+    const total = all();
+    expect(total.hits).toBeGreaterThan(total.choices);
+  }, 120_000);
+  it("a choice's searches take well under 1 ms (mean over every case)", () => {
+    const total = all();
+    expect(total.ms / Math.max(1, total.choices)).toBeLessThan(1);
+  }, 120_000);
 });
 
 describe("routing's cost", () => {

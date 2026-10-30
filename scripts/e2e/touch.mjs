@@ -957,7 +957,8 @@ async function shortUnderCar(ctx, p) {
   await p.keyboard.press("Escape");
 }
 
-// (E2E_ONLY=dead-end, trap or routes: only the Continue check, the third-train trap, or two trains' routes, in Sandbox.)
+// (E2E_ONLY=dead-end, trap, routes or defaults: only the Continue check, the third-train trap, two trains' routes, or a
+// lever's default kept through a reload, in Sandbox.)
 const ONLY = process.env.E2E_ONLY ?? "";
 for (const mode of ONLY ? ["sandbox"] : ["sandbox", "game"]) {
   try {
@@ -1147,6 +1148,104 @@ async function twoRoutes(ctx, p) {
     });
   }, where);
   check("routes: after a reload each train still runs its own line", reloaded[0].line === planned[0].line && reloaded[1].line === planned[1].line && JSON.stringify(reloaded[0].places) !== JSON.stringify(reloaded[1].places) && reloaded.every((r) => r.places?.length === 2), JSON.stringify(reloaded));
+  await p.keyboard.press("Escape");
+}
+
+/**
+ * A lever tap sets the points' default (routing spec §3.4: the way routes put them back to), and it's kept through a
+ * save and reload. By the player's path: points laid, a tap on their lever, then they're thrown by something that isn't
+ * the player (as a route will from routing step 4), the game saved as it is on leaving the page, and reloaded. The
+ * default must be the tap's, not how the points lie at the save.
+ */
+async function leverDefault(ctx, p) {
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y, timestamp) => cdp.send("Input.dispatchTouchEvent", { type, ...(timestamp ? { timestamp } : {}), touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await p.keyboard.press("Escape");
+  // Points on open ground (clear of what the checks before put down), framed close: found outward from the view's target.
+  const id = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const t = w.controls.target;
+    const bounds = w.director.bounds;
+    const clear = (x, z) =>
+      x > bounds.x0 + 500 && x < bounds.x1 - 500 && z > bounds.z0 + 500 && z < bounds.z1 - 500 &&
+      [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
+      [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
+    for (let d = 0; d <= 8000; d += 216) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 216));
+      for (let a = 0; a < n; a++) {
+        const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+        const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+        if (!clear(x, z)) continue;
+        const placed = w.editor().place("switch", poseForCentre("switch", false, x, z, 0), 0, false);
+        const pid = typeof placed === "number" ? placed : (placed?.id ?? -1);
+        if (pid >= 0) {
+          window.__defaultAt = [x, z];
+          return pid;
+        }
+      }
+    }
+    return -1;
+  });
+  if (id < 0) {
+    check("defaults: points go down for the lever-default check", false);
+    return;
+  }
+  /** Framed on the points, the lever on screen and nothing in hand: where its lever is on screen (null: not yet). */
+  const frame = () =>
+    p.evaluate(async (id) => {
+      const w = window.woodrail;
+      const { frameDistance } = await import("/src/game/camera-director.ts");
+      const [x, z] = window.__defaultAt;
+      const lever = w.trackView.group.children.find((c) => c.userData.kind === "switch-lever" && c.userData.pieceId === id);
+      if (lever) {
+        lever.updateMatrixWorld(true);
+        const v = new w.camera.position.constructor(0, 14, 0).applyMatrix4(lever.matrixWorld).project(w.camera);
+        if (Math.hypot(w.controls.target.x - x, w.controls.target.z - z) < 60 && Math.abs(v.x) < 0.8 && Math.abs(v.y) < 0.8 && w.interaction.mode.kind === "idle") {
+          return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight];
+        }
+      }
+      w.director.glideTo(w.controls.target.clone().set(x, 0, z), frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+      window.__defaultWhy = { lever: !!lever, off: Math.round(Math.hypot(w.controls.target.x - x, w.controls.target.z - z)), mode: w.interaction.mode.kind };
+      return null;
+    }, id);
+  let at = null;
+  // (Escape first: pressed after, it would cut the glide short.)
+  for (let tries = 0; tries < 6 && !at; tries++) {
+    await p.keyboard.press("Escape");
+    at = await frame();
+    if (at) break;
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    await settled();
+  }
+  const state = () => p.evaluate((id) => ({ way: window.woodrail.layout.switchState(id), def: window.woodrail.economy.router.defaultOf(id) }), id);
+  const s0 = await state();
+  check("defaults: points as laid default to the way they're laid", s0.def === s0.way, JSON.stringify(s0));
+  if (!at) {
+    check("defaults: the lever is framed on screen for a tap", false, JSON.stringify(await p.evaluate(() => window.__defaultWhy)));
+    return;
+  }
+  // A tap on the lever (its touches stamped 50 ms apart: a tap, never a pin's hold).
+  const t = Date.now() / 1000;
+  await touch("touchStart", at[0], at[1], t);
+  await touch("touchEnd", 0, 0, t + 0.05);
+  await settled();
+  const s1 = await state();
+  check("defaults: a tap on the lever throws the points, and that's their default", s1.way !== s0.way && s1.def === s1.way, `${JSON.stringify(s0)} → ${JSON.stringify(s1)}`);
+  // Harness shortcut (not what's tested): the points thrown as a route will throw them (routing step 4), not by the player.
+  await p.evaluate((id) => { window.woodrail.sim.toggleSwitch(id); window.woodrail.invalidate(); }, id);
+  const s2 = await state();
+  check("defaults: points thrown by something else keep the player's default", s2.way !== s1.way && s2.def === s1.way, JSON.stringify(s2));
+  // Saved as on leaving the page, then reloaded (piece ids are kept by a save; car ids aren't, and none is used).
+  await p.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+  await p.waitForTimeout(1500);
+  await p.reload();
+  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
+  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
+  const s3 = await p.evaluate((id) => ({ there: !!window.woodrail.layout.getPiece(id), way: window.woodrail.layout.switchState(id), def: window.woodrail.economy.router.defaultOf(id) }), id);
+  check("defaults: after a reload the points lie as saved, and their default is still the lever tap's", s3.there && s3.way === s2.way && s3.def === s1.way, JSON.stringify(s3));
   await p.keyboard.press("Escape");
 }
 
@@ -1536,6 +1635,7 @@ async function runMode(mode) {
   if (mode === "sandbox" && ONLY === "dead-end") await deadEndContinue(p);
   else if (mode === "sandbox" && ONLY === "trap") await putAwayButton(p);
   else if (mode === "sandbox" && ONLY === "routes") await twoRoutes(ctx, p);
+  else if (mode === "sandbox" && ONLY === "defaults") await leverDefault(ctx, p);
   else if (mode === "sandbox") {
     await mapTaps(p);
     await selectThenDrag(ctx, p);
@@ -1547,6 +1647,7 @@ async function runMode(mode) {
     await putAwayButton(p);
     await deadEndContinue(p);
     await twoRoutes(ctx, p);
+    await leverDefault(ctx, p);
   }
   await ctx.close();
 }

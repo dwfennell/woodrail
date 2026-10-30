@@ -225,6 +225,30 @@ export const deadEndSiding: Scenario = {
 };
 
 /**
+ * A train heading away from its stop comes to points: on their straight road two straights to more points, set for a
+ * balloon loop on their curve, their straight road left open (unfinished track); on their curve, a straight to buffers.
+ * Round the balloon it comes back engine first and needs no reverse; into the siding it reverses at the buffers. Today's
+ * `distanceTo` overcounts the balloon's way (it marks the turn-back at the open road seen first, and drops the shorter
+ * way round the balloon to the same place), so today's steering takes the siding; the plan search (step 3) takes the
+ * balloon. A finding for the shadow, not a failure: both reach the stop.
+ */
+export const balloonBehindOpenRoad: Scenario = {
+  name: "a balloon behind points with an open road, and a dead-end siding",
+  seconds: 180,
+  build: (layout) => {
+    const [t, s1, s2] = chain(layout, [STOP, S, S]);
+    appendPiece(layout, BUFFER, false, connectorRef(t, 0));
+    const j = appendPiece(layout, "switch", false, connectorRef(s2, 1), 0);
+    const [, a2] = chain(layout, [S, S], connectorRef(j, 1));
+    const q = appendPiece(layout, "switch", false, connectorRef(a2, 1), 0);
+    appendPiece(layout, "balloon-loop", false, connectorRef(q, 2), 0);
+    const [siding] = chain(layout, [S], connectorRef(j, 2));
+    appendPiece(layout, BUFFER, false, connectorRef(siding, 1));
+    return { trains: [{ pieceId: s1, stops: [t], cars: CARS }], watch: [siding] };
+  },
+};
+
+/**
  * Two lines over a crossover pair (a ring): two crossovers end to end, double track out to buffers at all four ends.
  * Red runs from the top west end over both links... to the bottom east end; Blue from the bottom west to the top east.
  * Both use the middle (the first crossover's bottom road and link, the second's link), from opposite ends.
@@ -296,6 +320,7 @@ export const OTHERS: readonly Scenario[] = [
   crossoverAt3,
   pinnedOnRoute,
   deadEndSiding,
+  balloonBehindOpenRoad,
   crossoverRing,
   threeTrainsOneLoop,
   leverDuringLock,
