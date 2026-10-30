@@ -57,7 +57,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Timing guards:** use a warm-up, best of N, and a mean or median bound, so a 10× slowdown fails but load doesn't.
 
 **Browser e2e:**
-- `npm run e2e:touch`: 80 checks, about 25 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min; `E2E_ONLY=defaults` about 2 min (`routes,defaults`: the two in the full run's order, after a reload).
+- `npm run e2e:touch`: 80 checks, about 25 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min; `E2E_ONLY=defaults` about 2 min (`routes,defaults`: the two in the full run's order, after a reload). Open item: `routes: a train picked up and moved…` failed once in four full runs (79/80, `lifted: "idle"`, the hold didn't pick the train up); its message now says what the finger came down on (`pressed`), for next time.
 - `node scripts/e2e/draw.mjs` with `E2E_ONLY=` one of `junctions` (27), `qa-slant` (49, slow), `specials` (10), `phone`, `terrace-repeat`, `terrace-qa`, `ghosts`, `lift` or `loop`. The full run takes 2 h or more.
 - `npm run e2e:joints`.
 - **Screenshots and idle:** a small Playwright script. Load playwright-core with `createRequire("<repo>/package.json")`, wait for `settled()`, then check `framesDrawn` stays at 0 over 5 s.
