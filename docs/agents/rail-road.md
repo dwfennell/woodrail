@@ -13,6 +13,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Routing, step 1: one owner** (on `claude/routing-1`; spec §13).
   - **Moved, behaviour unchanged:** `src/routing/graph.ts` (`waysFrom`, `next`, `distanceTo`, `wayToward`, `SEARCH`, `TURN_COST`), `plan.ts` (`walkTo`, from `route-path.ts`: the way drawn on the map), `router.ts` (`steerSwitch`, `steer`, `chooseWay`, `AvoidTest`, `AheadTest`, and `Router`). `steer.ts` is gone; its tests are `src/routing/router.test.ts`.
   - **`Router`** is built by the economy (`economy.router`). `Router.tick` replaces `Economy.steerTrains` (8-tick cadence, `steerSoon`); it reads the goals from its host each steer, in the routes' order. `router.onSwitch` replaces `economy.onSwitch`. A lever tap on points goes `throwLever` → `router.lever` → `Sim.toggleSwitch`; signals, decks and lifts don't.
+  - **Proof:** trajectory hashes identical to main on the whole sections QA, seeds 2027, 1 and 2 (1 and 2 trains a line), and the goals play-through (fast and `GOALS_LONG=1`); QA rows byte-identical; `e2e:touch` 76/76. Cost unchanged (an economy tick about 2.8 µs, steering about 10 µs a call).
   - **Still outside:** `Sim.trainAhead`, `Sections.switchHeld`, `steerHint`, `steerSoon` (read through `RouterHost`), until step 4.
 - **Continue at a dead end** (`src/game/continue-on.ts`).
   - **Shows when:** the train is routed, its route has ≥ 2 different stops, and it's waiting to turn back at an open end. Hidden at buffers.
