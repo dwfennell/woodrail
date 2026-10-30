@@ -1,312 +1,369 @@
-# Train routing: a system of its own (2026-10-30)
+# Train routing: one system, one owner (2026-10-30)
 
 ## Status
 
 A design, not yet built. It covers four play-test issues:
 
-- **#3 follow-up:** a following train that needs the other road at points held for a train ahead stops short and waits.
-  It never takes the wrong road.
-- **#4:** more than one route (each train keeps its own).
-- **#5:** routes set switches, then put them back to the player's last hand-set position. Pinned switches are never
-  touched.
-- **#7:** prefer running forward, and reverse only when the track gives no other way.
+- **#3 follow-up:** a train behind waits for points held by a train ahead.
+- **#4:** more than one route.
+- **#5:** routes set switches and restore them.
+- **#7:** prefer running forward.
 
-The user's bar: **a train taking the wrong road and turning back later isn't acceptable.** So routing becomes one
-system, `src/routing/`, with its own test harness. It's built and proven on its own, then wired in step by step (§7).
+**The user's bar:**
+- "A train taking the wrong road and turning back later isn't acceptable."
+- "Centralize the logic and get things into a nice state."
+- "The player should be able to make mistakes, but we should give them a path where things do work."
+- "Even younger kids should be able to build some simple automations."
+- "You can take inspiration from real-life railroads."
 
-Decided by the user (issue #5): a switch's **default** is the position the player last set by hand (the last lever
-tap). A **pinned** switch is never changed by routing.
+**Decided** (issue #5):
+- A switch's **default** is the position the player last set by hand.
+- A **pinned** (red) switch is never changed by routing.
 
-## 1. What's there now
+**The plan:**
+1. Move every routing and switch decision into one module, `src/routing/`, with no change in behaviour, proven by
+   tests (§13, step 1).
+2. Then add new behaviour one step at a time, each step proven in a standalone harness (§12).
 
-- **`Economy.steerTrains`** (`src/economy/economy.ts:1699`). Every 8 ticks (`STEER_TICKS`), and at once for a train
-  sections has just granted a move (`steerSoon`), each routed train calls `steerSwitch`.
-- **`steerSwitch`** (`src/economy/steer.ts`) looks up to 6 pieces ahead (`LOOK_AHEAD`) for the next real choice. It
-  throws that switch toward the stop by `distanceTo`, a piece-count search that allows a turn-back at a dead end for
-  `TURN_COST` = 12 pieces. It leaves a switch alone if:
-  - a train is on it (`occupied`);
-  - another line's granted move holds it (`Sections.switchHeld`);
-  - another train is ahead on the way to it, going the same way (`Sim.trainAhead`, #3).
-- **What's missing:**
-  - Nothing puts a switch back, so the player's layout is left changed (#5).
-  - When steering declines to throw a switch, nothing stops the train. It runs on over the points as they lie, takes
-    the wrong road, and its route search later turns it back at a dead end. That is the behaviour the user has ruled
-    out.
-  - The search counts pieces and treats a turn-back as just 12 pieces more. It doesn't know which way the engine faces,
-    so a reverse is cheap and pushing is free (#7).
-  - A lone unrouted train turns back at buffers and open ends. With other trains about, it also turns back after
-    waits: `crossCap` after 5 s (`CROSS_TURN_TICKS`), `clearCap` after 2 s for a lineless train, and the sections yield
-    (`YIELD_S`).
-- **`Sim.toggleSwitch` / `pointsHeld`** (`sim.ts:630`, `:662`). A lever tap is refused while any car is on the points.
-  This is the physical safety rule, and it stays.
-- **`Sections`** (`src/economy/sections.ts`) is token working within one line: slots, sections, room and wait chains.
-  It hints the steering (`steerHint`: `follow` the granted way, `aim` past it) and holds switches on granted moves
-  (`switchHeld`).
-- **Switch memory** (`advanceCursor`'s `memory`, `rememberStraddledSwitches`) keeps a train together through points
-  entered from the trunk. A wye entered from its branch, or a crossover entered at connector 3, picks its road by the
-  lever and isn't remembered, so moving those points under a train splits it.
-- **#4:** each engine has its own `Route`, and `lineIdOf` maps it to a `Line` (`src/game/lines.ts`). `startLine`
-  replaces only that engine's line. So the cause of "a new route clears the others" isn't known yet. Step 0 of the
-  migration starts with a failing test along the player's path.
+## 1. Where the decisions live today
 
-## 2. What the router owns
+| Decision | Where | What it does |
+|---|---|---|
+| When to steer | `Economy.steerTrains` (`economy.ts:1699`), `STEER_TICKS` 8, `Sections.steerSoon` | Each routed train, every 8 ticks or on a sections grant |
+| Which way at the next switch | `steer.ts` `steerSwitch` / `steer` / `chooseWay` / `wayToward` | Looks up to 6 pieces ahead and throws toward the stop by `distanceTo` |
+| How far to a stop | `steer.ts` `distanceTo`, `waysFrom`, `next` | A piece-count search; a turn-back adds 12 pieces (`TURN_COST`) |
+| Don't throw: under a train | `Economy.occupied` → `Sim.pieceOccupied` | |
+| Don't throw: on another's granted way | `Sections.switchHeld` | |
+| Don't throw: a train ahead comes first | `Sim.trainAhead` (#3) | |
+| Steering hint inside a move | `Sections.steerHint` (`follow`, `aim`) | |
+| Lever tap allowed? | `interaction.ts:4708` → `Sim.pointsHeld`, `Sim.toggleSwitch` | Toast "These points move once the train is off them" |
+| Meeting paths at points and crossings | `Sim.crossCap`, `crossClaims` | Stop short, first come first served; turn back after 5 s |
+| The way drawn on the map, and pinned-blocking | `route-path.ts` (`legFromCursor`, `pinnedBlocking`) | Its own copy of the search |
+| Ways inside sections | `sections.ts` `wayOn`, `unreachable` (via `distanceTo`, `wayToward`) | |
+| Keeping a train together through points | `advanceCursor` memory, `rememberStraddledSwitches` | Physics: stays in the sim |
 
-The router owns three things, and nothing else writes them.
+**What goes wrong today:**
+- When steering declines to throw a switch, nothing stops the train. It runs over the points as they lie, takes the
+  wrong road, and its search later turns it back at a dead end.
+- Nothing restores switches.
+- The search doesn't know which way the engine faces, so a reverse is cheap.
+- **#4:** each engine has its own `Route` and `lineIdOf` entry, and `startLine` replaces only that engine's line, so the
+  cause isn't known yet. It's found by a failing test along the player's path (§13, step 0).
 
-### 2.1 The plan, per routed train
-- A **plan** is the way from the train's front to its next stop: an ordered list of `Step { pieceId, path, entry,
-  exit, reverse? }`. `reverse` marks a turn-back at a dead end, where the plan goes on from that point.
-- It's found by a search over states `(piece, entry, engineLeading)`, costed in mm (§5). A pinned switch offers only
-  the road it's set to, as `waysFrom` does today. Decks, lifts and signals are not choices the router makes.
+## 2. The one owner: what moves, what's deleted
+
+**`src/routing/`** is the only code that decides which way a train goes, or sets points for it:
+- `graph.ts`: `waysFrom`, `next`, `distanceTo` and `wayToward`, moved from `steer.ts`. Sections and route-path import
+  them from here.
+- `plan.ts`: the plan search (§3.1). Step 1 is a piece-count search identical to `distanceTo`'s choices.
+- `router.ts`: `Router`, which holds plans, locks, waits and defaults.
+- `harness.ts` and `*.test.ts`.
+
+**What moves where:**
+
+| Piece | Becomes |
+|---|---|
+| `Economy.steerTrains`, `STEER_TICKS`, `occupied` | `Router.tick` (step 1 keeps the 8-tick cadence) |
+| `steer.ts` `steerSwitch`, `steer`, `chooseWay`, `AvoidTest`, `AheadTest` | `router.ts` (step 1), then **deleted** at step 4, replaced by locks |
+| `steer.ts` itself | **deleted**. `graph.ts` holds what's left |
+| `Sim.trainAhead` | **deleted** at step 4 (a train ahead holds the lock) |
+| `Sections.switchHeld` | **deleted** at step 4 (a granted move's points are locked) |
+| `Sections.steerHint`, `steerSoon` | kept as sections' outputs, read by the router (`granted`, `wake`) |
+| `Sim.pointsHeld` | kept: the physical rule. The router calls it before every throw |
+| `Sim.toggleSwitch` for points | the lever path goes `interaction` → `router.lever(pieceId)` → `sim.toggleSwitch`. One gate, one set of toasts |
+| `route-path.ts`'s search | uses `plan.ts`, so the line drawn on the map is the plan the train runs |
+| `crossClaims` for points | router locks at step 7. Diamond crossings stay in `crossCap` |
+| decks, lifts, signals | unchanged: they belong to the sim and the player |
+
+**After step 1:** nothing outside `src/routing/` calls `setSwitchState` for a routed train. The only other writers
+are the lever (through the router), the editor (laying and undoing) and loading a save.
+
+## 3. What the router owns
+
+### 3.1 Plans
+- A **plan**, per routed train, is the way from its front to its next stop: `Step { pieceId, path, entry, exit,
+  reverse? }`.
+- From step 6, it's found by a search over `(piece, entry, engineLeading)`, costed in mm (§6).
+- Pinned switches offer only the road they're set to.
 - It's worked out again only when one of these changes:
   - the goal: `Route.next`, or the line's stops;
-  - the layout revision, or the routing version (pins);
-  - the train leaves its plan (a lever tap, a hand-run stretch);
+  - the layout revision, or the pins;
+  - the train leaves its plan;
   - the train turns: Continue, ⇄, Swap ends, a turn-back.
-- The plan also feeds the route-path view (`src/game/route-path.ts`), which works the same way out on its own today.
+- Plans are memoised per (revision, goal, start state).
 
-### 2.2 Locks on points
-- A **lock** says which train holds a set of points, and the road it's set to: `Lock { pieceId, state, holders: Set<engine> }`.
-- Only points are locked: switch pieces that aren't gated, signals or lifts. The router also takes a **claim** on a
-  diamond crossing on its locked way, in place of the sim's `crossClaims`, at a later step (§7, step 7).
-- **Route setting:** when a planned train comes within its set distance of the next points on its plan, the router
-  asks for every lock on its plan up to the next clear point.
-  - The set distance is braking distance `v²/2a` plus `SET_LOOK`.
-  - A clear point is somewhere the whole train can stand clear of all points: a slot end for a managed line, else
-    plain track at least the train's length long, or its stop.
-  - The locks are granted **all or none.**
-  - Granting sets each switch to its planned road. `setSwitchState` is called only when the state differs, and never
-    while `pointsHeld`.
-- **Sharing:** a lock already held at the same road can be shared: a following train needing the same setting joins
-  `holders`. Points never move while `holders` is non-empty.
-- **Release:** a holder leaves a lock once its last axle has cleared the points (`piecesUnder`). It also leaves when
-  its plan no longer runs through them, if it isn't standing on them. When `holders` is empty:
-  - If a waiting request wants the same road, it takes the lock with no move.
-  - If a waiting request wants the other road, it's granted at once, through the normal all-or-none grant.
-  - Otherwise the points are **restored** to their default, unless they're pinned or `pointsHeld`.
-- **A train is removed, derails or is put away:** its locks are released.
-- **A layout edit:** locks on pieces that are gone are dropped, and every plan is worked out again.
+### 3.2 Locks: route setting, route locking, release behind
+- `Lock { pieceId, state, holders }`, on points only (not decks, lifts or signals).
+- **Setting:** when a train comes within its set distance of the next points on its plan, it asks for every lock up to
+  its next clear point.
+  - The set distance is braking distance plus `SET_LOOK`.
+  - A clear point is a slot end, a stop, or plain track as long as the train.
+  - The locks are granted all or none. Each switch is thrown to its road, never while `pointsHeld`.
+- **Shared:** a train behind needing the same road joins `holders`. Points never move while anyone holds them.
+- **Released:** when the train's last axle clears the points (release behind, switch by switch). Then:
+  - a waiting request for the same road takes the lock with no move;
+  - one for the other road is granted, and the points move once;
+  - otherwise the points **restore** to their default, unless they're pinned or occupied.
+- **Removed, derailed or put away:** a train's locks go with it.
+- **A layout edit:** drops locks on pieces that are gone, and plans are worked out again.
 
-### 2.3 Waits
-- A train whose next points on its plan aren't locked to its road gets a speed cap. It stops `STAND_SHORT` short of the
-  points' fouling end. This is the #3 follow-up: it waits, it never runs on over the points as they lie.
-- The wait names its blocker: `RouteWait { kind: "points", pieceId, by: engine }`, using `nameOf` for the engine. The
-  card says "Waiting for points", and sections' wait chains can follow it (§4).
+### 3.3 Waits
+- A train whose next points aren't locked for it stops `STAND_SHORT` + `OVERLAP` short of their fouling end, and
+  waits.
+- `RouteWait { kind: "points", pieceId, by }` names the train that holds them.
+- It never runs over points set against it. This is the guarantee against a wrong road.
 
-### 2.4 Defaults
-- `defaults: Map<pieceId, state>` holds the last hand-set state of each switch.
-- It's written by a real lever tap (`interaction.ts:4723` → `toggleSwitch` succeeds → `router.handSet`) and when a
-  switch is laid (the state it's laid in).
-- A switch with no entry has its current state as its default.
-- It's never written by routing.
+### 3.4 Defaults
+- `defaults: Map<pieceId, state>`.
+- Written by a lever tap the router allowed, and when a switch is laid.
+- Never written by routing.
+- No entry means the current state is the default.
 
-## 3. API, and how it fits
+## 4. API
 
 ```ts
-// src/routing/router.ts
 export interface RouterHost {
   layout: Layout;
-  sim: Pick<Sim, "trains" | "findCar" | "piecesUnder" | "pointsHeld" | "ticks">;
-  /** Sections' word on a managed line's train: the way it's been granted, if any (today's steerHint). */
-  granted(engine: number): { follow: AvoidTest; aim: number } | undefined;
-  onSwitch?(pieceId: number): void; // lever swing and sound, as steering's are today
+  sim: Pick<Sim, "trains" | "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "ticks">;
+  granted(engine: number): { follow: AvoidTest; aim: number } | undefined; // sections' hint
+  onSwitch?(pieceId: number): void;                                       // lever swing and click
 }
-
 export class Router {
-  constructor(host: RouterHost);
-  setGoal(engine: number, pieceId: number | null): void; // the economy's Route.next, as a piece
-  tick(): void;                         // event-driven inside: see §6
-  speedCap(train: Train): number;       // composed into Sim.speedCap with sections' cap
-  handSet(pieceId: number): void;       // after a lever tap the sim allowed: the new default
-  leverRefusal(pieceId: number): "held" | "locked" | null; // gate for lever taps (§8 Q1)
-  planOf(engine: number): readonly Step[] | null; // for the route-path view and tests
+  setGoal(engine: number, pieceId: number | null): void;
+  wake(engine: number): void;               // sections granted a move: set its points now
+  tick(): void;
+  speedCap(train: Train): number;           // composed into Sim.speedCap
+  lever(pieceId: number): LeverResult;      // { ok } | { refused: "under-train" | "set-for", by? }
+  planOf(engine: number): readonly Step[] | null;
   waitOf(engine: number): RouteWait | null;
-  save(): SavedRouting;                 // defaults only (§3.2)
-  restore(saved: SavedRouting | undefined): void;
-  prune(engines: ReadonlySet<number>): void;
+  save(): SavedRouting; restore(s?: SavedRouting): void; prune(engines: ReadonlySet<number>): void;
 }
 ```
 
-### 3.1 What it replaces
-| Today | After |
+**Saving:**
+- The save gains `switchDefaults?: [pieceId, state][]`, only where a default differs from the switch's state.
+- Old saves: the default is the switch's state.
+- Locks are rebuilt on load: each train locks the points it stands on, and nothing restores in the load itself.
+- Keys are piece ids, never car ids.
+
+## 5. Deadlock rules (with sections and slots)
+
+Sections stays the authority on who may enter a section of a line. The router only sets, locks and waits on points.
+
+1. **All or none, to a clear point.** A waiting train holds only the points it stands on, so points locks can't make a
+   hold-and-wait ring.
+2. **Inside the granted move.** A line's train locks only along the way sections granted, and only after the grant.
+   Trains of one line never contend for points, so a line's own rules are untouched.
+3. **Every wait names its blocker.** Sections' chain following, `unring`/`YIELD_S` and the 30 s net see a points wait
+   like any other. A blocker not on the line is a foreign occupant, as today.
+4. **First asked, first served,** but a later request that needs none of the head's locks may go first.
+5. **No early release:** a lock holds until the last axle clears.
+6. **Breaking a wait turns a train; it doesn't break a lock.** The turned train gets a new plan, and lets go of the
+   points behind it once it's off them.
+7. **Unplanned trains** (hand-run) take no locks. They stop short of points another train holds, and otherwise take
+   the points as they lie (step 7).
+
+## 6. Running forward (#7)
+
+Costs, in mm:
+- **A reverse** (at a dead end, or a planned turn): `REVERSE_COST` (about 2 m) plus the run back.
+- **Running engine-last:** ×`PUSH_FACTOR` (about 1.5).
+- **Pinned switches, decks and lifts:** fixed, not a choice.
+
+So a loop, wye or triangle that keeps the engine in front beats a short reverse, and a dead-end siding off the way is
+never entered. The search is a Dijkstra with a binary heap, capped at `SEARCH` states.
+
+Hand-run trains aren't planned and never get switches set for them. They turn back less because they wait at held
+points instead (§16 Q5).
+
+## 7. Mistakes and the path to working
+
+A bad layout may still run poorly or jam. That's the player's to find and fix. The router never hides it with a silent
+wrong road or a mystery stall. Every train that isn't running says why on its card, in words a young child can follow,
+with a hint toward the fix.
+
+**Prevented** (the player never sees these):
+
+| Failure | How |
 |---|---|
-| `Economy.steerTrains`, `STEER_TICKS`, `steerSoon` | `router.tick()`; sections' grant calls `router.wake(engine)` |
-| `steer.ts` `steer` / `steerSwitch` | gone. `waysFrom`, `next`, `distanceTo` and `wayToward` stay (sections and route-path use them) |
-| `Sim.trainAhead` | gone: a train ahead holds the lock |
-| `Sections.switchHeld` | gone: a granted move's points are locked by the router |
-| `Sim.pointsHeld` | kept: the physical rule under everything |
-| `crossClaims` for routed trains | later, router claims (step 7) |
+| A routed train takes the wrong road and turns back later | It waits at points that aren't locked for it |
+| A train splits on points | Points never move under a train, or while it holds them |
+| The player's switches are left changed by routes | Restored after the train passes |
+| A pinned switch is moved by a route | Never locked; the route is planned round it |
+| Trains of one line meet head-on | Sections, as today |
 
-`sim.ts` gains nothing new. The router is one more term in `speedCap`, and it calls `setSwitchState` through the
-layout. `Economy` keeps routes, lines and stops, and passes the goal.
+**Allowed and explained** (card text to be tuned by Mobile UX):
 
-### 3.2 Saving
-- The save gains `switchDefaults?: [pieceId, state][]`, with only the entries that differ from the switch's saved
-  state.
-- An old save has no defaults, so each default is its current state.
-- Locks and plans aren't saved; they're rebuilt on load:
-  1. Plans are worked out.
-  2. Every routed train takes the locks for points it stands on, at their current state.
-  3. Points no one holds stay as saved until the next tick's route setting, then restore normally. Nothing is restored
-     in the load itself, so a reload never moves points in front of a train.
-- Car ids change on load (see rail-road.md), so nothing persistent is keyed by car id. Defaults are keyed by piece id.
+| Mistake | What happens | What the card says |
+|---|---|---|
+| No track joins a stop | The train stands at its last good place | "Can't reach Mill: no track goes there." |
+| A pinned switch is in the way (`pinnedBlocking`) | The train stands; the red lever pulses | "A red switch is in the way. Tap and hold it to unpin." |
+| More trains than passing loops | Held, as today | "The line is full. Lay 1 more passing loop." (existing) |
+| A loop pinned so no one can pass | Held, as today | "Unpin the passing loop's switches so trains can pass." (existing) |
+| Waiting for points another train holds | Stops short and waits | "Waiting for the Blue train to pass the points." |
+| Two lines need each other's points (a ring) | One gives way within `YIELD_S` | Toast: "The Red train went round to let the Blue one by." |
+| The only way is backwards (a dead end, no loop) | It reverses, as it must | Once per line: "Add a loop at the end so it can turn round." |
+| A lever tap on points set for a train (Q1) | Refused | "These points are set for the Red train. Try again once it's by." |
+| A lever tap on points under a train | Refused, as today | "These points move once the train is off them." (existing) |
 
-## 4. Deadlock rules (with sections and slots)
+**Rules for the text:**
+- It says what to do next, not what went wrong inside.
+- It's at most 3 lines.
+- A hint is toasted once per line; the card then holds it steadily.
+- Where it helps, the hint points at a place: the pulsing lever, or later the loop proposal's "Show me where".
 
-Sections stay the admission authority for a managed line: which train may enter which section, room, hand-over and
-yields. The router never admits or holds a line train for room. It only sets, locks and waits on points.
+## 8. Simple automations a young kid can make
 
-1. **All or none.** A train asks for every lock to its next clear point at once, and holds nothing ahead while it
-   waits; it holds only the points it stands on. Points locks alone therefore can't form a hold-and-wait ring.
-2. **Inside a granted move.** For a managed line's train, the router locks only along the way sections granted
-   (`granted().follow`). It also never asks before the grant: the clear point is the slot end. Two trains of one line
-   never contend for points, because sections already keep them apart, so a line's own deadlock rules are untouched.
-3. **Every wait names its blocker.** A points wait is a `BlockWait`-shaped wait with `by` set to the holder's engine.
-   Sections' chain following (every `CHECK_TICKS`), ring breaking (`unring`, `YIELD_S`) and the 30 s safety net see it
-   the same as a section wait. A line train waiting on a lineless or other-line holder is a wait on a foreign train,
-   handled as sections handles foreign occupants today.
-4. **Order is first asked, first served, all or none.** If the head request can't be granted, a later request that
-   needs none of its locks may be granted, so a waiting train never blocks one going elsewhere.
-5. **No early release.** A lock is held until the last axle clears, so a split can't happen, whatever the queue.
-6. **Turning breaks a wait, not a lock.** When a wait is broken (a yield or a ring), the train that turns gets a new
-   plan. Its locks behind the turn are released only once it's off them.
-7. **A train with no plan** (unrouted or lineless) takes no locks and asks for none. It still stops short of points
-   another train holds and runs on through points that are free, as they lie (step 7). This is what `crossCap` does
-   for meeting paths today, extended to locked points.
+Each needs only track, stations and the engine card's route: no pins, no signals, no hidden rules. Each is a scripted
+harness case (§12) that must deliver for 30 game minutes with no wait over 20 s.
 
-Out of scope: plain-track head-on meetings between unmanaged trains. They stay with `crossCap`, `clearCap` and
-`hitsSide`.
+1. **Shuttle:** two stations on one line, buffers at both ends, one train. Route: A, B. It runs to each and reverses
+   there, never between (taps: Routes, A, B).
+2. **Round and round:** a loop with two stations and one train. It runs forward forever and never reverses.
+3. **Branch delivery:** a main loop with a siding to a mine. The route is Mine, Town. The switch is set for the siding,
+   then put back, so the loop is as the player left it.
+4. **Two trains, one passing loop:** a shuttle line with a loop in the middle and two trains on the same route. They
+   wait for each other at the loop's ends and pass there. The second train just joins the line.
+5. **Turn round at the end:** a terminus with a balloon loop (or a wye). The train goes in engine-first and comes out
+   engine-first (step 6).
 
-## 5. Plans that run forward (#7)
+The taps above are today's engine-card flow, and the touch e2e checks each step.
 
-The cost is in mm along each path, plus:
+## 9. Feeling nice: satisfying to watch
 
-- **a reverse** (at a buffer or open end, or a planned turn): `REVERSE_COST`, about 2 m equivalent, plus the run back;
-- **running engine-last** (pushing): ×`PUSH_FACTOR`, about 1.5;
-- **a pinned switch, a deck or a lift:** fixed, not a choice;
-- **a stop on the way:** no cost.
+- **Switches swing just in time:** about a second before the train, at the set distance, not seconds early. They swing
+  back just after the last car clears, so the player sees cause and effect.
+- **Visible waiting:** a train eases to a stop a little short of the points (an overlap) and waits with its card saying
+  who for. It starts as soon as they're clear. No creeping, and no stopping on the points.
+- **Predictable:** the same layout and the same routes give the same moves. The line drawn on the map is exactly the
+  way the train will take.
+- **Few reversals:** forward running where the track allows (§6).
+- **Smooth:** a wait begins with normal braking, because the set distance includes braking distance, never a sudden
+  stop.
+- **Quiet when idle:** nothing moves or redraws when nothing is happening.
 
-With these costs, a loop, wye or reversing triangle that keeps the engine leading wins over a short reverse unless it's
-much longer. A dead-end siding off the way is never entered, because entering it costs a reverse.
+## 10. The learning curve
 
-The search is a Dijkstra over `(piece, entry, engineLeading)` with a binary heap, capped at `SEARCH` states. It's
-memoised per (layout revision, pins, goal, start state), so trains of one line share it.
+| Automatic, for beginners | Left to care and attention |
+|---|---|
+| Points set for routed trains, and put back | Laying passing loops so lines can hold more trains |
+| Trains waiting for each other at points | Pinning switches to keep trains off a road |
+| One line's trains taking turns on single track | Signals (#16) to divide a line by hand |
+| Forward running where the track allows | Turntables, lifts and decks (never thrown by routes) |
+| Cards and toasts saying what's wrong and what to do | Hand-running trains with the levers |
 
-Unrouted trains (#7's second half) aren't planned. They reverse less because (a) they wait at locked points instead of
-turning back and (b) `crossCap`'s 5 s turn-back is reconsidered (§8 Q5). Nothing sets switches for them.
+Nothing advanced is needed for §8. Each advanced tool adds control and doesn't change what's automatic.
 
-## 6. Cost
+## 11. Borrowed from real railways
 
-- **No routed train:** `router.tick()` returns at once, and `speedCap` is one `size` check. A lone unrouted train runs
-  identical to main.
-- **Per tick, per routed train:** work happens only when the train's front comes onto another piece, as sections does
-  with `look`. The router then checks whether the next points on the plan are within the set distance, and asks for
-  locks if so. Between pieces, `speedCap` reads a cached cap. That's a map lookup and a compare, with no search and no
-  allocation. A waiting request is retried only when a lock it needs is released (an event), never by polling.
-- **A search** runs only when a plan is worked out (§2.1). On the QA layouts it should take ≤ 1 ms on a phone; measure
-  it in the harness and record it.
-- **Rendering:** nothing per frame. A restore is a `setSwitchState` plus `onSwitch` (a lever swing), and it happens
-  only after a train has passed, when frames are being drawn anyway. Idle stays at 0 frames: with no train moving,
-  nothing is released, so nothing restores.
-- **A lone routed train:**
-  - Up to step 5 it takes the same roads as main, because the search's choices match `distanceTo` and the harness
-    asserts it.
-  - It now restores points behind it. That only matters if it passes them again, and then route setting sets them
-    first.
-  - At step 6 (forward costs) its roads change on purpose, behind a flag until the balance runs are compared.
+| Idea | In the game |
+|---|---|
+| **Interlocking:** points locked under a train and while a route is set | `pointsHeld`, plus router locks; the lever is refused |
+| **Route setting:** all the points for a route set together | All-or-none locks to the next clear point |
+| **Route locking with sectional release:** each piece let go behind the train | A lock released as the last axle clears each switch |
+| **Overlap:** stop short of the points with a margin | `STAND_SHORT` + `OVERLAP` before the fouling end |
+| **Block working:** one train per block | Sections (one train of a line per section) |
+| **Single-line working:** passing loops as meeting points, and a token | Slots and sections: a granted move is the token |
+| **Normal position:** points return to normal after use | Restore to the player's default |
 
-## 7. Migration (each step lands alone)
+**Rejected:**
+- **Signal aspects for routes** (green, yellow, red): too much to read on a phone. The card and the train's waiting
+  show it instead. #16 keeps signals as a player's tool.
+- **Track circuits and axle counters as objects:** the sim knows where every axle is.
+- **Approach locking timers and time releases:** fiddly and invisible to kids. The rule is just "the train has passed".
+- **Train describers and timetables:** routes are enough at this scale.
 
-Each step runs: typecheck, vitest, build, a diff of the sections-qa `SHOW=1` rows against main (every change
-explained), `npm run e2e:touch`, and the lone-train check.
+## 12. The standalone harness
 
-0. **#4, independently.**
-   - Write a failing play-through test: two trains, each given a route by the card buttons, then a save and load.
-     Each must keep and show its own route.
-   - Find the cause and fix it.
-   - Doesn't touch steering.
-1. **The harness** (§9), run against today's `steerSwitch`. Known failures (wrong road under a follower, no restore)
-   go on an expected-failure list, with the issue number. No behaviour change.
-2. **Defaults.** `handSet` from a real lever tap; laid state; saved and loaded.
-   - Player-path test: tap a lever, then save and reload; the default is kept.
-   - No behaviour change: nothing restores yet.
-3. **Shadow plans.** The router plans with piece-count costs (to match `distanceTo`). In the harness and in QA it's
-   compared against `steerSwitch`'s choices, with no effect in game. Search time is measured.
-4. **Router sets and restores (#5).**
-   - Replaces `steerTrains`, `steerSwitch`, `trainAhead` and `switchHeld`.
-   - Locks, sharing, release and restore; pinned never touched; lever taps go through `leverRefusal`.
-   - Tests along the player's path: a routed train throws points and restores them; pinned points are untouched; a
-     follower needing the same road keeps the setting; a lever tap sets the default.
-5. **Waits (#3 follow-up).**
-   - `speedCap` stops a train short of points locked the other way.
-   - The card shows "Waiting for points".
-   - Waits are fed into sections' chains.
-   - Harness tests: a follower needing the other road, with no wrong road and no split; a ring of two lines at a pair
-     of crossovers resolves within `YIELD_S` + 1 s.
-6. **Forward costs (#7, routed)** behind `ROUTE_FORWARD`.
-   - Run the balance runs (seed 2027 with 1–3 trains; seeds 1 and 2 with 2 trains) with and without the flag.
-     Compare windows, count reverses, then switch it on.
-7. **Unrouted trains respect locks.** Router claims take over `crossClaims` for routed trains, and the crossCap
-   turn-back is retuned per §8 Q5. Count turn-backs before and after.
-8. **Clean-up.** Delete what §3.1 replaces; update rail-road.md.
+`src/routing/harness.ts` builds a `Layout`, a `Sim`, a `Router`, and `Sections` where a scenario has a line. There's no
+`Economy` or render. It reuses `loop-fixtures.ts`.
 
-## 8. Open questions for the user
+**A scenario** is: a layout, trains, a goal list per train, scripted events (a lever tap, a pin, a save round-trip, a
+piece removed), and a budget.
 
-1. **Tapping a lever on points a train is about to use:** should the tap be refused with a toast ("Set for the Red
-   line's train"), or move the points and make that train wait or find another way? *Suggest: refuse it, as we do for
-   a train standing on the points.*
-2. **When a train behind needs the other road:** should it wait for the points, or go another way if there is one?
-   *Suggest: go another way only if it's no more than about 1.5× as long.*
-3. **Running forward:** how much further should a train go to stay engine-first, rather than reverse? *Suggest: up to
-   twice as far.*
-4. **Pushing:** is it fine for a train to push its cars for a stretch, or should it always run round where it can?
-5. **Hand-run trains:** today they give up and turn back after waiting 2–5 s. Should they wait longer (say 15 s) while
-   the train in the way is still moving?
-6. **Should a route ever set switches for a hand-run train?** *Suggest no: it goes where you set the levers.*
-7. **Points going back:** should the lever visibly swing back, with a soft click? *Suggest yes.*
-
-## 9. The standalone harness
-
-`src/routing/harness.ts`, with tests in `src/routing/*.test.ts`. It builds a `Layout`, a `Sim` and a `Router`, plus
-`Sections` where a scenario has a line, but no `Economy`, HUD or render. It reuses `src/economy/loop-fixtures.ts`
-builders.
-
-**A scenario** is: a layout script, trains (cars, position, facing), each train's goal list, optional events at given
-ticks (a lever tap, a pin, a save and load round-trip, a piece removed), and a tick budget.
-
-**Invariants, checked every tick:**
-
-- **No wrong road:** at every `joint` event of a planned train, its bogie's (piece, path) is the next step of its plan
-  at the time it was locked.
-- **No split:**
-  - consecutive bogies of a train sit on pieces that are joined along the train's way: the same piece, or adjacent
-    through the path each is on;
-  - the axle distance alone isn't enough, because joint gaps read as splits (rail-road.md §5).
-- **Points never move under a train:** `setSwitchState` is spied on, and asserts `!pointsHeld` for points.
+**Invariants, every tick:**
+- **No wrong road:** a planned train's bogie enters the piece and path of its locked plan.
+- **No split:** checked by the bogies' pieces and paths (joined along the way), not by axle distance.
+- **Points never move under a train:** `setSwitchState` is spied on.
 - **Pinned points never change.**
-- **Restore:** once no train holds or stands on a switch for 1 s, its state equals its default.
-- **No deadlock:** no train with its lever on stands still for more than 60 s (or `MUTUAL_S`). Every wait names a
-  blocker, and the safety net fires 0 times.
-- **The payoff:** each train reaches its goals the scripted number of times within the budget, counted as arrivals
-  (and goods, where the scenario has depots).
-- **Cost:** search time, and the number of ticks that did work, are recorded and bounded. Timing guards use a warm-up,
-  best of N and a median.
+- **Restore:** a switch nobody holds or stands on for 1 s is at its default.
+- **No deadlock:** no lever-on train is still for more than 60 s, every wait names a blocker, and the 30 s net fires 0
+  times.
+- **The payoff:** arrivals, and goods where there are depots, reach the scripted counts.
+- **Cost:** search time and the number of ticks that did work are bounded (with a warm-up, best of N and a median).
 
-**Scenarios** (each a test):
+**Scenarios:**
+- §8's five automations.
+- A lone train, unrouted and routed: identical to a recorded main trajectory (through step 5).
+- A follower needing the same road, and one needing the other road.
+- Pinned points on the route.
+- A wye from its branch and a crossover at connector 3, each with a follower.
+- A dead-end siding beside the way.
+- Two lines over a crossover pair (a ring).
+- Three trains on a line with one loop.
+- A lever tap during a lock, a save mid-lock, and a piece removed under a lock.
+- Seeded fuzz over the loop fixtures.
 
-- A lone train through a passing loop, unrouted and routed: identical to a recorded main trajectory.
-- One routed train: it throws the points, then they restore after it.
-- A follower needing the same road: no move between the trains, and one restore after both have passed.
-- A follower needing the other road: it waits short, the points move once the first train is clear, and they restore
-  after the follower.
-- Pinned points on a route: never moved, and the plan goes the other way or the route is reported unreachable.
-- A wye entered from its branch, and a crossover entered at connector 3, with followers (the split cases).
-- A reversing triangle and a loop at a terminus: an engine-first plan is chosen at step 6.
-- A dead-end siding beside the way: never entered.
-- Two lines crossing over a crossover pair: no deadlock.
-- A single line with a loop and three trains (with sections): room and holds as today, and no wrong road.
-- A lever tap during a lock (per Q1), a save and load mid-lock, and a piece removed under a lock.
-- Fuzz: seeded random goals over the loop fixtures, with all the invariants.
+## 13. Migration (each step lands alone)
 
-The harness becomes the gate for routing changes, alongside sections-qa and the touch e2e. The e2e keeps the player's
-path: a lever tap, the route set by card buttons, and goods delivered.
+Every step runs: typecheck, vitest, build, a diff of the sections-qa `SHOW=1` rows against main, `e2e:touch`, and the
+lone-train check.
+
+0. **#4, independently.** A failing play-through test: two trains given routes by the card buttons, then a save and
+   load. Find the cause and fix it.
+1. **Consolidate, with behaviour unchanged.**
+   - Create `src/routing/` and move the pieces per §2.
+   - `Router` wraps today's logic exactly: the 8-tick cadence, `steerSwitch`, `trainAhead`, `switchHeld`.
+   - Lever taps go through `router.lever`, and route-path uses `graph.ts`.
+   - **The proof:**
+     - the sections-qa rows are byte-identical to main;
+     - recorded trajectories (position hash per second) for the harness's scenarios and the play-through seeds match
+       main;
+     - `e2e:touch` passes.
+   - Known gaps (no restore, wrong road under a follower) go on the harness's expected-failure list.
+2. **Defaults.** Lever taps and laid switches write defaults, which are saved and loaded. Player-path test: tap a
+   lever, then save and reload. No behaviour change.
+3. **Shadow plans.** `plan.ts` (piece-count costs) is compared against step 1's choices in the harness and QA, with no
+   effect in game. Measure search time.
+4. **Locks, setting and restore (#5).** These replace the step-1 wrappers. Delete `steerSwitch`, `trainAhead` and
+   `switchHeld`.
+5. **Waits (#3 follow-up).** The `speedCap` overlap stop, `RouteWait`, the card text from §7, and waits fed into
+   sections' chains.
+6. **Forward costs (#7, routed)** behind `ROUTE_FORWARD`. Compare balance windows and reversal counts (seed 2027 with
+   1–3 trains; seeds 1 and 2 with 2 trains), then switch it on.
+7. **Hand-run trains respect locks.** Router locks replace `crossClaims` at points, and the crossCap turn-back is tuned
+   per Q5.
+8. **Clean-up.** Delete `steer.ts`'s remains and update rail-road.md.
+
+## 14. Cost
+
+- **No routed train:** `tick` returns at once and `speedCap` is one size check, so a lone unrouted train is identical
+  to main.
+- **Per routed train:** the router works when the front comes onto a new piece, and when a lock it waits for is
+  released (an event, not polling). Between those, a cached cap: no search and no allocation.
+- **The search** runs only on the changes in §3.1, with a target of ≤ 1 ms on a phone for the QA layouts.
+- **Nothing per frame.** A restore is a `setSwitchState` plus a lever swing, and only happens after a train passes,
+  so 0 idle frames.
+
+## 15. Interactions
+
+- **#16 (signals):** a player's held signal is a wait the router respects, not one it sets.
+- **The loop proposal** ("Show me where") is the natural hint for "the line is full" and "add a loop at the end".
+- **#6 (a gap behind the train ahead):** `followRoom` stays in the sim, and the router's overlap stop must not stack
+  with it.
+
+## 16. Open questions for the user
+
+1. **Tapping a lever on points a train is about to use:** say no with a toast ("These points are set for the Red
+   train"), or move them and make the train wait? *Suggest: say no.*
+2. **When a train behind needs the other road:** should it wait, or go another way if there is one? *Suggest: another
+   way only if it's no more than about 1.5× as long.*
+3. **How much further should a train go to keep its engine in front, rather than back up?** *Suggest: up to twice as
+   far.*
+4. **Pushing:** is it fine for a train to push its cars for a while, or should it always turn round where it can?
+5. **Trains you drive by hand:** today they give up and turn back after waiting 2–5 s. Should they wait longer, say
+   15 s, while the train in the way is still moving?
+6. **Should routes ever set switches for a train you drive by hand?** *Suggest no.*
+7. **Points going back:** should the lever visibly swing back, with a soft click? *Suggest yes.*
+8. **A dead end with no way to turn:** should we suggest a loop there once ("Add a loop at the end so it can turn
+   round"), or say nothing?
