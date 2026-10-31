@@ -1614,10 +1614,11 @@ async function routeWait(ctx, p) {
     const on = (e, road) => w.sim.findCar(e).train.bogies.some((b) => road.includes(b.pieceId));
     if (on(s.first, s.roadB)) s.wrong.push("first on B");
     if (on(s.second, s.roadA)) s.wrong.push("second on A");
+    if (s.goneAt < 0 && on(s.second, s.roadB)) s.goneAt = w.sim.ticks;
   })`;
   const waited = await p.evaluate(({ setup, watch }) => {
     const w = window.woodrail;
-    window.__wait = { ...setup, goods: {}, moves: [], under: 0, wrong: [], last: w.layout.switchState(setup.points), stood: 0, near: Infinity, far: -Infinity };
+    window.__wait = { ...setup, goods: {}, moves: [], under: 0, wrong: [], last: w.layout.switchState(setup.points), stood: 0, near: Infinity, far: -Infinity, goneAt: -1, held: 0 };
     window.__waitWatch = (0, eval)(watch);
     w.sim.setLever(setup.first, 1);
     w.sim.setLever(setup.second, 1);
@@ -1635,20 +1636,31 @@ async function routeWait(ctx, p) {
         s.far = Math.max(s.far, gap);
         s.by = wt.by;
       }
+      // (Or, the two lines working the single track together (sections shared by the lines on one network), held by
+      // sections at its slot's end, short of the points, while the first holds the junction's section.)
+      const sw = w.economy.sections.waitOf(setup.second);
+      if (sw && "engine" in sw && t.speed === 0 && !w.sim.piecesUnder(t.id).has(setup.points)) {
+        s.held++;
+        s.by = sw.engine;
+        if (s.held >= 120) s.stood = Math.max(s.stood, s.held);
+      }
     }
     // (Paused while its card is opened and read: the game's own frames would run the sim on meanwhile, and the first
     // train be by, before SwiftShader's slow frames have shown the card.)
     w.paused = true;
     w.invalidate();
-    return { stood: s.stood, near: s.near, far: s.far, by: s.by, onPoints: w.sim.piecesUnder(w.sim.findCar(setup.second).train.id).has(setup.points), way: w.layout.switchState(setup.points) };
+    return { stood: s.stood, held: s.held, near: s.near, far: s.far, by: s.by, onPoints: w.sim.piecesUnder(w.sim.findCar(setup.second).train.id).has(setup.points), way: w.layout.switchState(setup.points) };
   }, { setup, watch });
-  check("wait: the second train stops short of the points set for the first (a second or more, its nose 30–40 mm short)", waited.stood >= 120 && waited.near >= 30 && waited.far <= 40 && !waited.onPoints && waited.by === setup.first && waited.way === 0, JSON.stringify(waited));
+  // (Short of the points by the router (its nose 30–40 mm short), or held by sections at its slot's end, which is
+  // where two lines' trains sharing the track now wait: the first holds the section with the points.)
+  const shortOf = waited.held >= 120 || (waited.near >= 30 && waited.far <= 40);
+  check("wait: the second train stops short of the points while the first has them (a second or more, never on them)", waited.stood >= 120 && shortOf && !waited.onPoints && waited.by === setup.first && waited.way === 0, JSON.stringify(waited));
   // Its card, opened by a tap on it while it waits, says who for.
   await tapOn({ engine: setup.second });
   await p.waitForFunction(() => !!document.querySelector(".engine-status")?.textContent, null, { timeout: 30000 }).catch(() => {});
   const said = await p.evaluate(() => document.querySelector(".engine-status")?.textContent ?? "");
   const lineName = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, setup.first);
-  check("wait: its card says it's waiting for the first train to pass the points", said === `Waiting for the train on the ${lineName} to pass the points`, JSON.stringify({ said, lineName }));
+  check("wait: its card says it's waiting for the first train", said === `Waiting for the train on the ${lineName} to pass the points` || said === `Waiting for the ${lineName} train`, JSON.stringify({ said, lineName }));
   await p.keyboard.press("Escape");
   // The first by, the points are set for the second (it goes on). Before it's on them, two taps on their lever (§16 Q1,
   // as changed at step 5): they stay set for it, a toast says so, and the second tap's way (their curve, as set for
@@ -1685,13 +1697,12 @@ async function routeWait(ctx, p) {
     const w = window.woodrail;
     const s = window.__wait;
     w.paused = false;
-    let goneAt = -1;
     for (let i = 0; i < 120 * 120 && !((s.goods[setup.millA] ?? 0) >= 2 && (s.goods[setup.millB] ?? 0) >= 1); i++) {
       w.sim.tick();
       w.economy.tick();
       window.__waitWatch();
-      if (goneAt < 0 && w.sim.findCar(setup.second).train.bogies.some((b) => s.roadB.includes(b.pieceId))) goneAt = w.sim.ticks;
     }
+    const goneAt = s.goneAt;
     w.invalidate();
     const r = w.economy.router;
     return { goods: s.goods, moves: s.moves, under: s.under, wrong: s.wrong.slice(0, 3), goneAt, way: w.layout.switchState(setup.points), def: r.defaultOf(setup.points), locked: r.locked(setup.points) };
