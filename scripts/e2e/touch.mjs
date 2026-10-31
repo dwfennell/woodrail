@@ -1660,7 +1660,7 @@ async function routeWait(ctx, p) {
   await p.waitForFunction(() => !!document.querySelector(".engine-status")?.textContent, null, { timeout: 30000 }).catch(() => {});
   const said = await p.evaluate(() => document.querySelector(".engine-status")?.textContent ?? "");
   const lineName = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, setup.first);
-  check("wait: its card says it's waiting for the first train", said === `Waiting for the train on the ${lineName} to pass the points` || said === `Waiting for the ${lineName} train`, JSON.stringify({ said, lineName }));
+  check("wait: its card says it's waiting for the first train", said === `Waiting for the train on the ${lineName} to pass the points` || said === "Waiting: another train is in the way", JSON.stringify({ said, lineName }));
   await p.keyboard.press("Escape");
   // The first by, the points are set for the second (it goes on). Before it's on them, two taps on their lever (§16 Q1,
   // as changed at step 5): they stay set for it, a toast says so, and the second tap's way (their curve, as set for
@@ -1670,7 +1670,8 @@ async function routeWait(ctx, p) {
     const w = window.woodrail;
     const s = window.__wait;
     const r = w.economy.router;
-    for (let i = 0; i < 30 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
+    // (Its move granted by sections too: held at its slot's end, the points' lock is still the first's.)
+    for (let i = 0; i < 30 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.economy.sections.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
       w.sim.tick();
       w.economy.tick();
       window.__waitWatch();
