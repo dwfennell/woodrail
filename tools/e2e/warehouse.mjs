@@ -214,11 +214,20 @@ if (!setup.error && setup.engine !== -1) {
   await planRoute(engine, [forest, sawmill, warehouse]);
   const stops1 = await routeStops(engine);
   check("route 1 planned by taps: forest, sawmill, warehouse", JSON.stringify(stops1) === JSON.stringify([forest, sawmill, warehouse]), JSON.stringify(stops1));
+  // Under each stop's chip, what it picks up and drops (the economy's own plan).
+  const goods1 = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.querySelector(".route-goods")?.textContent ?? ""));
+  check("…each stop shows what it picks up and drops: forest ⬆🌲, sawmill ⬆🪵 ⬇🌲, warehouse ⬇🪵", JSON.stringify(goods1) === JSON.stringify(["⬆🌲", "⬆🪵 ⬇🌲", "⬇🪵"]), JSON.stringify(goods1));
+  const fits = await p.evaluate(() => {
+    const card = document.querySelector(".engine-card").getBoundingClientRect();
+    const chips = [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.getBoundingClientRect().height);
+    return { left: card.left, right: card.right, chips };
+  });
+  check("…the card inside the screen, chips one height", fits.left >= 0 && fits.right <= 390 && new Set(fits.chips.map(Math.round)).size === 1, JSON.stringify(fits));
   const hint = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent));
   check("…the card points to the warehouse stop's options", hint.includes("Tap the warehouse stop to set Only drop or Only pick up"), JSON.stringify(hint));
   await tapButton(".engine-extra .route-chip:nth-child(3)");
-  const opts = await p.evaluate(() => ({ action: document.querySelector(".engine-extra .route-action")?.textContent, what: document.querySelector(".engine-extra .route-store")?.textContent, hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) }));
-  check("…its chip tapped: Automatic, and what that does at a warehouse", opts.action === "Automatic" && opts.what === "Leaves goods no later stop wants, takes what a later stop wants" && !opts.hints.some((h) => /Tap the warehouse/.test(h)), JSON.stringify(opts));
+  const opts = await p.evaluate(() => ({ words: document.querySelector(".engine-extra .route-plan-words")?.textContent, action: document.querySelector(".engine-extra .route-action")?.textContent, what: document.querySelector(".engine-extra .route-store")?.textContent, hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) }));
+  check("…its chip tapped: \"Drops planks\", Automatic, and what that does at a warehouse", opts.words === "Drops planks" && opts.action === "Automatic" && opts.what === "Leaves goods no later stop wants, takes what a later stop wants" && !opts.hints.some((h) => /Tap the warehouse/.test(h)), JSON.stringify(opts));
   await shot("4-route-1-stop-options");
   await p.keyboard.press("Escape");
 
@@ -248,6 +257,9 @@ if (!setup.error && setup.engine !== -1) {
   await planRoute(engine2, [warehouse, town]);
   const stops2 = await routeStops(engine2);
   check("route 2 planned by taps: warehouse, town", JSON.stringify(stops2) === JSON.stringify([warehouse, town]), JSON.stringify(stops2));
+  const goods2 = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.querySelector(".route-goods")?.textContent ?? ""));
+  check("…its stops show it: warehouse ⬆🪵, town ⬇🪵", JSON.stringify(goods2) === JSON.stringify(["⬆🪵", "⬇🪵"]), JSON.stringify(goods2));
+  await shot("6-route-2-plan");
   await p.keyboard.press("Escape");
   const before = await planks(warehouse);
   await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), engine2);
@@ -257,7 +269,7 @@ if (!setup.error && setup.engine !== -1) {
   const after = await planks(warehouse);
   check("route 2: planks picked up at the warehouse and delivered to the town", picked >= 4 && delivered >= 4 && after < before, JSON.stringify({ before, after, picked, delivered, run2 }));
   check("…as many delivered as were picked up (give or take a load on board)", delivered <= picked && picked - delivered <= 6, JSON.stringify({ picked, delivered }));
-  await shot("6-route-2");
+  await shot("7-route-2-run");
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));

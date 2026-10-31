@@ -908,6 +908,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops::-webkit-scrollbar { display: none; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
+/* A stop's plan under its name: what it picks up (⬆) and drops (⬇), icons only (a tap on the stop says it in words). */
+.route-chip.has-goods { display: inline-block; text-align: left; white-space: nowrap; height: auto; min-height: 44px; line-height: 1.2; padding-block: 4px; }
+.route-goods { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; }
+/* (Its ⬆ and ⬇ say what Only drop or Only pick up does: the chip's own arrow would sit on a line of its own.) */
+.route-chip.has-goods[data-intent]::after { content: none; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
 .route-chip[data-intent="drop"]::after { content: " ↓"; opacity: 0.7; }
 .route-chip[data-intent="pick"]::after { content: " ↑"; opacity: 0.7; }
