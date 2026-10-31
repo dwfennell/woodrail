@@ -75,6 +75,8 @@ export interface HudHandlers {
   newGame(): void;
   /** Open the Lines view (every line: its colour, name and trains). */
   openLines(): void;
+  /** The menu: copy this mode's map (its save, compressed) to the clipboard, for a bug report. */
+  copyMap(): void;
   /** Back to the title screen. */
   titleScreen(): void;
   /** The brand tapped: back to the player's railway (the view frames their track). */
@@ -508,6 +510,10 @@ export class Hud {
         this.coach.start();
       }, "menu-item"),
       this.reportItem,
+      button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
+        this.menu.hidden = true;
+        h.copyMap();
+      }, "menu-item"),
     );
     this.reportItem.hidden = true;
     this.buildReportCard();

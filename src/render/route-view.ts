@@ -102,6 +102,9 @@ export class RouteView {
   /** The camera's view the discs were last fanned out for (its matrix, the view's height, its fov). */
   private fannedFor: number[] = [];
 
+  /** The ribbons drawn last (for the e2e: what the map shows). */
+  shown: readonly RibbonSpec[] = [];
+
   constructor(
     private readonly layout: Layout,
     private readonly mats: Materials,
@@ -112,6 +115,7 @@ export class RouteView {
   /** Draw these ribbons and discs (replacing what was drawn). Builds geometry once per call; nothing per frame. */
   show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = []): void {
     this.clear();
+    this.shown = ribbons;
     // One mesh per colour and kind: a handful of draw calls however long the route.
     const strips = new Map<string, { colour: string; dotted: boolean; pos: number[]; uv: number[] }>();
     const stripOf = (colour: string, dotted: boolean) => {

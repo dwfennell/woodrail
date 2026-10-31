@@ -568,6 +568,77 @@ export const pushingShuttle: Scenario = {
 
 export const FORWARD: readonly Scenario[] = [balloonOverSpur, wyeOverSpur, loopOverSpur, pushingShuttle];
 
+// ── The drawn line round a loop (the user's Mill and Farm yard, 2026-10-31) ─────────────────────────────────────────────
+
+/**
+ * A teardrop off `from`: a Y's two curves joined round by `[108, C, stop, C × 4, S, C, 108]` (symmetric, so it closes),
+ * a stop on its far side. The Y is left as laid (state 0: its first curve).
+ */
+export function teardrop(layout: Layout, from: number) {
+  const y = appendPiece(layout, "switch-y", false, from);
+  const ids = chain(layout, ["straight-108", C, STOP, C, C, C, C, S, C, "straight-108"], connectorRef(y, 1));
+  if (layout.joinedConnector(connectorRef(y, 2)) === -1) throw new Error("the teardrop doesn't close");
+  return { y, stop: ids[2], ids };
+}
+
+/** How a loop-line train starts: on the line facing the farm or the mill, or at the farm in the loop either way round. */
+export type LoopStart = "to-farm" | "to-mill" | "to-mill-next-farm" | "at-farm" | "at-farm-back";
+
+function loopTrain(start: LoopStart, line: { b: number; farm: number; mill: number }): TrainSpec {
+  const stops = [line.mill, line.farm];
+  if (start === "to-farm") return { pieceId: line.b, stops, next: 1, cars: CARS };
+  if (start === "to-mill") return { pieceId: line.b, reversed: true, stops, next: 0, cars: CARS };
+  if (start === "to-mill-next-farm") return { pieceId: line.b, reversed: true, stops, next: 1, cars: CARS };
+  return { pieceId: line.farm, reversed: start === "at-farm-back", stops, next: 0, cars: CARS };
+}
+
+/**
+ * `⊐ Mill ══ ══ ══ (teardrop, Farm yard on it)`, route Mill, Farm yard: from the farm the train runs on round the loop
+ * and back down the line (it never turns at a stop). `throat`: the Y set the other way (1), or pinned as laid.
+ */
+export function millToTeardrop(start: LoopStart, throat: "laid" | "other" | "pinned" = "laid"): Scenario {
+  return {
+    name: `the line round a teardrop: Mill, Farm yard on the loop (${start}, throat ${throat})`,
+    seconds: 300,
+    build: (layout) => {
+      const [mill, , b, c] = chain(layout, [STOP, S, S, S]);
+      appendPiece(layout, BUFFER, false, connectorRef(mill, 0));
+      const t = teardrop(layout, connectorRef(c, 1));
+      if (throat === "other") layout.setSwitchState(t.y, 1);
+      if (throat === "pinned") layout.setPinned(t.y, true);
+      return { trains: [loopTrain(start, { b, farm: t.stop, mill })] };
+    },
+  };
+}
+
+/** `⊐ Mill ══ ══ ══ ══ Farm ══ (balloon piece)`: the farm on the line just short of a balloon loop. */
+export function millToBalloon(start: LoopStart): Scenario {
+  return {
+    name: `the line round a balloon: Mill, Farm yard before it (${start})`,
+    seconds: 300,
+    build: (layout) => {
+      const [mill, , b, , , farm, st] = chain(layout, [STOP, S, S, S, S, STOP, S]);
+      appendPiece(layout, BUFFER, false, connectorRef(mill, 0));
+      appendPiece(layout, "balloon-loop", false, connectorRef(st, 1));
+      return { trains: [loopTrain(start, { b, farm, mill })] };
+    },
+  };
+}
+
+/** A dog-bone: a teardrop at each end of a line, the Mill on one and the Farm yard on the other. */
+export function dogbone(start: LoopStart): Scenario {
+  return {
+    name: `the line round a dog-bone: Mill and Farm yard each on a loop (${start})`,
+    seconds: 300,
+    build: (layout) => {
+      const [a, b, , d] = chain(layout, [S, S, S, S]);
+      const farm = teardrop(layout, connectorRef(d, 1));
+      const mill = teardrop(layout, connectorRef(a, 0));
+      return { trains: [loopTrain(start, { b, farm: farm.stop, mill: mill.stop })] };
+    },
+  };
+}
+
 export const OTHERS: readonly Scenario[] = [
   followerSameRoad,
   twoRoadsOneSwitch,
