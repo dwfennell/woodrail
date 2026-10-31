@@ -1826,7 +1826,9 @@ async function routeWait(ctx, p) {
       }
       throw new Error("no room for a train");
     };
-    const first = put(["engine", "timber", "timber", "timber"], [[6, 200]]);
+    // (The first five wagons long: it holds the points a while, so the second, keeping its follow gap (#6) behind it,
+    // still comes up to them while they're held and stands a second or more.)
+    const first = put(["engine", "timber", "timber", "timber", "timber", "timber"], [[6, 200]]);
     const second = put(["engine", "timber"], [[4, 200], [4, 150], [4, 100], [3, 200], [3, 100]]);
     w.invalidate();
     return { first, second, forest, millA, millB, points: sw, roadA: a.map(at), roadB: b.map(at) };
