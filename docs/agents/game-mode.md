@@ -54,6 +54,8 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 - Player text is short and kid-clear. Fields count as whole fields ("2 of 2").
 - **Research tickets say it in words (#11).** Every card's ticket heads its pictures "Unlocks:" and has a "Costs:" line with every good and the coins, each as amount, icon and name ("6 🪵 planks, 6 🌾 grain, 40 🪙 coins"; "(paid)" once started). Both come from `costWords` and `unlocksWords` in `research-text.ts`. Tags on the web, cost chips and the study time have `title` tooltips for desktop hover; on a phone, a tap on a tag opens its ticket. The picker's rebuild key (`pickerKey`) is unchanged, so tooltips mustn't show live coin counts.
 
+- **Research queue (#14).** `Research` keeps `current`, `next` and `later[]` (the queue is `next` then `later`, at most `QUEUE_MAX` = 5 waiting; `later` is empty while `next` is null). Player taps go through `toggleQueue` (start if nothing's under way or waiting; else add to the end; tap again removes) and `startNow` ("Research now": swaps it in, the one under way waits up next keeping its goods). The balance player still uses `pick`, unchanged (it never queues past `next`), so SUMMARY lines don't move. **Coins are paid when a queued item starts**, not when queued: nothing is reserved, so a queued item short of coins waits at the front (in order, "Waiting for N🪙") and the ones behind wait too. **Schools take goods for `current` only** (the issue's "how deep" setting is not built: it shifts balance). Only blueprints researchable now can be queued (no chains through queued prerequisites yet). Saved as `later` in `ResearchData` (absent when empty; old saves load with no queue). Cards: ready → "Research" / "Add to queue" ("The queue is full (5)"); queued → "✕ Remove" and "Research now", line "Next up, after X" / "2nd in line, after X"; web tag "Next up" / "In line: N"; pill "+N" badge (`data-more`, CSS only); school card "· N in queue".
+
 **Workshop:**
 - It takes planks and iron, and owes stone. Moving iron to owed is open.
 - `shopNeeds` counts a known thing only while none of it is on the map (`builtOf`). Queued orders always count. A thing still in the toy box still owes.
@@ -93,7 +95,7 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 4. **Drop B5's empty-the-sawmill workaround** in `sections-qa.test.ts`. The idle head-on fix (39533c3) is on main; check that all sections-qa tests pass after.
 5. **School priority:** deferred until item 3. Propose the smallest rule if Foundry still stalls.
 
-Also waiting on the user: the coin-sink plan (town treats and a paint shop, plan a57a272) and the stuck-cargo hint. Related GitHub issues: #13 (caboose), #14 (research queue), #17 (towns growing), #18 (moving houses and roads).
+Also waiting on the user: the coin-sink plan (town treats and a paint shop, plan a57a272) and the stuck-cargo hint. Related GitHub issues: #13 (caboose), #14 (research queue: the queue is built; the school's "how deep it takes goods" setting is open), #17 (towns growing), #18 (moving houses and roads).
 
 ## 5. Gotchas
 - **Harness gaps hide game bugs:** the old farm, the harbour's stone, and crane pile spots were all missed because tests wrote piles directly. Test by the player's route.

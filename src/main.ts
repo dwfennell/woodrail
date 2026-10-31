@@ -53,7 +53,7 @@ import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type St
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
-import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, setSpeed, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
+import { attachResearch, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
 import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
@@ -1621,7 +1621,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }, hud.depotYard);
   // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
-    pick: (id) => picked(id),
+    pick: (id) => picked(id, toggleQueue),
+    now: (id) => picked(id, startNow),
     close: () => setBoardOpen(false),
     picture: (key) => thumbnails.get(key),
     // A kit's, a prop's or a car's picture is drawn on demand if it isn't yet, as for the tray (the cars' and the other
@@ -1733,11 +1734,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * A research picked in the picker (its one button): it starts, or waits in Next up, or (the one up next) swaps with
-   * the one under way. The card and the pill show it; no toast.
+   * A research's button in the picker (#14): `toggleQueue` (it starts, joins the queue, or is taken out of it) or
+   * `startNow` (one in the queue swaps in for the one under way). The card and the pill show it; no toast.
    */
-  function picked(id: string): void {
-    if (!hasSchool() || !pickResearch(progress, id)) return;
+  function picked(id: string, how: (p: Progress, id: string) => unknown): void {
+    if (!hasSchool() || !how(progress, id)) return;
     // What schools take has changed: routed trains plan again.
     game.economy.acceptsChanged();
     hud.setCoins(progress.coins);
@@ -1838,7 +1839,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (state === "learned") return { ...base, state };
       if (state === "soon") return { ...base, state, waits: PLAN_WORDS[t.plan!] };
       const research = researchCard(progress, t.id, school);
-      if (research) return { ...base, state, research, ...(t.id === goalTech && state !== "researching" ? { goal: true } : {}) };
+      if (research) return { ...base, state, research, ...(state === "next" ? { queued: queuePlace(progress.research, t.id) } : {}), ...(t.id === goalTech && state !== "researching" ? { goal: true } : {}) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
       const unmet = t.requires.filter((n) => !needMet(progress, n));
       const waits =

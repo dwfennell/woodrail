@@ -1141,6 +1141,8 @@ export class Hud {
     this.researchPill.querySelector(".rp-count")!.textContent = v.count;
     this.researchPill.style.setProperty("--fill", `${Math.round(v.fill * 100)}%`);
     this.researchPill.classList.toggle("idle", v.idle);
+    // (How many more wait in the queue, #14: a small "+2" in its corner, drawn by CSS from this.)
+    this.researchPill.setAttribute("data-more", v.more > 0 ? `+${v.more}` : "");
     this.researchPill.title = v.idle ? "Pick research" : `${text.slice(3)}: tap for Research`;
     this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${text.slice(3)}`);
     this.fitPill();

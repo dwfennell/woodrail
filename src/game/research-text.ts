@@ -1,7 +1,7 @@
 import { CARGO, COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
-import { canResearch, coinsShort, costOf, lacks, studying, studyLeft, studyTime } from "./research";
+import { canResearch, coinsShort, costOf, lacks, QUEUE_MAX, queueOf, queuePlace, studying, studyLeft, studyTime } from "./research";
 import { needMet, TECHS, techOf, unlocksOf } from "./tech";
 import { ruleOf } from "./things";
 
@@ -28,7 +28,7 @@ export function cardState(p: Progress, id: string): CardState {
   if (techOf(id)?.plan) return "soon";
   const r = p.research;
   if (r.current === id) return "researching";
-  if (r.next === id) return "next";
+  if (queuePlace(r, id) > 0) return "next";
   return canResearch(p, id) ? "ready" : "locked";
 }
 
@@ -123,18 +123,25 @@ export interface ResearchCardView {
   study: string;
   /** How it stands, in a short line ("bring 4🪵 to Larkfield school", "Next up, after Switches", "Needs a school"). */
   why?: string;
-  /** Its button: "Research", "Next up" or "Research now" (the swap); none while it's the research under way. */
+  /** Its button: "Research", "Add to queue" or "Research now" (the swap); none while it's the research under way. */
   action?: string;
+  /** In the queue: a second button, "Remove", takes it out (the tap that put it in, again). */
+  remove?: boolean;
   /** The button can't be used now (`why` says why). */
   blocked?: boolean;
   /** Goods in (or study done), 0–1, for the one under way. */
   fill?: number;
 }
 
+/** "2nd", "3rd", "4th". */
+const ordinal = (n: number) => `${n}${n === 2 ? "nd" : n === 3 ? "rd" : "th"}`;
+
 /**
- * A card's research view (null for learned, locked and soon). A ready card: Research when nothing is under way, else
- * Next up. The one up next: Research now (tapping it swaps the two), held back while its coins are short. The one
- * under way: live progress, no button. With no school placed nothing can be picked: "Needs a school".
+ * A card's research view (null for learned, locked and soon). A ready card: Research when nothing is under way or
+ * waiting, else Add to queue (held back while the queue is full). One in the queue (#14): Remove, and Research now
+ * (it swaps in for the one under way), held back while its coins are short; its line says where it waits ("Next up,
+ * after Switches", "3rd in line, after Signals"). The one under way: live progress, no button. With no school placed
+ * nothing can be picked: "Needs a school".
  */
 export function researchCard(p: Progress, id: string, school: string | null): ResearchCardView | null {
   const state = cardState(p, id);
@@ -142,14 +149,21 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
   const r = p.research;
   const base = { chips: researchChips(p, id), study: `${Math.ceil(studyTime(id) / p.research.speed)} s study` };
   if (state === "researching") return { ...base, why: researchWants(p, school), fill: researchFill(p, id) };
+  const q = queueOf(r);
   if (state === "next") {
-    const short = coinsShort(p);
-    const after = r.current ? `Next up, after ${shortLabel(r.current)}` : "Next up";
-    const why = short === 0 ? after : r.current ? `After ${shortLabel(r.current)} · ${coins(short)} short` : `Waiting for ${coins(short)}`;
-    return short > 0 ? { ...base, why, action: "Research now", blocked: true } : { ...base, why, action: "Research now" };
+    const place = queuePlace(r, id);
+    const short = place === 1 ? coinsShort(p) : r.held.has(id) ? 0 : Math.max(0, (costOf(id).coins ?? 0) - p.coins);
+    const ahead = place === 1 ? r.current : q[place - 2];
+    const where = place === 1 ? "Next up" : `${ordinal(place)} in line`;
+    const after = ahead ? `${where}, after ${shortLabel(ahead)}` : where;
+    const why = short === 0 ? after : place === 1 && !r.current ? `Waiting for ${coins(short)}` : `${after} · ${coins(short)} short`;
+    return short > 0 ? { ...base, why, action: "Research now", blocked: true, remove: true } : { ...base, why, action: "Research now", remove: true };
   }
-  const action = r.current ? "Next up" : "Research";
-  return school ? { ...base, action } : { ...base, why: "Needs a school", action, blocked: true };
+  const queueing = r.current !== null || q.length > 0;
+  const action = queueing ? "Add to queue" : "Research";
+  if (!school) return { ...base, why: "Needs a school", action, blocked: true };
+  if (queueing && q.length >= QUEUE_MAX) return { ...base, why: `The queue is full (${QUEUE_MAX})`, action, blocked: true };
+  return { ...base, action };
 }
 
 /** The pill on the HUD: a name and a count (shown as "📘 Bridges 6/10🪵"), how far along, and whether to pick one. */
@@ -159,6 +173,8 @@ export interface PillView {
   fill: number;
   /** Nothing picked: "Pick research". */
   idle: boolean;
+  /** How many more wait in the queue behind the one shown (#14): a "+2" on the pill; 0 for none. */
+  more: number;
 }
 
 /**
@@ -168,19 +184,20 @@ export interface PillView {
  */
 export function pillView(p: Progress, hasSchool: boolean): PillView | null {
   const r = p.research;
+  const queued = queueOf(r).length;
   if (r.current) {
     const id = r.current;
-    if (studying(p)) return { name: shortLabel(id), count: `${Math.ceil(studyLeft(p))} s`, fill: researchFill(p, id), idle: false };
+    if (studying(p)) return { name: shortLabel(id), count: `${Math.ceil(studyLeft(p))} s`, fill: researchFill(p, id), idle: false, more: queued };
     const goods = costOf(id).goods;
     const k = (Object.keys(goods) as CargoKind[]).find((x) => (r.got[x] ?? 0) < goods[x]!)!;
-    return { name: shortLabel(id), count: `${r.got[k] ?? 0}/${goods[k]}${GOODS_ICON[k]}`, fill: researchFill(p, id), idle: false };
+    return { name: shortLabel(id), count: `${r.got[k] ?? 0}/${goods[k]}${GOODS_ICON[k]}`, fill: researchFill(p, id), idle: false, more: queued };
   }
   if (r.next) {
     const need = costOf(r.next).coins ?? 0;
     const short = coinsShort(p);
-    if (short > 0) return { name: shortLabel(r.next), count: `${need - short}/${coins(need)}`, fill: (need - short) / need, idle: false };
+    if (short > 0) return { name: shortLabel(r.next), count: `${need - short}/${coins(need)}`, fill: (need - short) / need, idle: false, more: queued - 1 };
   }
-  return hasSchool || r.next ? { name: "Pick", count: "research", fill: 0, idle: true } : null;
+  return hasSchool || r.next ? { name: "Pick", count: "research", fill: 0, idle: true, more: 0 } : null;
 }
 
 /**
@@ -195,7 +212,7 @@ export function pillResearch(p: Progress): string | null {
 }
 
 /** The pill in one line: "📘 Bridges 6/10🪵", "📘 Pick research" ("" when it's hidden). */
-export const pillText = (v: PillView | null): string => (v ? `📘 ${v.name} ${v.count}` : "");
+export const pillText = (v: PillView | null): string => (v ? `📘 ${v.name} ${v.count}${v.more > 0 ? ` +${v.more}` : ""}` : "");
 
 /**
  * What the pill shows depends on: the research's version (a pick, a delivery, a whole second of study), whether a
@@ -263,13 +280,15 @@ export function schoolCard(p: Progress): { piles: { label: string; count: number
   if (!r.current) {
     const short = coinsShort(p);
     if (!r.next) return { piles: [], note: "Idle: pick research", idle: true };
-    return { piles: [], note: `Next up: ${label(r.next)}${short > 0 ? ` (${coins(short)} short)` : ""}`, idle: false };
+    return { piles: [], note: `Next up: ${label(r.next)}${short > 0 ? ` (${coins(short)} short)` : ""}${r.later.length > 0 ? `, then ${r.later.length} more` : ""}`, idle: false };
   }
+  const queued = queueOf(r).length;
+  const then = queued > 0 ? ` · ${queued} in queue` : "";
   const goods = costOf(r.current).goods;
   const piles = (Object.keys(goods) as CargoKind[]).map((k) => ({ label: GOODS_ICON[k], count: r.got[k] ?? 0, cap: goods[k]! }));
   // (A college studies twice as fast: said while it matters, the goods all in.)
   const fast = r.speed > 1 ? " (college: 2×)" : "";
-  return { piles, note: studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}`, idle: false };
+  return { piles, note: (studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}`) + then, idle: false };
 }
 
 /** The school's idle line, as a research finishes with nothing up next: "Larkfield school is idle: pick what to learn next". */

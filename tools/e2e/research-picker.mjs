@@ -1,7 +1,7 @@
 // End-to-end Research picker on a phone (`npm run e2e:research [-- <out dir>]`), at 390×844 with touch: a new game's
 // line laid and its school placed; the pill in the top bar says "Pick research"; a goal after a blueprint (Research
-// switches) opens the picker on it from Show me and from the pill, nothing picked; Research, then Next up (and the
-// swap); deliveries move the pill; the pill opens on what it shows (the one up next, waiting for coins); every card state's ticket; the pill fits the bar beside the coins and buttons; the date
+// switches) opens the picker on it from Show me and from the pill, nothing picked; Research, then a queue of two by taps (#14: Add to queue, Remove, Research now's swap; when
+// Switches is learned Bridges starts by itself, Farming moves up, the school takes Bridges' goods, the queue is saved); deliveries move the pill; the pill opens on what it shows (the one up next, waiting for coins); every card state's ticket; the pill fits the bar beside the coins and buttons; the date
 // and the pill both read at 360, 414 and 844×390 (a phone on its side); and no frames drawn in 30 s with the pill showing
 // while nothing changes. Then a research learned with nothing in Next up: the pill amber with its pulsing dot (still with
 // reduced motion), a toast once ("Larkfield school is idle: pick what to learn next", a tap opens the picker), the school's
@@ -167,17 +167,37 @@ check("the pill shows it", (await pill()) === "📘 Switches 0/3🪵", String(aw
 await shot("04-picked-research");
 await select("Bridges and ramps");
 t = await ticket();
-check("a ready card while one is under way: one button, Next up", t?.state === "ready" && t.buttons.length === 1 && t.buttons[0].text === "Next up" && /🪵 0\/10/.test(t.foot) && /20 s study/.test(t.foot), JSON.stringify(t));
-await tap(".board-sheet button[data-act=pick]", "Next up");
+check("a ready card while one is under way: one button, Add to queue", t?.state === "ready" && t.buttons.length === 1 && t.buttons[0].text === "Add to queue" && /🪵 0\/10/.test(t.foot) && /20 s study/.test(t.foot), JSON.stringify(t));
+// The queue (#14), by taps: Bridges, then Farming, lined up behind Switches.
+await tap(".board-sheet button[data-act=pick]", "Add to queue");
 t = await ticket();
-check("Next up: Bridges waits after Switches, its button Research now", t?.state === "next" && /Next up, after Switches/.test(t.foot) && t.buttons[0]?.text === "Research now", JSON.stringify(t));
+const queuedButtons = (t) => (t?.buttons ?? []).map((x) => x.text).join("|");
+check("Add to queue: Bridges waits after Switches, with Remove and Research now, each 44 px", t?.state === "next" && /Next up, after Switches/.test(t.foot) && queuedButtons(t) === "✕ Remove|Research now" && t.buttons.every((x) => x.h >= 44), JSON.stringify(t));
 await shot("05-next-up");
-// Tapping again swaps; and back.
-await tap(".board-sheet button[data-act=pick]", "Research now");
+await select("Farming");
+await tap(".board-sheet button[data-act=pick]", "Add to queue");
+t = await ticket();
+check("a second tap on another: Farming 2nd in line, after Bridges", t?.state === "next" && /2nd in line, after Bridges/.test(t.foot) && queuedButtons(t) === "✕ Remove|Research now", JSON.stringify(t));
+const queued = () => p.evaluate(() => { const r = window.woodrail.progress().research; return [r.current, r.next, ...r.later].filter((x) => x !== null); });
+check("…the queue is Switches, then Bridges, then Farming", JSON.stringify(await queued()) === JSON.stringify(["switches", "bridges", "farming"]), JSON.stringify(await queued()));
+const webTag = (name) => p.evaluate((name) => [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === name)?.querySelector(".bp-tag")?.textContent ?? null, name);
+check("…the web's tags say Next up and In line: 2", (await webTag("Bridges and ramps")) === "Next up" && (await webTag("Farming")) === "In line: 2", `${await webTag("Bridges and ramps")} / ${await webTag("Farming")}`);
+const pillMore = () => p.evaluate(() => document.querySelector(".research-pill")?.getAttribute("data-more") ?? null);
+check("…the pill shows +2 waiting", (await pillMore()) === "+2", String(await pillMore()));
+await shot("05b-queue-two");
+// Tap again: out of the queue, and back in.
+await tap(".board-sheet button[data-act=pick]", "✕ Remove");
+t = await ticket();
+check("Remove: Farming is ready again, out of the queue", t?.state === "ready" && t.buttons[0]?.text === "Add to queue" && JSON.stringify(await queued()) === JSON.stringify(["switches", "bridges"]), JSON.stringify([t, await queued()]));
+await tap(".board-sheet button[data-act=pick]", "Add to queue");
+check("…and back in, 2nd in line", JSON.stringify(await queued()) === JSON.stringify(["switches", "bridges", "farming"]), JSON.stringify(await queued()));
+// Research now swaps Bridges in; and back.
+await select("Bridges and ramps");
+await tap(".board-sheet button[data-act=now]", "Research now");
 const swapped = await p.evaluate(() => ({ ...window.woodrail.progress().research, held: undefined }));
-check("tapping again swaps the two", swapped.current === "bridges" && swapped.next === "switches", JSON.stringify(swapped));
+check("Research now swaps the two, the rest of the queue kept", swapped.current === "bridges" && swapped.next === "switches" && JSON.stringify(swapped.later) === `["farming"]`, JSON.stringify(swapped));
 await select("Switches");
-await tap(".board-sheet button[data-act=pick]", "Research now");
+await tap(".board-sheet button[data-act=now]", "Research now");
 await tap(".board-head .close");
 
 // 5. Deliveries move the pill (planks into the school, as a train's crane brings them).
@@ -199,15 +219,40 @@ await p.waitForTimeout(1300);
 const study = await pill();
 check("goods all in: the pill counts the study down", /^📘 Switches \d+ s$/.test(study ?? ""), String(study));
 await shot("08-pill-studying");
-// Learned (20 s), and Bridges starts from Next up.
+// Learned (20 s), and Bridges starts from the queue by itself; Farming moves up to Next up.
 await p.waitForFunction(() => window.woodrail.progress().learned.has("switches"), null, { timeout: 60000 });
 await p.waitForTimeout(600);
-check("Switches learned, Bridges started from Next up", (await pill()) === "📘 Bridges 0/10🪵", String(await pill()));
+check("Switches learned, Bridges started by itself from the queue", (await pill()) === "📘 Bridges 0/10🪵", String(await pill()));
+check("…Farming moved up to Next up, the pill +1", JSON.stringify(await queued()) === JSON.stringify(["bridges", "farming"]) && (await pillMore()) === "+1", JSON.stringify([await queued(), await pillMore()]));
+// …and the school now takes Bridges' planks (the payoff: goods go to the one that started).
+const taken = await p.evaluate(() => {
+  const w = window.woodrail;
+  const school = w.economy.allDepots().find((d) => d.role === "school");
+  w.economy.intoSink(school, "planks");
+  return w.progress().research.got.planks ?? 0;
+});
+check("…a plank into the school goes to Bridges", taken === 1, String(taken));
+// Saved and loaded: the queue comes back in order.
+// (A pick saves; the queue is checked in what's stored, as a reload reads it.)
+const saved = await p
+  .waitForFunction(() => {
+    const r = JSON.parse(localStorage.getItem("woodrail.game.progress.v1") ?? "null")?.research;
+    return r?.current === "bridges" && r.next === "farming" ? r : null;
+  }, null, { timeout: 15000, polling: 250 })
+  .then((h) => h.jsonValue())
+  .catch(() => p.evaluate(() => JSON.parse(localStorage.getItem("woodrail.game.progress.v1") ?? "null")?.research ?? null));
+check("…saved with its queue", saved?.current === "bridges" && saved?.next === "farming", JSON.stringify(saved));
+// (Farming out again: the rest of the run checks one up next at a time.)
+await tap(".research-pill");
+await select("Farming");
+await tap(".board-sheet button[data-act=pick]", "✕ Remove");
+check("…Farming removed with a tap", JSON.stringify(await queued()) === JSON.stringify(["bridges"]), JSON.stringify(await queued()));
+await tap(".board-head .close");
 
 // 6. Every card state's ticket: learned, researching, next (with its coins short), ready, locked, soon.
 await tap(".research-pill");
 await select("Train routes");
-await tap(".board-sheet button[data-act=pick]", "Next up");
+await tap(".board-sheet button[data-act=pick]", "Add to queue");
 const states = {};
 for (const [state, name] of [["learned", "Switches"], ["researching", "Bridges and ramps"], ["next", "Train routes"], ["ready", "Signals"]]) {
   await select(name);
@@ -221,8 +266,8 @@ for (const state of ["locked", "soon"]) {
   await shot(`09-card-${state}`);
 }
 check("learned: Learned, no button", states.learned?.state === "learned" && states.learned.buttons.length === 0, JSON.stringify(states.learned));
-check("researching: live progress, no button", states.researching?.state === "researching" && /🪵 0\/10/.test(states.researching.foot) && states.researching.buttons.length === 0, JSON.stringify(states.researching));
-check("next: after Bridges, its coins chip short, Research now", states.next?.state === "next" && /After Bridges · 40🪙 short/.test(states.next.foot) && /🪙 40/.test(states.next.foot) && states.next.buttons[0]?.text === "Research now", JSON.stringify(states.next));
+check("researching: live progress, no button", states.researching?.state === "researching" && /🪵 1\/10/.test(states.researching.foot) && states.researching.buttons.length === 0, JSON.stringify(states.researching));
+check("next: after Bridges, its coins chip short, Remove and Research now", states.next?.state === "next" && /Next up, after Bridges · 40🪙 short/.test(states.next.foot) && /🪙 40/.test(states.next.foot) && states.next.buttons.map((x) => x.text).join("|") === "✕ Remove|Research now", JSON.stringify(states.next));
 check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /🪵 0\/4/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
 check("locked: what it waits for", states.locked?.state === "locked" && states.locked.buttons.length === 0, JSON.stringify(states.locked));
 check("soon: coming soon", states.soon?.state === "soon" && states.soon.buttons.length === 0, JSON.stringify(states.soon));

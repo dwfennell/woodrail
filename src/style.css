@@ -777,6 +777,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-make .bp-pending { display: block; width: 34px; height: 22px; border-radius: 6px; background: rgba(160, 110, 60, 0.12); }
 .bp-ticket-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .bp-ticket-foot .chip { height: 44px; font-size: 14.5px; }
+.bp-ticket-foot .chip.text.bp-remove { min-width: 0; margin-left: auto; }
 .bp-ticket-foot .chip:disabled { opacity: 0.5; cursor: default; }
 .bp-cost { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 150px; }
 .bp-gauge { height: 10px; border-radius: 5px; background: #ecdcbf; overflow: hidden; box-shadow: inset 0 1px 2px rgba(80, 50, 20, 0.2); }
@@ -848,6 +849,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill.idle:not(.active)::after { animation: idle-pulse 1.6s ease-in-out 6; }
 @keyframes idle-pulse { 50% { transform: scale(1.35); opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) { .research-pill.idle:not(.active)::after { animation: none; } }
+/* The queue behind it (#14): "+2" in the top right corner, over the pill (no layout: the name and count keep their room). */
+.research-pill:not([data-more=""])[data-more]::before { content: attr(data-more); position: absolute; top: 1px; right: 3px; font-size: 10px; line-height: 1; font-weight: 800; color: #fff; background: #2f6db5; border-radius: 6px; padding: 1px 3px; pointer-events: none; }
 .research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill:active { transform: scale(0.96); }
 @media (max-width: 640px) {

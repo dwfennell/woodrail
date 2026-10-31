@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { techOf, TECHS, built } from "./tech";
 import { Progress } from "./progress";
-import { canResearch, coinsShort, costOf, deliver, lacking, lacks, pick, simElapsed, type StudyClock, STUDY_SECONDS, studyLeft, studying, studyTime, tick } from "./research";
+import { canResearch, coinsShort, costOf, deliver, lacking, lacks, pick, QUEUE_MAX, queueOf, queuePlace, simElapsed, startNow, type StudyClock, STUDY_SECONDS, studyLeft, studying, studyTime, tick, toggleQueue } from "./research";
 
 /** A player who knows switches (so tier-2 Routes, with its coins, can be researched too). */
 function player(coins = 0): Progress {
@@ -243,5 +243,118 @@ describe("saving research (progress, beside the v12 save)", () => {
     expect([q.research.current, q.research.next, q.research.got, q.research.study]).toEqual(["bridges", null, { planks: 3 }, 0]);
     expect(Progress.fromJSON({ owned: [], learned: [] }).research.current).toBeNull();
     expect(techOf("bridges")).toBeDefined();
+  });
+});
+
+describe("the research queue (#14)", () => {
+  it("a tap adds to the end, a tap again takes it out; the one under way stays", () => {
+    const p = player(100);
+    expect(toggleQueue(p, "bridges")).toBe("current");
+    expect(toggleQueue(p, "signals")).toBe("queued");
+    expect(toggleQueue(p, "junctions")).toBe("queued");
+    expect(toggleQueue(p, "farming")).toBe("queued");
+    expect([p.research.current, ...queueOf(p.research)]).toEqual(["bridges", "signals", "junctions", "farming"]);
+    expect([queuePlace(p.research, "signals"), queuePlace(p.research, "farming"), queuePlace(p.research, "bridges")]).toEqual([1, 3, 0]);
+    // Taking out the one up next moves the rest up; taking one from the middle closes the gap.
+    expect(toggleQueue(p, "signals")).toBe("removed");
+    expect([p.research.next, p.research.later]).toEqual(["junctions", ["farming"]]);
+    expect(toggleQueue(p, "farming")).toBe("removed");
+    expect([p.research.next, p.research.later]).toEqual(["junctions", []]);
+    // The one under way: nothing.
+    expect(toggleQueue(p, "bridges")).toBe("current");
+    expect(p.research.current).toBe("bridges");
+    // Not researchable: nothing.
+    expect(toggleQueue(p, "tunnels")).toBeNull();
+  });
+
+  it("holds at most QUEUE_MAX waiting", () => {
+    const p = player(1000);
+    const ready = TECHS.filter((t) => canResearch(p, t.id)).map((t) => t.id);
+    expect(ready.length).toBeGreaterThan(QUEUE_MAX + 1);
+    for (const id of ready.slice(0, QUEUE_MAX + 1)) expect(toggleQueue(p, id)).not.toBeNull();
+    expect(queueOf(p.research)).toHaveLength(QUEUE_MAX);
+    expect(toggleQueue(p, ready[QUEUE_MAX + 1])).toBeNull();
+    expect(queueOf(p.research)).toHaveLength(QUEUE_MAX);
+  });
+
+  it("when one finishes the next starts by itself, paying its coins as it starts; then the one after moves up", () => {
+    const p = player(0);
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "routes"); // 40 coins
+    toggleQueue(p, "signals");
+    deliver(p, "planks", 10);
+    // Learned with the coins short: Routes waits up next, Signals behind it (the queue keeps its order).
+    expect(tick(p, 20)).toBe("bridges");
+    expect([p.research.current, p.research.next, p.research.later]).toEqual([null, "routes", ["signals"]]);
+    expect(coinsShort(p)).toBe(40);
+    tick(p, 1);
+    expect(p.research.current).toBeNull();
+    // The coins come in: it starts on the next tick, paid, and Signals moves up.
+    p.coins = 50;
+    tick(p, 1);
+    expect([p.research.current, p.research.next, p.research.later, p.coins]).toEqual(["routes", "signals", [], 10]);
+    // Finished: Signals starts (free of coins).
+    deliver(p, "planks", 5);
+    expect(tick(p, 45)).toBe("routes");
+    expect([p.research.current, p.research.next]).toEqual(["signals", null]);
+  });
+
+  it("one learned meanwhile (a town's offer) is skipped", () => {
+    const p = player(100);
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "signals");
+    toggleQueue(p, "junctions");
+    p.learned.add("signals");
+    deliver(p, "planks", 10);
+    expect(tick(p, 20)).toBe("bridges");
+    expect([p.research.current, p.research.next]).toEqual(["junctions", null]);
+  });
+
+  it("Research now: one from the queue swaps in for the one under way, which waits up next keeping its goods", () => {
+    const p = player(100);
+    toggleQueue(p, "bridges");
+    deliver(p, "planks", 4);
+    toggleQueue(p, "signals");
+    toggleQueue(p, "junctions");
+    expect(startNow(p, "junctions")).toBe("current");
+    expect([p.research.current, p.research.next, p.research.later]).toEqual(["junctions", "bridges", ["signals"]]);
+    expect(p.research.held.get("bridges")).toEqual({ got: { planks: 4 }, study: 0 });
+    // Held back while its coins are short (and nothing changes).
+    p.coins = 0;
+    toggleQueue(p, "routes");
+    expect(startNow(p, "routes")).toBe("next");
+    expect([p.research.current, ...queueOf(p.research)]).toEqual(["junctions", "bridges", "signals", "routes"]);
+    // Not queued: nothing.
+    expect(startNow(p, "farming")).toBeNull();
+  });
+
+  it("pick (the balance player's) swaps with the one up next and keeps the queue behind it", () => {
+    const p = player(100);
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "signals");
+    toggleQueue(p, "junctions");
+    expect(pick(p, "signals")).toBe("current");
+    expect([p.research.current, p.research.next, p.research.later]).toEqual(["signals", "bridges", ["junctions"]]);
+  });
+
+  it("is saved and loaded, in order; a save from before it loads with no queue", () => {
+    const p = player(100);
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "signals");
+    toggleQueue(p, "junctions");
+    toggleQueue(p, "farming");
+    const data = JSON.parse(JSON.stringify(p.toJSON()));
+    expect(data.research.later).toEqual(["junctions", "farming"]);
+    const back = Progress.fromJSON(data);
+    expect([back.research.current, back.research.next, back.research.later]).toEqual(["bridges", "signals", ["junctions", "farming"]]);
+    // Bad entries dropped: unknown, learned, repeats, the one under way or up next; and none without a next.
+    const q = Progress.fromJSON({ owned: [], learned: ["switches"], research: { current: "bridges", next: "signals", later: ["no-such", "switches", "junctions", "junctions", "bridges", "signals", 7], got: [], study: 0 } });
+    expect(q.research.later).toEqual(["junctions"]);
+    const r = Progress.fromJSON({ owned: [], learned: [], research: { current: "bridges", next: null, later: ["junctions"], got: [], study: 0 } });
+    expect([r.research.next, r.research.later]).toEqual([null, []]);
+    // An old save (no `later`), and an empty queue isn't written.
+    const old = Progress.fromJSON({ owned: [], learned: [], research: { current: "bridges", next: "signals", got: [], study: 0 } });
+    expect(old.research.later).toEqual([]);
+    expect("later" in old.toJSON().research!).toBe(false);
   });
 });
