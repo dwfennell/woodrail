@@ -63,6 +63,8 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 - At 740 and 667, toasts of three or more lines sit under the goals and over the card.
 - Depot pile frames in the map view stay.
 
+**Train summary (#9):** the engine card's summary sits under the status, two lines at most, each `nowrap` with an ellipsis: "4 cars · 40 km/h · Red line", then what's on board by good in cargo order, riders last ("🌲 12 · 🪵 4 · 🧑 3", "Empty"; more than four kinds: three and "+n more"). Text from `trainSummary` / `loadWords` in `src/game/train-summary.ts`; a line name over 12 characters is left out. Speeds are toy km/h: the classic engine is 40 (`CLASSIC_KMH`), the others by their `speed`; a train too heavy to move says none. The wagon card has a load line from `carLoadWords` ("🌲 Logs: 2 of 3", "Empty (carries logs, planks, iron)", "🧑 3 of 6 seats"). Both are set by main's `showSummary`, keyed by the car, `Economy.loadsVersion` (bumped by `setCargo` and `setRiders`), the train's make-up (length, end cars) and the line's name: never rebuilt per frame. Loads on the wagons in 3D were already there (depot-view's wagon units and hopper heaps). e2e: `npm run e2e:train-summary` (360×740, about 8 min: the crane is slow headless).
+
 **Pin hints:** `undoPin` restores PinHint's state and withdraws its toast.
 
 **Names and details** (`src/ui/piece-info.ts`, #10 and #12):

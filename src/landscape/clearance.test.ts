@@ -3,7 +3,7 @@ import { getPieceDef, RISER_HEIGHT } from "../track";
 import { BLOCK_MESSAGES, checkPlacement, hillMessage, inRiver, levelsAbove, RIVER_GRACE, surfaceOutlines } from "./clearance";
 import { insideLoops, type Loop } from "./outline";
 import { CELL, isWater, SURF_SEA } from "./grid";
-import { FEAT_BUILDING, FEAT_TREE, gridWithPlots, PLOT_WIDTH, SURF_RIVER, SURF_TOWN } from "./grid";
+import { FEAT_BUILDING, FEAT_TREE, gridWithPlots, PLOT_WIDTH, SURF_RIVER, SURF_ROAD, SURF_TOWN } from "./grid";
 import { generateLandscape, stationEnds, type Landscape } from "./generate";
 
 function flat(): Landscape {
@@ -73,7 +73,7 @@ describe("checkPlacement", () => {
     expect(checkPlacement(land, "ramp", false, P(0, 0), 0)).toEqual({ kind: "clear" });
   });
 
-  it("blocks buildings, town squares and the mat edge, but not trees (they step aside)", () => {
+  it("blocks buildings, town streets and the mat edge, but not trees (they step aside)", () => {
     const land = flat();
     setCells(land, 60, 80, -10, 10, (i) => (land.grid.feature[i] = FEAT_BUILDING));
     expect(checkPlacement(land, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "blocked", reason: "building" });
@@ -81,7 +81,10 @@ describe("checkPlacement", () => {
     setCells(t, 60, 80, -10, 10, (i) => (t.grid.feature[i] = FEAT_TREE));
     expect(checkPlacement(t, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "clear" });
     const town = flat();
+    // A town's streets block track; its greens (town squares with nothing on them) take it (issue #18).
     setCells(town, 60, 80, -10, 10, (i) => (town.grid.surface[i] = SURF_TOWN));
+    expect(checkPlacement(town, "straight-216", false, P(0, 0), 0).kind).toBe("clear");
+    setCells(town, 60, 80, -10, 10, (i) => (town.grid.surface[i] = SURF_ROAD));
     expect(checkPlacement(town, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "blocked", reason: "town" });
     expect(checkPlacement(flat(), "straight-216", false, P(PLOT_WIDTH - 100, 0), 0)).toEqual({ kind: "blocked", reason: "off-mat" });
     expect(BLOCK_MESSAGES["off-mat"]).toBe("That's past the edge of the map");

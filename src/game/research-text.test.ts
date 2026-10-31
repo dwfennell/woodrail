@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Progress } from "./progress";
-import { deliver, pick, tick } from "./research";
+import { costOf, deliver, pick, tick, toggleQueue } from "./research";
 import * as text from "./research-text";
 import { cardState, chipsText, costWords, unlocksWords, goalPick, IdleNotice, idleText, pickerKey, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
 import { TECHS } from "./tech";
@@ -42,13 +42,13 @@ describe("a card's chips", () => {
     expect(chipsText(researchChips(p, "mills"))).toBe("🪵 4/6 · 🌾 0/6");
   });
 
-  it("a ready card: Research when idle, else Next up; the one up next swaps with Research now", () => {
+  it("a ready card: Research when idle, else Add to queue; one in the queue has Remove and Research now (the swap)", () => {
     const p = Progress.fresh();
     expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/3", title: "Planks: 0 of 3 brought" }], study: "20 s study", action: "Research" });
     pick(p, "switches");
-    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", action: "Next up" });
+    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", action: "Add to queue" });
     pick(p, "bridges");
-    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", why: "Next up, after Switches", action: "Research now" });
+    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", why: "Next up, after Switches", action: "Research now", remove: true });
     // Tapping it again swaps the two.
     pick(p, "bridges");
     expect(cardState(p, "bridges")).toBe("researching");
@@ -74,7 +74,8 @@ describe("a card's chips", () => {
     p.learned.add("switches");
     pick(p, "routes"); // 40 coins, none in hand: waits up next
     expect(researchCard(p, "routes", SCHOOL)).toMatchObject({ why: "Waiting for 40🪙", action: "Research now", blocked: true });
-    expect(researchCard(p, "signals", null)).toMatchObject({ why: "Needs a school", action: "Research", blocked: true });
+    expect(researchCard(p, "signals", null)).toMatchObject({ why: "Needs a school", action: "Add to queue", blocked: true });
+    expect(researchCard(Progress.fresh(), "switches", null)).toMatchObject({ why: "Needs a school", action: "Research", blocked: true });
   });
 });
 
@@ -349,3 +350,28 @@ describe("the full cost and what it unlocks, in words (#11)", () => {
   });
 });
 
+
+describe("the research queue in words (#14)", () => {
+  it("cards say where each waits; the pill counts the rest; the school's card too", () => {
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    p.coins = 10;
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "signals");
+    toggleQueue(p, "routes"); // 40 coins, 10 in hand
+    expect(researchCard(p, "signals", SCHOOL)).toMatchObject({ why: "Next up, after Bridges", action: "Research now", remove: true });
+    expect(researchCard(p, "routes", SCHOOL)).toMatchObject({ why: "2nd in line, after Signals · 30🪙 short", action: "Research now", blocked: true, remove: true });
+    expect(researchCard(p, "junctions", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/" + costOf("junctions").goods.planks, title: `Planks: 0 of ${costOf("junctions").goods.planks} brought` }], study: "20 s study", action: "Add to queue" });
+    expect(cardState(p, "routes")).toBe("next");
+    expect(pillView(p, true)?.more).toBe(2);
+    expect(pillText(pillView(p, true))).toBe("📘 Bridges 0/10🪵 +2");
+    expect(schoolCard(p).note).toBe("Researching Bridges and ramps · 2 in queue");
+    // Full: Add to queue is held back and says why.
+    for (const id of ["junctions", "tank", "cranes1"]) toggleQueue(p, id);
+    expect(researchCard(p, "farming", SCHOOL)).toMatchObject({ why: "The queue is full (5)", action: "Add to queue", blocked: true });
+    // Taken out: back to ready.
+    toggleQueue(p, "signals");
+    expect(cardState(p, "signals")).toBe("ready");
+    expect(researchCard(p, "routes", SCHOOL)?.why).toBe("Next up, after Bridges · 30🪙 short");
+  });
+});

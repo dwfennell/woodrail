@@ -53,10 +53,12 @@ import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type St
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
-import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, setSpeed, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
+import { attachResearch, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
 import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
-import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
+import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
+import { carLoadWords, CLASSIC_KMH, trainSummary, type SummaryCar } from "./game/train-summary";
+import { CARRIES } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan } from "./game/blueprints";
@@ -1621,7 +1623,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }, hud.depotYard);
   // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
-    pick: (id) => picked(id),
+    pick: (id) => picked(id, toggleQueue),
+    now: (id) => picked(id, startNow),
     close: () => setBoardOpen(false),
     picture: (key) => thumbnails.get(key),
     // A kit's, a prop's or a car's picture is drawn on demand if it isn't yet, as for the tray (the cars' and the other
@@ -1733,11 +1736,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * A research picked in the picker (its one button): it starts, or waits in Next up, or (the one up next) swaps with
-   * the one under way. The card and the pill show it; no toast.
+   * A research's button in the picker (#14): `toggleQueue` (it starts, joins the queue, or is taken out of it) or
+   * `startNow` (one in the queue swaps in for the one under way). The card and the pill show it; no toast.
    */
-  function picked(id: string): void {
-    if (!hasSchool() || !pickResearch(progress, id)) return;
+  function picked(id: string, how: (p: Progress, id: string) => unknown): void {
+    if (!hasSchool() || !how(progress, id)) return;
     // What schools take has changed: routed trains plan again.
     game.economy.acceptsChanged();
     hud.setCoins(progress.coins);
@@ -1838,7 +1841,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (state === "learned") return { ...base, state };
       if (state === "soon") return { ...base, state, waits: PLAN_WORDS[t.plan!] };
       const research = researchCard(progress, t.id, school);
-      if (research) return { ...base, state, research, ...(t.id === goalTech && state !== "researching" ? { goal: true } : {}) };
+      if (research) return { ...base, state, research, ...(state === "next" ? { queued: queuePlace(progress.research, t.id) } : {}), ...(t.id === goalTech && state !== "researching" ? { goal: true } : {}) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
       const unmet = t.requires.filter((n) => !needMet(progress, n));
       const waits =
@@ -2436,7 +2439,46 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   hud.onEngineCardShown = () => {
     showRoute();
     showEngineView();
+    showSummary();
   };
+
+  /**
+   * The engine card's train summary and the wagon card's load (#9): redrawn only when what they say could have changed
+   * (the car, the loads' stamp, the train's make-up, its line), not per frame.
+   */
+  let summaryKey = "";
+  const summaryCar = (c: { id: number; kind: string }): SummaryCar => {
+    if (c.kind === "engine") return { kind: "engine" };
+    if (c.kind === "passenger") return { kind: "coach", count: game.economy.ridersOf(c.id).count };
+    const cargo = game.economy.cargoOf(c.id);
+    return { kind: "wagon", cargo: cargo.kind, count: cargo.count };
+  };
+  function showSummary(): void {
+    const engineId = interaction.openEngineCarId;
+    const carId = engineId !== -1 ? engineId : interaction.openCarCardId;
+    const found = carId === -1 ? null : game.sim.findCar(carId);
+    if (!found) {
+      summaryKey = "";
+      return;
+    }
+    const cars = found.train.cars;
+    const line = engineId !== -1 ? lineOf(game.economy, engineId) : undefined;
+    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
+    if (key === summaryKey) return;
+    summaryKey = key;
+    if (engineId !== -1) {
+      // Its top speed by its engines (Sandbox's are all the classic's); too heavy to move, none said.
+      const l = engineLoad(game.world, found.train);
+      const kmh = mode !== "game" ? CLASSIC_KMH : l.cars > l.pulls || l.engines.length === 0 ? 0 : CLASSIC_KMH * Math.min(...l.engines.map((e) => e.speed));
+      const s = trainSummary(cars.map(summaryCar), kmh, line?.name ?? "");
+      hud.setEngineSummary(s.about, s.load);
+    } else {
+      const car = cars[found.index];
+      const room = car.kind === "passenger" ? (game.economy.seatsOf?.(car.id) ?? 0) : game.economy.wagonCapacity;
+      const carries = CARRIES[car.kind];
+      hud.setCarLoad(car.kind === "passenger" && room === 0 ? "" : carries || car.kind === "passenger" ? carLoadWords(summaryCar(car), room, carries) : "");
+    }
+  }
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
@@ -3799,6 +3841,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
     if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
     showEngineView();
+    showSummary();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);

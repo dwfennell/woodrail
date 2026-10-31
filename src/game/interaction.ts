@@ -14,6 +14,7 @@ import { trayKey } from "../ui/tray-catalogue";
 import { pieceInfo } from "../ui/piece-info";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
+import { streetTown } from "./street-moves";
 import { lotFor, movableBuilding, moveBuilding, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
 import type { Look } from "../render/dressing/buildings";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
@@ -479,7 +480,7 @@ export class Interaction {
     const canvas = game.canvas;
     const c = game.controls;
     game.scene.add(this.propOutline.line, this.squareOutline.line, this.sceneryOutline.line);
-    this.roads = new RoadHand(game, hud, editor, () => this.onRefused?.(), () => this.onPlaced?.(false));
+    this.roads = new RoadHand(game, hud, editor, () => this.onRefused?.(), () => this.onPlaced?.(false), () => !this.propsEditable);
     this.draw = new DrawHand(game, editor, {
       placement: (type, flipped, pose, y, ignore) => this.placement(type, flipped, pose, y, ignore ?? -1),
       occupied: (id) => this.game.sim.pieceOccupied(id),
@@ -1463,6 +1464,8 @@ export class Interaction {
         if (this.townHouse(press.propId)) return pointerType === "mouse";
         return dragMoves("prop", press.propId === this.selectedProp, pointerType);
       case "road":
+        // (A town's street, like its houses, is never selected: a finger rests on it, a mouse drags it.)
+        if (this.roads.townStreet(press.cell)) return pointerType === "mouse";
         return dragMoves("road", press.cell === this.roads.selected, pointerType);
       case "cargo":
         return dragMoves("cargo", false, pointerType);
@@ -1643,7 +1646,8 @@ export class Interaction {
     if (m.far) return;
     const k = m.press.kind;
     // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
-    const house = m.press.kind === "prop" && this.townHouse(m.press.propId);
+    // (And a town's street, as its houses: issue #18.)
+    const house = (m.press.kind === "prop" && this.townHouse(m.press.propId)) || (m.press.kind === "road" && this.roads.townStreet(m.press.cell));
     const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : house ? "piece" : null;
     // Drawing, on a line's body: a drag draws a branch, so a long press (a mouse's too) is how the piece is picked up.
     // (Never while planning a route: then a press draws nothing, `drawsNow`, and a hold picks nothing up.)
@@ -2173,6 +2177,16 @@ export class Interaction {
       } else this.selectProp(p.propId);
       return;
     }
+    if (p.kind === "road" && this.roads.townStreet(p.cell)) {
+      // (A town's street, like its houses, isn't selected: a tap there opens its town's card.)
+      const town = streetTown(this.game.landscape, p.cell);
+      const piece = town ? this.game.stations.get(town.id) : undefined;
+      const station = piece === undefined ? -1 : (this.game.economy.depotAtPiece(piece)?.id ?? -1);
+      this.clearSelection();
+      if (station !== -1 && this.townCard) this.openDepot(station);
+      else this.hud.hideCards();
+      return;
+    }
     if (p.kind === "road") {
       this.clearSelection();
       this.roads.select(p.cell);
@@ -2319,6 +2333,11 @@ export class Interaction {
   /** The engine whose card is open, or −1. */
   get openEngineCarId(): number {
     return this.hud.engineCardOpen ? this.selectedCar : -1;
+  }
+
+  /** The car (not an engine) whose card is open, or −1. */
+  get openCarCardId(): number {
+    return this.hud.carCardOpen ? this.selectedCar : -1;
   }
 
   /** Economy depot whose card is open, or −1. */
@@ -3208,7 +3227,8 @@ export class Interaction {
     if (!hit || hit.kind === "road") {
       const i = hit?.kind === "road" ? hit.cell : this.squareAt(x, y);
       if (i === -1 || m.stays.has(i)) return;
-      if (hit) note("road", "Roads stay: tap one with Clear off to take it up");
+      if (hit && this.roads.townStreet(i)) note("road", "The town's streets stay");
+      else if (hit) note("road", "Roads stay: tap one with Clear off to take it up");
       else if (sceneryAt(this.game.landscape, i)?.kind === "tree") note("tree", "Trees stay: the Land tab moves them");
       else return;
       m.stays.add(i);
@@ -3777,14 +3797,14 @@ export class Interaction {
     this.lastY = y;
     // (A town's house in Game mode can't go back in the box: it's the town's, not the player's.)
     const overTray = this.hud.isOverTray(x, y);
-    m.overTray = overTray && !(m.kind === "drag-prop" && m.town);
+    m.overTray = overTray && !(m.kind === "drag-prop" && m.town) && !(m.kind === "drag-road" && m.drag.street);
     const r = this.game.canvas.getBoundingClientRect();
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
     // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band. (Over the
     // tray, no pan: a town's house carried there, which can't go in, doesn't send the map away either.)
     // (Nor with a town's house in hand: it goes about its town, in view, and a finger held still near an edge mustn't
     // drift it onto another lot.)
-    const house = m.kind === "drag-prop" && !!m.town;
+    const house = (m.kind === "drag-prop" && !!m.town) || (m.kind === "drag-road" && !!m.drag.street);
     this.game.director.setEdgePointer(overTray || house ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-prop") {

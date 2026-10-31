@@ -29,6 +29,8 @@ export interface Station {
   unlocks: string;
   /** For researching, next and ready: its goods chips, study time, how it stands and its one button. */
   research?: ResearchCardView;
+  /** For `next`: where it waits in the queue (1 is up next; #14). */
+  queued?: number;
   /** The current goal asks for it (its card's button is lit for the goal). */
   goal?: boolean;
   /** What must be done first, in words, and whether it is. */
@@ -46,8 +48,13 @@ export interface BoardView {
 }
 
 export interface BlueprintBoardHandlers {
-  /** Pick it for research: it starts if nothing is under way, else waits up next (the one up next: the two swap). */
+  /**
+   * A tap on its button (#14): it starts if nothing is under way or waiting, else joins the end of the queue; one in
+   * the queue is taken out of it (the same tap again).
+   */
   pick(id: string): void;
+  /** Research now, for one in the queue: it swaps in for the one under way (which waits up next). */
+  now?(id: string): void;
   close(): void;
   /** A thing's tray picture (an image URL) by its key, if drawn. */
   picture?(key: string): string | undefined;
@@ -152,7 +159,7 @@ const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 /** The small tag on a card in the web, by its state. */
 const NODE_TAG: Partial<Record<CardState, (s: Station) => string>> = {
   researching: () => `<span class="bp-tag now">📘 Researching</span>`,
-  next: () => `<span class="bp-tag next">Next up</span>`,
+  next: (s) => `<span class="bp-tag next">${s.queued && s.queued > 1 ? `In line: ${s.queued}` : "Next up"}</span>`,
   ready: (s) => `<span class="bp-tag">${esc(s.price)}</span>`,
   soon: () => `<span class="bp-tag soon">Soon</span>`,
 };
@@ -162,16 +169,19 @@ export const tagTitle = (s: Pick<Station, "label" | "unlocks" | "cost">): string
 
 /**
  * A research card's foot: its goods as chips ("🪵 6/10", the coins red while short) and its study time, a bar for the
- * one under way, how it stands, and its one button (Research, Next up, or Research now to swap), 44 px tall.
+ * one under way, how it stands, and its one button (Research, Add to queue; in the queue Remove and Research now, the swap), 44 px tall.
  */
 export function researchFoot(id: string, r: ResearchCardView, goal: boolean): string {
   const chips = r.chips.map((c) => `<span class="bp-chip${c.short ? " short" : ""}" title="${esc(c.title)}">${esc(c.text)}</span>`).join("") + `<span class="bp-chip study" title="Study time at the school, once the goods are in">⏱ ${esc(r.study)}</span>`;
   const bar = r.fill !== undefined ? `<span class="bp-gauge"><span class="bp-gauge-fill" style="width:${Math.round(r.fill * 100)}%"></span></span>` : "";
   const why = r.why ? `<span class="${r.blocked ? "bp-why" : "bp-gauge-text"}">${esc(r.why)}</span>` : "";
+  // (In the queue: Remove, the tap that put it in again, and Research now, which swaps it in.)
+  const act = r.remove ? "now" : "pick";
   const button = r.action
-    ? `<button class="chip text${r.blocked ? "" : " primary"}${goal && !r.blocked ? " bp-goal" : ""}" data-act="pick" data-id="${id}"${r.blocked ? ` aria-disabled="true" title="${esc(r.why ?? "")}"` : ""}>${esc(r.action)}</button>`
+    ? `<button class="chip text${r.blocked ? "" : " primary"}${goal && !r.blocked ? " bp-goal" : ""}" data-act="${act}" data-id="${id}"${r.blocked ? ` aria-disabled="true" title="${esc(r.why ?? "")}"` : ""}>${esc(r.action)}</button>`
     : `<span class="bp-now">📘 Researching</span>`;
-  return `<span class="bp-cost"><span class="bp-chips">${chips}</span>${bar}${why}</span>${button}`;
+  const remove = r.remove ? `<button class="chip text bp-remove" data-act="pick" data-id="${id}" title="Take it out of the queue">✕ Remove</button>` : "";
+  return `<span class="bp-cost"><span class="bp-chips">${chips}</span>${bar}${why}</span>${remove}${button}`;
 }
 
 export class BlueprintBoard {
@@ -192,7 +202,7 @@ export class BlueprintBoard {
     this.root.hidden = true;
     const head = document.createElement("div");
     head.className = "board-head";
-    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one; trains bring its goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary><div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key researching"></span>Researching<span class="bp-key next"></span>Next up<span class="bp-key ready"></span>Can research<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Soon<span class="bp-key hint">?</span>Not found yet</div></details>`;
+    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one, or line up a few; trains bring the goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary><div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key researching"></span>Researching<span class="bp-key next"></span>In queue<span class="bp-key ready"></span>Can research<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Soon<span class="bp-key hint">?</span>Not found yet</div></details>`;
     const close = document.createElement("button");
     close.className = "close";
     close.textContent = "✕";
@@ -214,6 +224,7 @@ export class BlueprintBoard {
         this.selected = b.dataset.id!;
         this.render();
       } else if (act === "pick") handlers.pick(b.dataset.id!);
+      else if (act === "now") handlers.now?.(b.dataset.id!);
     };
     this.body.addEventListener("click", onClick);
     this.sheet.addEventListener("click", onClick);

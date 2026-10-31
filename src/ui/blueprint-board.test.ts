@@ -33,7 +33,7 @@ describe("the blueprint web", () => {
 describe("a research card's foot in the picker", () => {
   const SCHOOL = "Larkfield school";
 
-  it("a ready card: its goods as chips, its study time, and one button, Research or Next up", () => {
+  it("a ready card: its goods as chips, its study time, and one button, Research or Add to queue", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
     const html = researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false);
@@ -42,10 +42,10 @@ describe("a research card's foot in the picker", () => {
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(html).toContain(`data-act="pick" data-id="mills">Research</button>`);
     pick(p, "switches");
-    expect(researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false)).toContain(">Next up</button>");
+    expect(researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false)).toContain(">Add to queue</button>");
   });
 
-  it("the one under way: a bar and how it stands, no button; one up next: Research now (the swap)", () => {
+  it("the one under way: a bar and how it stands, no button; one up next: Remove, and Research now (the swap)", () => {
     const p = Progress.fresh();
     pick(p, "bridges");
     deliver(p, "planks", 6);
@@ -57,7 +57,9 @@ describe("a research card's foot in the picker", () => {
     const next = researchFoot("switches", researchCard(p, "switches", SCHOOL)!, true);
     expect(next).toContain("Next up, after Bridges");
     // The goal's research: its button ringed.
-    expect(next).toContain(`class="chip text primary bp-goal" data-act="pick" data-id="switches">Research now</button>`);
+    expect(next).toContain(`class="chip text primary bp-goal" data-act="now" data-id="switches">Research now</button>`);
+    // Remove: the same tap that queued it (data-act pick, which toggles).
+    expect(next).toContain(`data-act="pick" data-id="switches" title="Take it out of the queue">✕ Remove</button>`);
   });
 
   it("with no school the button is held and says why", () => {

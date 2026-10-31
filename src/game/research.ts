@@ -20,6 +20,11 @@ export interface Research {
   current: string | null;
   /** Up next: starts when `current` is done (once its coins are in hand), or now if nothing is current. */
   next: string | null;
+  /**
+   * The rest of the queue (#14), in order, after `next`: each moves up to `next` when the one ahead starts. Empty while
+   * `next` is null. Each pays its coins when it starts (nothing is reserved), and schools take goods for `current` only.
+   */
+  later: string[];
   /** Goods delivered into `current` so far. */
   got: Bag;
   /** Seconds studied, once its goods are all in. */
@@ -36,7 +41,7 @@ export interface Research {
   speed: number;
 }
 
-export const newResearch = (): Research => ({ current: null, next: null, got: {}, study: 0, held: new Map(), version: 0, speed: 1 });
+export const newResearch = (): Research => ({ current: null, next: null, later: [], got: {}, study: 0, held: new Map(), version: 0, speed: 1 });
 
 /** Seconds of study once a research's goods are in, by tier, at a school's speed of 1 (a college's is 2). */
 export const STUDY_SECONDS: Readonly<Record<1 | 2 | 3, number>> = { 1: 20, 2: 45, 3: 90 };
@@ -78,10 +83,13 @@ export function pick(p: Progress, id: string): "current" | "next" | null {
   if (r.current === id) return "current";
   r.version++;
   if (r.current === null) {
+    r.later = r.later.filter((x) => x !== id);
     r.next = id;
     return promote(p) ? "current" : "next";
   }
   if (r.next !== id) {
+    // (The one up next is replaced; the rest of the queue stays behind it. The player's taps use `toggleQueue`.)
+    r.later = r.later.filter((x) => x !== id);
     r.next = id;
     return "next";
   }
@@ -93,22 +101,78 @@ export function pick(p: Progress, id: string): "current" | "next" | null {
   r.got = {};
   r.study = 0;
   promote(p);
+  // (Promoting moved the queue up: the one swapped out goes back in front of it.)
+  if (r.next !== null) r.later.unshift(r.next);
   r.next = old;
   return "current";
 }
 
-/** Start `next` if nothing is current and it can be: coins paid (none if it was started before). */
+/** The most researches waiting in the queue (`next` and `later`): a short list a child can read. */
+export const QUEUE_MAX = 5;
+
+/** The queue, in order: `next`, then `later`. */
+export const queueOf = (r: Research): string[] => (r.next === null ? [] : [r.next, ...r.later]);
+
+/** Where it waits in the queue: 1 for `next`, 2… for `later`, 0 if it isn't queued. */
+export function queuePlace(r: Research, id: string): number {
+  if (r.next === id) return 1;
+  const i = r.later.indexOf(id);
+  return i < 0 ? 0 : i + 2;
+}
+
+/** Set the queue (`next` and `later`) from a list. */
+function setQueue(r: Research, q: string[]): void {
+  r.next = q[0] ?? null;
+  r.later = q.slice(1);
+  r.version++;
+}
+
+/**
+ * A player's tap on a research's button (#14): with nothing under way or waiting it starts (as `pick`); one in the
+ * queue is taken out (it keeps what it had got, if it was started before); else it joins the end of the queue (unless
+ * that's full). The one under way: nothing. Returns what happened, or null if nothing could.
+ */
+export function toggleQueue(p: Progress, id: string): "current" | "queued" | "removed" | null {
+  const r = p.research;
+  if (r.current === id) return "current";
+  const q = queueOf(r);
+  if (q.includes(id)) {
+    setQueue(r, q.filter((x) => x !== id));
+    promote(p);
+    return "removed";
+  }
+  if (!canResearch(p, id) || q.length >= QUEUE_MAX) return null;
+  if (r.current === null && q.length === 0) return pick(p, id) === "current" ? "current" : "queued";
+  setQueue(r, [...q, id]);
+  promote(p);
+  return r.current === id ? "current" : "queued";
+}
+
+/**
+ * "Research now" on a queued research: it goes to the front of the queue and swaps in for the one under way (which
+ * waits up next, keeping what it had got), as `pick` on the one up next does. Held back while its coins are short.
+ */
+export function startNow(p: Progress, id: string): "current" | "next" | null {
+  const r = p.research;
+  if (r.current === id) return "current";
+  const q = queueOf(r);
+  if (!q.includes(id)) return null;
+  if (r.current !== null && !r.held.has(id) && p.coins < (costOf(id).coins ?? 0)) return "next";
+  setQueue(r, [id, ...q.filter((x) => x !== id)]);
+  if (r.current === null) return promote(p) ? "current" : "next";
+  return pick(p, id) === "current" ? "current" : "next";
+}
+
+/** Start `next` if nothing is current and it can be: coins paid (none if it was started before). The queue moves up. */
 function promote(p: Progress): boolean {
   const r = p.research;
+  // Learned meanwhile (a town's offer), or can't be researched any more: nothing to start; the queue moves up.
+  while (r.current === null && r.next !== null && !canResearch(p, r.next)) {
+    r.held.delete(r.next);
+    setQueue(r, r.later);
+  }
   if (r.current !== null || r.next === null) return false;
   const id = r.next;
-  if (!canResearch(p, id)) {
-    // Learned meanwhile (a town's offer): nothing to start.
-    r.next = null;
-    r.held.delete(id);
-    r.version++;
-    return false;
-  }
   const kept = r.held.get(id);
   if (kept) {
     r.got = kept.got;
@@ -122,7 +186,7 @@ function promote(p: Progress): boolean {
     r.study = 0;
   }
   r.current = id;
-  r.next = null;
+  r.next = r.later.shift() ?? null;
   r.version++;
   return true;
 }
@@ -249,6 +313,8 @@ export function detachResearch(economy: Economy): void {
 export interface ResearchData {
   current: string | null;
   next: string | null;
+  /** The queue after `next` (#14); absent when empty (and in saves from before it). */
+  later?: string[];
   got: [string, number][];
   study: number;
   held?: [string, { got: [string, number][]; study: number }][];
@@ -257,7 +323,7 @@ export interface ResearchData {
 const bagData = (b: Bag): [string, number][] => Object.entries(b).filter(([, n]) => (n ?? 0) > 0) as [string, number][];
 
 export function researchToJSON(r: Research): ResearchData {
-  return { current: r.current, next: r.next, got: bagData(r.got), study: r.study, ...(r.held.size > 0 ? { held: [...r.held].map(([id, h]) => [id, { got: bagData(h.got), study: h.study }] as [string, { got: [string, number][]; study: number }]) } : {}) };
+  return { current: r.current, next: r.next, ...(r.later.length > 0 ? { later: [...r.later] } : {}), got: bagData(r.got), study: r.study, ...(r.held.size > 0 ? { held: [...r.held].map(([id, h]) => [id, { got: bagData(h.got), study: h.study }] as [string, { got: [string, number][]; study: number }]) } : {}) };
 }
 
 /** From saved data, against the blueprints (an unknown or malformed part is dropped). */
@@ -274,6 +340,12 @@ export function researchFromJSON(data: unknown, known: (id: unknown) => string |
   r.current = known(d.current);
   r.next = known(d.next);
   if (r.next === r.current) r.next = null;
+  // The queue after it: known, each once, not the one under way or up next, at most `QUEUE_MAX` in all.
+  if (r.next !== null && Array.isArray(d.later))
+    for (const x of d.later) {
+      const id = known(x);
+      if (id !== null && id !== r.current && id !== r.next && !r.later.includes(id) && r.later.length < QUEUE_MAX - 1) r.later.push(id);
+    }
   if (r.current !== null) {
     r.got = bag(d.got);
     r.study = time(d.study);
