@@ -572,7 +572,11 @@ export class Economy {
   }
 
   /** Put cargo straight onto a car (saves, tests). */
+  /** Bumped whenever a wagon's goods or a coach's riders change: what shows loads redraws only then. */
+  loadsVersion = 0;
+
   setCargo(carId: number, kind: CargoKind | null, count: number): void {
+    this.loadsVersion++;
     if (count <= 0 || kind === null) {
       this.cargo.delete(carId);
       this.landedFrom.delete(carId);
@@ -585,6 +589,7 @@ export class Economy {
 
   /** Put people straight onto a coach (saves, tests): `count` who got on at depot `from`. */
   setRiders(carId: number, count: number, from: number): void {
+    this.loadsVersion++;
     if (count <= 0) this.riders.delete(carId);
     else this.riders.set(carId, { count, from });
   }

@@ -320,7 +320,7 @@ const stationPieces = (w: World) => new Set(w.stations.values());
 export const MAKE_SWITCH_HINT = "Tap your workshop and choose Switch. Trains then bring its planks.";
 export const SWITCH_ORDERED_HINT = "Ordered: trains bring the workshop its planks.";
 
-export const TWO_TRAINS_HINT = "Put a second engine on the track, then lay a passing loop with signals.";
+export const TWO_TRAINS_HINT = "Put a second engine on the track, then lay a passing loop.";
 
 /**
  * What to say of the second engine when "Run two trains at once" opens: where it is (one free in the toy box), or to
@@ -527,9 +527,9 @@ export const GOALS: readonly Goal[] = [
   {
     id: "two-trains",
     title: "Run two trains at once",
-    hint: "Lay a passing loop with signals so they can pass.",
+    hint: "Lay a passing loop so they can pass.",
     // On one line two trains only turn each other back: this goal waits till the player can build a passing loop (two
-    // switches, learned before signals) with signals to hold one train while the other passes.
+    // switches, learned before signals). Signals aren't needed for trains to pass at a loop any more.
     needs: ["signals"],
     check: (w) => {
       const n = running(w).length;

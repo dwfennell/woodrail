@@ -223,6 +223,12 @@ export class Hud {
   readonly depotYard = el("div", "depot-yard");
   /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
   readonly engineExtra = el("div", "engine-extra");
+  /** The train summary under the status: cars, speed, line; and what's on board (two lines, each cut with "…"). */
+  private readonly engineSummary = el("div", "engine-summary");
+  private readonly summaryAbout = el("div", "summary-about");
+  private readonly summaryLoad = el("div", "summary-load");
+  /** A wagon's (or coach's) load, on its card. */
+  private readonly carLoad = el("div", "car-load");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
@@ -504,6 +510,9 @@ export class Hud {
     this.engineCard.append(this.followBtn, more);
     this.engineStatus.setAttribute("aria-live", "polite");
     this.engineCard.appendChild(this.engineStatus);
+    this.engineSummary.append(this.summaryAbout, this.summaryLoad);
+    this.engineSummary.hidden = true;
+    this.engineCard.appendChild(this.engineSummary);
     this.putAwayBtn = button("Put away", "Put this line's extra train back in the box: then the others can run", h.putAway, "chip text put-away");
     this.putAwayBtn.hidden = true;
     this.engineCard.appendChild(this.putAwayBtn);
@@ -544,6 +553,8 @@ export class Hud {
     // Wagon card
     this.carCard.hidden = true;
     this.carCard.appendChild(el("div", "card-title", "Wagon"));
+    this.carLoad.hidden = true;
+    this.carCard.appendChild(this.carLoad);
     const carRow = el("div", "card-row");
     carRow.append(
       button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"),
@@ -745,7 +756,9 @@ export class Hud {
         // A tap says so too, since a phone never shows a title.
         // Clicked (a mouse or pen), a model or train is carried, as a piece is: each click on the map puts one down.
         const crossing = item.kind === "prop" && crossingStyleOf(item.asset);
-        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the map, or click then click the map: ${item.label}`;
+        // What a car does in Game mode (a caboose: makes its train a bit faster), said the same way.
+        const detail = item.kind === "train" && this.trayMode === "game" ? item.gameDetail : undefined;
+        const tip = crossing ? `${item.label}: goes where track crosses a road` : detail ? `${item.label}: ${detail}` : `Drag onto the map, or click then click the map: ${item.label}`;
         const key = trayKey(item);
         b.dataset.key = key;
         b.classList.toggle("armed", this.armedKey === key);
@@ -757,7 +770,7 @@ export class Hud {
             pick: (move) => this.handlers.trayPointerDown(item, move),
             tap: (up) => {
               if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
-              else if (crossing) this.toast(tip);
+              else if (crossing || detail) this.toast(tip);
             },
           });
         });
@@ -1415,6 +1428,24 @@ export class Hud {
 
   get engineCardOpen(): boolean {
     return !this.engineCard.hidden;
+  }
+
+  /** The train summary on the engine card ("" hides it); set only when it changes (see main's `showSummary`). */
+  setEngineSummary(about: string, load: string): void {
+    this.engineSummary.hidden = !about && !load;
+    if (this.summaryAbout.textContent !== about) this.summaryAbout.textContent = about;
+    if (this.summaryLoad.textContent !== load) this.summaryLoad.textContent = load;
+    this.summaryLoad.hidden = !load;
+  }
+
+  /** What the open wagon carries ("" hides it). */
+  setCarLoad(text: string): void {
+    this.carLoad.hidden = !text;
+    if (this.carLoad.textContent !== text) this.carLoad.textContent = text;
+  }
+
+  get carCardOpen(): boolean {
+    return !this.carCard.hidden;
   }
 
   showCarCard(): void {

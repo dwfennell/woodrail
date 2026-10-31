@@ -34,6 +34,7 @@
     "e2e:school": "node tools/e2e/school-growth.mjs",
     "e2e:sites": "node tools/e2e/map-sites.mjs",
     "e2e:train-parts": "node tools/e2e/train-parts.mjs",
+    "e2e:train-summary": "node tools/e2e/train-summary.mjs",
     "e2e:workshop": "node tools/e2e/workshop-modes.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "blueprints:page": "node scripts/blueprint-page.mjs"

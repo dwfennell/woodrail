@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ENGINE_SPEED, Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, Layout } from "../track";
-import { attachEngines, quickness, tooHeavy, topSpeed } from "./engines";
+import { attachEngines, CABOOSE_BONUS, quickness, tooHeavy, topSpeed } from "./engines";
 import type { World } from "./world";
 
 /** A long straight line and a train of `cars` on it (its engines given `looks`, in order). */
@@ -64,5 +64,41 @@ describe("the goods engine", () => {
     const t = line(["engine", "timber", "timber", "timber", "timber", "hopper", "hopper", "van", "van"], ["goods"]);
     expect(topSpeed(t.w, t.train())).toBeCloseTo(ENGINE_SPEED * 0.8);
     expect(quickness(t.w, t.train())).toBe(0.7);
+  });
+});
+
+describe("the caboose (#13)", () => {
+  it("at the tail, the train runs a bit faster; mid-train it doesn't; two don't add up", () => {
+    expect(CABOOSE_BONUS).toBe(1.1);
+    const none = line(["engine", "hopper", "passenger"]);
+    expect(topSpeed(none.w, none.train())).toBe(ENGINE_SPEED);
+    const tail = line(["engine", "hopper", "caboose"]);
+    expect(topSpeed(tail.w, tail.train())).toBeCloseTo(ENGINE_SPEED * 1.1);
+    const mid = line(["engine", "caboose", "hopper"]);
+    expect(topSpeed(mid.w, mid.train())).toBe(ENGINE_SPEED);
+    const two = line(["engine", "caboose", "hopper", "caboose"]);
+    expect(topSpeed(two.w, two.train())).toBeCloseTo(ENGINE_SPEED * 1.1);
+    // On top of the engine's own speed: a diesel's 1.2×.
+    const diesel = line(["engine", "hopper", "caboose"], ["diesel"]);
+    expect(topSpeed(diesel.w, diesel.train())).toBeCloseTo(ENGINE_SPEED * 1.2 * 1.1);
+    // A caboose on its own, or a train too heavy to move, gets nothing from it.
+    const alone = line(["caboose"]);
+    expect(topSpeed(alone.w, alone.train())).toBe(ENGINE_SPEED);
+    const heavy = line(["engine", "timber", "timber", "hopper", "van", "caboose"]);
+    expect(topSpeed(heavy.w, heavy.train())).toBe(0);
+  });
+
+  it("on the sim: a train with a caboose at its tail runs a measured stretch sooner", () => {
+    const run = (cars: CarKind[]) => {
+      const t = line(cars);
+      attachEngines(t.w);
+      t.sim.setLever(t.engines[0].id, 1);
+      for (let i = 0; i < SIM_HZ * 3; i++) t.sim.tick();
+      return t.train().speed;
+    };
+    const plain = run(["engine", "hopper", "passenger"]);
+    expect(plain).toBeCloseTo(ENGINE_SPEED, 0);
+    expect(run(["engine", "hopper", "caboose"])).toBeCloseTo(ENGINE_SPEED * 1.1, 0);
+    expect(run(["engine", "caboose", "hopper"])).toBeCloseTo(plain, 5);
   });
 });
