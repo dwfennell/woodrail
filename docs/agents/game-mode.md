@@ -55,6 +55,8 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 - Player text is short and kid-clear. Fields count as whole fields ("2 of 2").
 - **Research tickets say it in words (#11).** Every card's ticket heads its pictures "Unlocks:" and has a "Costs:" line with every good and the coins, each as amount, icon and name ("6 🪵 planks, 6 🌾 grain, 40 🪙 coins"; "(paid)" once started). Both come from `costWords` and `unlocksWords` in `research-text.ts`. Tags on the web, cost chips and the study time have `title` tooltips for desktop hover; on a phone, a tap on a tag opens its ticket. The picker's rebuild key (`pickerKey`) is unchanged, so tooltips mustn't show live coin counts.
 
+- **A caboose makes its train a bit faster (#13).** `CABOOSE_BONUS` (1.1×) in `engines.ts` `topSpeed`, on top of the engines' speed, when a caboose is an end car of a train with an engine (`cabooseAtTail`: either end, so it doesn't change when the train reverses). Mid-train doesn't count; two don't stack. Game mode only (Sandbox has no `topSpeed`). The tray's caboose says "Caboose: Makes its train a bit faster" (title; a tap toasts it on a phone), from `gameDetail` on the tray item. The engine card shows no speed, so nothing there. Covered by `engines.test.ts` and step 7 of `e2e:train-parts`. Balance bands not run: the harness builds no cabooses, so its SUMMARY lines should be unchanged.
+
 **Workshop:**
 - It takes planks and iron, and owes stone. Moving iron to owed is open.
 - `shopNeeds` counts a known thing only while none of it is on the map (`builtOf`). Queued orders always count. A thing still in the toy box still owes.
@@ -109,7 +111,7 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 4. **Drop B5's empty-the-sawmill workaround** in `sections-qa.test.ts`. The idle head-on fix (39533c3) is on main; check that all sections-qa tests pass after.
 5. **School priority:** deferred until item 3. Propose the smallest rule if Foundry still stalls.
 
-Also waiting on the user: the coin-sink plan (town treats and a paint shop, plan a57a272) and the stuck-cargo hint. Related GitHub issues: #13 (caboose), #14 (research queue). #18 (moving houses and roads) is on `claude/town-drag`. #17 (towns growing taller) is on `claude/towns-taller`.
+Also waiting on the user: the coin-sink plan (town treats and a paint shop, plan a57a272) and the stuck-cargo hint. Related GitHub issues: #13 (caboose), #14 (research queue: the queue is built; the school's "how deep it takes goods" setting is open), #17 (towns growing taller) and #18 (moving houses and streets) have landed.
 
 ## 5. Gotchas
 - **Harness gaps hide game bugs:** the old farm, the harbour's stone, and crane pile spots were all missed because tests wrote piles directly. Test by the player's route.

@@ -1,7 +1,9 @@
 // End-to-end trains made up from parts in Game mode (`npm run e2e:train-parts [-- <out dir>]`), on a phone at 390×844
 // with touch: a new game's Trains tab shows only Engines, Wagons and Coaches (no ready-made trains); the first goal
 // past joining two towns asks for an engine; an engine dragged from the Engines shelf onto the line goes down, a
-// flatbed wagon dragged from the Wagons shelf onto it couples on, and the train gets moving.
+// flatbed wagon dragged from the Wagons shelf onto it couples on, and the train gets moving. A caboose (#13) from the
+// Coaches shelf says "Makes its train a bit faster" and, dropped at the train's tail, makes it run a tenth faster over
+// a measured stretch.
 //
 // Usage: npm run e2e:train-parts [-- <out dir>]   (default out: e2e-out/train-parts)
 // Starts its own dev server (on 5391, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -173,6 +175,64 @@ if (line.pose) {
   });
   check("the train gets moving (\"Get a train moving\" met)", Math.abs(moving.speed) > 0 && moving.done, JSON.stringify(moving));
   await shot("4-moving");
+
+  // 7. A caboose (#13). Setup shortcuts (not what's under test): Passengers learned, and one caboose put in the toy box
+  // (as the workshop would make it for 2 planks). Its speed is measured over the stretch the train runs in 1.5 s
+  // (180 sim ticks) at full speed, by its front axle's travel, before and after.
+  // (Game paused and the game's own sim stepped tick by tick: headless, the page runs it too slowly to time by clock.)
+  // The second run goes back the way the first came (the line between the towns is short); the sim runs either way alike.
+  const measure = (way) =>
+    p.evaluate((way) => {
+      const w = window.woodrail;
+      const was = w.paused;
+      w.paused = true;
+      const engineId = w.sim.getTrain(w.sim.trainIds()[0]).cars.find((c) => c.kind === "engine").id;
+      const train = () => w.sim.trainIds().map((id) => w.sim.getTrain(id)).find((t) => t.cars.some((c) => c.id === engineId));
+      w.sim.setLever(engineId, way);
+      for (let i = 0; i < 240; i++) w.sim.tick();
+      const a = { ...train().world[0] };
+      for (let i = 0; i < 180; i++) w.sim.tick();
+      const b = { ...train().world[0] };
+      w.sim.setLever(engineId, 0);
+      for (let i = 0; i < 600 && train().speed > 0; i++) w.sim.tick();
+      w.paused = was;
+      w.invalidate();
+      return Math.hypot(b.x - a.x, b.z - a.z) / 1.5;
+    }, way);
+  // (Stopped first: step 6 left it going.)
+  await p.evaluate(async () => {
+    const w = window.woodrail;
+    const t = w.sim.getTrain(w.sim.trainIds()[0]);
+    w.sim.setLever(t.cars.find((c) => c.kind === "engine").id, 0);
+    const s = Date.now();
+    while (w.sim.getTrain(t.id).speed > 1 && Date.now() - s < 8000) await new Promise((r) => setTimeout(r, 100));
+  });
+  const before = await measure(1);
+  await p.evaluate(() => {
+    window.woodrail.learn("passengers");
+    window.woodrail.progress().add("car:caboose");
+    window.woodrail.hud.trayLearned();
+  });
+  await p.waitForTimeout(800);
+  await tap(".scroller .tray-back");
+  await tap(".scroller .tray-item.tray-group", "Coaches");
+  const cabooseTip = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-item")].find((e) => e.querySelector(".label")?.textContent === "Caboose")?.title ?? null);
+  check("the Coaches shelf's caboose says what it does", cabooseTip === "Caboose: Makes its train a bit faster", JSON.stringify(cabooseTip));
+  const cabooseAt = await centre(".scroller .tray-item:not(.tray-group):not(.tray-back)", "Caboose");
+  // (Dropped at the train's end away from its engine: its tail.)
+  const tailPos = await p.evaluate(() => {
+    const w = window.woodrail;
+    const t = w.sim.getTrain(w.sim.trainIds()[0]);
+    const end = t.cars[0].kind === "engine" ? t.world[t.world.length - 1] : t.world[0];
+    return { x: end.x, y: end.y, z: end.z };
+  });
+  if (cabooseAt) await drag(cabooseAt, await onScreen(tailPos));
+  await settle();
+  const t3 = await trains();
+  check("the caboose, dropped at the train's tail, couples on there", t3.length === 1 && t3[0].length === 3 && (t3[0][0] === "caboose" || t3[0][2] === "caboose"), JSON.stringify(t3));
+  await shot("5-caboose");
+  const after = await measure(-1);
+  check("with a caboose at its tail the train runs a bit faster (about 1.1×) over the measured stretch", after / before > 1.06 && after / before < 1.14, `before ${before.toFixed(0)} mm/s, after ${after.toFixed(0)} mm/s (${(after / before).toFixed(3)}×)`);
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));

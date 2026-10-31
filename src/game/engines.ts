@@ -40,13 +40,29 @@ export function powered(world: World): boolean {
   return false;
 }
 
-/** A train's top speed (mm/s): its slowest engine's; 0 if it's too heavy for its engines, or electric with no power. */
+/** A train with a caboose at its tail runs this much faster (#13). One counts; more don't add to it. */
+export const CABOOSE_BONUS = 1.1;
+
+/**
+ * Has the train a caboose at its tail: an end car (the end away from its engines, whichever way it's going: the cars
+ * run front first and turn round with it), and an engine to pull it? A caboose mid-train doesn't count.
+ */
+export function cabooseAtTail(train: Train): boolean {
+  const cars = train.cars;
+  if (cars.length < 2 || !cars.some((c) => c.kind === "engine")) return false;
+  return cars[0].kind === "caboose" || cars[cars.length - 1].kind === "caboose";
+}
+
+/**
+ * A train's top speed (mm/s): its slowest engine's, a tenth faster with a caboose at its tail; 0 if it's too heavy
+ * for its engines, or electric with no power.
+ */
 export function topSpeed(world: World, train: Train): number {
   const l = load(world, train);
   if (l.engines.length === 0) return ENGINE_SPEED;
   if (l.cars > l.pulls) return 0;
   if (l.engines.some((e) => e.electric) && !powered(world)) return 0;
-  return ENGINE_SPEED * Math.min(...l.engines.map((e) => e.speed));
+  return ENGINE_SPEED * Math.min(...l.engines.map((e) => e.speed)) * (cabooseAtTail(train) ? CABOOSE_BONUS : 1);
 }
 
 /** Why a train can't move at all (its top speed is 0): too heavy for its engines, or electric with no power; or null. */
