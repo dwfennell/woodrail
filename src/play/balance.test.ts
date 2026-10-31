@@ -11,6 +11,7 @@ import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } fro
 import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
+import { engineStatus } from "../game/engine-status";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, learnGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { built, techOf, TECHS, unlocksOf } from "../game/tech";
@@ -1770,6 +1771,23 @@ class Playthrough {
     const sawn = w.economy.made[CARGO.planks.index];
     // (Where the longest stall began, for the summary.)
     if (sawn === this.sawn && Math.round(P.minute - this.sawnAt) > this.stall) this.stallFrom = `${this.sawnAt.toFixed(0)}, ${this.trains.size} train(s), ${Math.max(0, 2 * lineOrder(P).length - 2)} stops`;
+    // A train of the player's stuck (stalls.ts: nothing turns a train back now, routing §16 Q3), its card saying so and
+    // "Put one away": looked at once a minute, the player does, the newest first (as for a jam, below).
+    const stuck = [...this.trains.keys()].find((e) => w.economy.stalls.stuckOf(e));
+    if (stuck !== undefined && this.trains.size >= 2 && !ENV.BALANCE_NOJAMCUT && !this.goods2On()) {
+      const [e, kind] = [...this.trains].find(([, k]) => k === "goods 2") ?? [...this.trains].find(([id]) => id !== this.timber) ?? [];
+      if (e !== undefined) {
+        const said = engineStatus(w.sim, w.economy, stuck, () => "");
+        P.lift(e);
+        this.trains.delete(e);
+        if (kind === "goods 2") this.goods2Cut++;
+        else this.lifted++;
+        if (this.lines) this.jamCut++;
+        P.findings.push(`Minute ${P.minute.toFixed(0)}: trains stuck ("${said}"). Picked the ${kind} train up.`);
+        P.note(`STUCK TRAINS: "${said}"; picked the ${kind} train up`);
+        this.sawnAt = P.minute;
+      }
+    }
     if (sawn !== this.sawn) {
       this.sawn = sawn;
       this.sawnAt = P.minute;

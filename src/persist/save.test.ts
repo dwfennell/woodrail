@@ -21,6 +21,46 @@ function worldWithTrain(): World {
   return world;
 }
 
+describe("an old save whose layout leant on turning back (routing §16 Q3)", () => {
+  it("loads as it is (no migration); two trains head on along one line meet, stand, and their cards say they're stuck", async () => {
+    const { engineStatus } = await import("../game/engine-status");
+    // (Saved as a layout that ran before: two trains on one line of track, set going toward each other. They met and
+    // turned back, again and again; now nothing turns a train back short of the end of the track.)
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    let last = world.stations.get(a.id)!;
+    const line: number[] = [];
+    for (let i = 0; i < 8; i++) line.push((last = appendPiece(world.layout, "straight-216", false, connectorRef(last, 1))));
+    appendPiece(world.layout, "buffer-turnback", false, connectorRef(last, 1));
+    const put = (pieceId: number, reversed: boolean) => {
+      const placed = world.sim.addTrain(["engine", "hopper"], { pieceId, pathIndex: 0, reversed, s: 100 });
+      if (placed.kind !== "placed") throw new Error("no room");
+      world.sim.setLever(world.sim.getTrain(placed.trainId)!.cars[0].id, 1);
+    };
+    put(line[1], false);
+    put(line[6], true);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    expect(data.version).toBe(SAVE_VERSION);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const w = r.value;
+    for (let i = 0; i < 30 * SIM_HZ; i++) {
+      w.sim.tick();
+      w.economy.tick();
+    }
+    const engines = w.sim.trainIds().map((id) => w.sim.getTrain(id)!.cars[0].id);
+    expect(engines).toHaveLength(2);
+    for (const e of engines) {
+      const t = w.sim.findCar(e)!.train;
+      expect(t.speed).toBe(0);
+      expect(t.lastTurn?.cause ?? "buffer").toBe("buffer");
+      expect(w.economy.stalls.stuckOf(e)?.kind).toBe("in-way");
+      expect(engineStatus(w.sim, w.economy, e, () => "")).toBe("Stuck: another train is in the way. Put one away");
+    }
+  });
+});
+
 describe("save format", () => {
   it("round-trips the landscape, stations, track and trains", () => {
     const world = worldWithTrain();
