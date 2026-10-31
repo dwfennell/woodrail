@@ -736,7 +736,7 @@ lone-train check.
      - **crossing-merge** (two lines joining at a switch into the dead-end Y, P's routed, X's hand-run): X's now locks the
        points as they lie and goes in first, P's waiting short, and comes back out to X, so both reach Y (before, both
        stood stuck). X's routed and P's hand-run: still both stuck ("Put one away", the open question in rail-road.md).
-     - **Player's path:** `E2E_ONLY=hand-wait` in `e2e:touch`.
+     - **Player's path:** `E2E_ONLY=hand-wait` in `e2e:touch` (5 checks); the full `e2e:touch` 126/126.
 8. **Clean-up.** Delete `steer.ts`'s remains and update rail-road.md.
 
 ## 14. Cost
