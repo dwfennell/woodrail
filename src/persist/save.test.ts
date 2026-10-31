@@ -120,10 +120,12 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 13 (the growth menu's cards), loads a v12 map as it is, and turns older saves away, saying so", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("is at version 14 (car ids and the id counters), loads a v12 or v13 map as it is, and turns older saves away, saying so", () => {
+    expect(SAVE_VERSION).toBe(14);
     expect(MIGRATES_FROM).toBe(12);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
+    data.version = 13;
+    expect(deserializeWorld(data).ok).toBe(true);
     data.version = 12;
     expect(deserializeWorld(data).ok).toBe(true);
     data.version = 11;
@@ -830,3 +832,64 @@ function roundTripOf(w: World): World {
   if (!r.ok) throw new Error(r.error);
   return r.value;
 }
+
+describe("ids in saves (v14, architecture review §3.4)", () => {
+  /** Two trains, the second put down after one was taken off: car ids with a gap, the counters past them. */
+  function twoTrains(): { world: World; ids: number[][] } {
+    const world = worldWithTrain();
+    const free = [...world.layout.pieceIds()].filter((id) => world.layout.getPiece(id)!.type === "straight-216" && !world.sim.pieceOccupied(id));
+    const at = (k: number) => ({ pieceId: free[k], pathIndex: 0, reversed: false, s: 150 });
+    const gone = world.sim.addTrain(["engine"], at(0));
+    if (gone.kind === "placed") world.sim.removeTrain(gone.trainId);
+    const a = world.sim.addTrain(["engine", "hopper"], at(free.length - 1));
+    if (a.kind !== "placed") throw new Error("no room");
+    const ids = world.sim.trainIds().map((id) => world.sim.getTrain(id)!.cars.map((c) => c.id));
+    return { world, ids };
+  }
+
+  it("a reload keeps every car's id, and the counters: the next car put down gets a new id, not a reused one", () => {
+    const { world, ids } = twoTrains();
+    const counters = world.sim.idCounters();
+    const back = roundTripOf(world);
+    expect(back.sim.trainIds().map((id) => back.sim.getTrain(id)!.cars.map((c) => c.id))).toEqual(ids);
+    // (Train ids go on from the saved counter: putting the trains back takes the next ones.)
+    expect(back.sim.idCounters()).toEqual({ car: counters.car, train: counters.train + ids.length });
+    const free = [...back.layout.pieceIds()].find((id) => back.layout.getPiece(id)!.type === "straight-216" && !back.sim.pieceOccupied(id))!;
+    const more = back.sim.addTrain(["engine"], { pieceId: free, pathIndex: 0, reversed: false, s: 150 });
+    const next = more.kind === "placed" ? back.sim.getTrain(more.trainId)!.cars[0].id : -1;
+    expect(ids.flat()).not.toContain(next);
+    expect(next).toBe(counters.car);
+  });
+
+  it("an engine's line and its place on it come back on the same engine id", () => {
+    const world = worldWithTrain();
+    const t = world.sim.getTrain(world.sim.trainIds()[0])!;
+    const engine = t.cars[0].id;
+    const station = world.stations.get(world.landscape.towns[0].id)!;
+    const line = editLine(world.economy, engine, (stops) => stops.push({ depotId: world.economy.depotAtPiece(station)!.id, action: "auto" }));
+    expect(line).not.toBeNull();
+    const back = roundTripOf(world);
+    expect(back.sim.findCar(engine)?.train.cars[0].kind).toBe("engine");
+    expect(lineOf(back.economy, engine)?.id).toBe(line!.id);
+  });
+
+  it("an older save (no ids) loads with fresh ids, as before", () => {
+    const { world, ids } = twoTrains();
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData & { ids?: unknown };
+    delete data.ids;
+    for (const t of data.trains) for (const c of t.cars) delete (c as { id?: number }).id;
+    const r = deserializeWorld(data);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.sim.trainIds().map((id) => r.value.sim.getTrain(id)!.cars.map((c) => c.id))).toEqual(ids.map((cars, k) => cars.map((_, i) => ids.slice(0, k).flat().length + i + 1)));
+  });
+
+  it("a save with two cars of one id (hand-edited) gives the second train fresh ids, never two cars one id", () => {
+    const { world } = twoTrains();
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    data.trains[1].cars[0].id = data.trains[0].cars[0].id;
+    const r = deserializeWorld(data);
+    if (!r.ok) throw new Error(r.error);
+    const all = r.value.sim.trainIds().flatMap((id) => r.value.sim.getTrain(id)!.cars.map((c) => c.id));
+    expect(new Set(all).size).toBe(all.length);
+  });
+});

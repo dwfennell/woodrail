@@ -96,6 +96,23 @@ export interface Train {
 }
 
 /**
+ * A train's stable key: its lowest engine car id (else, with no engine, its lowest car id). `Train.id` changes when a
+ * train turns round, couples or splits; this doesn't: a turned train keeps its cars, a coupled one keeps the key of
+ * the part with the lowest engine, and of a split the part with that engine keeps it. Car ids last across a save (v14),
+ * so the key does too. Per-train state that must outlive those changes is kept by it (`Sim.held`, `crossClaims`,
+ * `turnBlocked`, `endBehind`; the router's waits).
+ */
+export function trainKey(train: Train): number {
+  let engine = -1;
+  let any = -1;
+  for (const c of train.cars) {
+    if (c.kind === "engine" && (engine < 0 || c.id < engine)) engine = c.id;
+    if (any < 0 || c.id < any) any = c.id;
+  }
+  return engine >= 0 ? engine : any;
+}
+
+/**
  * Why a train last turned back: a buffer, or track that just stops (an open end). Trains turn round only at the end of
  * the track (routing spec §16 Q3): one in another's way waits for it, however long (see `heldBy`).
  */
@@ -267,6 +284,22 @@ export class Sim {
     return { kind: "no-room" };
   }
 
+  /** The next car and train ids to be handed out (a save keeps them, v14, so ids aren't reused after a load). */
+  idCounters(): { car: number; train: number } {
+    return { car: this.nextCarId, train: this.nextTrainId };
+  }
+
+  /** Go on from these ids (a load: never below an id already handed out). */
+  setIdCounters(ids: { car: number; train: number }): void {
+    this.nextCarId = Math.max(this.nextCarId, ids.car);
+    this.nextTrainId = Math.max(this.nextTrainId, ids.train);
+  }
+
+  /** Is a car with this id on the sim? */
+  hasCar(carId: number): boolean {
+    return this.findCar(carId) !== undefined;
+  }
+
   /**
    * Place a train whose leading axle sits at `at`, cars trailing behind it. `carIds` reuses the ids of cars being put
    * back (picked up, re-railed), so anything keyed by car id (cargo) stays with them.
@@ -351,9 +384,19 @@ export class Sim {
   }
 
   removeTrain(id: number): boolean {
-    this.turnBlocked.delete(id);
-    this.endBehind.delete(id);
+    const t = this.trains.get(id);
+    if (t) {
+      const key = trainKey(t);
+      this.turnBlocked.delete(key);
+      this.endBehind.delete(key);
+    }
     return this.trains.delete(id);
+  }
+
+  /** The train with this key (`trainKey`) now, if any. */
+  trainByKey(key: number): Train | undefined {
+    for (const t of this.trains.values()) if (trainKey(t) === key) return t;
+    return undefined;
   }
 
   /** Each car's look, by id (it follows the car when it's picked up and put down again, as ids do). */
@@ -1059,16 +1102,19 @@ export class Sim {
    * Who's on the way onto each piece where paths meet, by the path it'll take (`pieceId * MAX_PATHS + path`): the train,
    * and the tick it said so (good that tick and the next). See `crossCap`.
    */
-  private readonly crossClaims = new Map<number, { trainId: number; tick: number }>();
+  private readonly crossClaims = new Map<number, { key: number; tick: number }>();
   /**
    * Trains held where they stand by another train (`heldBy`): short of a piece where paths meet that it's on or coming
    * onto (`crossCap`), close behind it or nose to nose with it (`followRoom`), or against its side; and the tick it was
-   * last so (good that tick and the next).
+   * last so (good that tick and the next). By train key (`trainKey`), as is `by`.
    */
   private readonly held = new Map<number, { by: number; how: HeldHow; tick: number }>();
-  /** Trains waiting at the end of the line with no room to turn round: the train in the way (`Sim.tick`). */
+  /** Trains waiting at the end of the line with no room to turn round: the train in the way (`Sim.tick`). By key. */
   private readonly turnBlocked = new Map<number, number>();
-  /** Trains waiting to turn back close behind a train standing at the end of the line: that train (`endOfLineBehind`). */
+  /**
+   * Trains waiting to turn back close behind a train standing at the end of the line: that train (`endOfLineBehind`).
+   * By key.
+   */
   private readonly endBehind = new Map<number, number>();
 
   /**
@@ -1079,9 +1125,9 @@ export class Sim {
    * Q3). Asked only of a train standing held close behind another ("follow", this tick).
    */
   private endOfLineBehind(train: Train): void {
-    const h = this.held.get(train.id);
+    const h = this.held.get(trainKey(train));
     if (!h || h.how !== "follow" || h.tick !== this.ticks) return;
-    const b = this.trains.get(h.by);
+    const b = this.trainByKey(h.by);
     // (Not a train on a lift or a turntable's deck: that's a ride, waited for, not the end of the line.)
     if (!b || b.derailed || b.speed > 0 || this.onLift(b) || (this.rides.size > 0 && this.riding(b))) return;
     let net = 0;
@@ -1093,7 +1139,7 @@ export class Sim {
     if (!end) return;
     train.turnback = TURNBACK_TICKS;
     train.lastTurn = { cause: end.cause, pieceId: end.pieceId, tick: this.ticks };
-    this.endBehind.set(train.id, b.id);
+    this.endBehind.set(trainKey(train), h.by);
     this.events.push({ kind: "buffer", trainId: train.id });
   }
 
@@ -1133,27 +1179,31 @@ export class Sim {
    * as that train stays (routing spec §16 Q3), and wait chains (economy/stalls.ts) see who for.
    */
   heldBy(trainId: number): number | null {
-    const h = this.held.get(trainId);
-    return h && h.tick >= this.ticks - 1 && this.trains.has(h.by) ? h.by : null;
+    const t = this.trains.get(trainId);
+    const h = t && this.held.get(trainKey(t));
+    if (!h || h.tick < this.ticks - 1) return null;
+    return this.trainByKey(h.by)?.id ?? null;
   }
 
   /** How `heldBy`'s train holds this one (null: none does). */
   heldHow(trainId: number): HeldHow | null {
-    const h = this.held.get(trainId);
-    return h && h.tick >= this.ticks - 1 && this.trains.has(h.by) ? h.how : null;
+    const t = this.trains.get(trainId);
+    const h = t && this.held.get(trainKey(t));
+    return h && h.tick >= this.ticks - 1 && this.trainByKey(h.by) ? h.how : null;
   }
 
   private holdBy(train: Train, by: Train, how: HeldHow): void {
-    const h = this.held.get(train.id);
+    const key = trainKey(train);
+    const h = this.held.get(key);
     if (h) {
-      h.by = by.id;
+      h.by = trainKey(by);
       h.how = how;
       h.tick = this.ticks;
       return;
     }
-    this.held.set(train.id, { by: by.id, how, tick: this.ticks });
-    // (Trains come and go, and turn round as new ones: what's said of gone ones goes.)
-    if (this.held.size > 4 * this.trains.size) for (const [id, x] of this.held) if (!this.trains.has(id) || x.tick < this.ticks - 1) this.held.delete(id);
+    this.held.set(key, { by: trainKey(by), how, tick: this.ticks });
+    // (Trains come and go: what's said of gone ones, or long ago, goes.)
+    if (this.held.size > 4 * this.trains.size) for (const [k, x] of this.held) if (x.tick < this.ticks - 1 || !this.trainByKey(k)) this.held.delete(k);
   }
 
   /** Is any of this train on a lift's platform? */
@@ -1271,8 +1321,8 @@ export class Sim {
         const turned = this.turnAround(train);
         if (turned) {
           turned.lastTurn = train.lastTurn;
-          this.turnBlocked.delete(train.id);
-          this.endBehind.delete(train.id);
+          this.turnBlocked.delete(trainKey(train));
+          this.endBehind.delete(trainKey(train));
           this.events.push({ kind: "turned", trainId: train.id, newTrainId: turned.id });
           continue; // moves from next tick, as a new train
         }
@@ -1281,21 +1331,22 @@ export class Sim {
         // end is a stall, said on its card.
         train.turnback = TURN_RETRY_TICKS;
         const by = this.turnBlocker(train);
-        if (by !== null) this.turnBlocked.set(train.id, by);
-        else this.turnBlocked.delete(train.id);
+        const b = by === null ? undefined : this.trains.get(by);
+        if (b) this.turnBlocked.set(trainKey(train), trainKey(b));
+        else this.turnBlocked.delete(trainKey(train));
       }
       if (this.turnBlocked.size > 0 && train.turnback >= 0) {
-        const by = this.turnBlocked.get(train.id);
-        const b = by === undefined ? undefined : this.trains.get(by);
+        const by = this.turnBlocked.get(trainKey(train));
+        const b = by === undefined ? undefined : this.trainByKey(by);
         if (b) this.holdBy(train, b, "turn");
-      } else if (this.turnBlocked.size > 0) this.turnBlocked.delete(train.id);
+      } else if (this.turnBlocked.size > 0) this.turnBlocked.delete(trainKey(train));
       // Waiting to turn back behind a train standing at the end of the line: if that train moves off first, it waits
       // no more and goes on.
       if (train.turnback >= 0 && this.endBehind.size > 0) {
-        const by = this.endBehind.get(train.id);
-        const b = by === undefined ? undefined : this.trains.get(by);
+        const by = this.endBehind.get(trainKey(train));
+        const b = by === undefined ? undefined : this.trainByKey(by);
         if (by !== undefined && (!b || b.speed > 0)) {
-          this.endBehind.delete(train.id);
+          this.endBehind.delete(trainKey(train));
           train.turnback = -1;
         }
       }
@@ -1772,9 +1823,9 @@ export class Sim {
         const key = c.pieceId * MAX_PATHS + c.pathIndex;
         const claim = this.crossClaims.get(key);
         if (claim) {
-          claim.trainId = train.id;
+          claim.key = trainKey(train);
           claim.tick = this.ticks;
-        } else this.crossClaims.set(key, { trainId: train.id, tick: this.ticks });
+        } else this.crossClaims.set(key, { key: trainKey(train), tick: this.ticks });
       }
       const len = pathLength(def.paths[c.pathIndex].geom);
       dist += len;
@@ -1797,8 +1848,8 @@ export class Sim {
     for (let m = mask, p = 0; m !== 0; m >>= 1, p++) {
       if ((m & 1) === 0) continue;
       const claim = this.crossClaims.get(pieceId * MAX_PATHS + p);
-      if (!claim || claim.trainId === train.id || claim.tick < this.ticks - 1) continue;
-      const t = this.trains.get(claim.trainId);
+      if (!claim || claim.key === trainKey(train) || claim.tick < this.ticks - 1) continue;
+      const t = this.trainByKey(claim.key);
       if (t && !t.derailed) return t;
     }
     return null;

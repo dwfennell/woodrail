@@ -14,7 +14,7 @@
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
 import { getPieceDef, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, trainKey, type Cursor, type Sim, type Train } from "../sim";
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
 import { planWay } from "./plan";
@@ -50,8 +50,8 @@ export type RouteWait = { kind: "points"; pieceId: number; by: number } | { kind
 /** A train's wait (see `RouteWait`), and where it stands for it. */
 interface Waiting {
   wait: RouteWait;
-  /** The train (its id when it last looked) and which way it was driven. */
-  trainId: number;
+  /** The train (its key, `trainKey`: it lasts through a turn, a couple or a split) and which way it was driven. */
+  key: number;
   sign: number;
   /** Since when (sim tick of the look that refused it). */
   since: number;
@@ -284,7 +284,8 @@ export class Router {
   /** The points a train waits short of (§3.3; the sim claims nothing there for it), or −1. One size check with no waits. */
   waitsAt(train: Train): number {
     if (this.waits.size === 0) return -1;
-    for (const w of this.waits.values()) if (w.trainId === train.id) return w.wait.pieceId;
+    const key = trainKey(train);
+    for (const w of this.waits.values()) if (w.key === key) return w.wait.pieceId;
     return -1;
   }
 
@@ -300,8 +301,9 @@ export class Router {
 
   /** How far (mm) a waiting train's nose is from the points it waits for; Infinity: it isn't waiting (or is past them). */
   gapTo(train: Train): number {
+    const key = trainKey(train);
     for (const w of this.waits.values()) {
-      if (w.trainId !== train.id) continue;
+      if (w.key !== key) continue;
       const net = this.host.drive(train);
       if (net === 0 || train.turnback >= 0 || Math.sign(net) !== w.sign) return Infinity;
       const layout = this.host.layout;
@@ -537,7 +539,7 @@ export class Router {
     if (!same) this.waitsBegun++;
     const rem = new Map<number, number>();
     for (let i = 0; i < this.alongIds.length && this.alongAt[i] <= at.d + 1e-6; i++) if (!rem.has(this.alongIds[i])) rem.set(this.alongIds[i], at.d - this.alongAt[i]);
-    this.waits.set(engine, { wait, trainId: train.id, sign, since: same ? was!.since : this.host.sim.ticks, rem });
+    this.waits.set(engine, { wait, key: trainKey(train), sign, since: same ? was!.since : this.host.sim.ticks, rem });
   }
 
   /**

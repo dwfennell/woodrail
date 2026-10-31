@@ -10,6 +10,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **Stable ids** (on `claude/harden-2`; architecture review §3.4). Save v14 keeps car ids and the id counters (`Sim.idCounters`); old saves load with fresh ids. `trainKey(train)` (sim.ts: the lowest engine car id, else the lowest car id) lasts through turns, couples and splits; `Sim.held`, `turnBlocked`, `endBehind`, `crossClaims` and the router's waits are kept by it, not by `train.id` (which changes on each). Still by train id: `Sim.offLift`, `Economy.services`, `KitStops.visits` (a crane's or a kit stop's visit starts afresh after a turn; changing that changes loading). Tests: `src/sim/train-key.test.ts`, save.test.ts "ids in saves".
 - **Routing, step 7: hand-run trains respect locks** (on `claude/routing-7`; spec §13 step 7, §16 Q5, Q6).
   - **Now:** with two trains or more, the router looks after hand-run trains (lever on, no route) too (`Router.steerHand`, every 8 ticks; a lone train untouched). Each walks the points just ahead as they lie (braking + `HAND_LOOK` 80 mm, facing and trailing). Free, it **locks them as they lie** while moving (nothing is ever thrown for it, Q6), so no route sets them in front of it; locked for the same road coming the same way, it shares; for a road that doesn't meet its own (a crossover's other straight), it goes by; otherwise it stands `STAND_SHORT` + `OVERLAP` short, `RouteWait` naming the holder, as a routed train does, and its card says "Waiting for the train on the Red line to pass the points". Standing, it holds nothing ahead (so a hand-run train held by sections never keeps a routed one waiting). Lever taps on points only hand-run trains hold move at once (Q1).
   - **Routed trains** ask for trailing points when another train holds them (share or wait). Harness invariant `lockRun`: no train runs onto points locked for others only (0 everywhere, fuzz too).
@@ -89,7 +90,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
   - A line over room holds its newest train (`joinedAt`).
   - A toast, once per line.
   - **Put away** (`src/game/put-away.ts`): one undo step, refused if the spot has been taken.
-  - **Saved:** per engine, `line.joined` and `line.held`; per line, `toldFull`. Loading restores them (`Sections.restorePlace`). **Car ids change on load,** so never key anything persistent by car id.
+  - **Saved:** per engine, `line.joined` and `line.held`; per line, `toldFull`. Loading restores them (`Sections.restorePlace`). **Car ids last across a load since save v14** (older saves load with fresh ids), so a car id is a safe key; a train id isn't (use `trainKey`).
 - **Shorter shadows:** sun elevation 55°, bearing (0.72, 0.48), in `src/render/stage.ts`.
 - **Straddled-switch lift-turn:** `Sim.turnAround` calls `rememberStraddledSwitches`.
 - **Crossings and joining switches (#2)** (`Sim.crossCap`, tests in `src/economy/crossing-merge.test.ts`).
@@ -235,7 +236,7 @@ A routed train never runs over points set against it: refused, it stands short o
 - Touch moves need CDP timestamps. Use the evaluate-click `tapSel`, not `page.tap`. A fresh Game may show the title screen, so click its primary button.
 - **The click shield:** wait for a control's rect to hold still before tapping.
 - **Shared recorders:** give toast recorders unique names, or other checks' toasts get double-counted.
-- **Reloads:** car ids change. Find trains by world position (the nearest within 400 mm).
+- **Reloads:** since save v14 (`claude/harden-2`) car ids and the sim's id counters are saved: a reload keeps every car's id (train ids are new; key per-train state by `trainKey`). Saves from before v14 still load with fresh car ids. Piece ids survive; depot ids are renumbered in save order.
 - **Lifting a train by touch:** a still hold only arms it; it lifts on the first move past the slop (10 px). Move a fixed distance (not a fraction of a distance that may be tiny), stamp every CDP event after the last, the touchEnd too, or Playwright's next tap gets no click. A drag can pan the view at the edge: re-frame before tapping something else.
 - SwiftShader frames are slow, and the sim is capped at 0.1 s a frame. Tick ahead in `evaluate`, and say so in a comment.
 - A `pgrep -f` wait loop matches itself; use background-job completion instead.
