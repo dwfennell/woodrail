@@ -2,7 +2,7 @@
  * The track as a graph for routing: the ways out of a piece, where they lead, and how far a stop is (a piece-count
  * search). Routing (router.ts, plan.ts), sections and the way drawn on the map all ask it the same way.
  */
-import { connectorRef, getPieceDef, indexOfRef, MAX_CONNECTORS, pieceOfRef, type Layout } from "../track";
+import { connectorRef, getPieceDef, indexOfRef, MAX_CONNECTORS, pieceOfRef, wayAt, type Layout } from "../track";
 /** The most track pieces a search for the way to a stop goes through. */
 export const SEARCH = 4000;
 
@@ -36,7 +36,7 @@ export function waysFrom(
   }
   // A pinned switch: only the route it's set to goes anywhere (steering doesn't throw it), picked as `routeFrom` does.
   if (out.length > 1 && pinned(pieceId)) {
-    const set = out[layout.switchState(pieceId) % out.length];
+    const set = out[wayAt(def, layout.switchState(pieceId), entry, out.length)];
     return [{ option: 0, path: set.path, exit: set.exit }];
   }
   return out;

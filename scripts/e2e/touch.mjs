@@ -945,10 +945,225 @@ async function shortUnderCar(ctx, p) {
   await p.keyboard.press("Escape");
 }
 
+/**
+ * The wye's three levers (#15), by the player's path: a wye dragged out of the Switch shelf by touch onto open ground,
+ * a leg of track off each corner; each corner's lever tapped by touch (each throws its own corner only), and a train run
+ * by hand through the wye takes each of its three ways: A → C from the trunk, C → B across, B → C across the other way,
+ * then (corner 1's lever tapped back) B → A to the trunk. The points never move under it. Then all is still: 0 frames.
+ */
+async function wyeLevers(ctx, p, tapOn) {
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y, timestamp) => cdp.send("Input.dispatchTouchEvent", { type, ...(timestamp ? { timestamp } : {}), touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await p.keyboard.press("Escape");
+  // Open ground for the wye and its legs as they'll lie (the tray puts a piece down at the view's heading and its own
+  // turns): the pieces laid on a copy round (0, 0), and room asked for every point along them. Framed on it.
+  const spot = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const T = await import("/src/track/index.ts");
+    const it = w.interaction;
+    const heading = it.cameraHeading() + (it.trayTurns * Math.PI) / 4;
+    const scratch = new T.Layout();
+    const sw = scratch.addPiece("wye", poseForCentre("wye", false, 0, 0, heading), 0, false);
+    for (const c of [0, 1, 2]) {
+      let ref = T.connectorRef(sw, c);
+      for (const type of ["straight-216", "straight-216", "buffer-turnback"]) {
+        const end = scratch.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+        const flipped = T.getPieceDef(type, false).connectors.every((k) => k.kind === end.kind);
+        const via = T.getPieceDef(type, flipped).connectors.findIndex((k) => k.kind !== end.kind);
+        const id = T.appendPiece(scratch, type, flipped, ref, via);
+        ref = T.connectorRef(id, 1 - via);
+      }
+    }
+    const points = [];
+    const smp = T.createSample();
+    for (const id of scratch.pieceIds()) {
+      const q = scratch.getPiece(id);
+      for (const path of T.getPieceDef(q.type, q.flipped).paths) {
+        const len = T.pathLength(path.geom);
+        for (let d = 0; d <= len; d += 100) {
+          T.samplePath(path.geom, d, smp);
+          const c = Math.cos(q.pose.heading), sn = Math.sin(q.pose.heading);
+          points.push([q.pose.x + smp.x * c - smp.z * sn, q.pose.z + smp.x * sn + smp.z * c]);
+        }
+      }
+    }
+    const o = await window.__openGround(points, { pieceGap: 400 });
+    if (!o) return null;
+    w.director.glideTo(w.controls.target.clone().set(o.x, 0, o.z), frameDistance(560, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    return o;
+  });
+  if (!spot) throw new Error("wye: no open ground for the wye and its legs");
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await settled();
+  // 1. Laid from the tray: the Switch shelf opened, the Wye dragged out onto the spot (stamped touches), let go there.
+  const shelf = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Switch"));
+  await tapOn(`.scroller .tray-group:nth-child(${shelf + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  await p.evaluate(() => document.querySelector('.scroller .tray-item[data-key="piece:wye"]')?.scrollIntoView({ inline: "center" }));
+  await frames(p);
+  const from = await p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="piece:wye"]'); if (!e) return null; const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  if (!from) throw new Error("wye: no Wye in the Switch shelf");
+  const to = await p.evaluate(({ x, z }) => {
+    const w = window.woodrail;
+    const v = new w.camera.position.constructor(x, 0, z).project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+  }, spot);
+  const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+  let t = Date.now() / 1000;
+  await touch("touchStart", from[0], from[1], t);
+  for (let k = 1; k <= 12; k++) await touch("touchMove", from[0] + ((to[0] - from[0]) * k) / 12, from[1] + ((to[1] - from[1]) * k) / 12, (t += 0.03));
+  await touch("touchEnd", 0, 0, (t += 0.05));
+  await settled();
+  await p.keyboard.press("Escape");
+  const wye = await p.evaluate((before) => {
+    const w = window.woodrail;
+    const id = [...w.layout.pieceIds()].find((i) => !before.includes(i) && w.layout.getPiece(i).type === "wye");
+    return id ?? -1;
+  }, before);
+  check("wye: dragged out of the Switch shelf by touch, a wye is laid", wye >= 0, JSON.stringify({ from, to, spot }));
+  if (wye < 0) return;
+  // Harness shortcut (setup, not what's tested): a leg of two straights and a turn-back buffer off each corner, laid
+  // through the editor as dropping them would (each seated on the end before, worked out on a copy of the wye).
+  const legs = await p.evaluate(async (wye) => {
+    const w = window.woodrail;
+    const T = await import("/src/track/index.ts");
+    const q = w.layout.getPiece(wye);
+    const scratch = new T.Layout();
+    const sw = scratch.addPiece("wye", q.pose, q.y, false);
+    const lay = (ref, type) => {
+      const end = scratch.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+      for (const flipped of [false, true]) {
+        const via = T.getPieceDef(type, flipped).connectors.findIndex((c) => c.kind !== end.kind);
+        if (via !== -1) return { id: T.appendPiece(scratch, type, flipped, ref, via), via, flipped };
+      }
+      throw new Error(`no way to lay ${type}`);
+    };
+    const out = [];
+    for (const c of [0, 1, 2]) {
+      const run = [];
+      let ref = T.connectorRef(sw, c);
+      for (const type of ["straight-216", "straight-216", "buffer-turnback"]) {
+        const l = lay(ref, type);
+        const s = scratch.getPiece(l.id);
+        run.push({ type, pose: s.pose, y: s.y, flipped: l.flipped });
+        if (type !== "buffer-turnback") ref = T.connectorRef(l.id, 1 - l.via);
+      }
+      out.push(w.editor().placeRun(run));
+    }
+    w.invalidate();
+    return out.map((ids) => ids.slice(0, 2));
+  }, wye);
+  const joined = await p.evaluate(([wye, legs]) => [0, 1, 2].every((c) => window.woodrail.layout.joinedConnector(wye * 8 + c) !== -1) && legs.every((l) => l.length === 2), [wye, legs]);
+  check("wye: a leg laid off each of its corners", joined, JSON.stringify(legs));
+  if (!joined) return;
+  // A train on leg A (the trunk's), stopped (harness shortcut: put down in code, as the tray would).
+  const engine = await p.evaluate(([legs]) => {
+    const w = window.woodrail;
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: legs[0][1], pathIndex: 0, s: 108, reversed: false });
+    if (r.kind !== "placed") return -1;
+    const e = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(e, 0);
+    w.invalidate();
+    return e;
+  }, [legs]);
+  if (engine < 0) throw new Error("wye: no room for a train");
+  // 2. Each corner's lever tapped by touch (stamped 50 ms apart: a tap, never a pin's hold): 1, then 0, then 2. Each
+  // throws only its own corner.
+  const leverAt = (corner) =>
+    p.evaluate(([wye, corner]) => {
+      const w = window.woodrail;
+      const lever = w.trackView.group.children.find((c) => c.userData.kind === "switch-lever" && c.userData.pieceId === wye && (c.userData.corner ?? 0) === corner);
+      if (!lever) return null;
+      lever.updateMatrixWorld(true);
+      const v = new w.camera.position.constructor(0, 14, 0).applyMatrix4(lever.matrixWorld).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      const at = [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+      const pick = w.interaction.pick(at[0], at[1], true);
+      return { at, pick: pick ? { kind: pick.kind, pieceId: pick.pieceId, corner: pick.corner ?? 0 } : null };
+    }, [wye, corner]);
+  const state = () => p.evaluate((wye) => window.woodrail.layout.switchState(wye), wye);
+  const tapLever = async (corner) => {
+    // (Framed on the wye, the view still: a gesture left from before can move it.)
+    await p.evaluate(({ x, z }) => {
+      const w = window.woodrail;
+      if (Math.hypot(w.controls.target.x - x, w.controls.target.z - z) > 60) w.director.glideTo(w.controls.target.clone().set(x, 0, z), w.camera.position.distanceTo(w.controls.target), { duration: 0.2 });
+    }, spot);
+    await p.waitForFunction(() => !window.woodrail.director.busy && window.woodrail.interaction.mode.kind === "idle", null, { timeout: 60000 });
+    await settled();
+    const l = await leverAt(corner);
+    const was = await state();
+    if (!l) return { was, now: was, l };
+    const t = Date.now() / 1000;
+    await touch("touchStart", l.at[0], l.at[1], t);
+    await touch("touchEnd", 0, 0, t + 0.05);
+    await settled();
+    return { was, now: await state(), l };
+  };
+  const taps = [];
+  for (const corner of [1, 0, 2]) {
+    const r = await tapLever(corner);
+    taps.push({ corner, ...r });
+    check(`wye: a tap on corner ${corner}'s lever throws that corner only`, (r.was ^ r.now) === 1 << corner, JSON.stringify(r));
+  }
+  // 3. The train run by hand (harness shortcut: its lever set in code, and the game's own sim and economy ticks run
+  // ahead of SwiftShader's few frames, as `Game.frame` runs them): the wye's road its front takes each time onto it,
+  // until it's wholly on leg `until`; and any move of the points with a car on them.
+  const run = (until, go) =>
+    p.evaluate(([wye, legs, engine, until, go]) => {
+      const w = window.woodrail;
+      if (go) w.sim.setLever(engine, 1);
+      const roads = [];
+      let on = false;
+      let last = w.layout.switchState(wye);
+      let under = 0;
+      for (let i = 0; i < 120 * 120; i++) {
+        w.sim.tick();
+        w.economy.tick();
+        const t = w.sim.findCar(engine).train;
+        const front = t.bogies[0].pieceId === wye ? t.bogies[0] : t.bogies[t.bogies.length - 1].pieceId === wye ? t.bogies[t.bogies.length - 1] : null;
+        if (front && !on) roads.push(front.pathIndex);
+        on = !!front;
+        const s = w.layout.switchState(wye);
+        if (s !== last && w.sim.pointsHeld(wye)) under++;
+        last = s;
+        if (t.bogies.every((b) => legs[until].includes(b.pieceId))) break;
+      }
+      w.invalidate();
+      return { roads, under, ticks: w.sim.ticks, on: [...w.sim.piecesUnder(w.sim.findCar(engine).train.id)] };
+    }, [wye, legs, engine, until, go]);
+  // (Paths: 0 trunk–corner 1, 1 trunk–corner 2, 2 across. Legs: 0 the trunk's (A), 1 corner 1's (B), 2 corner 2's (C).)
+  const toC = await run(2, true);
+  check("wye: from the trunk, corner 0's lever sends the train right, to leg C", toC.roads.includes(1) && !toC.roads.includes(0) && toC.under === 0, JSON.stringify(toC));
+  const toB = await run(1, false);
+  check("wye: from leg C, corner 2's lever sends it across, to leg B", toB.roads.includes(2) && toB.under === 0, JSON.stringify(toB));
+  const backToC = await run(2, false);
+  check("wye: from leg B, corner 1's lever sends it across, back to leg C", backToC.roads.includes(2) && !backToC.roads.includes(0) && backToC.under === 0, JSON.stringify(backToC));
+  // Corner 1's lever tapped back to the trunk while the train is on leg C, then by B and on to the trunk.
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 0), engine);
+  const back = await tapLever(1);
+  check("wye: corner 1's lever tapped back throws corner 1 only", (back.was ^ back.now) === 0b010, JSON.stringify(back));
+  const viaB = await run(1, true);
+  const toA = await run(0, false);
+  check("wye: from leg B, corner 1's lever set back sends it to the trunk, leg A: every way through the wye run", toA.roads.includes(0) && viaB.under === 0 && toA.under === 0, JSON.stringify({ viaB, toA }));
+  // 4. Stopped, nothing is drawn once all is still (with no other train running).
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 0), engine);
+  await p.evaluate(() => { for (let i = 0; i < 600; i++) window.woodrail.sim.tick(); window.woodrail.invalidate(); });
+  await settled();
+  await p.waitForTimeout(1000);
+  await settled();
+  const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.waitForTimeout(3000);
+  const idle = await p.evaluate(() => ({ f: window.woodrail.framesDrawn, moving: [...window.woodrail.sim.trainIds()].filter((i) => window.woodrail.sim.getTrain(i).speed > 0).length }));
+  check("wye: no frames drawn once settled (with no train moving)", idle.moving > 0 || idle.f === f0, JSON.stringify({ f0, ...idle }));
+}
+
 // (E2E_ONLY: Sandbox's checks by name, one or a comma list, in the full run's order: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
-// wait (a train waiting at points set for another).)
+// wait (a train waiting at points set for another), wye (a wye's three levers, #15).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -2158,7 +2373,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

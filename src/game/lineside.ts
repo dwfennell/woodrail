@@ -1,5 +1,5 @@
 import type { PropStore } from "../props/store";
-import { createSample, getPieceDef, pathLength, samplePath, type Layout } from "../track";
+import { createSample, getPieceDef, leverCount, wayAt, pathLength, samplePath, type Layout } from "../track";
 
 /**
  * Lineside furniture that does something by nearness (see docs/superpowers/specs/2026-10-17-track-props-design.md,
@@ -143,6 +143,8 @@ export interface Lever {
   readonly kind: "points" | "signal";
   /** Which of a signal piece's signals (a gantry has one on each road); 0 for points. */
   readonly road: number;
+  /** Which of a wye's levers (one at each corner, #15); 0 for other points and signals. */
+  readonly corner?: number;
   /** How far from the prop (mm). */
   readonly distance: number;
 }
@@ -162,6 +164,8 @@ export function leversNear(layout: Layout, x: number, z: number): Lever[] {
     // A signal on each of a signal piece's roads.
     const roads = kind === "signal" ? def.paths.length : 1;
     for (let road = 0; road < roads; road++) out.push({ pieceId: id, kind, road, distance });
+    // (A wye's other corners' levers.)
+    if (kind === "points") for (let corner = 1; corner < leverCount(def); corner++) out.push({ pieceId: id, kind, road: 0, corner, distance });
   }
   return out.sort((a, b) => a.distance - b.distance);
 }
@@ -186,11 +190,14 @@ export function signalRoadAt(layout: Layout, pieceId: number, x: number, z: numb
 }
 
 /** Which way a switch is set, in words ("straight", "left", "right"), from the route its state picks. */
-export function pointsWay(layout: Layout, pieceId: number): string {
+export function pointsWay(layout: Layout, pieceId: number, corner = 0): string {
   const p = layout.getPiece(pieceId);
   if (!p) return "";
-  const routes = getPieceDef(p.type, p.flipped).paths.filter((r) => r.from === 0);
-  const route = routes[layout.switchState(pieceId) % Math.max(1, routes.length)];
+  const def = getPieceDef(p.type, p.flipped);
+  // (A wye's branch corner: back to its trunk, or across to the other branch.)
+  if (corner > 0) return wayAt(def, layout.switchState(pieceId), corner, 2) === 0 ? "to the trunk" : "across";
+  const routes = def.paths.filter((r) => r.from === 0);
+  const route = routes[wayAt(def, layout.switchState(pieceId), 0, Math.max(1, routes.length))];
   if (!route) return "";
   if (route.geom.kind !== "arc") return "straight";
   return route.geom.sweep > 0 ? "left" : "right";
