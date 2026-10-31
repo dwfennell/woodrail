@@ -494,6 +494,80 @@ export const leverDuringLock = duringLock("a lever tap on points set for a train
 export const saveDuringLock = duringLock("a save and load with points set for a train coming to them", (run) => run.saveAndLoad());
 export const removedUnderLock = duringLock("the stop taken up while points are set for the way to it", (run, o) => run.takeUp(o.mine));
 
+// ── Step 6: forward costs (#7) ──────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A way round, or a reverse: `⊐ T ══ M ══ ══ points`; on their straight road `approach` straights to a way round
+ * (`round`: a balloon loop; or a wye, its corners joined by a loop of track); on their curved road a short dead-end spur
+ * (a curve and a straight to buffers). Route T, M: from M the train heads on, away from T, so it must turn, round or at
+ * the spur's buffers. By piece counts (to step 5) the spur costs less; in mm (step 6) the way round.
+ */
+function roundOrSpur(layout: Layout, round: "balloon" | "wye", approach: number) {
+  const [t, s1, m, s2] = chain(layout, [STOP, S, STOP, S]);
+  appendPiece(layout, BUFFER, false, connectorRef(t, 0));
+  const sw = appendPiece(layout, "switch", false, connectorRef(s2, 1));
+  const way = chain(layout, Array<PieceTypeId>(approach).fill(S), connectorRef(sw, 1));
+  const end = connectorRef(way[way.length - 1], 1);
+  let wye = -1;
+  if (round === "balloon") appendPiece(layout, "balloon-loop", false, end);
+  else {
+    wye = appendPiece(layout, "wye", false, end, 0);
+    chain(layout, [C, C, C, C, S, "straight-144", C, C, C, C], connectorRef(wye, 1));
+    if (layout.joinedConnector(connectorRef(wye, 2)) === -1) throw new Error("the wye's loop doesn't close");
+  }
+  const spur = chain(layout, [C, S], connectorRef(sw, 2), [true]);
+  appendPiece(layout, BUFFER, false, connectorRef(spur[1], 1));
+  return { t, s1, m, sw, wye, spur };
+}
+
+export const balloonOverSpur: Scenario = {
+  name: "step 6: a balloon loop or a dead-end spur to turn",
+  seconds: 600,
+  build: (layout) => {
+    const l = roundOrSpur(layout, "balloon", 8);
+    return { trains: [{ pieceId: l.s1, stops: [l.t, l.m], next: 1, cars: CARS }], watch: l.spur };
+  },
+};
+
+export const wyeOverSpur: Scenario = {
+  name: "step 6: a wye turn (its corners joined by a loop) or a dead-end spur",
+  seconds: 600,
+  build: (layout) => {
+    const l = roundOrSpur(layout, "wye", 3);
+    return { trains: [{ pieceId: l.s1, stops: [l.t, l.m], next: 1, cars: CARS }], watch: l.spur };
+  },
+};
+
+/**
+ * Round an oval, or a reverse: `B A ══ ══ points (round) ─────── (round)` closed into an oval, its far side short
+ * straights (many pieces, the same length), the points' curved road a dead-end spur. Route A, B: B is just behind A, so
+ * from A it goes round the oval, or into the spur and back (fewer pieces, 6 m less track by far).
+ */
+export const loopOverSpur: Scenario = {
+  name: "step 6: round an oval or back from a dead-end spur",
+  seconds: 600,
+  build: (layout) => {
+    const far = Array<PieceTypeId>(14).fill("straight-72");
+    const [b, a, , , sw] = chain(layout, [STOP, STOP, S, S, "switch", C, C, C, C, ...far, C, C, C, C]);
+    if (layout.joinedConnector(connectorRef(b, 0)) === -1) throw new Error("the oval doesn't close");
+    const spur = chain(layout, [C, S], connectorRef(sw, 2), [true]);
+    appendPiece(layout, BUFFER, false, connectorRef(spur[1], 1));
+    return { trains: [{ pieceId: a, stops: [a, b], cars: CARS }], watch: spur };
+  },
+};
+
+/** The §8.1 shuttle with the engine coupled at the back by the player: it pushes its wagons one way, pulls them back. */
+export const pushingShuttle: Scenario = {
+  name: "step 6: a shuttle the player set up engine-last",
+  seconds: 600,
+  build: (layout) => {
+    const ids = shuttleLine(layout, 4);
+    return { trains: [{ pieceId: ids[2], stops: [ids[ids.length - 1], ids[0]], cars: ["timber", "timber", "engine"] }] };
+  },
+};
+
+export const FORWARD: readonly Scenario[] = [balloonOverSpur, wyeOverSpur, loopOverSpur, pushingShuttle];
+
 export const OTHERS: readonly Scenario[] = [
   followerSameRoad,
   twoRoadsOneSwitch,

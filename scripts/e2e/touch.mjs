@@ -1205,7 +1205,8 @@ async function wyeLevers(ctx, p, tapOn) {
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
 // wait (a train waiting at points set for another), wye (a wye's three levers, #15), stuck (two trains of a line head
-// on, the loop laid from the tray), stuck-lines (the same, two lines' trains).)
+// on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
+// rather than into a dead-end spur, routing step 6).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -1764,6 +1765,113 @@ async function routeRestore(ctx, p) {
   // (In the full run other checks' trains are still running: frames are drawn for them, so 0 frames is asked only when
   // no train moves; the check above shows routing did nothing either way.)
   check("restore: no frames drawn once settled (with no train moving)", now.moving > 0 || now.f === was.f, JSON.stringify({ was, now }));
+  await p.keyboard.press("Escape");
+}
+
+/**
+ * Routing step 6 (#7, forward costs), by the player's path: a line from a forest (buffers behind it) past a sawmill to
+ * points: their straight road on to a wye whose two corners a loop of track joins (a way round), their curve a short
+ * dead-end spur. The route planned with real taps (its engine, Plan a route, the forest then the sawmill, Done). From the
+ * sawmill the train must turn to go back: it goes round the wye's loop, engine first, never into the spur, and turns
+ * only at the forest's buffers (the end of the line, by the flip). The way drawn from its front goes round too. By
+ * piece counts (step 5) it took the spur and reversed there.
+ */
+async function forwardRoute(ctx, p) {
+  await p.keyboard.press("Escape");
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    // Harness shortcut (setup, not what's tested): the layout of the routing harness's `wyeOverSpur` (laid there at
+    // the origin), moved to open, flat ground and put down through the editor as dropping its pieces would.
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const built = S.wyeOverSpur.build(scratch);
+    const ids = [...scratch.pieceIds()];
+    const local = ids.map((i) => scratch.getPiece(i).pose);
+    const g = await window.__openGround(local.map((q) => [q.x, q.z]), { pieceGap: 500 });
+    if (!g) throw new Error("no open ground for the run");
+    const placed = w.editor().placeRun(ids.map((i) => {
+      const q = scratch.getPiece(i);
+      return { type: q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const at = (i) => placed[ids.indexOf(i)];
+    const t = built.trains[0];
+    const [forest, sawmill] = [at(t.stops[0]), at(t.stops[1])];
+    const spur = built.watch.map(at);
+    const wye = placed.find((i) => w.layout.getPiece(i).type === "wye");
+    if (w.layout.joinedConnector(wye * 8 + 2) === -1 || w.layout.joinedConnector(wye * 8) === -1) throw new Error("the wye's loop didn't join");
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = [depot(forest, "forest").id, depot(sawmill, "sawmill").id];
+    // A train put down in code (as the tray would) between the forest and the sawmill, heading for the sawmill.
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: at(t.pieceId), pathIndex: 0, s: 150, reversed: false });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    // (Lever off while the route's planned: it starts once it has one.)
+    w.sim.setLever(engine, 0);
+    w.invalidate();
+    return { engine, places, forest, sawmill, spur, wye, run: placed };
+  });
+  const { tapOn, tapButton } = mapHelpers(p);
+  await tapOn({ engine: setup.engine });
+  await tapButton(".engine-extra .route-plan");
+  for (const d of setup.places) await tapOn({ depot: d });
+  await tapButton(".engine-extra .route-plan.on");
+  const stops = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, setup.engine);
+  check("forward: the train's route planned by taps (Forest, Sawmill)", JSON.stringify(stops) === JSON.stringify(setup.places), JSON.stringify(stops));
+  await p.keyboard.press("Escape");
+  // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's few
+  // frames a second, the forest kept stocked (its logs aren't what's tested). Each arrival at a stop (whether the engine
+  // leads), each turn (where), the spur and the wye's loop entered, and the way drawn from the train's front as it
+  // leaves the sawmill.
+  const seen = await p.evaluate(async (o) => {
+    const w = window.woodrail;
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    const { legFromCursor } = await import("/src/game/route-path.ts");
+    const loop = new Set(o.run.filter((i) => w.layout.getPiece(i).type === "curve-large" && !o.spur.includes(i)));
+    w.sim.setLever(o.engine, 1);
+    const arrivals = [];
+    const turns = [];
+    let goods = 0;
+    let onSpur = 0;
+    let round = 0;
+    let drawn = null;
+    let lastTurn = null;
+    let at = null;
+    for (let i = 0; i < 240 * 120; i++) {
+      if (i % 120 === 0) for (const d of w.economy.allDepots()) if (d.role === "forest") d.piles[CARGO.log.index] = PILE_CAP;
+      w.sim.tick();
+      w.economy.tick();
+      for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === o.places[1]) goods++;
+      const t = w.sim.findCar(o.engine).train;
+      const on = t.bogies.map((b) => b.pieceId);
+      if (on.some((id) => o.spur.includes(id))) onSpur++;
+      if (on.some((id) => loop.has(id))) round++;
+      if (t.lastTurn && t.lastTurn.tick !== lastTurn) {
+        lastTurn = t.lastTurn.tick;
+        turns.push(t.lastTurn.pieceId === o.forest || w.layout.getPiece(t.lastTurn.pieceId)?.type.startsWith("buffer") ? "forest" : t.lastTurn.pieceId);
+      }
+      const stop = on.includes(o.forest) ? "forest" : on.includes(o.sawmill) ? "sawmill" : null;
+      if (stop && stop !== at) {
+        let net = 0;
+        for (const c of t.cars) if (c.kind === "engine") net += c.lever * c.facing;
+        arrivals.push({ stop, engineFirst: t.cars[net >= 0 ? 0 : t.cars.length - 1].kind === "engine" });
+      }
+      // (Off the sawmill again, heading on: the way drawn from its front, once.)
+      if (!stop && at === "sawmill" && !drawn) {
+        const leg = legFromCursor(w.layout, t.bogies[0], o.forest) ?? [];
+        drawn = { spur: leg.filter((r) => o.spur.includes(r.pieceId)).length, round: leg.filter((r) => loop.has(r.pieceId)).length, wye: leg.filter((r) => r.pieceId === o.wye).length };
+      }
+      at = stop;
+    }
+    w.invalidate();
+    return { arrivals, turns, goods, onSpur, round, drawn };
+  }, { ...setup });
+  check("forward: the train delivers (logs at the sawmill in 4 min)", seen.goods >= 2, JSON.stringify({ goods: seen.goods, arrivals: seen.arrivals.length }));
+  check("forward: round the wye's loop, never into the dead-end spur", seen.round > 0 && seen.onSpur === 0, JSON.stringify({ round: seen.round, onSpur: seen.onSpur }));
+  check("forward: turns only at the end of the line (the forest's buffers)", seen.turns.length > 0 && seen.turns.every((t) => t === "forest"), JSON.stringify(seen.turns));
+  check("forward: engine first at every stop", seen.arrivals.length >= 3 && seen.arrivals.every((a) => a.engineFirst), JSON.stringify(seen.arrivals));
+  check("forward: the way drawn from the sawmill goes round the wye, not into the spur", !!seen.drawn && seen.drawn.spur === 0 && seen.drawn.round > 0 && seen.drawn.wye > 0, JSON.stringify(seen.drawn));
   await p.keyboard.press("Escape");
 }
 
@@ -2684,7 +2792,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

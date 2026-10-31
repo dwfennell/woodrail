@@ -52,7 +52,7 @@ describe("plan search, piece-count costs (step 3)", () => {
           for (const lead of [true, false]) {
             const today = wayToward(layout, c.pieceId, c.ways, target);
             const costs: number[] = [];
-            const planned = planChoice(layout, c.pieceId, lead, c.ways, target, undefined, costs);
+            const planned = planChoice(layout, c.pieceId, lead, c.ways, target, PIECE_COSTS, costs);
             compared++;
             if (today === planned) continue;
             // (Today's distance after each way; the plan's cost through it is one more, when today's is right.)
@@ -83,7 +83,7 @@ describe("plan search, piece-count costs (step 3)", () => {
         for (let entry = 0; entry < getPieceDef(p.type, p.flipped).connectors.length; entry++) {
           for (const target of layout.pieceIds()) {
             const d = distanceTo(layout, { pieceId: id, entry }, target);
-            const found = plan(layout, { pieceId: id, entry, lead: true }, target);
+            const found = plan(layout, { pieceId: id, entry, lead: true }, target, PIECE_COSTS);
             states++;
             expect(found === null, `${id}/${entry} → ${target}`).toBe(d === -1);
             if (!found) continue;
@@ -109,7 +109,7 @@ describe("plan search, piece-count costs (step 3)", () => {
         const p = layout.getPiece(from)!;
         const ends = getPieceDef(p.type, p.flipped).connectors.length;
         for (let entry = 0; entry < ends; entry++) {
-          const found = plan(layout, { pieceId: from, entry, lead: true }, ids[ids.length - 1]);
+          const found = plan(layout, { pieceId: from, entry, lead: true }, ids[ids.length - 1], PIECE_COSTS);
           if (!found || found.steps.length === 0) continue;
           let at = { pieceId: from, entry };
           for (const s of found.steps) {
@@ -126,7 +126,7 @@ describe("plan search, piece-count costs (step 3)", () => {
   });
 });
 
-describe("plan search, mm costs (for step 6)", () => {
+describe("plan search, mm costs (step 6)", () => {
   it("a reverse costs REVERSE_COST and the run back; engine-last running costs PUSH_FACTOR more", () => {
     // The shuttle: stop A ══ … ══ stop B, buffers at both ends. From A's first straight heading for the buffer at A, to B.
     const layout = new Layout();
@@ -148,6 +148,37 @@ describe("plan search, mm costs (for step 6)", () => {
     expect(pushed.cost).toBeCloseTo(back.cost * PUSH_FACTOR, 6);
     // With piece-count costs, pushing costs no more (today's search doesn't know which way the engine faces).
     expect(plan(layout, { pieceId: first, entry: towardA.entry, lead: false }, b, PIECE_COSTS)!.cost).toBe(plan(layout, { pieceId: first, entry: towardA.entry, lead: true }, b, PIECE_COSTS)!.cost);
+  });
+});
+
+describe("plan search, forward costs (step 6)", () => {
+  it("in mm, round a balloon, a wye's loop or an oval; by piece counts, back from a dead-end spur", () => {
+    for (const s of S.FORWARD.filter((f) => f !== S.pushingShuttle)) {
+      const layout = new Layout();
+      const built = s.build(layout);
+      const spur = new Set(built.watch);
+      // From the stop it's come to (heading on, path 0 forward: in at connector 0), to the other one, behind it.
+      const t = built.trains[0];
+      const from = t.stops![t.next ?? 0];
+      const to = t.stops!.find((id) => id !== from)!;
+      const intoSpur = (p: ReturnType<typeof plan>) => p!.steps.some((st) => spur.has(st.pieceId));
+      const mm = plan(layout, { pieceId: from, entry: 0, lead: true }, to, MM_COSTS)!;
+      const pieces = plan(layout, { pieceId: from, entry: 0, lead: true }, to, PIECE_COSTS)!;
+      expect(intoSpur(mm), s.name).toBe(false);
+      expect(mm.steps.some((st) => st.reverse), s.name).toBe(false);
+      expect(intoSpur(pieces), s.name).toBe(true);
+    }
+  });
+
+  it("the end-of-line flip keeps the engine leading, so a plan never starts pushing", () => {
+    const layout = new Layout();
+    S.shuttle.build(layout);
+    const ids = [...layout.pieceIds()].filter((id) => layout.getPiece(id)!.type === "depot-forest");
+    // From A heading for its buffer, to B: a reverse at A, then led all the way.
+    const p = plan(layout, { pieceId: ids[0], entry: 1, lead: true }, ids[1], MM_COSTS)!;
+    expect(p.steps.some((st) => st.reverse)).toBe(true);
+    const pushed = plan(layout, { pieceId: ids[0], entry: 1, lead: false }, ids[1], MM_COSTS)!;
+    expect(pushed.cost).toBeCloseTo(p.cost * PUSH_FACTOR, 6);
   });
 });
 
