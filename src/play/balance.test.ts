@@ -61,9 +61,10 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * restores an old industry's ruin (`restoreOld`: map sites step 2), building new ones as before. BALANCE_SPUR=1 (an A/B,
  * off by default) also lays a short spur to a ruin no line end reaches, its switch set by hand before Routes (`tendSpur`);
  * BALANCE_SPUR=routes, the same spur with Routes learned before Mills instead. The people train (the second train, two
- * coaches) runs a line of its own through the towns once routes are learned (`peopleLine`); BALANCE_PEOPLE_HAND=1 runs
- * it by hand (lever on, no route) instead. Two trains stuck with no loop to meet at, the card says "Add a passing loop
- * here" and the player lays one there (or picks the people train up meanwhile, and puts it back on the loop once laid).
+ * coaches) joins the line once routes are learned, and the player lays it a passing loop (`peopleLine`; picked up when
+ * stuck, it's put back on that loop once laid); BALANCE_PEOPLE_OWN=1 gives it a line of its own through the towns
+ * instead, BALANCE_PEOPLE_HAND=1 runs it by hand (lever on, no route) as before. Two lines' trains stuck with no loop to
+ * meet at, the card says "Add a passing loop here" and the player lays one there.
  *
  * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
  *
@@ -1643,6 +1644,8 @@ class Playthrough {
   stuckLoopTry = -99;
   /** A stuck card said to add a loop and none could be laid then: the train was picked up, the loop's still to lay. */
   loopOwed = false;
+  /** Passing loops laid for the people train before it was put down (minutes). */
+  readonly peopleLoops: number[] = [];
   /** People trains put back on once a loop for them was laid. */
   peopleBack = 0;
   /** The pieces of the last passing loop laid for a stuck card (the people train is put back on it). */
@@ -1804,7 +1807,7 @@ class Playthrough {
     const fix = stuck === undefined ? null : w.economy.stalls.stuckOf(stuck);
     let laidFor = false;
     const owed = this.loopOwed && P.minute - this.stuckLoopTry >= 3;
-    if (((fix?.kind === "in-way" && fix.loop && P.minute - this.stuckLoopTry >= 3) || owed) && this.lines && this.lineId >= 0 && !ENV.BALANCE_NOJAMCUT) {
+    if (((fix?.kind === "in-way" && fix.loop && P.minute - this.stuckLoopTry >= 3) || owed) && this.keepsPeople() && this.lines && this.lineId >= 0 && !ENV.BALANCE_NOJAMCUT) {
       this.stuckLoopTry = P.minute;
       const line = w.economy.lines.get(this.lineId);
       const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
@@ -1854,7 +1857,7 @@ class Playthrough {
       // (The newest first: a second goods train before the people train, which came before it. Not the people train
       // on a line of its own with nothing stuck: the two lines wait for each other at the passing loop, by the rules,
       // and the stuck rule above sees to a jam.)
-      const own = (id: number) => this.trains.get(id) === "people" && this.peopleBack > 0 && w.economy.stalls.count === 0;
+      const own = (id: number) => this.keepsPeople() && this.trains.get(id) === "people" && this.peopleLoops.length + this.stuckLoops.length > 0 && w.economy.stalls.count === 0;
       const [e, kind] = [...this.trains].find(([, k]) => k === "goods 2") ?? [...this.trains].find(([id]) => id !== this.timber && !own(id)) ?? [];
       if (e !== undefined) {
         P.lift(e);
@@ -2169,12 +2172,16 @@ class Playthrough {
     const engines = (s.owned.get("car:engine") ?? 0) - inUse(w, "car:engine");
     if (this.trains.size < 2 && engines > 0 && this.lifted === 0 && goal === "two-trains") {
       const cars: CarKind[] = s.learned.has("passengers") ? ["engine", "passenger", "passenger"] : ["engine", "timber"];
-      const spot = [...w.layout.pieceIds()].find((id) => !P.fixed.has(id) && w.layout.getPiece(id)!.type.startsWith("straight") && w.layout.getPiece(id)!.pose.x > 700 && !w.sim.pieceOccupied(id));
+      // (The people train, once routes are learned: its passing loop laid on the line first, and the train put down on
+      // it, out of the goods train's way, as a player who knows two trains need a place to pass does. With no loop to be
+      // had (no room, or the switches can't be made yet), put down as before, run by hand.)
+      const loop = cars.includes("passenger") ? this.peopleLoop() : null;
+      const spot = loop ? this.onLoop(loop) : [...w.layout.pieceIds()].find((id) => !P.fixed.has(id) && w.layout.getPiece(id)!.type.startsWith("straight") && w.layout.getPiece(id)!.pose.x > 700 && !w.sim.pieceOccupied(id));
       if (spot !== undefined) {
         const e = P.train(cars, spot, 1);
         if (typeof e === "number") {
           this.trains.set(e, cars.includes("passenger") ? "people" : "timber 2");
-          P.note(`second train (${cars.join(", ")}) set going${cars.includes("passenger") ? this.peopleLine(e) : ""}`);
+          P.note(`second train (${cars.join(", ")}) set going${loop ? `, on its passing loop${this.peopleLine(e)}` : ""}`);
         }
       }
     }
@@ -2185,7 +2192,7 @@ class Playthrough {
       this.waitLookAt = P.minute;
       const stood = P.stoodWaiting.get(this.timber) ?? 0;
       const found = w.sim.findCar(this.timber);
-      if (stood - this.stoodAt >= 120 && this.stuckLoops.length > 0 && this.stuckLoops.length < 4 && found && [...this.trains.values()].includes("people") && this.lineId >= 0) {
+      if (stood - this.stoodAt >= 120 && this.peopleLoops.length + this.stuckLoops.length > 0 && this.peopleLoops.length + this.stuckLoops.length < 4 && found && [...this.trains.values()].includes("people") && this.lineId >= 0) {
         const line = w.economy.lines.get(this.lineId);
         const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
         const longest = Math.max(450, LONGEST_PEOPLE, ...[...this.trains.keys()].map((e) => (w.sim.findCar(e) ? trainLength(w.sim.findCar(e)!.train) : 0)));
@@ -2200,11 +2207,11 @@ class Playthrough {
       }
       this.stoodAt = stood;
     }
-    // The people train picked up when stuck, put back on once the passing loop its card asked for is laid.
-    if (this.stuckLoops.length > this.peopleBack && this.trains.size < 2 && engines > 0 && s.learned.has("passengers") && ![...this.trains.values()].includes("people")) {
+    // The people train picked up when stuck, put back on once a passing loop for it is laid (once a loop).
+    if (this.peopleLoops.length + this.stuckLoops.length > this.peopleBack && this.trains.size < 2 && engines > 0 && s.learned.has("passengers") && ![...this.trains.values()].includes("people")) {
       const cars: CarKind[] = ["engine", "passenger", "passenger"];
       // (On the passing loop, out of the goods train's way: where two trains wait for each other to pass.)
-      const spot = this.stuckLoop.find((id) => w.layout.getPiece(id)?.type === "straight-216" && !w.sim.pieceOccupied(id));
+      const spot = this.onLoop(this.stuckLoop);
       if (spot !== undefined && P.canMake(thingsFor({ kind: "train", cars }))) {
         const e = P.train(cars, spot, 1);
         if (typeof e === "number") {
@@ -2222,10 +2229,12 @@ class Playthrough {
         const on = found ? found.train.bogies[0].pieceId : -1;
         P.lift(e);
         this.trains.delete(e);
-        const n = P.train(["engine", "passenger", "passenger"], on, 1);
+        // (Its passing loop first, once routes are learned, and the train put down on it: as for the second train.)
+        const loop = this.peopleLoop();
+        const n = P.train(["engine", "passenger", "passenger"], (loop && this.onLoop(loop)) ?? on, 1);
         if (typeof n === "number") {
           this.trains.set(n, "people");
-          P.note(`the second train is now a passenger train (engine, 2 coaches)${this.peopleLine(n)}`);
+          P.note(`the second train is now a passenger train (engine, 2 coaches)${loop ? `, on its passing loop${this.peopleLine(n)}` : ""}`);
         } else P.note(`passenger train: ${n}`);
       }
     }
@@ -3064,15 +3073,50 @@ class Playthrough {
     return learned === undefined || at === undefined ? "-" : String(Math.round(at - learned));
   }
 
-  /** Give each train a line: the depots along the track in order, there and back, "auto" (the intent rules). */
   /**
-   * The people train's own line, once routes are learned: the towns' stations along the track, there and back (as a
-   * player routes a passenger train). Else it runs by hand (lever on), as before routes. Returns words for the note.
+   * Does the player keep the people train running, laying it passing loops (`peopleLoop`, the stuck card's "Add a
+   * passing loop here")? Not the goals player: its planks go to the goals, and it puts the people train away when it's
+   * stuck or the planks stop, as before. Nor with BALANCE_PEOPLE_HAND (run by hand, as before).
+   */
+  keepsPeople(): boolean {
+    return !this.goalsFirst && !ENV.BALANCE_PEOPLE_HAND;
+  }
+
+  /** A passing loop on the line for the people train (`spliceLoop`), once routes are learned: its pieces, or null. */
+  peopleLoop(): number[] | null {
+    const P = this.p;
+    const w = P.w;
+    if (!this.lines || this.lineId < 0 || !this.keepsPeople() || !P.progress.knows("piece:switch")) return null;
+    const line = w.economy.lines.get(this.lineId);
+    const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
+    const longest = Math.max(450, LONGEST_PEOPLE, ...[...this.trains.keys()].map((e) => (w.sim.findCar(e) ? trainLength(w.sim.findCar(e)!.train) : 0)));
+    const loop = spliceLoop(P, stops, longest, this.loopPieces);
+    if (!loop) return null;
+    P.happened++;
+    this.peopleLoops.push(Math.round(P.minute));
+    this.stuckLoop = loop;
+    for (const id of loop) this.loopPieces.add(id);
+    P.note(`laid a passing loop on the line for the people train (${loop.length} pieces)`);
+    return loop;
+  }
+
+  /** A straight of a passing loop's (the first free one) to put a train down on. */
+  onLoop(loop: readonly number[]): number | undefined {
+    const w = this.p.w;
+    return loop.find((id) => w.layout.getPiece(id)?.type === "straight-216" && !w.sim.pieceOccupied(id));
+  }
+
+  /**
+   * The people train's route, once routes are learned: on the line, as a player adds a second train to it (its passing
+   * loop laid for it by the loop rule, as the card and the toast say), or (BALANCE_PEOPLE_OWN) a line of its own, the
+   * towns' stations along the track there and back. Before routes, or BALANCE_PEOPLE_HAND, it runs by hand (lever on).
+   * Returns words for the note.
    */
   peopleLine(e: number): string {
     const P = this.p;
     const w = P.w;
     if (!this.lines || ENV.BALANCE_PEOPLE_HAND) return "";
+    if (!ENV.BALANCE_PEOPLE_OWN && this.lineId >= 0 && joinLine(w.economy, e, this.lineId)) return ", on the line";
     const towns = lineOrder(P).filter((d) => w.economy.depot(d)?.role === "town");
     if (towns.length < 2) return "";
     const order = [...towns, ...towns.slice(1, -1).reverse()];
@@ -3080,6 +3124,7 @@ class Playthrough {
     return `, on a line of its own (${towns.length} towns and back)`;
   }
 
+  /** Give each train a line: the depots along the track in order, there and back, "auto" (the intent rules). */
   routeGoods(): void {
     const P = this.p;
     const w = P.w;

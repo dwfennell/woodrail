@@ -5,7 +5,8 @@ import { plan, planWay } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
 
 /**
- * Sections and slots: trains of a line that wait for each other (token working on a single line). See
+ * Sections and slots: trains that wait for each other on single track (token working; a line's own, and lines sharing
+ * track). See
  * docs/superpowers/specs/2026-10-20-crossing-rethink.md.
  *
  * - **Slots** are places a train can stand without blocking anyone: each road of a passing loop (both roads long
@@ -27,8 +28,15 @@ import type { AvoidTest } from "../routing/router";
  *   rest are held (never sent into a section), with the reason (`waitOf`: kind "room", and how many loops to lay).
  * - **A train in a section with no move** (put down there, a loaded game, a second train joining the line) asks for
  *   the rest of its way to the slot ahead; it waits only for a train of its line on that way, or coming the other way.
- * - **A lone train** (or a line with no slot on its way) is left alone: the cost is a map lookup, and it runs exactly as
- *   without sections.
+ * - **Lines sharing track** (single-line working across lines, routing spec §16 Q3 follow-up): lines whose ways run
+ *   through a slot or section in common are one network (`network`). Their trains share one topology (for the longest
+ *   of them) and each asks for its moves among them all (`LineInfo.users`), so two lines' trains never meet head on in a
+ *   section: they meet at a passing loop, each on its own road, as one line's do. A line of one train is managed then
+ *   too. The room rule stays each line's own (its trains, its loops). A train on no line with its lever on, on such a
+ *   network, works it as well (`LineInfo.loose`), going the way the points lie: it's sent only onto the road its points
+ *   lie for, and a line's train meeting it at a loop takes the other road (`restRoad`).
+ * - **A lone train** (or a line with no slot on its way, alone on its network) is left alone: the cost is a map lookup,
+ *   and it runs exactly as without sections.
  *
  * Cost: slots and sections are worked out once per layout revision (and routing version, and road length). Per tick,
  * a train of a managed line costs a few lookups: what's ahead of it is worked out again only when its front comes onto

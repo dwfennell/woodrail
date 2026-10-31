@@ -948,7 +948,8 @@ async function shortUnderCar(ctx, p) {
 // (E2E_ONLY: Sandbox's checks by name, one or a comma list, in the full run's order: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
-// wait (a train waiting at points set for another).)
+// wait (a train waiting at points set for another), stuck (two trains of a line head on, the loop laid from the tray),
+// stuck-lines (the same, two lines' trains).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -2099,12 +2100,18 @@ async function putAwayButton(p) {
  * turns back: both stand, and the first's card says it's stuck and what to do ("… Put one away or add a loop"), in two
  * lines on a 360 px phone. The player drags the missing straight out of the tray into the gap: the loop is whole, both
  * are let run, they pass at the loop and deliver logs to the sawmill.
+ *
+ * `lines`: the same, the two trains on two lines (single-line working across lines, sections.ts): neither is held (each
+ * line has room for its one train), each waits at its end of the line for the other's, both stuck in each other's way;
+ * the first's card says so and that a passing loop lets them pass ("… Add a passing loop here"). The player lays the
+ * loop's missing straight from the tray, and the two lines' trains meet at the loop, pass, and both deliver.
  */
-async function stuckHeadOn(ctx, p, tapSel) {
+async function stuckHeadOn(ctx, p, tapSel, lines = false) {
+  const tag = lines ? "stuck-lines" : "stuck";
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 360, height: 740 });
   await frames(p);
-  const setup = await p.evaluate(async () => {
+  const setup = await p.evaluate(async (two) => {
     const w = window.woodrail;
     const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
     const { loopOn } = await import("/src/economy/loop-fixtures.ts");
@@ -2189,7 +2196,7 @@ async function stuckHeadOn(ctx, p, tapSel) {
       return { goods, at };
     };
     window.__stuckRun(1);
-    const second = put(east[0], 200, true, 0, first.lineId);
+    const second = put(east[0], 200, true, 0, two ? undefined : first.lineId);
     // (What the player's told: the real toasts, recorded on their way.)
     window.__stuckSaid = [];
     const toast = w.hud.toast.bind(w.hud);
@@ -2199,7 +2206,7 @@ async function stuckHeadOn(ctx, p, tapSel) {
     const mid = { x: q.x + Math.cos(q.heading) * 108, z: q.z + Math.sin(q.heading) * 108, heading: q.heading };
     w.director.glideTo(w.controls.target.clone().set(mid.x, 0, mid.z), frameDistance(1400, w.camera.fov, w.camera.aspect), { duration: 0.3 });
     return { E: [first.e, second.e], mid, c1: real(loop.side[0]), c2: real(loop.side[2]), sawmill: sawmill.id };
-  });
+  }, lines);
   // A minute on: the second is held for room, the first stands short of it; neither turned back; stalls say so.
   const stood = await p.evaluate(({ E }) => {
     const w = window.woodrail;
@@ -2212,7 +2219,8 @@ async function stuckHeadOn(ctx, p, tapSel) {
       stuck: E.map((e) => w.economy.stalls.stuckOf(e)?.kind ?? null),
     };
   }, setup);
-  check("stuck: two trains head on, one line, no loop: both stand, neither turns back (the second held, the first stuck: too many trains)", stood.speeds.every((v) => v === 0) && stood.turns.every((c) => c === null || c === "buffer") && stood.held[1] && !stood.held[0] && stood.stuck[0] === "too-many" && stood.run.goods === 0, JSON.stringify(stood));
+  if (lines) check("stuck-lines: two lines' trains head on, no loop: both stand, neither turns back nor is held, each stuck in the other's way", stood.speeds.every((v) => v === 0) && stood.turns.every((c) => c === null || c === "buffer") && stood.held.every((h) => !h) && stood.stuck.every((k) => k === "in-way") && stood.run.goods === 0, JSON.stringify(stood));
+  else check("stuck: two trains head on, one line, no loop: both stand, neither turns back (the second held, the first stuck: too many trains)", stood.speeds.every((v) => v === 0) && stood.turns.every((c) => c === null || c === "buffer") && stood.held[1] && !stood.held[0] && stood.stuck[0] === "too-many" && stood.run.goods === 0, JSON.stringify(stood));
   // Its card, opened by a tap on it: stuck, and what to do, in two lines at 360 px. (Paused while it's read: the game's
   // own frames would run the sim on meanwhile.)
   await p.evaluate(() => {
@@ -2233,7 +2241,13 @@ async function stuckHeadOn(ctx, p, tapSel) {
     const r = s.getBoundingClientRect();
     return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth };
   });
-  check("stuck: the first's card says it's stuck and the fix, in two lines at 360 px", card.said === "Stuck: too many trains for this line. Put one away or add a loop" && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
+  const fixSaid = lines ? /^Stuck: (the train on the [A-Za-z]+ line|another train) is in the way\. Add a passing loop here$/.test(card.said) : card.said === "Stuck: too many trains for this line. Put one away or add a loop";
+  check(`${tag}: the first's card says it's stuck and the fix, in two lines at 360 px`, fixSaid && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
+  // (The once-ever head-on tip, if it came with this stall: what works, a passing loop; no signals needed.)
+  if (lines) {
+    const tips = await p.evaluate(() => window.__stuckSaid.filter((m) => /^Trains met head on/.test(m)));
+    check("stuck-lines: the head-on tip, if told, says a passing loop lets trains pass", tips.every((m) => m === "Trains met head on. A passing loop lets trains pass"), JSON.stringify(tips));
+  }
   await p.keyboard.press("Escape");
   await p.evaluate(() => {
     window.woodrail.paused = false;
@@ -2305,14 +2319,14 @@ async function stuckHeadOn(ctx, p, tapSel) {
     const joined = (id) => [0, 1].every((c) => w.layout.joinedConnector(id * 8 + c) !== -1);
     return { pieces: w.layout.pieceCount, whole: joined(c1) && joined(c2), said: window.__dropSaid };
   }, setup);
-  check("stuck: the missing straight dragged from the tray closes the loop", laid.pieces === before + 1 && laid.whole, JSON.stringify({ before, ...laid, holding, item, target, mid: setup.mid }));
+  check(`${tag}: the missing straight dragged from the tray closes the loop`, laid.pieces === before + 1 && laid.whole, JSON.stringify({ before, ...laid, holding, item, target, mid: setup.mid }));
   // With the loop whole the line has room for both: they're let run, pass at the loop and deliver.
   const after = await p.evaluate(({ E }) => {
     const w = window.woodrail;
     const run = window.__stuckRun(240, E);
     return { run, held: E.map((e) => w.economy.sections.heldForRoom(e)), stuck: w.economy.stalls.count, turns: E.map((e) => w.sim.findCar(e).train.lastTurn?.cause ?? null) };
   }, setup);
-  check("stuck: loop laid, both run, pass at the loop and deliver logs to the sawmill (none stuck)", after.run.goods >= 4 && setup.E.every((e) => (after.run.at[e] ?? 0) >= 1) && after.held.every((h) => !h) && after.stuck === 0, JSON.stringify(after));
+  check(`${tag}: loop laid, both run, pass at the loop and deliver logs to the sawmill (none stuck)`, after.run.goods >= 4 && setup.E.every((e) => (after.run.at[e] ?? 0) >= 1) && after.held.every((h) => !h) && after.stuck === 0, JSON.stringify(after));
 }
 
 async function runMode(mode) {
@@ -2388,7 +2402,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), stuck: () => stuckHeadOn(ctx, p, tapOn) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;
