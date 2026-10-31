@@ -216,6 +216,9 @@ export class Router {
    * the user changed it at step 5: routed trains keep their route): the tap is their new default at once, and they go
    * back to it once the train has passed. `corner`: which of a wye's levers (#15: one at each end, `cornerLevers`).
    */
+  /** The points a lever tap is throwing now (−1: none): the player's throw, which a pin doesn't stop (the invariants). */
+  tapping = -1;
+
   lever(pieceId: number, corner = 0): LeverResult {
     const { sim, layout } = this.host;
     this.laid();
@@ -242,7 +245,10 @@ export class Router {
       this.deferred.set(pieceId, lock);
       return { deferred: true, by: lock.holders.values().next().value! };
     }
-    if (!sim.toggleSwitch(pieceId, corner)) return { refused: "under-train" };
+    this.tapping = pieceId;
+    const thrown = sim.toggleSwitch(pieceId, corner);
+    this.tapping = -1;
+    if (!thrown) return { refused: "under-train" };
     // (The player's new default for these points.)
     this.defaults.set(pieceId, layout.switchState(pieceId));
     this.pending.delete(pieceId);
