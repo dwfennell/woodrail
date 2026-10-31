@@ -173,7 +173,15 @@ export function syncIndustries(world: World, halts = false): boolean {
  * `HALT_REACH` of a town, become another stop of that town's (an economy depot of role "town"): people wait there,
  * get on, and get off from other towns, exactly as at its station (see `Economy.isHalt`). Goods trains run through.
  */
-export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["kit-country-halt", "kit-mountain-station", "kit-harbour-station", "kit-platform-furnished"]);
+export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
+  "kit-country-halt",
+  "kit-mountain-station",
+  "kit-harbour-station",
+  "kit-platform-furnished",
+  // Big stations (a research): a stop on each road, or each road of the terminus, for the same town.
+  "kit-two-platform-station",
+  "kit-grand-terminus",
+]);
 
 /** How far a halt may stand from a town's middle (mm): a plot's depth, about 23 squares. */
 export const HALT_REACH = PLOT_DEPTH;
