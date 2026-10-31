@@ -75,7 +75,7 @@ describe("trainKey: per-train state lasts through a turn, a couple and a split (
     w.economy.prune();
     expect(w.economy.routeOf(engine)).toBe(route);
     // The payoff: on with its wagons, through the points the router set, to the sawmill.
-    expect(run(w, 120, () => route.at && route.next === 1)).toBe(true);
+    expect(run(w, 120, () => !!route.at && route.next === 1)).toBe(true);
     expect(w.sim.findCar(engine)!.train.cars.length).toBe(4);
   });
 
