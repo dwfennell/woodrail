@@ -98,7 +98,8 @@ export type TurnCause = "buffer" | "open-end";
 
 /**
  * How one train holds another where it stands (`Sim.heldBy`): short of a crossing or switch it's on or coming onto
- * ("cross"), close behind it ("follow"), nose to nose with it ("nose"), or against its side ("side").
+ * ("cross"), close behind it ("follow"), nose to nose with it ("nose"), against its side ("side"), or at the end of the
+ * line with no room to turn round for it ("turn").
  */
 export type HeldHow = "cross" | "follow" | "nose" | "side" | "turn";
 
