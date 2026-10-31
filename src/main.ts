@@ -59,7 +59,7 @@ import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillRes
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, CLASSIC_KMH, trainSummary, type SummaryCar } from "./game/train-summary";
-import { CARRIES } from "./economy/cargo";
+import { CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan } from "./game/blueprints";
@@ -80,6 +80,7 @@ import { Hud } from "./ui/hud";
 import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
+import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
 import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
@@ -421,6 +422,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // The pill opens the picker on the research it shows (QA P5: "Routes 10/40🪙", up next, opened on another).
       toggleBoard: (pill) => setBoardOpen(!board.open, (pill && pillResearch(progress)) || undefined),
       buyLand: () => buyLand(),
+      lowerHills: () => setLowering(!lowering),
       clearRuin: () => clearShownRuin(),
       restoreRuin: () => restoreShownRuin(),
       newGame: () => newGame(),
@@ -666,6 +668,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   function setExpanding(on: boolean): void {
     expanding = on;
+    if (lowering) {
+      lowering = false;
+      lowerAt = -1;
+      interaction.landCursor = null;
+      interaction.showSquare(-1);
+    }
     if (on) hud.chooseLandTool(null);
     chosen = null;
     if (!on) {
@@ -677,7 +685,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.hideCards();
     interaction.clearSelection();
     game.landscapeView.showForSale(plotsForSale(game.landscape));
-    hud.setLandCard("Tap a plot marked + to see what it brings.");
+    addLandCard();
     // Pull back to see the land and the plots round it, the land a little above the middle of the screen (clear of the
     // card and the tray).
     const e = game.landscape.grid.extent();
@@ -689,6 +697,85 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const distance = Math.min(frameDistance(radius, game.camera.fov, game.camera.aspect) * 0.8, game.controls.maxDistance);
     if (game.camera.position.distanceTo(game.controls.target) < distance) game.director.glideTo(centre, distance, { phi: 0.75, duration: 0.8 });
     game.invalidate();
+  }
+
+  // ---- lowering hills (Landscaping, Game mode): on the land card, in place of adding land ------------------------
+
+  let lowering = false;
+  /** The square chosen to lower (−1: none yet). */
+  let lowerAt = -1;
+  const canLandscape = () => mode === "game" && progress.learned.has(LANDSCAPING);
+  const ADD_LAND_TEXT = "Tap a plot marked + to see what it brings.";
+  const LOWER_TEXT = "Tap a hill square to lower it a step. It costs coins: more for a higher hill.";
+  /** The land card for adding land, with the switch to lowering hills once Landscaping is learned. */
+  function addLandCard(text = ADD_LAND_TEXT, canBuy = false): void {
+    hud.setLandCard(text, canBuy, canLandscape() ? { swap: "⛰️ Lower hills" } : {});
+  }
+  function lowerCard(text: string, price = 0): void {
+    hud.setLandCard(text, price > 0, { title: "Lower hills", buy: `Lower it · ${price}${COIN_ICON}`, swap: "➕ Add land" });
+  }
+  function setLowering(on: boolean): void {
+    if (on && !canLandscape()) return;
+    lowering = on;
+    lowerAt = -1;
+    chosen = null;
+    interaction.landCursor = on ? "#ffd27a" : null;
+    interaction.showSquare(-1);
+    game.landscapeView.showForSale(on ? [] : plotsForSale(game.landscape));
+    if (on) lowerCard(LOWER_TEXT);
+    else addLandCard();
+    game.invalidate();
+  }
+
+  /** A tap while lowering hills: choose the square, and ask (its price), or say why not. */
+  function chooseLower(x: number, y: number): void {
+    const i = interaction.squareAt(x, y);
+    lowerAt = -1;
+    if (i === -1) {
+      interaction.showSquare(-1);
+      lowerCard("That's not your land. Tap a hill square on it.");
+      return;
+    }
+    interaction.showSquare(i);
+    const g = game.landscape.grid;
+    const why = lowerRefusal(game.landscape, interaction.landEditor(), i, progress.coins);
+    if (why) {
+      lowerCard(why);
+      audio.refuse();
+      hud.haptic("refuse");
+    } else {
+      lowerAt = i;
+      lowerCard(lowerQuestion(g.height[i], progress.coins), lowerPrice(g.height[i]));
+      audio.tap();
+    }
+    game.invalidate();
+  }
+
+  /** "Lower it": pay, lower the square a step, and redraw its plot (not undoable: the coins are spent). */
+  function lowerChosen(): void {
+    const i = lowerAt;
+    if (i === -1) return;
+    const editor = interaction.landEditor();
+    const why = lowerRefusal(game.landscape, editor, i, progress.coins);
+    if (why) {
+      lowerAt = -1;
+      lowerCard(why);
+      return;
+    }
+    const price = lowerPrice(game.landscape.grid.height[i]);
+    if (editor.apply(i, -1)) return;
+    progress.coins -= price;
+    hud.setCoins(progress.coins);
+    const t0 = performance.now();
+    game.editLand([plotSlotOf(i)]);
+    console.info(`Woodrail: hill lowered, redrawn in ${Math.round(performance.now() - t0)} ms`);
+    audio.putdown(true);
+    lowerAt = -1;
+    const h = game.landscape.grid.height[i];
+    lowerCard(h > 0 ? `Lowered a step. ${lowerQuestion(h, progress.coins)}` : "Lowered: it's flat now. Tap another hill square.", h > 0 && progress.coins >= lowerPrice(h) ? lowerPrice(h) : 0);
+    if (h > 0 && progress.coins >= lowerPrice(h)) lowerAt = i;
+    interaction.showSquare(i);
+    scheduleSave();
   }
 
   /** The plot whose + badge is drawn at this screen point (they float above the ground), if any. */
@@ -755,6 +842,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       editSquare(x, y);
       return true;
     }
+    if (expanding && lowering) {
+      chooseLower(x, y);
+      return true;
+    }
     if (!expanding) {
       // An old industry's ruin (seen from too far to take hold of its stub): its card.
       const ruin = interaction.ruinAtScreen(x, y);
@@ -767,7 +858,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!forSale.some((q) => q.px === p.px && q.pz === p.pz)) {
       chosen = null;
       game.landscapeView.showForSale(forSale);
-      hud.setLandCard(game.landscape.grid.hasPlot(p.px, p.pz) ? "That's your land already. Tap a plot marked +." : "Only plots beside your land can be added.");
+      addLandCard(game.landscape.grid.hasPlot(p.px, p.pz) ? "That's your land already. Tap a plot marked +." : "Only plots beside your land can be added.");
       game.invalidate();
       return true;
     }
@@ -775,7 +866,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.landscapeView.showForSale(forSale, chosen);
     const price = plotPrice(game.landscape.grid.plots.length);
     const priced = mode === "game" ? ` · ${price} coins (you have ${progress.coins})` : "";
-    hud.setLandCard(describeLand(landForSale(game.landscape, p.px, p.pz)) + priced, mode !== "game" || progress.coins >= price);
+    addLandCard(describeLand(landForSale(game.landscape, p.px, p.pz)) + priced, mode !== "game" || progress.coins >= price);
     game.invalidate();
     return true;
   };
@@ -930,6 +1021,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function buyLand(): void {
+    if (lowering) {
+      lowerChosen();
+      return;
+    }
     if (!chosen) return;
     // Game mode: land costs coins.
     const price = plotPrice(game.landscape.grid.plots.length);
@@ -951,7 +1046,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     audio.chime();
     chosen = null;
     game.landscapeView.showForSale(plotsForSale(game.landscape));
-    hud.setLandCard("Tap a plot marked + to see what it brings.");
+    addLandCard();
     updateConnections(false);
     scheduleSave();
   }
