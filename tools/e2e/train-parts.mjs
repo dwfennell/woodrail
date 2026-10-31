@@ -176,7 +176,7 @@ if (line.pose) {
   check("the train gets moving (\"Get a train moving\" met)", Math.abs(moving.speed) > 0 && moving.done, JSON.stringify(moving));
   await shot("4-moving");
 
-  // 7. A caboose (#13). Setup shortcuts (not what's under test): Passengers learned, and one caboose put in the toy box
+  // 7. A caboose (#13). Setup shortcuts (not what's under test): Brake vans learned, and one caboose put in the toy box
   // (as the workshop would make it for 2 planks). Its speed is measured over the stretch the train runs in 1.5 s
   // (180 sim ticks) at full speed, by its front axle's travel, before and after.
   // (Game paused and the game's own sim stepped tick by tick: headless, the page runs it too slowly to time by clock.)
@@ -209,7 +209,7 @@ if (line.pose) {
   });
   const before = await measure(1);
   await p.evaluate(() => {
-    window.woodrail.learn("passengers");
+    window.woodrail.learn("brake-vans");
     window.woodrail.progress().add("car:caboose");
     window.woodrail.hud.trayLearned();
   });

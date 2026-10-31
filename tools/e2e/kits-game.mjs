@@ -1,6 +1,7 @@
 // End-to-end railway kits in Game mode (`npm run e2e:kits-game`): a new game's tray shows no kits; Engine shed learned,
 // the water tower comes out of the Industries tab's Railway shelf, is dragged with the mouse onto a line of straights
-// (it splices in), and a steam engine stops at it. Halts are refused far from towns.
+// (it splices in), and a steam engine stops at it. Halts are refused far from towns. Then a kit that was Sandbox's
+// only: Loading kits learned, the log loader comes off the Yard shelf onto the line, and the engine runs through it.
 //
 // Usage: npm run e2e:kits-game [-- <out dir>]   (default out: e2e-out/kits-game)
 // Starts its own dev server (on 5361, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -194,7 +195,7 @@ if (line) {
             break;
           }
         }
-        return { placed: "placed", at, speed: w.sim.getTrain(placed.trainId).speed, look: w.sim.lookOf(t.cars[0].id) };
+        return { placed: "placed", at, speed: w.sim.getTrain(placed.trainId).speed, look: w.sim.lookOf(t.cars[0].id), trainId: placed.trainId };
       },
       { ids: line.ids, tower },
     );
@@ -208,6 +209,96 @@ if (line) {
     await p.waitForTimeout(1500);
     await settle();
     await shot("4-engine-at-water-tower");
+
+    // 7. A kit that was Sandbox's only (tech-tree step 2): the log loader, behind Loading kits, looks only. Not on the
+    // tray till learned; learned (the game's own `learned`, as when a study finishes: the study itself is a setup
+    // shortcut, not what's under test), it's on the Industries tab's Yard shelf, is dragged onto the line, and the
+    // engine runs through it: no depot (no endless heap of logs), no stop.
+    await clickText(".tabs button", "Industries");
+    check("Loading kits not learned: no Yard shelf", !(await shelves()).includes("Yard"), JSON.stringify(await shelves()));
+    await p.evaluate(() => {
+      const w = window.woodrail;
+      w.learn("loading-kits");
+      // (Setup shortcut: one in the toy box, as the workshop would make it for 5 planks.)
+      w.progress().add("piece:kit-log-loader", 1);
+      w.hud.refreshTrayBadges();
+      w.hud.trayLearned();
+    });
+    await p.waitForTimeout(800);
+    await clickText(".tabs button", "Industries");
+    check("Loading kits learned: the Industries tab shows a Yard shelf", (await shelves()).includes("Yard"), JSON.stringify(await shelves()));
+    await clickText(".tray-item.tray-group", "Yard");
+    const yard = await trayKeys();
+    check("…with the four loaders on it, not the big cranes", ["kit-log-loader", "kit-grain-elevator", "kit-drop-hopper", "kit-goods-shed"].every((k) => yard.includes(`piece:${k}`)) && !yard.includes("piece:kit-gantry-crane"), JSON.stringify(yard));
+    await p.evaluate(({ ids }) => {
+      const w = window.woodrail;
+      const pose = w.layout.getPiece(ids[4]).pose;
+      w.director.glideTo(new w.camera.position.constructor(pose.x + 108 * Math.cos(pose.heading), 0, pose.z + 108 * Math.sin(pose.heading)), 700, { duration: 0.1 });
+    }, line);
+    await p.waitForTimeout(800);
+    await settle();
+    const from2 = await p.evaluate(() => {
+      const el = document.querySelector(".tray-item[data-key='piece:kit-log-loader']");
+      el.scrollIntoView({ inline: "center" });
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    const to2 = await p.evaluate(({ ids }) => {
+      const w = window.woodrail;
+      const piece = w.layout.getPiece(ids[4]);
+      const c = new w.camera.position.constructor(piece.pose.x + Math.cos(piece.pose.heading) * 108, 0, piece.pose.z + Math.sin(piece.pose.heading) * 108).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      return { x: r.left + ((c.x + 1) / 2) * r.width, y: r.top + ((1 - c.y) / 2) * r.height };
+    }, line);
+    await p.mouse.move(from2.x, from2.y);
+    await p.mouse.down();
+    for (let k = 1; k <= 24; k++) {
+      await p.mouse.move(from2.x + ((to2.x - from2.x) * k) / 24, from2.y + ((to2.y - from2.y) * k) / 24);
+      await p.waitForTimeout(40);
+    }
+    await p.waitForTimeout(500);
+    await p.mouse.up();
+    await p.waitForTimeout(800);
+    const loader = await p.evaluate(() => {
+      const w = window.woodrail;
+      const id = w.layout.pieceIds().find((i) => w.layout.getPiece(i).type === "kit-log-loader");
+      return id === undefined ? null : id;
+    });
+    check("the log loader, dragged from the tray, is on the line", loader !== null, `toast: ${await p.evaluate(() => document.querySelector(".toast")?.textContent ?? "")}`);
+    if (loader !== null && r.trainId !== undefined) {
+      await p.evaluate(() => window.woodrail.kitView.load("kit-log-loader").then(() => window.woodrail.syncKits(true)));
+      const run = await p.evaluate(
+        ({ loader, trainId }) => {
+          const w = window.woodrail;
+          w.paused = true;
+          let on = 0;
+          let stopped = 0;
+          for (let k = 0; k < 120 * 40; k++) {
+            w.sim.tick();
+            w.economy.tick();
+            const t = w.sim.getTrain(trainId);
+            if (!t) break;
+            if (t.bogies.some((b) => b.pieceId === loader)) {
+              on++;
+              if (Math.abs(t.speed) < 1 || w.economy.kitStops.dwellingAt(trainId) === loader) stopped++;
+            } else if (on > 0) break;
+          }
+          return { on, stopped, depot: w.economy.depotAtPiece(loader)?.role ?? null };
+        },
+        { loader, trainId: r.trainId },
+      );
+      check("…looks only: no depot at it, and the engine runs through without stopping", run.depot === null && run.on > 0 && run.stopped === 0, JSON.stringify(run));
+      await p.evaluate((id) => {
+        const w = window.woodrail;
+        w.paused = false;
+        w.invalidate();
+        const pose = w.layout.getPiece(id).pose;
+        w.director.glideTo(new w.camera.position.constructor(pose.x, 0, pose.z), 360, { duration: 0.1 });
+      }, loader);
+      await p.waitForTimeout(1500);
+      await settle();
+      await shot("5-log-loader-on-the-line");
+    }
   }
 }
 
