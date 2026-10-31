@@ -1,7 +1,7 @@
 import { createRouteStep, createSample, getPieceDef, pathLength, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
 import type { Cursor } from "../sim";
 import { SEARCH, type PinnedTest } from "../routing/graph";
-import { walkTo, type PathRun, type Leg } from "../routing/plan";
+import { walkTo, type At, type PathRun, type Leg } from "../routing/plan";
 
 export type { Leg, PathRun } from "../routing/plan";
 
@@ -31,7 +31,7 @@ export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number
 
 /**
  * The way from the middle of stop piece `from` to the middle of `to`, leaving by whichever end of `from` is shorter.
- * Empty when they're the same piece.
+ * Empty when they're the same piece. Only where the way into `from` isn't known (`lineLegs` chains the rest).
  */
 function legBetween(layout: Layout, from: number, to: number): Leg {
   if (from === to) return layout.getPiece(from) ? [] : null;
@@ -43,15 +43,51 @@ function legBetween(layout: Layout, from: number, to: number): Leg {
   return runsLength(b) < runsLength(a) ? b : a;
 }
 
+/** Where a leg leaves the train: at its end (the stop's middle), running the way its last run runs. Null for none. */
+export function arrivalOf(leg: Leg): At | null {
+  const last = leg && leg[leg.length - 1];
+  return last ? { pieceId: last.pieceId, pathIndex: last.pathIndex, reversed: last.s1 < last.s0, s: last.s1 } : null;
+}
+
+/** The way on from `at` (standing at a stop, running one way) to the middle of `to`. A train doesn't turn at a stop. */
+function legOn(layout: Layout, at: At, to: number): Leg {
+  if (at.pieceId === to) return [];
+  if (!layout.getPiece(to)) return null;
+  return walkTo(layout, at, to);
+}
+
 /**
  * A line's legs: stop k to stop k+1, cyclically (the last back to the first), for stops given as depot piece ids.
  * Fewer than two stops: no legs.
+ *
+ * A train doesn't turn round at a stop: it runs on the way it came in (round a balloon or teardrop loop past it, or to
+ * the end of the line and back). So each leg starts the way the one before it arrives (`arrivalOf`). `from`: the train's
+ * own way to stop `from.k` (as `legFromCursor` gives it), which the legs from there follow; without it, the legs go
+ * round twice from the first stop and the second lap is drawn, so the way into the first stop is known too. Where a leg
+ * is null (no way leads there), the next leaves its stop by the shorter end.
  */
-export function lineLegs(layout: Layout, stopPieces: readonly number[]): Leg[] {
+export function lineLegs(layout: Layout, stopPieces: readonly number[], from?: { k: number; leg: Leg }): Leg[] {
   const n = stopPieces.length;
   if (n < 2) return [];
-  const legs: Leg[] = [];
-  for (let k = 0; k < n; k++) legs.push(legBetween(layout, stopPieces[k], stopPieces[(k + 1) % n]));
+  const legs: Leg[] = new Array<Leg>(n).fill(null);
+  const lap = (k0: number, start: At | null) => {
+    let at = start;
+    for (let i = 0; i < n; i++) {
+      const k = (k0 + i) % n;
+      const a = stopPieces[k];
+      const b = stopPieces[(k + 1) % n];
+      const leg = at && at.pieceId === a ? legOn(layout, at, b) : legBetween(layout, a, b);
+      legs[k] = leg;
+      if (leg && leg.length > 0) at = arrivalOf(leg);
+      else if (!leg) at = null;
+      // (An empty leg, a stop visited twice running: the train stands on, the way it was going.)
+      else if (at && at.pieceId !== b) at = null;
+    }
+    return at;
+  };
+  const known = from ? arrivalOf(from.leg) : null;
+  if (from && known && known.pieceId === stopPieces[from.k]) lap(from.k, known);
+  else lap(0, lap(0, null));
   return legs;
 }
 

@@ -1880,6 +1880,19 @@ async function forwardRoute(ctx, p) {
   check("forward: turns only at the end of the line (the forest's buffers)", seen.turns.length > 0 && seen.turns.every((t) => t === "forest"), JSON.stringify(seen.turns));
   check("forward: engine first at every stop", seen.arrivals.length >= 3 && seen.arrivals.every((a) => a.engineFirst), JSON.stringify(seen.arrivals));
   check("forward: the way drawn from the sawmill goes round the wye, not into the spur", !!seen.drawn && seen.drawn.spur === 0 && seen.drawn.round > 0 && seen.drawn.wye > 0, JSON.stringify(seen.drawn));
+  // The line drawn on the map with its card open (the user, 2026-10-31: "why is it not using the loop?"): the leg
+  // from the sawmill runs on round the wye's loop, as the train does, not straight back to the forest (as it was drawn
+  // when each leg left its stop by the shorter end).
+  await tapOn({ engine: setup.engine });
+  await p.waitForTimeout(500);
+  const line = await p.evaluate((o) => {
+    const w = window.woodrail;
+    const loop = new Set(o.run.filter((i) => w.layout.getPiece(i).type === "curve-large" && !o.spur.includes(i)));
+    const legs = w.routeShown().filter((r) => !r.dotted && r.runs.length > 0);
+    const fromMill = legs.filter((r) => r.runs[0].pieceId === o.sawmill && r.runs[r.runs.length - 1].pieceId === o.forest);
+    return { legs: legs.length, fromMill: fromMill.map((r) => ({ round: r.runs.filter((x) => loop.has(x.pieceId)).length, spur: r.runs.filter((x) => o.spur.includes(x.pieceId)).length })) };
+  }, { ...setup });
+  check("forward: the line drawn on the map goes from the sawmill round the wye's loop, as the train does", line.fromMill.length > 0 && line.fromMill.every((l) => l.round > 0 && l.spur === 0), JSON.stringify(line));
   await p.keyboard.press("Escape");
 }
 
