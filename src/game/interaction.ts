@@ -2319,6 +2319,11 @@ export class Interaction {
     return this.hud.engineCardOpen ? this.selectedCar : -1;
   }
 
+  /** The car (not an engine) whose card is open, or −1. */
+  get openCarCardId(): number {
+    return this.hud.carCardOpen ? this.selectedCar : -1;
+  }
+
   /** Economy depot whose card is open, or −1. */
   private selectedDepot = -1;
   /** The depot whose card is open, or −1. */
