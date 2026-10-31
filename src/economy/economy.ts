@@ -372,9 +372,11 @@ export class Economy {
       layout,
       sim,
       routed: this.routes,
-      // (Standing at its stop, the stop after, as sections' `target`: a long train's front comes onto the points past
-      // its stop while its back is still on it, and must take its way on.)
-      goal: (engine) => this.routeTarget(engine),
+      goal: (engine) => {
+        const r = this.routes.get(engine)!;
+        const d = this.depots[r.stops[r.next % r.stops.length].depotId];
+        return d && this.onMap(d) ? d.pieceId : -1;
+      },
       drive: (train) => this.drive(train),
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),

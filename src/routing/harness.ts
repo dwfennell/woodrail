@@ -290,7 +290,11 @@ export class HarnessRun implements InvariantWorld {
       layout,
       sim,
       routed: this.routes,
-      goal: (engine) => this.target(engine),
+      goal: (engine) => {
+        const r = this.routes.get(engine)!;
+        const p = r.stops[r.next % r.stops.length];
+        return this.layout.getPiece(p) ? p : -1;
+      },
       drive,
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),

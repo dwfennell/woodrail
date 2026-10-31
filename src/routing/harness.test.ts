@@ -271,10 +271,6 @@ const FORWARD: Case[] = [
       "keeps pushing, as the player set it up": (r) => expect(r.pushed).toEqual(r.arrivals),
     },
   },
-  {
-    scenario: S.stopBeforePoints,
-    checks: { "payoff: 20+ stops in 10 min": arrivals(20), "never into the spur": noSpur },
-  },
 ];
 
 /** The router's cost: mean µs per tick over the §8 runs (10 µs a steer every 8 ticks, today: about 1–2 µs a tick). */

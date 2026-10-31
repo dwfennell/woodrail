@@ -84,7 +84,7 @@ export interface RouterHost {
   readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "ticks" | "trainCount">;
   /** The routed engines, in the order they're steered (the economy's routes). */
   readonly routed: { readonly size: number; keys(): Iterable<number>; has(engine: number): boolean };
-  /** The piece of a routed engine's next stop (standing at it, the next different one); −1 while it has none on the map. */
+  /** The piece of a routed engine's next stop; −1 while it has none on the map. */
   goal(engine: number): number;
   /** A train's net drive toward its front (sign only matters; 0: not driven). */
   drive(train: Train): number;

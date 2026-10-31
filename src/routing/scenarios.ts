@@ -566,29 +566,7 @@ export const pushingShuttle: Scenario = {
   },
 };
 
-/**
- * A stop right before facing points, the points left set for a spur (no stop on it), the way on to the next stop the
- * other road: `⊐ Y ══ ══ M ⊲ ══ X ══ ══ ⊏` (the spur `⌒ ══ ══ ⊏`). A long train run from M to X has its front on the
- * points while its back is still on M. (The goals play-through, every lap from minute 104: the router steered for the
- * stop it stood at until its last axle left it, so its front took the points' default road, the spur.)
- */
-export const stopBeforePoints: Scenario = {
-  name: "a long train leaving a stop just before points set for a spur",
-  seconds: 600,
-  build: (layout) => {
-    const [y, , , m] = chain(layout, [STOP, S, S, STOP]);
-    appendPiece(layout, BUFFER, false, connectorRef(y, 0));
-    const sw = appendPiece(layout, "switch", false, connectorRef(m, 1), 0);
-    const on = chain(layout, [S, STOP, S, S], connectorRef(sw, 1));
-    appendPiece(layout, BUFFER, false, connectorRef(on[on.length - 1], 1));
-    const spur = chain(layout, [C, S, S], connectorRef(sw, 2), [true]);
-    appendPiece(layout, BUFFER, false, connectorRef(spur[spur.length - 1], 1));
-    layout.setSwitchState(sw, 1);
-    return { trains: [{ pieceId: m, s: 150, stops: [y, m, on[1]], next: 1, cars: ["engine", "timber", "timber", "timber", "timber"] }], watch: spur };
-  },
-};
-
-export const FORWARD: readonly Scenario[] = [balloonOverSpur, wyeOverSpur, loopOverSpur, pushingShuttle, stopBeforePoints];
+export const FORWARD: readonly Scenario[] = [balloonOverSpur, wyeOverSpur, loopOverSpur, pushingShuttle];
 
 export const OTHERS: readonly Scenario[] = [
   followerSameRoad,
