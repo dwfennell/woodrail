@@ -50,31 +50,24 @@ export function economyChecks(economy: Economy, opts: InvariantOptions = {}): In
   return checks;
 }
 
-/** The dev badge: red, top left, once anything broke; a tap lists the first breaks (and logs them). */
-function badge(): { show(n: number, lines: string[]): void } {
-  let el: HTMLButtonElement | null = null;
-  let lines: string[] = [];
+/**
+ * The dev badge: red, at the top in the middle, once anything broke: the count and the latest break. It takes no taps
+ * (`pointer-events: none`), so it never stands over a control a player or an e2e taps; the list is in the console
+ * (`[invariants] …`, and `window.__invariants.summary()`).
+ */
+function badge(): { show(n: number, latest: string): void } {
+  let el: HTMLDivElement | null = null;
   return {
     show(n, latest) {
-      lines = latest;
       if (!el) {
-        el = document.createElement("button");
+        el = document.createElement("div");
         el.id = "dev-invariants";
+        el.setAttribute("aria-hidden", "true");
         el.style.cssText =
-          "position:fixed;left:8px;top:8px;z-index:99999;padding:4px 8px;border:0;border-radius:6px;background:#c62828;color:#fff;font:600 12px/1.3 system-ui,sans-serif;max-width:min(90vw,520px);text-align:left;white-space:pre-wrap;opacity:.92";
-        el.title = "Train invariants broken (dev build): tap to list";
-        let open = false;
-        el.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          open = !open;
-          el!.dataset.open = open ? "1" : "";
-          el!.textContent = open ? `${el!.dataset.head}\n${lines.join("\n")}` : el!.dataset.head!;
-          if (open) console.warn(`[invariants]\n${lines.join("\n")}`);
-        });
+          "position:fixed;left:50%;top:4px;transform:translateX(-50%);z-index:99999;pointer-events:none;padding:3px 8px;border-radius:6px;background:#c62828;color:#fff;font:600 11px/1.3 system-ui,sans-serif;max-width:min(80vw,420px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.9";
         document.body.appendChild(el);
       }
-      el.dataset.head = `⚠ ${n} invariant break${n === 1 ? "" : "s"}`;
-      el.textContent = el.dataset.open ? `${el.dataset.head}\n${lines.join("\n")}` : el.dataset.head;
+      el.textContent = `⚠ ${n} invariant break${n === 1 ? "" : "s"} · ${latest}`;
     },
   };
 }
@@ -86,14 +79,13 @@ export interface DevGame {
 
 /**
  * Dev builds: the invariants on the game's economy (moved to the new one when a load swaps it). Each break logs once
- * (per invariant and train or piece) with a short description, and the red badge counts them. Call `frame()` from the
+ * (per invariant and train or piece) with a short description, and the red badge counts them (it takes no taps). Call `frame()` from the
  * frame hook. `window.__invariants` has the checks, for e2e scripts.
  */
 export function installDevChecks(game: DevGame): { frame(): void } {
   let on: Economy | null = null;
   let checks: (Invariants & { off(): void }) | null = null;
   const said = new Set<string>();
-  const recent: string[] = [];
   let total = 0;
   const shown = badge();
   const onBreak = (b: Break) => {
@@ -102,10 +94,8 @@ export function installDevChecks(game: DevGame): { frame(): void } {
     if (said.has(key)) return;
     said.add(key);
     const line = `${b.invariant}: ${b.what} (${(b.tick / 120).toFixed(1)} s)`;
-    recent.push(line);
-    if (recent.length > 12) recent.shift();
     console.error(`[invariants] ${line}`);
-    shown.show(total, recent);
+    shown.show(total, line);
   };
   const frame = () => {
     if (game.economy === on) return;
