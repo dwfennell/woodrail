@@ -135,6 +135,38 @@ export interface PieceDef {
    * comes onto the platform halts on it, and it's carried to the other end over `seconds`, then drives off there.
    */
   readonly lift?: { readonly seconds: number };
+  /**
+   * Points with a lever at every end (a wye's three corners, #15): each end's road is its own bit of the state (bit k:
+   * end k's second road), so a train can be sent any of the ways. Other points have one lever: the state picks the road
+   * from every end alike (`wayAt`).
+   */
+  readonly cornerLevers?: boolean;
+}
+
+/**
+ * Which of the roads from end `entry` (`count` of them, as `routeFrom` counts them) points in `state` give: the state
+ * mod the count; for points with a lever at each end (`cornerLevers`), that end's own bit.
+ */
+export function wayAt(def: PieceDef, state: number, entry: number, count: number): number {
+  return def.cornerLevers ? ((state >> entry) & 1) % count : state % count;
+}
+
+/** The state that sets end `entry` to road `option` (`wayAt`), the other ends' levers as they are in `state`. */
+export function setWayAt(def: PieceDef, state: number, entry: number, option: number): number {
+  return def.cornerLevers ? (state & ~(1 << entry)) | ((option & 1) << entry) : option;
+}
+
+/** A switch's levers: one, or one at each end (`cornerLevers`). */
+export function leverCount(def: PieceDef): number {
+  return def.cornerLevers ? def.connectors.length : 1;
+}
+
+/**
+ * A one-lever wye's state (saves from before #15: the one lever set every end alike) as a state with a lever at each
+ * corner: its road at each end the same as before.
+ */
+export function cornersFromOneLever(state: number): number {
+  return state % 2 === 1 ? 0b111 : 0;
 }
 
 /**
@@ -420,7 +452,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     supportHeight: 0,
   },
   // A wye: a trunk splitting into a quarter turn each way, the two ends joined by a straight across, so a train can
-  // run in on one leg, reverse out along another and come back turned round. Every end is a switch (one lever).
+  // run in on one leg, reverse out along another and come back turned round. Every end is points, each with its own
+  // lever (#15): from the trunk, left (0) or right (1); from either branch, to the trunk (0) or across (1).
   wye: {
     type: "wye",
     connectors: [
@@ -435,6 +468,7 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     ],
     flippable: false,
     isSwitch: true,
+    cornerLevers: true,
     supportHeight: 0,
   },
   // Double track with a link across: from the first line's start, the lever sends trains on or over to the other.
