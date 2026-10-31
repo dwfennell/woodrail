@@ -6,6 +6,9 @@ import { kitOf, kitPlace, type PieceTypeId } from "../../track";
 import { Batcher } from "../dressing/batcher";
 import { motionOf, type MotionParts } from "../kit-motions";
 import type { Materials } from "../materials";
+import { catalogueModel, loadModelSet, modelOf } from "../blender-models";
+import { scaleOf } from "../../catalogue/scale";
+import { stackOf } from "../../props/storeys";
 
 /** A catalogue model baked for drawing many copies: a few merged parts, and its size on the ground. */
 export interface PropModel {
@@ -58,11 +61,15 @@ export class PropLibrary {
     let p = this.pending.get(key);
     if (!p) {
       const kit = kitType ? kitOf(kitType) : undefined;
-      const [assetId, v] = kit ? [kit.asset] : key.split("#");
+      const [stacked, v] = kit ? [kit.asset] : key.split("#");
       const variant = Number(v ?? 0);
-      p = loadAsset(assetId).then((asset) => {
+      // A town house grown taller (`asset^n`): its storey blocks under it (see `stackedModel`).
+      const [assetId, up] = stacked.split(STOREYS);
+      const storeys = Number(up ?? 0);
+      p = Promise.all([loadAsset(assetId), storeys > 0 ? loadModelSet("floors", true) : undefined]).then(([asset, floors]) => {
         let model: PropModel | null = null;
         if (kit && asset) model = this.loadKit(kitType!, asset.name, placedForKit(asset.build(this.kitFor(0)), kitPlace(kit)));
+        else if (asset && floors) model = { name: asset.name, ...bake(stackedModel(floors, assetId, storeys, this.kitFor(variant)), this.mats) };
         else if (asset) {
           const built = asset.build(this.kitFor(variant));
           model = { name: asset.name, ...bake(built, this.mats) };
@@ -173,9 +180,29 @@ function placedForKit(model: Object3D, at: { t: number; l: number; turn: number 
   return root;
 }
 
-/** A model's key in the library: its asset, and its colour variant if not the model's own colours. */
-export function modelKey(asset: string, variant?: number): string {
-  return variant ? `${asset}#${variant}` : asset;
+/** A model's key in the library: its asset, its storeys more (a town house grown taller), and its colour variant. */
+export function modelKey(asset: string, variant?: number, storeys?: number): string {
+  const up = storeys ? `${asset}${STOREYS}${storeys}` : asset;
+  return variant ? `${up}#${variant}` : up;
+}
+
+/** The key's mark for a town house's storeys (`bldg-townhouse^2`). */
+const STOREYS = "^";
+
+/**
+ * A town house `storeys` storeys taller than modelled, stacked like a wooden toy from its storey blocks (`floors.glb`:
+ * see `props/storeys.ts`): its ground block with the door, plain floors, and the house itself on top. In the house's own
+ * frame, at its drawn scale, in the colour variant's paint (the blocks wear the same slots as the house).
+ */
+function stackedModel(floors: ReadonlyMap<string, Object3D>, asset: string, storeys: number, kit: Kit): Object3D {
+  const root = new Group();
+  for (const { piece, y } of stackOf(asset, storeys)) {
+    const o = catalogueModel(modelOf(floors, piece), kit);
+    o.position.y = y;
+    root.add(o);
+  }
+  root.scale.setScalar(scaleOf(asset));
+  return root;
 }
 
 /**
@@ -187,8 +214,8 @@ export const PROP_LIVE_PARTS: Readonly<Record<string, ReadonlySet<string>>> = {
 };
 
 /** The model a placed prop is drawn with: its own, or for a prop with live parts, its model bare of them. */
-export function drawnKey(asset: string, variant?: number): string {
-  return PROP_LIVE_PARTS[asset] ? modelKey(asset, variant) + BARE : modelKey(asset, variant);
+export function drawnKey(asset: string, variant?: number, storeys?: number): string {
+  return PROP_LIVE_PARTS[asset] ? modelKey(asset, variant) + BARE : modelKey(asset, variant, storeys);
 }
 
 /** How many colour variants there are (besides the model's own colours): towns pick among them. */

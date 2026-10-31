@@ -7,6 +7,7 @@ The play layer on top of the railway:
 - **Goals** (`src/game/goals.ts`), **research** (`src/game/research.ts`, school, `SCHOOL_SHARE`) and **rewards** (`src/game/rewards.ts`).
 - **Industries and map sites:** `industries.ts` (`SITE_RULES`, fields), `map-sites.ts` (ruins, `farmFields`, `placeSite`), `restore.ts` (`restoreRuin`, `restorePrice`, `trackCanReach`, payoff text), `harbours.ts` (`HarbourTrade`).
 - **Balance:** `src/play/balance.test.ts`, the harness, the goals play-through and the bands.
+- **Town looks as they grow** (issue #17): `src/props/storeys.ts` (storeys and styles by level), `townProps` / `setTownStoreys` in `src/props/towns.ts`, the stacked models in `src/render/props/library.ts`.
 
 Rail and road owns the sim and sections. Send them head-ons and switch-path issues with a minimal repro; don't fix their code.
 
@@ -74,6 +75,12 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 - Halts and pick-only stops count as no room. Other trains aren't counted.
 - Only pick up, Only drop and unrouted trains are unchanged.
 
+**Towns grow upward (#17):**
+- A house gains storeys by its town's level, less one per ring (`RING`, 1.5 squares) out past `INNER` (2.5 squares from the centre): hamlet none, village +1, town +2, city +3, city ★ +4 at the middle. Capped per model (cottages and bungalows +1, villas, terraces and semis +2, the apartment block +2). Never fewer at a higher level.
+- Stacked from `floors.glb`'s storey blocks (ground with the door, floors, the house on top), loaded only once a town grows. A prop's `storeys` is saved; `TownLife.reset` and `grow` set them (`setTownStoreys`, only the props that change). Model key `asset^n#variant`: same materials, so the same batches and draw calls.
+- From a town (level 2) new plain-house lots take half their styles from `STYLES_BY_LEVEL` (townhouses and narrow houses; at a city flats, a fire and a police station, a kiosk, a town hall on a 2×2; at ★ a hospital). From a city, a town with no church gets one on its next house lot of 2+ squares. Level 0 (Sandbox, new maps) dresses exactly as before.
+- Measured (starter Larkfield, swiftshader, 844×600 @1.5): City ★ 229 draws both before and after; triangles 1.26M → 1.35M (+7%); idle 0 frames. Pictures: `docs/agents/shots/towns-taller-before-after.jpg`.
+
 **Performance:** nothing new per frame. Cached checks go in the once-a-second update. Note timings.
 
 ## 4. Open items
@@ -95,7 +102,7 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 4. **Drop B5's empty-the-sawmill workaround** in `sections-qa.test.ts`. The idle head-on fix (39533c3) is on main; check that all sections-qa tests pass after.
 5. **School priority:** deferred until item 3. Propose the smallest rule if Foundry still stalls.
 
-Also waiting on the user: the coin-sink plan (town treats and a paint shop, plan a57a272) and the stuck-cargo hint. Related GitHub issues: #13 (caboose), #14 (research queue: the queue is built; the school's "how deep it takes goods" setting is open), #17 (towns growing), #18 (moving houses and roads).
+Also waiting on the user: the coin-sink plan (town treats and a paint shop, plan a57a272) and the stuck-cargo hint. Related GitHub issues: #13 (caboose), #14 (research queue: the queue is built; the school's "how deep it takes goods" setting is open), #17 (towns growing taller: landed), #18 (moving houses and roads).
 
 ## 5. Gotchas
 - **Harness gaps hide game bugs:** the old farm, the harbour's stone, and crane pile spots were all missed because tests wrote piles directly. Test by the player's route.

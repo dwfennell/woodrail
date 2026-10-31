@@ -2,7 +2,7 @@
 // laid, its school placed and a workshop beside the line; Larkfield grows to a village and then a town; each time the
 // bottom sheet "Larkfield grew! Pick one" comes up with three large cards (icon, amount, one line); one tap takes a card
 // (no confirm); every kind of card is taken in turn (planks, coins, a crate, a wagon, a research boost, rare cargo) and
-// checked to have done what it says; an offer closed (✕, or a tap on the shade) keeps waiting with a badge, and comes
+// checked to have done what it says; the town's houses rise a storey at a village and two at its middle as a town; an offer closed (✕, or a tap on the shade) keeps waiting with a badge, and comes
 // back from the badge and from the growth toast; no blueprint is learned by growth; no frames drawn while the sheet or
 // the badge sits there.
 //
@@ -115,6 +115,15 @@ const offer = async (cards) => {
   await p.waitForTimeout(500);
 };
 
+/** Larkfield's houses' storeys (issue #17: a town grows upward as it grows): their sum, and the tallest. */
+const storeys = () =>
+  p.evaluate(() => {
+    const w = window.woodrail;
+    const t = w.world.landscape.towns.find((x) => x.name === "Larkfield") ?? w.world.landscape.towns[0];
+    const s = [...w.world.props.all()].filter((q) => q.town === t.id && q.building !== undefined).map((q) => q.storeys ?? 0);
+    return { sum: s.reduce((a, b) => a + b, 0), most: Math.max(0, ...s) };
+  });
+
 // 1. A new game: the line between the first two towns, the school where Show me points, a workshop beside the line.
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
@@ -153,6 +162,8 @@ await grow(4, 1);
 await p.waitForTimeout(400); // (the sheet's slide-up)
 s = await sheet();
 check("a village: the sheet comes up, titled Larkfield grew! Pick one", s.open && s.title === "Larkfield grew! Pick one", JSON.stringify(s.title));
+const villageStoreys = await storeys();
+check("a village: its houses at the middle have a storey more", villageStoreys.sum > 0 && villageStoreys.most === 1, JSON.stringify(villageStoreys));
 check("…three cards of three kinds", s.cards.length === 3 && new Set(s.cards.map((c) => c.kind)).size === 3, JSON.stringify(s.cards.map((c) => c.kind)));
 check(
   "…each large (at least 100×120 px), inside the screen, an icon, an amount and one line",
@@ -280,6 +291,8 @@ toasts.length = 0;
 await grow(12, 2);
 s = await sheet();
 check("a town: the sheet comes up again", s.open && s.title === "Larkfield grew! Pick one" && s.cards.length === 3, JSON.stringify(s.title));
+const townStoreys = await storeys();
+check("a town: taller again, two storeys more at its middle", townStoreys.sum > villageStoreys.sum && townStoreys.most === 2, JSON.stringify(townStoreys));
 check("…town amounts (16 planks, 80 coins, a crate of 3 things)", s.cards.every((c) => (c.kind === "planks" ? /^\+\d+ planks$/.test(c.amount) : c.kind === "coins" ? c.amount === "+80 coins" : c.kind === "crate" ? c.amount === "A crate: 3 things" : true)), JSON.stringify(s.cards.map((c) => c.amount)));
 await shot("06-town-sheet");
 await tap(".growth-sheet .close");

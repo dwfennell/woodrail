@@ -4,7 +4,7 @@ import type { CargoKind } from "../economy/cargo";
 import { LandEditor } from "../landscape/edit";
 import type { Town } from "../landscape";
 import { propsInRect } from "../props/placement";
-import { addTownProps } from "../props/towns";
+import { addTownProps, setTownStoreys } from "../props/towns";
 import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
@@ -84,6 +84,10 @@ export class TownLife {
       this.levels.set(t.id, townStatus(received).level);
       this.had.set(t.id, received);
     }
+    // Its houses as tall as its size (a save from before towns grew upward: they rise now; else nothing changes).
+    let taller = 0;
+    for (const t of this.game.landscape.towns) taller += setTownStoreys(this.game.landscape, t, this.game.props, this.levels.get(t.id) ?? 0);
+    if (taller > 0) this.game.propsChanged();
     this.update();
   }
 
@@ -154,10 +158,13 @@ export class TownLife {
       // A building that changed (a house that's now a shop, or has a second floor) is dressed again.
       const changed = new Set(changedBuildings(lots));
       for (const p of [...g.props.all()]) if (p.building !== undefined && changed.has(p.building)) g.props.remove(p.id);
-      addTownProps(g.landscape, g.props);
+      // New buildings in the styles of the town's size now (`extraStyles`).
+      addTownProps(g.landscape, g.props, (id) => this.levels.get(id) ?? 0);
       g.editLand(slots);
-      g.propsChanged();
     }
+    // Its houses grow upward, the centre most (issue #17): only this town's props whose storeys change are redrawn.
+    const taller = setTownStoreys(g.landscape, town, g.props, status.level);
+    if (lots.length > 0 || taller > 0) g.propsChanged();
     this.events.grew(
       town,
       status,
