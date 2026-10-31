@@ -9,14 +9,20 @@ vi.mock("./track-geometry", async (importOriginal) => {
   return { ...m, buildPieceGeometry: (def: Parameters<typeof m.buildPieceStandIn>[0]) => m.buildPieceStandIn(def) };
 });
 import { Flourishes } from "./flourishes";
-import { createSample, getPieceDef, Layout, pathLength, samplePath, TRACK_THICKNESS, type PieceTypeId } from "../track";
+import { createSample, getPieceDef, Layout, pathLength, samplePath, TRACK_THICKNESS, type PathDef, type PieceDef, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { ARROW_FAR_SCALES, arrowEnds, BURN_GAP, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_BURN_FAR, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { ARROW_FAR_SCALES, arrowEnds, arrowRoads, BURN_GAP, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_BURN_FAR, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
 const P = (x: number, z: number, heading = 0) => ({ x, z, heading });
 const N = SWITCH_ARROW_AT.length;
+
+/** Every state a switch can be in: a wye's 8 (a bit per corner, #15), or one per route from its trunk. */
+const statesOf = (def: PieceDef) => (def.cornerLevers ? 1 << def.connectors.length : trunkRoutes(def).length);
+
+/** The road each chevron a switch shows in a state lies on, in `switchArrows`'s order: a row of N, or 2 for both ways. */
+const roadOfEach = (def: PieceDef, state: number) => arrowRoads(def, state).flatMap(({ route, ends }) => Array<PathDef>(ends.length > 1 ? 2 : N).fill(route));
 
 /** Each chevron as drawn: where it is (world x, z) and which way it points (world heading). */
 function arrowsOf(view: TrackView) {
@@ -56,9 +62,9 @@ describe("switch chevrons", () => {
     for (const [i, t] of (["switch", "switch-y", "switch-3way", "wye", "crossover"] as const).entries()) layout.addPiece(t, P(i * 500, 0));
     const view = new TrackView(layout, mats);
     view.sync();
-    // (The crossover shows both its lines' set routes; the wye each corner's (#15), set at 0 two rows: its trunk's and
-    // corner 1's way to the trunk are one route.)
-    expect(view.switchArrows!.count).toBe(7 * N);
+    // (The crossover shows both its lines' set routes; the wye each corner's (#15), set at 0 a row for corner 2's way to
+    // the trunk and a both-ways mark of 2 on the curve its trunk and corner 1 are both set along.)
+    expect(view.switchArrows!.count).toBe(6 * N + 2);
     // One draw for all of them: a single mesh, a handful of triangles a chevron.
     expect(view.group.children.filter((c) => c.userData.kind === "switch-arrows")).toHaveLength(1);
     // (A charred core of 4 and a singe round it of 12.)
@@ -115,12 +121,50 @@ describe("switch chevrons", () => {
     expect(Math.abs(ways[1].z)).toBeGreaterThan(10);
   });
 
-  it("a wye shows the route from its trunk (not the straight across)", () => {
-    for (const s of [0, 1]) {
-      const arrows = arrowsOf(oneSwitch("wye", s).view);
-      // Along a quarter turn from the trunk at x 0: off to one side, pointing away from the trunk end.
-      for (const a of arrows) expect(Math.hypot(a.x, a.z)).toBeGreaterThan(20);
-      expect(Math.sign(arrows[2].z)).toBe(s === 0 ? 1 : -1);
+  it("a wye shows each road as it's set (#15): both ways, one way or not at all, in each of its 8 states", () => {
+    const def = getPieceDef("wye", false);
+    // The roads: 0 the curve from the trunk to corner 1, 1 the curve to corner 2, 2 the straight across between them.
+    const roadIndex = (r: PathDef) => def.paths.indexOf(r);
+    for (let state = 0; state < 8; state++) {
+      // What each road should show: the corners whose levers send trains onto it (bit k for corner k: from the trunk 0
+      // left, 1 right; from a branch 0 to the trunk, 1 across).
+      const want = new Map<number, number[]>([[0, []], [1, []], [2, []]]);
+      want.get(state & 1 ? 1 : 0)!.push(0);
+      want.get(state & 2 ? 2 : 0)!.push(1);
+      want.get(state & 4 ? 2 : 1)!.push(2);
+      const roads = arrowRoads(def, state);
+      for (const [road, ends] of want) expect(roads.find((r) => roadIndex(r.route) === road)?.ends ?? [], `state ${state.toString(2)} road ${road}`).toEqual(ends);
+      // Drawn: on each road set from one end, a row of N pointing away from it; from both, 2 pointing out toward each
+      // end; from neither, nothing.
+      const arrows = arrowsOf(oneSwitch("wye", state).view);
+      const along = roadOfEach(def, state);
+      expect(arrows, `state ${state.toString(2)}`).toHaveLength(along.length);
+      expect(arrows.length).toBe([...want.values()].reduce((n, e) => n + (e.length === 0 ? 0 : e.length === 1 ? N : 2), 0));
+      const s = createSample();
+      for (const [road, ends] of want) {
+        const on = arrows.filter((_, i) => roadIndex(along[i]) === road);
+        if (ends.length === 0) expect(on).toHaveLength(0);
+        const r = def.paths[road];
+        for (const a of on) {
+          // On the road (within a millimetre of its centre line) ...
+          let best = { d: Infinity, h: 0, at: 0 };
+          for (let d = 0; d <= pathLength(r.geom); d += 0.5) {
+            samplePath(r.geom, d, s);
+            const off = Math.hypot(s.x - a.x, s.z - a.z);
+            if (off < best.d) best = { d: off, h: s.heading, at: d };
+          }
+          expect(best.d).toBeLessThan(1);
+          // ... pointing toward the end it sends trains to: away from the one end set; out toward the nearer end, both.
+          const forward = Math.cos(a.heading - best.h) > 0;
+          const towardTo = ends.length === 1 ? ends[0] === r.from : best.at > pathLength(r.geom) / 2;
+          expect(forward, `state ${state.toString(2)} road ${road} at ${a.x.toFixed(0)}, ${a.z.toFixed(0)}`).toBe(towardTo);
+        }
+        // Both ways: one near each end.
+        if (ends.length === 2) {
+          const ats = on.map((a) => Math.hypot(a.x - def.connectors[r.from].pose.x, a.z - def.connectors[r.from].pose.z)).sort((x, y) => x - y);
+          expect(ats[1] - ats[0]).toBeGreaterThan(60);
+        }
+      }
     }
   });
 
@@ -129,13 +173,14 @@ describe("switch chevrons", () => {
     for (const type of ["switch", "switch-y", "switch-3way", "wye", "crossover"] as const) {
       for (const flipped of [false, true]) {
         const def = getPieceDef(type, flipped);
-        for (let state = 0; state < trunkRoutes(def).length; state++) {
-          // (Each end's row in turn, along the route set from there; one row for two ends set along the same route.)
-          const ends = arrowEnds(def).filter((e, i, all) => all.findIndex((o) => setRoute(def, state, o) === setRoute(def, state, e)) === i);
+        for (let state = 0; state < statesOf(def); state++) {
+          // (Each road's chevrons in turn, along it: a row from one end, or a both-ways mark of 2.)
+          const along = roadOfEach(def, state);
           const all = arrowsOf(oneSwitch(type, state, flipped).view);
-          expect(all, `${type} ${state}`).toHaveLength(N * ends.length);
-          const rows = ends.map((end, k) => ({ end, route: setRoute(def, state, end)!, arrows: all.slice(k * N, (k + 1) * N) }));
-          for (const { end, route, a } of rows.flatMap((r) => r.arrows.map((a) => ({ ...r, a })))) {
+          expect(all, `${type} ${state}`).toHaveLength(along.length);
+          for (const [i, a] of all.entries()) {
+            const route = along[i];
+            const end = route.from;
             // Every other track through the piece (its other routes, a wye's straight across, a crossover's other line).
             let nearest = Infinity;
             for (const p of def.paths) {
@@ -152,7 +197,7 @@ describe("switch chevrons", () => {
     }
   });
 
-  it("a crossover shows both lines' set routes (QA N4); set over, one row the whole way across the link", () => {
+  it("a crossover shows both lines' set routes (QA N4); set over, a both-ways mark on the link", () => {
     const def = getPieceDef("crossover", false);
     expect(arrowEnds(def)).toEqual([0, 3]);
     const [onA, onB] = [0, 1].map((s) => arrowsOf(oneSwitch("crossover", s).view));
@@ -162,14 +207,14 @@ describe("switch chevrons", () => {
     for (const a of onA.slice(N)) expect([Math.round(a.z), Math.round(Math.cos(a.heading))]).toEqual([72, 1]);
     // (And each row one after another the way it points.)
     for (const row of [onA.slice(0, N), onA.slice(N)]) for (let i = 1; i < N; i++) expect(row[i].x).toBeGreaterThan(row[i - 1].x);
-    // Over: one row on the link, where it's clear of both lines' grooves, all pointing the one way, from line A over to
-    // line B (no two rows facing each other mid-link, like trains meeting: QA on switch clarity 2).
-    expect(onB).toHaveLength(N);
-    for (const p of onB) expect(Math.cos(p.heading)).toBeGreaterThan(0.7);
-    for (let i = 1; i < N; i++) {
-      expect(onB[i].x).toBeGreaterThan(onB[i - 1].x);
-      expect(onB[i].z).toBeGreaterThan(onB[i - 1].z);
-    }
+    // Over: the link is set from both its ends (line A's start and line B's end), so trains cross either way: a mark of
+    // 2 on it, clear of both lines' grooves, one near each end pointing out toward it ("<  >"), never two rows facing
+    // each other mid-link, like trains meeting (QA on switch clarity 2).
+    expect(onB).toHaveLength(2);
+    const [near, far] = [...onB].sort((p, q) => p.x - q.x);
+    expect(Math.cos(near.heading)).toBeLessThan(-0.7);
+    expect(Math.cos(far.heading)).toBeGreaterThan(0.7);
+    expect(far.z).toBeGreaterThan(near.z);
   });
 
   it("drawn bigger in the middle step, they still clear the other route's groove (QA: at 1.8x they didn't)", () => {
@@ -179,9 +224,10 @@ describe("switch chevrons", () => {
     const clear = 16 + burnExtent(BURN_SIZES[1]).reach;
     for (const type of ["switch", "switch-y", "switch-3way", "wye", "crossover"] as const) {
       const def = getPieceDef(type, false);
-      for (let state = 0; state < trunkRoutes(def).length; state++) {
-        const route = setRoute(def, state)!;
-        for (const a of switchArrows(def, state, k).slice(0, N)) {
+      for (let state = 0; state < statesOf(def); state++) {
+        const along = roadOfEach(def, state);
+        for (const [i, a] of switchArrows(def, state, k).entries()) {
+          const route = along[i];
           let nearest = Infinity;
           for (const p of def.paths) {
             if (p === route) continue;
@@ -343,7 +389,7 @@ describe("switch chevrons", () => {
       for (const type of ["switch", "switch-y", "switch-3way", "wye", "crossover"] as const)
         for (const flipped of [false, true]) {
           const def = getPieceDef(type, flipped);
-          for (let state = 0; state < trunkRoutes(def).length; state++) {
+          for (let state = 0; state < statesOf(def); state++) {
             const shapes = switchArrows(def, state, scale).map((a) => arms(BURN_SIZES[k], a));
             const { depth } = burnExtent(BURN_SIZES[k]);
             // Apart, and drawn bigger, wood a couple of pixels wide between them (QA on switch-burned-2: 1–2 px at
@@ -465,6 +511,38 @@ describe("a wye's three levers (#15)", () => {
     expect(after[0]).toBeCloseTo(before[0]);
     expect(after[2]).toBeCloseTo(before[2]);
     expect(Math.sign(after[1])).toBe(-Math.sign(before[1]));
+  });
+
+  it("a corner's lever thrown so a road is set both ways (or no longer is): the lever still swings, the chevrons are burned afresh", () => {
+    const { layout, id, view } = oneSwitch("wye", 0b010);
+    // (0b010: every road set from one end, 3 rows.)
+    expect(arrowsOf(view)).toHaveLength(3 * N);
+    // (Corner 1's lever: the one thrown.)
+    const lean1 = () => {
+      const l = view.group.children.find((c): c is Mesh => c instanceof Mesh && c.userData.kind === "switch-lever" && c.userData.pieceId === id && c.userData.corner === 1)!;
+      return new Vector3(0, 1, 0).transformDirection(l.matrix);
+    };
+    const before = lean1();
+    layout.setSwitchState(id, 0b000);
+    const f = view.syncSwitches((p) => p === id)!;
+    expect(f).not.toBeNull();
+    expect(view.swinging).toBe(true);
+    // (The curve to corner 1 now set from the trunk and corner 1 both: a row of N and a mark of 2.)
+    const now = arrowsOf(view);
+    expect(now).toHaveLength(N + 2);
+    const rest = arrowsOf(oneSwitch("wye", 0b000).view);
+    now.forEach((a, i) => expect([a.x, a.z, a.heading].map((v) => v.toFixed(3))).toEqual([rest[i].x, rest[i].z, rest[i].heading].map((v) => v.toFixed(3))));
+    const flourishes = new Flourishes();
+    flourishes.add(f);
+    flourishes.update(SWITCH_SWING_S / 2);
+    // Part way over ...
+    expect(lean1().angleTo(before)).toBeGreaterThan(0.05);
+    for (let i = 0; i < 20 && flourishes.count > 0; i++) flourishes.update(1 / 60);
+    // ... then over, and still.
+    expect(view.swinging).toBe(false);
+    // (Leaning as far the other way: 0.45 rad each side of upright.)
+    expect(lean1().angleTo(before)).toBeCloseTo(0.9, 3);
+    expect(lean1().y).toBeCloseTo(before.y, 5);
   });
 
   it("pinned: every lever shows the pin", () => {
