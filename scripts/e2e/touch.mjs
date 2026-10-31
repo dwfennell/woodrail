@@ -1647,7 +1647,7 @@ async function routeWait(ctx, p) {
   await p.waitForFunction(() => !!document.querySelector(".engine-status")?.textContent, null, { timeout: 30000 }).catch(() => {});
   const said = await p.evaluate(() => document.querySelector(".engine-status")?.textContent ?? "");
   const lineName = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, setup.first);
-  check("wait: its card says it's waiting for the first train to pass the points", said === `Waiting for the ${lineName} train to pass the points`, JSON.stringify({ said, lineName }));
+  check("wait: its card says it's waiting for the first train to pass the points", said === `Waiting for the train on the ${lineName} to pass the points`, JSON.stringify({ said, lineName }));
   await p.keyboard.press("Escape");
   // The first by, the points are set for the second (it goes on). Before it's on them, two taps on their lever (§16 Q1,
   // as changed at step 5): they stay set for it, a toast says so, and the second tap's way (their curve, as set for
@@ -1676,7 +1676,7 @@ async function routeWait(ctx, p) {
   }, { setup });
   check(
     "wait: a lever tap on points set for the second train leaves them set for it, and says so",
-    locked.before.way === 1 && locked.once.way === 1 && locked.twice.way === 1 && locked.twice.locked && locked.once.def === 0 && locked.twice.def === 1 && locked.said.length === 2 && locked.said.every((m) => m === `Set for the ${locked.line} train. They'll switch to your way after it passes`),
+    locked.before.way === 1 && locked.once.way === 1 && locked.twice.way === 1 && locked.twice.locked && locked.once.def === 0 && locked.twice.def === 1 && locked.said.length === 2 && locked.said.every((m) => m === `Set for the train on the ${locked.line}. They'll switch to your way after it passes`),
     JSON.stringify(locked),
   );
   // On: it goes its way, the points set for it; both deliver, each on its own road.
