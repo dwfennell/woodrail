@@ -1316,7 +1316,6 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
 const KNOWN_BREAKS: { test: string; invariant: Invariant; why: string }[] = [
   { test: "random put-downs: no head-ons", invariant: "deadlock", why: "a sections slot wait names a train that isn't there (from 92 s), as the long fuzz's seeds 74, 127, 135, 183 did" },
   { test: "B5: QA's spare sweep, in order in one world", invariant: "deadlock", why: "a sections slot wait names a train that isn't there (from 5718 s)" },
-  { test: "B5: QA's spare sweep with the trains idle", invariant: "deadlock", why: "a router points wait names a train that isn't there (at 2100 s, points 4)" },
   { test: "QA's N2: a train taken off its line", invariant: "split", why: "a train put down across a switch's toe: its last axle on the other road (piece 5: axles 1-3 on path 1, axle 4 on path 0 at 10.9 mm, the points at 0)" },
 ];
 
