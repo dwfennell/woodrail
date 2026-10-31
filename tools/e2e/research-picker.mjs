@@ -45,19 +45,28 @@ const enterGame = async () => {
   await settle();
   await p.keyboard.press("Escape");
 };
-/** Tap the middle of the first visible element matching `selector` (whose text starts with `text`, if given). */
+/**
+ * Tap the middle of the first visible element matching `selector` (whose text starts with `text`, if given), once
+ * nothing lies over it, as a player waits: a tap on a toast only puts the toast away (QA: "Learned Switches! Next:
+ * Bridges and ramps" over the board's ✕ took the close tap, and the pill's next tap toggled the board shut).
+ */
 const tap = async (selector, text) => {
-  const box = await p.evaluate(
-    ({ selector, text }) => {
-      const el = [...document.querySelectorAll(selector)].find((e) => (text === undefined || e.textContent.trim().startsWith(text)) && e.getBoundingClientRect().width > 0);
-      if (!el) return null;
-      el.scrollIntoView({ block: "center" });
-      const r = el.getBoundingClientRect();
-      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    },
-    { selector, text },
-  );
-  if (!box) return false;
+  const find = ({ selector, text }) => {
+    const el = [...document.querySelectorAll(selector)].find((e) => (text === undefined || e.textContent.trim().startsWith(text)) && e.getBoundingClientRect().width > 0);
+    if (!el) return null;
+    el.scrollIntoView({ block: "center" });
+    const r = el.getBoundingClientRect();
+    const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    return el.contains(document.elementFromPoint(at.x, at.y)) ? at : null;
+  };
+  const box = await p
+    .waitForFunction(find, { selector, text }, { timeout: 10000, polling: 200 })
+    .then((h) => h.jsonValue())
+    .catch(() => null);
+  if (!box) {
+    console.log(`(tap: ${selector}${text ? ` "${text}"` : ""} not found, or covered for 10 s)`);
+    return false;
+  }
   await p.touchscreen.tap(box.x, box.y);
   await p.waitForTimeout(400);
   return true;
