@@ -147,7 +147,7 @@ async function selectThenDrag(ctx, p) {
       for (let a = 0; a < (r === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * r) / 216))); a++) {
         const x = Math.round(t.x + r * Math.cos((a * 2 * Math.PI) / Math.max(8, Math.round((2 * Math.PI * r) / 216))));
         const z = Math.round(t.z + r * Math.sin((a * 2 * Math.PI) / Math.max(8, Math.round((2 * Math.PI * r) / 216))));
-        if (!clear(x, z)) continue;
+        if (!(await clear(x, z))) continue;
         const id = w.editor().place("straight-216", poseForCentre("straight-216", false, x, z, 0), 0, false);
         if (typeof id !== "number" || id < 0) continue;
         // (Close enough that the piece is a good size on screen: zoomed out, its middle is near enough an end that a
@@ -575,7 +575,7 @@ async function leverPins(ctx, p) {
       for (let a = 0; a < n && r === -1; a++) {
         const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
         const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
-        if (!clear(x, z)) continue;
+        if (!(await clear(x, z))) continue;
         const placed = w.editor().place("switch", poseForCentre("switch", false, x, z, 0), 0, false);
         const pid = typeof placed === "number" ? placed : (placed?.id ?? -1);
         if (pid >= 0) {
@@ -861,7 +861,7 @@ async function shortUnderCar(ctx, p) {
     // (A run of its own on open ground, found outward from the view's target, whatever earlier checks left there or
     // wherever they left the view: a glide cut short by a touch stops nearer where it set off.)
     const t = w.controls.target;
-    const o = window.__openGround([0, 120, 240, 360, 480].map((dx) => [dx, 0]));
+    const o = await window.__openGround(window.__runFootprint(480));
     const g = o && t.clone().set(o.x, 0, o.z);
     if (!g) throw new Error("no open ground for the run");
     const x0 = g.x;
@@ -953,42 +953,55 @@ const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
 /**
- * Open ground, in the page (window.__clearAt, window.__openGround). The Sandbox map is small (about 6 × 5 m within the
- * view's bounds, its middle hills and its own track), so a spot is searched for over all of it, outward from the
- * view's target (where the steps before left it): every point of a footprint inside the bounds, on flat ground (no
- * hill, water or road within `flat`), clear of every piece and model. Null if there's none anywhere.
+ * Open ground, in the page (window.__clearAt, window.__openGround). The Sandbox seed's land (its mat) is about
+ * 4.2 × 3.2 m, most of it hills, a town and its own track: its open ground has no room for the longer runs (the trap's
+ * line, restore's and wait's, 2 to 2.6 m). So a spot's points may each be on the land where the game's own rule
+ * (`checkPlacement`) would take a straight there, either way round (no hill, road, river, town, field or site), or
+ * past the land's edge on the flat table (harness shortcut, setup only: a player can't lay track there, but it's flat
+ * and nothing hides it), and inside the view's bounds (where the view can go). Each point clear of every piece and
+ * model. Searched over all of it, outward from the view's target (where the steps before left it): null if there's
+ * none anywhere.
  */
 function openGroundScript() {
-  window.__clearAt = (x, z, { pieceGap = 700, propGap = 400, flat = 300, margin = 500 } = {}) => {
+  let checkPlacement = null;
+  const ready = () => (checkPlacement ? Promise.resolve() : import("/src/landscape/clearance.ts").then((m) => void (checkPlacement = m.checkPlacement)));
+  const groundOk = (x, z) => {
+    const w = window.woodrail;
+    if (w.landscape.grid.cellAtWorld(x, z) === -1) return true;
+    return [0, Math.PI / 2].every((h) => {
+      const c = checkPlacement(w.landscape, "straight-216", false, { x: x - 108 * Math.cos(h), z: z - 108 * Math.sin(h), heading: h }, 0);
+      return c.kind === "clear" || c.reason === "off-mat";
+    });
+  };
+  window.__clearAt = async (x, z, opts) => (await ready(), clearAt(x, z, opts));
+  const clearAt = (x, z, { pieceGap = 700, propGap = 400, margin = 250 } = {}) => {
     const w = window.woodrail;
     const b = w.director.bounds;
     if (!(x > b.x0 + margin && x < b.x1 - margin && z > b.z0 + margin && z < b.z1 - margin)) return false;
     for (const i of w.layout.pieceIds()) { const q = w.layout.getPiece(i).pose; if (Math.hypot(q.x - x, q.z - z) <= pieceGap) return false; }
     for (const q of w.props.all()) if (Math.hypot(q.x - x, q.z - z) <= propGap) return false;
-    const g = w.landscape.grid;
-    for (let dx = -flat; dx <= flat; dx += 100)
-      for (let dz = -flat; dz <= flat; dz += 100) {
-        const i = g.cellAtWorld(x + dx, z + dz);
-        if (i !== -1 && (g.groundY(i) !== 0 || (g.road && g.road[i] !== 0))) return false;
-      }
-    return true;
+    return groundOk(x, z);
   };
-  // `points`: the footprint, as [dx, dz] from the spot. The first spot (outward from the view's target) where all are clear.
-  window.__openGround = (points, opts = {}) => {
+  // `points`: the footprint, as [dx, dz] from the spot (no more than 216 mm apart along a run, so a hill between two
+  // can't be missed). The first spot, outward from the view's target, where all are clear.
+  window.__openGround = async (points, opts = {}) => {
+    await ready();
     const w = window.woodrail;
     const t = w.controls.target;
     const b = w.director.bounds;
     const reach = Math.max(...[[b.x0, b.z0], [b.x0, b.z1], [b.x1, b.z0], [b.x1, b.z1]].map(([x, z]) => Math.hypot(x - t.x, z - t.z)));
-    for (let d = 0; d <= Math.min(reach, 40000); d += 108) {
-      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 108));
+    for (let d = 0; d <= Math.min(reach, 40000); d += 54) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 54));
       for (let a = 0; a < n; a++) {
         const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
         const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
-        if (points.every(([dx, dz]) => window.__clearAt(x + dx, z + dz, opts))) return { x, z };
+        if (points.every(([dx, dz]) => clearAt(x + dx, z + dz, opts))) return { x, z };
       }
     }
     return null;
   };
+  // A run's footprint: points every 108 mm from (0, 0) to (length, 0), on each of the rows `dz`.
+  window.__runFootprint = (length, rows = [0]) => rows.flatMap((dz) => Array.from({ length: Math.floor(length / 108) + 1 }, (_, k) => [k * 108, dz]));
 }
 
 for (const mode of ONLY ? ["sandbox"] : ["sandbox", "game"]) {
@@ -1068,7 +1081,7 @@ async function twoRoutes(ctx, p) {
     const w = window.woodrail;
     // (Open, flat ground for two runs side by side, anywhere the view can go: window.__openGround.)
     const t = w.controls.target;
-    const o = window.__openGround([0, 400, 800, 1200].flatMap((dx) => [[dx, 0], [dx, 500]]));
+    const o = await window.__openGround(window.__runFootprint(1080, [0, 500]));
     const g = o;
     if (!g) throw new Error("no open ground for the runs");
     // Harness shortcut (setup, not what's tested): two runs laid through the editor, as dropping the pieces would, a
@@ -1340,7 +1353,7 @@ async function routeRestore(ctx, p) {
     const w = window.woodrail;
     // (Open, flat ground for the run, anywhere the view can go: window.__openGround.)
     const t = w.controls.target;
-    const o = window.__openGround([0, 400, 800, 1200, 1600].flatMap((dx) => [[dx, 0], [dx, 400]]));
+    const o = await window.__openGround(window.__runFootprint(1656, [0, 400]));
     const g = o;
     if (!g) throw new Error("no open ground for the run");
     // Harness shortcut (setup, not what's tested): the run laid through the editor, as dropping the pieces would:
@@ -1520,7 +1533,7 @@ async function routeWait(ctx, p) {
     const poses = order.map((id) => s.getPiece(id));
     // (Open, flat ground for the run, anywhere the view can go: window.__openGround.)
     const t = w.controls.target;
-    const o = window.__openGround(poses.flatMap((q) => [[q.pose.x, q.pose.z], [q.pose.x + 108 * Math.cos(q.pose.heading), q.pose.z + 108 * Math.sin(q.pose.heading)]]));
+    const o = await window.__openGround(poses.flatMap((q) => [0, 108, 216].map((d) => [q.pose.x + d * Math.cos(q.pose.heading), q.pose.z + d * Math.sin(q.pose.heading)])));
     const g = o;
     if (!g) throw new Error("no open ground for the run");
     // Harness shortcut (setup, not what's tested): the run laid through the editor, as dropping the pieces would; two
@@ -1782,7 +1795,7 @@ async function deadEndContinue(p) {
     const { frameDistance } = await import("/src/game/camera-director.ts");
     // (A run of its own on open ground, found outward from the view's target.)
     const t = w.controls.target;
-    const o = window.__openGround([0, 400, 800, 1200, 1600].map((dx) => [dx, 0]));
+    const o = await window.__openGround(window.__runFootprint(1600));
     const g = o && t.clone().set(o.x, 0, o.z);
     if (!g) throw new Error("no open ground for the run");
     // Harness shortcuts, for setup only (not what's tested): the track laid and the route set straight through the
@@ -1876,7 +1889,7 @@ async function putAwayButton(p) {
     const { frameDistance } = await import("/src/game/camera-director.ts");
     // (Open, flat ground for the line, anywhere the view can go: window.__openGround.)
     const t = w.controls.target;
-    const o = window.__openGround([0, 500, 1000, 1500, 2000, 2500].flatMap((dx) => [[dx, 0], [dx, 300]]), { pieceGap: 900, propGap: 500 });
+    const o = await window.__openGround(window.__runFootprint(2916, [0, 300]).map(([x, z]) => [x - 216, z]), { pieceGap: 900, propGap: 500 });
     const g = o;
     if (!g) throw new Error("no open ground for the line");
     // Harness shortcut (setup, not what's tested): QA's N1 line (a forest, two straights, one passing loop, two
