@@ -2199,8 +2199,12 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     const second = put(east[0], 200, true, 0, two ? undefined : first.lineId);
     // (What the player's told: the real toasts, recorded on their way.)
     window.__stuckSaid = [];
-    const toast = w.hud.toast.bind(w.hud);
-    w.hud.toast = (m, ...rest) => (window.__stuckSaid.push(m), toast(m, ...rest));
+    // (Wrapped once: a second run's wrapper round the first's would count each toast twice.)
+    if (!w.hud.__stuckSaid) {
+      const toast = w.hud.toast.bind(w.hud);
+      w.hud.toast = (m, ...rest) => (window.__stuckSaid.push(m), toast(m, ...rest));
+      w.hud.__stuckSaid = true;
+    }
     // Where the gap is: its straight's middle, on the ground.
     const q = gapPiece.pose;
     const mid = { x: q.x + Math.cos(q.heading) * 108, z: q.z + Math.sin(q.heading) * 108, heading: q.heading };
@@ -2258,8 +2262,11 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
   const cdp = await ctx.newCDPSession(p);
   let stamp = Date.now() / 1000;
   const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp += 0.016) });
-  const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Straight"));
-  await tapSel(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  // (The Straight shelf, unless it's open already: left open by the run before, stuck then stuck-lines.)
+  if (!(await p.evaluate(() => !!document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]')))) {
+    const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Straight"));
+    await tapSel(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  }
   const item = await p.evaluate(() => {
     const e = document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]');
     if (!e) return null;
