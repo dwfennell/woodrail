@@ -4505,7 +4505,7 @@ export class Interaction {
   /** A prop in the hand: its model (built when it arrives, if it isn't yet) and the drag state. */
   private propDrag(asset: string, propId: number, pointerId: number, heading: number, from: PropPose | null, offset: { x: number; z: number }, variant?: number): Extract<Mode, { kind: "drag-prop" }> {
     const g = this.game;
-    const key = modelKey(asset, variant);
+    const key = modelKey(asset, variant, g.props.get(propId)?.storeys);
     const ghost = new Group();
     ghost.visible = false;
     // (A town's landmark drawn smaller than its model is carried at its own size.)
