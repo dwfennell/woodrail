@@ -347,7 +347,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   for (const town of landscape.towns) {
     const saved = save.towns.find((t) => t.id === town.id);
     const piece = saved ? layout.getPiece(saved.stationPieceId) : undefined;
-    if (!piece || piece.type !== "station") return err(`invalid save: station for town ${town.id} is missing`);
+    // (Or a big station's kit it was upgraded to, in place: src/game/station-upgrade.ts.)
+    if (!piece || (piece.type !== "station" && piece.type !== town.upgraded)) return err(`invalid save: station for town ${town.id} is missing`);
     if (Math.hypot(piece.pose.x - town.station.x, piece.pose.z - town.station.z) > 0.5) return err(`invalid save: station for town ${town.id} is not at its town`);
     stations.set(town.id, piece.id);
   }
@@ -399,12 +400,14 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     if (!expected.has(d.pieceId) && piece && HALT_KITS.has(piece.type) && d.role === "town" && landscape.towns.some((t) => t.id === d.townId)) expected.set(d.pieceId, { role: "town", townId: d.townId });
   }
   if (save.depots.length !== expected.size) return err("invalid save: wrong number of economy depots");
+  const stationIds = new Set(stations.values());
+  for (const id of stationIds) economy.stationPieces.add(id);
   for (const [i, d] of save.depots.entries()) {
     const want = expected.get(d.pieceId);
     if (d.id !== i || !want || want.role !== d.role || want.townId !== d.townId) return err(`invalid save: economy depot ${d.id} doesn't match the landscape`);
     expected.delete(d.pieceId);
     // A town's station stops wagons by its crane; a halt's coaches stop along its platform (its middle).
-    const halt = d.role === "town" && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
+    const halt = d.role === "town" && !stationIds.has(d.pieceId) && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
     const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId, d.townId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;

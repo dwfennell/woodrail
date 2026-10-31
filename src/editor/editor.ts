@@ -217,6 +217,35 @@ export class Editor {
     this.run({ ...c, props: true });
   }
 
+  /**
+   * Change a piece's type in place (`Layout.retype`: a town's station upgraded) as one undo step, with `land` (houses
+   * moved out of its way, the squares it now stands on: done already, as `recordLand`'s) done before it and undone
+   * after. Trains on it stay where they are (its first road is the old piece's track). Undo is refused while track is
+   * joined to a road the old type hadn't (`refuseUndo`'s words). False if the layout can't retype it.
+   */
+  retype(id: number, type: PieceTypeId, land: { do(): void; undo(): void; slots: () => number[] } | null, refuseUndo: string): boolean {
+    const from = this.layout.getPiece(id)?.type;
+    if (from === undefined || from === type || !this.layout.canRetype(id, type)) return false;
+    const track: Command = { do: () => void this.layout.retype(id, type), undo: () => void this.layout.retype(id, from) };
+    const landPart: Command | null = land && { do: land.do, undo: land.undo, land: land.slots };
+    // (The land part is done already, by the caller: only the track part is done here.)
+    track.do();
+    const parts = landPart ? [landPart, track] : [track];
+    const c: Command = {
+      do: () => {
+        for (const p of parts) p.do();
+      },
+      undo: () => {
+        for (let i = parts.length - 1; i >= 0; i--) parts[i].undo();
+      },
+      parts,
+      refuse: (way) => (way === "undo" && !this.layout.canRetype(id, from) ? refuseUndo : null),
+    };
+    this.push(c);
+    this.changed(c);
+    return true;
+  }
+
   get canUndo(): boolean {
     return this.undoStack.length > 0;
   }

@@ -247,7 +247,10 @@ function addSites(world: Omit<World, "landscape">, towns: Landscape["towns"], de
   for (const depot of depots) world.depots.set(depot.id, world.layout.addPiece(depotPieceType(depot.kind), depot.piece));
   for (const site of ruins) if (!site.cleared) world.ruins.set(site.id, world.layout.addPiece(RUIN_STUB, site.piece));
   for (const d of depots) world.economy.addDepot(d.kind, world.depots.get(d.id)!);
-  for (const t of towns) world.economy.addDepot("town", world.stations.get(t.id)!, t.id, STATION_CRANE_AT);
+  for (const t of towns) {
+    world.economy.addDepot("town", world.stations.get(t.id)!, t.id, STATION_CRANE_AT);
+    world.economy.stationPieces.add(world.stations.get(t.id)!);
+  }
 }
 
 export const STARTER_SEED = 7;

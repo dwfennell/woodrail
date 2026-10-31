@@ -33,7 +33,7 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
-import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
+import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
@@ -81,6 +81,7 @@ import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
+import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
@@ -2181,14 +2182,100 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return ledgerContext;
   };
   const townCard = {
-    key: (d: DepotState) => ledgerKey(game.world, d, ledgerOf()),
+    // (Its station's upgrade row follows the track, the land and what's learned: drawn again when they change.)
+    key: (d: DepotState) => (Math.imul(ledgerKey(game.world, d, ledgerOf()), 31) + (canUpgrade(d) ? game.layout.revision * 7919 + game.landscape.grid.revision : 0)) | 0,
     show: (d: DepotState) => {
       const v = townLedger(game.world, d, ledgerOf());
       if (!v) return;
       hud.depotExtra.hidden = false;
       drawLedger(hud.depotExtra, v, { school: (id) => interaction.openDepotCard(id), lines: () => openLines() });
+      if (canUpgrade(d)) drawUpgrades(d);
     },
   };
+
+  // ---- a town's station upgraded in place (Big stations learned): src/game/station-upgrade.ts ------------------
+
+  /** Does this town card's station offer upgrades: Game mode, Big stations learned, its station still the plain one? */
+  function canUpgrade(d: DepotState): boolean {
+    return mode === "game" && progress.learned.has("big-stations") && game.economy.stationPieces.has(d.pieceId) && game.layout.getPiece(d.pieceId)?.type === "station";
+  }
+
+  /** A town station's upgrade row on its card: a button per big station that fits (its price, the houses it moves), or why not. */
+  function drawUpgrades(d: DepotState): void {
+    const box = document.createElement("div");
+    box.className = "station-upgrade";
+    const title = document.createElement("div");
+    title.className = "station-waiting";
+    title.textContent = "Upgrade the station";
+    box.append(title);
+    for (const type of STATION_UPGRADES) {
+      const plan = planUpgrade(game.world, d.townId, type, interaction.landEditor(), (t, pose, y, ignore) => interaction.placeWhy(t, pose, y, ignore));
+      const name = UPGRADE_NAMES[type];
+      if (typeof plan === "string") {
+        const why = document.createElement("div");
+        why.className = "station-waiting";
+        why.textContent = `${name}: ${plan}`;
+        box.append(why);
+        continue;
+      }
+      const rule = ruleOf(pieceThing(type))!;
+      const moves = plan.moves.length;
+      const b = document.createElement("button");
+      b.className = "chip text station-upgrade-btn";
+      b.dataset.upgrade = type;
+      b.textContent = `⬆ ${name} · ${costText(rule)}${moves ? ` (moves ${moves} house${moves === 1 ? "" : "s"})` : ""}`;
+      b.title = `Upgrade to a ${name.toLowerCase()} on the same spot: its trains, routes and lines stay`;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        upgradeStation(d, type);
+      });
+      box.append(b);
+    }
+    hud.depotExtra.append(box);
+  }
+
+  /** Upgrade town depot `d`'s station to `type`: the kit from the toy box (or made at the workshop), houses moved, one undo step. */
+  function upgradeStation(d: DepotState, type: StationUpgrade): void {
+    const plan = planUpgrade(game.world, d.townId, type, interaction.landEditor(), (t, pose, y, ignore) => interaction.placeWhy(t, pose, y, ignore));
+    const name = UPGRADE_NAMES[type];
+    if (typeof plan === "string") {
+      hud.toast(plan, false, 3600);
+      audio.refuse();
+      return;
+    }
+    // The kit, as any piece put down: one from the toy box, or made now from the workshop's planks.
+    const lack = lacking(game.world, progress, new Map([[pieceThing(type), 1]]));
+    if (lack.size > 0) {
+      const why = craftNow(game.world, progress, lack);
+      if (why === "no-workshop") {
+        hud.toast(`${name}: place your workshop (Industries tab) to make one`, false, 3600);
+        audio.refuse();
+        return;
+      }
+      if (why) {
+        hud.toast(`${name}: needs ${costTag(why.goods, why.coins)} more at the workshop`, false, 3600);
+        audio.refuse();
+        return;
+      }
+      afterCraft();
+    }
+    const land = upgradeLand(game.world, plan);
+    land.do();
+    if (!editor.retype(plan.stationId, type, land, UPGRADE_UNDO_REFUSED)) {
+      land.undo();
+      hud.toast("The station can't be upgraded just now", false, 3600);
+      audio.refuse();
+      return;
+    }
+    game.editLand(land.slots());
+    void game.kitView.load(type).then(() => game.syncKits(true));
+    industriesChanged();
+    const town = game.landscape.towns.find((t) => t.id === d.townId)?.name ?? "The town";
+    hud.toast(`${town} has a ${name.toLowerCase()} now${plan.moves.length ? `: ${plan.moves.length} house${plan.moves.length === 1 ? "" : "s"} moved along` : ""}`, false, 3600);
+    audio.chime();
+    interaction.openDepotCard(d.id);
+    scheduleSave();
+  }
 
   // A sawmill's card (Game mode): a hint at the faster-sawmills blueprint until it's learned.
   let sawmillShown = "";

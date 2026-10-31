@@ -119,6 +119,48 @@ export class Layout {
     return true;
   }
 
+  /**
+   * Change a piece's type in place (a town's station upgraded to a bigger one): its id, pose and height stay, and so do
+   * its joints, where the new type has the same connector at the same index (same place, heading and kind). Connectors
+   * only the new type has are seated as a new piece's are. An explicit replace, never a remove and add: whatever is keyed
+   * by the piece's id (its depot, the stops of routes and lines, trains standing on its first path) is untouched.
+   * Returns false, changing nothing, if a joined connector wouldn't survive or the piece is lifted.
+   */
+  retype(id: number, type: PieceTypeId): boolean {
+    const piece = this.pieces.get(id);
+    if (!piece || !this.canRetype(id, type)) return false;
+    const before = getPieceDef(piece.type, piece.flipped).connectors;
+    const after = getPieceDef(type, false).connectors;
+    // The old type's free connectors leave the index; the new type's (all but the joints kept) are seated afresh.
+    for (let i = 0; i < before.length; i++) {
+      const ref = connectorRef(id, i);
+      if (!this.joinedTo.has(ref)) this.freeConnectors.remove(ref);
+    }
+    this.pieces.set(id, { ...piece, type, flipped: false });
+    this.piecesVersion++;
+    this.revision++;
+    for (let i = 0; i < after.length; i++) {
+      const ref = connectorRef(id, i);
+      if (!this.joinedTo.has(ref)) this.seatConnector(ref);
+    }
+    return true;
+  }
+
+  /** Could piece `id` become a `type` in place (`retype`): every joined connector kept, the piece not lifted? */
+  canRetype(id: number, type: PieceTypeId): boolean {
+    const piece = this.pieces.get(id);
+    if (!piece || this.lifted.has(id)) return false;
+    const before = getPieceDef(piece.type, piece.flipped).connectors;
+    const after = getPieceDef(type, false).connectors;
+    for (let i = 0; i < before.length; i++) {
+      if (!this.joinedTo.has(connectorRef(id, i))) continue;
+      const a = before[i];
+      const b = after[i];
+      if (!b || b.kind !== a.kind || b.y !== a.y || Math.hypot(a.pose.x - b.pose.x, a.pose.z - b.pose.z) > 1e-6 || angleDiff(a.pose.heading, b.pose.heading) > 1e-6) return false;
+    }
+    return true;
+  }
+
   movePiece(id: number, pose: Pose, y: number): boolean {
     if (!this.liftPiece(id)) return false;
     return this.dropPiece(id, pose, y);
