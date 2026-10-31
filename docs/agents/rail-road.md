@@ -188,6 +188,13 @@ A routed train never runs over points set against it: refused, it stands short o
   - #7: trains reverse too often;
   - #8: curves flip when auto-placing (shared with Sandbox);
   - #15: wyes (three levers on `claude/wye-three`, waiting to land; open: per-corner pins, if the user wants them);
+  - **#15 follow-up, other pieces checked for missing ways or levers** (2026-10-31; nothing done yet, waiting on the user):
+    - `switch-3way`: one lever steps straight → left → right; a real one has two point sets, a lever each. Two levers (a bit each, both thrown refused or last wins), a save migration 0/1/2 → bits, lever placement, the router's option ↔ state: about 2 h.
+    - `crossover`: nothing missing (one lever sets both its points, as a real single crossover is worked). A scissors crossover is a new piece: half a day or more.
+    - `crossing`, `crossing-45`: a single or double slip would be new pieces (curved links through the diamond, 2 or 4 point ends, a model, `crossMasks`, chevrons, tray, Game price and research): about a day.
+    - `switch`, `switch-y`: fine. More radii and hands: new catalogue pieces, about 1 h each.
+    - Turntable, transfer table, lift: a tap steps to the next road; "tap the road to turn to it": 2 to 3 h.
+    - Signal gantry: one signal per road already.
   - #16: signals.
 - **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Steps 0–4 are on main; step 5 (waits) is on `claude/routing-5`. Next: step 6 (forward costs; §16 Q4 now answered: avoid running engine-last unless the player set it up, keep the end-of-line flip). Follow the spec's migration steps.
 - **Turn-back breakers still firing** (§16 Q3; the user hasn't yet settled a last resort for a true deadlock, so they're kept and counted):
