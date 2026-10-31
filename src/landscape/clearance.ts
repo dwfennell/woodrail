@@ -1,5 +1,5 @@
 import { createSample, getPieceDef, isBridge, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, type LandscapeGrid } from "./grid";
 import { smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
@@ -325,7 +325,9 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         // Station squares are marked by their centres; only the real footprint (track + platform) blocks,
         // so pieces seated on a station end can overlap the edge of its end squares.
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
-      } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
+      } else if (s === SURF_ROAD) result = BLOCKED.town;
+      // (A town green, a square of the town with nothing on it, takes track: issue #18. Town growth and a moved house
+      // keep off a green with track on it, see `LandEditor.checkLot`.)
       else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
       else if (g.road[i] !== 0 && y + trackY <= g.groundY(i) + LEVEL && !crossesRoad(g.road[i], heading)) result = BLOCKED.road;
       else {

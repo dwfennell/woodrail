@@ -30,6 +30,7 @@
     "e2e:loop": "node tools/e2e/kit-loop.mjs",
     "e2e:research": "node tools/e2e/research-picker.mjs",
     "e2e:growth": "node tools/e2e/growth-menu.mjs",
+    "e2e:town-drag": "node tools/e2e/town-drag.mjs",
     "e2e:school": "node tools/e2e/school-growth.mjs",
     "e2e:sites": "node tools/e2e/map-sites.mjs",
     "e2e:train-parts": "node tools/e2e/train-parts.mjs",
