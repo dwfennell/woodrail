@@ -53,7 +53,7 @@ describe("the blueprint catalogue", () => {
     const p = Progress.fresh();
     let seen = seenOf(p);
     expect(seen.get("switches")).toBe("shown");
-    expect(seen.get("signals")).toBe("shown"); // key, coming soon
+    expect(seen.get("signals")).toBe("shown"); // key
     expect(seen.get("telegraph")).toBe("hint"); // after signals
     expect(seen.get("radio")).toBe("unseen");
     p.learned.add("switches");
@@ -61,6 +61,14 @@ describe("the blueprint catalogue", () => {
     seen = seenOf(p);
     expect(seen.get("junctions")).toBe("shown");
     expect(seen.get("dining")).toBe("shown");
+  });
+
+  it("no key blueprint is coming soon (but the ending's, the goal to aim for): Town hall and Park stay hidden till built", () => {
+    const planned = BLUEPRINTS.filter((b) => b.key && !built(b) && b.plan !== "ending").map((b) => b.id);
+    expect(planned).toEqual([]);
+    const seen = seenOf(Progress.fresh());
+    expect(seen.get("town-hall")).toBe("unseen");
+    expect(seen.get("park")).not.toBe("shown");
   });
 
   it("an old save's risers and loops come back as bridges and junctions", () => {

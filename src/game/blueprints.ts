@@ -92,7 +92,10 @@ export interface Blueprint {
   readonly tier?: 1 | 2 | 3;
   /** Not built yet: shown as coming soon (see `Plan`). */
   readonly plan?: Plan;
-  /** Shown to a new player from the start (the rest are a "?" until something next to them is learned). */
+  /**
+   * Shown to a new player from the start (the rest are a "?" until something next to them is learned). Only on built
+   * rows, and the ending's (the goal to aim for): a key tag a child can never learn is a promise the board can't keep.
+   */
   readonly key?: boolean;
   /** What it lets you do that isn't a thing to make (train routes), with an icon for the board. */
   readonly feature?: { readonly label: string; readonly icon: string };
@@ -219,7 +222,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "observatory", label: "Observatory", branch: "learning", tier: 3, plan: "soon", needs: ["university", "foundry"], price: { planks: 30, coins: 150, goods: { iron: 20 } }, blurb: "A telescope on the hill: the first step toward the rocket.", brings: "Observatory" }),
 
   // Town life
-  row({ id: "town-hall", label: "Town hall", branch: "civic", tier: 2, key: true, plan: "soon", needs: [], price: { planks: 20, coins: 60 }, requires: [TOWN], blurb: "Name your towns, and nudge what each one grows toward.", brings: "Town hall" }),
+  row({ id: "town-hall", label: "Town hall", branch: "civic", tier: 2, plan: "soon", needs: [], price: { planks: 20, coins: 60 }, requires: [TOWN], blurb: "Name your towns, and nudge what each one grows toward.", brings: "Town hall" }),
   row({ id: "post-office", label: "Post office", branch: "civic", tier: 2, plan: "soon", needs: ["routes", "town-hall"], price: { planks: 16, coins: 40 }, blurb: "Mail between every pair of towns.", brings: "Post office" }),
   row({ id: "fire-station", label: "Fire station", branch: "civic", tier: 2, plan: "later", needs: ["town-hall"], price: { planks: 16, coins: 60 }, blurb: "A fire engine on the roads; towns with one grow a level bigger.", brings: "Fire station, fire engine" }),
   row({ id: "police", label: "Police station", branch: "civic", tier: 2, plan: "later", needs: ["town-hall"], price: { planks: 16, coins: 60 }, blurb: "A police car on the roads, and a lost-property office for stray wagons.", brings: "Police station, police car" }),
@@ -229,7 +232,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "clock-tower", label: "Clock tower", branch: "civic", tier: 3, plan: "later", needs: ["clockmaker", "town-hall"], price: { planks: 30, coins: 120, goods: { iron: 10 } }, blurb: "The town keeps time: every train leaves on the dot.", brings: "Clock tower" }),
 
   // Leisure and sports
-  row({ id: "park", label: "Park and bandstand", branch: "leisure", tier: 2, key: true, plan: "soon", needs: ["carpentry"], price: { planks: 12, coins: 30 }, blurb: "Towns with a park grow a little faster.", brings: "Park, bandstand" }),
+  row({ id: "park", label: "Park and bandstand", branch: "leisure", tier: 2, plan: "soon", needs: ["carpentry"], price: { planks: 12, coins: 30 }, blurb: "Towns with a park grow a little faster.", brings: "Park, bandstand" }),
   row({ id: "beach", label: "Beach and pier", branch: "leisure", tier: 2, plan: "later", needs: ["stations"], price: { planks: 16, coins: 60 }, requires: [place("a town by water")], blurb: "Day trippers by the trainload in summer.", brings: "Pier, beach huts" }),
   row({ id: "sports-field", label: "Sports field", branch: "leisure", tier: 2, plan: "later", needs: ["park"], price: { planks: 16, coins: 50 }, blurb: "Weekend matches: visitors from nearby towns.", brings: "Sports field" }),
   row({ id: "swimming", label: "Swimming baths", branch: "leisure", tier: 3, plan: "later", needs: ["park", "electricity"], price: { planks: 20, coins: 80 }, blurb: "Visitors all year round.", brings: "Swimming baths" }),
