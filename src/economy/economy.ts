@@ -372,11 +372,9 @@ export class Economy {
       layout,
       sim,
       routed: this.routes,
-      goal: (engine) => {
-        const r = this.routes.get(engine)!;
-        const d = this.depots[r.stops[r.next % r.stops.length].depotId];
-        return d && this.onMap(d) ? d.pieceId : -1;
-      },
+      // (Standing at its stop, the stop after, as sections' `target`: a long train's front comes onto the points past
+      // its stop while its back is still on it, and must take its way on.)
+      goal: (engine) => this.routeTarget(engine),
       drive: (train) => this.drive(train),
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
@@ -1747,6 +1745,7 @@ export class Economy {
     for (const id of this.lines.keys()) if (!run.has(id)) this.lines.delete(id);
     this.spacing.prune(run, new Set(this.lineIdOf.keys()));
     this.sections.prune(new Set(this.lineIdOf.keys()));
+    this.stalls.prune();
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
     this.kitStops.prune();
     // (Points laid take the way they lie as their default; points taken up lose theirs.)

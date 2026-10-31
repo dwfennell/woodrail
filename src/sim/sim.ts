@@ -294,6 +294,9 @@ export class Sim {
       world: bogies.map(() => createWorldSample()),
     };
     this.trains.set(train.id, train);
+    // Put down straddling a switch on the road its points aren't set for (its front out along a branch, its back on
+    // the trunk): the rest follow its road onto the switch, not the points, or the train splits across both roads.
+    this.rememberStraddledSwitches(train);
     this.refreshWorld(train);
     return { kind: "placed", trainId: train.id };
   }

@@ -271,6 +271,10 @@ const FORWARD: Case[] = [
       "keeps pushing, as the player set it up": (r) => expect(r.pushed).toEqual(r.arrivals),
     },
   },
+  {
+    scenario: S.stopBeforePoints,
+    checks: { "payoff: 20+ stops in 10 min": arrivals(20), "never into the spur": noSpur },
+  },
 ];
 
 /** The router's cost: mean µs per tick over the §8 runs (10 µs a steer every 8 ticks, today: about 1–2 µs a tick). */
@@ -327,6 +331,34 @@ describe("the checks catch what they're for (controls)", () => {
   it("a train still for longer than allowed: stuck (the shuttle stands 2 s at each buffer)", () => {
     const r = runScenario(new Layout(), { ...S.shuttle, seconds: 60, maxStill: 1 });
     expect(r.broke.deadlock.count).toBeGreaterThan(0);
+  });
+});
+
+describe("stalls", () => {
+  it("a train put away: stalls drop it at once, so no card names it as in the way (they look every 30 ticks)", () => {
+    // (Two single-train lines nose to nose, each said stuck in the other's way; one put away mid-look.)
+    let before: string | undefined;
+    let after: unknown = "not run";
+    const scenario: Scenario = {
+      ...S.headOnTwoLines,
+      seconds: 70,
+      build: (layout) => ({
+        ...S.headOnTwoLines.build(layout),
+        events: [
+          {
+            when: (run) => run.sim.ticks >= 60 * SIM_HZ && run.sim.ticks % 30 === 7,
+            do: (run) => {
+              before = run.stalls.stuckOf(run.engines[1])?.kind;
+              run.putAway(0);
+              after = run.stalls.stuckOf(run.engines[1]);
+            },
+          },
+        ],
+      }),
+    };
+    runScenario(new Layout(), scenario);
+    expect(before).toBe("in-way");
+    expect(after).toBeNull();
   });
 });
 

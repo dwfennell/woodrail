@@ -83,7 +83,10 @@ export interface InvariantOptions {
 const KEEP = 4;
 /** A switch nobody holds or stands on this long is at its default. */
 const RESTORE_TICKS = SIM_HZ;
-/** How long a wait may name a train that isn't there before it's a break (a check's lag: stalls look every 30 ticks). */
+/**
+ * How long a sections or router wait may name a train that isn't there before it's a break (a check's lag: the router
+ * steers every 8 ticks). A stall's may not at all.
+ */
 const GHOST_TICKS = SIM_HZ;
 /** How far (pieces) behind an axle the next one may be. */
 const SPLIT_DEPTH = 6;
@@ -282,17 +285,21 @@ export class Invariants {
       m.still += this.every;
       if (was < this.maxStill && m.still >= this.maxStill) this.break("deadlock", `${this.name(key, engine)} still for ${this.maxStill / SIM_HZ} s on piece ${t.bogies[0].pieceId}`, engine, t.bogies[0].pieceId);
     } else m.still = 0;
-    // (A wait naming a train that isn't there: said once it has lasted `GHOST_TICKS`, once a wait. Stalls look every
-    // `CHECK_TICKS`, so theirs may name a train put away since for that long.)
+    // (A wait naming a train that isn't there: said once it has lasted `GHOST_TICKS`, once a wait; a stall's at once
+    // (stalls drop a train taken off the track at once, though they look only every `CHECK_TICKS`).)
     const wait = sections.waitOf(engine);
     const rw = router.waitOf(engine);
     let ghost: string | null = null;
     let at: number | undefined;
-    if (wait && "engine" in wait && !sim.findCar(wait.engine)) ghost = `waits (${wait.kind}) for a train that isn't there`;
+    let grace = GHOST_TICKS;
+    if (wait && "engine" in wait && !sim.findCar(wait.engine)) ghost = `waits (${wait.kind}) for a train that isn't there (${wait.engine})`;
     else if (rw?.kind === "points" && !sim.findCar(rw.by)) {
       ghost = `waits at points ${rw.pieceId} for a train that isn't there`;
       at = rw.pieceId;
-    } else if (stuck && "by" in stuck && !sim.findCar(stuck.by)) ghost = `said stuck (${stuck.kind}) behind a train that isn't there`;
+    } else if (stuck && "by" in stuck && !sim.findCar(stuck.by)) {
+      ghost = `said stuck (${stuck.kind}) behind a train that isn't there`;
+      grace = 0;
+    }
     if (!ghost) {
       m.ghostFrom = -1;
       m.ghostSaid = false;
@@ -300,7 +307,7 @@ export class Invariants {
     }
     const now = this.now();
     if (m.ghostFrom < 0) m.ghostFrom = now;
-    if (!m.ghostSaid && now - m.ghostFrom >= GHOST_TICKS) {
+    if (!m.ghostSaid && now - m.ghostFrom >= grace) {
       m.ghostSaid = true;
       this.break("deadlock", `${this.name(key, engine)} ${ghost}`, engine, at);
     }

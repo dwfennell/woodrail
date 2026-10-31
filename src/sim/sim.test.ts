@@ -235,6 +235,31 @@ describe("switches", () => {
     for (const b of t.bogies) expect([ids[2], branchTail]).toContain(b.pieceId);
     for (const b of t.bogies) if (b.pieceId === ids[2]) expect(b.pathIndex).toBe(1);
   });
+
+  it("a train put down across a switch's toe on the road the points aren't set for: the whole train follows its road", () => {
+    // (Sections QA's N2: put down with its front on the curved branch, its back on the trunk, the points set straight.
+    // Run on, the back axles came onto the switch by its toe and followed the points: the train split across both roads.)
+    const { layout, ids } = chain(["straight-216", "straight-216", "switch", "curve-large", "curve-large"]);
+    const branchA = appendPiece(layout, "straight-216", false, connectorRef(ids[2], 2));
+    appendPiece(layout, "straight-216", false, connectorRef(branchA, 1));
+    const sim = new Sim(layout);
+    expect(layout.switchState(ids[2])).toBe(0);
+    const r = sim.addTrain(["engine", "passenger", "passenger"], { pieceId: branchA, pathIndex: 0, reversed: false, s: 20 });
+    if (r.kind !== "placed") throw new Error("not placed");
+    const put = sim.getTrain(r.trainId)!;
+    expect(put.bogies.some((b) => b.pieceId === ids[2] && b.pathIndex === 1)).toBe(true);
+    expect(put.bogies.some((b) => b.pieceId === ids[1])).toBe(true);
+    sim.setLever(put.cars[0].id, 1);
+    run(sim, 2.5);
+    const t = sim.getTrain(r.trainId)!;
+    expect(t.derailed).toBe(false);
+    for (const b of t.bogies) {
+      expect([ids[3], ids[4]]).not.toContain(b.pieceId);
+      if (b.pieceId === ids[2]) expect(b.pathIndex).toBe(1);
+    }
+    // (And the points as the player left them: nothing thrown under the train.)
+    expect(layout.switchState(ids[2])).toBe(0);
+  });
 });
 
 describe("reversing through a switch", () => {
