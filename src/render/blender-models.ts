@@ -11,7 +11,7 @@ import type { Materials } from "./materials";
  * named by its id. They wear the game's own materials, swapped in by material name ("wood", "metal",
  * "lacquer #rrggbb", ...), so they're lit and painted like everything else.
  */
-export type ModelSet = "trains" | "life" | "buildings" | "dressing" | "industry";
+export type ModelSet = "trains" | "life" | "buildings" | "dressing" | "industry" | "floors";
 
 const sets = new Map<ModelSet, Promise<Map<string, Object3D>>>();
 

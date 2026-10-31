@@ -4,7 +4,7 @@
  * steering, sections' ways (`wayOn`), and the way drawn on the map (`walkTo`) all choose by `planWay`, so the map and
  * the train agree (step 4).
  */
-import { getPieceDef, MAX_CONNECTORS, pathLength, type Layout } from "../track";
+import { getPieceDef, MAX_CONNECTORS, pathLength, pointsWayFrom, type Layout } from "../track";
 import { next, SEARCH, TURN_COST, waysFrom, type PinnedTest } from "./graph";
 
 /** A stretch of one path of one piece, from s0 to s1 along the path's own geometry (s0 > s1 when run backwards). */
@@ -60,8 +60,8 @@ export function walkTo(layout: Layout, start: At, target: number, pinned?: Pinne
     if (n.pieceId !== target && ways.length > 1) {
       option = planWay(layout, n.pieceId, n.entry, ways, target, pinned);
       // No way on leads there: the switch stays as it's set.
-      if (option === -1) option = layout.switchState(n.pieceId) % ways.length;
-    } else if (ways.length > 1) option = layout.switchState(n.pieceId) % ways.length;
+      if (option === -1) option = pointsWayFrom(layout, n.pieceId, n.entry, ways.length);
+    } else if (ways.length > 1) option = pointsWayFrom(layout, n.pieceId, n.entry, ways.length);
     const w = ways[option];
     const nPiece = layout.getPiece(n.pieceId)!;
     const p = getPieceDef(nPiece.type, nPiece.flipped).paths[w.path];

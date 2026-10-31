@@ -8,7 +8,7 @@
  * stops `STAND_SHORT` + `OVERLAP` short of them (`speedCap`) and waits, naming who it waits for (`waitOf`); it never runs
  * over points set against it.
  */
-import { getPieceDef, pathLength, type Layout } from "../track";
+import { getPieceDef, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, CAR_SPECS, COUPLER_GAP, flipCursor, type Cursor, type Sim, type Train } from "../sim";
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
@@ -180,9 +180,9 @@ export class Router {
    * A lever tap on points (not a signal, a deck or a lift): thrown, unless a car is on or over them (the cars still to
    * come would take the other road, and the train would split). Points locked for a routed train don't move (§16 Q1, as
    * the user changed it at step 5: routed trains keep their route): the tap is their new default at once, and they go
-   * back to it once the train has passed.
+   * back to it once the train has passed. `corner`: which of a wye's levers (#15: one at each end, `cornerLevers`).
    */
-  lever(pieceId: number): LeverResult {
+  lever(pieceId: number, corner = 0): LeverResult {
     const { sim, layout } = this.host;
     this.laid();
     if (sim.pointsHeld(pieceId)) return { refused: "under-train" };
@@ -194,11 +194,13 @@ export class Router {
       const def = getPieceDef(piece.type, piece.flipped);
       const ways = Math.max(2, def.paths.filter((p) => p.from === 0).length);
       const from = this.deferred.get(pieceId) === lock ? this.defaultOf(pieceId) : layout.switchState(pieceId);
-      this.defaults.set(pieceId, (from + 1) % ways);
+      // (A wye: only the tapped corner's lever, from the way it's shown; its other corners keep their defaults.)
+      const bit = 1 << corner;
+      this.defaults.set(pieceId, def.cornerLevers ? (this.defaultOf(pieceId) & ~bit) | (~from & bit) : (from + 1) % ways);
       this.deferred.set(pieceId, lock);
       return { deferred: true, by: lock.holders.values().next().value! };
     }
-    if (!sim.toggleSwitch(pieceId)) return { refused: "under-train" };
+    if (!sim.toggleSwitch(pieceId, corner)) return { refused: "under-train" };
     // (The player's new default for these points.)
     this.defaults.set(pieceId, layout.switchState(pieceId));
     this.pending.delete(pieceId);
@@ -429,7 +431,7 @@ export class Router {
         by = other;
         break;
       }
-      if (other === undefined && layout.switchState(w.pieceId) % w.ways !== w.state && sim.pointsHeld(w.pieceId)) {
+      if (other === undefined && pointsWayFrom(layout, w.pieceId, w.entry, w.ways) !== w.state && sim.pointsHeld(w.pieceId)) {
         by = this.standingOn(w.pieceId);
         break;
       }
@@ -452,8 +454,9 @@ export class Router {
       h.held.set(w.pieceId, { state: w.state, entered: false });
       this.pending.delete(w.pieceId);
       this.granted++;
-      if (layout.switchState(w.pieceId) % w.ways !== w.state) {
-        layout.setSwitchState(w.pieceId, w.state);
+      // (A wye sets only the lever at the end it's come onto by: `pointsStateFor`.)
+      if (pointsWayFrom(layout, w.pieceId, w.entry, w.ways) !== w.state) {
+        layout.setSwitchState(w.pieceId, pointsStateFor(layout, w.pieceId, w.entry, w.state));
         this.onSwitch?.(w.pieceId);
       }
     }
@@ -498,7 +501,10 @@ export class Router {
     this.locks.delete(pieceId);
     for (const [e, o] of this.holding) {
       if (e === engine || o.want.get(pieceId) !== lock.state) continue;
-      const entry = o.asked.find((w) => w.pieceId === pieceId)?.entry ?? lock.entry;
+      const asked = o.asked.find((w) => w.pieceId === pieceId);
+      // (Only if the points give it its road as they lie: a wye's lever at another end may be set otherwise.)
+      if (asked && pointsWayFrom(this.host.layout, pieceId, asked.entry, asked.ways) !== asked.state) continue;
+      const entry = asked?.entry ?? lock.entry;
       this.locks.set(pieceId, { state: lock.state, entry, holders: new Set([e]) });
       o.held.set(pieceId, { state: lock.state, entered: false });
       return;
@@ -544,7 +550,9 @@ export class Router {
     for (const id of this.host.sim.piecesUnder(train.id)) {
       if (!isPoints(layout, id) || layout.isPinned(id) || layout.switchState(id) === this.defaultOf(id)) continue;
       h ??= this.holdingOf(engine);
-      const state = layout.switchState(id);
+      // (A wye's state is its three levers, no one road: its lock is shared with nobody, `-1`.)
+      const p = layout.getPiece(id)!;
+      const state = getPieceDef(p.type, p.flipped).cornerLevers ? -1 : layout.switchState(id);
       let lock = this.locks.get(id);
       // (Which end it came onto them by isn't known: any, for sharing.)
       if (!lock) this.locks.set(id, (lock = { state, entry: -1, holders: new Set() }));

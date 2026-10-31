@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Progress } from "./progress";
 import { deliver, pick, tick } from "./research";
 import * as text from "./research-text";
-import { cardState, chipsText, goalPick, IdleNotice, idleText, pickerKey, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
+import { cardState, chipsText, costWords, unlocksWords, goalPick, IdleNotice, idleText, pickerKey, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
 import { TECHS } from "./tech";
 
 const SCHOOL = "Larkfield school";
@@ -32,10 +32,10 @@ describe("a card's chips", () => {
     p.learned.add("farming");
     expect(chipsText(researchChips(p, "bridges"))).toBe("🪵 0/10");
     // Mills: planks and grain, and 40 coins (none in hand: short).
-    expect(researchChips(p, "mills")).toEqual([{ text: "🪵 0/6" }, { text: "🌾 0/6" }, { text: "🪙 40", short: true }]);
+    expect(researchChips(p, "mills").map(({ text, short }) => ({ text, short }))).toEqual([{ text: "🪵 0/6" }, { text: "🌾 0/6" }, { text: "🪙 40", short: true }].map(({ text, short }) => ({ text, short })));
     expect(chipsText(researchChips(p, "mills"))).toBe("🪵 0/6 · 🌾 0/6 · 🪙 40");
     p.coins = 50;
-    expect(researchChips(p, "mills")[2]).toEqual({ text: "🪙 40" });
+    expect(researchChips(p, "mills")[2]).toEqual({ text: "🪙 40", title: "Coins: 40, paid when it starts" });
     // Started: its coins are paid (no chip), its goods count up.
     pick(p, "mills");
     deliver(p, "planks", 4);
@@ -44,11 +44,11 @@ describe("a card's chips", () => {
 
   it("a ready card: Research when idle, else Next up; the one up next swaps with Research now", () => {
     const p = Progress.fresh();
-    expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/3" }], study: "20 s study", action: "Research" });
+    expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/3", title: "Planks: 0 of 3 brought" }], study: "20 s study", action: "Research" });
     pick(p, "switches");
-    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10" }], study: "20 s study", action: "Next up" });
+    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", action: "Next up" });
     pick(p, "bridges");
-    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10" }], study: "20 s study", why: "Next up, after Switches", action: "Research now" });
+    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", why: "Next up, after Switches", action: "Research now" });
     // Tapping it again swaps the two.
     pick(p, "bridges");
     expect(cardState(p, "bridges")).toBe("researching");
@@ -59,7 +59,7 @@ describe("a card's chips", () => {
     const p = Progress.fresh();
     pick(p, "bridges");
     deliver(p, "planks", 6);
-    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 6/10" }], study: "20 s study", why: "bring 4🪵 to Larkfield school", fill: 0.6 });
+    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 6/10", title: "Planks: 6 of 10 brought" }], study: "20 s study", why: "bring 4🪵 to Larkfield school", fill: 0.6 });
     deliver(p, "planks", 4);
     tick(p, 5);
     expect(researchCard(p, "bridges", SCHOOL)).toMatchObject({ why: "studying: 15 s", fill: 0.25 });
@@ -320,3 +320,32 @@ describe("the picker's key (it's rebuilt only when this changes)", () => {
     expect(pickerKey(p, SCHOOL, "a")).not.toBe(pickerKey(p, SCHOOL, "b"));
   });
 });
+
+describe("the full cost and what it unlocks, in words (#11)", () => {
+  it("every good with its amount, icon and name, then the coins; paid coins say so", () => {
+    const p = Progress.fresh();
+    p.learned.add("farming");
+    expect(costWords(p, "switches")).toBe("3 🪵 planks");
+    expect(costWords(p, "mills")).toBe("6 🪵 planks, 6 🌾 grain, 40 🪙 coins");
+    p.coins = 100;
+    pick(p, "mills");
+    expect(costWords(p, "mills")).toBe("6 🪵 planks, 6 🌾 grain, 40 🪙 coins (paid)");
+    // Its chips drop the paid coins; the full cost still shows them.
+    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 0/6 · 🌾 0/6");
+    expect(costWords(p, "no-such-thing")).toBe("nothing");
+  });
+
+  it("chips say what they are: got of needed, and whether the coins are in hand", () => {
+    const p = Progress.fresh();
+    p.learned.add("farming");
+    expect(researchChips(p, "mills").map((c) => c.title)).toEqual(["Planks: 0 of 6 brought", "Grain: 0 of 6 brought", "Coins: 40, not enough yet"]);
+  });
+
+  it("what it unlocks: the things it lets you make by their tray names, else what it lets you do", () => {
+    expect(unlocksWords("switches")).toMatch(/^Switch, Y switch/);
+    expect(unlocksWords("routes")).toBe("Routes on the engine card");
+    expect(unlocksWords("tank")).toBe("Tank engine (Trains tab)");
+    expect(unlocksWords("no-such-thing")).toBe("");
+  });
+});
+

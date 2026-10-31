@@ -34,7 +34,7 @@ function oval(layout: Layout) {
 /**
  * An oval with a siding to a mine off one side by a wye, whose straight across is the oval's track (so the siding can
  * be reached going either way round): A ══ ══ (round) B ═ wye ═ (round) A, the wye's stem ══ Mine ⊏. The wye is left
- * set for the oval (its state 1: the straight across, from either end), as a player lays it.
+ * set for the oval (the straight across, from either end: its corners 1 and 2 levers, state 0b110), as a player lays it.
  */
 function ovalWithSiding(layout: Layout) {
   const [a, s1, , c1, , , , b] = chain(layout, [STOP, S, S, C, C, C, C, STOP]);
@@ -43,7 +43,7 @@ function ovalWithSiding(layout: Layout) {
   if (layout.joinedConnector(connectorRef(a, 0)) === -1) throw new Error("the oval doesn't close");
   const [spur, mine] = chain(layout, [S, STOP], connectorRef(wye, 0));
   appendPiece(layout, BUFFER, false, connectorRef(mine, 1));
-  layout.setSwitchState(wye, 1);
+  layout.setSwitchState(wye, 0b110);
   return { a, b, wye, spur, mine, s1, c1 };
 }
 
@@ -481,14 +481,15 @@ function duringLock(name: string, what: (run: HarnessRun, o: ReturnType<typeof o
       const o = ovalWithSiding(layout);
       return {
         trains: [{ pieceId: o.s1, stops: [o.mine, o.a], cars: CARS }],
-        events: [once((run) => run.layout.switchState(o.wye) === 0 && nearing(run, 0, o.wye, [o.b]), (run) => what(run, o))],
+        // (Its corner from B, 2, set for the stem: the siding.)
+        events: [once((run) => ((run.layout.switchState(o.wye) >> 2) & 1) === 0 && nearing(run, 0, o.wye, [o.b]), (run) => what(run, o))],
       };
     },
   };
 }
 
 export const leverDuringLock = duringLock("a lever tap on points set for a train coming to them", (run, o) => {
-  if (!run.lever(o.wye)) throw new Error("the tap was refused");
+  if (!run.lever(o.wye, 2)) throw new Error("the tap was refused");
 });
 export const saveDuringLock = duringLock("a save and load with points set for a train coming to them", (run) => run.saveAndLoad());
 export const removedUnderLock = duringLock("the stop taken up while points are set for the way to it", (run, o) => run.takeUp(o.mine));
@@ -607,7 +608,8 @@ export function thrownUnder(pinned: boolean): Scenario {
         trains: [{ pieceId: j.t1, cars: CARS }],
         events: [
           ...(pinned ? [{ at: 0, do: (run: HarnessRun) => run.pin(j.sw, true) }] : []),
-          once(on, (run) => run.layout.setSwitchState(j.sw, 1 - run.layout.switchState(j.sw))),
+          // (Every corner's lever thrown.)
+          once(on, (run) => run.layout.setSwitchState(j.sw, run.layout.switchState(j.sw) ^ 0b111)),
         ],
       };
     },

@@ -364,9 +364,9 @@ export class HarnessRun {
    * A lever tap on points (through the router, as `throwLever`): thrown, or (locked for a train) left set for it; either
    * way the tap is the player's new default (the router's). False: refused (a car on them).
    */
-  lever(pieceId: number): boolean {
+  lever(pieceId: number, corner = 0): boolean {
     const was = this.layout.switchState(pieceId);
-    const r = this.router.lever(pieceId);
+    const r = this.router.lever(pieceId, corner);
     if ("deferred" in r && this.layout.switchState(pieceId) === was && this.engines.includes(r.by)) this.report.tapKept = true;
     return !("refused" in r);
   }

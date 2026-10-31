@@ -1,4 +1,4 @@
-import { getPieceDef, pathLength, type Layout } from "../track";
+import { getPieceDef, pathLength, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, waysFrom } from "../routing/graph";
 import { plan, planWay } from "../routing/plan";
@@ -965,7 +965,7 @@ export class Sections {
       else if (ways.length > 1) {
         // (The router's choice: the plan's way to its stop.)
         const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target);
-        w = best === -1 ? (ways[layout.switchState(at.pieceId) % ways.length] ?? ways[0]) : ways[best];
+        w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
       }
       steps.push({ pieceId: at.pieceId, path: w.path, entry: at.entry });
       at = next(layout, at.pieceId, w.exit);
