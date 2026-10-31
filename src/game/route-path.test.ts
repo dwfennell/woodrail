@@ -49,25 +49,30 @@ function loopWithSpur() {
 }
 
 describe("route path", () => {
-  it("a straight line: from the middle of one stop to the middle of the other, both ways", () => {
+  it("a straight line: from the middle of one stop to the middle of the other, both ways, on to the ends and back", () => {
     const layout = new Layout();
     const [a, s1, s2, b] = chain(layout, ["depot-farm", "straight-216", "straight-216", "depot-mill"]);
     const [there, back] = lineLegs(layout, [a, b]);
+    // A train doesn't turn at a stop: it comes into A from B, runs on to the end of the line and back out.
     expect(there).toEqual([
-      { pieceId: a, pathIndex: 0, s0: 108, s1: 216 },
+      { pieceId: a, pathIndex: 0, s0: 108, s1: 0 },
+      { pieceId: a, pathIndex: 0, s0: 0, s1: 216 },
       { pieceId: s1, pathIndex: 0, s0: 0, s1: 216 },
       { pieceId: s2, pathIndex: 0, s0: 0, s1: 216 },
       { pieceId: b, pathIndex: 0, s0: 0, s1: 108 },
     ]);
-    expect(back!.map((r) => r.pieceId)).toEqual([b, s2, s1, a]);
-    expect(back![0]).toMatchObject({ s0: 108, s1: 0 });
-    expect(runsLength(back!)).toBeCloseTo(216 * 3);
+    expect(piecesOf(back!)).toEqual([b, s2, s1, a]);
+    expect(back![0]).toMatchObject({ s0: 108, s1: 216 });
+    expect(runsLength(back!)).toBeCloseTo(216 * 4);
   });
+
+  /** A leg arriving at A facing the switch (as from a train run to A that way). */
+  const facingSwitch = (j: ReturnType<typeof loopWithSpur>) => ({ k: 0, leg: [{ pieceId: j.a, pathIndex: 0, s0: 0, s1: 108 }] });
 
   it("a loop with a switch: the leg takes the branch toward the stop", () => {
     const j = loopWithSpur();
     expect(j.closed).toBe(true);
-    const [toB, toA] = lineLegs(j.layout, [j.a, j.b]);
+    const [toB, toA] = lineLegs(j.layout, [j.a, j.b], facingSwitch(j));
     expect(toB).not.toBeNull();
     expectContinuous(j.layout, toB!);
     // Out of A straight into the switch, and down its curve (path 1) to the spur and B.
@@ -78,13 +83,21 @@ describe("route path", () => {
     expect(toA![toA!.length - 1]).toMatchObject({ pieceId: j.a, s1: 108 });
   });
 
+  it("a stop the train can't come back to: into A from the spur it heads round the oval, which never leads to the spur", () => {
+    const j = loopWithSpur();
+    // (Before: each leg left its stop by the shorter end, so the line was drawn reversing at A, which no train does.)
+    const [toB, toA] = lineLegs(j.layout, [j.a, j.b]);
+    expect(toB).toBeNull();
+    expect(piecesOf(toA!)).toEqual([j.b, j.spur, j.sw, j.a]);
+  });
+
   it("a pinned switch set away from a stop: no way there, and the switch is named as what keeps it away", () => {
     const j = loopWithSpur();
     expect(pinnedBlocking(j.layout, stopCursors(j.layout, j.a), j.b)).toBe(-1);
     // Pinned straight on (not down the curve to the spur): B is out of reach from A.
     j.layout.setSwitchState(j.sw, 0);
     j.layout.setPinned(j.sw, true);
-    expect(lineLegs(j.layout, [j.a, j.b])[0]).toBeNull();
+    expect(lineLegs(j.layout, [j.a, j.b], facingSwitch(j))[0]).toBeNull();
     const version = j.layout.switchesVersion;
     expect(pinnedBlocking(j.layout, stopCursors(j.layout, j.a), j.b)).toBe(j.sw);
     // Asked without touching the layout: still pinned, nothing to redraw.
@@ -92,7 +105,7 @@ describe("route path", () => {
     expect(j.layout.switchesVersion).toBe(version);
     // Pinned the way to the spur: B is reached, nothing to blame.
     j.layout.setSwitchState(j.sw, 1);
-    expect(lineLegs(j.layout, [j.a, j.b])[0]).not.toBeNull();
+    expect(lineLegs(j.layout, [j.a, j.b], facingSwitch(j))[0]).not.toBeNull();
     // A stop no track leads to at all: no switch to blame.
     const lone = j.layout.addPiece("depot-mine", { x: 5000, z: 5000, heading: 0 });
     expect(pinnedBlocking(j.layout, stopCursors(j.layout, j.a), lone)).toBe(-1);

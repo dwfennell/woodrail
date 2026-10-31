@@ -10,6 +10,7 @@ import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBluep
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
+import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
@@ -426,6 +427,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       newGame: () => newGame(),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
+      copyMap: () => void copyMap(),
       home: () => backToRailway(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
@@ -1019,6 +1021,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     cloud?.edited(mode, kind);
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(save, 600);
+  }
+
+  /** The menu's "Copy map for a bug report": saved first, then the mode's save as text on the clipboard. */
+  async function copyMap(): Promise<void> {
+    save();
+    try {
+      await navigator.clipboard.writeText(await mapText(mode));
+      hud.toast("Copied — paste it to us");
+    } catch {
+      hud.toast("Couldn't copy the map here");
+    }
   }
 
   /** Save the railway under its mode (not while the title screen shows it turning behind: nothing is being played). */
@@ -2973,9 +2986,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     } else {
       const names = routeStops(game.world);
       const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1);
-      const legs = lineLegs(game.layout, pieces);
       const next = r.next % line.stops.length;
       const toNext = pieces[next] === -1 ? null : legFromCursor(game.layout, front, pieces[next]);
+      // (The legs on from the next stop follow the way the train comes into it: it runs on round a loop past it.)
+      const legs = lineLegs(game.layout, pieces, { k: next, leg: toNext });
       const ribbons: RibbonSpec[] = legs.flatMap((leg) => (leg ? [{ runs: leg, colour: line.colour }] : []));
       if (toNext) ribbons.push({ runs: toNext, colour: line.colour });
       const n = line.stops.length;
@@ -3016,7 +3030,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const out = line.stops.findIndex((_, k) => unreachable(k));
       if (out !== -1) {
         const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
-        cantReachText = pinnedFor.has(out) ? `Can't reach ${name}: a pinned switch sends trains the other way. Hold its lever to unpin it` : `Can't reach ${name}: no track leads there`;
+        // (Track may lead there from the stop before, just not on from the way the train comes into it: it turns round
+        // only at the end of the track, so a way that needs it to reverse mid-line isn't one.)
+        const before = out === next ? [front] : stopCursors(game.layout, pieces[(out - 1 + n) % n]);
+        const turnOnly = !pinnedFor.has(out) && before.some((c) => legFromCursor(game.layout, c, pieces[out]) !== null);
+        cantReachText = pinnedFor.has(out)
+          ? `Can't reach ${name}: a pinned switch sends trains the other way. Hold its lever to unpin it`
+          : turnOnly
+            ? `Can't reach ${name} on the way the train comes: it only turns round at the end of the track`
+            : `Can't reach ${name}: no track leads there`;
         // With the card open (not planning), the stop that can't be reached is shown, once: not left off screen or
         // under the card.
         const spot = pieceSpot(pieces[out]);
@@ -3860,7 +3882,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [] });
   if (cloud) {
     const card = new CloudCard(hud.root, cloud, {
       mode: () => mode,
@@ -4080,6 +4102,16 @@ requestAnimationFrame(() =>
       cloud?.cutoff();
       // Only the pieces the opening railway has (and the title's picture) are waited for: the rest carry on carving
       // in the background, and any wanted before its turn shows as a stand-in for a moment.
+      // (A map pasted into the link for a bug report, dev only: put in storage, then opened as the autosave is.)
+      const linkedMap = await loadLinkedMap();
+      if (linkedMap) {
+        saveLastMode(linkedMap);
+        try {
+          sessionStorage.setItem(RESUME_KEY, linkedMap);
+        } catch {
+          // No session storage: the title, with the map behind it.
+        }
+      }
       const opening = initialWorld();
       const wanted = [...new Set([TITLE_ART_PIECE, ...[...opening.world.layout.pieceIds()].map((id) => opening.world.layout.getPiece(id)!.type)])];
       let ready = 0;
