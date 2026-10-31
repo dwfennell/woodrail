@@ -216,7 +216,7 @@ export function mergeResearch(local: ResearchData | undefined, remote: ResearchD
  * The cloud's merger for Game mode (`CloudSync`'s `merge`): its progress and goals keys, as stored (JSON). A side
  * whose progress doesn't read is left as the other's.
  */
-export function gameMerger(keys: { progress: string; goals: string }): Merger {
+export function gameMerger(keys: { progress: string; goals: string; stickers?: string }): Merger {
   const read = <T>(raw: string | null | undefined): T | undefined => {
     try {
       return raw ? (JSON.parse(raw) as T) : undefined;
@@ -226,12 +226,14 @@ export function gameMerger(keys: { progress: string; goals: string }): Merger {
   };
   const list = (raw: string | null | undefined) => (read<unknown>(raw) as unknown[] | undefined)?.filter((x): x is string => typeof x === "string") ?? [];
   return {
-    keys: { game: [keys.progress, keys.goals] },
+    keys: { game: [keys.progress, keys.goals, ...(keys.stickers ? [keys.stickers] : [])] },
     merge(_mode, base, local, remote, later) {
       const l = read<ProgressData>(local[keys.progress]);
       const r = read<ProgressData>(remote[keys.progress]);
       const progress = l && r ? JSON.stringify(mergeProgress(read<ProgressData>(base[keys.progress]), l, r, later)) : (local[keys.progress] ?? remote[keys.progress] ?? null);
-      return { [keys.progress]: progress, [keys.goals]: JSON.stringify(mergeGoals(list(local[keys.goals]), list(remote[keys.goals]))) };
+      // (Stickers as goals: earned on either side is earned.)
+      const stickers = keys.stickers ? { [keys.stickers]: JSON.stringify(mergeGoals(list(local[keys.stickers]), list(remote[keys.stickers]))) } : {};
+      return { [keys.progress]: progress, [keys.goals]: JSON.stringify(mergeGoals(list(local[keys.goals]), list(remote[keys.goals]))), ...stickers };
     },
   };
 }

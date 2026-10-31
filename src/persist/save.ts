@@ -610,6 +610,26 @@ export function loadGoals(): string[] {
   }
 }
 
+/** Game mode: the ids of the stickers earned (see `game/stickers.ts`), kept as the goals are. */
+const STICKERS_KEY = "woodrail.game.stickers.v1";
+
+export function saveStickers(ids: readonly string[]): void {
+  try {
+    localStorage.setItem(STICKERS_KEY, JSON.stringify(ids));
+  } catch {
+    // storage unavailable: those that hold are earned again from the railway next time
+  }
+}
+
+export function loadStickers(): string[] {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(STICKERS_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Game mode: the toy box, blueprints learned and the workshop's orders (see `Progress`), beside the game's autosave. */
 const PROGRESS_KEY = "woodrail.game.progress.v1";
 
@@ -699,9 +719,9 @@ export function loadSession(mode: GameMode): SessionData | null {
  * seen) stay with the device.
  */
 /** Game mode's progress and goals keys (what two devices' cloud copies merge: `persist/progress-merge.ts`). */
-export const PROGRESS_KEYS = { progress: PROGRESS_KEY, goals: GOALS_KEY } as const;
+export const PROGRESS_KEYS = { progress: PROGRESS_KEY, goals: GOALS_KEY, stickers: STICKERS_KEY } as const;
 
 export function modeKeys(mode: GameMode): string[] {
   const keys = [STORAGE_KEYS[mode], sessionKey(mode)];
-  return mode === "game" ? [...keys, GOALS_KEY, PROGRESS_KEY, GAMES_KEY] : keys;
+  return mode === "game" ? [...keys, GOALS_KEY, STICKERS_KEY, PROGRESS_KEY, GAMES_KEY] : keys;
 }

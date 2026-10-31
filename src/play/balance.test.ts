@@ -7,6 +7,7 @@ import { HarbourTrade } from "../game/harbours";
 import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, shopSpare, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
+import { StickerTracker } from "../game/stickers";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
@@ -350,6 +351,11 @@ class Player {
   progress = Progress.fresh();
   crafting = new Crafting(this.progress);
   goals = new GoalTracker();
+  /** Stickers, earned as the game earns them (with the goals' check); their cost per check is timed. */
+  stickers = new StickerTracker();
+  stickersAt = new Map<string, number>();
+  stickerChecks = 0;
+  stickerMs = 0;
   town!: TownLife;
   counters = new Counters();
   tick = 0;
@@ -681,6 +687,11 @@ class Player {
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
       }
+      const s0 = performance.now();
+      const earned = this.stickers.update(this.w, { coins: this.progress.coins, counts: this.progress.counts, learned: this.progress.learned, goalsDone: (id) => this.goals.isDone(id) }, this.goals.doneCount, 1);
+      this.stickerMs += performance.now() - s0;
+      this.stickerChecks++;
+      for (const st of earned) this.stickersAt.set(st.id, this.tick / SIM_HZ / 60);
       if (this.tick % (SIM_HZ * 30) === 0) updateRates(this.w, (role) => boostOf(this.progress, role));
     }
   }
@@ -1503,6 +1514,9 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   }
   const seconds = (performance.now() - t0) / 1000;
   console.log(`${part} goals play-through: ${minutes} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}`);
+  console.log(
+    `${part} stickers ${P.p.stickers.count}/${P.p.stickers.total}: ${[...P.p.stickersAt].map(([id, m]) => `${id} ${m.toFixed(0)}`).join(", ") || "-"}; ${((1000 * P.p.stickerMs) / Math.max(1, P.p.stickerChecks)).toFixed(1)} µs a check over ${P.p.stickerChecks}`,
+  );
   const { missed, stale } = goalsMissed((id) => P.p.goals.isDone(id), allowed);
   if (missed.length > 0 || stale.length > 0 || ENV.BALANCE_GOALS_LOG) P.report();
   expect(missed, "goals neither met nor allowed").toEqual([]);
@@ -1519,6 +1533,9 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   expect(w.layout.getPiece(P.quarry)?.type, "the quarry on the map").toBe("depot-quarry");
   expect(w.economy.made[CARGO.stone.index], "stone cut").toBeGreaterThan(0);
   expect(P.p.progress.counts.get("delivered:stone") ?? 0, "stone delivered to a town").toBeGreaterThan(0);
+  // Stickers on the player's path (they're optional: not every one is met here; earned stays earned, so the long part
+  // has these too). Measured: 4 of 10 by minute 175, about 6 µs a check.
+  expect(P.p.stickers.ids(), "stickers earned by playing").toEqual(expect.arrayContaining(["track-layer", "first-city", "two-cities", "busy-loads"]));
   return P;
 }
 
