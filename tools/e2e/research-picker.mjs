@@ -8,6 +8,7 @@
 // card saying Idle with a Research button, and no frames in 30 s with the dot pulsing (a few pulses, then it rests).
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
+// A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11).
 // Starts its own dev server (on 5381, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
 // if present, else Playwright's own.
 import { existsSync, mkdirSync } from "node:fs";
@@ -225,6 +226,43 @@ check("next: after Bridges, its coins chip short, Research now", states.next?.st
 check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /🪵 0\/4/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
 check("locked: what it waits for", states.locked?.state === "locked" && states.locked.buttons.length === 0, JSON.stringify(states.locked));
 check("soon: coming soon", states.soon?.state === "soon" && states.soon.buttons.length === 0, JSON.stringify(states.soon));
+// 6b. A tap on a card says what it unlocks and everything it costs, in words (#11), fitting a 360 px phone: the
+// cost line names every good the chips count (same amounts) and the coins the chips show short; the tag's tooltip
+// (a hover on desktop) says the same.
+const words = async (name) => {
+  await select(name);
+  return p.evaluate(() => {
+    const t = document.querySelector(".board-sheet .bp-ticket");
+    const r = t?.getBoundingClientRect();
+    const node = document.querySelector(".board-body .bp-node.selected");
+    return t && {
+      name: t.querySelector("b")?.textContent,
+      unlocks: t.querySelector(".bp-makes") ? `${t.querySelector(".bp-makes-head")?.textContent} ${[...t.querySelectorAll(".bp-make")].map((m) => m.querySelector(":scope > span:last-child")?.textContent.trim()).join(", ")}` : undefined,
+      cost: t.querySelector(".bp-full-cost")?.textContent.replace(/\s+/g, " ").trim(),
+      chips: [...t.querySelectorAll(".bp-chip:not(.study)")].map((c) => ({ text: c.textContent, title: c.title })),
+      title: node?.title,
+      fits: r.left >= 0 && r.right <= window.innerWidth && t.scrollWidth <= t.clientWidth + 1 && document.documentElement.scrollWidth <= window.innerWidth,
+    };
+  });
+};
+await p.setViewportSize({ width: 360, height: 780 });
+await p.waitForTimeout(400);
+const routesWords = await words("Train routes");
+const bridgesWords = await words("Bridges and ramps");
+const learnedWords = await words("Switches");
+await shot("09b-card-words-360");
+await p.setViewportSize({ width: 390, height: 844 });
+await p.waitForTimeout(400);
+// Every chip's amount appears in the cost line, its good named: "🪵 0/5" → "5 🪵 planks"; "🪙 40" → "40 🪙 coins".
+const chipsInWords = (w) => !!w && w.chips.length > 0 && w.chips.every((c) => {
+  const m = c.text.match(/^(\S+) (?:\d+\/)?(\d+)$/);
+  return m && w.cost.includes(`${m[2]} ${m[1]} `) && c.title.length > 0;
+});
+check("tap Train routes: it says what it unlocks, and its full cost (goods and coins) in words", /^Unlocks: Routes on the engine card/.test(routesWords?.unlocks ?? "") && /^Costs: \d+ 🪵 planks, 40 🪙 coins$/.test(routesWords?.cost ?? "") && chipsInWords(routesWords), JSON.stringify(routesWords));
+check("tap Bridges (under way): unlocks named, every good it needs in the cost line", /^Unlocks: \S/.test(bridgesWords?.unlocks ?? "") && /^Costs: 10 🪵 planks/.test(bridgesWords?.cost ?? "") && chipsInWords(bridgesWords), JSON.stringify(bridgesWords));
+check("a learned card names what it unlocked, and no cost", /^Unlocks: Switch, Y switch/.test(learnedWords?.unlocks ?? "") && learnedWords.cost === undefined, JSON.stringify(learnedWords));
+check("the tag's tooltip says the same (hover on desktop)", routesWords?.title === `Train routes. Unlocks: Routes on the engine card. ${routesWords?.cost}`, String(routesWords?.title));
+check("…and the ticket fits a 360 px phone, nothing sideways", routesWords?.fits && bridgesWords?.fits && learnedWords?.fits, JSON.stringify([routesWords?.fits, bridgesWords?.fits, learnedWords?.fits]));
 const coinChip = await p.evaluate(() => {
   const node = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === "Train routes");
   return node?.className;

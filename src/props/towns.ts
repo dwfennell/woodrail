@@ -5,6 +5,7 @@ import { COLOR_VARIANTS } from "../render/props/library";
 import type { PropStore } from "./store";
 import { landmarkOf } from "../game/landmarks";
 import { scaleOf } from "../catalogue/scale";
+import { extraStyles, jitterOf, SPIRE_LEVEL, storeysFor, STYLES_BY_LEVEL } from "./storeys";
 
 /**
  * Towns built from catalogue models: each town building (`towns[].buildings`, generated with the map) becomes a prop
@@ -40,6 +41,12 @@ const BOX: Record<string, readonly [number, number, number, number]> = {
   "bldg-market-hall": [-30, 30, -58, 58],
   "bldg-library": [-29, 29.6, -52, 52],
   "bldg-college": [-22.5, 18, -54, 54],
+  // A bigger town's own (`STYLES_BY_LEVEL`): a kiosk, a fire station, a police station, a town hall, a hospital.
+  "bldg-ice-cream-kiosk": [-20, 20, -20, 20],
+  "bldg-fire-station": [-33, 37.6, -25, 24],
+  "bldg-police-station": [-30.5, 42.2, -25, 25],
+  "bldg-town-hall": [-35, 39, -40, 40],
+  "bldg-hospital": [-60, 40, -40, 40],
 };
 
 /** A town model's box as modelled (see `BOX`), or undefined for one not used in towns. */
@@ -89,6 +96,12 @@ export function townModels(): { asset: string; squares: number }[] {
   for (const a of HOUSES_1) out.push({ asset: a, squares: 1 });
   for (const a of HOUSES_2) out.push({ asset: a, squares: 2 });
   for (const look of Object.values(BY_LOOK)) for (const [n, list] of Object.entries(look)) for (const a of list ?? []) out.push({ asset: a, squares: Number(n) });
+  for (const s of STYLES_BY_LEVEL) {
+    for (const a of s.one) out.push({ asset: a, squares: 1 });
+    for (const a of s.two) out.push({ asset: a, squares: 2 });
+    for (const a of s.four) out.push({ asset: a, squares: 4 });
+  }
+  out.push({ asset: "bldg-church", squares: 2 }, { asset: "bldg-church", squares: 4 });
   return out;
 }
 
@@ -123,27 +136,89 @@ export interface TownProp {
   scale?: number;
 }
 
-/** The catalogue model and pose for each building of a town (same order as `town.buildings`). */
-export function townProps(land: Landscape, town: Town): TownProp[] {
+/** What a town is dressed with beyond its map: how big it is now, and the model each building already has. */
+export interface TownDressing {
+  /** The town's level (0 a hamlet; Game mode: see `townStatus`). Bigger towns build with more styles. */
+  level?: number;
+  /** The model a building is dressed with already (undefined: none yet). */
+  dressedAs?: (building: number) => string | undefined;
+}
+
+/**
+ * The catalogue model and pose for each building of a town (same order as `town.buildings`). A building not yet
+ * dressed takes its style by the town's size now (`dressing.level`: see `extraStyles`), and from a city on, a town
+ * with no church gets one on its next house lot of two squares or more (its spire over the roofs). At level 0 (Sandbox, a new map)
+ * this is the town's own few styles, as ever.
+ */
+export function townProps(land: Landscape, town: Town, dressing: TownDressing = {}): TownProp[] {
+  const level = dressing.level ?? 0;
   const looks = townLooks(land.seed, town);
   // The town's own stream, separate from the generator's and from `townLooks`.
   const r = rng((Math.imul(land.seed, 71) + town.id * 613 + 29) >>> 0);
   const pick = <T>(list: readonly T[]) => list[Math.floor(r() * list.length)];
   // Three house styles per town, so its houses look like they belong together.
   const styles = [...HOUSES_1].sort(() => r() - 0.5).slice(0, 3);
+  const dressedAs = dressing.dressedAs ?? (() => undefined);
+  let church = level < SPIRE_LEVEL || looks.some((l, k) => l === "church" && town.buildings[k].cells.length === 2) || town.buildings.some((b) => dressedAs(b.id) === "bldg-church");
   return town.buildings.map((b, k) => {
     const squares = b.cells.length >= 4 ? 4 : b.cells.length > 1 ? 2 : 1;
-    const options = (squares === 4 ? undefined : BY_LOOK[looks[k]][squares]) ?? (squares > 1 ? HOUSES_2 : styles);
+    const own = (squares === 4 ? undefined : BY_LOOK[looks[k]][squares]) ?? (squares > 1 ? HOUSES_2 : styles);
+    // A plain house's lot in a bigger town: more styles to build with (a building dressed already keeps its own).
+    const plain = own === HOUSES_2 || own === styles;
+    const fresh = dressedAs(b.id) === undefined;
+    // (Half the new buildings of a bigger town in its new styles, so they show: one draw either way.)
+    const extra = plain && fresh && level > 0 ? extraStyles(level, squares) : [];
     // A landmark: its own model, the first of its list that's in the catalogue and fits its lot (others stand in).
     const mark = b.landmark ? landmarkOf(b.landmark) : undefined;
     // (On a smaller lot than it wants, still itself: drawn as large as fits there.)
     const list = mark && (squares === 4 ? [...(mark.models.four ?? []), ...mark.models.two] : squares === 2 ? mark.models.two : mark.models.one);
     const marked = list?.find((a) => fitScale(a, squares) !== null);
-    const asset = marked ?? pick(options);
+    let asset = marked ?? (extra.length > 0 ? pickOf(own, extra, r()) : pick(own));
+    // A city's church, on its first new house lot of two squares or more.
+    if (!church && !mark && plain && fresh && squares >= 2) {
+      asset = "bldg-church";
+      church = true;
+    }
     const fit = marked ? fitScale(marked, squares)! / scaleOf(marked) : 1;
     const variant = Math.floor(r() * (COLOR_VARIANTS + 1));
     return { asset, ...poseFor(land, town, b, looks[k], asset, fit), building: b.id, town: town.id, variant, ...(fit < 1 - 1e-6 ? { scale: fit } : {}) };
   });
+}
+
+/** One of `own` or `extra`, half the time each, from one draw `x` (0–1). */
+export function pickOf<T>(own: readonly T[], extra: readonly T[], x: number): T {
+  return x < 0.5 ? extra[Math.floor(x * 2 * extra.length)] : own[Math.min(own.length - 1, Math.floor((x - 0.5) * 2 * own.length))];
+}
+
+/** Where a town building stands from its town's centre (mm): its squares' middle. */
+export function distanceFromCentre(land: Landscape, town: Town, b: Building): number {
+  const g = land.grid;
+  let x = 0;
+  let z = 0;
+  for (const c of b.cells) {
+    x += g.centreX(g.colOf(c));
+    z += g.centreZ(g.rowOf(c));
+  }
+  return Math.hypot(x / b.cells.length - town.centre.x, z / b.cells.length - town.centre.z);
+}
+
+/**
+ * Give a town's buildings their storeys for its level (see `storeysFor`): the centre tallest, a storey less each ring
+ * out. Only props whose storeys change are touched (so only they are drawn again). Returns how many changed.
+ */
+export function setTownStoreys(land: Landscape, town: Town, props: PropStore, level: number): number {
+  const byId = new Map(town.buildings.map((b) => [b.id, b]));
+  let changed = 0;
+  for (const p of props.all()) {
+    if (p.town !== town.id || p.building === undefined) continue;
+    const b = byId.get(p.building);
+    if (!b) continue;
+    const n = storeysFor(p.asset, level, distanceFromCentre(land, town, b), jitterOf(b.id));
+    if ((p.storeys ?? 0) === n) continue;
+    props.setStoreys(p.id, n);
+    changed++;
+  }
+  return changed;
 }
 
 /**
@@ -211,14 +286,14 @@ function facing(land: Landscape, town: Town, b: Building, look: Look, asset: str
  * Give every town building that has no prop yet its catalogue model: a new map's towns, towns on land just added, and
  * saves from before towns were props. Returns how many were added.
  */
-export function addTownProps(land: Landscape, props: PropStore): number {
-  const have = new Set<number>();
-  for (const p of props.all()) if (p.building !== undefined) have.add(p.building);
+export function addTownProps(land: Landscape, props: PropStore, levelOf?: (town: number) => number): number {
+  const have = new Map<number, string>();
+  for (const p of props.all()) if (p.building !== undefined) have.set(p.building, p.asset);
   let added = 0;
   for (const town of land.towns) {
     const wanted = town.buildings.some((b) => !have.has(b.id));
     if (!wanted) continue;
-    for (const t of townProps(land, town)) {
+    for (const t of townProps(land, town, { level: levelOf?.(town.id) ?? 0, dressedAs: (id) => have.get(id) })) {
       if (have.has(t.building)) continue;
       // On its square's ground: a town that has grown onto a hill stands its houses on the blocks.
       const cell = land.grid.cellAtWorld(t.x, t.z);

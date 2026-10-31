@@ -769,6 +769,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-ticket-head b { font-size: 17px; }
 .bp-ticket-head span { font-size: 13.5px; color: #6a5340; }
 .bp-makes { display: flex; flex-wrap: wrap; gap: 6px; }
+.bp-makes-head { align-self: center; font-size: 12.5px; color: #6a5340; }
+.bp-full-cost { font-size: 13px; font-weight: 700; color: #5a3d22; line-height: 1.35; }
+.bp-full-cost b { color: #6a5340; }
 .bp-make { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px; border-radius: 10px; background: #f3e6cf; font-size: 12.5px; font-weight: 700; color: #5a3d22; }
 .bp-make svg { width: 34px; height: 22px; }
 /* A thing's tray picture (its model, three-quarter view), and the blank that waits for one (a prop not drawn yet). */

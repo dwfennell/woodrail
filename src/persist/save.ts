@@ -14,7 +14,7 @@ const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?
 const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { connectorRef, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type Pose, type RelaxOptions } from "../track";
+import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type Pose, type RelaxOptions } from "../track";
 import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
@@ -97,6 +97,11 @@ const saveSchema = z.object({
    * from how the switch is set (optional: older saves, and points not named, default to how they're set).
    */
   switchDefaults: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])).optional(),
+  /**
+   * 3: a wye's switch state is its three levers, a bit for each corner (#15). Missing: a save from before, its wyes'
+   * one lever setting every corner alike (`cornersFromOneLever`).
+   */
+  wyeLevers: z.literal(3).optional(),
   trains: z.array(trainSchema),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(
@@ -151,6 +156,8 @@ const saveSchema = z.object({
         town: z.number().int().min(0).optional(),
         variant: z.number().int().min(0).max(8).optional(),
         scale: z.number().min(0.5).max(1).optional(),
+        /** A town house's storeys more than its model (its town grew: `props/storeys.ts`). */
+        storeys: z.number().int().min(0).max(8).optional(),
       }),
     )
     .optional(),
@@ -237,12 +244,13 @@ export function serializeWorld(world: World): SaveData {
     joints: [...layout.joints()].map((j) => [pieceOfRef(j.a), indexOfRef(j.a), pieceOfRef(j.b), indexOfRef(j.b)] as [number, number, number, number]),
     ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
     ...(defaults ? { switchDefaults: defaults } : {}),
+    wyeLevers: 3,
     trains,
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(lines.length > 0 ? { lines } : {}),
-    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) })),
+    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
 }
 
@@ -325,7 +333,12 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   // Joined as they were when saved (QA: joints a drawn line closed a little past the tolerance held while playing,
   // then were refused on loading, and the line split). Pieces that meet within it, and aren't in the list, seat anyway.
   for (const [pa, ia, pb, ib] of save.joints ?? []) layout.restoreJoint(connectorRef(pa, ia), connectorRef(pb, ib));
-  for (const [id, state] of save.switches) if (layout.getPiece(id)) layout.setSwitchState(id, state);
+  // (A save from before the wye's three levers: its one lever set every corner alike.)
+  const leversOf = (id: number, state: number): number => {
+    const p = save.wyeLevers === undefined ? layout.getPiece(id) : undefined;
+    return p && getPieceDef(p.type, p.flipped).cornerLevers ? cornersFromOneLever(state) : state;
+  };
+  for (const [id, state] of save.switches) if (layout.getPiece(id)) layout.setSwitchState(id, leversOf(id, state));
   for (const id of save.pinned ?? []) layout.setPinned(id, true);
   const land = deserializeLandscape(save.landscape);
   if (!land.ok) return err(`invalid save: ${land.error}`);
@@ -370,7 +383,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);
-  economy.router.restore(save.switchDefaults);
+  economy.router.restore(save.switchDefaults?.map(([id, state]) => [id, leversOf(id, state)] as [number, number]));
   const expected = new Map<number, { role: string; townId: number }>();
   for (const [townId, pieceId] of stations) expected.set(pieceId, { role: "town", townId });
   for (const [depotId, pieceId] of depots) expected.set(pieceId, { role: landscape.depots[depotId].kind, townId: -1 });
@@ -457,7 +470,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     if (relaxBroughtBack(layout, broughtBack, pinned)) sim.trackChanged();
   }
   const props = new PropStore();
-  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) });
+  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) });
   // Saves from before towns were built from catalogue models: their buildings get their models now.
   addTownProps(landscape, props);
   const world: World = { layout, sim, landscape, stations, depots, economy, props, ruins };

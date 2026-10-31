@@ -1,5 +1,5 @@
 import { connectorRef, indexOfRef, pieceOfRef, type Layout } from "./layout";
-import { getPieceDef, type PieceDef } from "./pieces";
+import { getPieceDef, setWayAt, wayAt, type PieceDef } from "./pieces";
 
 export interface RouteStep {
   pieceId: number;
@@ -38,7 +38,7 @@ export function routeFrom(layout: Layout, pieceId: number, connectorIndex: numbe
   for (let i = 0; i < paths.length; i++) if (paths[i].from === entry || paths[i].to === entry) count++;
   if (count === 0) return false;
 
-  const pick = count === 1 ? 0 : layout.switchState(nextId) % count;
+  const pick = count === 1 ? 0 : wayAt(getPieceDef(piece.type, piece.flipped), layout.switchState(nextId), entry, count);
   let seen = 0;
   for (let i = 0; i < paths.length; i++) {
     const p = paths[i];
@@ -57,4 +57,16 @@ export function pathExitConnector(def: PieceDef, pathIndex: number, reversed: bo
   const p = def.paths[pathIndex];
   if (reversed) return p.from;
   return p.to ?? -1;
+}
+
+/** Which of the `count` roads from end `entry` points give as they're set now (`wayAt`; 0 for a piece not there). */
+export function pointsWayFrom(layout: Layout, pieceId: number, entry: number, count: number): number {
+  const piece = layout.getPiece(pieceId);
+  return piece ? wayAt(getPieceDef(piece.type, piece.flipped), layout.switchState(pieceId), entry, count) : 0;
+}
+
+/** The state points would be in set to road `option` from end `entry`, their other levers as they are (`setWayAt`). */
+export function pointsStateFor(layout: Layout, pieceId: number, entry: number, option: number): number {
+  const piece = layout.getPiece(pieceId);
+  return piece ? setWayAt(getPieceDef(piece.type, piece.flipped), layout.switchState(pieceId), entry, option) : option;
 }

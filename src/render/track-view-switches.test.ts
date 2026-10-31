@@ -56,8 +56,9 @@ describe("switch chevrons", () => {
     for (const [i, t] of (["switch", "switch-y", "switch-3way", "wye", "crossover"] as const).entries()) layout.addPiece(t, P(i * 500, 0));
     const view = new TrackView(layout, mats);
     view.sync();
-    // (The crossover shows both its lines' set routes.)
-    expect(view.switchArrows!.count).toBe(6 * N);
+    // (The crossover shows both its lines' set routes; the wye each corner's (#15), set at 0 two rows: its trunk's and
+    // corner 1's way to the trunk are one route.)
+    expect(view.switchArrows!.count).toBe(7 * N);
     // One draw for all of them: a single mesh, a handful of triangles a chevron.
     expect(view.group.children.filter((c) => c.userData.kind === "switch-arrows")).toHaveLength(1);
     // (A charred core of 4 and a singe round it of 12.)
@@ -429,6 +430,49 @@ describe("lever posts (for a fingertip's slack)", () => {
       expect(p.x).toBeLessThan(144);
       expect(p.height).toBeGreaterThan(30);
     }
+  });
+});
+
+describe("a wye's three levers (#15)", () => {
+  it("a lever beside each corner, off the track, each leaning toward the road its own corner is set to", () => {
+    const { layout, id, view } = oneSwitch("wye");
+    const levers = () => view.group.children.filter((c): c is Mesh => c instanceof Mesh && c.userData.kind === "switch-lever" && c.userData.pieceId === id);
+    expect(levers().map((l) => l.userData.corner)).toEqual([0, 1, 2]);
+    const posts = view.leverPosts().filter((p) => p.pieceId === id);
+    // (Three levers and the trunk's semaphore.)
+    expect(posts.map((p) => p.corner ?? 0).sort()).toEqual([0, 0, 1, 2]);
+    // Each corner's lever near its own end, and off every road through the wye.
+    const def = getPieceDef("wye", false);
+    const s = createSample();
+    for (const k of [0, 1, 2]) {
+      const p = posts.find((q) => (q.corner ?? 0) === k && q.height < 40)!;
+      const end = def.connectors[k].pose;
+      expect(Math.hypot(p.x - end.x, p.z - end.z)).toBeLessThan(80);
+      for (const path of def.paths) {
+        const len = pathLength(path.geom);
+        for (let d = 0; d <= len; d += 4) {
+          samplePath(path.geom, d, s);
+          expect(Math.hypot(p.x - s.x, p.z - s.z)).toBeGreaterThan(16);
+        }
+      }
+    }
+    // Thrown, only the corner's own lever leans the other way.
+    const lean = () => levers().map((l) => Math.atan2(new Vector3(0, 1, 0).transformDirection(l.matrix).z, new Vector3(0, 1, 0).transformDirection(l.matrix).y));
+    const before = lean();
+    layout.setSwitchState(id, 0b010);
+    view.syncSwitches();
+    const after = lean();
+    expect(after[0]).toBeCloseTo(before[0]);
+    expect(after[2]).toBeCloseTo(before[2]);
+    expect(Math.sign(after[1])).toBe(-Math.sign(before[1]));
+  });
+
+  it("pinned: every lever shows the pin", () => {
+    const { layout, id, view } = oneSwitch("wye");
+    layout.setPinned(id, true);
+    view.syncSwitches();
+    const pegs = view.group.children.filter((c) => c.userData.kind === "switch-lever" && c.userData.pieceId === id).flatMap((l) => l.children.filter((c) => c.visible));
+    expect(pegs).toHaveLength(3);
   });
 });
 

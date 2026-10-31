@@ -59,6 +59,8 @@
 
 **Draw** lays only the straight ramp.
 
+**Switch shelf:** the wye has a lever at each corner (#15, `cornerLevers`; its state a bit per corner, see rail-road.md). Saves carry `wyeLevers: 3`; older ones load their one-lever wye set the same at every corner.
+
 **Carving** stays in workers; the arch variants for levels 1–3 are carved in the background at load.
 
 **Keep turning:** a curve or curved ramp from the tray takes the flip that turns on as the curve it meets (never a switch or a straight); Flip pressed for that piece wins. Draw doesn't (its rule: never mirror a held piece to fit).

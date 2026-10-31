@@ -10,6 +10,13 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **The wye's three levers (#15)** (on `claude/wye-three`; e2e `E2E_ONLY=wye` in `e2e:touch`).
+  - **Now:** a wye has a lever at each corner (`PieceDef.cornerLevers`). Its switch state is three bits, bit k for corner k's road (from the trunk: 0 left to corner 1, 1 right to corner 2; from a branch: 0 to the trunk, 1 across). Every reader goes through `wayAt(def, state, entry, count)` / `setWayAt` (`src/track/pieces.ts`), or `pointsWayFrom` / `pointsStateFor` on a layout (`src/track/routing.ts`): `routeFrom`, `waysFrom`'s pinned way, `walkTo`, sections' `wayOn`, the chevrons (`setRoute`; a wye shows a row per corner), lineside's `pointsWay`. Never read a switch's way as `switchState % n`.
+  - **Levers:** `TrackView` keeps a lever mesh per corner (`levers: Map<id, Mesh[]>`, `userData.corner`); `leverPosts()` gives `corner`; a press carries `corner` (`Press.lever`), and `throwLever` → `router.lever(id, corner)` → `Sim.toggleSwitch(id, corner)` flips that bit only. A lever frame lists the three. A pin is the whole wye (a hold on any lever; all three show the peg).
+  - **Router (minimal):** a route lock is still per piece (a wye's three roads all meet, so one train's road at a time). `ask` reads and sets only the corner the train comes on by; `release` hands a lock on only if the points give the taker its road as they lie; an adopted (loaded) wye lock has state −1 (shared with nobody). A tap on a locked wye changes only that corner's default. Restore puts all three back.
+  - **Saves:** `wyeLevers: 3` on every save. Without it (older saves), a wye's state and default 1 load as 0b111 (`cornersFromOneLever`), 0 as 0: every corner as before. No version bump.
+  - **Tests:** `src/routing/wye.test.ts` (roads per corner, the sim's toggle, a routed train running all three ways each with defaults 0 and 0b111, lever taps free and locked), `save.test.ts`, `track-view-switches.test.ts`. The harness's wye scenarios now set 0b110 for "across".
+  - **Draw cost:** levers are one mesh each (they always were; the chevrons are the one instanced draw). A wye draws three. Idle 0 frames (`E2E_ONLY=wye`).
 - **Routing, step 5: waits (#3 follow-up)** (on `claude/routing-5`; spec §13 has the design as built).
   - **Now:** a routed train refused its points (locked for another train's road, or for the same road from the other end, or points that must move with a car on them) holds nothing new and stands `STAND_SHORT` + `OVERLAP` (6 + 30 mm) short of them (`Router.speedCap`, in `Economy.capFor`), braking as usual. It never runs over points set against it. `RouteWait { kind: "points", pieceId, by }` names the holder (`Router.waitOf`). When the holder lets go, a waiter asks again at once, so the points move once, straight to its road. A lock is shared only by trains coming onto the points the same way (`Lock.entry`).
   - **Red switches:** points pinned on a road that leads nowhere toward the stop, where unpinned they would, stop the train short of them (`RouteWait { kind: "pinned" }`); before, it ran over them and shuttled.
@@ -75,9 +82,9 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Timing guards:** use a warm-up, best of N, and a mean or median bound, so a 10× slowdown fails but load doesn't.
 
 **Browser e2e:**
-- `npm run e2e:touch`: 95 checks, about 28 min. `npm run e2e:click`: 27 checks, about 8 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min; `E2E_ONLY=defaults` about 2 min (`routes,defaults`: the two in the full run's order, after a reload; `E2E_ONLY` takes any of Sandbox's check names, comma-separated, run in the full run's order: `map-taps`, `select-drag`, `redrawn`, `flick`, `lever-pins`, `under-car`, `toast-through`, `trap`, `dead-end`, `routes`, `defaults`, `restore`, `wait`); `E2E_ONLY=restore` (a route throws points and they swing back) about 2 min; `E2E_ONLY=wait` (#3: two routes by taps, the second stands short of the points, its card, two lever taps on locked points, both deliver) about 8 min. In `wait`, the game is paused while the card is read (its real frames would run the sim on), and a sawmill sawing in view draws frames: the idle check counts those, and routing's own part (no points set or put back). Open item: `routes: a train picked up and moved…` failed once in four full runs (79/80, `lifted: "idle"`, the hold didn't pick the train up); its message now says what the finger came down on (`pressed`), for next time.
+- `npm run e2e:touch`: 95 checks, about 28 min. `npm run e2e:click`: 27 checks, about 8 min. `E2E_ONLY=dead-end` takes about 2 min; `E2E_ONLY=trap` about 4 min; `E2E_ONLY=routes` about 3 min; `E2E_ONLY=defaults` about 2 min (`routes,defaults`: the two in the full run's order, after a reload; `E2E_ONLY` takes any of Sandbox's check names, comma-separated, run in the full run's order: `map-taps`, `select-drag`, `redrawn`, `flick`, `lever-pins`, `under-car`, `toast-through`, `trap`, `dead-end`, `routes`, `defaults`, `restore`, `wait`, `wye`); `E2E_ONLY=restore` (a route throws points and they swing back) about 2 min; `E2E_ONLY=wait` (#3: two routes by taps, the second stands short of the points, its card, two lever taps on locked points, both deliver) about 8 min; `E2E_ONLY=wye` (#15: a wye dragged from the Switch shelf, each corner's lever tapped, a hand-run train takes all three ways, 0 idle frames) about 3 min (18 checks alone). In `wait`, the game is paused while the card is read (its real frames would run the sim on), and a sawmill sawing in view draws frames: the idle check counts those, and routing's own part (no points set or put back). Open item: `routes: a train picked up and moved…` failed once in four full runs (79/80, `lifted: "idle"`, the hold didn't pick the train up); its message now says what the finger came down on (`pressed`), for next time.
 - `node scripts/e2e/draw.mjs` with `E2E_ONLY=` one of `junctions` (27), `qa-slant` (49, slow), `specials` (10), `phone`, `terrace-repeat`, `terrace-qa`, `ghosts`, `lift` or `loop`. The full run takes 2 h or more.
-- `npm run e2e:joints`.
+- `npm run e2e:joints`. Known failure on main too (2 of 7, 2026-10-31): "an older build's save of QA's line comes back joined" and its tolerance check (9-10 3.596°, 10-11 6.338°…).
 - **Screenshots and idle:** a small Playwright script. Load playwright-core with `createRequire("<repo>/package.json")`, wait for `settled()`, then check `framesDrawn` stays at 0 over 5 s.
 
 **Sections and lines** (`src/economy/sections.test.ts`, `sections-qa.test.ts`; about 320 QA rows):
@@ -168,6 +175,7 @@ A routed train never runs over points set against it: refused, it stands short o
 ### Switches
 - Burned arrows; pinned is red.
 - A double tap zooms. Pinning is within 7 px of the lever, on a 450 ms hold. Hidden levers take no tap.
+- A wye has a lever at each corner (#15), each its own bit of the state; a pin holds all three.
 - One instanced draw; 0 idle frames.
 
 ## 4. Open items
@@ -179,7 +187,7 @@ A routed train never runs over points set against it: refused, it stands short o
   - #6: a gap behind the train ahead;
   - #7: trains reverse too often;
   - #8: curves flip when auto-placing (shared with Sandbox);
-  - #15: wyes;
+  - #15: wyes (three levers on `claude/wye-three`, waiting to land; open: per-corner pins, if the user wants them);
   - #16: signals.
 - **Routing system** (#3 follow-up, #4, #5, #7): designed in `docs/superpowers/specs/2026-10-30-train-routing.md` (§16 has the user's decisions). Steps 0–4 are on main; step 5 (waits) is on `claude/routing-5`. Next: step 6 (forward costs; §16 Q4 now answered: avoid running engine-last unless the player set it up, keep the end-of-line flip). Follow the spec's migration steps.
 - **Turn-back breakers still firing** (§16 Q3; the user hasn't yet settled a last resort for a true deadlock, so they're kept and counted):

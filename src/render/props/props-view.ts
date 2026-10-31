@@ -63,7 +63,7 @@ export class PropsView {
     const touched = new Set<Batch>();
     for (const [id, d] of this.drawn) {
       const p = store.get(id);
-      if (p && drawnKey(p.asset, p.variant) === d.asset) continue;
+      if (p && drawnKey(p.asset, p.variant, p.storeys) === d.asset) continue;
       for (const inst of d.instances) {
         inst.batch.mesh.deleteInstance(inst.id);
         inst.batch.propOf.delete(inst.id);
@@ -74,7 +74,7 @@ export class PropsView {
     for (const p of store.all()) {
       let d = this.drawn.get(p.id);
       if (!d) {
-        const key = drawnKey(p.asset, p.variant);
+        const key = drawnKey(p.asset, p.variant, p.storeys);
         const model = this.library.model(key);
         if (model === undefined) {
           if (!this.waiting.has(key)) {

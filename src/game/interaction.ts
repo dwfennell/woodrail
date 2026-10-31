@@ -170,7 +170,7 @@ type Press =
   | { kind: "car"; carId: number }
   /** A switch's lever or a signal (`road`: which of a signal piece's signals, a gantry's road; else 0). */
   /** (`slack`: found by a fingertip's slack, this far off it, px; `at`: then, when the press came down.) */
-  | { kind: "lever"; pieceId: number; road?: number; slack?: number; at?: number }
+  | { kind: "lever"; pieceId: number; road?: number; corner?: number; slack?: number; at?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
@@ -1684,7 +1684,7 @@ export class Interaction {
       this.game.controls.enabled = true;
       const hints = this.pinHint.state();
       const said = this.togglePin(m.press.pieceId);
-      this.pinUnsure = { pointerId: m.pointerId, t: pin.t, x: m.x, y: m.y, pieceId: m.press.pieceId, hints, said };
+      this.pinUnsure = { pointerId: m.pointerId, t: pin.t, x: m.x, y: m.y, pieceId: m.press.pieceId, corner: m.press.corner, hints, said };
     });
   }
 
@@ -1692,7 +1692,7 @@ export class Interaction {
    * Pinned by the pin's timer, before any move had been seen: a slow phone may deliver the moves of a pan (or the lift
    * of a tap) only now. Settled (null) by the first move from after the pin's time.
    */
-  private pinUnsure: { pointerId: number; t: number; x: number; y: number; pieceId: number; hints: PinHintState; said: string | null } | null = null;
+  private pinUnsure: { pointerId: number; t: number; x: number; y: number; pieceId: number; corner?: number; hints: PinHintState; said: string | null } | null = null;
 
   /**
    * A pin the late moves or lift undid (`pinUnsure`): unpinned, quietly, and what it said taken back (its toast, and
@@ -1926,7 +1926,7 @@ export class Interaction {
       this.pinUnsure = null;
       if (undoesHold(e.timeStamp - pinned.t, 0, true, PIN_HOLD_MS)) {
         this.undoPin(pinned);
-        this.tap({ kind: "lever", pieceId: pinned.pieceId });
+        this.tap({ kind: "lever", pieceId: pinned.pieceId, ...(pinned.corner ? { corner: pinned.corner } : {}) });
       }
       return;
     }
@@ -2136,7 +2136,7 @@ export class Interaction {
       this.onLeavePlanning?.();
     }
     if (p.kind === "lever") {
-      this.throwLever(p.pieceId, p.road);
+      this.throwLever(p.pieceId, p.road, p.corner);
       return;
     }
     if (p.kind === "piece" && p.deck && !this.picking && !add) {
@@ -4507,7 +4507,7 @@ export class Interaction {
   /** A prop in the hand: its model (built when it arrives, if it isn't yet) and the drag state. */
   private propDrag(asset: string, propId: number, pointerId: number, heading: number, from: PropPose | null, offset: { x: number; z: number }, variant?: number): Extract<Mode, { kind: "drag-prop" }> {
     const g = this.game;
-    const key = modelKey(asset, variant);
+    const key = modelKey(asset, variant, g.props.get(propId)?.storeys);
     const ghost = new Group();
     ghost.visible = false;
     // (A town's landmark drawn smaller than its model is carried at its own size.)
@@ -4706,7 +4706,7 @@ export class Interaction {
    * Throw a switch's points, or hold or let go a signal (`road`: which of a signal piece's, a gantry's road): redrawn
    * and saved, nothing else rebuilt (a signal skin's model follows its aspect: `KitStateMotion.source`).
    */
-  private throwLever(pieceId: number, road = 0): void {
+  private throwLever(pieceId: number, road = 0, corner = 0): void {
     const g = this.game;
     const piece = g.layout.getPiece(pieceId);
     const pd = piece && getPieceDef(piece.type, piece.flipped);
@@ -4714,7 +4714,7 @@ export class Interaction {
     else if (pd?.isSwitch && !pd.gated) {
       // Points: the router's gate. They never move under a train (it would split): they wait till it's off them. Set
       // for a routed train, they stay set for it (it keeps its route), and go the tapped way once it has passed.
-      const r = g.economy.router.lever(pieceId);
+      const r = g.economy.router.lever(pieceId, corner);
       if ("refused" in r) {
         this.hud.toast("These points move once the train is off them");
         return;
@@ -4778,13 +4778,13 @@ export class Interaction {
     const items = levers.map((l) => {
       const n = ++counts[l.kind];
       return l.kind === "points"
-        ? { label: `Points ${n}: ${pointsWay(g.layout, l.pieceId)}`, title: "Throw these points" }
+        ? { label: `Points ${n}: ${pointsWay(g.layout, l.pieceId, l.corner)}`, title: "Throw these points" }
         : { label: `Signal ${n}: ${g.sim.signalHeld(l.pieceId, l.road) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
     });
     this.hud.showLevers(items, (i) => {
       const l = levers[i];
       if (!g.layout.getPiece(l.pieceId) || this.selectedProp !== propId) return;
-      this.throwLever(l.pieceId, l.road);
+      this.throwLever(l.pieceId, l.road, l.corner);
       this.showLevers(propId);
     });
   }
@@ -5020,16 +5020,20 @@ export class Interaction {
     const under: TapUnder = exact ? (exact.kind === "depot" && exact.footprint ? "station" : (exact.kind as TapUnder)) : null;
     // A car or a lever within a fingertip (see `nearCarWins`, `nearLeverWins`): the nearer of them, where it may.
     const car = nearCarWins(under) ? nearestOnScreen(x, y, this.carsOnScreen(), TOUCH_SLACK_PX) : null;
-    let lever = nearestOnScreen(x, y, this.leversOnScreen(), LEVER_SLACK_PX);
+    // (By post: a wye has a lever at each corner, #15.)
+    const posts = this.game.trackView.leverPosts();
+    const near = nearestOnScreen(x, y, this.leversOnScreen(posts), LEVER_SLACK_PX);
+    const post = near.id === -1 ? null : posts[near.id];
+    let lever = { id: post ? post.pieceId : -1, d: near.d };
     const own = exact?.kind === "piece" && exact.pieceId === lever.id;
-    if (lever.id === -1 || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace) || this.leverHidden(lever.id)) lever = { id: -1, d: Infinity };
+    if (!post || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace) || this.hiddenFromEye({ x: post.x, y: post.y + post.height / 2, z: post.z })) lever = { id: -1, d: Infinity };
     const won = fingertipWinner(car, lever);
-    if (won === "lever") return { kind: "lever", pieceId: lever.id, slack: lever.d };
+    if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(post?.corner ? { corner: post.corner } : {}), slack: lever.d };
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
   }
 
   /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
-  private leversOnScreen(): CarOnScreen[] {
+  private leversOnScreen(posts = this.game.trackView.leverPosts()): CarOnScreen[] {
     const r = this.game.canvas.getBoundingClientRect();
     const v = new Vector3();
     const toScreen = (x: number, y: number, z: number): [number, number, number] => {
@@ -5037,22 +5041,14 @@ export class Interaction {
       return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height, v.z];
     };
     const out: CarOnScreen[] = [];
-    for (const p of this.game.trackView.leverPosts()) {
+    // (Each by its index in `posts`: a wye's three are one piece's.)
+    posts.forEach((p, i) => {
       const [ax, ay, az] = toScreen(p.x, p.y, p.z);
       const [bx, by, bz] = toScreen(p.x, p.y + p.height, p.z);
       // (Behind the camera, it would project back onto the screen, mirrored.)
-      if (inFrontOfCamera(az, bz)) out.push({ id: p.pieceId, ax, ay, bx, by });
-    }
+      if (inFrontOfCamera(az, bz)) out.push({ id: i, ax, ay, bx, by });
+    });
     return out;
-  }
-
-  /**
-   * Is this lever (and its semaphore) hidden behind a hill from here? Asked of the one a fingertip's slack would take
-   * (a tap on the grass in front of a hill mustn't throw a lever behind it).
-   */
-  private leverHidden(pieceId: number): boolean {
-    const posts = this.game.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
-    return posts.length > 0 && posts.every((p) => this.hiddenFromEye({ x: p.x, y: p.y + p.height / 2, z: p.z }));
   }
 
   /**
@@ -5162,7 +5158,8 @@ export class Interaction {
         // (A lever behind a hill, met through it: not seen, so not tapped, as with a fingertip's slack. QA: a tap right
         // on one hidden by a 2-riser hill threw it.)
         if (this.hiddenFromEye(h.point)) continue;
-        return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId };
+        const corner = h.object.userData.corner as number | undefined;
+        return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId, ...(corner ? { corner } : {}) };
       }
       // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any
       // other kit's model is passed through, to the track or ground behind it.

@@ -23,6 +23,10 @@ export interface Station {
   needs: string[];
   /** What researching it takes, in a few words ("10🪵 20🪙"), or "free". */
   price: string;
+  /** Everything it costs, in words with the icons ("6 🌾 grain, 40 🪙 coins"): see `costWords`. */
+  cost: string;
+  /** What it unlocks, in words ("Switch, Y switch"): see `unlocksWords`. */
+  unlocks: string;
   /** For researching, next and ready: its goods chips, study time, how it stands and its one button. */
   research?: ResearchCardView;
   /** The current goal asks for it (its card's button is lit for the goal). */
@@ -153,12 +157,15 @@ const NODE_TAG: Partial<Record<CardState, (s: Station) => string>> = {
   soon: () => `<span class="bp-tag soon">Soon</span>`,
 };
 
+/** A tag's tooltip (a hover on desktop; a tap opens its ticket, which says the same): "Mills. Unlocks: Mill. Costs: 6 🌾 grain, 40 🪙 coins". */
+export const tagTitle = (s: Pick<Station, "label" | "unlocks" | "cost">): string => `${s.label}.${s.unlocks ? ` Unlocks: ${s.unlocks}.` : ""} Costs: ${s.cost}`;
+
 /**
  * A research card's foot: its goods as chips ("🪵 6/10", the coins red while short) and its study time, a bar for the
  * one under way, how it stands, and its one button (Research, Next up, or Research now to swap), 44 px tall.
  */
 export function researchFoot(id: string, r: ResearchCardView, goal: boolean): string {
-  const chips = r.chips.map((c) => `<span class="bp-chip${c.short ? " short" : ""}">${esc(c.text)}</span>`).join("") + `<span class="bp-chip study">⏱ ${esc(r.study)}</span>`;
+  const chips = r.chips.map((c) => `<span class="bp-chip${c.short ? " short" : ""}" title="${esc(c.title)}">${esc(c.text)}</span>`).join("") + `<span class="bp-chip study" title="Study time at the school, once the goods are in">⏱ ${esc(r.study)}</span>`;
   const bar = r.fill !== undefined ? `<span class="bp-gauge"><span class="bp-gauge-fill" style="width:${Math.round(r.fill * 100)}%"></span></span>` : "";
   const why = r.why ? `<span class="${r.blocked ? "bp-why" : "bp-gauge-text"}">${esc(r.why)}</span>` : "";
   const button = r.action
@@ -326,7 +333,7 @@ export class BlueprintBoard {
       const tag = hint ? "" : (NODE_TAG[s.state]?.(s) ?? "");
       const cls = `bp-node ${hint ? "hint" : s.state}${s.id === this.selected ? " selected" : ""}`;
       const at = p ? `left:${p.x}px;top:${p.y}px;` : "";
-      return `<button class="${cls}" style="${at}--c:${color.get(s.branch)}" data-act="select" data-id="${s.id}" aria-label="${hint ? "Not found yet" : esc(s.label)}"><span class="bp-dot">${s.state === "learned" && !hint ? "✓" : ""}</span><span class="bp-name">${hint ? "?" : esc(s.label)}</span>${tag}</button>`;
+      return `<button class="${cls}" style="${at}--c:${color.get(s.branch)}" data-act="select" data-id="${s.id}" aria-label="${hint ? "Not found yet" : esc(s.label)}" title="${hint ? "Not found yet" : esc(tagTitle(s))}"><span class="bp-dot">${s.state === "learned" && !hint ? "✓" : ""}</span><span class="bp-name">${hint ? "?" : esc(s.label)}</span>${tag}</button>`;
     };
     const tags = drawn.map((s) => node(s, web.at.get(s.id)!)).join("");
     if (this.narrow()) {
@@ -393,6 +400,6 @@ export class BlueprintBoard {
     if (s.state === "learned") foot = `<span class="bp-done">Learned</span>`;
     else if (s.research) foot = researchFoot(s.id, s.research, !!s.goal);
     else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
-    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs: ${esc(needs.join(" + "))}</span>` : ""}${opens.length ? `<span>Opens: ${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}</span>` : ""}${s.state !== "learned" && ((!s.research && s.price !== "free") || reqs) ? `<span>${!s.research && s.price !== "free" ? `Cost: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
+    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes"><b class="bp-makes-head">Unlocks:</b>${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs: ${esc(needs.join(" + "))}</span>` : ""}${opens.length ? `<span>Opens: ${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}</span>` : ""}${s.state !== "learned" && reqs ? reqs : ""}</div>${s.state !== "learned" ? `<div class="bp-full-cost"><b>Costs:</b> ${esc(s.cost)}</div>` : ""}<div class="bp-ticket-foot">${foot}</div></div>`;
   }
 }

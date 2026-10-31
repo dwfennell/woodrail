@@ -626,8 +626,9 @@ export class Sim {
   /**
    * Step a switch to its next route (two-way switches flip; a three-way steps round its three; a turntable's deck turns
    * to its next road). False if it can't: a deck doesn't turn with a train on it, and points don't move under one.
+   * `corner`: which of a wye's levers (one at each end: `PieceDef.cornerLevers`, its bit of the state).
    */
-  toggleSwitch(pieceId: number): boolean {
+  toggleSwitch(pieceId: number, corner = 0): boolean {
     const piece = this.layout.getPiece(pieceId);
     const def = piece ? getPieceDef(piece.type, piece.flipped) : null;
     // A signal piece's lever holds its (first) signal at red, or lets it go.
@@ -639,6 +640,11 @@ export class Sim {
     if (def?.gated && this.deckRefusal(pieceId)) return false;
     // A lift sends its platform to its other end, with any train standing on it.
     if (def?.lift) return this.carry(pieceId, (this.layout.switchState(pieceId) + 1) % def.paths.length, def.lift.seconds) !== null;
+    if (def?.cornerLevers) {
+      this.layout.setSwitchState(pieceId, this.layout.switchState(pieceId) ^ (1 << corner));
+      this.updateSignals();
+      return true;
+    }
     const routes = !def ? 2 : def.gated ? def.paths.length : def.paths.filter((p) => p.from === 0).length;
     const was = this.layout.switchState(pieceId);
     this.layout.setSwitchState(pieceId, (was + 1) % Math.max(2, routes));

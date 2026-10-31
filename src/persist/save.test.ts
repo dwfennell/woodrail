@@ -485,6 +485,36 @@ describe("save format", () => {
     expect(odd.ok).toBe(true);
     if (odd.ok) expect(serializeWorld(odd.value).switchDefaults).toBeUndefined();
   });
+
+  it("keeps each of a wye's three levers (#15); an older save's one-lever wye loads set the same way at every corner", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const wye = appendPiece(world.layout, "wye", false, connectorRef(station, 1));
+    world.economy.prune();
+    const router = world.economy.router;
+    // Corners 0 and 2 thrown by taps (their defaults), then corner 1 by something else (a route).
+    expect("ok" in router.lever(wye, 0)).toBe(true);
+    expect("ok" in router.lever(wye, 2)).toBe(true);
+    world.layout.setSwitchState(wye, 0b111);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    expect(data.wyeLevers).toBe(3);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.layout.switchState(wye)).toBe(0b111);
+    expect(r.value.economy.router.defaultOf(wye)).toBe(0b101);
+    // A save from before (no `wyeLevers`): its wye's one lever, 1, set every corner its second road; 0, none.
+    const old = { ...data, switches: data.switches.map(([id, st]) => [id, id === wye ? 1 : st] as [number, number]), switchDefaults: [[wye, 0]] as [number, number][] };
+    delete (old as Partial<SaveData>).wyeLevers;
+    const o = deserializeWorld(old);
+    expect(o.ok).toBe(true);
+    if (!o.ok) return;
+    expect(o.value.layout.switchState(wye)).toBe(0b111);
+    expect(o.value.economy.router.defaultOf(wye)).toBe(0);
+    // (Saved again, it's a three-lever save.)
+    expect(serializeWorld(o.value).wyeLevers).toBe(3);
+  });
 });
 
 describe("station binding", () => {

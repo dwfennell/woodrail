@@ -99,7 +99,8 @@ describe("routeFrom", () => {
     const ends = (connector: number) => {
       const t = appendPiece(l, "straight-144", false, connectorRef(w, connector));
       const seen = new Set<number>();
-      for (const state of [0, 1]) {
+      // (Its lever at that end: a bit of the state each, #15.)
+      for (const state of [0, 1 << connector]) {
         l.setSwitchState(w, state);
         routeFrom(l, t, 0, out);
         const p = def.paths[out.pathIndex];
