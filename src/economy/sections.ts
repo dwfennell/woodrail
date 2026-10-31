@@ -897,7 +897,7 @@ export class Sections {
 
   /**
    * A dead end's way, ending short of its last switch, with room for the whole train between it and the switch before
-   * (a train turns back clear of switches: turned round over one, the sim would lay its cars down both roads).
+   * (the stops past it, `Way.deadEnd`, are those it can't reach while the line is full).
    */
   private shortOfSwitch(steps: Step[], length: number): Step[] {
     let j = steps.length;
@@ -1553,7 +1553,7 @@ export class Sections {
 
   /**
    * A train put down (or come to stand) on the way ahead of a move, or in the slot it's going to: the move is given up,
-   * and it asks again (it stops, and waits or turns back as for any train in its way). Only standing trains count, and
+   * and it asks again (it stops, and waits as for any train in its way). Only standing trains count, and
    * held ones (they stop where they are): a granted way has no other train of the line with room moving on it, and one
    * not on the line moving is waited for elsewhere.
    */
