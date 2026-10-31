@@ -80,7 +80,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray.more-right .scroller { mask-image: linear-gradient(90deg, #000 calc(100% - 46px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 46px), transparent); }
 .tray.more-left .scroller { mask-image: linear-gradient(90deg, transparent, #000 30px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 30px); }
 .tray.more-left.more-right .scroller { mask-image: linear-gradient(90deg, transparent, #000 30px, #000 calc(100% - 46px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 30px, #000 calc(100% - 46px), transparent); }
-.tray-item { flex: 0 0 auto; width: 84px; height: 90px; border: none; border-radius: 14px; background: radial-gradient(circle at 50% 38%, #fffaf0, #f6e8d0); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 2px 5px rgba(80, 50, 20, 0.14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: grab; touch-action: none; font: inherit; color: #3a2a1c; user-select: none; -webkit-user-select: none; }
+.tray-item { -webkit-touch-callout: none; flex: 0 0 auto; width: 84px; height: 90px; border: none; border-radius: 14px; background: radial-gradient(circle at 50% 38%, #fffaf0, #f6e8d0); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 2px 5px rgba(80, 50, 20, 0.14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: grab; touch-action: none; font: inherit; color: #3a2a1c; user-select: none; -webkit-user-select: none; }
 .tray-item:hover { background: radial-gradient(circle at 50% 38%, #fffdf6, #f9ecd6); }
 .tray-item:active { cursor: grabbing; }
 /* A tray item with none left that the workshop can make on the spot: its badge shows the cost. */
@@ -117,6 +117,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
+/* What a placed piece does, under its name: two lines at most at 360 px (piece-info.ts's DETAIL_MAX). */
+.piece-card > .piece-detail { padding: 0 8px; }
 .piece-card .select-more { background: transparent; box-shadow: none; height: 32px; font-size: 14px; color: #8a6036; text-decoration: underline dotted; text-underline-offset: 4px; margin-top: -4px; }
 /* (Drawn 32 px, a link; it takes a tap 4 px above, clear of the buttons, and 8 below: 44 px.) */
 .piece-card .select-more { position: relative; }
@@ -876,6 +878,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* Tooltips for the HUD's controls (see ui/tooltip.ts). */
 .tooltip { position: fixed; left: 0; top: 0; z-index: 100; max-width: 240px; padding: 5px 10px; border-radius: 9px; background: #3a2a1c; color: #fbf3e4; font: 700 13px/1.3 Nunito, system-ui, sans-serif; box-shadow: 0 4px 14px rgba(30, 20, 10, 0.3); pointer-events: none; }
+/* A tray item's details (hover, or a long press): its name, what it does, and (hover) how to use it. */
+.tooltip.details { max-width: 260px; padding: 7px 11px; }
+.tooltip .tip-name { font-weight: 800; font-size: 14px; }
+.tooltip .tip-detail { font-weight: 600; }
+.tooltip .tip-use { font-weight: 600; font-size: 12px; opacity: 0.7; margin-top: 3px; }
 .engine-extra { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .engine-extra-label { font-weight: 700; opacity: 0.75; font-size: 0.9em; }
 .engine-extra.route { flex-direction: column; align-items: stretch; gap: 4px; }

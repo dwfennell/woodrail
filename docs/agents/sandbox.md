@@ -120,7 +120,7 @@ Before going wide: rate-limit HEAD/GET, and codes with nothing saved yet.
    - unit tests in `snap.test.ts`; e2e:ramps lanes the wide, the S, the spiral and the drag (#8; fails with keep-turning off).
    - e2e:ramps 14/14. The spiral's curve is taken as it comes: asked for unmirrored, it can seat by its far end and turn off the checked place (hills, "past the edge").
    - **Open:** a second curved ramp clicked on a curve's raised end (two levels up) doesn't snap, even clicked 30 mm ahead of the end (ghost `snap: none`, "headroom"). The spiral lane stops at the curve on top. Next: log `findSnapAtPoint` at that end's level in the page.
-4. **Issue #10:** piece names on piece cards.
+4. **Issue #10:** piece names on piece cards: done on `claude/piece-names` (names in `src/ui/piece-info.ts`; see mobile-ux.md §3). A new piece type needs a name there, or `piece-info.test.ts` fails.
 
 ## 5. Gotchas
 - **Per-carry flags** live on Interaction (see `flipPressed`), not on the drag state: on desktop the drag state is rebuilt whenever the mouse comes back over the map.

@@ -1,4 +1,5 @@
-import { installTooltips } from "./tooltip";
+import { installTooltips, type Tooltips } from "./tooltip";
+import { trayInfo } from "./piece-info";
 import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
 import { blockWord } from "./blocks";
@@ -107,6 +108,11 @@ export interface HudHandlers {
 
 /** Movement (px) before a press on a tray item becomes a scroll or a pick-up. */
 const TRAY_DECIDE_PX = 8;
+/**
+ * A finger held this long (ms) on a tray item, hardly moving, shows its details (name, what it does) and doesn't pick
+ * it up or tap it. As long as a pin (mobile-ux.md): longer than a hold, so a quick press-and-drag still picks up.
+ */
+export const TRAY_INFO_MS = 450;
 /** A flung tray slows with this time constant (ms). */
 const TRAY_GLIDE_MS = 320;
 
@@ -205,7 +211,10 @@ export class Hud {
   private readonly engineCard = el("div", "card engine-card");
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
+  private tips!: Tooltips;
   private readonly pieceTitle = el("div", "card-title", "Track piece");
+  /** Under the piece card's title: what the piece does (see piece-info.ts). Hidden for props, scenery and groups. */
+  private readonly pieceDetail = el("div", "card-hint piece-detail");
   private readonly groupHint = el("div", "card-hint");
   private readonly groupRow = el("div", "card-row");
   private readonly pieceRow = el("div", "card-row");
@@ -390,7 +399,11 @@ export class Hud {
     actions.append(this.menuBtn);
     top.appendChild(actions);
     this.root.appendChild(top);
-    installTooltips(this.root);
+    this.tips = installTooltips(this.root);
+    // A long press in the tray shows an item's details: not the browser's own menu or callout as well.
+    this.root.addEventListener("contextmenu", (e) => {
+      if ((e.target as HTMLElement | null)?.closest?.(".tray-item")) e.preventDefault();
+    });
     // A card that grows once it's open (a workshop's list fills in a frame later) may come up under a toast: it's put
     // clear again (only when a card's size changes, not per frame).
     if (typeof ResizeObserver !== "undefined") {
@@ -567,7 +580,7 @@ export class Hud {
     this.doneBtn = button("Done", "Finish picking", h.doneSelecting, "chip text primary");
     this.groupRow.append(this.joinedBtn, this.doneBtn);
     this.leverList.hidden = true;
-    this.pieceCard.append(this.pieceTitle, this.groupHint, this.leverList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
+    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.leverList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -712,6 +725,11 @@ export class Hud {
     const itemButton = (item: TrayItem, unpinned: (() => void) | null): HTMLElement => {
       const b = el("button", "tray-item");
       b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
+      // Its details, for hover (a mouse) and a long press (a finger): see piece-info.ts and tooltip.ts.
+      const info = trayInfo(item);
+      b.dataset.tipName = info.name;
+      b.dataset.tipDetail = info.detail;
+      const details = () => this.tips.showDetails(b);
       if (item.kind !== "tool") {
         this.trayButtons.push([b, item]);
         this.decorate(b, item);
@@ -722,10 +740,10 @@ export class Hud {
         b.classList.add("tray-tool");
         b.dataset.tool = tool;
         b.classList.toggle("active", this.landTool === tool);
-        b.title = `${item.label}: tap the land`;
+        b.title = "Tap the land";
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
+          this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool), details });
         });
       } else if (item.kind === "piece" || item.kind === "road") {
         // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
@@ -735,17 +753,17 @@ export class Hud {
         b.dataset.key = key;
         b.classList.toggle("armed", this.armedKey === key);
         b.classList.toggle("carried", this.armedKey === key && this.armedCarried);
-        b.title = `Drag onto the map, or click then click the map: ${item.label}`;
+        b.title = "Drag onto the map, or click then click the map";
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: (up) => this.handlers.trayTap(item, up.pointerType) });
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: (up) => this.handlers.trayTap(item, up.pointerType), details });
         });
       } else {
         // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
         // A tap says so too, since a phone never shows a title.
         // Clicked (a mouse or pen), a model or train is carried, as a piece is: each click on the map puts one down.
         const crossing = item.kind === "prop" && crossingStyleOf(item.asset);
-        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the map, or click then click the map: ${item.label}`;
+        const tip = crossing ? `${item.label}: goes where track crosses a road` : "Drag onto the map, or click then click the map";
         const key = trayKey(item);
         b.dataset.key = key;
         b.classList.toggle("armed", this.armedKey === key);
@@ -759,6 +777,7 @@ export class Hud {
               if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
               else if (crossing) this.toast(tip);
             },
+            details,
           });
         });
       }
@@ -1422,11 +1441,13 @@ export class Hud {
   }
 
   /** The card for a selected track piece, or (with a title, and no Flip) a prop, or (no Rotate either) scenery. */
-  showPieceCard(flippable: boolean, title = "Track piece", canFlip = true, canRotate = true, canGroup = false): void {
+  showPieceCard(flippable: boolean, title = "Track piece", canFlip = true, canRotate = true, canGroup = false, detail = ""): void {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.root.classList.add("card-open");
     this.pieceTitle.textContent = title;
+    this.pieceDetail.textContent = detail;
+    this.pieceDetail.hidden = detail === "";
     this.flipBtn.hidden = !canFlip;
     this.rotateBtn.hidden = !canRotate;
     this.flipBtn.disabled = !flippable;
@@ -1463,6 +1484,7 @@ export class Hud {
       this.pieceCard.classList.add("group");
       this.root.classList.add("picking");
     }
+    this.pieceDetail.hidden = true;
     this.pieceTitle.textContent = count === 1 ? "1 piece picked" : `${count} pieces picked`;
     this.groupHint.textContent = count === 0 ? "Tap track to pick it" : "Tap track to pick more · drag to move together";
     // One row: what to do to them all, then Done.
@@ -1484,15 +1506,36 @@ export class Hud {
   /**
    * A press in the tray: after a few pixels, a mostly upward drag picks the item up (`pick`, out onto the mat) and a
    * mostly sideways one scrolls the tray, gliding on when let go; a press that hardly moves is a tap (`tap`).
-   * Decided by us, so it behaves the same every time.
+   * Decided by us, so it behaves the same every time. A finger (not a mouse: it hovers) held still `TRAY_INFO_MS`
+   * shows the item's details instead (`details`): then nothing is picked up, scrolled or tapped till it lifts. Decided
+   * by event time, as a hold on the map is (touch-hold.ts): the timer shows them, and an event delivered late that
+   * happened before `TRAY_INFO_MS` (a move past the slop, or the lift) takes them back and is a drag, scroll or tap.
    */
-  private trayPress(down: PointerEvent, scroller: HTMLElement, on: { pick?: (move: PointerEvent) => void; tap?: (up: PointerEvent) => void }): void {
+  private trayPress(down: PointerEvent, scroller: HTMLElement, on: { pick?: (move: PointerEvent) => void; tap?: (up: PointerEvent) => void; details?: () => void }): void {
     this.trayGlide++;
     const id = down.pointerId;
     const x0 = down.clientX;
     const y0 = down.clientY;
     const scroll0 = scroller.scrollLeft;
-    let mode: "undecided" | "scroll" = "undecided";
+    let mode: "undecided" | "scroll" | "details" = "undecided";
+    let byTimer = false;
+    const showDetails = (timed = false) => {
+      if (mode !== "undecided" || !on.details) return;
+      mode = "details";
+      byTimer = timed;
+      this.lastTrayDetails = performance.now();
+      on.details();
+    };
+    /** A late event that happened before the details were due: they weren't (the timer ran ahead of the input). */
+    const undoDetails = (e: PointerEvent, travel: number) => {
+      if (mode !== "details" || !byTimer || e.timeStamp - down.timeStamp >= TRAY_INFO_MS) return false;
+      if (e.type === "pointermove" && travel < TRAY_DECIDE_PX) return false;
+      mode = "undecided";
+      this.lastTrayDetails = 0;
+      this.tips.hide();
+      return true;
+    };
+    const timer = on.details && down.pointerType !== "mouse" ? window.setTimeout(() => showDetails(true), TRAY_INFO_MS) : 0;
     let lastX = x0;
     let lastT = down.timeStamp;
     let velocity = 0; // px per ms, of the content
@@ -1500,8 +1543,11 @@ export class Hud {
       if (e.pointerId !== id) return;
       const dx = e.clientX - x0;
       const dy = e.clientY - y0;
+      if (mode === "details" && !undoDetails(e, Math.hypot(dx, dy))) return;
       if (mode === "undecided") {
         if (Math.hypot(dx, dy) < TRAY_DECIDE_PX) return;
+        // Held long enough before moving (its timer late): details, not a pick-up.
+        if (timer && e.timeStamp - down.timeStamp >= TRAY_INFO_MS) return showDetails();
         if (on.pick && -dy > Math.abs(dx) * 0.7) {
           // Up and out: pick the item up.
           stop();
@@ -1519,11 +1565,14 @@ export class Hud {
     const up = (e: PointerEvent) => {
       if (e.pointerId !== id) return;
       stop();
-      if (mode === "undecided" && e.type === "pointerup") on.tap?.(e);
+      if (e.type === "pointerup") undoDetails(e, 0);
+      if (mode === "undecided" && timer && e.type === "pointerup" && e.timeStamp - down.timeStamp >= TRAY_INFO_MS) showDetails();
+      else if (mode === "undecided" && e.type === "pointerup") on.tap?.(e);
       // A quick swipe glides on, slowing down.
       else if (mode === "scroll" && e.timeStamp - lastT < 80 && Math.abs(velocity) > 0.05) this.glideTray(scroller, velocity);
     };
     const stop = () => {
+      clearTimeout(timer);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
@@ -1532,6 +1581,9 @@ export class Hud {
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
   }
+
+  /** When a long press last showed a tray item's details (performance.now()), for tests. */
+  lastTrayDetails = 0;
 
   /** Bumped to stop a running tray glide. */
   private trayGlide = 0;

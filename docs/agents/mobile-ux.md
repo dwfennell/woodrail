@@ -18,6 +18,7 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 - typecheck, vitest and build;
 - `e2e:touch` (71 checks): holds, pins, branches, cards, toasts, and the dead-end Continue;
 - `e2e:click` (carry and click-to-place), `e2e:tutorial`, `e2e:tray`, and `e2e:sites` (the map view, labels and idle frames, about 37 min);
+- `e2e:names` (24 checks, about 12 min): a long press on a tray item shows its details and starts no drag; a quick drag still takes it out; the piece put down, tapped, opens its card named, with its detail in two lines; hover on desktop;
 - `e2e:draw` takes more than 1.5 h; run it by group with E2E_ONLY.
 - Run long jobs in the background with a log, then grep the log.
 
@@ -64,6 +65,13 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 
 **Pin hints:** `undoPin` restores PinHint's state and withdraws its toast.
 
+**Names and details** (`src/ui/piece-info.ts`, #10 and #12):
+- `pieceInfo(type)` names every catalogue piece (a unit test fails for a new piece without a name, so a new piece type needs a line there) and says what it does. The piece card shows the name as its title and the detail under it (`.piece-detail`). Props, scenery and groups have no detail.
+- A name holds its tray label ("Long" → "Long straight"); the tray tiles keep their short labels.
+- Details are at most `DETAIL_MAX` (64) characters: two lines of the card at 360 px. Engines' come from `ENGINES` (pulls, speed, power), wagons' from `CARRIES`.
+- **The tray's long press** (`Hud.trayPress`): a finger held `TRAY_INFO_MS` (450, as a pin) on an item shows its details in the tooltip, pinned; nothing is picked up, scrolled or tapped until it lifts, and they stay up 2.5 s after. Decided by event time: the timer shows them, and a late move past the slop or a lift with a timestamp before 450 ms takes them back (`undoDetails`) and is a drag, scroll or tap. Shelves (tray groups) have no long press.
+- **Hover** (a mouse): the tooltip shows the name, the detail and the title's how-to. On touch a lift fires `pointerout`: the tooltip ignores it while pinned.
+
 ## 4. Open items
 - Map depot-pile frames (accepted).
 - idle-cpu.mjs should start a game and report frames.
@@ -79,3 +87,6 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 - Check computed visibility, not offsetParent. position: fixed elements have a null offsetParent.
 - Spies on hud.toast: start each section with its own list.
 - Under load, an earlier check's late gesture can move the view or pin a switch. Reset the state you assert on just before acting.
+- **Tapping a piece in an e2e:** track is picked only from close by (`withinReach`: 144 mm ≥ 54 px). At `frameDistance(450)` on a phone it's borderline. Frame at 300 or so, and check the view got there (the game's opening glide can take over a glide sent too soon).
+- **After a tray drop** the next piece waits at its end ("tap anywhere else to stop"): the first tap on the map only stops it. Tap open ground first.
+- **Dropping from the tray in an e2e:** the held piece rides above the finger, and the ghost's `blocked` is read a frame late. Move until two reads in a row are clear, then lift.

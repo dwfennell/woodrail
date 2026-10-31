@@ -18,6 +18,7 @@
     "e2e:draw": "node scripts/e2e/draw.mjs",
     "e2e:touch": "node scripts/e2e/touch.mjs",
     "e2e:click": "node scripts/e2e/click-place.mjs",
+    "e2e:names": "node scripts/e2e/piece-names.mjs",
     "e2e:cloud": "node scripts/e2e/cloud.mjs",
     "e2e:tutorial": "node scripts/e2e/tutorial.mjs",
     "e2e:joints": "node scripts/e2e/joints.mjs",

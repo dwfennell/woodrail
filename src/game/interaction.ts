@@ -11,6 +11,7 @@ import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGH
 import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
+import { pieceInfo } from "../ui/piece-info";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
 import { lotFor, movableBuilding, moveBuilding, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
@@ -2243,7 +2244,8 @@ export class Interaction {
     this.selectedPiece = id;
     this.game.trackView.setHighlight(id);
     const p = this.game.layout.getPiece(id)!;
-    this.hud.showPieceCard(getPieceDef(p.type, false).flippable, isLift(p.type) ? LIFT_NAME : "Track piece", true, true, true);
+    const info = pieceInfo(p.type);
+    this.hud.showPieceCard(getPieceDef(p.type, false).flippable, isLift(p.type) ? LIFT_NAME : info.name, true, true, true, info.detail);
     this.keepClearOfCard(() => this.pieceCentre(id));
     if (!this.fixedLabel(id)) this.hintDrag();
   }
