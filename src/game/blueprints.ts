@@ -167,7 +167,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "mail", label: "Mail vans", branch: "trains", tier: 2, plan: "soon", needs: ["post-office"], price: { planks: 6 }, blurb: "Letters and parcels between every pair of towns.", brings: "Mail van" }),
   row({ id: "electric", label: "Electric engine", branch: "trains", tier: 3, needs: ["diesel", "electricity"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Pulls 6 cars at 1.4×, quietly, while a power station has coal.", brings: "Electric engine", feature: { label: "Electric engine (Trains tab)", icon: "⚡" } }),
   row({ id: "brake-vans", label: "Brake vans", branch: "trains", tier: 1, needs: ["tank"], price: { planks: 4 }, blurb: "A caboose at the end makes a train a bit faster.", brings: "Caboose" }),
-  row({ id: "fuel-stop", label: "Fuel stop", branch: "trains", tier: 2, needs: ["diesel"], price: { planks: 5, coins: 60 }, blurb: "A diesel fuel stop for the line.", brings: "Fuel station" }),
+  row({ id: "fuel-stop", label: "Fuel stop", branch: "trains", tier: 2, needs: ["diesel"], price: { planks: 5, coins: 60 }, blurb: "A diesel fuel stop for the line: diesels stop there a moment, as steam engines do at water.", brings: "Fuel station" }),
+  row({ id: "boilers", label: "Better boilers", branch: "trains", tier: 2, needs: ["goods-engine"], price: { planks: 6, coins: 150 }, requires: [count("loadsMoved", 400)], blurb: "All your engines go a bit faster.", brings: "Faster engines", feature: { label: "Every engine 1.1× as fast", icon: "🔥" } }),
   row({ id: "car-carrier", label: "Car carrier", branch: "trains", tier: 3, plan: "later", needs: ["car-factory"], price: { planks: 10, goods: { iron: 4 } }, blurb: "Brings new cars from the factory to the towns' roads.", brings: "Car carrier wagon" }),
   row({ id: "circus-train", label: "Circus train", branch: "trains", tier: 3, plan: "later", needs: ["circus"], price: { planks: 20, coins: 80 }, blurb: "The circus tours your towns: crowds wherever it stops.", brings: "Circus train" }),
 
@@ -221,6 +222,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
 
   // Learning
   // (The school is the building you place, not a blueprint; beside a city it grows a library wing, for tier 3.)
+  row({ id: "study-hall", label: "Study hall", branch: "learning", tier: 1, needs: ["farming"], price: { planks: 4 }, blurb: "Easy lessons go twice as fast.", brings: "Quicker easy lessons", feature: { label: "Tier-1 study 2× at any school", icon: "📚" } }),
   row({ id: "college", label: "College", branch: "learning", tier: 2, needs: ["routes"], price: { planks: 10, coins: 120 }, requires: [count("blueprints", 10)], blurb: "Schools by towns become colleges: research 2× as fast.", brings: "Colleges", feature: { label: "Research 2× at a town's school", icon: "🎓" } }),
   row({ id: "telegraph", label: "Telegraph", branch: "learning", tier: 2, plan: "soon", needs: ["signals"], price: { planks: 14, coins: 50 }, blurb: "Wires along the line: see every train on the map, and call one home.", brings: "Telegraph poles" }),
   row({ id: "electricity", label: "Electricity", branch: "learning", tier: 3, needs: ["mines", "college"], price: { planks: 24, coins: 120, goods: { iron: 10 } }, research: study({ iron: 10, coal: 10 }, 240), blurb: "A power station burns coal: electric engines run while it has some.", brings: "Power station, colour-light signal" }),

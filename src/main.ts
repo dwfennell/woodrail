@@ -1991,7 +1991,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     harbourTrade.reset();
     counters.reset(game.economy);
     applyCranes(game.economy, progress);
-    attachEngines(game.world);
+    attachEngines(game.world, () => progress.learned.has("boilers"));
     // Goods brought to a school go into the research (saved soon after: a train brings them in a burst).
     attachResearch(game.economy, () => progress, () => {
       refreshPill();
