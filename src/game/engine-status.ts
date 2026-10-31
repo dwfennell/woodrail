@@ -1,6 +1,7 @@
 import { RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import { kitOf, type Layout } from "../track";
+import { storeSkipText } from "./warehouse-text";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -220,6 +221,10 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
   const found = sim.findCar(engineCarId);
   if (!found) return "";
   const s = trainState(sim, economy, found.train, found.train.cars[found.index].lever, cantMove);
+  // Standing (or turning back) beside a warehouse it can't trade with: why nothing happens, and what to do.
+  if (s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || (s.kind === "turning-back" && s.cause !== "open-end")) {
+    if (economy.storeItSkips(found.train.id)) return storeSkipText(!!economy.routeOfTrain(found.train));
+  }
   switch (s.kind) {
     case "derailed":
       return "Off the rails: Rerail puts it back";

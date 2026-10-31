@@ -37,6 +37,7 @@
     "e2e:train-parts": "node tools/e2e/train-parts.mjs",
     "e2e:train-summary": "node tools/e2e/train-summary.mjs",
     "e2e:workshop": "node tools/e2e/workshop-modes.mjs",
+    "e2e:warehouse": "node tools/e2e/warehouse.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "blueprints:page": "node scripts/blueprint-page.mjs"
   },

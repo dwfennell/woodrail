@@ -48,6 +48,7 @@ import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./rende
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { engineStatus, fullLineToast, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
+import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import type { Stuck } from "./economy/stalls";
@@ -2033,6 +2034,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   setInterval(() => {
     updatePlanksKept();
+    if (playing && !game.paused) storeToasts();
     const sailed = simElapsed(harbourClock, game.simSeconds);
     if (mode !== "game" || !playing || game.paused || sailed <= 0) return;
     for (const e of harbourTrade.update(game.world, progress, sailed)) {
@@ -2068,6 +2070,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (Nothing else may be drawing: new arrivals redraw their platform themselves.)
     showWaiting();
   }, 1000);
+
+  /** Warehouses a hand-run train has been told about (this session): each says why it trades nothing, once. */
+  const storesTold = new Set<number>();
+  /**
+   * A hand-run train with wagons beside a warehouse: it trades nothing there (only routed trains do), so a toast says
+   * why and what to do, once per warehouse. Once a second: a lookup per bogie of each train.
+   */
+  function storeToasts(): void {
+    for (const id of game.sim.trainIds()) {
+      const d = game.economy.storeItSkips(id);
+      if (!d || storesTold.has(d.id)) continue;
+      const t = game.sim.getTrain(id);
+      if (!t || game.economy.routeOfTrain(t)) continue;
+      storesTold.add(d.id);
+      hud.toast(STORE_NO_ROUTE, false, 4200);
+    }
+  }
 
   /** The peg dolls on each platform are the people waiting (Game mode, once coaches are known; else the usual few). */
   function showWaiting(): void {
@@ -2270,6 +2289,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** "Tap a stop for options" is shown until a stop's chip is first tapped (remembered). */
   const STOP_HINT_KEY = "woodrail.hint.stopOptions";
   let stopHintSeen = loadFlag(STOP_HINT_KEY);
+  /** "Tap the warehouse stop…" is shown on a line with a warehouse until a warehouse stop's chip is first tapped (remembered). */
+  const STORE_HINT_KEY = "woodrail.hint.storeStop";
+  let storeHintSeen = loadFlag(STORE_HINT_KEY);
   const INTENTS: Record<StopAction, { label: string; tip: string }> = {
     auto: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
     both: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
@@ -2277,6 +2299,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     pick: { label: "Only pick up", tip: "Only picks goods up here" },
   };
   const NEXT_INTENT: Record<StopAction, StopAction> = { auto: "drop", both: "drop", drop: "pick", pick: "auto" };
+  /** Is this depot a warehouse (it trades only with trains on a route: see warehouse-text.ts)? */
+  const isStore = (depotId: number) => game.economy.depot(depotId)?.role === "warehouse";
   /**
    * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
    * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
@@ -2494,7 +2518,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     const riders = line ? trainsOn(game.economy, line.id).length : 0;
     const others = line ? "" : [...game.economy.lines.values()].map((l) => `${l.id}${l.colour}${l.name}`).join(",");
-    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
+    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -2629,6 +2653,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             stopHintSeen = true;
             saveFlag(STOP_HINT_KEY);
           }
+          if (!storeHintSeen && isStore(st.depotId)) {
+            storeHintSeen = true;
+            saveFlag(STORE_HINT_KEY);
+          }
           showRoute();
         });
         chip.classList.toggle("next", r?.next === k);
@@ -2657,11 +2685,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }
         edges();
       });
-      // The first time, a word on what a chip does (till one is tapped).
-      if (!stopHintSeen && stopPicked === -1) {
+      // The first time, a word on what a chip does (till one is tapped); on a line with a warehouse, till its chip is.
+      const storeHint = !storeHintSeen && line.stops.some((st) => isStore(st.depotId));
+      if ((!stopHintSeen || storeHint) && stopPicked === -1) {
         const hint = document.createElement("div");
         hint.className = "route-hint";
-        hint.textContent = "Tap a stop for options";
+        hint.textContent = storeHint ? "Tap the warehouse stop to set Only drop or Only pick up" : "Tap a stop for options";
         box.append(hint);
       }
       const k = stopPicked;
@@ -2702,6 +2731,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
         box.append(tools);
+        // At a warehouse, what this stop's action does there.
+        if (isStore(st.depotId)) {
+          const what = document.createElement("div");
+          what.className = "route-hint route-store";
+          what.textContent = storeStopText(st.action);
+          box.append(what);
+        }
       }
       const why = cantReach();
       if (why) {

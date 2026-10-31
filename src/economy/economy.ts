@@ -1213,6 +1213,23 @@ export class Economy {
   }
 
   /**
+   * A warehouse (a `routedOnly` depot, its crane on) this train is beside but can't trade with, or null: a train with
+   * wagons and no route, or one whose route has no stop there. The engine card and a once-per-warehouse toast say why
+   * (warehouse-text.ts). Cheap: a lookup per bogie, asked once a second and while the card is open.
+   */
+  storeItSkips(trainId: number): DepotState | null {
+    const train = this.sim.getTrain(trainId);
+    if (!train || !train.cars.some((c) => canCarry(c.kind))) return null;
+    for (const b of train.bogies) {
+      const d = this.byPiece.get(b.pieceId);
+      if (!d || !d.auto || !RECIPES[d.role].routedOnly) continue;
+      const route = this.routeOfTrain(train);
+      return route && route.stops.some((s) => s.depotId === d.id) ? null : d;
+    }
+    return null;
+  }
+
+  /**
    * Nothing more for this train at the depot it's beside, this visit (Continue, on its engine's card): the crane lets
    * it go, and it runs on. False if it's beside none.
    */

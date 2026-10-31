@@ -258,6 +258,8 @@ export class Hud {
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
   private readonly depotStock = el("div", "depot-stock");
+  /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
+  private readonly depotHelp = el("div", "card-hint depot-help");
   /** A school's card with nothing under way or up next: a button for the Research picker. */
   private readonly depotPickBtn: HTMLButtonElement;
   private depotAutoBtn!: HTMLButtonElement;
@@ -604,7 +606,7 @@ export class Hud {
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
     this.depotYard.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotStock, this.depotHelp, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -1741,9 +1743,11 @@ export class Hud {
    * where it doesn't apply (a depot that gives nothing). `idle`: a school with nothing to research (its line in amber,
    * and a button for the picker).
    */
-  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = "", idle = false): void {
+  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = "", idle = false, help = ""): void {
     const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
     if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
+    if (this.depotHelp.textContent !== help) this.depotHelp.textContent = help;
+    this.depotHelp.hidden = !help;
     this.depotStock.classList.toggle("idle", idle);
     this.depotPickBtn.hidden = !idle;
     setToggle(this.depotAutoBtn, auto);
