@@ -179,3 +179,10 @@ AGENTS.md. Achievements aren't in the goals play-through (they're optional), so 
 - **Q3.** Coins as rewards at all, or only looks?
 - **Q4.** Hidden ones ("???"): fun, or frustrating for a child?
 - **Q5.** After the core, should New game stay on the chip, or move into the card?
+
+## Decisions (the user, 2026-10-31)
+1. Earn them quietly from the start; show them once the core is done.
+2. Call them **Stickers**.
+3. Rewards are looks only, no coins.
+4. A few hidden ones, each with a hint.
+5. After the core, New game moves into the card.
