@@ -584,17 +584,38 @@ export function arrowEnds(def: PieceDef): number[] {
 }
 
 /**
- * Every chevron a switch shows in a state: for each end it shows (`arrowEnds`), along the route set from there,
- * pointing away from it; on a crossover, every row points the one way, as the link goes over (line B's row lies where
- * it did, turned round), so set straight its two lines read as two rows side by side, not facing each other (QA,
- * sc3). Two ends set along the same route (a crossover set over) show one row.
+ * The roads a switch's chevrons mark in a state, and from which ends: each end it shows (`arrowEnds`) sets one road;
+ * a road set from both its ends (a wye's curve with both its corners' levers on it, a crossover set over) is listed
+ * once with both. A road set from neither end isn't listed: it shows nothing.
+ */
+export function arrowRoads(def: PieceDef, state: number): { route: PathDef; ends: number[] }[] {
+  const out: { route: PathDef; ends: number[] }[] = [];
+  for (const end of arrowEnds(def)) {
+    const route = setRoute(def, state, end)!;
+    const had = out.find((o) => o.route === route);
+    if (had) had.ends.push(end);
+    else out.push({ route, ends: [end] });
+  }
+  return out;
+}
+
+/**
+ * Every chevron a switch shows in a state, road by road (`arrowRoads`). A road set from one end: a row along it, pointing
+ * away from that end (">>>"); on a crossover, every such row points the one way, as the link goes over (line B's row
+ * lies where it did, turned round), so set straight its two lines read as two rows side by side, not facing each other
+ * (QA, sc3). A road set from both ends, so trains are sent along it either way: a double-headed mark, a chevron near
+ * each end pointing out toward it ("<  >"; the user, #15: a wye's curve set at both corners showed one way only). Never
+ * two rows facing each other mid-road, like trains meeting (QA on switch clarity 2).
  */
 export function switchArrows(def: PieceDef, state: number, scale = 1): { x: number; z: number; heading: number }[] {
-  const sets = arrowEnds(def).map((end) => ({ end, route: setRoute(def, state, end)! }));
-  // (Two ends set along the same route, a crossover set over: one row the whole way across, from the first end, so the
-  // marks read as one way over, not two rows pointing at each other mid-link.)
-  const shown = sets.filter((o, i) => sets.findIndex((p) => p.route === o.route) === i);
-  return shown.flatMap(({ end, route }) => {
+  return arrowRoads(def, state).flatMap(({ route, ends }) => {
+    if (ends.length > 1)
+      // (Each end's own row's first chevron, where the road has parted from the others there, turned to point back out.)
+      return ends.map((end) => {
+        const a = switchArrowPoses(route, def, end, scale)[0];
+        return { ...a, heading: a.heading + Math.PI };
+      });
+    const end = ends[0];
     const row = switchArrowPoses(route, def, end, scale);
     // (A crossover's line set from its far end: the same places, turned round, first to last the way they now point.)
     return def.web && end !== route.from ? row.reverse().map((a) => ({ ...a, heading: a.heading + Math.PI })) : row;
@@ -761,7 +782,7 @@ function leverLean(def: PieceDef, state: number): number {
 
 /** A switch's chevrons and lever as drawn: its slot in the chevron mesh, its route poses, the lever's place. */
 interface SwitchShown {
-  /** First chevron instance (`SWITCH_ARROW_AT.length` for each end it shows: `arrowEnds`), or −1. */
+  /** First chevron instance (as many as `switchArrows` gives in its state), or −1. */
   first: number;
   /** The piece's matrix. */
   piece: Matrix4;
@@ -782,6 +803,7 @@ interface Swing {
   t: number;
   lean: [number[], number[]];
   arm: [number, number];
+  /** From and to; the new ones both ways when the two states show a different number (a wye's road set both ways, or no longer): burned afresh, not slid. */
   arrows: [number[], number[]];
 }
 
@@ -1300,10 +1322,12 @@ export class TrackView {
       const arm = (def.cornerLevers ? wayAt(def, state, 0, 2) : state) !== 0 ? -SIGNAL_RAISED : 0;
       const next: SwitchShown = { first: -1, piece, leverAt, state, lean, arm, arrows, pinned: this.layout.isPinned(id) };
       const swinging = this.swings.get(id);
-      if (was && was.state !== state && was.arrows.length === arrows.length && swing?.(id)) {
-        // Swing over from where it's drawn now (part way, if it was already swinging).
+      if (was && was.state !== state && swing?.(id)) {
+        // Swing over from where it's drawn now (part way, if it was already swinging). The chevrons slide across only
+        // if there are as many either side; otherwise they're burned afresh as the lever goes.
         const from = swinging ? this.swingPose(swinging) : { lean: was.lean, arm: was.arm, arrows: was.arrows };
-        this.swings.set(id, { t: 0, lean: [from.lean, next.lean], arm: [from.arm, next.arm], arrows: [from.arrows, arrows] });
+        const slide: [number[], number[]] = [from.arrows.length === arrows.length ? from.arrows : arrows, arrows];
+        this.swings.set(id, { t: 0, lean: [from.lean, next.lean], arm: [from.arm, next.arm], arrows: slide });
       } else if (swinging && !(was && was.state === state)) this.swings.delete(id);
       this.shown.set(id, next);
       this.setPin(id, levers, next.pinned);
