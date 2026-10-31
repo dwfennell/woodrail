@@ -8,7 +8,8 @@
 //   Redo restores it again; a reload keeps it restored;
 // - Clear the ruin (one on the land bought) takes 10 coins, the ruin and its stub; Undo brings them back with the coins;
 // - the land around shows its ruins before it's bought; a coastal plot's land card lists its towns by the sea and its
-//   old sites; bought, it brings them (the ruins' stubs become track pieces, fixed);
+//   old sites; bought (by tapping Add this land), it brings them (the ruins' stubs become track pieces, fixed), its
+//   price is paid and the goal "Buy some land" ticks;
 // - idle: no frames drawn in 30 s (the ruins cost nothing while nothing changes).
 // - a phone on its side (667×375): the ruin card's Restore and Clear fully in view above the tray, and tappable.
 // - the map view (390×844, step 3): the old farm's marker (🌾, a lock), none over a town's or station's label; idle
@@ -420,9 +421,23 @@ check("the land card lists the plot's old sites and towns", /old (farm|quarry|mi
 check("…a coastal plot with an extra town: its towns by the sea", pick.towns === 0 || /by the sea|coast/.test(landText), `${landText} (${pick.towns} towns)`);
 await shot("06-land-card-coast");
 
-// 9. Bought: its towns and its ruins join the land (each ruin's stub a fixed track piece).
+// 9. Bought: its towns and its ruins join the land (each ruin's stub a fixed track piece), its price paid, and the goal
+// "Buy some land" ticked.
+const beforeBuy = await p.evaluate(async () => {
+  const { plotPrice } = await import("/src/game/towns.ts");
+  const w = window.woodrail;
+  return { coins: w.progress().coins, price: plotPrice(w.world.landscape.grid.plots.length), goal: w.goals().isDone("buy-land") };
+});
+check("before buying: \"Buy some land\" not ticked", !beforeBuy.goal, JSON.stringify(beforeBuy));
 await tap(".land-card button", "Add this land");
 await p.waitForTimeout(1500);
+// (Goals are checked about once a second.)
+const landGoal = await p
+  .waitForFunction(() => window.woodrail.goals().isDone("buy-land"), null, { timeout: 30000, polling: 250 })
+  .then(() => true)
+  .catch(() => false);
+const paid = await p.evaluate(() => window.woodrail.progress().coins);
+check("bought by tapping: its price paid, \"Buy some land\" ticked", landGoal && paid === beforeBuy.coins - beforeBuy.price, JSON.stringify({ ...beforeBuy, after: paid, landGoal }));
 const bought = await p.evaluate(([px, pz]) => {
   const w = window.woodrail;
   const land = w.world.landscape;

@@ -33,8 +33,8 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
   - debug: `BALANCE_GOALS_LOG`, `BALANCE_JOIN_TRACE`, `BALANCE_STOPS`, `BALANCE_NOUNSTICK`, `BALANCE_JAM_MINUTES`, `BALANCE_SECOND_GOODS`, `BALANCE_LOOP_PIN`.
 
 **Goals play-through:**
-- **Fast part:** in `npm test`, to minute 175, about 50 s (keep it under 60 s). 19 of 22 goals.
-- **Long part:** `GOALS_LONG=1`, to minute 440, about 135–160 s. 22 of 22. The CoS's gate runs it for economy, goals and industry changes.
+- **Fast part:** in `npm test`, to minute 175, about 50 s (keep it under 60 s). 19 of 23 goals.
+- **Long part:** `GOALS_LONG=1`, to minute 440, about 135–160 s. 23 of 23 (the player buys a plot once every town is joined: `buyLand`, goals play-through only). The CoS's gate runs it for economy, goals and industry changes.
 - **Allowlists:** `GOALS_NOT_REACHED` and `GOALS_LONG_NOT_REACHED` (now empty), each entry with a reason. A guard test fails on unmet goals that aren't listed, stale entries, entries with no reason, or a long list that isn't a subset of the fast one.
 - **The player's route:**
   - ruins are restored with `restoreRuin`, the price paid;
@@ -57,6 +57,8 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 
 - **Research queue (#14).** `Research` keeps `current`, `next` and `later[]` (the queue is `next` then `later`, at most `QUEUE_MAX` = 5 waiting; `later` is empty while `next` is null). Player taps go through `toggleQueue` (start if nothing's under way or waiting; else add to the end; tap again removes) and `startNow` ("Research now": swaps it in, the one under way waits up next keeping its goods). The balance player still uses `pick`, unchanged (it never queues past `next`), so SUMMARY lines don't move. **Coins are paid when a queued item starts**, not when queued: nothing is reserved, so a queued item short of coins waits at the front (in order, "Waiting for N🪙") and the ones behind wait too. **Schools take goods for `current` only** (the issue's "how deep" setting is not built: it shifts balance). Only blueprints researchable now can be queued (no chains through queued prerequisites yet). Saved as `later` in `ResearchData` (absent when empty; old saves load with no queue). Cards: ready → "Research" / "Add to queue" ("The queue is full (5)"); queued → "✕ Remove" and "Research now", line "Next up, after X" / "2nd in line, after X"; web tag "Next up" / "In line: N"; pill "+N" badge (`data-more`, CSS only); school card "· N in queue".
 - **A caboose makes its train a bit faster (#13).** `CABOOSE_BONUS` (1.1×) in `engines.ts` `topSpeed`, on top of the engines' speed, when a caboose is an end car of a train with an engine (`cabooseAtTail`: either end, so it doesn't change when the train reverses). Mid-train doesn't count; two don't stack. Game mode only (Sandbox has no `topSpeed`). The tray's caboose says "Caboose: Makes its train a bit faster" (title; a tap toasts it on a phone), from `gameDetail` on the tray item. The engine card shows no speed, so nothing there. Covered by `engines.test.ts` and step 7 of `e2e:train-parts`. Balance bands not run: the harness builds no cabooses, so its SUMMARY lines should be unchanged.
+
+- **"Buy some land" (`buy-land`) is the last goal**, after "Connect every town". Met while any plot outside the start's 2 × 2 (`START_REGION`) is owned (`plotsBought`), so an old save with land bought ticks it on load. An open goal: land bought earlier ticks it at once. Hint: "Tap Add land (in the ☰ menu on a phone), tap a plot marked +, then Add this land." Show me frames the plot for sale nearest the line. Not placed earlier on purpose: a player who never buys land would have it as the current goal for good, and `shopSpare` follows the current goal to the industries (it would shift balance). No goal gives a reward of its own (rewards come from towns growing), so it has none either. Every plot for sale brings a town, so the harness buys after join-all, and the long part's "every town joined" counts the towns from before. Covered by `goals.test.ts` and step 9 of `e2e:sites`.
 
 **Workshop:**
 - It takes planks and iron, and owes stone. Moving iron to owed is open.
@@ -98,7 +100,7 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
    - The play-through meets the switch goal with a lone switch, and the bridge goal with a bridge on dry land.
    - The switch should be on a branch a train routes through: assert that a train passes it.
    - The bridge should cross water on a running line. If the game ticks a dry-land bridge, report it.
-   - The fast part must stay at about 50 s, the long part at 22/22.
+   - The fast part must stay at about 50 s, the long part at 23/23.
 2. **shop-iron-owed** (WIP `shop-iron-owed-wip-dont-land` 8b56aae, untested).
    - Move iron from takes to owed, plus a modest spare for known unbuilt iron users (smithy 4, power station 6).
    - The card says "Needs N ⚙ at the workshop".
