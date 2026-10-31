@@ -2884,16 +2884,19 @@ async function routeKeep(ctx, p, tapSel) {
     const { checkPlacement } = await import("/src/landscape/clearance.ts");
     // Harness shortcut (setup, not what's tested): the line worked out on a scratch layout and laid in one go, as the
     // player's pieces would be; the straight past the sawmill (`more`) is the one the player lays below.
+    // (The straight the player lays (`more`) goes in next to the sawmill, between it and the loop: the line's way to its
+    // stop. Mid-line, so the line can lie mostly past the land's edge with that piece on the land.)
     const L = new Layout();
     const a = L.addPiece("depot-forest", { x: 0, z: 0, heading: 0 });
     appendPiece(L, "buffer-turnback", false, connectorRef(a, 0));
     const chain = (n, from) => { const ids = []; for (let k = 0; k < n; k++) { ids.push(appendPiece(L, "straight-216", false, from)); from = connectorRef(ids[k], 1); } return ids; };
-    const west = chain(2, connectorRef(a, 1));
-    const loop = loopOn(L, connectorRef(west[1], 1), ["straight-216", "straight-216"], ["straight-216"]);
-    const east = chain(2, connectorRef(loop.s2, 0));
-    const b = appendPiece(L, "depot-sawmill", false, connectorRef(east[1], 1));
-    const more = appendPiece(L, "straight-216", false, connectorRef(b, 1));
-    const scratch = [...L.pieceIds()].filter((id) => id !== more);
+    const west = chain(1, connectorRef(a, 1));
+    const loop = loopOn(L, connectorRef(west[0], 1), ["straight-216", "straight-216"], ["straight-216"]);
+    const east = chain(1, connectorRef(loop.s2, 0));
+    const more = appendPiece(L, "straight-216", false, connectorRef(east[0], 1));
+    const b = appendPiece(L, "depot-sawmill", false, connectorRef(more, 1));
+    const beyond = chain(2, connectorRef(b, 1));
+    appendPiece(L, "buffer-turnback", false, connectorRef(beyond[1], 1));
     let g = null;
     let turn = 0;
     const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
@@ -2909,7 +2912,8 @@ async function routeKeep(ctx, p, tapSel) {
         });
       g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more), ok });
     }
-    if (!g) throw new Error("no open ground for the line, its end on the land");
+    if (!g) throw new Error("no open ground for the line, its piece by the sawmill on the land");
+    const scratch = [...L.pieceIds()].filter((id) => id !== more);
     const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
     const run = w.editor().placeRun(scratch.map((id) => { const q = L.getPiece(id); return { type: q.type, pose: at(q.pose), y: 0, flipped: q.flipped }; }));
     const real = (id) => run[scratch.indexOf(id)];
@@ -2927,7 +2931,8 @@ async function routeKeep(ctx, p, tapSel) {
       w.economy.routeOf(e).next = next;
       return e;
     };
-    const E = [put(west[0], 200, false, 1), put(east[0], 200, true, 0)];
+    // (Both on the forest's side: the sawmill is reached once the player's straight is down.)
+    const E = [put(west[0], 200, false, 1), put(loop.main[1], 100, false, 1)];
     // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's
     // few frames a second; the forest kept stocked (its logs aren't what's tested).
     const { PILE_CAP } = await import("/src/economy/constants.ts");
@@ -3017,8 +3022,8 @@ async function routeKeep(ctx, p, tapSel) {
   await touch("touchEnd", 0, 0);
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   await frames(p);
-  const laid = await p.evaluate(({ sawmillPiece }) => ({ pieces: window.woodrail.layout.pieceCount, joined: window.woodrail.layout.joinedConnector(sawmillPiece * 8 + 1) !== -1, lines: window.__keepLines() }), setup);
-  check("route-keep: a straight laid from the tray at the sawmill's end (the line's stop): both trains keep their lines and stops", laid.pieces === before + 1 && laid.joined && JSON.stringify(laid.lines) === JSON.stringify(lines0) && lines0.every((l) => /line:2$/.test(l)), JSON.stringify({ before, lines0, ...laid }));
+  const laid = await p.evaluate(({ sawmillPiece }) => ({ pieces: window.woodrail.layout.pieceCount, joined: window.woodrail.layout.joinedConnector(sawmillPiece * 8 + 0) !== -1, lines: window.__keepLines() }), setup);
+  check("route-keep: a straight laid from the tray next to the sawmill (the line's stop, its way in): both trains keep their lines and stops", laid.pieces === before + 1 && laid.joined && JSON.stringify(laid.lines) === JSON.stringify(lines0) && lines0.every((l) => /line:2$/.test(l)), JSON.stringify({ before, lines0, ...laid }));
   // Undo (the HUD's button, tapped), then redo (Ctrl+Shift+Z).
   const { tapButton, tapOn } = mapHelpers(p);
   await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
