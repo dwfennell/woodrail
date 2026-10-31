@@ -2895,8 +2895,8 @@ async function routeKeep(ctx, p, tapSel) {
     const east = chain(1, connectorRef(loop.s2, 0));
     const more = appendPiece(L, "straight-216", false, connectorRef(east[0], 1));
     const b = appendPiece(L, "depot-sawmill", false, connectorRef(more, 1));
-    const beyond = chain(2, connectorRef(b, 1));
-    appendPiece(L, "buffer-turnback", false, connectorRef(beyond[1], 1));
+    // (A buffer just past it: the view's bounds reach only so far past the land's edge.)
+    appendPiece(L, "buffer-turnback", false, connectorRef(b, 1));
     let g = null;
     let turn = 0;
     const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
