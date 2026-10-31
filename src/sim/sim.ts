@@ -27,6 +27,8 @@ const LIFT_GRACE = 2 * SIM_HZ;
 const MIN_SPEED = 0.01;
 const hasEngine = (t: Train): boolean => t.cars.some((c) => c.kind === "engine");
 
+/** How far along the track (mm) a train put back (or loaded) may be moved to find room: a few train lengths. */
+const PUT_BACK_REACH = 1200;
 /** How far along the track (mm) a re-railed train may be slid to find room, and in what steps. */
 const RERAIL_SLIDE = 1200;
 const RERAIL_STEP = 24;
@@ -265,6 +267,35 @@ export class Sim {
       if (r.kind === "placed") return r;
     }
     return { kind: "no-room" };
+  }
+
+  /**
+   * Put a train back where it was (its leading axle at `lead`); or, when that's taken (another train ran in while it
+   * was in the hand, a derailed train lying across another after a crash), on the nearest free stretch along the track
+   * either way, within `PUT_BACK_REACH`: so a train lifted, or saved, is never lost where it can fit. `carIds` as for
+   * `addTrain`.
+   */
+  putBack(kinds: readonly CarKind[], lead: Cursor, carIds?: readonly number[]): AddTrainResult {
+    const placed = this.addTrain(kinds, lead, carIds);
+    if (placed.kind === "placed") return placed;
+    const ways = [{ ...lead }, { ...lead }];
+    flipCursor(this.layout, ways[1]);
+    const open = [true, true];
+    for (let moved = 24; moved <= PUT_BACK_REACH; moved += 24) {
+      for (let k = 0; k < 2; k++) {
+        if (!open[k]) continue;
+        advanceCursor(this.layout, ways[k], 24, null, adv);
+        if (adv.status !== ADV_OK) {
+          open[k] = false;
+          continue;
+        }
+        const at = { ...ways[k] };
+        if (k === 1) flipCursor(this.layout, at);
+        const r = this.addTrainAround(kinds, at, carIds);
+        if (r.kind === "placed") return r;
+      }
+    }
+    return placed;
   }
 
   /**

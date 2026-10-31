@@ -41,7 +41,7 @@ import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
-import { routeStops } from "./game/route-stops";
+import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./game/lines";
 import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, pointOnPath, stopCursors } from "./game/route-path";
 import { LinesView } from "./ui/lines-view";
@@ -2506,7 +2506,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.innerHTML = "";
     box.hidden = stops.length === 0;
     box.classList.add("route");
-    const nameOf = (id: number) => stops.find((st) => st.depotId === id)?.name ?? "?";
+    // (A stop taken up isn't among the places: named by its kind, and said below.)
+    const nameOf = (id: number) => stops.find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id);
     const edit = (change: (l: RouteStopDef[]) => void) => {
       editLine(game.economy, carId, change);
       showRoute();
@@ -2637,6 +2638,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           showRoute();
         });
         chip.classList.toggle("next", r?.next === k);
+        chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
         chip.classList.toggle("picked", stopPicked === k);
         if (st.action === "drop" || st.action === "pick") chip.dataset.intent = st.action;
         if (st.waitFill) chip.dataset.wait = "1";
@@ -2707,6 +2709,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
         box.append(tools);
+      }
+      // A stop whose place was taken up: said, by name (the train runs on past it; undo brings it back).
+      const lost = [...new Set(line.stops.filter((st) => !stops.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
+      for (const name of lost) {
+        const warn = document.createElement("div");
+        warn.className = "route-warn route-lost";
+        warn.textContent = lostStopWords(name);
+        box.append(warn);
       }
       const why = cantReach();
       if (why) {

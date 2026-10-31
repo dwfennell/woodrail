@@ -340,7 +340,7 @@ export class Economy {
         }
         return live;
       },
-      target: (engine) => this.routeTarget(engine),
+      target: (engine) => this.headingFor(engine),
       stopPieces: (lineId) => {
         const line = this.lines.get(lineId);
         const out: number[] = [];
@@ -372,11 +372,9 @@ export class Economy {
       layout,
       sim,
       routed: this.routes,
-      goal: (engine) => {
-        const r = this.routes.get(engine)!;
-        const d = this.depots[r.stops[r.next % r.stops.length].depotId];
-        return d && this.onMap(d) ? d.pieceId : -1;
-      },
+      // (The stop it's heading for: at one, the one after, as sections have it. Not the stop it's at: leaving a stop right
+      // before points, it would ask for nothing and run over them as they lie, set for the train ahead.)
+      goal: (engine) => this.headingFor(engine),
       drive: (train) => this.drive(train),
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
@@ -403,17 +401,9 @@ export class Economy {
    * route, or that stop isn't on the map.
    */
   routeTarget(engine: number): number {
-    const r = this.routes.get(engine);
-    if (!r || r.stops.length === 0) return -1;
-    let i = r.next % r.stops.length;
-    // (At its stop: the stop after, a different depot.)
-    if (r.at) {
-      const here = r.stops[i].depotId;
-      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
-    }
-    const d = this.depots[r.stops[i].depotId];
-    return d && this.onMap(d) ? d.pieceId : -1;
+    return this.headingFor(engine);
   }
+
 
   /**
    * Checks run after every tick (the train invariants, src/sim/invariants.ts: dev builds, QA, the play-throughs).
@@ -896,6 +886,36 @@ export class Economy {
     const route = this.routeOfCar(carId);
     if (!route) return null;
     return { stops: route.stops.map((s) => ({ depot: s.depotId, intent: s.action === "both" ? "auto" : s.action, waitFill: !!s.waitFill })) };
+  }
+
+  /**
+   * The stops on this engine's line whose depot isn't on the map now (its piece taken up: undo brings it back). They
+   * stay on the line, and the train runs on past them (`advanceRoutes`); the card says which (never a silent "?").
+   */
+  lostStops(engineCarId: number): RouteStopDef[] {
+    const r = this.routes.get(engineCarId);
+    if (!r) return [];
+    return r.stops.filter((s) => {
+      const d = this.depots[s.depotId];
+      return !d || !this.layout.getPiece(d.pieceId);
+    });
+  }
+
+  /**
+   * The piece of the stop this routed engine is heading for: its next stop; standing at it (`at`), the stop after (a
+   * different depot). −1: none, or not on the map. What sections and the router both steer for.
+   */
+  private headingFor(engine: number): number {
+    const r = this.routes.get(engine);
+    if (!r || r.stops.length === 0) return -1;
+    let i = r.next % r.stops.length;
+    // (At its stop: the stop after, a different depot.)
+    if (r.at) {
+      const here = r.stops[i].depotId;
+      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+    }
+    const d = this.depots[r.stops[i].depotId];
+    return d && this.onMap(d) ? d.pieceId : -1;
   }
 
   /** This engine's route, if it has one. */
