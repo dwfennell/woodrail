@@ -2064,7 +2064,7 @@ export class Interaction {
     } else if (m.kind === "drag-train") {
       this.game.scene.remove(m.ghost);
       disposeObject(m.ghost);
-      if (m.origin) this.placeTrain(m.cars, m.origin);
+      if (m.origin) this.placeTrain(m.cars, m.origin, false, true);
       else this.onTrayTrainDropped?.(false);
     } else if (m.kind === "drag-cargo") {
       this.game.scene.remove(m.ghost);
@@ -4255,7 +4255,8 @@ export class Interaction {
       this.changed();
       return;
     }
-    if (m.origin) this.placeTrain(m.cars, m.origin);
+    // (Back where it was picked up; taken meanwhile, another train run in there, on the nearest free stretch: never lost.)
+    if (m.origin) this.placeTrain(m.cars, m.origin, false, true);
     if (fresh) this.onTrayTrainDropped?.(false);
     this.hud.toast(m.target ? "Not enough track there" : "Drop trains onto the track");
     this.changed();
@@ -4300,16 +4301,19 @@ export class Interaction {
     }
     sim.removeTrain(id);
     if (this.placeTrain(together, newLead)) return true;
-    this.placeTrain(theirs, lead);
+    this.placeTrain(theirs, lead, false, true);
     return false;
   }
 
-  /** Put a train down: exactly at `at` (back where it was picked up), or `around` it (a drop, centred on the point). */
-  private placeTrain(cars: HeldCar[], at: Cursor, around = false): boolean {
+  /**
+   * Put a train down: exactly at `at`, or `around` it (a drop, centred on the point); `back` where it was picked up,
+   * or the nearest free stretch if that's taken (`Sim.putBack`).
+   */
+  private placeTrain(cars: HeldCar[], at: Cursor, around = false, back = false): boolean {
     const sim = this.game.sim;
     const kinds = cars.map((c) => c.kind);
     const ids = cars.every((c) => c.id !== undefined) ? cars.map((c) => c.id!) : undefined;
-    const r = around ? sim.addTrainAround(kinds, at, ids) : sim.addTrain(kinds, at, ids);
+    const r = around ? sim.addTrainAround(kinds, at, ids) : back ? sim.putBack(kinds, at, ids) : sim.addTrain(kinds, at, ids);
     if (r.kind !== "placed") return false;
     const t = sim.getTrain(r.trainId)!;
     t.cars.forEach((car, i) => {

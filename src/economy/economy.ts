@@ -886,6 +886,19 @@ export class Economy {
     return { stops: route.stops.map((s) => ({ depot: s.depotId, intent: s.action === "both" ? "auto" : s.action, waitFill: !!s.waitFill })) };
   }
 
+  /**
+   * The stops on this engine's line whose depot isn't on the map now (its piece taken up: undo brings it back). They
+   * stay on the line, and the train runs on past them (`advanceRoutes`); the card says which (never a silent "?").
+   */
+  lostStops(engineCarId: number): RouteStopDef[] {
+    const r = this.routes.get(engineCarId);
+    if (!r) return [];
+    return r.stops.filter((s) => {
+      const d = this.depots[s.depotId];
+      return !d || !this.layout.getPiece(d.pieceId);
+    });
+  }
+
   /** This engine's route, if it has one. */
   routeOf(engineCarId: number): Route | undefined {
     return this.routes.get(engineCarId);
