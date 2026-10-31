@@ -1508,8 +1508,9 @@ export class Hud {
    * mostly sideways one scrolls the tray, gliding on when let go; a press that hardly moves is a tap (`tap`).
    * Decided by us, so it behaves the same every time. A finger (not a mouse: it hovers) held still `TRAY_INFO_MS`
    * shows the item's details instead (`details`): then nothing is picked up, scrolled or tapped till it lifts. Decided
-   * by event time, as a hold on the map is (touch-hold.ts): the timer shows them, and an event delivered late that
-   * happened before `TRAY_INFO_MS` (a move past the slop, or the lift) takes them back and is a drag, scroll or tap.
+   * by event time, as a hold on the map is (touch-hold.ts), counted from when the page saw the finger come down at the
+   * latest (`heldFor`): the timer shows them, and an event delivered late that happened before `TRAY_INFO_MS` (a move
+   * past the slop, or the lift) takes them back and is a drag, scroll or tap.
    */
   private trayPress(down: PointerEvent, scroller: HTMLElement, on: { pick?: (move: PointerEvent) => void; tap?: (up: PointerEvent) => void; details?: () => void }): void {
     this.trayGlide++;
@@ -1519,6 +1520,11 @@ export class Hud {
     const scroll0 = scroller.scrollLeft;
     let mode: "undecided" | "scroll" | "details" = "undecided";
     let byTimer = false;
+    // How long the finger had been down at event `e`: by event time, but no longer than since this page saw it come
+    // down. A page busy (a long frame) when the finger lands sees the press late and the next event straight after: the
+    // stamps say it was held, but nothing could have been shown to it, so a flick or drag then is still a pick-up.
+    const seen = performance.now();
+    const heldFor = (e: PointerEvent) => Math.min(e.timeStamp - down.timeStamp, e.timeStamp - seen);
     const showDetails = (timed = false) => {
       if (mode !== "undecided" || !on.details) return;
       mode = "details";
@@ -1528,7 +1534,7 @@ export class Hud {
     };
     /** A late event that happened before the details were due: they weren't (the timer ran ahead of the input). */
     const undoDetails = (e: PointerEvent, travel: number) => {
-      if (mode !== "details" || !byTimer || e.timeStamp - down.timeStamp >= TRAY_INFO_MS) return false;
+      if (mode !== "details" || !byTimer || heldFor(e) >= TRAY_INFO_MS) return false;
       if (e.type === "pointermove" && travel < TRAY_DECIDE_PX) return false;
       mode = "undecided";
       this.lastTrayDetails = 0;
@@ -1547,7 +1553,7 @@ export class Hud {
       if (mode === "undecided") {
         if (Math.hypot(dx, dy) < TRAY_DECIDE_PX) return;
         // Held long enough before moving (its timer late): details, not a pick-up.
-        if (timer && e.timeStamp - down.timeStamp >= TRAY_INFO_MS) return showDetails();
+        if (timer && heldFor(e) >= TRAY_INFO_MS) return showDetails();
         if (on.pick && -dy > Math.abs(dx) * 0.7) {
           // Up and out: pick the item up.
           stop();
@@ -1566,7 +1572,7 @@ export class Hud {
       if (e.pointerId !== id) return;
       stop();
       if (e.type === "pointerup") undoDetails(e, 0);
-      if (mode === "undecided" && timer && e.type === "pointerup" && e.timeStamp - down.timeStamp >= TRAY_INFO_MS) showDetails();
+      if (mode === "undecided" && timer && e.type === "pointerup" && heldFor(e) >= TRAY_INFO_MS) showDetails();
       else if (mode === "undecided" && e.type === "pointerup") on.tap?.(e);
       // A quick swipe glides on, slowing down.
       else if (mode === "scroll" && e.timeStamp - lastT < 80 && Math.abs(velocity) > 0.05) this.glideTray(scroller, velocity);
