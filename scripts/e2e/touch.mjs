@@ -755,7 +755,9 @@ async function leverPins(ctx, p) {
     // gives the lever: found by looking round the lever on screen.
     const [tx, ty, near] = await p.evaluate((id) => {
       const it = window.woodrail.interaction;
-      const posts = it.leversOnScreen().filter((q) => q.id === id);
+      // (On screen, each post is by its index in leverPosts(): a wye has three, #15.)
+      const all = window.woodrail.trackView.leverPosts();
+      const posts = it.leversOnScreen(all).filter((q) => all[q.id].pieceId === id);
       const seg = (q, x, y) => {
         const dx = q.bx - q.ax, dy = q.by - q.ay, L = dx * dx + dy * dy;
         const t = Math.max(0, Math.min(1, ((x - q.ax) * dx + (y - q.ay) * dy) / L));
@@ -964,40 +966,64 @@ async function wyeLevers(ctx, p, tapOn) {
     const { poseForCentre } = await import("/src/editor/editor.ts");
     const T = await import("/src/track/index.ts");
     const it = w.interaction;
-    const heading = it.cameraHeading() + (it.trayTurns * Math.PI) / 4;
-    const scratch = new T.Layout();
-    const sw = scratch.addPiece("wye", poseForCentre("wye", false, 0, 0, heading), 0, false);
-    for (const c of [0, 1, 2]) {
-      let ref = T.connectorRef(sw, c);
-      for (const type of ["straight-216", "straight-216", "buffer-turnback"]) {
-        const end = scratch.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
-        const flipped = T.getPieceDef(type, false).connectors.every((k) => k.kind === end.kind);
-        const via = T.getPieceDef(type, flipped).connectors.findIndex((k) => k.kind !== end.kind);
-        const id = T.appendPiece(scratch, type, flipped, ref, via);
-        ref = T.connectorRef(id, 1 - via);
-      }
-    }
-    const points = [];
-    const smp = T.createSample();
-    for (const id of scratch.pieceIds()) {
-      const q = scratch.getPiece(id);
-      for (const path of T.getPieceDef(q.type, q.flipped).paths) {
-        const len = T.pathLength(path.geom);
-        for (let d = 0; d <= len; d += 100) {
-          T.samplePath(path.geom, d, smp);
-          const c = Math.cos(q.pose.heading), sn = Math.sin(q.pose.heading);
-          points.push([q.pose.x + smp.x * c - smp.z * sn, q.pose.z + smp.x * sn + smp.z * c]);
+    // The footprint for a wye laid facing `heading`.
+    const footprint = (heading) => {
+      const scratch = new T.Layout();
+      const sw = scratch.addPiece("wye", poseForCentre("wye", false, 0, 0, heading), 0, false);
+      for (const c of [0, 1, 2]) {
+        let ref = T.connectorRef(sw, c);
+        for (const type of ["straight-216", "straight-216", "buffer-turnback"]) {
+          const end = scratch.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+          const flipped = T.getPieceDef(type, false).connectors.every((k) => k.kind === end.kind);
+          const via = T.getPieceDef(type, flipped).connectors.findIndex((k) => k.kind !== end.kind);
+          const id = T.appendPiece(scratch, type, flipped, ref, via);
+          ref = T.connectorRef(id, 1 - via);
         }
       }
+      const points = [];
+      const smp = T.createSample();
+      for (const id of scratch.pieceIds()) {
+        const q = scratch.getPiece(id);
+        for (const path of T.getPieceDef(q.type, q.flipped).paths) {
+          const len = T.pathLength(path.geom);
+          for (let d = 0; d <= len; d += 100) {
+            T.samplePath(path.geom, d, smp);
+            const c = Math.cos(q.pose.heading), sn = Math.sin(q.pose.heading);
+            points.push([q.pose.x + smp.x * c - smp.z * sn, q.pose.z + smp.x * sn + smp.z * c]);
+          }
+        }
+      }
+      return points;
+    };
+    // The view as it is first; else turned an eighth at a time, as a player turns the view to find room (the tray lays
+    // a piece facing away from the camera, so the land the steps before leave may fit the wye only turned).
+    // (On the mat: the wye comes from the tray, and the game won't put it down past the map's edge.)
+    const off = new w.camera.position.constructor().subVectors(w.camera.position, w.controls.target);
+    const theta0 = Math.atan2(off.x, off.z);
+    let o = null;
+    let theta = null;
+    for (let k = 0; k < 8 && !o; k++) {
+      const th = theta0 + (k * Math.PI) / 4;
+      // (Facing away from the camera, to the nearest eighth, as `cameraHeading` rounds it.)
+      const along = Math.round(Math.atan2(-Math.cos(th), -Math.sin(th)) / (Math.PI / 4)) * (Math.PI / 4);
+      o = await window.__openGround(footprint(along + (it.trayTurns * Math.PI) / 4), { pieceGap: 400, onMat: true });
+      if (o) (theta = k === 0 ? null : th), (o.heading = along);
     }
-    const o = await window.__openGround(points, { pieceGap: 400 });
-    if (!o) return null;
-    w.director.glideTo(w.controls.target.clone().set(o.x, 0, o.z), frameDistance(560, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    if (!o) {
+      const points = footprint(it.cameraHeading() + (it.trayTurns * Math.PI) / 4);
+      window.__wyeWhy = { pieces: w.layout.pieceCount, noPieceGap: !!(await window.__openGround(points, { pieceGap: 0, onMat: true })), noGaps: !!(await window.__openGround(points, { pieceGap: 0, propGap: 0, margin: 0, onMat: true })), bounds: w.director.bounds };
+      return null;
+    }
+    w.director.glideTo(w.controls.target.clone().set(o.x, 0, o.z), frameDistance(560, w.camera.fov, w.camera.aspect), { duration: 0.3, ...(theta === null ? {} : { theta }) });
+    o.turned = theta !== null;
     return o;
   });
-  if (!spot) throw new Error("wye: no open ground for the wye and its legs");
+  if (!spot) throw new Error(`wye: no open ground for the wye and its legs ${JSON.stringify(await p.evaluate(() => window.__wyeWhy))}`);
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await settled();
+  // (Turned to the heading the room was found for.)
+  const facing = await p.evaluate(() => window.woodrail.interaction.cameraHeading());
+  if (Math.abs(Math.sin((facing - spot.heading) / 2)) > 0.01) throw new Error(`wye: the view faces ${facing}, not ${spot.heading} as the room was found for`);
   // 1. Laid from the tray: the Switch shelf opened, the Wye dragged out onto the spot (stamped touches), let go there.
   const shelf = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Switch"));
   await tapOn(`.scroller .tray-group:nth-child(${shelf + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
@@ -1009,12 +1035,27 @@ async function wyeLevers(ctx, p, tapOn) {
     const w = window.woodrail;
     const v = new w.camera.position.constructor(x, 0, z).project(w.camera);
     const r = w.canvas.getBoundingClientRect();
-    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    // (On touch a held piece rides TOUCH_LIFT_PX, 56 px, above the finger: the finger lifts that far below the spot,
+    // so the wye goes down on it, as a player puts it where they see it.)
+    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height + 56];
   }, spot);
   const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+  // (What was said, and what the finger held before it lifted: for a failure's message.)
+  await p.evaluate(() => {
+    const h = window.woodrail.hud;
+    window.__wyeSaid = [];
+    if (!h.__wyeSpy) {
+      h.__wyeSpy = true;
+      const toast = h.toast.bind(h);
+      h.toast = (m, ...a) => (window.__wyeSaid?.push(m), toast(m, ...a));
+      const refuse = h.setRefusal.bind(h);
+      h.setRefusal = (m, ...a) => (m && window.__wyeSaid?.push(m), refuse(m, ...a));
+    }
+  });
   let t = Date.now() / 1000;
   await touch("touchStart", from[0], from[1], t);
   for (let k = 1; k <= 12; k++) await touch("touchMove", from[0] + ((to[0] - from[0]) * k) / 12, from[1] + ((to[1] - from[1]) * k) / 12, (t += 0.03));
+  const held = await p.evaluate(() => { const m = window.woodrail.interaction.mode; return m.kind === "drag-piece" ? { kind: m.kind, visible: m.ghost.visible, blocked: m.blocked ?? null, hint: m.hint ?? null } : { kind: m.kind }; });
   await touch("touchEnd", 0, 0, (t += 0.05));
   await settled();
   await p.keyboard.press("Escape");
@@ -1023,7 +1064,7 @@ async function wyeLevers(ctx, p, tapOn) {
     const id = [...w.layout.pieceIds()].find((i) => !before.includes(i) && w.layout.getPiece(i).type === "wye");
     return id ?? -1;
   }, before);
-  check("wye: dragged out of the Switch shelf by touch, a wye is laid", wye >= 0, JSON.stringify({ from, to, spot }));
+  check("wye: dragged out of the Switch shelf by touch, a wye is laid", wye >= 0, JSON.stringify({ from, to, spot, held, said: await p.evaluate(() => window.__wyeSaid), mode: await p.evaluate(() => window.woodrail.interaction.mode.kind) }));
   if (wye < 0) return;
   // Harness shortcut (setup, not what's tested): a leg of two straights and a turn-back buffer off each corner, laid
   // through the editor as dropping them would (each seated on the end before, worked out on a copy of the wye).
@@ -1181,12 +1222,14 @@ let openContext = null;
 function openGroundScript() {
   let checkPlacement = null;
   const ready = () => (checkPlacement ? Promise.resolve() : import("/src/landscape/clearance.ts").then((m) => void (checkPlacement = m.checkPlacement)));
-  const groundOk = (x, z) => {
+  // (`onMat`: only where a player may build, for pieces laid from the tray. Without it, past the land's edge on the
+  // flat table too: a named harness shortcut, for runs the harness lays itself.)
+  const groundOk = (x, z, onMat) => {
     const w = window.woodrail;
-    if (w.landscape.grid.cellAtWorld(x, z) === -1) return true;
+    if (w.landscape.grid.cellAtWorld(x, z) === -1) return !onMat;
     return [0, Math.PI / 2].every((h) => {
       const c = checkPlacement(w.landscape, "straight-216", false, { x: x - 108 * Math.cos(h), z: z - 108 * Math.sin(h), heading: h }, 0);
-      return c.kind === "clear" || c.reason === "off-mat";
+      return c.kind === "clear" || (!onMat && c.reason === "off-mat");
     });
   };
   // (On the land, on the mat: a straight there is clear either way round, not just past the mat's edge.)
@@ -1196,13 +1239,13 @@ function openGroundScript() {
     return [0, Math.PI / 2].some((h) => checkPlacement(w.landscape, "straight-216", false, { x: x - 108 * Math.cos(h), z: z - 108 * Math.sin(h), heading: h }, 0).kind === "clear");
   };
   window.__clearAt = async (x, z, opts) => (await ready(), clearAt(x, z, opts));
-  const clearAt = (x, z, { pieceGap = 700, propGap = 400, margin = 250 } = {}) => {
+  const clearAt = (x, z, { pieceGap = 700, propGap = 400, margin = 250, onMat = false } = {}) => {
     const w = window.woodrail;
     const b = w.director.bounds;
     if (!(x > b.x0 + margin && x < b.x1 - margin && z > b.z0 + margin && z < b.z1 - margin)) return false;
     for (const i of w.layout.pieceIds()) { const q = w.layout.getPiece(i).pose; if (Math.hypot(q.x - x, q.z - z) <= pieceGap) return false; }
     for (const q of w.props.all()) if (Math.hypot(q.x - x, q.z - z) <= propGap) return false;
-    return groundOk(x, z);
+    return groundOk(x, z, onMat);
   };
   // `points`: the footprint, as [dx, dz] from the spot (no more than 216 mm apart along a run, so a hill between two
   // can't be missed). The first spot, outward from the view's target, where all are clear.
@@ -1488,7 +1531,7 @@ async function leverDefault(ctx, p) {
         const framed = Math.hypot(w.controls.target.x - x, w.controls.target.z - z) < 60 && Math.abs(v.x) < 0.8 && Math.abs(v.y) < 0.8 && !w.director.busy && w.interaction.mode.kind === "idle";
         const picked = framed ? w.interaction.pick(at[0], at[1], true) : null;
         if (picked?.kind === "lever" && picked.pieceId === id) return at;
-        window.__defaultWhy = { lever: true, framed, picked: picked?.kind ?? null, hidden: w.interaction.leverHidden(id) };
+        window.__defaultWhy = { lever: true, framed, picked: picked?.kind ?? null, hidden: w.trackView.leverPosts().filter((q) => q.pieceId === id).every((q) => w.interaction.hiddenFromEye({ x: q.x, y: q.y + q.height / 2, z: q.z })) };
       } else window.__defaultWhy = { lever: false };
       const theta = turn ? new w.camera.position.constructor().subVectors(w.camera.position, w.controls.target) : null;
       w.director.glideTo(w.controls.target.clone().set(x, 0, z), frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3, ...(theta ? { theta: Math.atan2(theta.x, theta.z) + Math.PI / 2 } : {}) });
@@ -1516,7 +1559,7 @@ async function leverDefault(ctx, p) {
   // was said, for a failure's message.
   const under = await p.evaluate(([[x, y], id]) => {
     const w = window.woodrail;
-    return { pick: w.interaction.pick(x, y, true)?.kind ?? null, mode: w.interaction.mode.kind, hidden: w.interaction.leverHidden(id) };
+    return { pick: w.interaction.pick(x, y, true)?.kind ?? null, mode: w.interaction.mode.kind, hidden: w.trackView.leverPosts().filter((q) => q.pieceId === id).every((q) => w.interaction.hiddenFromEye({ x: q.x, y: q.y + q.height / 2, z: q.z })) };
   }, [at, id]);
   await p.evaluate(() => {
     window.__defaultSaid = [];
