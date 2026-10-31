@@ -385,7 +385,7 @@ describe("coupling", () => {
     return Math.hypot(f.x - r.x, f.z - r.z) - inset;
   }
 
-  it("issue #6: a follower eases down to a gap of about a wagon's length (70 mm) and keeps it at speed", () => {
+  it("issue #6: a follower of a moving train eases down to a gap of about a wagon's length (70 mm) and keeps it", () => {
     const { layout, ids } = longLine(20);
     const sim = new Sim(layout);
     const ahead = sim.addTrain(["engine", "hopper"], { pieceId: ids[6], pathIndex: 0, reversed: false, s: 100 });
@@ -414,7 +414,7 @@ describe("coupling", () => {
     expect(sim.drainEvents().some((e) => e.kind === "coupled" || e.kind === "derailed")).toBe(false);
   });
 
-  it("issue #6: behind one that stops, it stops that gap short, smoothly, held by it", () => {
+  it("issue #6: behind one that stops, it eases down and pulls up close (the stop-short margin), held by it", () => {
     const { layout, ids } = longLine(20);
     const sim = new Sim(layout);
     const ahead = sim.addTrain(["engine", "hopper"], { pieceId: ids[6], pathIndex: 0, reversed: false, s: 100 });
@@ -425,23 +425,35 @@ describe("coupling", () => {
     sim.setLever(aheadLever, 1);
     sim.setLever(sim.getTrain(behind.trainId)!.cars[0].id, 1);
     run(sim, 10);
+    // (Following at the gap.)
+    expect(faceGap(sim, behind.trainId, ahead.trainId)).toBeGreaterThan(68);
     sim.setLever(aheadLever, 0);
     let prev = sim.getTrain(behind.trainId)!.speed;
     let hardest = 0;
-    for (let i = 0; i < 4 * SIM_HZ; i++) {
+    let least = Infinity;
+    for (let i = 0; i < 6 * SIM_HZ; i++) {
       sim.tick();
       const v = sim.getTrain(behind.trainId)!.speed;
       hardest = Math.max(hardest, prev - v);
       prev = v;
+      least = Math.min(least, faceGap(sim, behind.trainId, ahead.trainId));
     }
     expect(sim.getTrain(ahead.trainId)!.speed).toBe(0);
     expect(sim.getTrain(behind.trainId)!.speed).toBe(0);
     const gap = faceGap(sim, behind.trainId, ahead.trainId);
-    expect(gap).toBeGreaterThan(68);
-    expect(gap).toBeLessThan(71);
-    expect(hardest).toBeLessThanOrEqual(2 * ENGINE_SPEED * SIM_DT + 1e-6);
+    expect(gap).toBeGreaterThan(9);
+    expect(gap).toBeLessThan(12);
+    expect(least).toBeGreaterThan(9);
+    // (Easing in, no sudden stop: at most twice its braking step in a tick, as it settles the last millimetre.)
+    expect(hardest).toBeLessThanOrEqual(2 * 2 * ENGINE_SPEED * SIM_DT + 1e-6);
     expect(sim.heldBy(behind.trainId)).toBe(ahead.trainId);
     expect(sim.heldHow(behind.trainId)).toBe("follow");
+    expect(sim.drainEvents().some((e) => e.kind === "coupled" || e.kind === "derailed")).toBe(false);
+    // And once it goes again, the follower lets the gap open before it follows.
+    sim.setLever(aheadLever, 1);
+    run(sim, 6);
+    expect(faceGap(sim, behind.trainId, ahead.trainId)).toBeGreaterThan(68);
+    expect(sim.getTrain(behind.trainId)!.speed).toBeCloseTo(ENGINE_SPEED / 2, 0);
   });
 
   it("issue #6: an engine still runs onto wagons and couples (no gap for wagons)", () => {

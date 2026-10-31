@@ -20,18 +20,22 @@ export const SIM_DT = 1 / SIM_HZ;
 /** A train stopped at the end of the line waits this long (2 s) before driving back. */
 export const TURNBACK_TICKS = 2 * SIM_HZ;
 /**
- * How far back (mm) an engine following another train's engine stops and runs (issue #6: about a wagon's length, a
- * gap that reads at a glance), easing down to it (`followCap`); and how far apart two engines met head on stand.
+ * How far back (mm) an engine following another train's engine runs while that one moves (issue #6: about a wagon's
+ * length, a gap that reads at a glance), easing down to it (`followCap`); how close it pulls up behind one standing
+ * (the stop-short margin: the user's call on #6, it closes up once the one ahead has stopped); and how far apart two
+ * engines met head on stand.
  */
 const FOLLOW_GAP = 70;
+const STOP_GAP = 10;
 const NOSE_GAP = 40;
 /** How far (mm) an end axle sits in from its car's end face, at most, for `aheadOnTrack`'s reach. */
 const FOLLOW_LOOK_PAST = 24;
 /**
- * The last resort in `resolveContacts`: within this (mm) of another engine's back, a follower keeps pace with it.
- * Small, so trains side by side on a loop's two roads (72 mm apart) never count; `followCap` keeps them further back.
+ * The last resort in `resolveContacts`: within this (mm, and a tick's move) of another engine's back, a follower keeps
+ * pace with it. Inside `STOP_GAP`, so it doesn't cut short `followCap`'s easing in (a sudden stop); and small, so
+ * trains side by side on a loop's two roads (72 mm apart) never count.
  */
-const CONTACT_FOLLOW = 10;
+const CONTACT_FOLLOW = 4;
 /** For this long (2 s) after coming off a lift, a train still has the right of way over one coming toward it. */
 const LIFT_GRACE = 2 * SIM_HZ;
 /** Slower than this (mm/s) a train is standing: it doesn't move (or ask for frames) at all. */
@@ -1589,8 +1593,8 @@ export class Sim {
   }
 
   /**
-   * The speed this train may run at to stop `FOLLOW_GAP` behind another train with an engine ahead of it on its track (its
-   * back), or `NOSE_GAP` short of one met head on (its front: each taking half the room while the other moves): braking
+   * The speed this train may run at to keep `FOLLOW_GAP` behind another train with an engine ahead of it on its track
+   * while that one moves, and to stop `STOP_GAP` behind it once it stands (its back), or `NOSE_GAP` short of one met head on (its front: each taking half the room while the other moves): braking
    * as it does for anything (`ACCELERATION`), and behind a moving train no slower than it while it has room. Looks no
    * further than its stopping distance and the gap; Infinity when there's none. Wagons with no engine aren't looked for:
    * an engine runs onto them and couples (`resolveContacts`). With no room left, it's held by that train (`heldBy`).
@@ -1612,7 +1616,7 @@ export class Sim {
         if (d > look) continue;
         // (Close by in a straight line: is it on this train's track ahead, not on a loop's other road beside it?)
         if (!this.aheadOnTrack(train, b.bogies[front ? 0 : b.bogies.length - 1], d + 2 * FOLLOW_LOOK_PAST)) continue;
-        let room = Math.max(0, d - (front ? NOSE_GAP : FOLLOW_GAP));
+        let room = Math.max(0, d - (front ? NOSE_GAP : b.speed > 0 ? FOLLOW_GAP : STOP_GAP));
         if (front && b.speed > 0) room /= 2;
         const u = front ? 0 : b.speed;
         const c = Math.min(room / SIM_DT, Math.sqrt(u * u + 2 * ACCELERATION * room));

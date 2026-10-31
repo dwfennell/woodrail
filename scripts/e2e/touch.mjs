@@ -2367,10 +2367,11 @@ async function putAwayButton(p) {
 }
 
 /**
- * Issue #6: a train following another on one line keeps a visible gap, about a wagon's length (70 mm), and stops that
- * far short when the one ahead stops. A straight run with a buffer at each end; two trains on it, running the same way,
- * the second well behind. The player taps the first and its card's Stop: the second eases up to it and stands about
- * 70 mm short, held by it (not touching, not coupled), on the game's own sim.
+ * Issue #6: a train following another on one line keeps a visible gap while that one moves, about a wagon's length
+ * (70 mm), and once it stops pulls up close behind it (the stop-short margin, 10 mm: the user's call). A straight run
+ * with a buffer at each end; two trains on it running the same way, the first at half speed, the second catching it up
+ * and following at the gap. The player taps the first and its card's Stop: the second eases in and stands about 10 mm
+ * behind, held by it (not touching, not coupled), on the game's own sim.
  */
 async function followGap(ctx, p, tapSel) {
   await p.keyboard.press("Escape");
@@ -2416,30 +2417,41 @@ async function followGap(ctx, p, tapSel) {
       w.sim.setLever(e, 1);
       return e;
     };
-    const lead = put(ids[4], 200);
+    const lead = put(ids[3], 200);
     const follower = put(ids[1], 100);
+    // Harness shortcut (setup): the first runs at half speed, so the second catches it up (put back after the check).
+    const top = w.sim.topSpeed;
+    const leadTrain = w.sim.findCar(lead).train.id;
+    window.__followTop = top;
+    w.sim.topSpeed = (t) => (t.id === leadTrain ? 60 : top ? top(t) : 120);
     // Harness shortcut: the game's own sim ticks (as `Game.frame` runs them), run ahead of SwiftShader's few frames a
-    // second. Notes the closest the follower's front came to the lead's back (their end faces, as the sim measures).
+    // second. Notes the closest the follower's front came to the lead's back (their end faces, as the sim measures),
+    // while the lead moved and in all.
     window.__followRun = (secs) => {
       const f = { x: 0, y: 0, z: 0 };
       const r = { x: 0, y: 0, z: 0 };
       let least = Infinity;
+      let leastMoving = Infinity;
       for (let i = 0; i < secs * 120; i++) {
         w.sim.tick();
         w.sim.endFace(w.sim.findCar(follower).train, true, f);
         w.sim.endFace(w.sim.findCar(lead).train, false, r);
-        least = Math.min(least, Math.hypot(f.x - r.x, f.z - r.z));
+        const d = Math.hypot(f.x - r.x, f.z - r.z);
+        least = Math.min(least, d);
+        if (w.sim.findCar(lead).train.speed > 0) leastMoving = Math.min(leastMoving, d);
       }
       w.invalidate();
       const ft = w.sim.findCar(follower).train;
-      return { least: Math.round(least * 10) / 10, gap: Math.round(Math.hypot(f.x - r.x, f.z - r.z) * 10) / 10, speeds: [lead, follower].map((e) => Math.round(w.sim.findCar(e).train.speed)), held: w.sim.heldHow(ft.id), trains: w.sim.trainCount };
+      const k = (x) => Math.round(x * 10) / 10;
+      return { least: k(least), leastMoving: k(leastMoving), gap: k(Math.hypot(f.x - r.x, f.z - r.z)), speeds: [lead, follower].map((e) => Math.round(w.sim.findCar(e).train.speed)), held: w.sim.heldHow(ft.id), trains: w.sim.trainCount };
     };
-    // (Both running, the follower well behind: half a second on.)
-    window.__followRun(0.5);
+    // (Both running: the follower catches up and follows.)
+    const following = window.__followRun(8);
     w.paused = true;
     w.invalidate();
-    return { lead, follower };
+    return { lead, follower, following };
   });
+  check("follow (#6): following a moving train, the follower keeps a visible gap (66–74 mm, never closer)", setup.following.leastMoving >= 66 && setup.following.gap >= 66 && setup.following.gap <= 74 && setup.following.speeds.every((v) => v === 60), JSON.stringify(setup.following));
   // The player taps the first train, and its card's Stop. (Paused while tapping: the game's frames would run it on.)
   const { tapOn, tapButton } = mapHelpers(p);
   await tapOn({ engine: setup.lead });
@@ -2448,9 +2460,13 @@ async function followGap(ctx, p, tapSel) {
   await tapButton(".engine-card .go");
   const lever = await p.evaluate((e) => { const f = window.woodrail.sim.findCar(e); return f.train.cars[f.index].lever; }, setup.lead);
   check("follow: the lead's card Stop turns its lever off", goSaid === "Stop" && lever === 0, JSON.stringify({ goSaid, lever }));
-  // Ten seconds on: the lead has stopped; the follower came up behind and stands about 70 mm short, held by it.
-  const after = await p.evaluate(() => window.__followRun(10));
-  check("follow (#6): the follower stops a visible gap behind the stopped train (66–74 mm, never closer), held by it, not coupled", after.speeds.every((v) => v === 0) && after.gap >= 66 && after.gap <= 74 && after.least >= 66 && after.held === "follow" && after.trains >= 2, JSON.stringify(after));
+  // Ten seconds on: the lead has stopped; the follower pulled up close behind and stands there, held by it.
+  const after = await p.evaluate(() => {
+    const r = window.__followRun(10);
+    window.woodrail.sim.topSpeed = window.__followTop;
+    return r;
+  });
+  check("follow (#6): once the train ahead stops, the follower pulls up close behind it (8–14 mm, never touching), held by it, not coupled", after.speeds.every((v) => v === 0) && after.gap >= 8 && after.gap <= 14 && after.least >= 8 && after.held === "follow" && after.trains >= 2, JSON.stringify(after));
   await p.keyboard.press("Escape");
 }
 
