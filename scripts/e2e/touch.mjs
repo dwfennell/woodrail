@@ -2912,7 +2912,13 @@ async function routeKeep(ctx, p, tapSel) {
         });
       g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more), ok });
     }
-    if (!g) throw new Error("no open ground for the line, its piece by the sawmill on the land");
+    if (!g) {
+      // (Why not, for the record: with only the clear points, then the land too.)
+      const pts = (id) => { const q = L.getPiece(id).pose; return [0, 54, 108, 162, 216].map((d) => [q.x + d * Math.cos(q.heading), q.z + d * Math.sin(q.heading)]); };
+      const a1 = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350 });
+      const a2 = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more) });
+      throw new Error(`no open ground for the line, its piece by the sawmill on the land (${JSON.stringify({ a1, a2, bounds: w.director.bounds })})`);
+    }
     const scratch = [...L.pieceIds()].filter((id) => id !== more);
     const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
     const run = w.editor().placeRun(scratch.map((id) => { const q = L.getPiece(id); return { type: q.type, pose: at(q.pose), y: 0, flipped: q.flipped }; }));
