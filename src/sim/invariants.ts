@@ -7,7 +7,7 @@
  *   its stop (the way sections granted it, else one whose plan costs no more than the best).
  * - **split:** a train's axles don't join along the track (by pieces and paths: loose joints open a few mm).
  * - **underTrain:** points thrown with a car on or over them (seen at the throw: `watchThrows`).
- * - **pinned:** pinned points thrown, or found moved while pinned.
+ * - **pinned:** pinned points thrown (but by the player's lever tap: a pin keeps routes off them), or found moved.
  * - **restore:** points nobody holds or stands on for a second not at their default (opt-in: the harness).
  * - **deadlock:** a lever-on train standing `maxStill` s with nothing to say why (stuck sanity); a wait (sections',
  *   the router's, a stall's) naming a train that isn't there; sections' safety net letting a wait go.
@@ -154,9 +154,11 @@ export class Invariants {
       if (state !== layout.switchState(pieceId)) {
         counted?.();
         if (this.world.sim.pointsHeld(pieceId)) this.break("underTrain", `points ${pieceId} thrown to ${state} under a train`, undefined, pieceId);
-        if (layout.isPinned(pieceId)) this.break("pinned", `pinned points ${pieceId} thrown to ${state}`, undefined, pieceId);
+        // (A lever tap is the player's own throw: a pin keeps routes off the points, not the player.)
+        if (layout.isPinned(pieceId) && this.world.router.tapping !== pieceId) this.break("pinned", `pinned points ${pieceId} thrown to ${state}`, undefined, pieceId);
       }
       bound(pieceId, state);
+      if (this.world.router.tapping === pieceId && this.pinnedAt.has(pieceId)) this.pinnedAt.set(pieceId, layout.switchState(pieceId));
     };
     return () => {
       layout.setSwitchState = set;
