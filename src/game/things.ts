@@ -59,7 +59,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:timber": { label: "Flatbed wagon", cost: { planks: 3 } },
   "car:hopper": { label: "Hopper", cost: { planks: 3 }, tech: "farming" },
   "car:passenger": { label: "Coach", cost: { planks: 4 }, tech: "passengers" },
-  "car:caboose": { label: "Caboose", cost: { planks: 2 }, tech: "passengers" },
+  "car:caboose": { label: "Caboose", cost: { planks: 2 }, tech: "brake-vans" },
   "car:van": { label: "Van", cost: { planks: 3 }, tech: "mills" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
@@ -81,9 +81,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // Railway kits (src/track/kits.ts) and lineside furniture in Game mode: each row names the blueprint that unlocks it
   // (docs/superpowers/specs/2026-10-17-track-props-design.md, "Game mode availability"). Priced against the pieces
   // like them: a signal skin a plank over the signal, an engine service like a switch, a shed or roundhouse like the
-  // workshop; planks only (kits make the railway, not the economy). Not in Game mode: Sandbox's cargo loaders and
-  // unloaders (the goods shed among them), the two-platform station, the terminus, the fuel station, the buffer-stop
-  // lamp.
+  // workshop; planks only (kits make the railway, not the economy). Sandbox's cargo loaders and unloaders are here
+  // as looks only: in Game mode they're no depot (`syncIndustries`), so no endless heap and nothing vanishes.
   // Signals: the semaphore is the signal in a look of its own; the colour light needs electricity.
   "piece:kit-semaphore-signal": { label: "Semaphore signal", cost: { planks: 3 }, tech: "signals" },
   "piece:kit-colour-light-signal": { label: "Colour-light signal", cost: { planks: 2, iron: 1 }, tech: "electricity" },
@@ -113,6 +112,26 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "prop:mech-whistle-post": { label: "Whistle post", cost: { planks: 1 }, tech: "scenery" },
   "prop:bldg-signal-box": { label: "Signal box", cost: { planks: 4 }, tech: "scenery" },
   "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "scenery" },
+  // Big stations: passenger stops of their own (looks only for now: not a town's halt).
+  "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
+  "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },
+  // Fun track.
+  "piece:kit-train-lift": { label: "Train lift", cost: { planks: 10 }, tech: "fun-track" },
+  "piece:kit-loop-the-loop": { label: "Loop-the-loop", cost: { planks: 8 }, tech: "fun-track" },
+  "piece:kit-buffer-stop-lamp": { label: "Buffer stop with a lamp", cost: { planks: 2 }, tech: "fun-track" },
+  // Fuel stop.
+  "piece:kit-fuel-station": { label: "Fuel station", cost: { planks: 5 }, tech: "fuel-stop" },
+  // Loading kits and big cranes: looks only (see above).
+  "piece:kit-log-loader": { label: "Log loader", cost: { planks: 5 }, tech: "loading-kits" },
+  "piece:kit-grain-elevator": { label: "Grain elevator", cost: { planks: 5 }, tech: "loading-kits" },
+  "piece:kit-drop-hopper": { label: "Drop hopper", cost: { planks: 4 }, tech: "loading-kits" },
+  "piece:kit-goods-shed": { label: "Goods shed", cost: { planks: 6 }, tech: "loading-kits" },
+  "piece:kit-gantry-crane": { label: "Gantry crane", cost: { planks: 8 }, tech: "big-cranes" },
+  "piece:kit-magnet-crane": { label: "Magnet crane", cost: { planks: 8 }, tech: "big-cranes" },
+  "piece:kit-harbour-crane": { label: "Harbour crane", cost: { planks: 8 }, tech: "big-cranes" },
+  "piece:kit-cargo-conveyor": { label: "Conveyor", cost: { planks: 6 }, tech: "big-cranes" },
+  "piece:kit-tipping-dump": { label: "Wagon tipper", cost: { planks: 6 }, tech: "big-cranes" },
+  "piece:kit-coal-chute": { label: "Coal chute", cost: { planks: 5 }, tech: "big-cranes" },
   // Crossing styles: only a look, so free once learned.
   "prop:mech-level-crossing": { label: "Level crossing", cost: {}, tech: "scenery", free: true },
   "prop:mech-gated-crossing": { label: "Gated crossing", cost: {}, tech: "scenery", free: true },

@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
-import { appendPiece, connectorRef, isKit, kitOf, type PieceTypeId } from "../track";
+import { appendPiece, connectorRef, isKit, kitOf, KITS, type PieceTypeId } from "../track";
+import { GAME_KIT_GROUPS, GAME_TRACK_KITS } from "../ui/tray-catalogue";
 import { BLUEPRINTS } from "./blueprints";
 import { craftNow, Crafting, lacking, workshopStock } from "./crafting";
 import { Progress, inUse } from "./progress";
 import { crateFor } from "./rewards";
 import { built, ready, techOf, unlocksOf } from "./tech";
-import { costText, isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./things";
+import { costText, isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "./things";
 import { buildStarterWorld, syncIndustries } from "./world";
 
 /** Game mode's railway kits and lineside furniture, by the blueprint that unlocks them: the table as decided. */
@@ -29,6 +30,12 @@ const UNLOCKS: Record<string, ThingId[]> = {
     "prop:mech-level-crossing",
     "prop:mech-gated-crossing",
   ],
+  // Sandbox's kits brought into Game mode behind research (tech-tree spec step 2), looks only at first.
+  "big-stations": ["piece:kit-two-platform-station", "piece:kit-grand-terminus"],
+  "fun-track": ["piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"],
+  "fuel-stop": ["piece:kit-fuel-station"],
+  "loading-kits": ["piece:kit-log-loader", "piece:kit-grain-elevator", "piece:kit-drop-hopper", "piece:kit-goods-shed"],
+  "big-cranes": ["piece:kit-gantry-crane", "piece:kit-magnet-crane", "piece:kit-harbour-crane", "piece:kit-cargo-conveyor", "piece:kit-tipping-dump", "piece:kit-coal-chute"],
 };
 
 /** The starter map with a workshop out of the first station's far end, holding `planks` (and `iron`). */
@@ -60,9 +67,26 @@ describe("railway kits in Game mode", () => {
     expect(BLUEPRINTS.filter((b) => b.id === "halts")).toHaveLength(1);
   });
 
-  it("no cargo loaders or unloaders: Sandbox's endless heaps stay Sandbox's", () => {
-    for (const id of Object.keys(THING_RULES)) if (id.startsWith("piece:kit-")) expect(kitOf(id.slice(6) as PieceTypeId)!.depot, id).toBeUndefined();
-    expect(ruleOf("piece:kit-goods-shed")).toBeUndefined();
+  it("every Sandbox kit is in Game mode now, behind its blueprint, on a tray shelf", () => {
+    const tray = new Set([GAME_TRACK_KITS, ...GAME_KIT_GROUPS].flatMap((g) => g.items.map((i) => (i.kind === "piece" ? i.type : ""))));
+    for (const type of Object.keys(KITS) as PieceTypeId[]) {
+      expect(ruleOf(pieceThing(type))?.tech, type).toBeDefined();
+      expect(tray.has(type), type).toBe(true);
+    }
+  });
+
+  it("cargo loaders and unloaders are looks only in Game mode: no depot, so no endless heap and nothing vanishes", () => {
+    const loaders = (Object.keys(KITS) as PieceTypeId[]).filter((t) => kitOf(t)!.depot);
+    expect(loaders).toHaveLength(10);
+    for (const type of loaders) {
+      for (const game of [true, false]) {
+        const w = buildStarterWorld();
+        const station = w.stations.get(w.landscape.towns[0].id)!;
+        const piece = appendPiece(w.layout, type, false, connectorRef(station, 0));
+        syncIndustries(w, game);
+        expect(w.economy.depotAtPiece(piece), `${type} game ${game}`)[game ? "toBeUndefined" : "toBeDefined"]();
+      }
+    }
   });
 
   it("a kit not learned can't be taken out, nor ordered; learned, it can", () => {
@@ -145,5 +169,26 @@ describe("railway kits in Game mode", () => {
     expect(ready(p, "halts")).toBe(false);
     p.learned.add("passengers");
     expect(ready(p, "halts")).toBe(true);
+  });
+
+  it("the caboose comes with Brake vans (after the tank engine), not Passengers", () => {
+    const p = Progress.fresh();
+    p.learned.add("passengers");
+    expect(p.knows("car:caboose")).toBe(false);
+    expect(ready(p, "brake-vans")).toBe(false);
+    p.learned.add("tank");
+    expect(ready(p, "brake-vans")).toBe(true);
+    p.learned.add("brake-vans");
+    expect(p.knows("car:caboose")).toBe(true);
+  });
+
+  it("the new kit blueprints: tiers, what they need, coins from tier 2", () => {
+    const at = (id: string) => [techOf(id)!.tier, techOf(id)!.needs, techOf(id)!.research.coins ?? 0];
+    expect(at("big-stations")).toEqual([2, ["stations"], 120]);
+    expect(at("fun-track")).toEqual([1, ["bridges", "scenery"], 0]);
+    expect(at("fuel-stop")).toEqual([2, ["diesel"], 60]);
+    expect(at("loading-kits")).toEqual([1, ["cranes1"], 0]);
+    expect(at("big-cranes")).toEqual([3, ["cranes2", "mines"], 200]);
+    expect(at("brake-vans")).toEqual([1, ["tank"], 0]);
   });
 });
