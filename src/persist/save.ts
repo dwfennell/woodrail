@@ -156,6 +156,8 @@ const saveSchema = z.object({
         town: z.number().int().min(0).optional(),
         variant: z.number().int().min(0).max(8).optional(),
         scale: z.number().min(0.5).max(1).optional(),
+        /** A town house's storeys more than its model (its town grew: `props/storeys.ts`). */
+        storeys: z.number().int().min(0).max(8).optional(),
       }),
     )
     .optional(),
@@ -248,7 +250,7 @@ export function serializeWorld(world: World): SaveData {
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(lines.length > 0 ? { lines } : {}),
-    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) })),
+    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
 }
 
@@ -468,7 +470,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     if (relaxBroughtBack(layout, broughtBack, pinned)) sim.trackChanged();
   }
   const props = new PropStore();
-  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) });
+  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) });
   // Saves from before towns were built from catalogue models: their buildings get their models now.
   addTownProps(landscape, props);
   const world: World = { layout, sim, landscape, stations, depots, economy, props, ruins };
