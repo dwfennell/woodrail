@@ -469,4 +469,50 @@ describe("step 7: hand-run trains respect locks", () => {
     expect(A().speed).toBeGreaterThan(0);
     expect(run.stalls.stuckOf(run.engines[0])).toBeNull();
   });
+
+  /** The shuttle line with train 0 standing (lever off) on piece `at` of it, and a hand-run train coming up behind it. */
+  function behindStanding(at: (ids: number[]) => number, s: number) {
+    const h = S.noRoomToTurn();
+    const run = new HarnessRun(new Layout(), h.scenario);
+    const ids = h.ids();
+    const first = run.engines[0];
+    // (Moved, as the player would, to where it stands: put down there, lever off.)
+    run.sim.removeTrain(run.sim.findCar(first)!.train.id);
+    const a = run.sim.addTrain(["engine", "timber", "timber"], { pieceId: at(ids), pathIndex: 0, reversed: false, s });
+    const b = run.sim.addTrain(["engine", "timber", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 180 });
+    if (a.kind !== "placed" || b.kind !== "placed") throw new Error("no room");
+    const engine = run.sim.getTrain(b.trainId)!.cars[0].id;
+    run.sim.setLever(engine, 1);
+    return { run, engine, standing: run.sim.getTrain(a.trainId)!.cars[0].id };
+  }
+
+  it("the user's decision (§16 Q9): a train standing at the end of the line is the end of it: one behind pulls up, turns round there and heads back engine first", () => {
+    const { run, engine } = behindStanding((ids) => ids[5], 160);
+    let turned = -1;
+    let pushed = 0;
+    for (let k = 0; k < 30 * SIM_HZ; k++) {
+      run.step();
+      const t = run.sim.findCar(engine)!.train;
+      if (turned < 0 && t.lastTurn) turned = run.tick / SIM_HZ;
+      let net = 0;
+      for (const c of t.cars) if (c.kind === "engine") net += c.lever * c.facing;
+      if (t.speed > 0 && t.cars[net > 0 ? 0 : t.cars.length - 1].kind !== "engine") pushed++;
+    }
+    const t = run.sim.findCar(engine)!.train;
+    expect(turned).toBeGreaterThan(0);
+    expect(t.lastTurn!.cause).toBe("buffer");
+    expect(pushed).toBe(0);
+    // (On its way back down the line, or at the other end by now: not standing stuck behind it.)
+    expect(run.stalls.stuckOf(engine)).toBeNull();
+    noBreaks(run.run(0));
+  });
+
+  it("mid-line, behind a train standing there, it waits (said stuck, parked) and never turns back (§16 Q3)", () => {
+    const { run, engine } = behindStanding((ids) => ids[3], 160);
+    run.run(30);
+    const t = run.sim.findCar(engine)!.train;
+    expect(t.lastTurn).toBeUndefined();
+    expect(t.speed).toBe(0);
+    expect(run.stalls.stuckOf(engine)?.kind).toBe("parked");
+  });
 });

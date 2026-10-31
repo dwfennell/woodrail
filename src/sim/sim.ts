@@ -36,6 +36,11 @@ const DECOUPLE_GAP = 8;
 const TURN_CLEARANCE = 0.05;
 /** With no room to turn round at the end of the line, how long (ticks) a train waits before trying again. */
 const TURN_RETRY_TICKS = SIM_HZ / 2;
+/**
+ * How much further (mm) than the standing train's length the piece the line ends on may begin, for `endOfLineBehind`:
+ * the follower's inset and gap, the standing train a little short of the end, and a short end piece.
+ */
+const END_BEHIND_SLACK = 120;
 
 // Motion tuning (mm, s).
 export const ENGINE_SPEED = 120;
@@ -347,6 +352,7 @@ export class Sim {
 
   removeTrain(id: number): boolean {
     this.turnBlocked.delete(id);
+    this.endBehind.delete(id);
     return this.trains.delete(id);
   }
 
@@ -1062,6 +1068,64 @@ export class Sim {
   private readonly held = new Map<number, { by: number; how: HeldHow; tick: number }>();
   /** Trains waiting at the end of the line with no room to turn round: the train in the way (`Sim.tick`). */
   private readonly turnBlocked = new Map<number, number>();
+  /** Trains waiting to turn back close behind a train standing at the end of the line: that train (`endOfLineBehind`). */
+  private readonly endBehind = new Map<number, number>();
+
+  /**
+   * A train pulled up close behind another standing at the end of the line (the user's decision, routing spec §16 Q9):
+   * that train is its end of the line, so it waits there and turns round as at a buffer (the end-of-line flip), and
+   * heads back engine first. Only where the track ahead ends (a buffer or open end, no points with a choice) within
+   * the standing train's length and a little: mid-line, a train in the way is waited for, never turned back from (§16
+   * Q3). Asked only of a train standing held close behind another ("follow", this tick).
+   */
+  private endOfLineBehind(train: Train): void {
+    const h = this.held.get(train.id);
+    if (!h || h.how !== "follow" || h.tick !== this.ticks) return;
+    const b = this.trains.get(h.by);
+    // (Not a train on a lift or a turntable's deck: that's a ride, waited for, not the end of the line.)
+    if (!b || b.derailed || b.speed > 0 || this.onLift(b) || (this.rides.size > 0 && this.riding(b))) return;
+    let net = 0;
+    for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
+    if (net <= 0) return;
+    let len = 0;
+    for (const c of b.cars) len += CAR_SPECS[c.kind].length;
+    const end = this.endAhead(train, len + COUPLER_GAP * b.cars.length + END_BEHIND_SLACK);
+    if (!end) return;
+    train.turnback = TURNBACK_TICKS;
+    train.lastTurn = { cause: end.cause, pieceId: end.pieceId, tick: this.ticks };
+    this.endBehind.set(train.id, b.id);
+    this.events.push({ kind: "buffer", trainId: train.id });
+  }
+
+  /**
+   * Where the track ahead of a train's front ends (a buffer, or track that just stops) within `within` mm, with no
+   * points that give a choice on the way; null if it doesn't.
+   */
+  private endAhead(train: Train, within: number): { cause: TurnCause; pieceId: number } | null {
+    const c = crossAt;
+    Object.assign(c, train.bogies[0]);
+    let dist = -c.s;
+    for (let k = 0; k < MAX_BLOCK; k++) {
+      const piece = this.layout.getPiece(c.pieceId);
+      if (!piece) return null;
+      const def = getPieceDef(piece.type, piece.flipped);
+      // (A lift or a turntable's deck goes on somewhere else: not the end of the line.)
+      if (def.lift || def.gated) return null;
+      const path = def.paths[c.pathIndex];
+      // (Points that would give a choice from this end: not the end of the line.)
+      const entry = c.reversed ? path.to : path.from;
+      if (k > 0 && def.paths.filter((p) => p.from === entry || p.to === entry).length > 1) return null;
+      // (This piece begins beyond the reach: the end, if any, is too far.)
+      if (dist > within) return null;
+      const len = pathLength(path.geom);
+      dist += len;
+      advanceCursor(this.layout, c, len - c.s + 0.01, null, crossAdv);
+      if (crossAdv.status === ADV_BUFFER || crossAdv.status === ADV_OPEN_END) return { cause: crossAdv.status === ADV_BUFFER ? "buffer" : "open-end", pieceId: c.pieceId };
+      if (crossAdv.status !== ADV_OK) return null;
+      c.s = 0;
+    }
+    return null;
+  }
 
   /**
    * The train (its id) holding this one where it stands, this tick or the last: one it waits for short of a crossing or
@@ -1208,6 +1272,7 @@ export class Sim {
         if (turned) {
           turned.lastTurn = train.lastTurn;
           this.turnBlocked.delete(train.id);
+          this.endBehind.delete(train.id);
           this.events.push({ kind: "turned", trainId: train.id, newTrainId: turned.id });
           continue; // moves from next tick, as a new train
         }
@@ -1224,9 +1289,20 @@ export class Sim {
         const b = by === undefined ? undefined : this.trains.get(by);
         if (b) this.holdBy(train, b, "turn");
       } else if (this.turnBlocked.size > 0) this.turnBlocked.delete(train.id);
+      // Waiting to turn back behind a train standing at the end of the line: if that train moves off first, it waits
+      // no more and goes on.
+      if (train.turnback >= 0 && this.endBehind.size > 0) {
+        const by = this.endBehind.get(train.id);
+        const b = by === undefined ? undefined : this.trains.get(by);
+        if (by !== undefined && (!b || b.speed > 0)) {
+          this.endBehind.delete(train.id);
+          train.turnback = -1;
+        }
+      }
       // Waiting to turn back, it stands still (not pressing on into a buffer or a train it met).
       if (train.turnback >= 0) continue;
       this.move(train);
+      if (train.speed < 1 && this.trains.size > 1) this.endOfLineBehind(train);
     }
     this.resolveContacts();
   }

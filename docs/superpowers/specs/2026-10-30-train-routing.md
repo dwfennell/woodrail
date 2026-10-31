@@ -712,6 +712,14 @@ lone-train check.
        its way holds the points, moving or not, and never turns short of the end of the track. A wait that can't end
        (the holder parked, or a ring) is a stall, said on its card after `STUCK_S` ("Stuck: a parked train is in the way.
        Move it", or in-way). No timer remains anywhere for hand-run trains (`clearCap`'s 2 s turn-back went at 5b).
+     - **A train standing at the end of the line is the end of it** (§16 Q9, the user's decision during this step): a
+       train held close behind another (`heldHow` "follow", standing) that is stopped, where the track ahead ends (a
+       buffer or open end, no points with a choice) within that train's length + `END_BEHIND_SLACK` (120 mm), waits as
+       at a buffer and turns round there (`Sim.endOfLineBehind`, `endAhead`; `lastTurn` names the buffer or open end), and
+       heads back engine first. If the standing train moves off during the wait, it goes on instead. Mid-line (the end
+       further than that, or points between) it waits as before, said stuck if it can't end. Asked only of a standing
+       train held "follow" this tick: nothing per frame. Harness: one behind a train parked at the buffers turns and goes
+       back, never pushing; one behind a train parked mid-line waits, said stuck "parked", never turns.
      - **No room to turn round at the end of the line** (step 6's leftover): `Sim.tick` no longer reverses the levers (it
        pushed back, a setup the player never made). It waits there and tries again every `TURN_RETRY_TICKS` (0.5 s),
        held by the train in the way (`heldBy`, `heldHow` "turn", found by `turnBlocker`: `turnAround`'s room check). It
@@ -783,3 +791,9 @@ These override anything earlier in this spec that disagrees.
 6. **Routes never set switches for hand-run trains.**
 7. **Points going back:** the lever visibly swings back, with a soft click.
 8. **Dead ends:** keep today's automatic Swap ends at a dead end. Don't suggest adding a loop.
+9. **A train standing at the end of the line is the end of it** (the user, during step 7, via the CoS): when a train
+   can't turn round at the end of a line because another train is in the way, and that train is stopped, treat it as
+   the end of the line: pull up close behind it, do the automatic end-of-line flip there and head back engine first,
+   just as at buffers. Only at the end of a line, where the train would have turned anyway. Mid-line, a train blocked by
+   another still waits or shows the stuck card, and never turns back (Q3).
+
