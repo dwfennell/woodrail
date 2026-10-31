@@ -240,6 +240,40 @@ const SHARED: Case[] = [
   },
 ];
 
+/**
+ * Step 6, forward costs (#7, §16 Q4): a route goes round a balloon, a wye's loop or an oval rather than reverse at a
+ * dead end (by piece counts it took the spur: plan.test.ts), and turns only where it must, at the line's own end (T's
+ * buffers), by the end-of-line flip, so engine first at every stop. A train the player set up engine-last keeps pushing.
+ */
+const noSpur = (r: Report) => expect(r.onWatched).toBe(0);
+const engineFirst = (r: Report) => expect(r.pushed).toEqual([0]);
+/** Turns only at T's buffers: once a visit to T (every other stop), one more if the run ends on its way back. */
+const turnsAtT = (r: Report) => expect(r.turns[0].buffer).toBeLessThanOrEqual(Math.ceil(r.arrivals[0] / 2) + 1);
+const FORWARD: Case[] = [
+  ...[S.balloonOverSpur, S.wyeOverSpur].map((scenario) => ({
+    scenario,
+    checks: { "payoff: 20+ stops in 10 min": arrivals(20), "round, never into the spur": noSpur, "turns only at the end of the line": turnsAtT, "engine first at every stop": engineFirst, "never stuck": noStall },
+  })),
+  {
+    scenario: S.loopOverSpur,
+    checks: {
+      "payoff: 30+ stops in 10 min": arrivals(30),
+      "round the oval, never into the spur": noSpur,
+      "never turns": (r) => expect(r.turns[0]).toEqual({ buffer: 0, "open-end": 0 }),
+      "engine first at every stop": engineFirst,
+      "never stuck": noStall,
+    },
+  },
+  {
+    scenario: S.pushingShuttle,
+    checks: {
+      "payoff: 30+ stops in 10 min": arrivals(30),
+      "turns back only at the buffers, by the flip": endsOnly,
+      "keeps pushing, as the player set it up": (r) => expect(r.pushed).toEqual(r.arrivals),
+    },
+  },
+];
+
 /** The router's cost: mean µs per tick over the §8 runs (10 µs a steer every 8 ticks, today: about 1–2 µs a tick). */
 const ROUTER_US = 25;
 
@@ -278,6 +312,7 @@ function show(r: Report): void {
 describe("§8 kid automations: 30 game minutes, no wait over 20 s", () => KID.forEach(describeCase));
 describe("§12 scenarios", () => OTHERS.forEach(describeCase));
 describe("single-line working across lines: 30 game minutes, no wait over 20 s", () => SHARED.forEach(describeCase));
+describe("step 6, forward costs: round rather than reverse", () => FORWARD.forEach(describeCase));
 
 describe("the checks catch what they're for (controls)", () => {
   it("points thrown under a train: a split, and a throw under a train", () => {
@@ -298,7 +333,7 @@ describe("the checks catch what they're for (controls)", () => {
 
 describe("every expected failure names a step", () => {
   it("and names a check the case has", () => {
-    for (const c of [...KID, ...OTHERS, ...SHARED]) {
+    for (const c of [...KID, ...OTHERS, ...SHARED, ...FORWARD]) {
       const names = new Set<string>([...INVARIANTS, ...Object.keys(c.checks ?? {})]);
       for (const [name, step] of Object.entries(c.fails ?? {})) {
         expect(names.has(name), `${c.scenario.name}: ${name}`).toBe(true);

@@ -19,7 +19,7 @@ import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
 import { next, waysFrom } from "./graph";
-import { planChoice, PIECE_COSTS } from "./plan";
+import { planChoice, ROUTE_COSTS } from "./plan";
 
 /** A train in a scenario. No `stops`: hand-run (its lever on, no route). */
 export interface TrainSpec {
@@ -196,7 +196,8 @@ export class HarnessRun {
     for (const id of placed) {
       if (id === -1) continue;
       const k = this.engines.length;
-      const engine = this.sim.getTrain(id)!.cars[0].id;
+      // (Its engine: at the front, or where the player coupled it, `pushingShuttle`'s at the back.)
+      const engine = this.sim.getTrain(id)!.cars.find((c) => c.kind === "engine")!.id;
       this.sim.setLever(engine, this.specs[k].lever ?? 1);
       this.engines.push(engine);
     }
@@ -631,7 +632,7 @@ export class HarnessRun {
     if (followed.length === 1) wrong = followed[0].option !== taken.option;
     else {
       const costs: number[] = [];
-      const best = planChoice(this.layout, b.pieceId, true, ways, held?.aim ?? target, PIECE_COSTS, costs);
+      const best = planChoice(this.layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
       if (best === -1 || best === taken.option) return;
       wrong = !(costs[taken.option] <= costs[best]);
     }

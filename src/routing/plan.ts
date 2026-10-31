@@ -102,25 +102,51 @@ export interface PlanCosts {
   through(layout: Layout, pieceId: number, path: number): number;
   turn(layout: Layout, pieceId: number, path: number): number;
   push: number;
+  /**
+   * The end-of-line flip (§16 Q4, Q8): at the end of the line the sim turns the whole train round where it stands
+   * (`Sim.turnAround`), so it heads back out led as it came in. Without it (piece counts, as before step 6), a turn-back
+   * swaps which end leads.
+   */
+  flip?: boolean;
 }
 
 /**
  * Piece-count costs, as `distanceTo` counted (the metric before plans): a piece is 1, a turn-back `TURN_COST`, and
- * pushing costs no more. Used by `planWay` until step 6 brings costs in mm (`MM_COSTS`).
+ * pushing costs no more. Used by `planWay` until step 6 (`ROUTE_FORWARD=0` still plans by them).
  */
 export const PIECE_COSTS: PlanCosts = { through: () => 1, turn: () => TURN_COST, push: 1 };
 
-/** A reverse (§6): about 2 m, on top of the run back. */
-export const REVERSE_COST = 2000;
-/** Running engine-last (§6). */
+/**
+ * A reverse (§6, step 6): 6 m, on top of the run there and back. More than the way round any loop, wye or balloon on a
+ * table-sized map (the Sandbox map's land is about 4.2 × 3.2 m), so a plan turns at the end of a line only when no way
+ * round leads there (#7: "prefer running forward").
+ */
+export const REVERSE_COST = 6000;
+/**
+ * Running engine-last (§6, §16 Q4). The flip keeps whichever end leads, so a plan never starts pushing: this weighs only
+ * a train already running engine-last, and the router plans a train the player set up that way (an engine coupled at
+ * the back, or Swap ends) as led, so it isn't penalised for what the player chose.
+ */
 export const PUSH_FACTOR = 1.5;
 
-/** Costs in mm (§6, step 6; not used yet): the length run, a reverse `REVERSE_COST` plus the run there and back. */
+/** Costs in mm (§6, step 6): the length run, a reverse `REVERSE_COST` plus the run there and back, the end-of-line flip. */
 export const MM_COSTS: PlanCosts = {
   through: (layout, pieceId, path) => lengthOf(layout, pieceId, path),
   turn: (layout, pieceId, path) => REVERSE_COST + 2 * lengthOf(layout, pieceId, path),
   push: PUSH_FACTOR,
+  flip: true,
 };
+
+const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
+
+/**
+ * Step 6, forward costs (#7): on. Plans cost in mm (`MM_COSTS`), so a route goes round a loop, wye or balloon rather than
+ * turn at a dead end. `ROUTE_FORWARD=0` in the environment (tests, the play-through) plans by piece counts as at step 5.
+ */
+export const ROUTE_FORWARD = ENV.ROUTE_FORWARD !== "0";
+
+/** The costs every plan is made with: the router, sections, the drawn line and the harness all choose by these. */
+export const ROUTE_COSTS: PlanCosts = ROUTE_FORWARD ? MM_COSTS : PIECE_COSTS;
 
 function lengthOf(layout: Layout, pieceId: number, path: number): number {
   const p = layout.getPiece(pieceId)!;
@@ -144,7 +170,7 @@ export const planStats = { searches: 0, states: 0, choices: 0, hits: 0 };
  * offer only the road they're set to (`waysFrom`). Equal costs go to the earlier way out of each piece, as `wayToward`
  * breaks ties.
  */
-export function plan(layout: Layout, start: PlanState, target: number, costs: PlanCosts = PIECE_COSTS, pinned?: PinnedTest): Plan | null {
+export function plan(layout: Layout, start: PlanState, target: number, costs: PlanCosts = ROUTE_COSTS, pinned?: PinnedTest): Plan | null {
   planStats.searches++;
   if (start.pieceId === target) return { cost: 0, steps: [] };
   const best = new Map<number, number>();
@@ -185,7 +211,7 @@ export function plan(layout: Layout, start: PlanState, target: number, costs: Pl
         // The end of the line: back through this piece and out where it came in, the engine now at the other end.
         const back = next(layout, state.pieceId, state.entry);
         if (!back) continue;
-        to = { pieceId: back.pieceId, entry: back.entry, lead: !state.lead };
+        to = { pieceId: back.pieceId, entry: back.entry, lead: costs.flip ? state.lead : !state.lead };
         c = cost + costs.turn(layout, state.pieceId, w.path) * factor;
         step = { pieceId: state.pieceId, path: w.path, entry: state.entry, exit: w.exit, reverse: true };
       }
@@ -258,7 +284,7 @@ export function planChoice(
   lead: boolean,
   ways: readonly { option: number; path: number; exit: number }[],
   target: number,
-  costs: PlanCosts = PIECE_COSTS,
+  costs: PlanCosts = ROUTE_COSTS,
   out?: number[],
   pinned?: PinnedTest,
 ): number {
@@ -282,7 +308,7 @@ export function planChoice(
 
 /**
  * The plan's choice at points (`pieceId`, come in by `entry`, `ways` out from `waysFrom` with the same `pinned`): the
- * option whose way to `target` costs least (piece counts, `PIECE_COSTS`), the earlier on a tie; −1 if none reaches it.
+ * option whose way to `target` costs least (`ROUTE_COSTS`: in mm since step 6), the earlier on a tie; −1 if none reaches it.
  * The one choice at points for everything that decides (the router, sections, the drawn line). Cached per layout by the
  * track, the pins and the decks (a throw of unpinned points changes nothing a plan sees); a caller's own `pinned` test
  * isn't cached.
@@ -295,7 +321,7 @@ export function planWay(
   target: number,
   pinned?: PinnedTest,
 ): number {
-  if (pinned) return planChoice(layout, pieceId, true, ways, target, PIECE_COSTS, undefined, pinned);
+  if (pinned) return planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, undefined, pinned);
   const cache = cacheOf(layout);
   const key = pieceId * MAX_CONNECTORS + entry;
   let byTarget = cache.choices.get(target);

@@ -3,8 +3,8 @@
 ## Status
 
 A design, being built step by step (§13): steps 0 to 5 are done (step 2: the §12 harness and defaults; step 3: shadow
-plans; step 4: locks, setting and restore; step 5: waits), step 5b (no turn-backs: §16 Q3, stalls said on the cards) and step 5c
-(single-line working across lines: two lines' trains pass at a loop). It covers four play-test
+plans; step 4: locks, setting and restore; step 5: waits), step 5b (no turn-backs: §16 Q3, stalls said on the cards), step 5c
+(single-line working across lines: two lines' trains pass at a loop) and step 6 (forward costs, #7). It covers four play-test
 issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
@@ -170,9 +170,13 @@ no line there, asks for its moves among them all, so they meet only at passing l
 
 ## 6. Running forward (#7)
 
-Costs, in mm:
-- **A reverse** (at a dead end, or a planned turn): `REVERSE_COST` (about 2 m) plus the run back.
-- **Running engine-last:** ×`PUSH_FACTOR` (about 1.5).
+Costs, in mm (`MM_COSTS`, step 6):
+- **A reverse** (only where the track ends, §16 Q3): `REVERSE_COST` (6 m, step 6; was "about 2 m") plus the run there
+  and back. More than the way round any loop, wye or balloon on a table-sized map.
+- **The end-of-line flip** (§16 Q4, Q8): the sim turns the whole train round at the end of the line (`Sim.turnAround`),
+  so a plan's reverse keeps whichever end leads (`PlanCosts.flip`).
+- **Running engine-last:** ×`PUSH_FACTOR` (1.5). Since the flip keeps the leading end, a plan never starts pushing; a
+  train the player set up engine-last is planned as led (`planWay` plans every train led), so it isn't penalised.
 - **Pinned switches, decks and lifts:** fixed, not a choice.
 
 So a loop, wye or triangle that keeps the engine in front beats a short reverse, and a dead-end siding off the way is
@@ -644,6 +648,36 @@ lone-train check.
        209 → 206, every town 219 → 216, harbour 295 → 292 min (as 77ffa16).
 6. **Forward costs (#7, routed)** behind `ROUTE_FORWARD`. Compare balance windows and reversal counts (seed 2027 with
    1–3 trains; seeds 1 and 2 with 2 trains), then switch it on.
+   - **Done** (`claude/routing-6`; §16 Q4 answered: avoid pushing unless the player set it up, keep the end-of-line
+     flip). `ROUTE_FORWARD` is on (`ROUTE_FORWARD=0` in the environment plans by piece counts, as at step 5, for A/B).
+     - `plan.ts`: `ROUTE_COSTS` (`MM_COSTS` on, `PIECE_COSTS` off) is the one cost set: `planWay` (the router, sections'
+       `wayOn`/`unreachable`/`wayPieces`, the drawn line's `walkTo`), `plan`'s and `planChoice`'s default (sections'
+       reachability), and the harness's wrong-road check. So the plan, steering, sections and the line drawn agree.
+       Choices are still cached per layout (track, pins, decks).
+     - `REVERSE_COST` 2 m → 6 m. `PlanCosts.flip`: in mm, a reverse at the end of the line keeps `lead` (the sim's
+       flip), so `PUSH_FACTOR` only weighs a train already engine-last, evenly; `planWay` plans every train as led, so a
+       player-set pusher keeps its route and keeps pushing (the flip turns it whole). No sim change.
+     - **Harness** (`FORWARD` in harness.test.ts, 10 min each; `S.FORWARD`): `balloonOverSpur` (a balloon 8 straights on,
+       or a 2-piece dead-end spur), `wyeOverSpur` (a wye whose corners a loop of track joins, or the spur),
+       `loopOverSpur` (round an oval of short straights to the stop just behind, or back from a spur): each goes round,
+       never into the spur, engine first at every stop, turning only at the line's own buffers (the oval never), never
+       stuck: 21, 27 and 45 stops. `pushingShuttle` (engine coupled at the back): 50/50 stops made pushing, turns only at
+       the buffers. With `ROUTE_FORWARD=0` all three take the spur (6 checks fail: the control); `plan.test.ts` shows
+       the same choice both ways, and that the flip never starts a pusher. The §8 automations, the lone-train hashes and
+       every other case unchanged.
+     - **e2e** `E2E_ONLY=forward` in `e2e:touch` (about 2 min): the `wyeOverSpur` layout put down beside the land
+       (harness shortcut), forest and sawmill, the route planned by taps (engine, Plan a route, Forest, Sawmill, Done),
+       4 game minutes ticked ahead: logs delivered, round the wye's loop (never on the spur), turns only at the
+       forest's buffers, engine first at every stop (16), and the way drawn from the train's front off the sawmill goes
+       round the wye. Full `e2e:touch` 121/121 (27.6 min). Control (piece costs forced): 3 of its 5 checks fail (on the spur 7,645 ticks, a turn at the spur
+       each trip, the drawn line into the spur).
+     - **Play-through:** seed 2027, 1 train a line: identical row to step 5c (coins 1291, City 64, City ★ 124, riders
+       546, research 15 by 180, stall 12.5 min). The full A/B table (1–3 trains, seeds 1 and 2) waits for the release
+       point.
+     - **Cost:** a plan 12.5 → 16.2 µs median (31-piece fuzz layout; float costs); router looks 3.30 → 3.31 µs, 98 →
+       101 µs a piece come onto (harness). Choices stay cached (23,557 of 23,618). Nothing per frame.
+     - **Not done:** the sim's no-room fallback at the end of the line (no room to turn the train round: its levers
+       reversed, so it pushes) still pushes; it isn't the player's setup, but it needs another train in the way.
 7. **Hand-run trains respect locks.** Router locks replace `crossClaims` at points, and the crossCap turn-back is tuned
    per Q5.
 8. **Clean-up.** Delete `steer.ts`'s remains and update rail-road.md.
