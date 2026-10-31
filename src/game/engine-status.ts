@@ -38,6 +38,14 @@ export type TrainState =
   | { kind: "points-wait"; line: string }
   /** A routed train standing short of a red (pinned) switch set against its way, with its stop only the other way (§7). */
   | { kind: "red-switch" }
+  /**
+   * Stuck for good (economy/stalls.ts; nothing turns it back, routing §16 Q3): in a ring of waits with another train,
+   * that train's line (its name; "" for none, or one too long); its line has too many trains for its room; or a parked
+   * train (lever off) is in the way.
+   */
+  | { kind: "stuck"; why: "in-way"; line: string; loop: boolean }
+  | { kind: "stuck"; why: "too-many" }
+  | { kind: "stuck"; why: "parked" }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -92,6 +100,22 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const wait = economy.spacingWait(car.id);
     if (wait) return { kind: "spacing", line: wait.line.name, left: wait.left };
   }
+  // Stuck for good: in a ring of waits, or its line's held train in the way (stalls.ts).
+  if (train.speed < 1)
+    for (const car of train.cars) {
+      const s = car.kind === "engine" ? economy.stalls.stuckOf(car.id) : null;
+      if (!s) continue;
+      if (s.kind === "too-many") {
+        // (A loop taken by a train not on the line: that's what to move. Pinned so no one passes: the line's own card
+        // says to unpin, plainer.)
+        const full = economy.sections.fullness(car.id);
+        if (full && (full.spare || full.parked)) return { kind: "stuck", why: "parked" };
+        if (full?.pinned) break;
+        return { kind: "stuck", why: "too-many" };
+      }
+      if (s.kind === "parked") return { kind: "stuck", why: "parked" };
+      return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop };
+    }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
   if (train.speed < 1)
     for (const car of train.cars) {
@@ -105,8 +129,6 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     for (const car of train.cars) {
       const w = economy.sectionWait(car.id);
       if (!w) continue;
-      // (A line that can deliver nothing, a parked train to blame: that's what to do something about.)
-      if (w.kind === "stalled") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare || w.parked, parked: w.parked, other: w.other, pinned: w.pinned };
       if (w.kind === "room") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare, parked: w.parked, other: w.other, pinned: w.pinned };
       // (One with room waiting a moment for a line-mate: just that, though the line be full.)
       const lineId = economy.lineIdOf.get(car.id);
@@ -145,8 +167,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   return { kind: "running" };
 }
 
-/** The longest line name the points wait names (two lines at 360 px); longer, it says "another train". */
-const POINTS_NAME = 14;
+/**
+ * The longest line name the points wait and the stuck card name (two lines at 360 px, every colour's own name fits);
+ * longer, they say "another train".
+ */
+const POINTS_NAME = 12;
 
 /** The name of the line a train (any of its cars) runs, for a short text; "" for none, or one too long. */
 function lineNameOf(sim: Sim, economy: Economy, carId: number): string {
@@ -161,7 +186,7 @@ function lineNameOf(sim: Sim, economy: Economy, carId: number): string {
  */
 export function pointsSetFor(economy: Economy, by: number): string {
   const name = lineNameOf(economy.sim, economy, by);
-  return `Set for ${name ? `the ${name} train` : "a train"}. They'll switch to your way after it passes`;
+  return `Set for ${name ? `the train on the ${name}` : "a train"}. They'll switch to your way after it passes`;
 }
 
 /** A train not on the line stands on each road of a passing loop: no loop laid elsewhere gets past it. */
@@ -200,13 +225,6 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
       if (s.cause === "open-end") return s.done ? "Turned back: the track ends here" : "Turning back: the track ends here";
-      if (s.cause === "short") {
-        // (A train on no line turns back short only of a train ahead of it: plainly that.)
-        if (!economy.lineIdOf.has(engineCarId)) return "Turning back: another train's in the way";
-        const full = economy.sections.fullness(engineCarId);
-        return full ? `Turning back early: ${fullText(full)}` : "Turning back early: the end of the line is taken";
-      }
-      if (s.cause === "train") return "Turning back: another train's in the way";
       // (A train on no line among a managed line's trains (one taken off it, say): that line's end is none of its, so
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";
@@ -239,7 +257,12 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
     case "full-wait":
       return `Waiting: ${fullText(s.full)}`;
     case "points-wait":
-      return s.line ? `Waiting for the ${s.line} train to pass the points` : "Waiting for another train to pass the points";
+      return s.line ? `Waiting for the train on the ${s.line} to pass the points` : "Waiting for another train to pass the points";
+    case "stuck":
+      if (s.why === "too-many") return "Stuck: too many trains for this line. Put one away or add a loop";
+      if (s.why === "parked") return `Stuck: ${SPARE_CUT}`;
+      // (Two lines' trains with no passing loop where they meet: one lets them pass. Else moving one is the fix.)
+      return `Stuck: ${s.line ? `the train on the ${s.line}` : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : "Put one away"}`;
     case "red-switch":
       return "A red switch is in the way. Tap and hold it to unpin";
     case "needs-loop":
@@ -291,13 +314,13 @@ export function trainsForReport(sim: Sim, economy: Economy, layout: Layout, cant
 }
 
 /**
- * The tip when two trains first meet head on: what lets them pass (a passing loop with signals), or the blueprint to
- * learn for it first. `learned`: Game mode's blueprints (null in Sandbox, where everything's at hand).
+ * The tip when two trains first meet head on: what lets them pass (a passing loop: trains meet there, each on its own
+ * road, whatever their lines; no signals needed), or the blueprint to learn for it first. `learned`: Game mode's
+ * blueprints (null in Sandbox, where everything's at hand).
  */
 export function headOnTip(learned: ReadonlySet<string> | null): string {
-  if (!learned || learned.has("signals")) return "Trains met head on. A passing loop with signals lets them pass";
-  if (learned.has("switches")) return "Trains met head on. Learn Signals so they can pass on a loop";
-  return "Trains met head on. Learn Switches, then Signals, so they can pass";
+  if (!learned || learned.has("switches")) return "Trains met head on. A passing loop lets trains pass";
+  return "Trains met head on. Learn Switches, so they can pass on a loop";
 }
 
 /**

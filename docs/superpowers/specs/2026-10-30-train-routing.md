@@ -3,7 +3,8 @@
 ## Status
 
 A design, being built step by step (§13): steps 0 to 5 are done (step 2: the §12 harness and defaults; step 3: shadow
-plans; step 4: locks, setting and restore; step 5: waits). It covers four play-test
+plans; step 4: locks, setting and restore; step 5: waits), step 5b (no turn-backs: §16 Q3, stalls said on the cards) and step 5c
+(single-line working across lines: two lines' trains pass at a loop). It covers four play-test
 issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
@@ -151,17 +152,19 @@ export class Router {
 ## 5. Deadlock rules (with sections and slots)
 
 Sections stays the authority on who may enter a section of a line. The router only sets, locks and waits on points.
+Lines sharing track are one network for sections (step 5c): every train of the network's lines, and a running train on
+no line there, asks for its moves among them all, so they meet only at passing loops.
 
 1. **All or none, to a clear point.** A waiting train holds only the points it stands on, so points locks can't make a
    hold-and-wait ring.
 2. **Inside the granted move.** A line's train locks only along the way sections granted, and only after the grant.
    Trains of one line never contend for points, so a line's own rules are untouched.
-3. **Every wait names its blocker.** Sections' chain following, `unring`/`YIELD_S` and the 30 s net see a points wait
-   like any other. A blocker not on the line is a foreign occupant, as today.
+3. **Every wait names its blocker.** Stalls (`stalls.ts`, step 5b) follow a points wait like any other, with sections'
+   waits and the sim's (`Sim.heldBy`). A blocker not on the line is a foreign occupant, as today.
 4. **First asked, first served,** but a later request that needs none of the head's locks may go first.
 5. **No early release:** a lock holds until the last axle clears.
-6. **Breaking a wait turns a train; it doesn't break a lock.** The turned train gets a new plan, and lets go of the
-   points behind it once it's off them.
+6. **Nothing breaks a wait** (§16 Q3, step 5b): no train turns back short of the end of the track. A wait that can't end
+   (a ring, a line's held train in the way, a parked train) is a stall: the trains stand, and their cards say what to do.
 7. **Unplanned trains** (hand-run) take no locks. They stop short of points another train holds, and otherwise take
    the points as they lie (step 7).
 
@@ -202,8 +205,11 @@ with a hint toward the fix.
 | A pinned switch is in the way (`pinnedBlocking`) | The train stands short of it (step 5; the lever's pulse not yet) | "A red switch is in the way. Tap and hold it to unpin" |
 | More trains than passing loops | Held, as today | "The line is full. Lay 1 more passing loop." (existing) |
 | A loop pinned so no one can pass | Held, as today | "Unpin the passing loop's switches so trains can pass." (existing) |
-| Waiting for points another train holds | Stops short and waits | "Waiting for the Blue line train to pass the points" |
-| Two lines need each other's points (a ring) | One gives way within `YIELD_S` | Toast: "The Red train went round to let the Blue one by." |
+| Waiting for points another train holds | Stops short and waits | "Waiting for the train on the Blue line to pass the points" |
+| Two lines' trains on single track with no passing loop (a ring) | Both stand, each at its end of the line (§16 Q3) | "Stuck: the train on the Blue line is in the way. Add a passing loop here" |
+| Trains in each other's way for good, a loop there or one line's (a ring; nose to nose) | Both stand (§16 Q3) | "Stuck: the train on the Blue line is in the way. Put one away" |
+| A line over room, its held train in the others' way | They stand | "Stuck: too many trains for this line. Put one away or add a loop" |
+| A parked train (lever off) at the end of a chain of waits | They stand | "Stuck: a parked train is in the way. Move it" |
 | The only way is backwards (a dead end, no loop) | It reverses, as it must | Once per line: "Add a loop at the end so it can turn round." |
 | A lever tap on points set for a train (Q1) | They stay set for it; the tap is their new default | "Set for the Red line train. They'll switch to your way after it passes" |
 | A lever tap on points under a train | Refused, as today | "These points move once the train is off them." (existing) |
@@ -540,6 +546,102 @@ lone-train check.
        its nose 36 mm short of the points, then goes; the points move once for it and once back), the follower cases'
        waits, and "no turn-back breaks a wait" on the §8 automations and the waiting cases.
      - **Player's path:** `E2E_ONLY=wait` in `e2e:touch` (also in the full run).
+5b. **No turn-backs (§16 Q3).** The user: "I would rather they don't turn back, better to get stuck so the player sees
+   what's happened." A train turns round only at the end of the track; the automatic flip at a dead end stays.
+   - **Done** (`claude/no-turnbacks`).
+     - **Removed:** every turn-back that broke a wait: the sim's crossing wait (5 s, `CROSS_TURN_TICKS`), the head-on
+       bump's and the side hit's (`meet` now stops the train and records who holds it), the lift's give-way;
+       sections' dead-end move (`deadEndCap`; a dead end short of a held train is a wait in the slot), `facing` and
+       `aloneIn`'s give-ways, `unring` with its turn-backs and its once-a-minute room hand-over, the lineless train's
+       2 s turn-back (`clearCap`), the 30 s net (`MUTUAL_S`), and the stood-still line (`stalledLine`, which counted
+       turn-backs). `Sim.turnBack` and the causes `train`/`short` are gone. Head on, two trains stop nose to nose
+       `FOLLOW_GAP` apart (`followRoom` looks at the other's front), not touching.
+     - **Stalls** (`src/economy/stalls.ts`): every `CHECK_TICKS`, with two trains or more, each standing train with its
+       lever on names who it waits for (sections' wait, `Router.waitingOn`, `Sim.heldBy`/`heldHow`, `Sections.clearWait`)
+       and the chains are followed: a ring is `in-way`, a chain ending at a train held for room `too-many`, one ending
+       at a train standing lever off `parked`. Said after `STUCK_S` (5 s) held: ordinary meets end sooner. Nothing per
+       frame; with one train, a size check.
+     - **Cards** (§7): "Stuck: the train on the Red line is in the way. Put one away" (or "another train"); "Stuck: too
+       many trains for this line. Put one away or add a loop"; "Stuck: a parked train is in the way. Move it". Two
+       lines at 360 px (Nunito 700, 14 px, 260 px wide; names over 12 characters say "another train"). The points wait
+       reads "Waiting for the train on the Red line to pass the points". The game's once-ever head-on loop tip now
+       comes with the first in-way stall (`Stalls.onStuck`).
+     - **Not "Add a passing loop here"** for in-way: two lines' trains (each line unmanaged, one train) meet on single
+       track whether or not there's a loop (harness experiment: a loop in the middle, two single-train lines, both
+       stuck in it). "Put one away" is what works today (§16 Q3, open question).
+     - **Layouts changed, as a player would:** the play-through's player reads the cards once a minute and picks up
+       the newest train when one is stuck (1 train a line: the people train, which shuttled head on against the goods
+       train before); the starter-map play-through puts its hand-run second train away; sections QA's runs of a train
+       taken off its line among the line's trains put one away after it's said stuck 10 s (`fix`); the harness's
+       `threeTrainsPutAway`. QA's other cases now assert that each train that doesn't keep delivering says what to do
+       (`runsOrSays`), not that it shuttles on.
+     - **Old saves** load as they are (no migration, version unchanged); a layout that leant on turning back stands
+       stuck, its cards saying so (`save.test.ts`).
+     - **Proof.** Lone-train hashes unchanged (`LONE_UNROUTED`, `LONE_ROUTED`); §8 automations 0 stalls, 0 stuck.
+       Play-through (BALANCE=1, 180 min; main → branch; every band holds):
+
+       | seed, trains a line | coins | City | City ★ | riders | research by 180 | research stall | head-ons | stuck (train-min) |
+       |---|---|---|---|---|---|---|---|---|
+       | 2027, 1 | 1216 → 1180 | 62 → 64 | 111 → 109 | 242 → 207 | 15 → 15 | 13.0 → 14.4 | 8 → 2 | 1.2 |
+       | 2027, 2 | 811 → 1084 | 64 → 65 | 104 → 105 | 265 → 265 | 16 → 16 | 10.7 → 10.5 | 1 → 0 | 1.2 |
+       | 1, 1 | 983 → 938 | 61 → 64 | 160 → 158 | 511 → 458 | 17 → 17 | 8.1 → 8.1 | 10 → 2 | 1.7 |
+       | 1, 2 | 770 → 842 | 66 → 64 | 177 → 179 | 357 → 371 | 15 → 15 | 9.5 → 9.4 | 0 → 0 | 1.8 |
+       | 2, 1 | 786 → 762 | 73 → 73 | 169 → 169 | 458 → 435 | 16 → 16 | 7.2 → 7.2 | 6 → 2 | 1.3 |
+       | 2, 2 | 821 → 713 | 89 → 79 | – → 171 | 417 → 355 | 16 → 16 | 7.2 → 6.2 | 0 → 0 | 1.7 |
+
+       Riders fall where the people train is picked up once stuck (before, it shuttled on head on); one stall each run.
+       Goals (`GOALS_LONG=1`): 22/22 both; two trains 69 → 69, quarry 147 → 144, mine 209 → 206, every town 219 → 216,
+       harbour 295 → 291 min. Sections QA 85/85 (rows, main → branch: B4 arrivals 1520 → 531, all-still > 60 s 0 → 71 of
+       71, every one saying why; RND 480 → 246; QB5 746 → 531; PARK 837 → 280; meets the same but LINELESS 0 → 16 and
+       stopLine 0 → 2, after the player's Put away leaves the line one train, unmanaged, and the stray meets it nose to
+       nose). Long fuzz (200 × 30 min): invariant breaks 8 seeds → 0; stalls on 74 seeds (where main's breakers fired
+       on 74), 36 delivering nothing, all said; 4 seeds deliver nothing with no stall, as on main (main 17).
+5c. **Single-line working across lines (§16 Q3, the open part).** The user's principle: mistakes are fine, but the natural
+   fix must work, and "add a passing loop" didn't for two lines' trains (nothing had them wait for each other at a loop).
+   - **Done** (`claude/no-turnbacks`).
+     - **Design:** one shared set of sections and slots per network, not a parallel system. Lines whose ways run through
+       a slot or section in common (in the topology for the longest train of all) are one network (`Sections.network`,
+       transitive; worked out again only when the track, the pins, the lines' stops or their trains change). Its lines
+       share one topology (the network's longest train) and each line's `users` are every train of the network's lines:
+       a train is granted a section only if no user holds it or stands in it, and a slot only with room, as one line's
+       trains always were. So they meet at loops, taking different roads (a loop holds two only to pass). A single-train
+       line is managed when it shares a network. The room rule (loops + 1) stays each line's own. Locks and `RouteWait`
+       are unchanged: a line's train locks only inside its grant, so the router's own points wait is now pre-empted
+       between such lines (it still serves trains sections don't manage).
+     - **Trains on no line** (lever on) on a managed network are users too (`loose`): they ask for moves along the way the
+       points lie and are sent only onto the road their facing points lie for; a line's train meeting one takes the
+       other road at a loop (`restRoad`, from the far points' default). They still stop short of a train ahead.
+     - **Cards:** in-way with another line's train (or one on no line) and no passing loop on the line's ways: "… Add a
+       passing loop here"; else "… Put one away". The once-ever tip: "Trains met head on. A passing loop lets trains
+       pass" (no "with signals").
+     - **Proof.** Harness (30 min each, no wait over 20 s): two single-train lines, one loop: 97/97 stops, 0 stuck; three
+       lines over two loops: 63/64/64, 0 stuck; a two-train line and a single-train line over two loops: 63/64/64, 0
+       stuck; a hand-run train and a line over one loop: the line's 97 stops, the hand-run one 96 turns at the buffers, 0
+       stuck; two lines, no loop: both stuck, the card's fix a loop. Trajectories (trains only) identical to 77ffa16 for
+       the lone trains, every single-line case, the router's own-lines cases and the 8 default fuzz seeds; only the
+       existing two-line cases drift (the crossover ring, two lines head on). Long fuzz (200 × 30 min) against 77ffa16:
+       stall seeds 74 → 57 (none new), stalls 96 → 73, in-way trains 80 → 38, too-many 53 → 53, seeds delivering nothing
+       36 → 26, invariant breaks 0 → 0. Sections QA (85/85; 52 of 256 sims drift, all with a train on no line among a
+       line's, or another line's: OFF k0–k2 arrivals up (e.g. k0 at20 1/2/1 → 1/10/10), LINELESS meets 2 → 0 and the
+       line's longest stand 14–15 s → 4–12 s, stopLine head-ons 2 → 0 and stalls 3 → 2, PARK offline stalls 1 → 0, N1's
+       "another train is in the way" card samples 44 → 20). e2e `stuck-lines`: two lines head on stuck, the card says to add a loop, the player lays it by
+       the tray, they pass and deliver (24 logs).
+     - **Play-through** (BALANCE=1, 180 min; main d7308ff → this branch; the balance player keeps the people train on the
+       line with a passing loop laid for it; 77ffa16 put it away when stuck). Every band holds:
+
+       | seed, trains a line | coins | City | City ★ | riders | research by 180 | research stall | head-ons | section waits (train-min) |
+       |---|---|---|---|---|---|---|---|---|
+       | 2027, 1 | 1216 → 1291 | 62 → 64 | 111 → 124 | 242 → 546 | 15 → 15 | 13.0 → 12.5 | 8 → 0 | 0.0 → 27.3 |
+       | 2027, 2 | 811 → 1453 | 64 → 65 | 104 → 137 | 265 → 580 | 16 → 13 | 10.7 → 14.0 | 1 → 0 | 0.7 → 79.9 |
+       | 1, 1 | 983 → 1511 | 61 → 65 | 160 → – | 511 → 811 | 17 → 13 | 8.1 → 9.7 | 10 → 0 | 0.0 → 81.1 |
+       | 1, 2 | 770 → 842 | 66 → 64 | 177 → 179 | 357 → 371 | 15 → 15 | 9.5 → 9.4 | 0 → 0 | 2.1 → 2.0 |
+       | 2, 1 | 786 → 1547 | 73 → 73 | 169 → – | 458 → 728 | 16 → 12 | 7.2 → 9.5 | 6 → 0 | 0.0 → 74.1 |
+       | 2, 2 | 821 → 713 | 89 → 79 | – → 171 | 417 → 355 | 16 → 16 | 7.2 → 6.2 | 0 → 0 | 33.0 → 1.9 |
+
+       Riders rise where the people train now runs all game; where the goods train waits for it on long single track,
+       research by 180 falls (above the floors) and City ★ comes after 180 (an open question, §16 Q3). Goals
+       (`GOALS_LONG=1`; the goals player still puts the people train away): 19/22 and 22/22; quarry 147 → 144, mine
+       209 → 206, every town 219 → 216, harbour 295 → 292 min (as 77ffa16).
 6. **Forward costs (#7, routed)** behind `ROUTE_FORWARD`. Compare balance windows and reversal counts (seed 2027 with
    1–3 trains; seeds 1 and 2 with 2 trains), then switch it on.
 7. **Hand-run trains respect locks.** Router locks replace `crossClaims` at points, and the crossCap turn-back is tuned
@@ -585,9 +687,11 @@ These override anything earlier in this spec that disagrees.
      - the turn-backs used to clear waits (the crossCap 5 s turn-back, a lineless train's 2 s turn-back);
      - plans that reverse mid-line to stay engine-first (§6's reverse cost applies only to where track ends);
      - §7's ring toast "went round to let … by".
-   - **Still to settle with the user:** what breaks a true deadlock, where two trains wait on each other with no way
-     past. The proposal is: a turn-back as the last resort, only when nothing else can clear it, counted in the
-     harness (target 0 on the §8 automations), with a card that names the fix (a passing loop).
+   - **True deadlocks (the user, after step 5):** "I would rather they don't turn back, better to get stuck so the
+     player sees what's happened." No last-resort turn-back: the trains stand, and their cards say what's wrong and the
+     fix (step 5b). Two lines' trains on single track now pass at a loop (step 5c: sections shared by the lines on one
+     network), so their card says to add one where there's none. Open: the play-through's people train, kept running
+     with its loop, slows the goods train on long single track (step 5c's table): cheaper loops, or put it away?
 4. **Pushing (running engine-last):** avoid it, unless the player set it up themselves (coupled the engine at the back
    by hand, or pressed Swap ends). Keep the automatic end-of-line flip (Swap ends at a dead end): not realistic, but a
    big quality-of-life feature, as in OpenTTD. Step 6 plans for this: forward costs that strongly avoid running

@@ -22,6 +22,8 @@ import type { Footprint } from "../props/placement";
 import { connectorRef, getPieceDef, type PieceTypeId } from "../track";
 import { play, type Blocked } from "./player";
 import { endOn, layOn, rulesFor, schoolOn } from "./rules";
+import { engineStatus } from "../game/engine-status";
+import { putAway } from "../game/put-away";
 
 /**
  * A whole Game-mode playthrough, headless, using the game's own pieces: a simulated player lays the starter line
@@ -252,6 +254,7 @@ describe("a Game-mode playthrough", () => {
     let extended = false;
     let thirdJoined = false;
     let secondAt = -1;
+    let secondEngine = -1;
     let deliveredAtSecond = 0;
     let secondTrain = false;
     let school = -1;
@@ -325,7 +328,8 @@ describe("a Game-mode playthrough", () => {
           if (P.fixed.has(id) || !p.type.startsWith("straight") || p.pose.x < 700) continue;
           const r = w().sim.addTrain(["engine", "timber"], { pieceId: id, pathIndex: 0, reversed: false, s: 10 });
           if (r.kind !== "placed") continue;
-          w().sim.setLever(w().sim.getTrain(r.trainId)!.cars[0].id, 1);
+          secondEngine = w().sim.getTrain(r.trainId)!.cars[0].id;
+          w().sim.setLever(secondEngine, 1);
           secondTrain = true;
           secondAt = minute;
           deliveredAtSecond = [...w().economy.delivered.values()].reduce((a2, b2) => a2 + b2, 0);
@@ -396,12 +400,20 @@ describe("a Game-mode playthrough", () => {
           P.note(`no third town joined: track picked up${"why" in back ? `, but the turnback won't go back (${back.why})` : ", turnback back on"}`);
         }
       }
+      // The two meet head on on the single line and stand there (nothing turns a train back short of the end of the
+      // track, routing §16 Q3): their cards say they're stuck, the other in the way, "Put one away". The player does:
+      // the second back in the box (`putAway`, the card's button).
+      if (secondEngine >= 0 && w().sim.findCar(secondEngine) && w().economy.stalls.stuckOf(secondEngine)) {
+        P.note(`the trains are stuck head on: "${engineStatus(w().sim, w().economy, secondEngine, () => "")}"; the second put away`);
+        putAway(w().sim, w().economy, secondEngine);
+      }
       // Two trains on one line: do deliveries carry on?
       if (secondAt > 0 && minute === secondAt + 10) {
         const now = [...w().economy.delivered.values()].reduce((a2, b2) => a2 + b2, 0);
         const shapes = w().sim.trainIds().map((id) => w().sim.getTrain(id)!.cars.filter((c) => c.kind === "engine").length);
         P.note(`10 min after the second train: ${now - deliveredAtSecond} more planks delivered; trains now ${JSON.stringify(shapes)} engines each`);
-        // Two trains on one line meet head on and turn back (ddea49b): deliveries carry on.
+        // Two trains on one line meet head on; the player puts one away when its card says they're stuck: deliveries
+        // carry on.
         expect(now, "deliveries carry on with two trains on one line").toBeGreaterThan(deliveredAtSecond);
         if (now === deliveredAtSecond) P.findings.push(`With a second train on the line, deliveries stopped: the trains met and coupled (${JSON.stringify(shapes)} engines in each train), engines pushing against each other.`);
       }

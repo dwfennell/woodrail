@@ -6,6 +6,7 @@ import { Economy } from "./economy";
 import { chain, loopOn, runner, train, type World } from "./loop-fixtures";
 import { topologyOf, trainLength } from "./sections";
 import { engineStatus } from "../game/engine-status";
+import { putAway } from "../game/put-away";
 
 /**
  * A single line from depot X to depot Y, buffers at both ends, with `loops` bare passing loops in a row between them
@@ -250,7 +251,7 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     expect(Math.min(...gaps)).toBeGreaterThan(10);
   });
 
-  it("an under-built line keeps running: the trains it has room for turn back short of the one held, which keeps its reason", () => {
+  it("an under-built line: the trains it has room for wait short of the one held, stuck, saying so; put away, they run", () => {
     const cases: [Line, { piece: number; back: boolean; next: number }[], CarKind[] | undefined][] = [];
     const bare = line(1);
     cases.push([bare, [{ piece: bare.east[1], back: true, next: 1 }], undefined]);
@@ -263,26 +264,45 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     for (const [l, more, cars] of cases) {
       const es = trains(l, more, cars);
       const r = runner(l.w, es);
-      r.run(10 * 60);
+      r.run(5 * 60);
       const held = es.filter((e) => l.economy.sectionWait(e)?.kind === "room");
       const running = es.filter((e) => !held.includes(e));
       expect(held.length).toBe(es.length - 1 - l.loops.filter(() => !cars).length);
-      for (const e of running) expect(r.arrivals.get(e)!, `running train ${e}`).toBeGreaterThan(10);
+      // (Routing §16 Q3: none turns back short of it. Each it's in the way of stands, its card saying the line has too
+      // many trains; the held one's says how many loops to lay.)
+      for (const e of running) {
+        const t = l.sim.findCar(e)!.train;
+        expect(t.lastTurn?.cause ?? "buffer", `running train ${e}`).toBe("buffer");
+        if (l.economy.stalls.stuckOf(e)) expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toBe("Stuck: too many trains for this line. Put one away or add a loop");
+      }
+      expect(running.some((e) => l.economy.stalls.stuckOf(e)?.kind === "too-many")).toBe(true);
+      for (const e of held) expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toMatch(/^Waiting: lay \d+ more passing loops? for \d+ trains$/);
       expect(r.meetings).toEqual([]);
       expect(l.economy.sections.released).toBe(0);
+      // The player's fix: the held ones put away (their cards' Put away). The rest run on, none stuck.
+      for (const e of held) expect(putAway(l.sim, l.economy, e)).not.toBeNull();
+      const before = running.map((e) => r.arrivals.get(e)!);
+      r.run(5 * 60);
+      running.forEach((e, k) => expect(r.arrivals.get(e)!, `running train ${e}, put away`).toBeGreaterThan(before[k] + 3));
+      expect(l.economy.stalls.count).toBe(0);
     }
   });
 
-  it("two trains put down face to face in one line end: one gives way (turns back), no meeting", () => {
+  it("two trains put down face to face in one line end: neither turns back; both stand, and their cards say they're stuck", () => {
     // (Two loops: room for all three.)
     const l = line(2);
-    // B on Y's line end facing in, C deeper in it facing out: B turns back and leads out.
+    // B on Y's line end facing in, C deeper in it facing out: each waits on the other (routing §16 Q3: nothing turns
+    // either back short of the end of the track).
     const es = trains(l, [{ piece: l.east[1], back: true, next: 0 }]);
     const r = runner(l.w, es);
-    r.run(5 * 60);
+    r.run(60);
+    const [b, c] = es.slice(-2);
+    for (const e of [b, c]) {
+      expect(l.economy.stalls.stuckOf(e)?.kind, `train ${e}`).toBe("in-way");
+      expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toBe("Stuck: the train on the Red line is in the way. Put one away");
+      expect(l.sim.findCar(e)!.train.lastTurn?.cause ?? "buffer").toBe("buffer");
+    }
     expect(r.meetings).toEqual([]);
-    expect(l.economy.sections.gaveWay).toBeGreaterThan(0);
-    for (const e of es) expect(r.arrivals.get(e)!).toBeGreaterThan(3);
   });
 
   it("the engine card says why: waiting for the line's other train, or how many passing loops to lay", () => {
@@ -298,7 +318,10 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     const two = line(1);
     expect(texts(two, trains(two), 120)).toContain("Waiting for the Red line train");
     const three = line(1);
-    expect(texts(three, trains(three, [{ piece: three.east[1], back: true, next: 1 }]), 60)).toContain("Waiting: lay 1 more passing loop for 3 trains");
+    const seen3 = texts(three, trains(three, [{ piece: three.east[1], back: true, next: 1 }]), 60);
+    expect(seen3).toContain("Waiting: lay 1 more passing loop for 3 trains");
+    // (The held one in the others' way: they're stuck, and say so.)
+    expect(seen3).toContain("Stuck: too many trains for this line. Put one away or add a loop");
     const plain = line(0);
     const seen = texts(plain, trains(plain, [{ piece: plain.east[1], back: true, next: 1 }]), 60);
     expect(seen).toContain("Waiting: lay 2 more passing loops for 3 trains");

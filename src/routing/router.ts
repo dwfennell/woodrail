@@ -42,7 +42,7 @@ interface Waiting {
   /** The train (its id when it last looked) and which way it was driven. */
   trainId: number;
   sign: number;
-  /** Since when (sim tick of the look that refused it), for sections' wait chains (`YIELD_S`). */
+  /** Since when (sim tick of the look that refused it). */
   since: number;
   /** For each piece on its way up to the points: how far (mm) from that piece's far end to the points. */
   rem: Map<number, number>;
@@ -228,7 +228,7 @@ export class Router {
     return this.waits.get(engine)?.wait ?? null;
   }
 
-  /** The train an engine waits for at points (an engine), and since when (a sim tick); null: none (sections' chains). */
+  /** The train an engine waits for at points (an engine), and since when (a sim tick); null: none (stalls' chains). */
   waitingOn(engine: number): { engine: number; since: number } | null {
     const w = this.waits.get(engine);
     return w && w.wait.kind === "points" ? { engine: w.wait.by, since: w.since } : null;

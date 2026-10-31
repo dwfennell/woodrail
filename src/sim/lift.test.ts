@@ -211,11 +211,11 @@ describe("the train lift", () => {
     expect(w.events.some((e) => e.kind === "derailed")).toBe(false);
   });
 
-  it("a train waiting at its end gives way to one coming off it (no livelock with a turnback at the top)", () => {
+  it("a train waiting at its end, in the way of one coming off it: both stand, neither turns back nor rides round", () => {
     // A dead-end branch: the low line, the lift, and a turnback at the top. One train rides up and back down; the other
-    // comes up behind it and waits at the low end, in the way of the one coming off. It gives way (turns back), so the
-    // one coming off gets off, rather than turning back onto the lift and riding round for good (QA's sweep: 35 rides
-    // while the other waited 5 min).
+    // comes up behind it and waits at the low end, in the way of the one coming off. Neither turns back (routing §16
+    // Q3): they stand, each held by the other, till the player moves one. Before, the waiting one gave way; before
+    // that, the one coming off turned back onto the lift and rode round for good (QA's sweep: 35 rides).
     const layout = new Layout();
     layout.addPiece("buffer-turnback", { x: 0, z: 0, heading: Math.PI });
     const s: number[] = [layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 })];
@@ -233,23 +233,24 @@ describe("the train lift", () => {
     // (Cars keep their ids; a train turned back is a new train.)
     const longest = [0, 0];
     const now = [0, 0];
-    const offLow = [0, 0];
     for (let i = 0; i < 300 * SIM_HZ; i++) {
       sim.tick();
       engines.forEach((car, k) => {
         const t = sim.findCar(car)!.train;
         now[k] = sim.liftState(t.id) === "waiting" ? now[k] + 1 : 0;
         longest[k] = Math.max(longest[k], now[k]);
-        if (t.bogies[0].pieceId === s[3]) offLow[k]++;
       });
     }
-    // Neither is held at the lift for long at a stretch (it was the whole 5 minutes), and both get about the line.
-    expect(Math.max(...longest) / SIM_HZ).toBeLessThan(30);
-    expect(offLow.every((n) => n > 0)).toBe(true);
+    // They stand nose to nose (one of them on, or at the foot of, the lift), each held by the other; no derailment.
+    const [ta, tb] = engines.map((car) => sim.findCar(car)!.train);
+    expect(ta.speed + tb.speed).toBe(0);
+    expect(sim.heldBy(ta.id)).toBe(tb.id);
+    expect(sim.heldBy(tb.id)).toBe(ta.id);
+    expect(Math.max(...longest) / SIM_HZ).toBeGreaterThan(30);
     expect(sim.drainEvents().some((e) => e.kind === "derailed")).toBe(false);
   });
 
-  it("a train just off a lift has the right of way over one running at it: the other turns back, it comes on", () => {
+  it("a train just off a lift meeting one running at it: both stop nose to nose; neither turns back, it never rides again", () => {
     // QA: one coming off met the other still running in (not yet waiting); both turned back, so the one coming off
     // went back up the lift, round and round (35 rides, 2 stops reached).
     const layout = new Layout();
@@ -268,7 +269,6 @@ describe("the train lift", () => {
     sim.setLever(b, 1);
     const turns = { a: 0, b: 0 };
     let rodeAgain = false;
-    let aLow = false;
     for (let i = 0; i < 12 * SIM_HZ; i++) {
       sim.tick();
       for (const e of sim.drainEvents()) {
@@ -278,13 +278,12 @@ describe("the train lift", () => {
       }
       const ta = sim.findCar(a)!.train;
       if (sim.liftState(ta.id) === "riding") rodeAgain = true;
-      if (ta.bogies[0].pieceId === s[1]) aLow = true;
     }
-    // The one running in turned back; the one coming off didn't, never rode again, and went on down the line.
-    expect(turns.b).toBeGreaterThan(0);
-    expect(turns.a).toBe(0);
+    // Neither turned back (routing §16 Q3); the one coming off never rode again; they stand, each held by the other.
+    expect(turns).toEqual({ a: 0, b: 0 });
     expect(rodeAgain).toBe(false);
-    expect(aLow).toBe(true);
+    expect(sim.heldBy(sim.findCar(a)!.train.id)).toBe(sim.findCar(b)!.train.id);
+    expect(sim.heldBy(sim.findCar(b)!.train.id)).toBe(sim.findCar(a)!.train.id);
   });
 
   it("paused (the sim not ticked), a ride holds where it is, and carries on after", () => {

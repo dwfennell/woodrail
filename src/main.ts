@@ -50,6 +50,7 @@ import { canContinue, continueOn } from "./game/continue-on";
 import { engineStatus, fullLineToast, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
+import type { Stuck } from "./economy/stalls";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
@@ -3687,7 +3688,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   window.addEventListener("pointerdown", skipGlide, { capture: true });
   window.addEventListener("keydown", skipGlide, { capture: true });
 
-  /** Two trains met head on (a single line, both ways): once, say how they could pass. */
+  /** Trains first stuck in each other's way (nose to nose on a single line, say): once, say how they could pass. */
   let loopTipShown = (() => {
     try {
       return localStorage.getItem("woodrail.loopTip") === "1";
@@ -3700,6 +3701,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The lifts heard riding (for the clunk as each gets there), and where. */
   const liftsHeard = new Map<number, { x: number; z: number }>();
   const fullToast = (_lineId: number, room: number, trains: number, more: number) => hud.toast(fullLineToast(room, trains, more), false, 6000);
+  const stuckTip = (_engines: readonly number[], why: Stuck) => {
+    if (why.kind === "in-way" && !loopTipShown) showLoopTip();
+  };
   function showLoopTip(): void {
     loopTipShown = true;
     try {
@@ -3756,7 +3760,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (e.kind === "lift-refused") {
         if (tooLong.shouldTell(e.carIds, now, e.trainId)) hud.toast(TOO_LONG_MESSAGE);
       }
-      if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
       if (!p) continue;
       if (e.kind === "turned") {
@@ -3840,6 +3843,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showLines();
     // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
     if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
+    if (game.economy.stalls.onStuck !== stuckTip) game.economy.stalls.onStuck = stuckTip;
     showEngineView();
     showSummary();
     let derailed = false;

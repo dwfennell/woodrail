@@ -16,6 +16,7 @@
 import { Sim, SIM_HZ, type CarKind, type Cursor, type Train } from "../sim";
 import { getPieceDef, type Layout } from "../track";
 import { Sections } from "../economy/sections";
+import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
 import { next, waysFrom } from "./graph";
 import { planChoice, PIECE_COSTS } from "./plan";
@@ -53,6 +54,11 @@ export interface Scenario {
   seconds: number;
   /** The longest a lever-on train may stand still (seconds) before it counts as stuck (default 60, §12). */
   maxStill?: number;
+  /**
+   * Harness-only: each line works its single track alone (`Sections.shared` off), so the router's own wait at points is
+   * what's tested. In the game, sections hold such a train at its slot's end first (single-line working across lines).
+   */
+  ownLines?: boolean;
 }
 
 /** The invariants checked every tick (§12). */
@@ -60,12 +66,14 @@ export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restor
 export type Invariant = (typeof INVARIANTS)[number];
 
 /** Turn-backs by cause (`Train.lastTurn`). */
-export type Turns = { buffer: number; "open-end": number; train: number; short: number };
+export type Turns = { buffer: number; "open-end": number };
 
 export interface Report {
   name: string;
   /** Per invariant: how many times it broke, and the first few, in words. */
   broke: Record<Invariant, { count: number; first: string[] }>;
+  /** Per train: how long (ticks) it stood with its lever on, held by sections (`Sections.waitOf`). */
+  held: number[];
   /** Per train (in `trains` order): stops come to, turn-backs, the longest stand-still (s). */
   arrivals: number[];
   /** Of those, the ones made with the engine not leading (pushing its cars). */
@@ -80,11 +88,10 @@ export interface Report {
   /** Waits at points begun (`Router.waitsBegun`). */
   waits: number;
   /**
-   * Turn-backs that break a wait (§16 Q3 allows none: each is today's last resort for a deadlock), by who turned it:
-   * the sim's crossing wait (`Sim.crossCap`, cause "train"), sections' ring breaker (`unring`, `YIELD_S`), short of a held
-   * line end (`deadEndCap`), giving way to a train put down facing, a lineless train short of another (`clearCap`).
+   * Stalls (economy/stalls.ts): waits that can't end, now that nothing turns a train back short of the end of the track
+   * (§16 Q3). `begun`: stalls begun; `stuck`: per train, ticks it stood said to be stuck, and why it last was.
    */
-  breakers: { cross: number; yielded: number; short: number; gaveWay: number; clear: number };
+  stalls: { begun: number; stuck: number[]; why: (Stuck["kind"] | null)[] };
   longestStill: number[];
   /** Times a train's front came onto a piece through facing points with a choice, and the switch throws seen. */
   facing: number;
@@ -148,6 +155,7 @@ export class HarnessRun {
   sim: Sim;
   sections!: Sections;
   router!: Router;
+  stalls!: Stalls;
   /** Engine car ids by train (in `trains` order); they change on a save round-trip, as a load's do. */
   readonly engines: number[] = [];
   /** Routes by engine (in the order they were set: the router steers in this order, as the economy's routes). */
@@ -169,6 +177,7 @@ export class HarnessRun {
   private readonly front: { train: number; sign: number; pieceId: number }[];
   private readonly lastTurn: number[];
   private traj = 0x811c9dc5;
+  private readonly ownLines: boolean;
   private routerMs = 0;
 
   constructor(
@@ -195,13 +204,14 @@ export class HarnessRun {
     this.polled = (built.events ?? []).filter((e) => e.when);
     this.watch = new Set(built.watch ?? []);
     this.maxStill = scenario.maxStill ?? 60;
+    this.ownLines = !!scenario.ownLines;
     const none = () => ({ count: 0, first: [] as string[] });
     this.report = {
       name: scenario.name,
       broke: Object.fromEntries(INVARIANTS.map((k) => [k, none()])) as Report["broke"],
       arrivals: this.specs.map(() => 0),
       pushed: this.specs.map(() => 0),
-      turns: this.specs.map(() => ({ buffer: 0, "open-end": 0, train: 0, short: 0 })),
+      turns: this.specs.map(() => ({ buffer: 0, "open-end": 0 })),
       longestStill: this.specs.map(() => 0),
       facing: 0,
       throws: 0,
@@ -220,9 +230,10 @@ export class HarnessRun {
       tapKept: false,
       trajectory: "",
       waited: this.specs.map(() => 0),
+      held: this.specs.map(() => 0),
       stoodFrom: this.specs.map(() => ({ near: Infinity, far: -Infinity })),
       waits: 0,
-      breakers: { cross: 0, yielded: 0, short: 0, gaveWay: 0, clear: 0 },
+      stalls: { begun: 0, stuck: this.specs.map(() => 0), why: this.specs.map(() => null) },
     };
     this.still = this.specs.map(() => 0);
     this.front = this.specs.map(() => ({ train: -1, sign: 0, pieceId: -1 }));
@@ -263,8 +274,6 @@ export class HarnessRun {
         return out;
       },
       drive,
-      atStop: (engine) => !!this.routes.get(engine)?.at,
-      routeWait: (engine) => this.router.waitingOn(engine),
       skipStops: (engine, pieces) => {
         const r = this.routes.get(engine);
         if (!r || r.stops.length === 0 || r.at) return;
@@ -277,7 +286,9 @@ export class HarnessRun {
           i = (i + 1) % r.stops.length;
         }
       },
+      restsAt: (pieceId) => this.router.defaultOf(pieceId),
     });
+    this.sections.shared = !this.ownLines;
     // (Sections' cap, and the router's: short of points it waits for, §3.3.)
     sim.speedCap = (train) => Math.min(this.sections.cap(train), this.router.speedCap(train));
     this.router = new Router({
@@ -295,6 +306,10 @@ export class HarnessRun {
       soon: this.sections.steerSoon,
     });
     this.router.timing = true;
+    this.stalls = new Stalls(sim, this.sections, {
+      lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
+      routeWait: (engine) => this.router.waitingOn(engine),
+    });
   }
 
   /** The player's switch positions (the default each is restored to): as laid, then each lever tap's (the router's). */
@@ -356,6 +371,18 @@ export class HarnessRun {
     return !("refused" in r);
   }
 
+  /** Train `k` put away (the card's Put away): off the track and its line. */
+  putAway(k: number): void {
+    const engine = this.engines[k];
+    const t = engine === undefined ? undefined : this.sim.findCar(engine)?.train;
+    if (!t) return;
+    this.sim.removeTrain(t.id);
+    this.routes.delete(engine);
+    this.lineOf.delete(engine);
+    // (As the game's Put away: `economy.prune()`.)
+    this.sections.prune(new Set(this.lineOf.keys()));
+  }
+
   pin(pieceId: number, on: boolean): void {
     this.layout.setPinned(pieceId, on);
     if (on) this.pinnedAt.set(pieceId, this.layout.switchState(pieceId));
@@ -403,6 +430,7 @@ export class HarnessRun {
     for (const [engine, id] of this.lineOf) if (renamed.has(engine)) lines.set(renamed.get(engine)!, id);
     this.routes = routes;
     this.lineOf = lines;
+    this.report.stalls.begun += this.stalls.begun;
     this.wire();
     this.router.restore(defaults);
     saved.forEach((s, k) => {
@@ -440,8 +468,8 @@ export class HarnessRun {
     this.report.refused = r.refused;
     this.report.restored = r.restored;
     this.report.waits = r.waitsBegun;
-    const sc = this.sections;
-    this.report.breakers = { cross: this.report.turns.reduce((n, t) => n + t.train, 0), yielded: sc.yielded, short: sc.turnedShort, gaveWay: sc.gaveWay, clear: sc.clearTurns };
+    this.report.stalls.begun += this.stalls.begun;
+    this.stalls.begun = 0;
     this.report.trajectory = this.traj.toString(16).padStart(8, "0");
     return this.report;
   }
@@ -453,6 +481,7 @@ export class HarnessRun {
     const t0 = performance.now();
     this.router.tick();
     this.routerMs += performance.now() - t0;
+    this.stalls.tick();
     this.tick++;
     this.check();
     if (this.tick % SIM_HZ === 0) this.record();
@@ -506,12 +535,19 @@ export class HarnessRun {
       if (this.routes.has(engine)) this.checkRoad(t, k, engine, net);
       // Stuck: a lever-on train standing (not one sections hold for want of room, nor one stood at a red switch pinned
       // against its way: those are the player's to fix, and its card says so).
-      if (net !== 0 && t.speed === 0 && !this.sections.heldForRoom(engine) && this.router.waitOf(engine)?.kind !== "pinned") {
+      // A stall (stalls.ts) is said on its card, so it counts apart (`stalls`), not as stuck unexplained.
+      const stuck = this.stalls.stuckOf(engine);
+      if (stuck) {
+        this.report.stalls.stuck[k]++;
+        this.report.stalls.why[k] = stuck.kind;
+      }
+      if (net !== 0 && t.speed === 0 && !stuck && !this.sections.heldForRoom(engine) && this.router.waitOf(engine)?.kind !== "pinned") {
         const s = ++this.still[k];
         if (s > this.report.longestStill[k]) this.report.longestStill[k] = s;
         if (s === Math.round(this.maxStill * SIM_HZ)) this.broke("deadlock", `train ${k} still for ${this.maxStill} s on piece ${t.bogies[0].pieceId}`);
       } else this.still[k] = 0;
       const wait = this.sections.waitOf(engine);
+      if (wait && t.speed === 0 && net !== 0) this.report.held[k]++;
       if (wait && "engine" in wait && !sim.findCar(wait.engine)) this.broke("deadlock", `train ${k} waits (${wait.kind}) for a train that isn't there`);
       const rw = this.router.waitOf(engine);
       if (rw?.kind === "points" && t.speed === 0 && net !== 0) {

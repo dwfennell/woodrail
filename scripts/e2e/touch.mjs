@@ -1204,7 +1204,8 @@ async function wyeLevers(ctx, p, tapOn) {
 // (E2E_ONLY: Sandbox's checks by name, one or a comma list, in the full run's order: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
-// wait (a train waiting at points set for another), wye (a wye's three levers, #15).)
+// wait (a train waiting at points set for another), wye (a wye's three levers, #15), stuck (two trains of a line head
+// on, the loop laid from the tray), stuck-lines (the same, two lines' trains).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -1231,6 +1232,12 @@ function openGroundScript() {
       return c.kind === "clear" || (!onMat && c.reason === "off-mat");
     });
   };
+  // (On the land, on the mat: a straight there is clear either way round, not just past the mat's edge.)
+  const onLand = (x, z) => {
+    const w = window.woodrail;
+    if (w.landscape.grid.cellAtWorld(x, z) === -1) return false;
+    return [0, Math.PI / 2].some((h) => checkPlacement(w.landscape, "straight-216", false, { x: x - 108 * Math.cos(h), z: z - 108 * Math.sin(h), heading: h }, 0).kind === "clear");
+  };
   window.__clearAt = async (x, z, opts) => (await ready(), clearAt(x, z, opts));
   const clearAt = (x, z, { pieceGap = 700, propGap = 400, margin = 250, onMat = false } = {}) => {
     const w = window.woodrail;
@@ -1253,7 +1260,8 @@ function openGroundScript() {
       for (let a = 0; a < n; a++) {
         const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
         const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
-        if (points.every(([dx, dz]) => clearAt(x + dx, z + dz, opts))) return { x, z };
+        // (`onLand`: points that must be on the land itself, not the table past its edge: where the player lays track.)
+        if (points.every(([dx, dz]) => clearAt(x + dx, z + dz, opts)) && (opts.onLand ?? []).every(([dx, dz]) => onLand(x + dx, z + dz)) && (!opts.ok || opts.ok(x, z))) return { x, z };
       }
     }
     return null;
@@ -1864,10 +1872,11 @@ async function routeWait(ctx, p) {
     const on = (e, road) => w.sim.findCar(e).train.bogies.some((b) => road.includes(b.pieceId));
     if (on(s.first, s.roadB)) s.wrong.push("first on B");
     if (on(s.second, s.roadA)) s.wrong.push("second on A");
+    if (s.goneAt < 0 && on(s.second, s.roadB)) s.goneAt = w.sim.ticks;
   })`;
   const waited = await p.evaluate(({ setup, watch }) => {
     const w = window.woodrail;
-    window.__wait = { ...setup, goods: {}, moves: [], under: 0, wrong: [], last: w.layout.switchState(setup.points), stood: 0, near: Infinity, far: -Infinity };
+    window.__wait = { ...setup, goods: {}, moves: [], under: 0, wrong: [], last: w.layout.switchState(setup.points), stood: 0, near: Infinity, far: -Infinity, goneAt: -1, held: 0 };
     window.__waitWatch = (0, eval)(watch);
     w.sim.setLever(setup.first, 1);
     w.sim.setLever(setup.second, 1);
@@ -1885,20 +1894,31 @@ async function routeWait(ctx, p) {
         s.far = Math.max(s.far, gap);
         s.by = wt.by;
       }
+      // (Or, the two lines working the single track together (sections shared by the lines on one network), held by
+      // sections at its slot's end, short of the points, while the first holds the junction's section.)
+      const sw = w.economy.sections.waitOf(setup.second);
+      if (sw && "engine" in sw && t.speed === 0 && !w.sim.piecesUnder(t.id).has(setup.points)) {
+        s.held++;
+        s.by = sw.engine;
+        if (s.held >= 120) s.stood = Math.max(s.stood, s.held);
+      }
     }
     // (Paused while its card is opened and read: the game's own frames would run the sim on meanwhile, and the first
     // train be by, before SwiftShader's slow frames have shown the card.)
     w.paused = true;
     w.invalidate();
-    return { stood: s.stood, near: s.near, far: s.far, by: s.by, onPoints: w.sim.piecesUnder(w.sim.findCar(setup.second).train.id).has(setup.points), way: w.layout.switchState(setup.points) };
+    return { stood: s.stood, held: s.held, near: s.near, far: s.far, by: s.by, onPoints: w.sim.piecesUnder(w.sim.findCar(setup.second).train.id).has(setup.points), way: w.layout.switchState(setup.points) };
   }, { setup, watch });
-  check("wait: the second train stops short of the points set for the first (a second or more, its nose 30–40 mm short)", waited.stood >= 120 && waited.near >= 30 && waited.far <= 40 && !waited.onPoints && waited.by === setup.first && waited.way === 0, JSON.stringify(waited));
+  // (Short of the points by the router (its nose 30–40 mm short), or held by sections at its slot's end, which is
+  // where two lines' trains sharing the track now wait: the first holds the section with the points.)
+  const shortOf = waited.held >= 120 || (waited.near >= 30 && waited.far <= 40);
+  check("wait: the second train stops short of the points while the first has them (a second or more, never on them)", waited.stood >= 120 && shortOf && !waited.onPoints && waited.by === setup.first && waited.way === 0, JSON.stringify(waited));
   // Its card, opened by a tap on it while it waits, says who for.
   await tapOn({ engine: setup.second });
   await p.waitForFunction(() => !!document.querySelector(".engine-status")?.textContent, null, { timeout: 30000 }).catch(() => {});
   const said = await p.evaluate(() => document.querySelector(".engine-status")?.textContent ?? "");
   const lineName = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, setup.first);
-  check("wait: its card says it's waiting for the first train to pass the points", said === `Waiting for the ${lineName} train to pass the points`, JSON.stringify({ said, lineName }));
+  check("wait: its card says it's waiting for the first train", said === `Waiting for the train on the ${lineName} to pass the points` || said === "Waiting: another train is in the way", JSON.stringify({ said, lineName }));
   await p.keyboard.press("Escape");
   // The first by, the points are set for the second (it goes on). Before it's on them, two taps on their lever (§16 Q1,
   // as changed at step 5): they stay set for it, a toast says so, and the second tap's way (their curve, as set for
@@ -1908,7 +1928,8 @@ async function routeWait(ctx, p) {
     const w = window.woodrail;
     const s = window.__wait;
     const r = w.economy.router;
-    for (let i = 0; i < 30 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
+    // (Its move granted by sections too: held at its slot's end, the points' lock is still the first's.)
+    for (let i = 0; i < 30 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.economy.sections.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
       w.sim.tick();
       w.economy.tick();
       window.__waitWatch();
@@ -1927,7 +1948,7 @@ async function routeWait(ctx, p) {
   }, { setup });
   check(
     "wait: a lever tap on points set for the second train leaves them set for it, and says so",
-    locked.before.way === 1 && locked.once.way === 1 && locked.twice.way === 1 && locked.twice.locked && locked.once.def === 0 && locked.twice.def === 1 && locked.said.length === 2 && locked.said.every((m) => m === `Set for the ${locked.line} train. They'll switch to your way after it passes`),
+    locked.before.way === 1 && locked.once.way === 1 && locked.twice.way === 1 && locked.twice.locked && locked.once.def === 0 && locked.twice.def === 1 && locked.said.length === 2 && locked.said.every((m) => m === `Set for the train on the ${locked.line}. They'll switch to your way after it passes`),
     JSON.stringify(locked),
   );
   // On: it goes its way, the points set for it; both deliver, each on its own road.
@@ -1935,13 +1956,12 @@ async function routeWait(ctx, p) {
     const w = window.woodrail;
     const s = window.__wait;
     w.paused = false;
-    let goneAt = -1;
     for (let i = 0; i < 120 * 120 && !((s.goods[setup.millA] ?? 0) >= 2 && (s.goods[setup.millB] ?? 0) >= 1); i++) {
       w.sim.tick();
       w.economy.tick();
       window.__waitWatch();
-      if (goneAt < 0 && w.sim.findCar(setup.second).train.bogies.some((b) => s.roadB.includes(b.pieceId))) goneAt = w.sim.ticks;
     }
+    const goneAt = s.goneAt;
     w.invalidate();
     const r = w.economy.router;
     return { goods: s.goods, moves: s.moves, under: s.under, wrong: s.wrong.slice(0, 3), goneAt, way: w.layout.switchState(setup.points), def: r.defaultOf(setup.points), locked: r.locked(setup.points) };
@@ -2343,6 +2363,254 @@ async function putAwayButton(p) {
   await frames(p);
 }
 
+/**
+ * Stuck, and the player's fix (routing §16 Q3: nothing turns a train back short of the end of the track). Two trains on
+ * one line head on along single track: a passing loop laid in the middle but for one straight of its side road, so no
+ * loop yet. The line has room for one: the second is held at its end, the first comes up to it and stands. Neither
+ * turns back: both stand, and the first's card says it's stuck and what to do ("… Put one away or add a loop"), in two
+ * lines on a 360 px phone. The player drags the missing straight out of the tray into the gap: the loop is whole, both
+ * are let run, they pass at the loop and deliver logs to the sawmill.
+ *
+ * `lines`: the same, the two trains on two lines (single-line working across lines, sections.ts): neither is held (each
+ * line has room for its one train), each waits at its end of the line for the other's, both stuck in each other's way;
+ * the first's card says so and that a passing loop lets them pass ("… Add a passing loop here"). The player lays the
+ * loop's missing straight from the tray, and the two lines' trains meet at the loop, pass, and both deliver.
+ */
+async function stuckHeadOn(ctx, p, tapSel, lines = false) {
+  const tag = lines ? "stuck-lines" : "stuck";
+  await p.keyboard.press("Escape");
+  await p.setViewportSize({ width: 360, height: 740 });
+  await frames(p);
+  const setup = await p.evaluate(async (two) => {
+    const w = window.woodrail;
+    const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
+    const { loopOn } = await import("/src/economy/loop-fixtures.ts");
+    const { editLine, joinLine } = await import("/src/game/lines.ts");
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    // Harness shortcut (setup, not what's tested): QA's N1 line (a forest, two straights, a passing loop, two straights,
+    // a sawmill, a turnback buffer at each end) worked out on a scratch layout and laid in one go, as the player's
+    // pieces would be; all but the loop's side straight, which the player lays below.
+    const { checkPlacement } = await import("/src/landscape/clearance.ts");
+    const L = new Layout();
+    const a = L.addPiece("depot-forest", { x: 0, z: 0, heading: 0 });
+    appendPiece(L, "buffer-turnback", false, connectorRef(a, 0));
+    const chain = (n, from) => { const ids = []; for (let k = 0; k < n; k++) { ids.push(appendPiece(L, "straight-216", false, from)); from = connectorRef(ids[k], 1); } return ids; };
+    const west = chain(2, connectorRef(a, 1));
+    const loop = loopOn(L, connectorRef(west[1], 1), ["straight-216", "straight-216"], ["straight-216"]);
+    const east = chain(2, connectorRef(loop.s2, 0));
+    const b = appendPiece(L, "depot-sawmill", false, connectorRef(east[1], 1));
+    appendPiece(L, "buffer-turnback", false, connectorRef(b, 1));
+    const gap = loop.side[1];
+    // (Open, flat ground for the line, anywhere the view can go (`__openGround`), the run turned any of four ways; the
+    // gap on the land itself, where the player can lay track: the table past the land's edge may take the rest.)
+    const scratch = [...L.pieceIds()].filter((id) => id !== gap);
+    let g = null;
+    let turn = 0;
+    const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
+    for (let k = 0; k < 4 && !g; k++) {
+      turn = (k * Math.PI) / 2;
+      const pts = (id) => { const q = turned(L.getPiece(id).pose, turn); return [0, 54, 108, 162, 216].map((d) => [q.x + d * Math.cos(q.heading), q.z + d * Math.sin(q.heading)]); };
+      // (Each piece where it'd go clear, or past the mat's edge (the table); the gap's straight clear, on the land.)
+      const ok = (x, z) =>
+        [...L.pieceIds()].every((id) => {
+          const q = L.getPiece(id);
+          const t = turned(q.pose, turn);
+          const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
+          return c.kind === "clear" || (id !== gap && c.reason === "off-mat");
+        });
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(gap), ok });
+    }
+    if (!g) throw new Error("no open ground for the line, its gap on the land");
+    const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
+    const gapPiece = { pose: at(L.getPiece(gap).pose) };
+    const run = w.editor().placeRun(scratch.map((id) => { const q = L.getPiece(id); return { type: q.type, pose: at(q.pose), y: 0, flipped: q.flipped }; }));
+    const real = (id) => run[scratch.indexOf(id)];
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const forest = depot(real(a), "forest");
+    const sawmill = depot(real(b), "sawmill");
+    // Harness shortcut (setup): the trains put down and joined to one line in code, as the tray and the card's line
+    // would; the second comes on a moment after the first, so it's the newest (the one held).
+    const put = (piece, s, reversed, next, lineId) => {
+      const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: real(piece), pathIndex: 0, reversed, s });
+      if (r.kind !== "placed") throw new Error("no room for a train");
+      const e = w.sim.getTrain(r.trainId).cars[0].id;
+      w.sim.setLever(e, 1);
+      const line = lineId === undefined ? editLine(w.economy, e, (st) => st.push({ depotId: forest.id, action: "auto" }, { depotId: sawmill.id, action: "auto" })) : joinLine(w.economy, e, lineId);
+      w.economy.routeOf(e).next = next;
+      return { e, lineId: line.id };
+    };
+    const first = put(west[0], 200, false, 1);
+    // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's
+    // few frames a second; the forest kept stocked (its logs aren't what's tested). Counts logs unloaded at the sawmill,
+    // and each train's arrivals there.
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    window.__stuckRun = (secs, E) => {
+      let goods = 0;
+      const at = {};
+      const was = {};
+      for (let i = 0; i < secs * 120; i++) {
+        const f = w.economy.depot(forest.id);
+        if (f && i % 120 === 0) f.piles[CARGO.log.index] = PILE_CAP;
+        w.sim.tick();
+        w.economy.tick();
+        for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === sawmill.id) goods++;
+        for (const e of E ?? []) {
+          const r = w.economy.routeOf(e);
+          const here = !!r?.at && r.stops[r.next % r.stops.length]?.depotId === sawmill.id;
+          if (here && !was[e]) at[e] = (at[e] ?? 0) + 1;
+          was[e] = here;
+        }
+      }
+      w.invalidate();
+      return { goods, at };
+    };
+    window.__stuckRun(1);
+    const second = put(east[0], 200, true, 0, two ? undefined : first.lineId);
+    // (What the player's told: the real toasts, recorded on their way.)
+    window.__stuckSaid = [];
+    // (Wrapped once: a second run's wrapper round the first's would count each toast twice.)
+    if (!w.hud.__stuckSaid) {
+      const toast = w.hud.toast.bind(w.hud);
+      w.hud.toast = (m, ...rest) => (window.__stuckSaid.push(m), toast(m, ...rest));
+      w.hud.__stuckSaid = true;
+    }
+    // Where the gap is: its straight's middle, on the ground.
+    const q = gapPiece.pose;
+    const mid = { x: q.x + Math.cos(q.heading) * 108, z: q.z + Math.sin(q.heading) * 108, heading: q.heading };
+    w.director.glideTo(w.controls.target.clone().set(mid.x, 0, mid.z), frameDistance(1400, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    return { E: [first.e, second.e], mid, c1: real(loop.side[0]), c2: real(loop.side[2]), sawmill: sawmill.id };
+  }, lines);
+  // A minute on: the second is held for room, the first stands short of it; neither turned back; stalls say so.
+  const stood = await p.evaluate(({ E }) => {
+    const w = window.woodrail;
+    const run = window.__stuckRun(60, E);
+    return {
+      run,
+      speeds: E.map((e) => Math.round(w.sim.findCar(e).train.speed)),
+      turns: E.map((e) => w.sim.findCar(e).train.lastTurn?.cause ?? null),
+      held: E.map((e) => w.economy.sections.heldForRoom(e)),
+      stuck: E.map((e) => w.economy.stalls.stuckOf(e)?.kind ?? null),
+    };
+  }, setup);
+  if (lines) check("stuck-lines: two lines' trains head on, no loop: both stand, neither turns back nor is held, each stuck in the other's way", stood.speeds.every((v) => v === 0) && stood.turns.every((c) => c === null || c === "buffer") && stood.held.every((h) => !h) && stood.stuck.every((k) => k === "in-way") && stood.run.goods === 0, JSON.stringify(stood));
+  else check("stuck: two trains head on, one line, no loop: both stand, neither turns back (the second held, the first stuck: too many trains)", stood.speeds.every((v) => v === 0) && stood.turns.every((c) => c === null || c === "buffer") && stood.held[1] && !stood.held[0] && stood.stuck[0] === "too-many" && stood.run.goods === 0, JSON.stringify(stood));
+  // Its card, opened by a tap on it: stuck, and what to do, in two lines at 360 px. (Paused while it's read: the game's
+  // own frames would run the sim on meanwhile.)
+  await p.evaluate(() => {
+    window.woodrail.paused = true;
+    window.woodrail.invalidate();
+  });
+  const { tapOn } = mapHelpers(p);
+  await tapOn({ engine: setup.E[0] });
+  await p.waitForFunction(() => /^Stuck/.test(document.querySelector(".engine-card .engine-status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
+  const card = await p.evaluate(() => {
+    const s = document.querySelector(".engine-card .engine-status");
+    const one = s.cloneNode(false);
+    one.textContent = "Line";
+    one.style.visibility = "hidden";
+    s.after(one);
+    const lh = one.getBoundingClientRect().height;
+    one.remove();
+    const r = s.getBoundingClientRect();
+    return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth };
+  });
+  const fixSaid = lines ? /^Stuck: (the train on the [A-Za-z]+ line|another train) is in the way\. Add a passing loop here$/.test(card.said) : card.said === "Stuck: too many trains for this line. Put one away or add a loop";
+  check(`${tag}: the first's card says it's stuck and the fix, in two lines at 360 px`, fixSaid && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
+  // (The once-ever head-on tip, if it came with this stall: what works, a passing loop; no signals needed.)
+  if (lines) {
+    const tips = await p.evaluate(() => window.__stuckSaid.filter((m) => /^Trains met head on/.test(m)));
+    check("stuck-lines: the head-on tip, if told, says a passing loop lets trains pass", tips.every((m) => m === "Trains met head on. A passing loop lets trains pass"), JSON.stringify(tips));
+  }
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => {
+    window.woodrail.paused = false;
+  });
+  // The player's fix: the loop's missing straight, dragged out of the tray (the Straight shelf) by touch and let go
+  // over the gap, the piece held its lift above the finger (`TOUCH_LIFT_PX`, 56 px). Every CDP event stamped after the
+  // last, the touchEnd too.
+  const cdp = await ctx.newCDPSession(p);
+  let stamp = Date.now() / 1000;
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp += 0.016) });
+  // (The Straight shelf, unless it's open already: left open by the run before, stuck then stuck-lines.)
+  if (!(await p.evaluate(() => !!document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]')))) {
+    // (Another shelf left open by the run before, the wye's Switch shelf: Back to the shelves first.)
+    if (await p.evaluate(() => !document.querySelector(".scroller .tray-group") && !!document.querySelector(".scroller .tray-back"))) {
+      await tapSel(".scroller .tray-back");
+      await p.waitForFunction(() => document.querySelector(".scroller .tray-group") !== null, null, { timeout: 10000 });
+    }
+    const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Straight"));
+    await tapSel(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  }
+  const item = await p.evaluate(() => {
+    const e = document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]');
+    if (!e) return null;
+    e.scrollIntoView({ inline: "center" });
+    const r = e.getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  });
+  if (!item) throw new Error("no straight-216 in the Straight shelf");
+  // (The view back on the gap, a little above the middle of the screen: opening the card panned to the engine, and a
+  // drag near the screen's edge pans the view.)
+  await p.evaluate((m) => {
+    const w = window.woodrail;
+    w.director.glideTo(w.controls.target.clone().set(m.x, 0, m.z), 1200, { duration: 0.2 });
+  }, setup.mid);
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+  await frames(p);
+  const target = await p.evaluate((m) => {
+    const w = window.woodrail;
+    const c = new w.camera.position.constructor(m.x, 0, m.z).project(w.camera);
+    return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight + 56];
+  }, setup.mid);
+  const before = await p.evaluate(() => {
+    const h = window.woodrail.hud;
+    window.__dropSaid = [];
+    const refuse = h.setRefusal.bind(h);
+    h.setRefusal = (m, ...a) => (m && window.__dropSaid.push(m), refuse(m, ...a));
+    return window.woodrail.layout.pieceCount;
+  });
+  await touch("touchStart", item[0], item[1]);
+  for (let k = 1; k <= 20; k++) await touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 20, item[1] + ((target[1] - item[1]) * k) / 20);
+  // (Held over the gap, the finger nudged as a player's would, by what's seen: the ghost's middle onto the gap's, till
+  // it seats there, joined at both ends.)
+  let finger = [...target];
+  let holding = null;
+  for (let k = 0; k < 10; k++) {
+    await touch("touchMove", finger[0], finger[1]);
+    await frames(p);
+    holding = await p.evaluate((m) => {
+      const w = window.woodrail;
+      const mode = w.interaction.mode;
+      if (!mode.pose) return { mode: mode.kind };
+      const q = mode.pose;
+      const c = { x: q.x + 108 * Math.cos(q.heading), z: q.z + 108 * Math.sin(q.heading) };
+      const px = (v) => { const r = new w.camera.position.constructor(v.x, 0, v.z).project(w.camera); return [((r.x + 1) / 2) * innerWidth, ((1 - r.y) / 2) * innerHeight]; };
+      return { mode: mode.kind, snap: mode.snap?.kind ?? null, off: Math.hypot(c.x - m.x, c.z - m.z), ghost: px(c), gap: px(m) };
+    }, setup.mid);
+    if (!holding.ghost) break;
+    if (holding.snap === "snapped" && holding.off < 5) break;
+    finger = [finger[0] + holding.gap[0] - holding.ghost[0], finger[1] + holding.gap[1] - holding.ghost[1]];
+  }
+  await touch("touchEnd", 0, 0);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await frames(p);
+  const laid = await p.evaluate(({ c1, c2 }) => {
+    const w = window.woodrail;
+    // (The loop whole: the curves either side of the gap each joined at both ends.)
+    const joined = (id) => [0, 1].every((c) => w.layout.joinedConnector(id * 8 + c) !== -1);
+    return { pieces: w.layout.pieceCount, whole: joined(c1) && joined(c2), said: window.__dropSaid };
+  }, setup);
+  check(`${tag}: the missing straight dragged from the tray closes the loop`, laid.pieces === before + 1 && laid.whole, JSON.stringify({ before, ...laid, holding, item, target, mid: setup.mid }));
+  // With the loop whole the line has room for both: they're let run, pass at the loop and deliver.
+  const after = await p.evaluate(({ E }) => {
+    const w = window.woodrail;
+    const run = window.__stuckRun(240, E);
+    return { run, held: E.map((e) => w.economy.sections.heldForRoom(e)), stuck: w.economy.stalls.count, turns: E.map((e) => w.sim.findCar(e).train.lastTurn?.cause ?? null) };
+  }, setup);
+  check(`${tag}: loop laid, both run, pass at the loop and deliver logs to the sawmill (none stuck)`, after.run.goods >= 4 && setup.E.every((e) => (after.run.at[e] ?? 0) >= 1) && after.held.every((h) => !h) && after.stuck === 0, JSON.stringify(after));
+}
+
 async function runMode(mode) {
   const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -2416,7 +2684,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

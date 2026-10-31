@@ -70,9 +70,9 @@ function lineWithLoop(layout: Layout) {
   const [a, w1, w2] = chain(layout, [STOP, S, S]);
   appendPiece(layout, BUFFER, false, connectorRef(a, 0));
   const loop = loopOn(layout, connectorRef(w2, 1), [S, S], [S]);
-  const [e1, , b] = chain(layout, [S, S, STOP], connectorRef(loop.s2, 0));
+  const [e1, e2, b] = chain(layout, [S, S, STOP], connectorRef(loop.s2, 0));
   appendPiece(layout, BUFFER, false, connectorRef(b, 1));
-  return { a, b, w1, w2, e1, loop };
+  return { a, b, w1, w2, e1, e2, loop };
 }
 
 /** The first tick `when` holds, do `then`. */
@@ -169,13 +169,16 @@ export const loneRouted: Scenario = { ...branchDelivery, name: "lone train, rout
 
 /**
  * Two routed trains on the trunk heading in, the one behind close behind: A for X; B for X too, or for P (the other road).
- * Each runs a line of its own, so nothing keeps them apart on the way back: the run ends once both are through the points
- * and at their stops.
+ * Each runs a line of its own, working its single track alone (`ownLines`, harness-only: the router's wait at the points
+ * is what's tested), so nothing keeps them apart on the way back: the run ends once both are through the points and at
+ * their stops. `shared`: as in the game, the two lines work the single track together (sections), and the one behind
+ * waits at its slot's end, short of the points, for the junction to be clear (and, for the same road, for X's siding).
  */
-function follower(name: string, type: "switch" | "wye" | "crossover", at: number, ways: [number, number], same: boolean): Scenario {
+function follower(name: string, type: "switch" | "wye" | "crossover", at: number, ways: [number, number], same: boolean, shared = false): Scenario {
   return {
     name,
     seconds: 15,
+    ownLines: !shared,
     build: (layout) => {
       const j = junction(layout, type, at, ways);
       return {
@@ -194,6 +197,8 @@ export const followerOtherRoad = follower("a follower needing the other road", "
 export const wyeFromBranch = follower("a wye from its branch, with a follower needing the other road", "wye", 1, [0, 2], false);
 /** A crossover entered at its connector 3: on along its line (to 2) or over by the link (to 0), picked by the lever. */
 export const crossoverAt3 = follower("a crossover at connector 3, with a follower needing the other road", "crossover", 3, [2, 0], false);
+export const followerSameRoadShared = follower("a follower of another line needing the same road (single-line working)", "switch", 0, [1, 2], true, true);
+export const followerOtherRoadShared = follower("a follower of another line needing the other road (single-line working)", "switch", 0, [1, 2], false, true);
 
 /**
  * The user's #3 (follow-up): two routed trains at one switch needing different roads. The first, for X, is near the
@@ -204,6 +209,8 @@ export const crossoverAt3 = follower("a crossover at connector 3, with a followe
 export const twoRoadsOneSwitch: Scenario = {
   name: "#3: two routed trains needing different roads at one switch",
   seconds: 30,
+  // (Harness-only: the router's own wait at the points; in the game sections hold the second at its slot's end first.)
+  ownLines: true,
   build: (layout) => {
     const j = junction(layout, "switch", 0, [1, 2], 6);
     return {
@@ -314,6 +321,157 @@ export const threeTrainsOneLoop: Scenario = {
   },
 };
 
+/**
+ * The same three trains, and the player's fix once they're stuck (stalls.ts: too many trains for the line): the held
+ * one put away (its card's Put away), at 2 minutes. The other two then pass at the loop and deliver.
+ */
+export const threeTrainsPutAway: Scenario = {
+  ...threeTrainsOneLoop,
+  name: "three trains on a line with one loop, the held one put away",
+  build: (layout) => ({ ...threeTrainsOneLoop.build(layout), events: [{ at: 120, do: (run) => run.putAway(run.engines.findIndex((e) => run.sections.heldForRoom(e))) }] }),
+};
+
+/**
+ * Two single-train lines head on along one shuttle line, no passing place: `⊐ A ══ … ══ B ⊏`, Red from A for B, Blue from
+ * B for A. Neither line is managed (one train each), so they meet nose to nose in the middle and stand there for good
+ * (routing §16 Q3: nothing turns either back), each stuck in the other's way.
+ */
+export const headOnTwoLines: Scenario = {
+  name: "two single-train lines head on along one line",
+  seconds: 120,
+  build: (layout) => {
+    const ids = shuttleLine(layout, 6);
+    return {
+      trains: [
+        { pieceId: ids[1], reversed: false, stops: [ids[ids.length - 1], ids[0]], cars: CARS },
+        { pieceId: ids[ids.length - 2], reversed: true, stops: [ids[0], ids[ids.length - 1]], cars: CARS },
+      ],
+    };
+  },
+};
+
+/**
+ * A ring of waits on one line: its two trains (a loop, so room for both) put down face to face in one line end, each on
+ * the other's way (sections' `facing`). Neither turns back: each waits on the other, stuck in its way.
+ */
+export const facingInLineEnd: Scenario = {
+  name: "two trains of a line put down face to face in a line end",
+  seconds: 120,
+  build: (layout) => {
+    const l = lineWithLoop(layout);
+    return {
+      trains: [
+        { pieceId: l.e1, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+        { pieceId: l.e2, reversed: true, stops: [l.a, l.b], next: 0, line: 1, cars: CARS },
+      ],
+    };
+  },
+};
+
+// ── Single-line working across lines (sections shared by the lines on one network) ─────────────────────────────────
+
+/** `⊐ A ══ ══ (loop) ══ ══ (loop) ══ ══ B ⊏`: a shuttle line with two passing loops. */
+function lineWithTwoLoops(layout: Layout) {
+  const [a, w1, w2] = chain(layout, [STOP, S, S]);
+  appendPiece(layout, BUFFER, false, connectorRef(a, 0));
+  const l1 = loopOn(layout, connectorRef(w2, 1), [S, S], [S]);
+  const [m1, m2] = chain(layout, [S, S], connectorRef(l1.s2, 0));
+  const l2 = loopOn(layout, connectorRef(m2, 1), [S, S], [S]);
+  const [e1, e2, b] = chain(layout, [S, S, STOP], connectorRef(l2.s2, 0));
+  appendPiece(layout, BUFFER, false, connectorRef(b, 1));
+  return { a, b, w1, w2, m1, m2, e1, e2, l1, l2 };
+}
+
+/**
+ * Two single-train lines, Red and Blue, both A to B on one shuttle line with a passing loop in the middle, put down at
+ * either end heading in: they meet at the loop, each on its own road, and pass (single-line working: one train in each
+ * stretch of single track, trains meet at loops).
+ */
+export const twoLinesOneLoop: Scenario = {
+  name: "two single-train lines on one line with a passing loop",
+  seconds: KID_SECONDS,
+  maxStill: KID_STILL,
+  build: (layout) => {
+    const l = lineWithLoop(layout);
+    return {
+      trains: [
+        { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+        { pieceId: l.e2, reversed: true, stops: [l.a, l.b], next: 0, line: 2, cars: CARS },
+      ],
+    };
+  },
+};
+
+/** The same, the lines' trains put down nose to nose on the single track with no loop: they stand, stuck (no fix but a loop). */
+export const twoLinesNoLoop: Scenario = {
+  name: "two single-train lines head on along one line, no loop",
+  seconds: 120,
+  build: (layout) => {
+    const ids = shuttleLine(layout, 6);
+    return {
+      trains: [
+        { pieceId: ids[2], stops: [ids[ids.length - 1], ids[0]], line: 1, cars: CARS },
+        { pieceId: ids[ids.length - 3], reversed: true, stops: [ids[0], ids[ids.length - 1]], line: 2, cars: CARS },
+      ],
+    };
+  },
+};
+
+/** Three single-train lines over one shuttle line with two passing loops (a loop for each pair of trains). */
+export const threeLinesTwoLoops: Scenario = {
+  name: "three single-train lines on one line with two passing loops",
+  seconds: KID_SECONDS,
+  maxStill: KID_STILL,
+  build: (layout) => {
+    const l = lineWithTwoLoops(layout);
+    return {
+      trains: [
+        { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+        { pieceId: l.m1, stops: [l.a, l.b], next: 1, line: 2, cars: CARS },
+        { pieceId: l.e2, reversed: true, stops: [l.a, l.b], next: 0, line: 3, cars: CARS },
+      ],
+    };
+  },
+};
+
+/** A line of two trains and a single-train line, all three A to B on the line with two loops. */
+export const twoLinesThreeTrains: Scenario = {
+  name: "a two-train line and a single-train line on one line with two passing loops",
+  seconds: KID_SECONDS,
+  maxStill: KID_STILL,
+  build: (layout) => {
+    const l = lineWithTwoLoops(layout);
+    return {
+      trains: [
+        { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+        { pieceId: l.m1, stops: [l.a, l.b], next: 1, line: 2, cars: CARS },
+        { pieceId: l.e2, reversed: true, stops: [l.a, l.b], next: 0, line: 1, cars: CARS },
+      ],
+    };
+  },
+};
+
+/**
+ * A single-train line and a hand-run train (no route, its lever on) on the line with a passing loop: the hand-run one
+ * shuttles between the buffers as the points lie; the line's train meets it at the loop, on the other road.
+ */
+export const linelessWithLine: Scenario = {
+  name: "a hand-run train and a single-train line on one line with a passing loop",
+  seconds: KID_SECONDS,
+  maxStill: KID_STILL,
+  build: (layout) => {
+    const l = lineWithLoop(layout);
+    return {
+      trains: [
+        { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+        { pieceId: l.e2, reversed: true, cars: CARS },
+      ],
+    };
+  },
+};
+
+export const SHARED: readonly Scenario[] = [twoLinesOneLoop, twoLinesNoLoop, threeLinesTwoLoops, twoLinesThreeTrains, linelessWithLine];
+
 /** The branch delivery, with the player doing `what` once the wye is set for the siding and the train is coming to it. */
 function duringLock(name: string, what: (run: HarnessRun, o: ReturnType<typeof ovalWithSiding>) => void): Scenario {
   return {
@@ -340,6 +498,8 @@ export const OTHERS: readonly Scenario[] = [
   followerSameRoad,
   twoRoadsOneSwitch,
   followerOtherRoad,
+  followerSameRoadShared,
+  followerOtherRoadShared,
   wyeFromBranch,
   crossoverAt3,
   pinnedOnRoute,
@@ -347,6 +507,9 @@ export const OTHERS: readonly Scenario[] = [
   balloonBehindOpenRoad,
   crossoverRing,
   threeTrainsOneLoop,
+  threeTrainsPutAway,
+  headOnTwoLines,
+  facingInLineEnd,
   leverDuringLock,
   saveDuringLock,
   removedUnderLock,
