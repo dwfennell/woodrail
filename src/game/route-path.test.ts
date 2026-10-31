@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Economy } from "../economy";
 import { Sim, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, pathLength, type PieceTypeId } from "../track";
-import { aheadRuns, legFromCursor, lineLegs, pinnedBlocking, runsLength, stopCursors, type PathRun } from "./route-path";
+import { aheadRuns, legFromCursor, lineLegs, pinnedBlocking, runsLength, stopCursors, viaLegs, type PathRun } from "./route-path";
+import { chain as chainFixture, loopOn } from "../economy/loop-fixtures";
 
 /** Lay `types` end to end from a first piece at the origin; their ids. */
 function chain(layout: Layout, types: readonly PieceTypeId[], from = -1): number[] {
@@ -192,5 +193,46 @@ describe("route path", () => {
     ]);
     expect(lineLegs(layout, [a])).toEqual([]);
     expect(lineLegs(layout, [a, a])).toEqual([[], []]);
+  });
+});
+
+describe("viaLegs (via points, routing spec §3.5)", () => {
+  /** `⊐ A ══ ══ (loop: main road straight, side road round) ══ ══ B ⊏`. */
+  function twoWays() {
+    const layout = new Layout();
+    const [a, , w2] = chainFixture(layout, ["depot-forest", "straight-216", "straight-216"]);
+    appendPiece(layout, "buffer-turnback", false, connectorRef(a, 0));
+    const loop = loopOn(layout, connectorRef(w2, 1), ["straight-216", "straight-216"], ["straight-216"]);
+    const [, , b] = chainFixture(layout, ["straight-216", "straight-216", "depot-forest"], connectorRef(loop.s2, 0));
+    appendPiece(layout, "buffer-turnback", false, connectorRef(b, 1));
+    return { layout, a, b, loop };
+  }
+  it("without vias goes the shorter road; with one on the other road, by it, both ways", () => {
+    const { layout, a, b, loop } = twoWays();
+    const plain = viaLegs(layout, [{ piece: a }, { piece: b }]);
+    expect(plain.length).toBe(2);
+    for (const leg of plain) expect(piecesOf(leg!).some((p) => loop.side.includes(p))).toBe(false);
+    const top = loop.side[1];
+    const via = viaLegs(layout, [{ piece: a, via: [top] }, { piece: b, via: [top] }]);
+    for (const leg of via) {
+      expect(leg).not.toBeNull();
+      expect(piecesOf(leg!)).toContain(top);
+      expect(piecesOf(leg!).some((p) => loop.main.includes(p))).toBe(false);
+      expectContinuous(layout, leg!);
+    }
+    // (A via on one leg only: the other goes the shorter road.)
+    const one = viaLegs(layout, [{ piece: a, via: [top] }, { piece: b }]);
+    expect(piecesOf(one[0]!)).toContain(top);
+    expect(piecesOf(one[1]!)).not.toContain(top);
+    // (No vias at all: as lineLegs.)
+    expect(plain).toEqual(lineLegs(layout, [a, b]));
+  });
+  it("follows the train's own way to the via it's aimed at", () => {
+    const { layout, a, b, loop } = twoWays();
+    const top = loop.side[1];
+    const front = stopCursors(layout, a)[0];
+    const toVia = legFromCursor(layout, front, top);
+    const legs = viaLegs(layout, [{ piece: a, via: [top] }, { piece: b }], { k: 1, done: 0, leg: toVia });
+    expect(piecesOf(legs[0]!)).toContain(top);
   });
 });

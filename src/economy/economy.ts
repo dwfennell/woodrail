@@ -8,6 +8,7 @@ import { KitStops } from "./kit-stops";
 import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { Router } from "../routing/router";
+import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -156,6 +157,11 @@ export interface RouteStopDef {
   depotId: number;
   action: StopAction;
   waitFill?: boolean;
+  /**
+   * Via points: pieces (track, a station's or a halt's) its trains pass on the way from this stop to the next, in order,
+   * without stopping there (the routing spec §3.5).
+   */
+  via?: number[];
 }
 
 /**
@@ -186,6 +192,9 @@ export interface Route {
   next: number;
   /** It's at its next stop now (it moves on to the one after when it leaves). */
   at?: boolean;
+  /** Via points passed on the way into stop `viaFor` (see routing/via.ts). */
+  viaFor?: number;
+  viaDone?: number;
 }
 
 export interface DepotState {
@@ -349,8 +358,7 @@ export class Economy {
           const here = r.stops[i].depotId;
           for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
         }
-        const d = this.depots[r.stops[i].depotId];
-        return d && this.onMap(d) ? d.pieceId : -1;
+        return this.aim(r, i);
       },
       stopPieces: (lineId) => {
         const line = this.lines.get(lineId);
@@ -366,6 +374,8 @@ export class Economy {
       skipStops: (engine, pieces) => {
         const r = this.routes.get(engine);
         if (!r || r.stops.length === 0 || r.at) return;
+        // (Aimed at via points on those pieces: they're passed, this time.)
+        if (skipVias(r, r.stops.length, (k) => r.stops[k].via, pieces)) return;
         // (On to the first stop not on those pieces; all of them on it: as it was.)
         let i = r.next % r.stops.length;
         for (let k = 0; k < r.stops.length; k++) {
@@ -378,16 +388,15 @@ export class Economy {
         }
       },
       restsAt: (pieceId) => this.router.defaultOf(pieceId),
+      keep: (engine) => this.router.ways.of(this.ownerOf(engine)),
     });
     this.router = new Router({
       layout,
       sim,
       routed: this.routes,
-      goal: (engine) => {
-        const r = this.routes.get(engine)!;
-        const d = this.depots[r.stops[r.next % r.stops.length].depotId];
-        return d && this.onMap(d) ? d.pieceId : -1;
-      },
+      goal: (engine) => this.goalOf(engine, 0),
+      then: (engine) => this.goalOf(engine, 1),
+      owner: (engine) => this.ownerOf(engine),
       drive: (train) => this.drive(train),
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
@@ -397,6 +406,39 @@ export class Economy {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.router.waitingOn(engine),
     });
+  }
+
+  /**
+   * Where a routed train is aimed on its way into stop `i`: its next via point not passed, else the stop's piece (`skip`:
+   * aims on, see `aimOf`); −1 while there's none on the map.
+   */
+  private aim(r: Route, i: number, skip = 0): number {
+    const d = this.depots[r.stops[i].depotId];
+    const stop = d && this.onMap(d) ? d.pieceId : -1;
+    if (!r.stops.some((s) => s.via && s.via.length > 0)) return skip === 0 ? stop : -1;
+    return aimOf(r, r.stops.length, i, (k) => r.stops[k].via, (p) => !!this.layout.getPiece(p), stop, skip);
+  }
+
+  /** The router's goal for a routed engine: its next stop's piece (at it, that stop), or a via point on the way there. */
+  private goalOf(engine: number, skip: number): number {
+    const r = this.routes.get(engine)!;
+    const i = r.next % r.stops.length;
+    if (r.at) {
+      const d = this.depots[r.stops[i].depotId];
+      return skip > 0 ? -1 : d && this.onMap(d) ? d.pieceId : -1;
+    }
+    return this.aim(r, i, skip);
+  }
+
+  /** Where a routed engine is aimed now (the router's goal): its next stop's piece, or a via point on the way; −1: none. */
+  aimOf(engine: number): number {
+    const r = this.routes.get(engine);
+    return r && r.stops.length > 0 ? this.goalOf(engine, 0) : -1;
+  }
+
+  /** Whose kept ways (stickiness) a routed engine's plan keeps: its line's, else its own (as a negative number). */
+  ownerOf(engine: number): number {
+    return this.lineIdOf.get(engine) ?? -(engine + 1);
   }
 
   /**
@@ -1695,6 +1737,12 @@ export class Economy {
         continue;
       }
       const on = found.train.bogies.some((b) => b.pieceId === d.pieceId);
+      // (Via points on the way: passed when its leading axle comes to them.)
+      if (!on && !r.at) {
+        const net = this.drive(found.train);
+        const t = found.train;
+        if (net !== 0) passVias(r, r.stops.length, (k) => r.stops[k].via, (p) => !!this.layout.getPiece(p), (net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]).pieceId);
+      }
       const lineId = this.lineIdOf.get(engine);
       const line = lineId === undefined ? undefined : this.lines.get(lineId);
       if (on) {
@@ -1709,6 +1757,7 @@ export class Economy {
           r.next = (r.next + 1) % r.stops.length;
           if (r.stops[r.next].depotId !== stop.depotId) break;
         }
+        resetVias(r);
       }
     }
   }

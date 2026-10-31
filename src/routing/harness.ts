@@ -19,7 +19,8 @@ import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
 import { next, waysFrom } from "./graph";
-import { planChoice, ROUTE_COSTS } from "./plan";
+import { planChoice, ROUTE_COSTS, sticks } from "./plan";
+import { aimOf, passVias, resetVias, skipVias, type ViaProgress } from "./via";
 
 /** A train in a scenario. No `stops`: hand-run (its lever on, no route). */
 export interface TrainSpec {
@@ -32,6 +33,8 @@ export interface TrainSpec {
   stops?: number[];
   /** The stop it heads for first (an index into `stops`). */
   next?: number;
+  /** Via points (§3.5): per stop, the pieces passed on the way from it to the next. */
+  vias?: number[][];
   /** Trains with the same line number share a line; a routed train with none runs a line of its own. */
   line?: number;
   lever?: -1 | 0 | 1;
@@ -131,10 +134,11 @@ const KEEP = 4;
 /** A switch nobody holds or stands on this long is at its default (§12). */
 const RESTORE_TICKS = SIM_HZ;
 
-interface RouteState {
+interface RouteState extends ViaProgress {
   stops: number[];
   next: number;
   at: boolean;
+  vias?: number[][];
 }
 
 /** FNV-1a, as the trajectory recorder hashes (scripts/trajectory/record.ts). */
@@ -243,7 +247,7 @@ export class HarnessRun {
     this.lockFront = this.specs.map(() => -1);
     this.specs.forEach((t, k) => {
       if (!t.stops) return;
-      this.routes.set(this.engines[k], { stops: t.stops, next: t.next ?? 0, at: false });
+      this.routes.set(this.engines[k], { stops: t.stops, next: t.next ?? 0, at: false, ...(t.vias ? { vias: t.vias } : {}) });
       this.lineOf.set(this.engines[k], t.line ?? 1000 + k);
     });
     this.wire();
@@ -280,6 +284,7 @@ export class HarnessRun {
       skipStops: (engine, pieces) => {
         const r = this.routes.get(engine);
         if (!r || r.stops.length === 0 || r.at) return;
+        if (skipVias(r, r.stops.length, (k) => r.vias?.[k], pieces)) return;
         let i = r.next % r.stops.length;
         for (let k = 0; k < r.stops.length; k++) {
           if (!pieces.has(r.stops[i])) {
@@ -290,6 +295,7 @@ export class HarnessRun {
         }
       },
       restsAt: (pieceId) => this.router.defaultOf(pieceId),
+      keep: (engine) => this.router.ways.of(this.lineOf.get(engine) ?? engine),
     });
     this.sections.shared = !this.ownLines;
     // (Sections' cap, and the router's: short of points it waits for, §3.3.)
@@ -299,11 +305,9 @@ export class HarnessRun {
       layout,
       sim,
       routed: this.routes,
-      goal: (engine) => {
-        const r = this.routes.get(engine)!;
-        const p = r.stops[r.next % r.stops.length];
-        return this.layout.getPiece(p) ? p : -1;
-      },
+      goal: (engine) => this.goal(engine, 0),
+      then: (engine) => this.goal(engine, 1),
+      owner: (engine) => this.lineOf.get(engine) ?? engine,
       drive,
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
@@ -330,7 +334,21 @@ export class HarnessRun {
       const here = r.stops[i];
       for (let k = 0; k < r.stops.length && r.stops[i] === here; k++) i = (i + 1) % r.stops.length;
     }
-    return this.layout.getPiece(r.stops[i]) ? r.stops[i] : -1;
+    return this.aim(r, i);
+  }
+
+  /** Where a route is aimed on its way into stop `i`: its next via point not passed, else the stop (as the economy's). */
+  private aim(r: RouteState, i: number, skip = 0): number {
+    const onMap = (p: number) => !!this.layout.getPiece(p);
+    return aimOf(r, r.stops.length, i, (k) => r.vias?.[k], onMap, onMap(r.stops[i]) ? r.stops[i] : -1, skip);
+  }
+
+  /** The router's goal (as `Economy.goalOf`): at its stop, that stop; else its aim (`skip` aims on). */
+  private goal(engine: number, skip: number): number {
+    const r = this.routes.get(engine)!;
+    const i = r.next % r.stops.length;
+    if (r.at) return skip > 0 ? -1 : this.layout.getPiece(r.stops[i]) ? r.stops[i] : -1;
+    return this.aim(r, i, skip);
   }
 
   /** Every switch throw is watched: never under a train, never a pinned one (§12). */
@@ -504,6 +522,11 @@ export class HarnessRun {
         return;
       }
       const on = found.train.bogies.some((b) => b.pieceId === stop);
+      if (!on && !r.at && r.vias) {
+        const t = found.train;
+        const net = drive(t);
+        if (net !== 0) passVias(r, r.stops.length, (i) => r.vias?.[i], (p) => !!this.layout.getPiece(p), (net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]).pieceId);
+      }
       if (on) {
         if (!r.at) {
           this.report.arrivals[k]++;
@@ -518,6 +541,7 @@ export class HarnessRun {
           r.next = (r.next + 1) % r.stops.length;
           if (r.stops[r.next] !== stop) break;
         }
+        resetVias(r);
       }
     });
   }
@@ -641,7 +665,10 @@ export class HarnessRun {
       const costs: number[] = [];
       const best = planChoice(this.layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
       if (best === -1 || best === taken.option) return;
-      wrong = !(costs[taken.option] <= costs[best]);
+      // (Or the way its line kept, costing nearly the best: stickiness.)
+      const owner = this.lineOf.get(engine) ?? engine;
+      const kept = this.router.ways.get(owner, b.pieceId, entry, held?.aim ?? target) === taken.option && sticks(costs[taken.option], costs[best]);
+      wrong = !(costs[taken.option] <= costs[best]) && !kept;
     }
     if (wrong) this.broke("wrongRoad", `train ${k} took road ${taken.option} at points ${b.pieceId} (${followed.length === 1 ? "not the way granted" : `not its way to ${target}`})`);
   }

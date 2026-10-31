@@ -42,8 +42,9 @@ import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateR
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
-import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./game/lines";
-import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, pointOnPath, stopCursors } from "./game/route-path";
+import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./game/lines";
+import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
+import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
@@ -2280,6 +2281,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const LEAVE_ASK_MS = 4000;
   /** The stop whose chip was tapped (its actions shown), or −1. */
   let stopPicked = -1;
+  /** The via point whose tools are showing (stop `k`'s via `i`), or none. */
+  let viaPicked: { k: number; i: number } | null = null;
+  /**
+   * "Pass by" (routing spec §3.5): stop `k` becomes a via point on the way from the stop before (its own via points after
+   * it), so trains go by its station without stopping.
+   */
+  const passBy = (l: RouteStopDef[], k: number) => {
+    const piece = game.economy.depot(l[k].depotId)?.pieceId;
+    const prev = l[(k - 1 + l.length) % l.length];
+    prev.via = [...(prev.via ?? []), ...(piece !== undefined ? [piece] : []), ...(l[k].via ?? [])].slice(0, MAX_VIAS);
+    l.splice(k, 1);
+  };
   /** "Tap a stop for options" is shown until a stop's chip is first tapped (remembered). */
   const STOP_HINT_KEY = "woodrail.hint.stopOptions";
   let stopHintSeen = loadFlag(STOP_HINT_KEY);
@@ -2507,7 +2520,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     const riders = line ? trainsOn(game.economy, line.id).length : 0;
     const others = line ? "" : [...game.economy.lines.values()].map((l) => `${l.id}${l.colour}${l.name}`).join(",");
-    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
+    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -2554,7 +2567,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     head.append(
       planning
         ? button("Done", "route-plan on", "Finish planning the route", () => setPlanning(false))
-        : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order", () => setPlanning(true)),
+        : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)),
     );
     // On a line, this train can leave it (it goes anywhere again; the line stays for its other trains). The last train
     // leaving a line the player has named asks first (the line goes with it): a second tap.
@@ -2638,6 +2651,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       line.stops.forEach((st, k) => {
         const chip = button(`${r?.next === k ? "▶" : k + 1} ${nameOf(st.depotId)}`, "route-chip", "Tap for this stop's options", () => {
           stopPicked = stopPicked === k ? -1 : k;
+          viaPicked = null;
           if (!stopHintSeen) {
             stopHintSeen = true;
             saveFlag(STOP_HINT_KEY);
@@ -2650,6 +2664,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (st.waitFill) chip.dataset.wait = "1";
         chip.style.setProperty("--line", line.colour);
         strip.append(chip);
+        // Its via points: "via ●" chips after it (passed on the way to the next stop, in order). A tap picks one.
+        (st.via ?? []).forEach((v, i) => {
+          if (!game.layout.getPiece(v)) return;
+          const via = button("via ", "route-chip route-via", "Goes this way (no stop): tap for options", () => {
+            viaPicked = viaPicked?.k === k && viaPicked.i === i ? null : { k, i };
+            stopPicked = -1;
+            showRoute();
+          });
+          const dot = document.createElement("i");
+          dot.className = "route-via-dot";
+          via.append(dot);
+          via.classList.toggle("picked", viaPicked?.k === k && viaPicked.i === i);
+          via.style.setProperty("--line", line.colour);
+          strip.append(via);
+        });
       });
       box.append(strip);
       // Stops beyond the edge (scrolled sideways): the edge fades, as the tray's does.
@@ -2671,11 +2700,43 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         edges();
       });
       // The first time, a word on what a chip does (till one is tapped).
-      if (!stopHintSeen && stopPicked === -1) {
+      if (!stopHintSeen && stopPicked === -1 && !viaPicked) {
         const hint = document.createElement("div");
         hint.className = "route-hint";
         hint.textContent = "Tap a stop for options";
         box.append(hint);
+      }
+      // A via point picked: what it is, and its tools (a station's or halt's: stop there after all; ✕ takes it off).
+      const vp = viaPicked && line.stops[viaPicked.k]?.via?.[viaPicked.i] !== undefined ? viaPicked : null;
+      if (vp) {
+        const piece = line.stops[vp.k].via![vp.i];
+        const depot = game.economy.depotAtPiece(piece);
+        const tools = document.createElement("div");
+        tools.className = "route-tools";
+        tools.append(Object.assign(document.createElement("span"), { className: "route-hint route-via-what", textContent: "Goes this way, no stop" }));
+        if (depot)
+          tools.append(
+            button("Stop here", "route-action", "Make it a stop", () =>
+              edit((l) => {
+                const after = l[vp.k].via!.splice(vp.i);
+                after.shift();
+                if (l[vp.k].via!.length === 0) delete l[vp.k].via;
+                l.splice(vp.k + 1, 0, { depotId: depot.id, action: "auto", ...(after.length > 0 ? { via: after } : {}) });
+                viaPicked = null;
+                stopPicked = vp.k + 1;
+              }),
+            ),
+          );
+        tools.append(
+          button("✕", "route-remove", "Take this via point off the route", () =>
+            edit((l) => {
+              l[vp.k].via!.splice(vp.i, 1);
+              if (l[vp.k].via!.length === 0) delete l[vp.k].via;
+              viaPicked = null;
+            }),
+          ),
+        );
+        box.append(tools);
       }
       const k = stopPicked;
       if (k >= 0 && k < line.stops.length) {
@@ -2690,7 +2751,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
                 button("▶", "route-move", "Visit this stop later", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
               ]
             : []),
-          button(INTENTS[st.action].label, "route-action", INTENTS[st.action].tip, () => edit((l) => (l[k].action = NEXT_INTENT[l[k].action]))),
+          // (Round the intents, then (with three stops or more) "Pass by": the stop becomes a via point on the way.)
+          button(INTENTS[st.action].label, "route-action", INTENTS[st.action].tip, () =>
+            edit((l) => {
+              if (l[k].action === "pick" && l.length > 2) {
+                passBy(l, k);
+                stopPicked = -1;
+              } else l[k].action = NEXT_INTENT[l[k].action];
+            }),
+          ),
           // (Waiting to fill means nothing where it only drops.)
           ...(st.action === "drop"
             ? []
@@ -2699,7 +2768,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
                   edit((l) => (l[k].waitFill = !l[k].waitFill)),
                 ),
               ]),
-          button("✕", "route-remove", "Take this stop off the route", () => edit((l) => (l.splice(k, 1), (stopPicked = -1)))),
+          button("✕", "route-remove", "Take this stop off the route", () =>
+            edit((l) => {
+              // (Its via points stay on the way, now from the stop before.)
+              const via = l[k].via;
+              if (via && l.length > 1) {
+                const prev = l[(k - 1 + l.length) % l.length];
+                prev.via = [...(prev.via ?? []), ...via];
+              }
+              l.splice(k, 1);
+              stopPicked = -1;
+            }),
+          ),
         );
         // (Nor where it would put the same place twice in a row: that's one visit.)
         const twiceAfter = (to: number) => {
@@ -2737,6 +2817,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Planning, the map wants the room: the card slims to its route (Done and the stops), the tray goes, and the view
     // frames the train and its line's places above the card (not when it goes on after the map: see `openMap`).
     hud.setPlanning(on);
+    viaPicked = null;
     // (A press picks a stop while planning: the eraser's put down.)
     if (on) interaction.setErasing(false);
     if (on && frame) requestAnimationFrame(framePlanning);
@@ -2755,6 +2836,39 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }
       : null;
     interaction.onLeavePlanning = on ? () => setPlanning(false) : null;
+    // Plain track tapped: a via point on the way from the last stop to the next (one already on that way tapped again:
+    // picked; one on another leg is added again for this one, so a line can go by the same track both ways).
+    interaction.onPickVia = on
+      ? (pieceId) => {
+          const carId = interaction.openEngineCarId;
+          const stops = lineOf(game.economy, carId)?.stops;
+          if (carId === -1 || !stops || stops.length === 0) {
+            hud.toast("Tap a station or depot first, then the track to go by");
+            return true;
+          }
+          const last = stops.length - 1;
+          if (stops[last].via?.includes(pieceId)) {
+            const k = last;
+            const i = stops[k].via!.indexOf(pieceId);
+            viaPicked = viaPicked?.k === k && viaPicked.i === i ? null : { k, i };
+            stopPicked = -1;
+            showRoute();
+            return true;
+          }
+          if ((stops[last].via?.length ?? 0) >= MAX_VIAS) {
+            hud.toast("That's plenty of via points for one stop");
+            return true;
+          }
+          editLine(game.economy, carId, (l) => (l[last].via = [...(l[last].via ?? []), pieceId]));
+          hud.toast("Via point: the train goes this way, without stopping");
+          viaPicked = null;
+          stopPicked = -1;
+          showRoute();
+          routeChanged();
+          scheduleSave();
+          return true;
+        }
+      : null;
     interaction.onPickPlace = on
       ? (depotId) => {
           const carId = interaction.openEngineCarId;
@@ -2953,7 +3067,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const lead = way > 0 ? t.bogies[0] : tail;
     const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
-    const key = `${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${line.stops.map((st) => st.depotId).join(",")}` : "-"}`;
+    const key = `${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}`;
     if (key === ribbonKey) return;
     ribbonKey = key;
     if (!routeView || routeLayout !== game.layout) {
@@ -2987,9 +3101,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const names = routeStops(game.world);
       const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1);
       const next = r.next % line.stops.length;
-      const toNext = pieces[next] === -1 ? null : legFromCursor(game.layout, front, pieces[next]);
+      // (Its line's kept ways (stickiness), and where it's aimed now: the next stop, or a via point on the way: as the
+      // router chooses, so the map and the train agree.)
+      const keep = game.economy.router.ways.of(game.economy.ownerOf(carId));
+      const aim = game.economy.aimOf(carId);
+      const toNext = aim === -1 ? null : legFromCursor(game.layout, front, aim, undefined, keep);
       // (The legs on from the next stop follow the way the train comes into it: it runs on round a loop past it.)
-      const legs = lineLegs(game.layout, pieces, { k: next, leg: toNext });
+      const legs = viaLegs(game.layout, line.stops.map((st, k) => ({ piece: pieces[k], via: st.via })), { k: next, done: r.at ? Infinity : viaDone(r, next), leg: toNext }, keep);
       const ribbons: RibbonSpec[] = legs.flatMap((leg) => (leg ? [{ runs: leg, colour: line.colour }] : []));
       if (toNext) ribbons.push({ runs: toNext, colour: line.colour });
       const n = line.stops.length;
@@ -3019,6 +3137,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           d.label += `·${k + 1}`;
           if (state === "unreachable" || (state === "next" && d.state === "stop")) d.state = state;
         }
+      });
+      // Via points: a small disc with a white dot each (not numbered: the train passes, it doesn't stop).
+      line.stops.forEach((st, k) => {
+        for (const v of st.via ?? []) if (!discs.has(v) && game.layout.getPiece(v)) discs.set(v, { pieceId: v, label: "", colour: line.colour, state: "stop", stop: k, via: true });
       });
       routeView.show(ribbons, [...discs.values()], gaps);
       // A stop just added pops in; the next stop pulses when it becomes the next (or the card opens).
@@ -3149,7 +3271,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const lines = [...game.economy.lines.values()];
     linesView.show(lines.map((l) => ({ id: l.id, name: l.name, colour: l.colour, trains: trainsOn(game.economy, l.id).length, stops: l.stops.length })));
-    const key = `${game.trackVersion}|${game.layout.switchesVersion}|${lines.map((l) => `${l.id}${l.colour}:${l.stops.map((st) => st.depotId).join(",")}`).join("|")}`;
+    const key = `${game.trackVersion}|${game.layout.switchesVersion}|${lines.map((l) => `${l.id}${l.colour}:${l.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}`).join("|")}`;
     if (key === allLinesKey) return;
     allLinesKey = key;
     if (!allLines || allLinesLayout !== game.layout) {
@@ -3164,8 +3286,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const ribbons: RibbonSpec[] = [];
     for (const l of lines) {
-      const pieces = l.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1).filter((p) => p !== -1);
-      for (const leg of lineLegs(game.layout, pieces)) if (leg) ribbons.push({ runs: leg, colour: l.colour });
+      // (By its via points, and the ways its trains keep.)
+      const stops = l.stops.flatMap((st) => {
+        const piece = game.economy.depot(st.depotId)?.pieceId ?? -1;
+        return piece === -1 ? [] : [{ piece, via: st.via }];
+      });
+      for (const leg of viaLegs(game.layout, stops, undefined, game.economy.router.ways.of(l.id))) if (leg) ribbons.push({ runs: leg, colour: l.colour });
     }
     allLines.show(ribbons, []);
     game.invalidate();

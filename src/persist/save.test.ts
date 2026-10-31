@@ -259,6 +259,30 @@ describe("save format", () => {
     expect(r.value.economy.routeOf(loaded.id)!.next).toBe(1);
   });
 
+  it("keeps via points (and those passed on the way to the next stop); an old save's three-item stops load with none", () => {
+    const world = worldWithTrain();
+    const engine = world.sim.getTrain(world.sim.trainIds()[0])!.cars[0];
+    const [town, other] = world.economy.allDepots().filter((d) => d.role === "town");
+    const track = [...world.layout.pieceIds()].filter((id) => !world.economy.depotAtPiece(id)).slice(0, 2);
+    editLine(world.economy, engine.id, (s) => s.push({ depotId: town.id, action: "auto", via: [...track] }, { depotId: other.id, action: "auto" }));
+    const route = world.economy.routeOf(engine.id)!;
+    Object.assign(route, { next: 1, viaFor: 1, viaDone: 1 });
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    expect(data.lines![0].stops[0]).toEqual([expect.any(Number), "auto", false, track]);
+    const r = deserializeWorld(data);
+    if (!r.ok) throw new Error(r.error);
+    const loaded = r.value.sim.getTrain(r.value.sim.trainIds()[0])!.cars[0];
+    expect(lineOf(r.value.economy, loaded.id)!.stops.map((s) => s.via)).toEqual([track, undefined]);
+    expect(r.value.economy.routeOf(loaded.id)).toMatchObject({ next: 1, viaFor: 1, viaDone: 1 });
+    // (Before via points: three items a stop.)
+    for (const l of data.lines!) l.stops = l.stops.map((st) => [st[0], st[1], st[2]]);
+    for (const t of data.trains) for (const c of t.cars) if (c.line) delete c.line.via;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    const oldEngine = old.value.sim.getTrain(old.value.sim.trainIds()[0])!.cars[0];
+    expect(lineOf(old.value.economy, oldEngine.id)!.stops.every((s) => s.via === undefined)).toBe(true);
+  });
+
   it("refuses version 7 saves (their landscape was only a seed)", () => {
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number; landscape: unknown };
     data.version = 7;
