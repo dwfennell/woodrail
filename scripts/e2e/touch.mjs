@@ -1205,7 +1205,8 @@ async function wyeLevers(ctx, p, tapOn) {
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
 // wait (a train waiting at points set for another), wye (a wye's three levers, #15), stuck (two trains of a line head
-// on, the loop laid from the tray), stuck-lines (the same, two lines' trains).)
+// on, the loop laid from the tray), stuck-lines (the same, two lines' trains), follow (a follower stops a visible gap
+// behind a train the player stopped, #6).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -2364,6 +2365,94 @@ async function putAwayButton(p) {
 }
 
 /**
+ * Issue #6: a train following another on one line keeps a visible gap, about a wagon's length (70 mm), and stops that
+ * far short when the one ahead stops. A straight run with a buffer at each end; two trains on it, running the same way,
+ * the second well behind. The player taps the first and its card's Stop: the second eases up to it and stands about
+ * 70 mm short, held by it (not touching, not coupled), on the game's own sim.
+ */
+async function followGap(ctx, p, tapSel) {
+  await p.keyboard.press("Escape");
+  await p.setViewportSize({ width: 360, height: 740 });
+  await frames(p);
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
+    const { checkPlacement } = await import("/src/landscape/clearance.ts");
+    // Harness shortcut (setup, not what's tested): the run worked out on a scratch layout and laid in one go, as the
+    // player's pieces would be.
+    const L = new Layout();
+    const first = L.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    appendPiece(L, "buffer-turnback", false, connectorRef(first, 0));
+    const ids = [first];
+    for (let k = 1; k < 7; k++) ids.push(appendPiece(L, "straight-216", false, connectorRef(ids[k - 1], 1)));
+    appendPiece(L, "buffer-turnback", false, connectorRef(ids[6], 1));
+    let g = null;
+    let turn = 0;
+    const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
+    for (let k = 0; k < 4 && !g; k++) {
+      turn = (k * Math.PI) / 2;
+      const pts = (id) => { const q = turned(L.getPiece(id).pose, turn); return [0, 54, 108, 162, 216].map((d) => [q.x + d * Math.cos(q.heading), q.z + d * Math.sin(q.heading)]); };
+      const ok = (x, z) =>
+        [...L.pieceIds()].every((id) => {
+          const q = L.getPiece(id);
+          const t = turned(q.pose, turn);
+          const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
+          return c.kind === "clear" || c.reason === "off-mat";
+        });
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, ok });
+    }
+    if (!g) throw new Error("no open ground for the run");
+    const scratch = [...L.pieceIds()];
+    const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
+    const run = w.editor().placeRun(scratch.map((id) => { const q = L.getPiece(id); return { type: q.type, pose: at(q.pose), y: 0, flipped: q.flipped }; }));
+    const real = (id) => run[scratch.indexOf(id)];
+    // Harness shortcut (setup): the trains put down in code, as the tray would, levers on.
+    const put = (piece, s) => {
+      const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: real(piece), pathIndex: 0, reversed: false, s });
+      if (r.kind !== "placed") throw new Error("no room for a train");
+      const e = w.sim.getTrain(r.trainId).cars[0].id;
+      w.sim.setLever(e, 1);
+      return e;
+    };
+    const lead = put(ids[4], 200);
+    const follower = put(ids[1], 100);
+    // Harness shortcut: the game's own sim ticks (as `Game.frame` runs them), run ahead of SwiftShader's few frames a
+    // second. Notes the closest the follower's front came to the lead's back (their end faces, as the sim measures).
+    window.__followRun = (secs) => {
+      const f = { x: 0, y: 0, z: 0 };
+      const r = { x: 0, y: 0, z: 0 };
+      let least = Infinity;
+      for (let i = 0; i < secs * 120; i++) {
+        w.sim.tick();
+        w.sim.endFace(w.sim.findCar(follower).train, true, f);
+        w.sim.endFace(w.sim.findCar(lead).train, false, r);
+        least = Math.min(least, Math.hypot(f.x - r.x, f.z - r.z));
+      }
+      w.invalidate();
+      const ft = w.sim.findCar(follower).train;
+      return { least: Math.round(least * 10) / 10, gap: Math.round(Math.hypot(f.x - r.x, f.z - r.z) * 10) / 10, speeds: [lead, follower].map((e) => Math.round(w.sim.findCar(e).train.speed)), held: w.sim.heldHow(ft.id), trains: w.sim.trainCount };
+    };
+    // (Both running, the follower well behind: half a second on.)
+    window.__followRun(0.5);
+    w.paused = true;
+    w.invalidate();
+    return { lead, follower };
+  });
+  // The player taps the first train, and its card's Stop. (Paused while tapping: the game's frames would run it on.)
+  const { tapOn, tapButton } = mapHelpers(p);
+  await tapOn({ engine: setup.lead });
+  await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 30000 }).catch(() => {});
+  const goSaid = await p.evaluate(() => document.querySelector(".engine-card .go")?.title ?? null);
+  await tapButton(".engine-card .go");
+  const lever = await p.evaluate((e) => { const f = window.woodrail.sim.findCar(e); return f.train.cars[f.index].lever; }, setup.lead);
+  check("follow: the lead's card Stop turns its lever off", goSaid === "Stop" && lever === 0, JSON.stringify({ goSaid, lever }));
+  // Ten seconds on: the lead has stopped; the follower came up behind and stands about 70 mm short, held by it.
+  const after = await p.evaluate(() => window.__followRun(10));
+  check("follow (#6): the follower stops a visible gap behind the stopped train (66–74 mm, never closer), held by it, not coupled", after.speeds.every((v) => v === 0) && after.gap >= 66 && after.gap <= 74 && after.least >= 66 && after.held === "follow" && after.trains >= 2, JSON.stringify(after));
+  await p.keyboard.press("Escape");
+}
+
+/**
  * Stuck, and the player's fix (routing §16 Q3: nothing turns a train back short of the end of the track). Two trains on
  * one line head on along single track: a passing loop laid in the middle but for one straight of its side road, so no
  * loop yet. The line has room for one: the second is held at its end, the first comes up to it and stands. Neither
@@ -2684,7 +2773,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), follow: () => followGap(ctx, p, tapOn) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

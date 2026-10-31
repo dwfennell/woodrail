@@ -376,6 +376,87 @@ describe("coupling", () => {
     expect(sim.drainEvents().some((e) => e.kind === "coupled" || e.kind === "derailed")).toBe(false);
   });
 
+  /** Front face of `behind` to the rear face of `ahead` (mm), on straight track: engine first, a hopper last. */
+  function faceGap(sim: Sim, behind: number, ahead: number, aheadFront = false): number {
+    const f = sim.getTrain(behind)!.world[0];
+    const at = sim.getTrain(ahead)!;
+    const r = aheadFront ? at.world[0] : at.world[at.world.length - 1];
+    const inset = CAR_SPECS.engine.bogieInset + (aheadFront ? CAR_SPECS.engine.bogieInset : CAR_SPECS.hopper.bogieInset);
+    return Math.hypot(f.x - r.x, f.z - r.z) - inset;
+  }
+
+  it("issue #6: a follower eases down to a gap of about a wagon's length (70 mm) and keeps it at speed", () => {
+    const { layout, ids } = longLine(20);
+    const sim = new Sim(layout);
+    const ahead = sim.addTrain(["engine", "hopper"], { pieceId: ids[6], pathIndex: 0, reversed: false, s: 100 });
+    const behind = sim.addTrain(["engine", "hopper"], { pieceId: ids[3], pathIndex: 0, reversed: false, s: 100 });
+    if (ahead.kind !== "placed" || behind.kind !== "placed") throw new Error("not placed");
+    // The one ahead runs at half speed; the one behind catches it up.
+    sim.topSpeed = (t) => (t.id === ahead.trainId ? ENGINE_SPEED / 2 : ENGINE_SPEED);
+    sim.setLever(sim.getTrain(ahead.trainId)!.cars[0].id, 1);
+    sim.setLever(sim.getTrain(behind.trainId)!.cars[0].id, 1);
+    let least = Infinity;
+    let prev = 0;
+    let hardest = 0;
+    for (let i = 0; i < 14 * SIM_HZ; i++) {
+      sim.tick();
+      least = Math.min(least, faceGap(sim, behind.trainId, ahead.trainId));
+      const v = sim.getTrain(behind.trainId)!.speed;
+      hardest = Math.max(hardest, prev - v);
+      prev = v;
+    }
+    // Never closer than the gap; there now, running at the speed of the one ahead.
+    expect(least).toBeGreaterThan(68);
+    expect(faceGap(sim, behind.trainId, ahead.trainId)).toBeLessThan(74);
+    expect(sim.getTrain(behind.trainId)!.speed).toBeCloseTo(ENGINE_SPEED / 2, 0);
+    // Easing down, no harder than it brakes for anything (half a second from full speed to a stop).
+    expect(hardest).toBeLessThanOrEqual(2 * ENGINE_SPEED * SIM_DT + 1e-6);
+    expect(sim.drainEvents().some((e) => e.kind === "coupled" || e.kind === "derailed")).toBe(false);
+  });
+
+  it("issue #6: behind one that stops, it stops that gap short, smoothly, held by it", () => {
+    const { layout, ids } = longLine(20);
+    const sim = new Sim(layout);
+    const ahead = sim.addTrain(["engine", "hopper"], { pieceId: ids[6], pathIndex: 0, reversed: false, s: 100 });
+    const behind = sim.addTrain(["engine", "hopper"], { pieceId: ids[3], pathIndex: 0, reversed: false, s: 100 });
+    if (ahead.kind !== "placed" || behind.kind !== "placed") throw new Error("not placed");
+    sim.topSpeed = (t) => (t.id === ahead.trainId ? ENGINE_SPEED / 2 : ENGINE_SPEED);
+    const aheadLever = sim.getTrain(ahead.trainId)!.cars[0].id;
+    sim.setLever(aheadLever, 1);
+    sim.setLever(sim.getTrain(behind.trainId)!.cars[0].id, 1);
+    run(sim, 10);
+    sim.setLever(aheadLever, 0);
+    let prev = sim.getTrain(behind.trainId)!.speed;
+    let hardest = 0;
+    for (let i = 0; i < 4 * SIM_HZ; i++) {
+      sim.tick();
+      const v = sim.getTrain(behind.trainId)!.speed;
+      hardest = Math.max(hardest, prev - v);
+      prev = v;
+    }
+    expect(sim.getTrain(ahead.trainId)!.speed).toBe(0);
+    expect(sim.getTrain(behind.trainId)!.speed).toBe(0);
+    const gap = faceGap(sim, behind.trainId, ahead.trainId);
+    expect(gap).toBeGreaterThan(68);
+    expect(gap).toBeLessThan(71);
+    expect(hardest).toBeLessThanOrEqual(2 * ENGINE_SPEED * SIM_DT + 1e-6);
+    expect(sim.heldBy(behind.trainId)).toBe(ahead.trainId);
+    expect(sim.heldHow(behind.trainId)).toBe("follow");
+  });
+
+  it("issue #6: an engine still runs onto wagons and couples (no gap for wagons)", () => {
+    const { layout, ids } = longLine(14);
+    const sim = new Sim(layout);
+    const a = sim.addTrain(["engine", "hopper"], { pieceId: ids[3], pathIndex: 0, reversed: false, s: 100 });
+    const b = sim.addTrain(["hopper", "passenger"], { pieceId: ids[5], pathIndex: 0, reversed: false, s: 100 });
+    if (a.kind !== "placed" || b.kind !== "placed") throw new Error("not placed");
+    sim.setLever(sim.getTrain(a.trainId)!.cars[0].id, 1);
+    run(sim, 6);
+    expect(sim.trainCount).toBe(1);
+    expect(sim.getTrain(sim.trainIds()[0])!.cars).toHaveLength(4);
+    expect(sim.drainEvents().some((e) => e.kind === "coupled")).toBe(true);
+  });
+
   it("two trains meeting head on stop nose to nose and wait for each other: no crash, no coupling, no turning back", () => {
     const { layout, ids } = longLine(14);
     const sim = new Sim(layout);
@@ -398,10 +479,10 @@ describe("coupling", () => {
       expect(sim.heldBy(t)).toBe(o);
       expect(sim.heldHow(t)).toBe("nose");
     }
-    // (Nose to nose, a little apart: they never touch.)
-    const fa = sim.getTrain(a.trainId)!.world[0];
-    const fb = sim.getTrain(b.trainId)!.world[0];
-    expect(Math.hypot(fa.x - fb.x, fa.z - fb.z)).toBeGreaterThan(0);
+    // (Nose to nose, a little apart so it reads: about 40 mm between their faces.)
+    const nose = faceGap(sim, a.trainId, b.trainId, true);
+    expect(nose).toBeGreaterThan(38);
+    expect(nose).toBeLessThan(42);
     // One sent back by hand (its lever the other way): it goes, and the other follows it.
     sim.setLever(sim.getTrain(b.trainId)!.cars[0].id, -1);
     run(sim, 2);

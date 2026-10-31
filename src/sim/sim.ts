@@ -19,8 +19,19 @@ export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
 /** A train stopped at the end of the line waits this long (2 s) before driving back. */
 export const TURNBACK_TICKS = 2 * SIM_HZ;
-/** How far back (mm) an engine following another train's engine holds. */
-const FOLLOW_GAP = 10;
+/**
+ * How far back (mm) an engine following another train's engine stops and runs (issue #6: about a wagon's length, a
+ * gap that reads at a glance), easing down to it (`followCap`); and how far apart two engines met head on stand.
+ */
+const FOLLOW_GAP = 70;
+const NOSE_GAP = 40;
+/** How far (mm) an end axle sits in from its car's end face, at most, for `aheadOnTrack`'s reach. */
+const FOLLOW_LOOK_PAST = 24;
+/**
+ * The last resort in `resolveContacts`: within this (mm) of another engine's back, a follower keeps pace with it.
+ * Small, so trains side by side on a loop's two roads (72 mm apart) never count; `followCap` keeps them further back.
+ */
+const CONTACT_FOLLOW = 10;
 /** For this long (2 s) after coming off a lift, a train still has the right of way over one coming toward it. */
 const LIFT_GRACE = 2 * SIM_HZ;
 /** Slower than this (mm/s) a train is standing: it doesn't move (or ask for frames) at all. */
@@ -1018,7 +1029,7 @@ export class Sim {
   private readonly crossClaims = new Map<number, { trainId: number; tick: number }>();
   /**
    * Trains held where they stand by another train (`heldBy`): short of a piece where paths meet that it's on or coming
-   * onto (`crossCap`), close behind it or nose to nose with it (`followRoom`), or against its side; and the tick it was
+   * onto (`crossCap`), close behind it or nose to nose with it (`followCap`), or against its side; and the tick it was
    * last so (good that tick and the next).
    */
   private readonly held = new Map<number, { by: number; how: HeldHow; tick: number }>();
@@ -1392,9 +1403,9 @@ export class Sim {
       this.flipTrain(train);
       v = -v;
     }
-    // Behind another train's engine, it closes up only to the gap it holds back at (else it would step into it each
-    // tick and be stopped after: a creep that reads as standing still).
-    if (v > 0 && this.trains.size > 1 && hasEngine(train)) v = Math.min(v, this.followRoom(train, v) / SIM_DT);
+    // Behind another train's engine, it eases down to the gap it holds back at, and keeps it (else it would step into it
+    // each tick and be stopped after: a creep that reads as standing still).
+    if (v > 0 && this.trains.size > 1 && hasEngine(train)) v = Math.min(v, this.followCap(train, v));
     // Coming to a crossing, or a switch, another train is on or coming onto by the other road: it stops short and waits.
     if (v > 0 && this.trains.size > 1) v = Math.min(v, this.crossCap(train, v));
     // (Too slow to see: standing.)
@@ -1535,7 +1546,7 @@ export class Sim {
           this.endFace(b, front, otherFace);
           // An engine behind another train's engine holds back a little short of touching (it follows, it doesn't
           // couple), so it waits smoothly rather than stopping and starting.
-          const follow = !front && hasEngine(a) && hasEngine(b) ? FOLLOW_GAP : 0;
+          const follow = !front && hasEngine(a) && hasEngine(b) ? CONTACT_FOLLOW : 0;
           if (Math.hypot(face.x - otherFace.x, face.z - otherFace.z) > reach + follow || Math.abs(face.y - otherFace.y) > 20) continue;
           ends = true;
           const closing = a.speed + (front ? b.speed : -b.speed);
@@ -1578,16 +1589,17 @@ export class Sim {
   }
 
   /**
-   * How far (mm) this train may go before its front comes within `FOLLOW_GAP` of another train with an engine: its back
-   * (the gap `resolveContacts` holds a follower at), or its front (two trains meeting head on stop nose to nose that far
-   * apart, each taking half the room while the other moves), looking no further than this tick's move at speed `v`.
-   * With no room left, it's held by that train (`heldBy`).
+   * The speed this train may run at to stop `FOLLOW_GAP` behind another train with an engine ahead of it on its track (its
+   * back), or `NOSE_GAP` short of one met head on (its front: each taking half the room while the other moves): braking
+   * as it does for anything (`ACCELERATION`), and behind a moving train no slower than it while it has room. Looks no
+   * further than its stopping distance and the gap; Infinity when there's none. Wagons with no engine aren't looked for:
+   * an engine runs onto them and couples (`resolveContacts`). With no room left, it's held by that train (`heldBy`).
    */
-  private followRoom(train: Train, v: number): number {
+  private followCap(train: Train, v: number): number {
     this.endFace(train, true, followFace);
-    // (As far as `resolveContacts` reaches after this tick's move.)
-    const look = FOLLOW_GAP + Math.max(4, v * SIM_DT + 2) + v * SIM_DT;
-    let room = Infinity;
+    const look = FOLLOW_GAP + (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + 8;
+    let cap = Infinity;
+    let least = Infinity;
     let by: Train | null = null;
     let nose = false;
     for (const b of this.trains.values()) {
@@ -1598,17 +1610,49 @@ export class Sim {
         if (Math.abs(followFace.y - followOther.y) > 20) continue;
         const d = Math.hypot(followFace.x - followOther.x, followFace.z - followOther.z);
         if (d > look) continue;
-        let r = Math.max(0, d - FOLLOW_GAP);
-        if (front && b.speed > 0) r /= 2;
-        if (r < room) {
-          room = r;
+        // (Close by in a straight line: is it on this train's track ahead, not on a loop's other road beside it?)
+        if (!this.aheadOnTrack(train, b.bogies[front ? 0 : b.bogies.length - 1], d + 2 * FOLLOW_LOOK_PAST)) continue;
+        let room = Math.max(0, d - (front ? NOSE_GAP : FOLLOW_GAP));
+        if (front && b.speed > 0) room /= 2;
+        const u = front ? 0 : b.speed;
+        const c = Math.min(room / SIM_DT, Math.sqrt(u * u + 2 * ACCELERATION * room));
+        if (c < cap) cap = c;
+        if (room < least) {
+          least = room;
           by = b;
           nose = front;
         }
       }
     }
-    if (by && room < 0.5) this.holdBy(train, by, nose ? "nose" : "follow");
-    return room;
+    if (by && least < 0.5) this.holdBy(train, by, nose ? "nose" : "follow");
+    return cap;
+  }
+
+  /**
+   * Is this cursor (another train's end axle) on this train's track ahead of its front axle, within `reach` (mm) of it,
+   * the way the points lie? A walk over the few pieces in reach, done only for a train already close by.
+   */
+  private aheadOnTrack(train: Train, other: Cursor, reach: number): boolean {
+    const c = crossAt;
+    Object.assign(c, train.bogies[0]);
+    // How far ahead of the front axle the start of the piece c is on.
+    let dist = -c.s;
+    for (let k = 0; k < MAX_BLOCK; k++) {
+      const piece = this.layout.getPiece(c.pieceId);
+      if (!piece) return false;
+      const len = pathLength(getPieceDef(piece.type, piece.flipped).paths[c.pathIndex].geom);
+      if (other.pieceId === c.pieceId && other.pathIndex === c.pathIndex) {
+        // (Where along it, the way this train goes.)
+        const at = other.reversed === c.reversed ? other.s : len - other.s;
+        if (k > 0 || at > c.s) return true;
+      }
+      dist += len;
+      if (dist > reach) return false;
+      advanceCursor(this.layout, c, len - c.s + 0.01, null, crossAdv);
+      if (crossAdv.status !== ADV_OK) return false;
+      c.s = 0;
+    }
+    return false;
   }
 
   /**

@@ -103,9 +103,10 @@ const OTHERS: Case[] = [
     checks: {
       "payoff: both at their stops": arrivals(1),
       "the first never waits": (r) => expect(r.waited[0]).toBe(0),
-      // (Visibly: it stood half a second or more, its nose a little short of the points, never on them.)
+      // (Visibly: it stood a quarter of a second or more, its nose a little short of the points, never on them. Keeping
+      // its follow gap (#6) it comes up to them later, so it waits less than it did running nose to tail.)
       "the second stops short of the points and waits": (r) => {
-        expect(r.waited[1]).toBeGreaterThanOrEqual(SIM_HZ / 2);
+        expect(r.waited[1]).toBeGreaterThanOrEqual(SIM_HZ / 4);
         expect(r.stoodFrom[1].near).toBeGreaterThanOrEqual(STAND_SHORT + OVERLAP - 2);
         expect(r.stoodFrom[1].far).toBeLessThanOrEqual(STAND_SHORT + OVERLAP + 2);
       },
