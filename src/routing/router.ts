@@ -154,8 +154,12 @@ export class Router {
   handLooks = 0;
   handMs = 0;
   handWaits = 0;
-  private steerTicks = 0;
-  private handTicks = 0;
+  /**
+   * Ticks counted for the looks: one count for routed and hand-run trains alike, so both look on the same tick, the
+   * routed first. (Counted apart, a hand-run train's look could come a few ticks before a routed one's just started:
+   * it locked the points as they lay, short of the route's road, and the two met head on beyond them.)
+   */
+  private ticks = 0;
   /** Hand-run trains' engines the router looks after (step 7): their locks as the points lie, and waits. */
   private readonly hand = new Set<number>();
   private readonly handSeen = new Set<number>();
@@ -186,18 +190,20 @@ export class Router {
 
   /** One sim tick: routed trains ask for the points ahead, a few times a second (a train covers a few mm a tick). */
   tick(): void {
-    this.tickRouted();
-    // (Hand-run trains, with another train about: the points just ahead, a few times a second. A lone train: nothing.)
-    if ((this.host.sim.trainCount >= 2 || this.hand.size > 0) && ++this.handTicks % STEER_TICKS === 0) this.steerHand();
+    const due = ++this.ticks % STEER_TICKS === 0;
+    this.tickRouted(due);
+    // (Hand-run trains, with another train about: the points just ahead, a few times a second, after the routed trains'
+    // look that tick. A lone train: nothing.)
+    if (due && (this.host.sim.trainCount >= 2 || this.hand.size > 0)) this.steerHand();
   }
 
-  private tickRouted(): void {
+  private tickRouted(due: boolean): void {
     const h = this.host;
     if (h.routed.size === 0) {
       if (this.routedHolding() || this.pending.size > 0) this.steerTrains();
       return;
     }
-    if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
+    if (due) this.steerTrains();
     // (And any just granted a move: the points on its way, now.)
     else if (h.soon.size > 0) this.steerTrains(h.soon);
     h.soon.clear();
