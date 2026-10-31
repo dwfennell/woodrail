@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { CARGO, Economy } from "../economy";
-import { Sim, SIM_DT } from "../sim";
+import { Sim, SIM_DT, type CarKind } from "../sim";
+import { chain as loopChain } from "../economy/loop-fixtures";
+import { startLine } from "./lines";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { engineStatus, fullLineToast, headOnTip, trainState, trainsForReport } from "./engine-status";
 
-function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] } {
-  const layout = new Layout();
+function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] };
+function chain(types: PieceTypeId[], layout: Layout): number[];
+function chain(types: PieceTypeId[], into?: Layout): { layout: Layout; ids: number[] } | number[] {
+  const layout = into ?? new Layout();
   const ids = [layout.addPiece(types[0], { x: 0, z: 0, heading: 0 }, 0, false)];
   for (let i = 1; i < types.length; i++) ids.push(appendPiece(layout, types[i], false, connectorRef(ids[i - 1], 1)));
-  return { layout, ids };
+  return into ? ids : { layout, ids };
 }
 
 const run = (sim: Sim, seconds: number) => {
@@ -319,5 +323,93 @@ describe("the full line's toast", () => {
     expect(fullLineToast(2, 4, 2)).toBe("This line has room for 2 trains. Lay 2 more passing loops, or put one away (on its card).");
     // (Three lines at most on a 360 px phone: the toast wraps at 328 px, some 33 characters a line.)
     for (const t of [fullLineToast(2, 3, 1), fullLineToast(9, 12, 3)]) expect(t.length).toBeLessThanOrEqual(96);
+  });
+});
+
+describe("waiting at points (routing step 5)", () => {
+  it("a routed train behind, needing the other road, says who it waits for, then goes its way", () => {
+    // A trunk into a switch: its straight road to a farm, its curve to a mill, buffers beyond each.
+    const layout = new Layout();
+    const trunk = chain(Array<PieceTypeId>(7).fill("straight-216"), layout);
+    const sw = appendPiece(layout, "switch", false, connectorRef(trunk[trunk.length - 1], 1), 0);
+    const x = loopChain(layout, ["straight-216", "depot-farm", "straight-216", "straight-216"], connectorRef(sw, 1));
+    const p = loopChain(layout, ["curve-large", "straight-216", "depot-mill", "straight-216", "straight-216"], connectorRef(sw, 2), [true]);
+    for (const end of [connectorRef(trunk[0], 0), connectorRef(x[3], 1), connectorRef(p[4], 1)]) appendPiece(layout, "buffer-turnback", false, end);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const farm = economy.addDepot("farm", x[1]);
+    const mill = economy.addDepot("mill", p[2]);
+    const place = (pieceId: number, s: number, cars: CarKind[]) => {
+      const r = sim.addTrain(cars, { pieceId, pathIndex: 0, reversed: false, s });
+      if (r.kind !== "placed") throw new Error("no room");
+      return sim.getTrain(r.trainId)!.cars[0].id;
+    };
+    // (The first, long, for the farm; the second right behind it, for the mill.)
+    const first = place(trunk[6], 200, ["engine", "hopper", "hopper", "hopper", "hopper"]);
+    const second = place(trunk[4], 160, ["engine", "hopper"]);
+    startLine(economy, first, [{ depotId: farm.id, action: "both" }]);
+    startLine(economy, second, [{ depotId: mill.id, action: "both" }]);
+    sim.setLever(first, 1);
+    sim.setLever(second, 1);
+    const said = new Set<string>();
+    let onFarm = false;
+    let atMill = false;
+    for (let k = 0; k < 30 * 120 && !atMill; k++) {
+      sim.tick();
+      economy.tick();
+      const t = sim.findCar(second)!.train;
+      said.add(engineStatus(sim, economy, second, (id) => (id === mill.id ? "the mill" : "the farm")));
+      onFarm ||= t.bogies.some((b) => x.includes(b.pieceId));
+      atMill = t.bogies.some((b) => b.pieceId === p[2]);
+    }
+    const text = "Waiting for the Red line train to pass the points";
+    expect([...said], [...said].join(" / ")).toContain(text);
+    // (Two lines on a 360 px card: some 33 characters a line.)
+    expect(text.length).toBeLessThanOrEqual(66);
+    expect(atMill).toBe(true);
+    expect(onFarm).toBe(false);
+  });
+
+  it("a red switch against its way: says to unpin it", () => {
+    const layout = new Layout();
+    const trunk = chain(["straight-216", "straight-216", "straight-216"], layout);
+    const sw = appendPiece(layout, "switch", false, connectorRef(trunk[2], 1), 0);
+    const x = loopChain(layout, ["straight-216", "depot-farm"], connectorRef(sw, 1));
+    const p = loopChain(layout, ["curve-large", "depot-mill"], connectorRef(sw, 2), [true]);
+    for (const end of [connectorRef(trunk[0], 0), connectorRef(x[1], 1), connectorRef(p[1], 1)]) appendPiece(layout, "buffer-turnback", false, end);
+    layout.setPinned(sw, true);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const mill = economy.addDepot("mill", p[1]);
+    const r = sim.addTrain(["engine"], { pieceId: trunk[1], pathIndex: 0, reversed: false, s: 100 });
+    if (r.kind !== "placed") throw new Error("no room");
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    startLine(economy, engine, [{ depotId: mill.id, action: "both" }]);
+    sim.setLever(engine, 1);
+    for (let k = 0; k < 5 * 120; k++) {
+      sim.tick();
+      economy.tick();
+    }
+    const text = engineStatus(sim, economy, engine, () => "the mill");
+    expect(text).toBe("A red switch is in the way. Tap and hold it to unpin");
+    expect(text.length).toBeLessThanOrEqual(66);
+    expect(sim.piecesUnder(r.trainId).has(sw)).toBe(false);
+  });
+});
+
+describe("a lever tap on points set for a train (routing §16 Q1)", () => {
+  it("says they're set for that train and switch to the player's way after it passes, in three lines at most", async () => {
+    const { pointsSetFor } = await import("./engine-status");
+    const { layout, ids } = chain(["straight-216", "straight-216"]);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const r = sim.addTrain(["engine"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 120 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    expect(pointsSetFor(economy, engine)).toBe("Set for a train. They'll switch to your way after it passes");
+    startLine(economy, engine, []);
+    const text = pointsSetFor(economy, engine);
+    expect(text).toBe("Set for the Red line train. They'll switch to your way after it passes");
+    expect(text.length).toBeLessThanOrEqual(96);
   });
 });

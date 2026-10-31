@@ -71,6 +71,20 @@ export interface Report {
   /** Of those, the ones made with the engine not leading (pushing its cars). */
   pushed: number[];
   turns: Turns[];
+  /**
+   * Per train: how long (ticks) it stood waiting at points (`Router.waitOf`, §3.3), and the nearest and farthest its nose
+   * stood from them (mm; Infinity / −Infinity: it never stood waiting).
+   */
+  waited: number[];
+  stoodFrom: { near: number; far: number }[];
+  /** Waits at points begun (`Router.waitsBegun`). */
+  waits: number;
+  /**
+   * Turn-backs that break a wait (§16 Q3 allows none: each is today's last resort for a deadlock), by who turned it:
+   * the sim's crossing wait (`Sim.crossCap`, cause "train"), sections' ring breaker (`unring`, `YIELD_S`), short of a held
+   * line end (`deadEndCap`), giving way to a train put down facing, a lineless train short of another (`clearCap`).
+   */
+  breakers: { cross: number; yielded: number; short: number; gaveWay: number; clear: number };
   longestStill: number[];
   /** Times a train's front came onto a piece through facing points with a choice, and the switch throws seen. */
   facing: number;
@@ -94,10 +108,10 @@ export interface Report {
   refused: number;
   restored: number;
   /**
-   * A lever tap on points set for a train (§16 Q1): true once one has been made, while the points weren't thrown back
-   * for that train before it was by them.
+   * A lever tap on points locked for a train (§16 Q1, as changed at step 5): true once one has been made that left them
+   * set for it (the tap their new default, for once it has passed: the restore check sees them go to it).
    */
-  tapStuck: boolean;
+  tapKept: boolean;
   /**
    * A hash of every train's place and speed once a second (for "identical to a recorded trajectory"). Not the switches:
    * restoring them after a train has gone (step 4) doesn't change where it runs.
@@ -203,8 +217,12 @@ export class HarnessRun {
       locks: 0,
       refused: 0,
       restored: 0,
-      tapStuck: false,
+      tapKept: false,
       trajectory: "",
+      waited: this.specs.map(() => 0),
+      stoodFrom: this.specs.map(() => ({ near: Infinity, far: -Infinity })),
+      waits: 0,
+      breakers: { cross: 0, yielded: 0, short: 0, gaveWay: 0, clear: 0 },
     };
     this.still = this.specs.map(() => 0);
     this.front = this.specs.map(() => ({ train: -1, sign: 0, pieceId: -1 }));
@@ -246,6 +264,7 @@ export class HarnessRun {
       },
       drive,
       atStop: (engine) => !!this.routes.get(engine)?.at,
+      routeWait: (engine) => this.router.waitingOn(engine),
       skipStops: (engine, pieces) => {
         const r = this.routes.get(engine);
         if (!r || r.stops.length === 0 || r.at) return;
@@ -259,7 +278,8 @@ export class HarnessRun {
         }
       },
     });
-    sim.speedCap = (train) => this.sections.cap(train);
+    // (Sections' cap, and the router's: short of points it waits for, §3.3.)
+    sim.speedCap = (train) => Math.min(this.sections.cap(train), this.router.speedCap(train));
     this.router = new Router({
       layout,
       sim,
@@ -303,7 +323,6 @@ export class HarnessRun {
         this.report.throws++;
         if (this.sim.pointsHeld(pieceId)) this.broke("underTrain", `points ${pieceId} thrown to ${state} under a train`);
         if (layout.isPinned(pieceId)) this.broke("pinned", `pinned points ${pieceId} thrown to ${state}`);
-        if (pieceId === this.tapped && this.tappedFor(pieceId)) this.report.tapStuck = false;
       }
       set(pieceId, state);
     };
@@ -326,20 +345,15 @@ export class HarnessRun {
 
   // ── What the player does ──────────────────────────────────────────────────────────────────────────────────────────
 
-  /** A lever tap on points (through the router, as `throwLever`): thrown, it's the player's new default (the router's). */
+  /**
+   * A lever tap on points (through the router, as `throwLever`): thrown, or (locked for a train) left set for it; either
+   * way the tap is the player's new default (the router's). False: refused (a car on them).
+   */
   lever(pieceId: number): boolean {
-    const ok = "ok" in this.router.lever(pieceId);
-    if (ok && this.tappedFor(pieceId)) {
-      this.tapped = pieceId;
-      this.report.tapStuck = true;
-    }
-    return ok;
-  }
-
-  /** Points tapped while set for a train (watched: they mustn't be thrown back for it). */
-  private tapped = -1;
-  private tappedFor(pieceId: number): boolean {
-    return this.engines.some((e) => this.router.tappedFor(e, pieceId));
+    const was = this.layout.switchState(pieceId);
+    const r = this.router.lever(pieceId);
+    if ("deferred" in r && this.layout.switchState(pieceId) === was && this.engines.includes(r.by)) this.report.tapKept = true;
+    return !("refused" in r);
   }
 
   pin(pieceId: number, on: boolean): void {
@@ -425,6 +439,9 @@ export class HarnessRun {
     this.report.locks = r.granted;
     this.report.refused = r.refused;
     this.report.restored = r.restored;
+    this.report.waits = r.waitsBegun;
+    const sc = this.sections;
+    this.report.breakers = { cross: this.report.turns.reduce((n, t) => n + t.train, 0), yielded: sc.yielded, short: sc.turnedShort, gaveWay: sc.gaveWay, clear: sc.clearTurns };
     this.report.trajectory = this.traj.toString(16).padStart(8, "0");
     return this.report;
   }
@@ -487,14 +504,26 @@ export class HarnessRun {
       if (this.watch.size > 0 && t.bogies.some((b) => this.watch.has(b.pieceId))) this.report.onWatched++;
       const net = drive(t);
       if (this.routes.has(engine)) this.checkRoad(t, k, engine, net);
-      // Stuck: a lever-on train standing (not one sections hold for want of room: that's by design, and its card says so).
-      if (net !== 0 && t.speed === 0 && !this.sections.heldForRoom(engine)) {
+      // Stuck: a lever-on train standing (not one sections hold for want of room, nor one stood at a red switch pinned
+      // against its way: those are the player's to fix, and its card says so).
+      if (net !== 0 && t.speed === 0 && !this.sections.heldForRoom(engine) && this.router.waitOf(engine)?.kind !== "pinned") {
         const s = ++this.still[k];
         if (s > this.report.longestStill[k]) this.report.longestStill[k] = s;
         if (s === Math.round(this.maxStill * SIM_HZ)) this.broke("deadlock", `train ${k} still for ${this.maxStill} s on piece ${t.bogies[0].pieceId}`);
       } else this.still[k] = 0;
       const wait = this.sections.waitOf(engine);
       if (wait && "engine" in wait && !sim.findCar(wait.engine)) this.broke("deadlock", `train ${k} waits (${wait.kind}) for a train that isn't there`);
+      const rw = this.router.waitOf(engine);
+      if (rw?.kind === "points" && t.speed === 0 && net !== 0) {
+        this.report.waited[k]++;
+        const gap = this.router.gapTo(t);
+        const f = this.report.stoodFrom[k];
+        if (gap !== Infinity) {
+          f.near = Math.min(f.near, gap);
+          f.far = Math.max(f.far, gap);
+        }
+      }
+      if (rw?.kind === "points" && !sim.findCar(rw.by)) this.broke("deadlock", `train ${k} waits at points ${rw.pieceId} for a train that isn't there`);
     });
     if (this.sections.released > this.report.net) {
       this.report.net = this.sections.released;
@@ -532,7 +561,7 @@ export class HarnessRun {
   /**
    * No wrong road: when a routed train's front comes onto facing points with a choice, the way it takes is its way to
    * its stop: the way sections granted it (`steerHint`'s follow), else one whose plan costs no more than the best (the
-   * plan search, as the router chooses). Points the player threw while they were set for it (§16 Q1) go as tapped.
+   * plan search, as the router chooses).
    */
   private checkRoad(t: Train, k: number, engine: number, net: number): void {
     const f = this.front[k];
@@ -559,7 +588,7 @@ export class HarnessRun {
     if (ways.length < 2 || target === -1 || b.pieceId === target) return;
     this.report.facing++;
     const taken = ways.find((w) => w.path === b.pathIndex);
-    if (!taken || this.router.tappedFor(engine, b.pieceId)) return;
+    if (!taken) return;
     const held = this.sections.steerHint(engine);
     const followed = held ? ways.filter((w) => held.follow(b.pieceId, w.path)) : [];
     let wrong: boolean;

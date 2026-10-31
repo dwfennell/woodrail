@@ -16,7 +16,7 @@ const ENV: Record<string, string | undefined> = (globalThis as { process?: { env
 const TRACE = !!ENV.TRACE;
 /**
  * ROUTING=1: every world's router is timed; at the end, its looks ahead (a routed train asking for its points), their
- * mean time, locks granted, asks refused and points put back, and the plan choices worked out and cached (with
+ * mean time, locks granted, asks refused, waits begun and points put back, and the plan choices worked out and cached (with
  * --silent=false).
  */
 const ROUTERS: Router[] | null = ENV.ROUTING ? [] : null;
@@ -25,7 +25,7 @@ if (ROUTERS)
     const sum = (f: (r: Router) => number) => ROUTERS.reduce((t, r) => t + f(r), 0);
     const looks = sum((r) => r.looks);
     console.log(
-      `QA routing: ${ROUTERS.length} worlds, ${looks} looks, ${((sum((r) => r.ms) * 1000) / Math.max(1, looks)).toFixed(2)} µs a look (locks included); ${sum((r) => r.granted)} locks, ${sum((r) => r.refused)} asks refused, ${sum((r) => r.restored)} points put back; plan choices ${planStats.choices} worked out, ${planStats.hits} cached, ${planStats.searches} searches`,
+      `QA routing: ${ROUTERS.length} worlds, ${looks} looks, ${((sum((r) => r.ms) * 1000) / Math.max(1, looks)).toFixed(2)} µs a look (locks included); ${sum((r) => r.granted)} locks, ${sum((r) => r.refused)} asks refused, ${sum((r) => r.waitsBegun)} waits at points begun, ${sum((r) => r.restored)} points put back; plan choices ${planStats.choices} worked out, ${planStats.hits} cached, ${planStats.searches} searches`,
     );
   });
 

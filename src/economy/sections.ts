@@ -115,6 +115,11 @@ export interface SectionsHost {
   skipStops(engine: number, pieces: ReadonlySet<number>): void;
   /** Is an engine at one of its stops now? */
   atStop?(engine: number): boolean;
+  /**
+   * The train (an engine) a routed engine waits for short of points (the router's wait, §3.3 of the routing spec), and
+   * since when (a sim tick); null: none. Followed in wait chains like a wait of the line's own (see `unring`).
+   */
+  routeWait?(engine: number): { engine: number; since: number } | null;
 }
 
 /** One step of a move's way: a piece, the path along it, and the end it comes in by. */
@@ -1753,15 +1758,21 @@ export class Sections {
   private unring(info: LineInfo): void {
     const now = this.sim.ticks;
     const long = YIELD_S * 120;
-    // (Who it waits on: a train's first car, −2 for no one named (its way's blocked, by what it can't say), −1: no wait.)
+    // (Who it waits on: a train's first car, −2 for no one named (its way's blocked, by what it can't say), −1: no wait.
+    // Not held by the line: a routed train may wait short of points another train holds (the router's wait).)
     const on = (e: number): number => {
       const w = this.states.get(e)?.wait;
-      if (!w || !("engine" in w)) return -1;
+      if (!w || !("engine" in w)) {
+        const r = this.host.routeWait?.(e);
+        return r ? (r.engine >= 0 ? r.engine : -2) : -1;
+      }
       return w.engine >= 0 ? w.engine : -2;
     };
     const lasted = (e: number): boolean => {
       const st = this.states.get(e);
-      return !!st && st.waitSince >= 0 && now - st.waitSince > long;
+      if (st?.wait) return st.waitSince >= 0 && now - st.waitSince > long;
+      const r = this.host.routeWait?.(e);
+      return !!r && now - r.since > long;
     };
     const standing = (e: number) => (this.sim.findCar(e)?.train.speed ?? 1) < 1;
     // Where a chain of waits from `e` ends: "moving" (a train under way, or one of the line at work with no wait: it
@@ -1778,6 +1789,13 @@ export class Sections {
         // waiting on it (see `clearCap`), as one does shuttling between two of the line's trains that wait on it: then
         // one of them gives way. Short of the one waiting on it, it turns back by itself.)
         if (f) {
+          // (Itself waiting short of points another holds (the router's wait): its wait is followed on.)
+          const r = f.speed < 1 ? this.host.routeWait?.(nameOf(f)) : null;
+          if (r) {
+            chain.push(x);
+            x = r.engine >= 0 ? r.engine : -2;
+            continue;
+          }
           const by = this.clearHeld.has(f.id) ? this.clearBy.get(f.id) : undefined;
           const waiter = this.sim.findCar(chain[chain.length - 1])?.train.id;
           return { stuck: f.speed < 1 && (this.host.drive(f) === 0 || (by !== undefined && by !== waiter)), chain, foreign: x };
