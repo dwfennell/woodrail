@@ -23,30 +23,31 @@ export type TrainState =
   | { kind: "spacing"; line: string; left: number | null }
   /** Waiting in a passing loop or at a line end for a train of its line on the single track ahead (sections); `line`
    * "": for a train not on its line. */
-  | { kind: "line-wait"; line: string; parked?: boolean; other?: boolean }
+  | { kind: "line-wait"; line: string; parked?: boolean; other?: boolean; by?: number }
   /**
    * Held: its line has more trains than passing loops (lay `more` more for `trains` trains). `spare`: a train not on
    * the line stands on each road of one of its loops; only moving it helps.
    */
-  | { kind: "needs-loop"; more: number; trains: number; spare: boolean; parked: boolean; other?: boolean; pinned?: boolean }
+  | { kind: "needs-loop"; more: number; trains: number; spare: boolean; parked: boolean; other?: boolean; pinned?: boolean; by?: number }
   /** Waiting on one of its own line its line has no room for (held where it stands): the line is full. */
-  | { kind: "full-wait"; full: { more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean } }
+  | { kind: "full-wait"; full: { more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean }; by?: number }
   /**
    * A routed train standing short of points set for another train (routing §3.3): that train's line (its name), or ""
    * for one on no line (or a name too long for the card).
    */
-  | { kind: "points-wait"; line: string }
+  | { kind: "points-wait"; line: string; by: number; points: number }
   /** A routed train standing short of a red (pinned) switch set against its way, with its stop only the other way (§7). */
-  | { kind: "red-switch" }
+  | { kind: "red-switch"; points: number }
   /**
    * Stuck for good (economy/stalls.ts; nothing turns it back, routing §16 Q3): in a ring of waits with another train,
    * that train's line (its name; "" for none, or one too long); its line has too many trains for its room; or a parked
    * train (lever off) is in the way.
    */
-  | { kind: "stuck"; why: "in-way"; line: string; loop: boolean }
+  | { kind: "stuck"; why: "in-way"; line: string; loop: boolean; by: number }
   | { kind: "stuck"; why: "too-many" }
-  | { kind: "stuck"; why: "parked" }
-  | { kind: "held-up" }
+  | { kind: "stuck"; why: "parked"; by?: number }
+  /** Standing with its lever on, for want of anything better known: `by`, the train the sim or sections say it's behind. */
+  | { kind: "held-up"; by?: number }
   | { kind: "starting" }
   | { kind: "running" };
 
@@ -111,27 +112,30 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
         // (A loop taken by a train not on the line: that's what to move. Pinned so no one passes: the line's own card
         // says to unpin, plainer.)
         const full = economy.sections.fullness(car.id);
-        if (full && (full.spare || full.parked)) return { kind: "stuck", why: "parked" };
+        if (full && (full.spare || full.parked)) return { kind: "stuck", why: "parked", by: spareBy(economy, car.id) };
         if (full?.pinned) break;
         return { kind: "stuck", why: "too-many" };
       }
-      if (s.kind === "parked") return { kind: "stuck", why: "parked" };
-      return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop };
+      if (s.kind === "parked") return { kind: "stuck", why: "parked", by: s.by };
+      return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop, by: s.by };
     }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
   if (train.speed < 1)
     for (const car of train.cars) {
       const w = car.kind === "engine" ? economy.router.waitOf(car.id) : null;
       if (!w) continue;
-      if (w.kind === "pinned") return { kind: "red-switch" };
-      return { kind: "points-wait", line: lineNameOf(sim, economy, w.by) };
+      if (w.kind === "pinned") return { kind: "red-switch", points: w.pieceId };
+      return { kind: "points-wait", line: lineNameOf(sim, economy, w.by), by: w.by, points: w.pieceId };
     }
   // Waiting for a train of its line on the single track ahead, or held for want of a passing loop (sections).
   if (train.speed < 1)
     for (const car of train.cars) {
       const w = economy.sectionWait(car.id);
       if (!w) continue;
-      if (w.kind === "room") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare, parked: w.parked, other: w.other, pinned: w.pinned };
+      if (w.kind === "room") {
+        const by = w.spare || w.parked ? spareBy(economy, car.id) : undefined;
+        return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare, parked: w.parked, other: w.other, pinned: w.pinned, by };
+      }
       // (One with room waiting a moment for a line-mate: just that, though the line be full.)
       const lineId = economy.lineIdOf.get(car.id);
       const line = lineId === undefined ? undefined : economy.lines.get(lineId);
@@ -146,13 +150,13 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
         const parked = !!o && o.speed < 1 && !o.cars.some((c) => c.kind === "engine" && c.lever !== 0);
         // (Another line's: "another train", and it'll go.)
         const otherLine = economy.lineIdOf.get(otherEngine);
-        if (otherLine !== undefined && !parked) return { kind: "line-wait", line: "", parked, other: true };
-        return { kind: "line-wait", line: "", parked };
+        if (otherLine !== undefined && !parked) return { kind: "line-wait", line: "", parked, other: true, by: other };
+        return { kind: "line-wait", line: "", parked, by: other };
       }
       // (Waiting on one of its own the line has no room for: the line's full, and that's what to do something about.)
       if (other >= 0 && economy.sections.heldForRoom(otherEngine)) {
         const full = economy.sections.fullness(car.id);
-        if (full) return { kind: "full-wait", full };
+        if (full) return { kind: "full-wait", full, by: full.spare || full.parked ? spareBy(economy, car.id) : undefined };
       }
       return { kind: "line-wait", line: line?.name ?? "line" };
     }
@@ -162,7 +166,10 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     // Getting going (moving, but under 1 mm/s yet), or told to go a moment ago: not held up.
     const justSet = train.leverTick !== undefined && (sim.ticks - train.leverTick) * SIM_DT < STARTING_S;
     if (train.speed > 0 || justSet) return { kind: "starting" };
-    return { kind: "held-up" };
+    // (Behind another train, by the sim's or sections' word: that's who's in the way.)
+    const behind = sim.heldBy(train.id) ?? economy.sections.clearWait(train.id);
+    const t = behind === null ? undefined : sim.getTrain(behind);
+    return t ? { kind: "held-up", by: carNameOf(t) } : { kind: "held-up" };
   }
   // Gathering speed after Go.
   if (train.speed < STARTING_SPEED && train.leverTick !== undefined && (sim.ticks - train.leverTick) * SIM_DT < STARTING_FOR_S) return { kind: "starting" };
@@ -194,8 +201,87 @@ export function pointsSetFor(economy: Economy, by: number): string {
 /** A train not on the line stands on each road of a passing loop: no loop laid elsewhere gets past it. */
 const SPARE_CUT = "a parked train is in the way. Move it";
 
+/**
+ * Who's in a waiting or stuck train's way, for its card: the train (a car of it: its engine, or its first car when it
+ * has none; −1 for none, a red switch alone), the points it waits at (−1: none), and how that train stands: running a
+ * line ("line"), running with no route ("running"), standing with its lever on ("stopped"), or left with its lever off
+ * ("parked"). `line`: its line's name ("" none, or too long for the card). From the card's own wait (`trainState`:
+ * sections' waits, `Router.waitOf`, `Sim.heldBy`, stalls.ts), so what the card says and what Show shows agree.
+ */
+export interface Blocker {
+  car: number;
+  points: number;
+  how: "line" | "running" | "stopped" | "parked";
+  line: string;
+}
+
+/** The car a train is named by in waits (as sections and stalls name trains): its first engine, or its first car. */
+function carNameOf(t: Train): number {
+  return t.cars.find((c) => c.kind === "engine")?.id ?? t.cars[0].id;
+}
+
+/** A train not on the engine's line standing on a road of one of its loops (the one to move), if sections know it. */
+function spareBy(economy: Economy, engine: number): number | undefined {
+  const by = economy.sections.spareOn(engine);
+  return by === -1 ? undefined : by;
+}
+
+/** The blocker named by a car of it (any car: its train is looked up), and the points it's waited for at. */
+export function blockerAt(sim: Sim, economy: Economy, car: number | undefined, points = -1): Blocker | null {
+  const t = car === undefined || car < 0 ? undefined : sim.findCar(car)?.train;
+  if (!t) return points >= 0 ? { car: -1, points, how: "line", line: "" } : null;
+  const leverOn = t.cars.some((c) => c.kind === "engine" && c.lever !== 0);
+  const onLine = t.cars.some((c) => economy.lineIdOf.has(c.id));
+  // (Standing held by something (another train, a signal, too heavy to move) is "stopped"; turning back at the end
+  // of the track, or at a stand a moment as it changes way, it's under way.)
+  const standing = t.speed < 1 && !(t.turnback >= 0 && sim.heldHow(t.id) !== "turn") && (sim.heldBy(t.id) !== null || economy.sections.clearWait(t.id) !== null || sim.atRedSignal(t.id) || (sim.topSpeed?.(t) ?? 1) === 0 || t.cars.some((c) => c.kind === "engine" && (economy.sectionWait(c.id) !== null || economy.router.waitOf(c.id) !== null)));
+  const how = t.speed < 1 && !leverOn ? "parked" : onLine ? "line" : standing ? "stopped" : "running";
+  return { car: carNameOf(t), points, how, line: lineNameOf(sim, economy, t.cars[0].id) };
+}
+
+/** Who's in the way of a train in this state (null: nobody it waits on, or not waiting). */
+export function blockerOf(sim: Sim, economy: Economy, s: TrainState): Blocker | null {
+  switch (s.kind) {
+    case "line-wait":
+    case "needs-loop":
+    case "full-wait":
+    case "held-up":
+      return blockerAt(sim, economy, s.by);
+    case "stuck":
+      return s.why === "too-many" ? null : blockerAt(sim, economy, s.by);
+    case "points-wait":
+      return blockerAt(sim, economy, s.by, s.points);
+    case "red-switch":
+      return blockerAt(sim, economy, undefined, s.points);
+    default:
+      return null;
+  }
+}
+
+/**
+ * A blocker as the card names it: by its line ("the train on the Blue line"), else by where it is (`place`: "Elder",
+ * "the sawmill"; "" when nowhere's near), and how it stands ("the train parked by Elder"). Never an id.
+ */
+export function blockerName(b: Blocker, place: string): string {
+  const by = place ? ` by ${place}` : "";
+  if (b.how === "parked") return by ? `the train parked${by}` : "a parked train";
+  if (b.how === "stopped") return by ? `the train stopped${by}` : "a stopped train";
+  if (b.line) return `the train on the ${b.line}`;
+  if (b.how === "running") return by ? `the train${by}` : "a train with no route";
+  return "another train";
+}
+
+/** "… is in the way", and what to do: a train left standing is moved; one running with no route has none to keep to. */
+function inTheWay(b: Blocker, place: string): string {
+  const name = blockerName(b, place);
+  if (b.how === "parked" || b.how === "stopped") return `${name} is in the way. Move it`;
+  if (b.how === "running" && place) return `${name} is in the way. It has no route`;
+  return `${name} is in the way`;
+}
+
 /** Why a full line's train can't get on: lay loops, or (a loop taken by trains not on the line) move one. */
-function fullText(full: { more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean }): string {
+function fullText(full: { more: number; spare: boolean; parked: boolean; other: boolean; pinned: boolean }, who: Blocker | null = null, place = ""): string {
+  if (full.spare && who) return inTheWay(who, place);
   if (full.spare) return full.other ? OTHER_CUT : SPARE_CUT;
   if (full.pinned) return UNPIN;
   return `the line is full. Lay ${full.more} more passing loop${full.more === 1 ? "" : "s"}${full.parked ? (full.other ? OR_MOVE_OTHER : OR_MOVE) : ""}`;
@@ -216,10 +302,41 @@ const OR_MOVE = ", or move the parked train";
  * waiting at a red signal, too heavy or without power, stopped, held up, or on its way (to the next stop on its route,
  * if it has one). `nameOf` names a depot (a stop, a town's station).
  */
-export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, nameOf: (depotId: number) => string, cantMove: CantMove | null = null): string {
+export function engineStatus(
+  sim: Sim,
+  economy: Economy,
+  engineCarId: number,
+  nameOf: (depotId: number) => string,
+  cantMove: CantMove | null = null,
+  placeOf: (carId: number) => string = () => "",
+): string {
+  return engineView(sim, economy, engineCarId, nameOf, cantMove, placeOf).status;
+}
+
+/**
+ * The engine card's status line and who's in the train's way (`blocker`, for its Show button and the fix it offers),
+ * worked out together from one `trainState`, so the two always agree. `placeOf` says where a train is ("Elder"), for
+ * naming one with no line.
+ */
+export function engineView(
+  sim: Sim,
+  economy: Economy,
+  engineCarId: number,
+  nameOf: (depotId: number) => string,
+  cantMove: CantMove | null = null,
+  placeOf: (carId: number) => string = () => "",
+): { status: string; blocker: Blocker | null } {
   const found = sim.findCar(engineCarId);
-  if (!found) return "";
+  if (!found) return { status: "", blocker: null };
   const s = trainState(sim, economy, found.train, found.train.cars[found.index].lever, cantMove);
+  const blocker = blockerOf(sim, economy, s);
+  // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
+  const place = blocker && blocker.car >= 0 && (!blocker.line || blocker.how === "parked" || blocker.how === "stopped") ? placeOf(blocker.car) : "";
+  return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker };
+}
+
+function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainState, nameOf: (depotId: number) => string, who: Blocker | null, place: string): string {
+  const found = sim.findCar(engineCarId)!;
   switch (s.kind) {
     case "derailed":
       return "Off the rails: Rerail puts it back";
@@ -253,26 +370,32 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "line-wait":
       if (s.line) return `Waiting for the ${s.line} train`;
+      if (who && who.car >= 0) return `Waiting: ${inTheWay(who, place)}`;
       // (Not parked: running, or another line's train, it'll go; the card says only that it's in the way, meanwhile.)
       if (s.other) return "Waiting: another train is in the way";
       return s.parked ? `Waiting: ${SPARE_CUT}` : "Waiting: a train not on the line is in the way";
     case "full-wait":
-      return `Waiting: ${fullText(s.full)}`;
+      return `Waiting: ${fullText(s.full, who, place)}`;
     case "points-wait":
-      return s.line ? `Waiting for the train on the ${s.line} to pass the points` : "Waiting for another train to pass the points";
+      if (s.line) return `Waiting for the train on the ${s.line} to pass the points`;
+      return who && who.car >= 0 ? `Waiting for ${blockerName(who, place)} to pass the points` : "Waiting for another train to pass the points";
     case "stuck":
       if (s.why === "too-many") return "Stuck: too many trains for this line. Put one away or add a loop";
-      if (s.why === "parked") return `Stuck: ${SPARE_CUT}`;
-      // (Two lines' trains with no passing loop where they meet: one lets them pass. Else moving one is the fix.)
-      return `Stuck: ${s.line ? `the train on the ${s.line}` : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : "Put one away"}`;
+      if (s.why === "parked") return `Stuck: ${who && who.car >= 0 ? inTheWay(who, place) : SPARE_CUT}`;
+      // (Left standing, named by where it is: moving it is the fix. Two lines' trains with no passing loop where they
+      // meet: one lets them pass. Else moving one is.)
+      // (One with its lever on in a ring waits on this one too: named as running, not as "stopped".)
+      if (who?.how === "parked") return `Stuck: ${inTheWay(who, place)}`;
+      return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : "Put one away"}`;
     case "red-switch":
       return "A red switch is in the way. Tap and hold it to unpin";
     case "needs-loop":
+      if (s.spare && who) return `Waiting: ${inTheWay(who, place)}`;
       if (s.spare) return `Waiting: ${s.other ? OTHER_CUT : SPARE_CUT}`;
       if (s.pinned) return `Waiting: ${UNPIN}`;
       return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? (s.other ? OR_MOVE_OTHER : OR_MOVE) : ""}`;
     case "held-up":
-      return "Waiting: something's in the way";
+      return who ? `Waiting: ${inTheWay(who, place)}` : "Waiting: something's in the way";
     case "running": {
       const route = economy.routeOf(engineCarId);
       if (!route || route.stops.length === 0) return "Running";

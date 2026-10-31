@@ -2589,11 +2589,15 @@ export class Interaction {
 
   /**
    * "Put away" on the open engine's card: the train its line has no room for (this one, or the one held) back in the
-   * box, as one undo step (undo puts it back where it stood, on its line, held again).
+   * box, as one undo step (undo puts it back where it stood, on its line, held again). With `blocker` (a car), that
+   * train instead: the one in the open engine's way ("Put it away" beside Show).
    */
-  putAwayFromCard(): void {
+  putAwayFromCard(blocker = -1): void {
     const engine = this.openEngineCarId;
-    const target = engine === -1 ? -1 : this.game.economy.sections.putAwayFor(engine);
+    // (Or, from "Put it away" beside Show, the train in its way: a car of it, any train but its own.)
+    const own = engine === -1 ? undefined : this.game.sim.findCar(engine)?.train.id;
+    const other = blocker >= 0 && own !== undefined && this.game.sim.findCar(blocker)?.train.id !== own ? blocker : -1;
+    const target = engine === -1 ? -1 : blocker >= 0 ? other : this.game.economy.sections.putAwayFor(engine);
     if (target === -1) return;
     const { sim, economy } = this.game;
     let back: PutAway | null = null;

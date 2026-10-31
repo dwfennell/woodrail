@@ -40,6 +40,10 @@ export interface HudHandlers {
   removeTrain(): void;
   /** The engine card of a line with a train too many: that train (this one, or the one held) back in the box. */
   putAway(): void;
+  /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
+  showBlocker(): void;
+  /** "Put it away" beside Show: the train in the way, left standing or running with no route, back in the box. */
+  putAwayBlocker(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
@@ -268,6 +272,10 @@ export class Hud {
   /** "Put away", on an engine card whose line has a train too many (see `setPutAway`). */
   private readonly putAwayBtn: HTMLButtonElement;
   private putAwayShown = false;
+  /** Who's in the way (see `setBlocker`): Show, and the fix for a train left in the way. */
+  private readonly blockerRow = el("div", "engine-blocker");
+  private readonly showBlockerBtn: HTMLButtonElement;
+  private readonly fixBlockerBtn: HTMLButtonElement;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
@@ -529,6 +537,12 @@ export class Hud {
     this.putAwayBtn = button("Put away", "Put this line's extra train back in the box: then the others can run", h.putAway, "chip text put-away");
     this.putAwayBtn.hidden = true;
     this.engineCard.appendChild(this.putAwayBtn);
+    this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
+    this.fixBlockerBtn = button("Put it away", "Put the train in the way back in the box", h.putAwayBlocker, "chip text fix-blocker");
+    this.fixBlockerBtn.hidden = true;
+    this.blockerRow.append(this.showBlockerBtn, this.fixBlockerBtn);
+    this.blockerRow.hidden = true;
+    this.engineCard.appendChild(this.blockerRow);
     const controls = el("div", "engine-controls");
     // One big button: Go (the way the arrow shows) or Stop.
     // (Held at its stop for spacing: "Go now" sends it on with one tap, the lever as it is.)
@@ -1402,6 +1416,20 @@ export class Hud {
     this.putAwayBtn.hidden = !on;
     this.putAwayBtn.title = title;
     this.putAwayBtn.setAttribute("aria-label", title);
+  }
+
+  /**
+   * Something's in the open engine's way (`show`): Show takes the camera there. `fix`: it's a train left standing in
+   * the way, or one running with no route: "Put it away" too. `what`: what Show shows ("train", "points"), for its title.
+   */
+  setBlocker(show: boolean, fix: boolean, what: "train" | "points" = "train"): void {
+    if (this.blockerRow.hidden === !show && this.fixBlockerBtn.hidden === !fix && this.showBlockerBtn.dataset.what === what) return;
+    this.blockerRow.hidden = !show;
+    this.fixBlockerBtn.hidden = !fix;
+    this.showBlockerBtn.dataset.what = what;
+    const title = what === "points" ? "Show the points it's waiting at" : "Show the train in the way";
+    this.showBlockerBtn.title = title;
+    this.showBlockerBtn.setAttribute("aria-label", title);
   }
 
   setGoNow(on: boolean): void {

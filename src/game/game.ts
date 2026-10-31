@@ -63,6 +63,9 @@ export type GameWorld = World;
 /** Owns the renderer, scene, camera and frame loop. Input and UI attach to it. */
 /** Seconds to keep drawing after the last change on screen, for anything easing to rest. */
 const IDLE_TAIL = 1;
+/** How long Show's flash of a train in the way lasts (s), and how many times it pulses. */
+const FLASH_S = 2.4;
+const FLASH_PULSES = 3;
 /** A still tick this long (ms) after the last frame drawn counts as settled (see `Game.settled`). */
 const SETTLE_QUIET_MS = 300;
 /**
@@ -1052,6 +1055,53 @@ export class Game {
   /** A catalogue model's footprint, once its model has loaded (for keeping things clear of placed models). */
   footprintOf(asset: string): Footprint | undefined {
     return this.propLibrary.footprint(asset);
+  }
+
+  /** The pieces outlined now (read afresh: a flash may outlive a pick). */
+  private litPieces(): readonly number[] {
+    return this.trackView.highlightedIds;
+  }
+
+  /** The blocker flash running now (see `flashBlocker`), to end it early when another starts. */
+  private blockerFlash: { end(): void } | null = null;
+
+  /**
+   * Show who's in a train's way: its train (a car of it; −1 for none) pulses in a coral rim, and the points it's waited
+   * for at (−1: none) are outlined, for `FLASH_S`. A flourish: frames come only while it runs, and it ends by itself
+   * (then one frame takes it off: 0 idle frames after).
+   */
+  flashBlocker(carId: number, pointsId: number): void {
+    this.blockerFlash?.end();
+    let t = 0;
+    let over = false;
+    const points = pointsId >= 0 ? [pointsId] : [];
+    // (The points outlined only if nothing else is: a piece the player has picked keeps its look.)
+    const outline = points.length > 0 && this.trackView.highlightedIds.length === 0;
+    if (outline) this.trackView.setHighlights(points, "blocked", false);
+    const end = () => {
+      if (over) return;
+      over = true;
+      this.trainView.setFlash(-1, 0);
+      const lit = this.litPieces();
+      if (outline && lit.length === 1 && lit[0] === pointsId) this.trackView.setHighlights([]);
+      if (this.blockerFlash === f) this.blockerFlash = null;
+      this.invalidate();
+    };
+    const f = { end };
+    this.blockerFlash = f;
+    this.trainView.setFlash(carId, 1);
+    this.flourishes.add({
+      update: (dt) => {
+        if (over) return false;
+        t += dt;
+        // (Three soft pulses, easing out at the end.)
+        const k = Math.min(1, t / FLASH_S);
+        this.trainView.setFlash(carId, (0.55 + 0.45 * Math.cos(t * Math.PI * 2 * FLASH_PULSES / FLASH_S)) * (1 - k * k * k));
+        return t < FLASH_S;
+      },
+      dispose: end,
+    });
+    this.invalidate();
   }
 
   /** How many people wait on a town's platform (Game mode's passengers; null: its usual few). Cheap when unchanged. */

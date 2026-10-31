@@ -1634,6 +1634,11 @@ export class TrackView {
     return f;
   }
 
+  /** The pieces outlined now (see `setHighlights`). */
+  get highlightedIds(): readonly number[] {
+    return this.highlighted;
+  }
+
   setHighlight(pieceId: number): void {
     this.setHighlights(pieceId === -1 ? [] : [pieceId], "select", false);
   }

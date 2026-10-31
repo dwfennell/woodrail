@@ -168,6 +168,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-summary > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .planning .engine-card .engine-summary { display: none; }
 .car-load { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; margin-top: -4px; }
+/* Who's in the way (a waiting or stuck train): Show, and the fix for a train left there; a thumb tall, under the status. */
+.engine-blocker { display: flex; gap: 8px; justify-content: center; margin-top: -4px; }
+.engine-blocker[hidden], .engine-blocker > [hidden] { display: none; }
+.engine-blocker .chip { height: 44px; min-width: 76px; }
+.planning .engine-card .engine-blocker { display: none; }
 .engine-controls { display: flex; gap: 10px; align-items: stretch; }
 .chip.go { width: 150px; height: 58px; font-size: 20px; font-weight: 800; gap: 8px; background: linear-gradient(180deg, #8fd47f, #5fb24f); color: #163b10; box-shadow: inset 0 -3px 0 rgba(30, 80, 20, 0.35), 0 3px 8px rgba(40, 90, 30, 0.25); }
 .chip.go.stop { background: linear-gradient(180deg, #f3a08f, #d9634d); color: #3b130b; box-shadow: inset 0 -3px 0 rgba(110, 30, 15, 0.35), 0 3px 8px rgba(120, 40, 20, 0.25); }

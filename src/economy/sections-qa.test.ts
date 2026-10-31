@@ -930,7 +930,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     });
   // QA's N1 on a2d072c: waiting on another line's train, the card looked that line up by the id waited on, its
   // first car: a wagon once it had reversed, on no line, so the card said "a train not on the line" (56 of 92).
-  it("N1: waiting on another line's train, the card says another train, whichever way round it runs", () => {
+  it("N1: waiting on another line's train, the card names its line, whichever way round it runs", () => {
     const { q, l } = one();
     const said = new Map<string, number>();
     let other = -1;
@@ -964,7 +964,9 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }], [q.a, q.b], 300, cars, events);
     if (ENV.SHOW) console.log(`N1 waits on the other line's train: ${[...said].map(([c, n]) => `${c} x${n}`).join(" | ")}; reversed ${q.sim.findCar(other)?.train.cars[0].id !== other}`);
     expect([...said.keys()].filter((c) => c.includes("not on the line"))).toEqual([]);
-    expect(said.get("Waiting: another train is in the way") ?? 0).toBeGreaterThan(0);
+    // (Named by its line, as the player sees it: "the train on the Blue line".)
+    expect([...said.keys()].filter((c) => c.includes("no route"))).toEqual([]);
+    expect([...said.keys()].some((c) => /^Waiting: the train on the [A-Za-z]+ line is in the way$/.test(c)), [...said.keys()].join(" | ")).toBe(true);
     void r;
   });
   // Game Mode's deadlock on main: a loop whose switches are pinned wasn't counted as a passing place at all, so the

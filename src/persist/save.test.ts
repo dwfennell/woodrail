@@ -56,7 +56,8 @@ describe("an old save whose layout leant on turning back (routing §16 Q3)", () 
       expect(t.speed).toBe(0);
       expect(t.lastTurn?.cause ?? "buffer").toBe("buffer");
       expect(w.economy.stalls.stuckOf(e)?.kind).toBe("in-way");
-      expect(engineStatus(w.sim, w.economy, e, () => "")).toBe("Stuck: another train is in the way. Put one away");
+      // (Neither on a line: each card says the other runs with no route.)
+      expect(engineStatus(w.sim, w.economy, e, () => "")).toBe("Stuck: a train with no route is in the way. Put one away");
     }
   });
 });

@@ -1261,6 +1261,32 @@ export class Sections {
     return info.managed && info.more > 0 ? { more: info.more, trains: info.engines.length, spare: info.spareCut, parked: info.parked, other: info.other, pinned: this.loopCount.get(lineId)?.pinnedLoop ?? false } : null;
   }
 
+  /**
+   * A train not on the engine's line standing on a road of one of its line's passing loops: the one to move (its name in
+   * waits, a parked one before one with its lever on); −1 for none. For cards (who's in the way), not per tick.
+   */
+  spareOn(engine: number): number {
+    if (!this.enabled) return -1;
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0) return -1;
+    const info = this.line(lineId);
+    const loops = this.loopCount.get(lineId);
+    if (!info.managed || !loops) return -1;
+    const { topo, set } = loops;
+    let found = -1;
+    for (const t of info.foreign) {
+      if (t.speed >= 1) continue;
+      const onRoad = t.bogies.some((x) => {
+        const sl = topo.slotOf.get(x.pieceId);
+        return sl !== undefined && topo.slots[sl].kind === "road" && set.has(topo.slots[sl].loop);
+      });
+      if (!onRoad) continue;
+      if (this.host.drive(t) === 0) return nameOf(t);
+      if (found === -1) found = nameOf(t);
+    }
+    return found;
+  }
+
   /** Is the stop it's heading for beyond a train its line has no room for (it will wait short of it)? */
   unreachable(engine: number): boolean {
     const st = this.states.get(engine);

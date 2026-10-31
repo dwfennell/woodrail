@@ -47,7 +47,7 @@ import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
-import { engineStatus, fullLineToast, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
+import { blockerOf, engineView, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import type { Stuck } from "./economy/stalls";
@@ -393,6 +393,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
       putAway: () => interaction.putAwayFromCard(),
+      showBlocker: () => showBlocker(),
+      putAwayBlocker: () => {
+        if (viewBlocker.shown && viewBlocker.shown.car >= 0) interaction.putAwayFromCard(viewBlocker.shown.car);
+      },
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
@@ -2377,6 +2381,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let viewCar = -1;
   let viewStanding = false;
   const viewStatus = { shown: "", next: "", since: 0 };
+  /** Who's in the open engine's way, with the status shown (and the latest, not shown yet): Show's and the fix's. */
+  const viewBlocker: { shown: Blocker | null; next: Blocker | null } = { shown: null, next: null };
   function showEngineView(): void {
     const carId = interaction.openEngineCarId;
     if (carId === -1) {
@@ -2411,7 +2417,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
     const now = performance.now();
-    const latest = engineStatus(game.sim, game.economy, carId, nameOf, whyCantMove());
+    const view = engineView(game.sim, game.economy, carId, nameOf, whyCantMove(), trainPlace);
+    const latest = view.status;
+    viewBlocker.next = view.blocker;
     if (latest !== viewStatus.next) {
       viewStatus.next = latest;
       viewStatus.since = now;
@@ -2419,6 +2427,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // ("Starting" shows at once: it answers the Go just pressed.)
     if (opened || latest === "Starting" || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
     const status = viewStatus.shown;
+    // (Show and the fix go with the status they belong to: the blocker of the status shown.)
+    if (status === latest) viewBlocker.shown = view.blocker;
+    const b = viewBlocker.shown;
+    hud.setBlocker(!!b, !!b && b.car >= 0 && b.how !== "line", b && b.car < 0 ? "points" : "train");
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
     let angle = 0;
@@ -2435,6 +2447,77 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       break;
     }
     hud.setEngineView(status, angle);
+  }
+
+  /** Where a car is on the table, from the last snapshot (null: not on it). */
+  function carAt(carId: number, out: Vector3): Vector3 | null {
+    const snap = game.snapshot;
+    for (let i = 0; i < snap.count; i++) {
+      if (snap.ids[i] !== carId) continue;
+      const o = i * 6;
+      return out.set(snap.transforms[o], snap.transforms[o + 1], snap.transforms[o + 2]);
+    }
+    return null;
+  }
+
+  /** How near (mm) a stop or a town must be for a train to be named by it ("the train by Elder"). */
+  const PLACE_NEAR = 900;
+  /** The longest place name a card names a train by (two lines at 360 px, with the rest of the text). */
+  const PLACE_NAME = 14;
+  /**
+   * Where a train (a car of it) is, as the player can find it: by the nearest stop's or town's name within
+   * `PLACE_NEAR` ("Elder", "the sawmill"); "" when nowhere's that near. Asked only for a train in another's way.
+   */
+  function trainPlace(carId: number): string {
+    const at = carAt(carId, _a);
+    if (!at) return "";
+    let best = "";
+    let bestD = PLACE_NEAR * PLACE_NEAR;
+    const consider = (x: number, z: number, name: string) => {
+      const d = (x - at.x) ** 2 + (z - at.z) ** 2;
+      if (d < bestD && name.length <= PLACE_NAME) {
+        bestD = d;
+        best = name;
+      }
+    };
+    for (const t of game.world.landscape.towns) consider(t.station.x, t.station.z, t.name);
+    for (const st of routeStops(game.world)) {
+      const d = game.economy.depot(st.depotId);
+      const p = d && game.layout.getPiece(d.pieceId);
+      if (!d || !p || d.role === "town") continue;
+      consider(p.pose.x, p.pose.z, `the ${st.name.toLowerCase()}`);
+    }
+    return best;
+  }
+
+  /**
+   * Show (the card of a train waiting or stuck): the camera glides to the train in its way (and the points it waits
+   * at, framing both), which flashes a moment (`flashBlocker`); the card stays open.
+   */
+  function showBlocker(): void {
+    const engine = interaction.openEngineCarId;
+    const found = engine === -1 ? null : game.sim.findCar(engine);
+    // (Afresh: whatever's in the way now, not when the card last changed.)
+    const b = found ? blockerOf(game.sim, game.economy, trainState(game.sim, game.economy, found.train, found.train.cars[found.index].lever, whyCantMove())) : null;
+    if (!b) return;
+    const pts: Vector3[] = [];
+    if (b.car >= 0) for (const c of game.sim.findCar(b.car)?.train.cars ?? []) {
+      const p = carAt(c.id, new Vector3());
+      if (p) pts.push(p);
+    }
+    const piece = b.points >= 0 ? game.layout.getPiece(b.points) : undefined;
+    if (piece) pts.push(new Vector3(piece.pose.x, piece.y, piece.pose.z));
+    if (pts.length === 0) return;
+    const centre = new Vector3();
+    for (const p of pts) centre.add(p);
+    centre.divideScalar(pts.length);
+    let radius = 120;
+    for (const p of pts) radius = Math.max(radius, p.distanceTo(centre) + 90);
+    // (Following its own train: let go, or the camera rides straight back.)
+    if (game.following !== -1) interaction.toggleFollow();
+    const distance = Math.min(frameDistance(radius, game.camera.fov, game.camera.aspect), game.controls.maxDistance);
+    game.director.glideTo(centre, distance, { duration: 0.7, inRoom: true });
+    game.flashBlocker(b.car, b.points);
   }
 
   hud.onEngineCardShown = () => {
