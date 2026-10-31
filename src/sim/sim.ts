@@ -52,8 +52,6 @@ const MAX_BLOCK = 64;
  */
 const CROSS_LOOK = 24;
 const CROSS_GAP = 4;
-/** A train stood short of such a piece this long, the train it waits for standing all the while, turns back. */
-const CROSS_TURN_TICKS = 5 * SIM_HZ;
 /** Paths a piece may have, for keying a piece's path (`crossClaims`). */
 const MAX_PATHS = 16;
 
@@ -73,7 +71,7 @@ export interface Train {
   /** Ticks left before a train resting on a turnback buffer reverses; −1 when not waiting. */
   turnback: number;
   /**
-   * Why it last turned back (a buffer, track that just stops, a train met head on), the piece its front was on, and
+   * Why it last turned back (a buffer, or track that just stops), the piece its front was on, and
    * when (`Sim.ticks`): the engine card says so while it waits and a while after.
    */
   lastTurn?: { cause: TurnCause; pieceId: number; tick: number };
@@ -90,9 +88,17 @@ export interface Train {
   world: WorldSample[];
 }
 
-/** What turned a train back: a buffer, track that just stops (an open end), or a train met head on. */
-/** Why a train last turned back: a buffer, track that just stops, a train met head on, or told to (`turnBack`). */
-export type TurnCause = "buffer" | "open-end" | "train" | "short";
+/**
+ * Why a train last turned back: a buffer, or track that just stops (an open end). Trains turn round only at the end of
+ * the track (routing spec §16 Q3): one in another's way waits for it, however long (see `heldBy`).
+ */
+export type TurnCause = "buffer" | "open-end";
+
+/**
+ * How one train holds another where it stands (`Sim.heldBy`): short of a crossing or switch it's on or coming onto
+ * ("cross"), close behind it ("follow"), nose to nose with it ("nose"), or against its side ("side").
+ */
+export type HeldHow = "cross" | "follow" | "nose" | "side";
 
 export type SimEvent =
   | { readonly kind: "derailed"; readonly trainId: number }
@@ -325,21 +331,6 @@ export class Sim {
     found.train.leverTick = this.ticks;
     // Whoever set the lever has decided where the train goes: a pending turnback no longer applies.
     found.train.turnback = -1;
-    return true;
-  }
-
-  /**
-   * Turn a standing train back where it stands, as at the end of the line: it waits `TURNBACK_TICKS` and is turned
-   * round (its `lastTurn` cause `short`). For sections (economy/sections.ts): a train turning short of a line end held
-   * by a train of its line, or giving way to one put down facing it. False (and nothing done) if it's moving (1 mm/s or
-   * more), derailed or already turning back.
-   */
-  turnBack(trainId: number): boolean {
-    const t = this.trains.get(trainId);
-    if (!t || t.derailed || t.speed >= 1 || t.turnback >= 0 || t.bogies.length === 0) return false;
-    t.speed = 0;
-    t.turnback = TURNBACK_TICKS;
-    t.lastTurn = { cause: "short", pieceId: t.bogies[0].pieceId, tick: this.ticks };
     return true;
   }
 
@@ -982,6 +973,7 @@ export class Sim {
     advanceCursor(this.layout, c, look, null, lookAdv);
     let liftId = -1;
     let dist = 0;
+    let on: Train | null = null;
     if (lookAdv.status === ADV_OPEN_END) {
       // The end it runs to: a lift's, closed?
       const p = this.layout.getPiece(c.pieceId)!;
@@ -990,12 +982,16 @@ export class Sim {
       if (joined === -1 || !this.liftDef(pieceOfRef(joined))) return Infinity;
       liftId = pieceOfRef(joined);
       dist = lookAdv.moved;
-    } else if (c.pieceId !== lead.pieceId && this.liftDef(c.pieceId) && this.liftBusy(c.pieceId, train)) {
+    } else if (c.pieceId !== lead.pieceId && this.liftDef(c.pieceId) && (on = this.liftUser(c.pieceId, train))) {
       liftId = c.pieceId;
       dist = lookAdv.moved - c.s;
     } else return Infinity;
     const room = dist - inset - LIFT_FACE_GAP;
-    if (record && v < 1 && room < 1) this.liftCalls.add(liftId);
+    if (record && v < 1 && room < 1) {
+      this.liftCalls.add(liftId);
+      // (Another train on the lift: it waits for that one, however long, saying who for.)
+      if (on) this.holdBy(train, on, "follow");
+    }
     return brakeTo(room);
   }
 
@@ -1014,8 +1010,41 @@ export class Sim {
    * and the tick it said so (good that tick and the next). See `crossCap`.
    */
   private readonly crossClaims = new Map<number, { trainId: number; tick: number }>();
-  /** Trains held short of a piece where paths meet: since when both have stood, and the tick it was last held. */
-  private readonly crossWaits = new Map<number, { since: number; tick: number }>();
+  /**
+   * Trains held where they stand by another train (`heldBy`): short of a piece where paths meet that it's on or coming
+   * onto (`crossCap`), close behind it or nose to nose with it (`followRoom`), or against its side; and the tick it was
+   * last so (good that tick and the next).
+   */
+  private readonly held = new Map<number, { by: number; how: HeldHow; tick: number }>();
+
+  /**
+   * The train (its id) holding this one where it stands, this tick or the last: one it waits for short of a crossing or
+   * switch, one it's close behind, or one it has met nose to nose; null if none. Nothing turns it back: it waits as long
+   * as that train stays (routing spec §16 Q3), and wait chains (economy/stalls.ts) see who for.
+   */
+  heldBy(trainId: number): number | null {
+    const h = this.held.get(trainId);
+    return h && h.tick >= this.ticks - 1 && this.trains.has(h.by) ? h.by : null;
+  }
+
+  /** How `heldBy`'s train holds this one (null: none does). */
+  heldHow(trainId: number): HeldHow | null {
+    const h = this.held.get(trainId);
+    return h && h.tick >= this.ticks - 1 && this.trains.has(h.by) ? h.how : null;
+  }
+
+  private holdBy(train: Train, by: Train, how: HeldHow): void {
+    const h = this.held.get(train.id);
+    if (h) {
+      h.by = by.id;
+      h.how = how;
+      h.tick = this.ticks;
+      return;
+    }
+    this.held.set(train.id, { by: by.id, how, tick: this.ticks });
+    // (Trains come and go, and turn round as new ones: what's said of gone ones goes.)
+    if (this.held.size > 4 * this.trains.size) for (const [id, x] of this.held) if (!this.trains.has(id) || x.tick < this.ticks - 1) this.held.delete(id);
+  }
 
   /** Is any of this train on a lift's platform? */
   private onLift(t: Train): boolean {
@@ -1024,13 +1053,13 @@ export class Sim {
     return false;
   }
 
-  /** Is a train other than `me` on this lift? */
-  private liftBusy(pieceId: number, me: Train): boolean {
+  /** A train other than `me` on this lift, or null. */
+  private liftUser(pieceId: number, me: Train): Train | null {
     for (const t of this.trains.values()) {
       if (t === me || t.derailed) continue;
-      for (const b of t.bogies) if (b.pieceId === pieceId) return true;
+      for (const b of t.bogies) if (b.pieceId === pieceId) return t;
     }
-    return false;
+    return null;
   }
 
   /**
@@ -1506,24 +1535,23 @@ export class Sim {
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
           if (front && hasEngine(a) && hasEngine(b)) {
-            // One of them coming off a lift (on it, or just off it): the other gives way (it turns back) and the one
-            // coming off waits a moment, then comes on. Else both would turn back, and the one coming off would go
-            // back onto the lift and ride round again, never getting off it (QA: 35 rides, 2 stops reached).
+            // One of them coming off a lift (on it, or just off it): both stop, and the one coming off keeps its right of
+            // way while it waits. Neither turns back (§16 Q3): they stand till one is moved.
             const aOff = this.comingOffLift(a);
             if (aOff !== this.comingOffLift(b)) {
               const yields = aOff ? b : a;
               const keeps = aOff ? a : b;
               keeps.speed = 0;
-              // (Waiting for the other to turn back, it keeps its right of way however long that takes.)
+              // (Waiting for the other to go, it keeps its right of way however long that takes.)
               if (this.offLift.has(keeps.id)) this.offLift.set(keeps.id, this.ticks);
-              this.meet(yields);
+              this.meet(yields, keeps);
               continue;
             }
-            // Head on, engine against engine: like the end of the line, each stops, waits, and turns back (coupled,
-            // their engines would only push against each other). Wagons met end to end are coupled on (below), so an
-            // engine backing into the wagons it left picks them up again.
-            this.meet(a);
-            if (b.speed > 0) this.meet(b);
+            // Head on, engine against engine: each stops and waits for the other (coupled, their engines would only
+            // push against each other). Nothing turns either back: they stand nose to nose till one is moved (§16 Q3).
+            // Wagons met end to end are coupled on (below), so an engine backing into the wagons it left picks them up.
+            this.meet(a, b);
+            if (b.speed > 0) this.meet(b, a);
             continue;
           }
           // Two trains each with an engine stay two (each has its own lever, and route): the one behind keeps pace
@@ -1537,28 +1565,43 @@ export class Sim {
           this.couple(a, b, front);
           return this.resolveContacts();
         }
-        // Running into a train's side (where lines meet at a switch or crossing): it stops there, and turns back.
-        if (!ends && this.hitsSide(b)) this.meet(a);
+        // Running into a train's side (where lines meet at a switch or crossing): it stops there, and waits.
+        if (!ends && this.hitsSide(b)) this.meet(a, b, "side");
       }
     }
   }
 
   /**
-   * How far (mm) this train may go before its front comes within `FOLLOW_GAP` of the back of another train with an
-   * engine (the gap `resolveContacts` holds a follower at), looking no further than this tick's move at speed `v`.
+   * How far (mm) this train may go before its front comes within `FOLLOW_GAP` of another train with an engine: its back
+   * (the gap `resolveContacts` holds a follower at), or its front (two trains meeting head on stop nose to nose that far
+   * apart, each taking half the room while the other moves), looking no further than this tick's move at speed `v`.
+   * With no room left, it's held by that train (`heldBy`).
    */
   private followRoom(train: Train, v: number): number {
     this.endFace(train, true, followFace);
     // (As far as `resolveContacts` reaches after this tick's move.)
     const look = FOLLOW_GAP + Math.max(4, v * SIM_DT + 2) + v * SIM_DT;
     let room = Infinity;
+    let by: Train | null = null;
+    let nose = false;
     for (const b of this.trains.values()) {
       if (b === train || b.derailed || !hasEngine(b)) continue;
-      this.endFace(b, false, followOther);
-      if (Math.abs(followFace.y - followOther.y) > 20) continue;
-      const d = Math.hypot(followFace.x - followOther.x, followFace.z - followOther.z);
-      if (d <= look) room = Math.min(room, Math.max(0, d - FOLLOW_GAP));
+      for (let side = 0; side < 2; side++) {
+        const front = side === 1;
+        this.endFace(b, front, followOther);
+        if (Math.abs(followFace.y - followOther.y) > 20) continue;
+        const d = Math.hypot(followFace.x - followOther.x, followFace.z - followOther.z);
+        if (d > look) continue;
+        let r = Math.max(0, d - FOLLOW_GAP);
+        if (front && b.speed > 0) r /= 2;
+        if (r < room) {
+          room = r;
+          by = b;
+          nose = front;
+        }
+      }
     }
+    if (by && room < 0.5) this.holdBy(train, by, nose ? "nose" : "follow");
     return room;
   }
 
@@ -1586,7 +1629,9 @@ export class Sim {
         const by = k === 0 ? null : this.crossHeld(train, c.pieceId, mask);
         if (by) {
           const room = dist - inset - CROSS_GAP;
-          this.crossWait(train, by);
+          // (Claims long stale are forgotten now and then.)
+          if (this.crossClaims.size > 64) for (const [key, cl] of this.crossClaims) if (cl.tick < this.ticks - 1) this.crossClaims.delete(key);
+          if (room < 0.5) this.holdBy(train, by, "cross");
           return room < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (room - 0.5));
         }
         const key = c.pieceId * MAX_PATHS + c.pathIndex;
@@ -1605,7 +1650,6 @@ export class Sim {
       // (Measured from the piece's start.)
       c.s = 0;
     }
-    this.crossWaits.delete(train.id);
     return Infinity;
   }
 
@@ -1626,35 +1670,12 @@ export class Sim {
   }
 
   /**
-   * A train held short of a piece where paths meet, by `by`: a wait that lasts while both stand (the one on it
-   * stopped there, levers off, or waiting on something else) can't end on its own, so after `CROSS_TURN_TICKS` it
-   * turns back, as it would have on running into it.
+   * A train stopped against another (nose to nose, or against its side): it stands, and waits for it to go, however long
+   * (routing spec §16 Q3: nothing turns it back short of the end of the track).
    */
-  private crossWait(train: Train, by: Train): void {
-    let w = this.crossWaits.get(train.id);
-    if (!w || w.tick < this.ticks - 1) {
-      w = { since: this.ticks, tick: this.ticks };
-      this.crossWaits.set(train.id, w);
-      // (Trains come and go, and turn round as new ones: what's said of gone ones goes.)
-      if (this.crossWaits.size > 4 * this.trains.size) for (const id of this.crossWaits.keys()) if (!this.trains.has(id)) this.crossWaits.delete(id);
-      if (this.crossClaims.size > 64) for (const [key, cl] of this.crossClaims) if (cl.tick < this.ticks - 1) this.crossClaims.delete(key);
-    }
-    w.tick = this.ticks;
-    if (train.speed >= 1 || by.speed >= 1) w.since = this.ticks;
-    else if (this.ticks - w.since > CROSS_TURN_TICKS) {
-      this.crossWaits.delete(train.id);
-      this.meet(train);
-    }
-  }
-
-  /** A train stopped by another meeting it head on: it waits, then turns back (as at the end of the line). */
-  private meet(t: Train): void {
+  private meet(t: Train, by: Train, how: HeldHow = "nose"): void {
     t.speed = 0;
-    if (t.turnback < 0) {
-      t.turnback = TURNBACK_TICKS;
-      t.lastTurn = { cause: "train", pieceId: t.bogies[0].pieceId, tick: this.ticks };
-      this.events.push({ kind: "buffer", trainId: t.id });
-    }
+    this.holdBy(t, by, how);
   }
 
   /** Does the current `face` point strike the side of one of b's cars (not its end faces)? */

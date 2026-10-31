@@ -285,7 +285,7 @@ describe("reversing through a switch", () => {
     expect(mid.bogies.some((b) => b.pieceId === ids[2] && b.pathIndex === 1)).toBe(true);
     layout.setSwitchState(ids[2], 0);
     mid.speed = 0;
-    expect(sim.turnBack(mid.id)).toBe(true);
+    expect(sim.turnNow(mid.id)).not.toBeNull();
     run(sim, 6);
     const t = sim.findCar(engine)!.train;
     expect(t.id).not.toBe(mid.id);
@@ -376,7 +376,7 @@ describe("coupling", () => {
     expect(sim.drainEvents().some((e) => e.kind === "coupled" || e.kind === "derailed")).toBe(false);
   });
 
-  it("two trains meeting head on stop, wait, and each turn back: no crash, no coupling", () => {
+  it("two trains meeting head on stop nose to nose and wait for each other: no crash, no coupling, no turning back", () => {
     const { layout, ids } = longLine(14);
     const sim = new Sim(layout);
     const a = sim.addTrain(["engine", "hopper"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 100 });
@@ -386,9 +386,27 @@ describe("coupling", () => {
     sim.setLever(sim.getTrain(b.trainId)!.cars[0].id, 1);
     run(sim, 12);
     const events = sim.drainEvents();
-    expect(events.some((e) => e.kind === "derailed" || e.kind === "coupled")).toBe(false);
-    expect(events.filter((e) => e.kind === "turned").map((e) => e.trainId)).toEqual(expect.arrayContaining([a.trainId, b.trainId]));
+    expect(events.some((e) => e.kind === "derailed" || e.kind === "coupled" || e.kind === "turned")).toBe(false);
     expect(sim.trainCount).toBe(2);
+    // (Routing §16 Q3: they stand, each held by the other, till one is moved.)
+    for (const [t, o] of [
+      [a.trainId, b.trainId],
+      [b.trainId, a.trainId],
+    ]) {
+      expect(sim.getTrain(t)!.speed).toBe(0);
+      expect(sim.getTrain(t)!.turnback).toBe(-1);
+      expect(sim.heldBy(t)).toBe(o);
+      expect(sim.heldHow(t)).toBe("nose");
+    }
+    // (Nose to nose, a little apart: they never touch.)
+    const fa = sim.getTrain(a.trainId)!.world[0];
+    const fb = sim.getTrain(b.trainId)!.world[0];
+    expect(Math.hypot(fa.x - fb.x, fa.z - fb.z)).toBeGreaterThan(0);
+    // One sent back by hand (its lever the other way): it goes, and the other follows it.
+    sim.setLever(sim.getTrain(b.trainId)!.cars[0].id, -1);
+    run(sim, 2);
+    expect(sim.getTrain(b.trainId)!.speed).toBeGreaterThan(0);
+    expect(sim.getTrain(a.trainId)!.speed).toBeGreaterThan(0);
   });
 });
 

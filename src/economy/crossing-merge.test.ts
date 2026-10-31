@@ -51,11 +51,11 @@ function trainsOverlap(a: Train, b: Train): boolean {
   return false;
 }
 
-/** Runs the world, watching two engines: overlaps, both on the piece on different paths, turn-backs off a train. */
+/** Runs the world, watching two engines: overlaps, both on the piece on different paths, head-on meetings. */
 function watch(w: World, engines: [number, number], piece: number) {
-  const s = { overlaps: 0, together: 0, trainTurns: 0, passes: [0, 0], derailed: false };
+  const s = { overlaps: 0, together: 0, headOn: 0, passes: [0, 0], derailed: false };
   const was = [false, false];
-  const turnTick = [-1, -1];
+  const noseWas = [false, false];
   const step = () => {
     w.sim.tick();
     w.economy.tick();
@@ -70,10 +70,10 @@ function watch(w: World, engines: [number, number], piece: number) {
       const on = t.bogies[0].pieceId === piece;
       if (on && !was[k]) s.passes[k]++;
       was[k] = on;
-      if (t.lastTurn?.cause === "train" && t.lastTurn.tick !== turnTick[k]) {
-        turnTick[k] = t.lastTurn.tick;
-        s.trainTurns++;
-      }
+      // (Met head on: held nose to nose by the other, counted once a meeting.)
+      const nose = w.sim.heldHow(t.id) === "nose";
+      if (nose && !noseWas[k]) s.headOn++;
+      noseWas[k] = nose;
     });
   };
   return { s, step, run: (seconds: number, until?: () => boolean) => { for (let i = 0; i < seconds * SIM_HZ && !until?.(); i++) step(); } };
@@ -151,14 +151,14 @@ function junctionWorld(routing: Routing) {
 describe("trains of different lines at a crossing (issue #2)", () => {
   for (const type of ["crossing", "crossing-45"] as const)
     for (const routing of ["both", "one", "other", "none"] as const)
-      it(`${type}, routed: ${routing}: one goes over at a time, the other waits and goes; no overlap, no turn-back`, () => {
+      it(`${type}, routed: ${routing}: one goes over at a time, the other waits and goes; no overlap, no meeting`, () => {
         const { w, a, b, cross } = crossingWorld(type, routing);
         const { s, run } = watch(w, [a, b], cross);
         run(120);
         expect(s.derailed).toBe(false);
         expect(s.overlaps).toBe(0);
         expect(s.together).toBe(0);
-        expect(s.trainTurns).toBe(0);
+        expect(s.headOn).toBe(0);
         // Each keeps going over (out and back, again and again), not stuck waiting.
         expect(Math.min(...s.passes)).toBeGreaterThanOrEqual(4);
       });
@@ -166,7 +166,7 @@ describe("trains of different lines at a crossing (issue #2)", () => {
 
 describe("trains of different lines joining at a switch (issue #2)", () => {
   for (const routing of ["both", "one", "other", "none"] as const)
-    it(`routed: ${routing}: one goes onto the shared track, the other waits and follows; no overlap, no turn-back`, () => {
+    it(`routed: ${routing}: one goes onto the shared track, the other waits and follows; no overlap, no meeting`, () => {
       const { w, a, b, sw, past } = junctionWorld(routing);
       const { s, run } = watch(w, [a, b], sw);
       const beyond = (e: number) => w.sim.findCar(e)!.train.bogies.some((x) => x.pieceId === past);
@@ -179,6 +179,6 @@ describe("trains of different lines joining at a switch (issue #2)", () => {
       expect(reached.size).toBe(2);
       expect(s.overlaps).toBe(0);
       expect(s.together).toBe(0);
-      expect(s.trainTurns).toBe(0);
+      expect(s.headOn).toBe(0);
     });
 });

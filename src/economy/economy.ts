@@ -6,6 +6,7 @@ import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
 import { Sections, type BlockWait } from "./sections";
+import { Stalls } from "./stalls";
 import { Router } from "../routing/router";
 
 const NONE = 0;
@@ -360,8 +361,6 @@ export class Economy {
         return out;
       },
       drive: (train) => this.drive(train),
-      atStop: (engine) => !!this.routes.get(engine)?.at,
-      routeWait: (engine) => this.router.waitingOn(engine),
       skipStops: (engine, pieces) => {
         const r = this.routes.get(engine);
         if (!r || r.stops.length === 0 || r.at) return;
@@ -391,6 +390,10 @@ export class Economy {
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
       soon: this.sections.steerSoon,
     });
+    this.stalls = new Stalls(sim, this.sections, {
+      lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
+      routeWait: (engine) => this.router.waitingOn(engine),
+    });
   }
 
   /**
@@ -400,6 +403,8 @@ export class Economy {
   readonly sections: Sections;
   /** Which way routed trains go, and the points set for them (and lever taps on points): see routing/router.ts. */
   readonly router: Router;
+  /** Trains stuck for good (a ring of waits, or a line's held train in the way), for their cards: see stalls.ts. */
+  readonly stalls: Stalls;
 
   /** Why a routed engine is held by sections (null: it isn't). */
   sectionWait(engine: number): BlockWait | null {
@@ -1546,6 +1551,8 @@ export class Economy {
     if (this.routes.size > 0) this.advanceRoutes();
     // Switches ahead of routed trains (routing/router.ts; nothing with none).
     this.router.tick();
+    // Trains stuck for good, for their cards (every CHECK_TICKS, with two trains or more).
+    this.stalls.tick();
     // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
     for (const d of this.allDepots()) {
       if (!this.working(d)) {

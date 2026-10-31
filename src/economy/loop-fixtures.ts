@@ -49,12 +49,12 @@ export function train(w: World, pieceId: number, reversed: boolean, cars: CarKin
   return engine;
 }
 
-/** Run `seconds`; counts head-on meetings (a train turned back by another) and every cross wait seen, by engine. */
+/** Run `seconds`; counts head-on meetings (a train held nose to nose by another) and every cross wait seen, by engine. */
 export function runner(w: World, engines: readonly number[], topUp = true) {
   const meetings: { tick: number; engine: number }[] = [];
   const waits = new Map<number, Set<string>>(engines.map((e) => [e, new Set()]));
   const arrivals = new Map<number, number>(engines.map((e) => [e, 0]));
-  const lastTurn = new Map<number, number>();
+  const noseAt = new Map<number, number>();
   let t = 0;
   const step = () => {
     if (topUp && w.dx) w.dx.piles[CARGO.log.index] = Math.max(w.dx.piles[CARGO.log.index], 6);
@@ -64,11 +64,10 @@ export function runner(w: World, engines: readonly number[], topUp = true) {
     t++;
     engines.forEach((e, k) => {
       const tr = w.sim.findCar(e)?.train;
-      const turn = tr?.lastTurn;
-      if (turn?.cause === "train" && lastTurn.get(e) !== turn.tick) {
-        lastTurn.set(e, turn.tick);
-        meetings.push({ tick: t, engine: e });
-      }
+      // (Met head on: held nose to nose by another train, counted once a meeting.)
+      const nose = !!tr && w.sim.heldHow(tr.id) === "nose";
+      if (nose && noseAt.get(e) !== t - 1) meetings.push({ tick: t, engine: e });
+      if (nose) noseAt.set(e, t);
       const wait = w.economy.sectionWait(e);
       if (wait) waits.get(e)!.add(wait.kind);
       if (!before[k] && w.economy.routeOf(e)?.at) arrivals.set(e, arrivals.get(e)! + 1);

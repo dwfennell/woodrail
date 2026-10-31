@@ -377,12 +377,14 @@ class Player {
   /** Train-seconds held by sections (waiting for a section or slot; held for want of a loop: `roomSeconds`). */
   sectionSeconds = 0;
   roomSeconds = 0;
-  /** Head-on meetings (a train turned back by another), and arrivals of line trains at their stops. */
+  /** Head-on meetings (a train held nose to nose by another, each meeting once), and arrivals of line trains at their stops. */
   headOn = 0;
   /** Of them, meetings of two trains of one line (each pair once). */
   headOnLine = 0;
+  /** Stalls begun (economy/stalls.ts: a ring of waits, or a line's held train in the way), and train-seconds stuck. */
+  stuckSeconds = 0;
   arrivals = 0;
-  private readonly turnsSeen = new Set<string>();
+  private readonly noseAt = new Map<number, number>();
   private readonly atStop = new Map<number, boolean>();
   private readonly lastAt = new Map<number, number>();
   /**
@@ -654,22 +656,19 @@ class Player {
       }
       for (const id of this.w.sim.trainIds()) {
         const t = this.w.sim.getTrain(id)!;
-        const turn = t.lastTurn;
-        const key = turn && `${turn.tick}:${turn.pieceId}:${t.cars[0].id}`;
-        if (turn?.cause === "train" && key && !this.turnsSeen.has(key)) {
-          this.turnsSeen.add(key);
-          this.headOn++;
-          // (Two trains of one line meeting: each turns back in the same tick.)
-          const mine = t.cars.find((c) => this.w.economy.lineIdOf.has(c.id));
-          const line = mine ? this.w.economy.lineIdOf.get(mine.id) : undefined;
-          if (line !== undefined)
-            for (const [e2, l2] of this.w.economy.lineIdOf) {
-              const t2 = l2 === line && e2 !== mine!.id ? this.w.sim.findCar(e2)?.train : undefined;
-              if (t2 && t2 !== t && t2.lastTurn?.cause === "train" && t2.lastTurn.tick === turn.tick && t.id < t2.id) this.headOnLine++;
-            }
-          if (ENV.BALANCE_HEADON) this.note(`head-on: engine ${t.cars.find((c) => c.kind === "engine")?.id} on ${this.w.layout.getPiece(turn.pieceId)?.type} (piece ${turn.pieceId})`);
-        }
+        // (Met head on: held nose to nose by another train, from this second on; counted once a meeting.)
+        const by = this.w.sim.heldHow(id) === "nose" ? this.w.sim.heldBy(id) : null;
+        const was = this.noseAt.get(id);
+        if (by !== null) this.noseAt.set(id, this.tick);
+        if (by === null || (was !== undefined && this.tick - was <= SIM_HZ)) continue;
+        this.headOn++;
+        // (Two trains of one line meeting: each pair once.)
+        const mine = t.cars.find((c) => this.w.economy.lineIdOf.has(c.id));
+        const other = this.w.sim.getTrain(by)?.cars.find((c) => this.w.economy.lineIdOf.has(c.id));
+        if (mine && other && this.w.economy.lineIdOf.get(mine.id) === this.w.economy.lineIdOf.get(other.id) && id < by) this.headOnLine++;
+        if (ENV.BALANCE_HEADON) this.note(`head-on: engine ${t.cars.find((c) => c.kind === "engine")?.id} on ${this.w.layout.getPiece(t.bogies[0].pieceId)?.type} (piece ${t.bogies[0].pieceId})`);
       }
+      this.stuckSeconds += this.w.economy.stalls.count;
       for (const g of this.goals.update(this.w, { learned: this.progress.learned, owned: this.progress.owned, orders: this.progress.orders })) {
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
@@ -3007,7 +3006,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : `${Math.round(this.goods2At)} for ${this.goods2For}`}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min onlyNearest ${[...this.nearestPickup].join("+") || "-"} shopOff ${this.shopShut} townGap ${(P.townGap / 60).toFixed(1)}min loops ${this.loopsAt.join("/") || "-"} headOn ${P.headOn} lineHeadOn ${P.headOnLine} lineStall ${P.lineStall.toFixed(1)} arrivals ${P.arrivals} sectionWait ${(P.sectionSeconds / 60).toFixed(1)}min roomWait ${(P.roomSeconds / 60).toFixed(1)}min releases ${w.economy.sections.released}${ENV.BALANCE_TIMING ? ` capUs ${w.economy.sections.capCalls ? ((1000 * w.economy.sections.capMs) / w.economy.sections.capCalls).toFixed(2) : "-"} capCalls ${w.economy.sections.capCalls}` : ""}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : `${Math.round(this.goods2At)} for ${this.goods2For}`}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min onlyNearest ${[...this.nearestPickup].join("+") || "-"} shopOff ${this.shopShut} townGap ${(P.townGap / 60).toFixed(1)}min loops ${this.loopsAt.join("/") || "-"} headOn ${P.headOn} lineHeadOn ${P.headOnLine} stalls ${w.economy.stalls.begun} stuck ${(P.stuckSeconds / 60).toFixed(1)}min lineStall ${P.lineStall.toFixed(1)} arrivals ${P.arrivals} sectionWait ${(P.sectionSeconds / 60).toFixed(1)}min roomWait ${(P.roomSeconds / 60).toFixed(1)}min releases ${w.economy.sections.released}${ENV.BALANCE_TIMING ? ` capUs ${w.economy.sections.capCalls ? ((1000 * w.economy.sections.capMs) / w.economy.sections.capCalls).toFixed(2) : "-"} capCalls ${w.economy.sections.capCalls}` : ""}`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} (${P.researchStallCause.goodsTrains} goods train(s), ${P.researchStallCause.stops} stops${P.researchStallCause.planks ? ", short of planks" : ""}) school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,

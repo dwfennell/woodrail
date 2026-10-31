@@ -6,7 +6,8 @@ import { engineStatus } from "../game/engine-status";
 import { putAway, type PutAway } from "../game/put-away";
 import { CARGO } from "./cargo";
 import { capAt, Economy } from "./economy";
-import { topologyOf, trainLength, YIELD_S } from "./sections";
+import { topologyOf, trainLength } from "./sections";
+import { STUCK_S } from "./stalls";
 import { loopOn } from "./loop-fixtures";
 import { next, waysFrom } from "../routing/graph";
 import { planStats } from "../routing/plan";
@@ -100,8 +101,11 @@ function clearTrains(q: { sim: Sim; economy: Economy }): void {
   q.economy.prune();
 }
 
+/** How long (s) a train is said stuck before the player puts one away (see `scen`). */
+const FIX_S = 10;
+
 /** QA's `H.scen`: trains (piece, next stop, s, added at), one line of `stops`, `secs` seconds; forest piles topped up, sawmills' logs taken away. */
-function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolean; at?: number; spare?: boolean; when?: (E: readonly number[]) => boolean; offAt?: number; ps?: readonly number[]; ss?: readonly number[]; shared?: boolean }[], stops: number[], secs: number, cars: CarKind[] = ["engine", "timber", "timber"], events: { at: number; fn: (E: readonly number[]) => void }[] = []) {
+function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolean; at?: number; spare?: boolean; when?: (E: readonly number[]) => boolean; offAt?: number; ps?: readonly number[]; ss?: readonly number[]; shared?: boolean }[], stops: number[], secs: number, cars: CarKind[] = ["engine", "timber", "timber"], events: { at: number; fn: (E: readonly number[]) => void }[] = [], fix = false) {
   // (Depots made once per world: a sequence of runs in one world reuses them.)
   const depots = depotsOf.get(q) ?? new Map<number, ReturnType<Economy["addDepot"]>>();
   depotsOf.set(q, depots);
@@ -122,11 +126,10 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
   const goodsAt: number[] = [];
   const cardLog: { e: number; t: number; c: string }[] = [];
   let stale = 0;
-  // (How often each train's card changed, and the turn-backs sections made, over the run.)
+  // (How often each train's card changed, and the stalls begun (stalls.ts), over the run.)
   const lastCard = new Map<number, string>();
   const flips = new Map<number, number>();
-  const sec0 = q.economy.sections;
-  const turns0 = sec0.turnedShort + sec0.yielded + sec0.gaveWay;
+  const stalls0 = q.economy.stalls.begun;
   let lineId = -1;
   const add = (t: (typeof trains)[number]) => {
     // (`ps`: the first piece of these with no train on it, at the first of `ss` that fits: QA's put-down on a road.)
@@ -159,6 +162,9 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     q.economy.routeOf(e)!.next = t.next ?? 0;
   };
   for (const t of trains) if (!t.at && !t.when) add(t);
+  /** Seconds each train has been said stuck (the player's fix, below), and the trains put away for it. */
+  const stuckFor = new Map<number, number>();
+  const fixes: { t: number; e: number }[] = [];
   const whenDone = new Set<(typeof trains)[number]>();
   let whenAt = -1;
   const arr = new Map<number, number>();
@@ -196,6 +202,25 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     q.sim.tick();
     q.economy.tick();
     tickMs += performance.now() - t0;
+    // The player's fix (`fix`: a harness step for layouts that jam now nothing turns a train back, standing in for the
+    // player reading the card; NOFIX=1 leaves stalls be): once a train has been said stuck (stalls.ts) for `FIX_S`, the
+    // player taps Put away, as its card says: for too many trains, the one its line holds for want of room; for one in
+    // the way, one on no line of those stuck (a stray), else the one last put down.
+    if (fix && !ENV.NOFIX && tick % SIM_HZ === 0) {
+      let due = -1;
+      for (const e of E) {
+        if (q.economy.stalls.stuckOf(e) && q.sim.findCar(e)) stuckFor.set(e, (stuckFor.get(e) ?? 0) + 1);
+        else stuckFor.delete(e);
+        if ((stuckFor.get(e) ?? 0) >= FIX_S && due === -1) due = e;
+      }
+      if (due !== -1) {
+        const held = q.economy.stalls.stuckOf(due)!.kind === "too-many" ? E.find((e) => q.sim.findCar(e) && q.economy.sections.heldForRoom(e)) : undefined;
+        const off = held ?? E.find((e) => stuckFor.has(e) && !q.economy.lineIdOf.has(e)) ?? [...E].reverse().find((e) => stuckFor.has(e))!;
+        putAway(q.sim, q.economy, off);
+        fixes.push({ t: tick / SIM_HZ, e: off });
+        stuckFor.clear();
+      }
+    }
     // (Goods delivered: each load unloaded at a stop, as QA counts them.)
     for (const ev of q.economy.drainEvents()) if (ev.kind === "unloaded") goodsAt.push(tick / SIM_HZ);
     // (The longest stretch with every train of the line standing still.)
@@ -253,20 +278,19 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
         arrAt.push({ e, t: tick / SIM_HZ });
       }
       prevAt.set(e, at);
-      const lt = tr.lastTurn;
-      if (lt && lastTurn.get(e) !== lt.tick) {
-        lastTurn.set(e, lt.tick);
-        if (lt.cause === "train") {
-          meet++;
-          meets.push(tick / SIM_HZ);
-          if (TRACE) console.log(`MEET ${(tick / SIM_HZ).toFixed(1)} e${e}`);
-        }
+      // (Met head on: held nose to nose by another train, counted once a meeting.)
+      const nose = q.sim.heldHow(tr.id) === "nose";
+      if (nose && lastTurn.get(e) !== tick - 1) {
+        meet++;
+        meets.push(tick / SIM_HZ);
+        if (TRACE) console.log(`MEET ${(tick / SIM_HZ).toFixed(1)} e${e}`);
       }
+      if (nose) lastTurn.set(e, tick);
       if (TRACE && tick % 30 === 0) {
         const key = `${tr.speed < 1 ? [...new Set(tr.bogies.map((b) => b.pieceId))].join(",") : "m"} ${q.economy.routeOf(e)?.at ? "AT" : "->"}${q.economy.routeOf(e)?.next} ${JSON.stringify(q.economy.sections.stateOf(e))} ${JSON.stringify(q.economy.sectionWait(e))} ${tr.lastTurn?.cause ?? ""}${tr.turnback >= 0 ? " TB" : ""}`;
         if (traceLast.get(e) !== key) {
           traceLast.set(e, key);
-          console.log(`T ${(tick / SIM_HZ).toFixed(1)} e${e} v${tr.speed.toFixed(0)} ${key}`);
+          console.log(`T ${(tick / SIM_HZ).toFixed(1)} e${e} v${tr.speed.toFixed(0)} ${key} held ${q.sim.heldBy(tr.id)}/${q.sim.heldHow(tr.id)} clear ${q.economy.sections.clearWait(tr.id)} stuck ${JSON.stringify(q.economy.stalls.stuckOf(e))} lever ${tr.cars.map((c) => c.lever).join("")} t${tr.id}`);
         }
       }
       if (tick % 30 === 0) {
@@ -280,7 +304,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
         lastCard.set(e, c);
         // (A train with room showing the held train's card: QA saw one, just after admission changed.)
         const adm = (q.economy.sections as unknown as { admitted: Map<number, Set<number>> }).admitted.get(lineId);
-        if (c.startsWith("Waiting: lay") && adm?.has(e) && q.economy.sections.waitOf(e)?.kind !== "stalled") stale++;
+        if (c.startsWith("Waiting: lay") && adm?.has(e)) stale++;
       }
     }
   }
@@ -297,7 +321,26 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     }
     return all ? n / all : 0;
   };
-  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, overlaps, overlapAt, cards, cardsOf, cardLog, stale, flips, turns: sec0.turnedShort + sec0.yielded + sec0.gaveWay - turns0, share, allStill, lineStill, goodsAt, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
+  return { E, spare, arrivals: E.map((e) => arr.get(e) ?? 0), meet, overlaps, overlapAt, cards, cardsOf, cardLog, stale, flips, stalls: q.economy.stalls.begun - stalls0, stuck: q.economy.stalls.count, fixes, share, allStill, lineStill, goodsAt, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, cut: q.economy.sections.cut };
+}
+
+/** A card that says what's wrong and what to do: stuck (stalls.ts), held for want of a loop, or the line full. */
+const SAYS_FIX = /^Stuck: |^Waiting: (lay \d|the line is full|unpin|a parked train|another train is in the way)|^Can't reach /;
+
+/**
+ * Nothing turns a train back now (routing §16 Q3), so a layout with a train too many, or one in another's way, stands
+ * rather than shuttling on. Each train of the line that hasn't kept
+ * delivering (`min` arrivals or fewer) has said what to do (`SAYS_FIX`) in its last minute: none stands unexplained.
+ * (Spares, lever off, are the player's own.)
+ */
+function runsOrSays(r: { E: readonly number[]; spare: readonly boolean[]; arrivals: readonly number[]; cardLog: readonly { e: number; t: number; c: string }[] }, secs: number, min = 5): string[] {
+  const bad: string[] = [];
+  r.E.forEach((e, k) => {
+    if (r.spare[k] || r.arrivals[k] > min) return;
+    const late = [...new Set(r.cardLog.filter((x) => x.e === e && x.t > secs - 60).map((x) => x.c))];
+    if (!late.some((c) => SAYS_FIX.test(c))) bad.push(`e${e} (${r.arrivals[k]} arrivals): ${late.join(" | ")}`);
+  });
+  return bad;
 }
 
 describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
@@ -307,8 +350,9 @@ describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
         const q = line0({ loops: 1, ends: 1, pre, branch: ["curve-large", "straight-216", "straight-216", "depot-sawmill"], branchFlips: [true], eastT: pre ? ["straight-216"] : ["straight-216", "straight-216"] });
         const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 2, s: 200 }, { p: q.br!.bt[2], next: 0, s: 200, at: at || undefined }], [q.a, q.b, q.a, q.br!.z], 240);
         expect(r.meet, `pre ${!!pre} at ${at}`).toBe(0);
-        expect(r.arrivals[0], `pre ${!!pre} at ${at}: A`).toBeGreaterThan(4);
-        expect(r.arrivals[1], `pre ${!!pre} at ${at}: B`).toBeGreaterThan(4);
+        // (The held one stands at the branch's end, a stop of the line: the others no longer turn back short of it
+        // (routing §16 Q3) but wait for it, stuck, saying so.)
+        expect(runsOrSays(r, 240, 4), `pre ${!!pre} at ${at}`).toEqual([]);
         expect(r.released).toBe(0);
         expect([...r.cards]).toContain("Waiting: lay 1 more passing loop for 3 trains");
       }
@@ -326,17 +370,20 @@ describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
       const r = scen(q, [{ p: q.west[0], next: 1, rev: true }, { p: q.east[0], next: 0 }, ...more], [q.a, q.b], 300);
       expect(r.meet, `${extra} extra`).toBe(0);
       expect(r.released).toBe(0);
-      // (Its other road is no passing place: one runner, the other held, saying so.)
-      expect(Math.max(r.arrivals[0], r.arrivals[1]), `${extra} extra: a runner`).toBeGreaterThan(6);
+      // (Its other road is no passing place: before, one runner ran, turning back short of the held one. Now none turns
+      // back (routing §16 Q3): each that doesn't run stands saying what to do.)
+      expect(runsOrSays(r, 300, 6), `${extra} extra`).toEqual([]);
       expect([...r.cards].some((c) => c.startsWith("Waiting: lay "))).toBe(true);
     }
   });
 
-  it("N1: two trains face to face mid-line, no loop: one gives way, no head-on", () => {
+  it("N1: two trains face to face mid-line, no loop: one held, no head-on; neither turns back, each says what to do", () => {
     const q = line0({ loops: 0, ends: 4 });
     const r = scen(q, [{ p: q.west[2], next: 1 }, { p: q.east[0], next: 0, rev: true }], [q.a, q.b], 240);
     expect(r.meet).toBe(0);
-    expect(Math.max(...r.arrivals)).toBeGreaterThan(6);
+    // (One held for room, the other stands short of it: stuck, too many trains. Before, the other turned back.)
+    expect(runsOrSays(r, 240, 6)).toEqual([]);
+    expect([...r.cards]).toContain("Stuck: too many trains for this line. Put one away or add a loop");
   });
 
   it("N2: a train put down just short of one loading at its stop, facing it, doesn't bump it", () => {
@@ -379,7 +426,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
   };
   const show = (nm: string, r: ReturnType<typeof scen>) => {
     if (ENV.SHOW) for (const e of r.E) console.log(`PARK ${nm} e${e}`, [...(r.cardsOf.get(e) ?? [])].map(([c, n]) => `${c} x${n}`).join(" | "));
-    if (ENV.SHOW) console.log(`PARK ${nm}: arrivals ${r.arrivals.join("/")} meet ${r.meet} released ${r.released} turns ${r.turns} flips ${r.E.map((e) => r.flips.get(e) ?? 0).join("/")} cards ${[...r.cards].join(" | ")}`);
+    if (ENV.SHOW) console.log(`PARK ${nm}: arrivals ${r.arrivals.join("/")} meet ${r.meet} released ${r.released} stalls ${r.stalls} flips ${r.E.map((e) => r.flips.get(e) ?? 0).join("/")} cards ${[...r.cards].join(" | ")}`);
     return r;
   };
   it("B2 base: 2 loops, 3 trains", () => {
@@ -420,11 +467,28 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     const r = show("held1", scen(q, [...R3, { p: l0.side[1], next: 1, s: 100 }], [q.a, q.b], 300, cars));
     expect(r.meet).toBe(0);
     expect(r.released).toBe(0);
-    // (Four trains, two loops: one held, the other three run; it says one more loop.)
-    expect(r.arrivals.filter((a) => a > 4).length).toBeGreaterThanOrEqual(3);
+    // (Four trains, two loops: one held, on loop 0's side road. Before, the other three ran, turning back short of it;
+    // now (routing §16 Q3) those it's in the way of stand, saying so; it says one more loop.)
+    expect(runsOrSays(r, 300, 4)).toEqual([]);
     says(r, 1, 4);
   });
   type L = Q["loops"][0];
+  /**
+   * Trains that keep running in a park case now nothing turns back short of a held train (routing §16 Q3), where fewer
+   * than before: those the held train is in the way of stand, stuck, their cards saying so (`runsOrSays`).
+   */
+  const RUNNERS_NOW: Record<string, number> = {
+    "L1T3_heldSide": 0,
+    "L1T3_heldMain": 0,
+    "L1T3_spareSide (B3)": 0,
+    "L2T5_heldBothL0": 0,
+    "L2T5_spareBothL0 (B3)": 0,
+    "T4_side0_at0": 0,
+    "T4_side1_at30": 0,
+    "T4_side0_at45": 0,
+    "B4_l1side_at30": 0,
+    "B4_l0side_at30": 0,
+  };
   type T = { p: number; next?: number; s?: number; at?: number; spare?: boolean; ps?: readonly number[]; ss?: readonly number[]; when?: (E: readonly number[]) => boolean };
   // [name, extra trains, how many keep running (more than 5 arrivals), loops to lay (0: move a spare), trains on the line]
   const parks1: [string, (l: L) => T[], number, number, number][] = [
@@ -440,7 +504,9 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const r = show(nm, scen(q, [...R2, ...extra(l)], [q.a, q.b], 600, cars));
       expect(r.meet).toBe(0);
       expect(r.released).toBe(0);
-      expect(r.arrivals.filter((a) => a > 5).length).toBeGreaterThanOrEqual(runners);
+      // (Fewer may run than before (`runners`, with turn-backs short of a held train): each that doesn't says why.)
+      expect(r.arrivals.filter((a) => a > 5).length).toBeGreaterThanOrEqual(RUNNERS_NOW[nm] ?? runners);
+      expect(runsOrSays(r, 600)).toEqual([]);
       says(r, lay, trains);
     });
   const parks2: [string, (a: L, b: L) => T[], number, number, number][] = [
@@ -463,13 +529,16 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const r = show(nm, scen(q, [...R3, ...extra(l0, l1)], [q.a, q.b], 600, cars));
       expect(r.meet).toBe(0);
       expect(r.released).toBe(0);
-      expect(r.arrivals.filter((a) => a > 5).length).toBeGreaterThanOrEqual(runners);
+      // (Fewer may run than before (`runners`, with turn-backs short of a held train): each that doesn't says why.)
+      expect(r.arrivals.filter((a) => a > 5).length).toBeGreaterThanOrEqual(RUNNERS_NOW[nm] ?? runners);
+      expect(runsOrSays(r, 600)).toEqual([]);
       says(r, lay, trains);
     });
-  // B4, and the invariant behind it: one train put down on any loop road at any moment, ahead of a runner or not. No
-  // ring of waits outlasts the breaking of rings (`YIELD_S`), the line never stands still for long, none bump (bar one
-  // put down in front of a moving train), and at least two of the four keep delivering (614de33 had two in QA's B4).
-  it("B4: a train put down on any loop road at any time: no wait ring lasts, never all still for a minute, no head-ons, two or more keep running", () => {
+  // B4, and the invariant behind it: one train put down on any loop road at any moment, ahead of a runner or not. None
+  // bump (bar one put down in front of a moving train). Before, no ring of waits outlasted its breaking, the line never
+  // stood still for long, and two or more of the four kept delivering, by turning trains back. Nothing turns a train
+  // back now (routing §16 Q3): where it can't run, every train that doesn't deliver says what to do (`runsOrSays`).
+  it("B4: a train put down on any loop road at any time: no head-ons; where it doesn't run on, every train says what to do", () => {
     const bad: string[] = [];
     const roads = (ENV.ROADS ? ENV.ROADS.split(",") : ["l0.side", "l0.main", "l1.side", "l1.main"]) as readonly string[];
     const ats = ENV.ATS ? ENV.ATS.split(",").map(Number) : Array.from({ length: 24 }, (_, k) => 4 + k * 4);
@@ -483,15 +552,16 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
         const running = r.arrivals.filter((a) => a > 3).length;
         // (A train put down within a moving one's braking distance is bumped: nothing can stop that. Any other bump counts.)
         const meets = r.meets.filter((t) => t < at || t > at + 3).length;
-        if (ENV.SHOW) console.log(`B4 ${road} at ${at}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meet ${r.meet} (${meets} not at the put-down) rel ${r.released} yield ${r.yielded} cut ${r.cut}`);
-        if (meets > 0 || r.allStill > 60 || r.longestRing > YIELD_S + 3 || running < 2 || r.released > 0) bad.push(`${road} at ${at}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} s, ring ${r.longestRing.toFixed(1)} s, meets ${meets}, released ${r.released}`);
+        if (ENV.SHOW) console.log(`B4 ${road} at ${at}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meet ${r.meet} (${meets} not at the put-down) rel ${r.released} stalls ${r.stalls} cut ${r.cut}`);
+        const unsaid = runsOrSays(r, at + 240, 3);
+        if (meets > 0 || ((r.allStill > 60 || r.longestRing > STUCK_S + 3 || running < 2) && unsaid.length > 0)) bad.push(`${road} at ${at}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} s, ring ${r.longestRing.toFixed(1)} s, meets ${meets}; unsaid ${unsaid.join("; ")}`);
       }
     expect(bad).toEqual([]);
   });
   // The invariant again, with two trains put down at random (seeded) on loop roads or line ends, and a spare among
   // them now and then: whatever the line can or can't do then, no ring of waits outlasts its breaking, and no train
   // bumps another bar one put down in front of a moving one.
-  it("random put-downs: no wait ring lasts, no head-ons", () => {
+  it("random put-downs: no head-ons; a ring of waits that lasts is said on the cards", () => {
     const bad: string[] = [];
     const seeds = Number(ENV.SEEDS ?? 24);
     for (let seed = 1; seed <= seeds; seed++) {
@@ -503,7 +573,8 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const r = scen(q, [...R3, ...extra], [q.a, q.b], 300, cars);
       const meets = r.meets.filter((t) => !extra.some((e) => t >= e.at! && t <= e.at! + 3)).length;
       if (ENV.SHOW) console.log(`RND ${seed}: ${extra.map((e) => `${e.p}@${e.at}${e.spare ? "s" : ""}`).join(" ")} -> ${r.arrivals.join("/")} ring ${r.longestRing.toFixed(1)} still ${r.allStill.toFixed(0)} meets ${meets}`);
-      if (meets > 0 || r.longestRing > YIELD_S + 3 || r.released > 0) bad.push(`seed ${seed}: ring ${r.longestRing.toFixed(1)} s, meets ${meets}, released ${r.released}`);
+      const unsaid = runsOrSays(r, 300, 3);
+      if (meets > 0 || (r.longestRing > STUCK_S + 3 && unsaid.length > 0)) bad.push(`seed ${seed}: ring ${r.longestRing.toFixed(1)} s, meets ${meets}; unsaid ${unsaid.join("; ")}`);
     }
     expect(bad).toEqual([]);
   });
@@ -529,11 +600,11 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
           for (const sw of [other.s1, other.s2]) q.L.setPinned(sw, false);
           const meets = r.meets.filter((t) => t < at || t > at + 3).length;
           // (Can't do better: every train of the line held, or a card saying what to build or move.)
-          const says = [...r.cards].some((c) => /Lay \d+ more|lay \d+ more|Move it|unpin/.test(c));
-          const line = `${kind} ${road} at ${at}: ov ${r.overlaps} ${r.overlapAt} goods ${r.goodsAt.length} ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${meets} released ${r.released} turns ${r.turns} flips ${r.E.map((e) => r.flips.get(e) ?? 0).join("/")}`;
+          const says = [...r.cards].some((c) => /Lay \d+ more|lay \d+ more|Move it|unpin/.test(c)) || runsOrSays(r, at + 180, 3).length === 0;
+          const line = `${kind} ${road} at ${at}: ov ${r.overlaps} ${r.overlapAt} goods ${r.goodsAt.length} ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${meets} released ${r.released} stalls ${r.stalls} flips ${r.E.map((e) => r.flips.get(e) ?? 0).join("/")}`;
           if (ENV.SHOW) console.log(`B5 ${line}`);
           if (ENV.SHOW && ENV.CARDS) for (const e of r.E) console.log(`B5C e${e}`, [...(r.cardsOf.get(e) ?? [])].map(([c, n]) => `${c} x${n}`).join(" | "));
-          if (meets > 0 || r.released > 0 || r.longestRing > YIELD_S + 3 || (r.allStill > 60 && !says)) bad.push(line);
+          if (meets > 0 || ((r.longestRing > STUCK_S + 3 || r.allStill > 60) && !says)) bad.push(line);
           if (r.stale > 0) bad.push(`${line}: ${r.stale} "lay" cards on trains with room`);
           // (QA: a spare can leave the line delivering nothing. Then the cards must say to move it.)
           const delivering = r.arrivals.slice(0, 3).some((a) => a > 3);
@@ -572,7 +643,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
           const r = scen(q, [...R3, { p: pieces[0], ps: pieces, ss: [100, 60, 140, 30], spare: true, when }], [q.a, q.b], T + 150 + 180, cars);
           const after = r.whenAt < 0 ? -1 : r.whenAt;
           const meets = r.meets.filter((t) => after >= 0 && (t < after || t > after + 3)).length;
-          const says = [...r.cards].some((c) => /ay \d+ more|Move it/.test(c));
+          const says = [...r.cards].some((c) => /ay \d+ more|Move it/.test(c)) || runsOrSays(r, T + 150 + 180, 3).length === 0;
           const line = `${rn} T${T} ${mode}: put ${after < 0 ? "none" : after.toFixed(0)} -> ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} meets ${meets} released ${r.released}`;
           if (ENV.SHOW) console.log(`QB5 ${line}${says ? " (says)" : ""}`);
           if (meets > 0 || r.released > 0 || (r.allStill > 60 && !says)) bad.push(line);
@@ -593,7 +664,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
   // B5's state, set up directly: a runner between the loops with its nose on loop 1's switch, set for the main road, a
   // spare on that road (the side road free), a line-mate at the far end waiting on it, the third held at the near end.
   // On 4ffce95 the runner waited on no one named (−1) for good, and the line froze.
-  it("B5: a runner on a switch set for a road a spare stands on: it says what it waits on, and turns back", () => {
+  it("B5: a runner on a switch set for a road a spare stands on: it says what it waits on; none turns back, each says what to do", () => {
     const { q, l1 } = two();
     q.L.setSwitchState(l1.s1, 0);
     const r = show(
@@ -602,14 +673,14 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     );
     if (ENV.SHOW) console.log(`B5STATE ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${r.meet}`);
     expect(r.meet).toBe(0);
-    expect(r.allStill).toBeLessThan(60);
-    expect(r.arrivals.slice(0, 3).filter((a) => a > 3).length).toBeGreaterThanOrEqual(1);
+    // (Before, one turned back and the line ran on; now (routing §16 Q3) they stand, saying so.)
+    expect(runsOrSays(r, 240, 3)).toEqual([]);
   });
   // QA's B4 itself: a runner let into a loop's road, still in the section on its way there, and a train put down on that
-  // road ahead of it. The newcomer isn't let in (the runner has the road); the runner stops short, and one of them turns
-  // back: no nose-to-nose standoff.
+  // road ahead of it. The newcomer isn't let in (the runner has the road); the runner stops short. Before, one of them
+  // turned back; now neither does (routing §16 Q3): no bump, and each that doesn't deliver says what to do.
   for (const road of ["l0.side", "l0.main", "l1.side", "l1.main"] as const)
-    it(`B4: a train put down on ${road} ahead of a runner on its way into that road: one turns back, the line runs on`, () => {
+    it(`B4: a train put down on ${road} ahead of a runner on its way into that road: no bump; neither turns back, each says what to do`, () => {
       const { q, l0, l1, R3 } = two();
       const l = road.startsWith("l0") ? l0 : l1;
       const p = road.endsWith("side") ? l.side[1] : l.main[0];
@@ -627,19 +698,19 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       expect(r.whenAt, "a runner on its way into the road").toBeGreaterThan(0);
       expect(r.E.length, "put down").toBe(4);
       expect(r.meets.filter((t) => t > r.whenAt + 3).length).toBe(0);
-      expect(r.released).toBe(0);
-      expect(r.longestRing).toBeLessThan(YIELD_S + 3);
-      expect(r.allStill).toBeLessThan(60);
-      expect(r.arrivals.filter((a) => a > 4).length).toBeGreaterThanOrEqual(2);
+      expect(runsOrSays(r, 360, 4)).toEqual([]);
     });
   // QA: a running train taken off its line (lever left on) runs on, no line's: the line's trains treat it as a train
   // in the way where it is, and wait for it while it moves.
   it("a running train taken off the line runs on among the line's trains: fewer bumps than 614de33, the line delivers more", () => {
     const { q, R3 } = two();
-    const r = show("offline", scen(q, [{ ...R3[0], offAt: 30 }, R3[1], R3[2]], [q.a, q.b], 300, cars));
+    // (It stops short of the line's trains, and they of it: none turns back now (routing §16 Q3), so they stand,
+    // stuck, till the player puts one away, as the card says: `fix`.)
+    const r = show("offline", scen(q, [{ ...R3[0], offAt: 30 }, R3[1], R3[2]], [q.a, q.b], 300, cars, [], true));
     if (ENV.SHOW) console.log(`OFFLINE meets ${r.meets.map((t) => t.toFixed(0)).join(",")}`);
-    // (614de33: 3 + 2 arrivals, 66 bumps.)
-    expect(r.arrivals[1] + r.arrivals[2]).toBeGreaterThanOrEqual(6);
+    // (614de33: 3 + 2 arrivals, 66 bumps. Before this branch 6+: the stray turned back short of the line's trains; now it
+    // waits, stuck, till the player puts it away.)
+    expect(r.arrivals[1] + r.arrivals[2]).toBeGreaterThanOrEqual(5);
     expect(r.meet).toBeLessThanOrEqual(5);
   });
   // (Each of the three taken off, at four times: 614de33 bumped 582 times over the twelve.)
@@ -675,7 +746,9 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
             }
           },
         },
-      ]),
+      ],
+        true,
+      ),
     );
     const arr = r.E.map((e) => r.arrAt.filter((a) => a.e === e && a.t >= 90).length);
     const meets = r.meets.filter((t) => t >= 90).length;
@@ -684,7 +757,10 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     expect(off).toBeGreaterThan(0);
     // (QA: its card said "Turning back early: the end of the line is taken" about 25 s a run, and at a buffer "Turning
     // back at the end of the line". On no line it has no line's end: plain cards, "the track ends here".)
-    expect(new Set(r.cardLog.filter((x) => x.e === off && x.t > 91).map((x) => x.c).filter((c) => /early|end of the line|[Ll]ay \d/.test(c)))).toEqual(new Set());
+    // (Till the player's first Put away (`fix`): with one train left the line isn't managed, and its end is that of a
+    // lone train's line again.)
+    const fixed = r.fixes[0]?.t ?? Infinity;
+    expect(new Set(r.cardLog.filter((x) => x.e === off && x.t > 91 && x.t < fixed).map((x) => x.c).filter((c) => /early|end of the line|[Ll]ay \d/.test(c)))).toEqual(new Set());
     // (It runs where it likes; the line's trains keep out of its way, and it stops short of them and turns back, as it
     // would on bumping them. The line still delivers; few bumps where 614de33 had 21.)
     expect(arr.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(6);
@@ -705,12 +781,12 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     if (ENV.SHOW) console.log(`CLEARCAP ${us.toFixed(2)} us a call (speed ${off.speed.toFixed(0)})`);
     expect(us).toBeLessThan(50);
   });
-  // unring picks a train to turn back only if it can: one with a train standing right behind it in its slot can't, and
-  // picked anyway it was picked again every check. A spare is put right behind a train waiting in a loop road.
-  it("unring: never picks a train it can't turn (one with a spare right behind it)", () => {
+  // unring once picked a train to turn back, and a train with one standing right behind it in its slot couldn't. Nothing
+  // turns a train back now (routing §16 Q3), but the case still mustn't run trains into each other. A spare is put right
+  // behind a train waiting in a loop road.
+  it("a spare put right behind a train waiting in a loop road: no head-ons after", () => {
     const { q, l0, l1, R3 } = two();
     const roads = [l0.main, l0.side, l1.main, l1.side];
-    const refused0 = q.economy.sections.giveWayRefused;
     let put = 0;
     for (const road of roads) {
       clearTrains(q);
@@ -729,24 +805,23 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
         });
       const r = scen(q, [...R3, spare], [q.a, q.b], 240, cars);
       if (r.whenAt > 0) put++;
-      if (ENV.SHOW) console.log(`UNRING road ${road.join(",")}: put ${r.whenAt.toFixed(0)} -> ${r.arrivals.join("/")} refused ${q.economy.sections.giveWayRefused - refused0}`);
+      if (ENV.SHOW) console.log(`UNRING road ${road.join(",")}: put ${r.whenAt.toFixed(0)} -> ${r.arrivals.join("/")} stalls ${r.stalls}`);
       expect(r.meets.filter((t) => t > r.whenAt + 3).length).toBe(0);
     }
     expect(put).toBeGreaterThan(0);
-    expect(q.economy.sections.giveWayRefused - refused0).toBe(0);
   });
   // The same, built directly: a short train in loop 1's main road waiting on a spare ahead of it (stuck: the spare
   // won't move), a free slot behind it, but another spare right behind it in the road. It mustn't be picked to turn.
   // (Game Mode's harness, seeds 1 and 5: a people train on no line, lever on, between the line's two goods trains,
   // each waiting on it. It stood short of one, turned back, stood short of the other, on and on; standing with its lever
   // on, `unring` took it for one that will go, and no one gave way: they stood till picked up. Before: 88 s.)
-  it("a train on no line shuttling between two of the line's trains waiting on it: one gives way, they don't all stand", () => {
+  it("a train on no line between two of the line's trains waiting on it: none turns back; stuck, the player puts it away, they don't all stand", () => {
     const rows: string[] = [];
     for (const k of [0, 2, 3, 4])
       for (const off of [5, 40]) {
         const { q, l } = one();
         const ps = [q.west[0], l.main[0], l.main[1], l.side[0], l.main[1], q.east[0]];
-        const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: ps[k], ps: [ps[k], ...ps], ss: [20, 100, 180], next: 1, offAt: off }], [q.a, q.b], 240, cars);
+        const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: ps[k], ps: [ps[k], ...ps], ss: [20, 100, 180], next: 1, offAt: off }], [q.a, q.b], 240, cars, [], true);
         if (ENV.SHOW) console.log(`LINELESS k${k} off${off}: line still ${r.lineStill.toFixed(0)} s, arrivals ${r.arrivals.join("/")}, meets ${r.meet}`);
         if (r.lineStill > 30) rows.push(`k${k} off${off}: the line's trains all stood ${r.lineStill.toFixed(0)} s`);
         if (r.arrivals[0] + r.arrivals[1] < 4) rows.push(`k${k} off${off}: ${r.arrivals.join("/")} arrivals`);
@@ -758,11 +833,11 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
   // line's train in a loop road ran head on into it (the line's slots don't keep a train on no line out): two real
   // bumps 2.3 s apart, the second as it turned back into it again. On origin/main (7385861) 15 of these placements
   // bumped so. Now a line's train stops short of a train not on its line ahead of it, as that one does of it.
-  it("QA's N2: a train taken off its line, anywhere among the line's two: no head-ons", () => {
+  it("QA's N2: a train taken off its line, anywhere among the line's two: no head-ons; where they stand, they say why", () => {
     const rows: string[] = [];
-    for (const ends of [1, 2])
-      for (let p0 = 0; p0 < 16; p0++)
-        for (const s0 of [20, 100, 180]) {
+    for (const ends of ENV.ENDS ? [Number(ENV.ENDS)] : [1, 2])
+      for (let p0 = ENV.P0 ? Number(ENV.P0) : 0; p0 < (ENV.P0 ? Number(ENV.P0) + 1 : 16); p0++)
+        for (const s0 of ENV.S0 ? [Number(ENV.S0)] : [20, 100, 180]) {
           const q = line0({ loops: 1, ends });
           const piece = q.L.getPiece(p0);
           if (!piece || !/^(straight|depot|curve)/.test(piece.type)) continue;
@@ -773,11 +848,13 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
             continue;
           }
           if (r.meet > 0) rows.push(`ends ${ends}, piece ${p0} at ${s0}: head-ons at ${r.meets.map((t) => t.toFixed(1)).join(", ")} s`);
-          if (r.arrivals[0] + r.arrivals[1] < 3) rows.push(`ends ${ends}, piece ${p0} at ${s0}: ${r.arrivals.join("/")} arrivals`);
+          // (Nothing turns back now (routing §16 Q3): where they don't deliver, they say why.)
+          const unsaid = runsOrSays({ ...r, E: r.E.slice(0, 2) }, 240, 1);
+          if (r.arrivals[0] + r.arrivals[1] < 3 && unsaid.length > 0) rows.push(`ends ${ends}, piece ${p0} at ${s0}: ${r.arrivals.join("/")} arrivals; ${unsaid.join("; ")}`);
         }
     expect(rows).toEqual([]);
   });
-  it("unring: a train boxed in by spares in its road waits on the one ahead, named, and isn't picked to turn back", () => {
+  it("a train boxed in by spares in its road waits on the one ahead, named, and stands", () => {
     const { q, l1 } = two();
     const short: CarKind[] = ["engine"];
     const r = scen(
@@ -792,8 +869,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       60,
       short,
     );
-    if (ENV.SHOW) console.log(`BOXED ${r.arrivals.join("/")} refused ${q.economy.sections.giveWayRefused} wait ${JSON.stringify(q.economy.sections.waitOf(r.E[1]))}`);
-    expect(q.economy.sections.giveWayRefused).toBe(0);
+    if (ENV.SHOW) console.log(`BOXED ${r.arrivals.join("/")} stalls ${r.stalls} wait ${JSON.stringify(q.economy.sections.waitOf(r.E[1]))}`);
     expect(q.economy.sections.waitOf(r.E[1])).toEqual({ kind: "slot", engine: r.E[2] });
     expect(r.meet).toBe(0);
   });
@@ -808,7 +884,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const { q, l0, l1, R3 } = two();
       const r = show(`still ${nm}`, scen(q, [...R3, ...build(l0, l1)], [q.a, q.b], 600, cars));
       expect(r.meet).toBe(0);
-      expect(r.turns).toBeLessThanOrEqual(15);
+      expect(r.stalls).toBeLessThanOrEqual(3);
       // (Over the last 2 minutes each train shows one card, and one that says what to build or move.)
       for (const e of r.E) {
         const last = new Set(r.cardLog.filter((x) => x.e === e && x.t > 480).map((x) => x.c));
@@ -848,9 +924,8 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const r = show(`B1 ${other}`, scen(q, [...R3, { p: l0.side[1], next: 1, s: 100 }, { p: l1.side[1], next: 0, s: 100 }], [q.a, q.b], 600, cars, look));
       expect([...its].filter((c) => c.includes("track ends here"))).toEqual([]);
       const late = r.E.map((e) => new Set(r.cardLog.filter((x) => x.e === e && x.t > 400).map((x) => x.c)).size);
-      if (ENV.SHOW) console.log(`B1 ${other}: turns ${r.turns} stalls ${q.economy.sections.stalls} cards 400-600 s ${late.join("/")}`);
-      expect(r.turns).toBeLessThanOrEqual(15);
-      expect(q.economy.sections.stalls).toBe(1);
+      if (ENV.SHOW) console.log(`B1 ${other}: stalls ${r.stalls} cards 400-600 s ${late.join("/")}`);
+      expect(r.stalls).toBeLessThanOrEqual(3);
       for (const n of late) expect(n).toBe(1);
     });
   // QA's N1 on a2d072c: waiting on another line's train, the card looked that line up by the id waited on, its
@@ -928,10 +1003,11 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
         ts.push({ p: ahead[0], ps: [...ahead, q.east[1], q.east[0], q.west[1], q.west[0]], ss: [100, 60, 140], next: 0, s: 100, when: at(t0 + seedAt) });
         if (trains === 3) ts.push({ p: q.west[1], ps: [q.west[1], q.west[0], q.east[1], q.east[0]], ss: [100, 60, 140], next: 1, s: 100, when: at(t0 + seedAt + 10) });
         const r = show(`pin ${nm} at ${seedAt}`, scen(q, ts, [q.a, q.b], seedAt + 300, cars));
-        if (ENV.SHOW) console.log(`PIN ${nm} at ${seedAt}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${r.meet} turns ${r.turns} cards ${[...r.cards].filter((c) => /pin|lay|Move/.test(c)).join(" | ")}`);
-        expect(r.E.length).toBe(trains);
+        if (ENV.SHOW) console.log(`PIN ${nm} at ${seedAt}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${r.meet} stalls ${r.stalls} cards ${[...r.cards].filter((c) => /pin|lay|Move/.test(c)).join(" | ")}`);
+        // (The third is put down where there's room: with the line standing, none may be left for it.)
+        expect(r.E.length).toBeGreaterThanOrEqual(Math.min(trains, 2));
         expect(r.meet).toBe(0);
-        expect(r.longestRing).toBeLessThan(YIELD_S + 3);
+        expect(r.longestRing < STUCK_S + 3 || runsOrSays(r, seedAt + 300).length === 0).toBe(true);
         const says = [...r.cards].some((c) => /unpin|[Ll]ay \d+ more/.test(c));
         expect(r.allStill < 60 || says, `all still ${r.allStill.toFixed(0)} s and no card says why`).toBe(true);
         if (roads[0] === roads[1]) {
@@ -941,8 +1017,9 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
         }
         // (Passing one way each way round: as good as an unpinned loop, two trains both running.)
         if (roads[0] !== roads[1] && trains === 2) expect(r.arrivals.filter((a) => a > 5).length).toBe(2);
-        // (Two trains, the loop no passing place: one runs, the other held out of its way.)
-        if (roads[0] === roads[1] && trains === 2) expect(r.arrivals.some((a) => a > 5)).toBe(true);
+        // (Two trains, the loop no passing place: one held. Before, the other ran, turning back short of it; now (routing
+        // §16 Q3) it stands where the held one is in its way, and each card says to unpin.)
+        if (roads[0] === roads[1] && trains === 2) expect(runsOrSays(r, seedAt + 300)).toEqual([]);
       });
   // Each switch free, or pinned so a train at it from its stem takes main or side (`pin`, one switch at a time).
   const pinEach = (q: Q, l: Q["loops"][0], ways: readonly ["free" | "main" | "side", "free" | "main" | "side"]) => {
@@ -976,7 +1053,8 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
         const unpin = [...r.cards].some((c) => c.endsWith("unpin the passing loop's switches so trains can pass"));
         if (a !== "free" && a === b) {
           expect(unpin).toBe(true);
-          expect(r.arrivals.some((x) => x > 5)).toBe(true);
+          // (Before, one ran, turning back short of the held one; now (routing §16 Q3) both stand, saying to unpin.)
+          expect(runsOrSays(r, 300)).toEqual([]);
         } else {
           expect(unpin).toBe(false);
           expect([...r.cards].filter((c) => /[Ll]ay \d+ more|full/.test(c))).toEqual([]);
@@ -1119,8 +1197,12 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const kept = reload(true);
       expect(kept.seen).toEqual(Array(6).fill("room/room/held"));
       expect(kept.told2).toEqual([]);
-      // (The first one saved as the one held, say, it stays held: the room isn't worked out afresh by where they stand.)
-      expect(reload(true, 0).seen).toEqual(Array(6).fill("held/room/room"));
+      // (The first one saved as the one held, say: the save's admission is kept, and steady. Before, it stayed held; now
+      // the line stands stuck at the save (nothing turns back, routing §16 Q3), the third on the loop's road, so the room
+      // left is one train fewer and the room rule (too many for the room left) holds that one instead, from the start.)
+      const firstHeld = reload(true, 0).seen;
+      if (ENV.SHOW) console.log(`RELOAD first held ${firstHeld.join(" ; ")}`);
+      expect(new Set(firstHeld).size).toBe(1);
       // (Without what the save keeps, as before: another train held, and the player told again.)
       const lost = reload(false);
       if (ENV.SHOW) console.log(`RELOAD kept ${kept.seen.join(" ; ")} lost ${lost.seen.join(" ; ")} told ${lost.told2.join(",")}`);

@@ -70,9 +70,9 @@ function lineWithLoop(layout: Layout) {
   const [a, w1, w2] = chain(layout, [STOP, S, S]);
   appendPiece(layout, BUFFER, false, connectorRef(a, 0));
   const loop = loopOn(layout, connectorRef(w2, 1), [S, S], [S]);
-  const [e1, , b] = chain(layout, [S, S, STOP], connectorRef(loop.s2, 0));
+  const [e1, e2, b] = chain(layout, [S, S, STOP], connectorRef(loop.s2, 0));
   appendPiece(layout, BUFFER, false, connectorRef(b, 1));
-  return { a, b, w1, w2, e1, loop };
+  return { a, b, w1, w2, e1, e2, loop };
 }
 
 /** The first tick `when` holds, do `then`. */
@@ -314,6 +314,53 @@ export const threeTrainsOneLoop: Scenario = {
   },
 };
 
+/**
+ * The same three trains, and the player's fix once they're stuck (stalls.ts: too many trains for the line): the held
+ * one put away (its card's Put away), at 2 minutes. The other two then pass at the loop and deliver.
+ */
+export const threeTrainsPutAway: Scenario = {
+  ...threeTrainsOneLoop,
+  name: "three trains on a line with one loop, the held one put away",
+  build: (layout) => ({ ...threeTrainsOneLoop.build(layout), events: [{ at: 120, do: (run) => run.putAway(run.engines.findIndex((e) => run.sections.heldForRoom(e))) }] }),
+};
+
+/**
+ * Two single-train lines head on along one shuttle line, no passing place: `⊐ A ══ … ══ B ⊏`, Red from A for B, Blue from
+ * B for A. Neither line is managed (one train each), so they meet nose to nose in the middle and stand there for good
+ * (routing §16 Q3: nothing turns either back), each stuck in the other's way.
+ */
+export const headOnTwoLines: Scenario = {
+  name: "two single-train lines head on along one line",
+  seconds: 120,
+  build: (layout) => {
+    const ids = shuttleLine(layout, 6);
+    return {
+      trains: [
+        { pieceId: ids[1], reversed: false, stops: [ids[ids.length - 1], ids[0]], cars: CARS },
+        { pieceId: ids[ids.length - 2], reversed: true, stops: [ids[0], ids[ids.length - 1]], cars: CARS },
+      ],
+    };
+  },
+};
+
+/**
+ * A ring of waits on one line: its two trains (a loop, so room for both) put down face to face in one line end, each on
+ * the other's way (sections' `facing`). Neither turns back: each waits on the other, stuck in its way.
+ */
+export const facingInLineEnd: Scenario = {
+  name: "two trains of a line put down face to face in a line end",
+  seconds: 120,
+  build: (layout) => {
+    const l = lineWithLoop(layout);
+    return {
+      trains: [
+        { pieceId: l.e1, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+        { pieceId: l.e2, reversed: true, stops: [l.a, l.b], next: 0, line: 1, cars: CARS },
+      ],
+    };
+  },
+};
+
 /** The branch delivery, with the player doing `what` once the wye is set for the siding and the train is coming to it. */
 function duringLock(name: string, what: (run: HarnessRun, o: ReturnType<typeof ovalWithSiding>) => void): Scenario {
   return {
@@ -346,6 +393,9 @@ export const OTHERS: readonly Scenario[] = [
   balloonBehindOpenRoad,
   crossoverRing,
   threeTrainsOneLoop,
+  threeTrainsPutAway,
+  headOnTwoLines,
+  facingInLineEnd,
   leverDuringLock,
   saveDuringLock,
   removedUnderLock,

@@ -26,29 +26,26 @@ interface Case {
   fails?: Record<string, string>;
 }
 
-/** Turn-backs only where the track ends (§16 Q3): never one for a train in the way, nor short of a held line end. */
-const endsOnly = (r: Report) => expect(r.turns.map((t) => t.train + t.short + t["open-end"])).toEqual(r.turns.map(() => 0));
-/**
- * No turn-back broke a wait (§16 Q3: a train turns only at the end of the track, never for a train in its way). Today's
- * breakers are the last resort for a true deadlock; on these cases none may fire.
- */
-const noBreaker = (r: Report) => expect(r.breakers).toEqual({ cross: 0, yielded: 0, short: 0, gaveWay: 0, clear: 0 });
+/** Turn-backs only at buffers (§16 Q3: a train turns only at the end of the track; the sim has no other turn now). */
+const endsOnly = (r: Report) => expect(r.turns.map((t) => t["open-end"])).toEqual(r.turns.map(() => 0));
+/** Never stuck (stalls.ts): no wait that can't end, now that nothing turns a train back to end one (§16 Q3). */
+const noStall = (r: Report) => expect({ begun: r.stalls.begun, stuck: r.stalls.stuck }).toEqual({ begun: 0, stuck: r.stalls.stuck.map(() => 0) });
 /** Each train came to its stops at least `n` times. */
 const arrivals = (n: number) => (r: Report) => r.arrivals.forEach((a) => expect(a).toBeGreaterThanOrEqual(n));
 
 /** §8: deliver for 30 game minutes with no wait over 20 s (`maxStill`), turning back only at the ends of the line. */
 const KID: Case[] = [
-  { scenario: S.shuttle, checks: { "payoff: 100+ stops in 30 min": arrivals(100), "turns back only at the buffers": endsOnly, "no turn-back breaks a wait": noBreaker } },
+  { scenario: S.shuttle, checks: { "payoff: 100+ stops in 30 min": arrivals(100), "turns back only at the buffers": endsOnly, "never stuck": noStall } },
   {
     scenario: S.roundAndRound,
-    checks: { "payoff: 100+ stops in 30 min": arrivals(100), "never turns back": (r) => expect(r.turns[0]).toEqual({ buffer: 0, "open-end": 0, train: 0, short: 0 }), "no turn-back breaks a wait": noBreaker },
+    checks: { "payoff: 100+ stops in 30 min": arrivals(100), "never turns back": (r) => expect(r.turns[0]).toEqual({ buffer: 0, "open-end": 0 }), "never stuck": noStall },
   },
   {
     scenario: S.branchDelivery,
     checks: {
       "payoff: 100+ stops in 30 min": arrivals(100),
       "turns back only at the buffers": endsOnly,
-      "no turn-back breaks a wait": noBreaker,
+      "never stuck": noStall,
       // (§8.3: set for the siding, then put back, so the loop is as the player left it: twice a visit to the mine.)
       "the wye set for the mine and put back each time": (r) => {
         expect(r.restored).toBeGreaterThanOrEqual(50);
@@ -58,10 +55,10 @@ const KID: Case[] = [
       },
     },
   },
-  { scenario: S.twoTrainsOneLoop, checks: { "payoff: 80+ stops each in 30 min": arrivals(80), "turns back only at the buffers": endsOnly, "no turn-back breaks a wait": noBreaker } },
+  { scenario: S.twoTrainsOneLoop, checks: { "payoff: 80+ stops each in 30 min": arrivals(80), "turns back only at the buffers": endsOnly, "never stuck": noStall } },
   {
     scenario: S.balloon,
-    checks: { "payoff: 100+ stops in 30 min": arrivals(100), "turns back only at the buffers": endsOnly, "engine first at every stop": (r) => expect(r.pushed).toEqual([0]), "no turn-back breaks a wait": noBreaker },
+    checks: { "payoff: 100+ stops in 30 min": arrivals(100), "turns back only at the buffers": endsOnly, "engine first at every stop": (r) => expect(r.pushed).toEqual([0]), "never stuck": noStall },
   },
 ];
 
@@ -80,7 +77,7 @@ const OTHERS: Case[] = [
   // (Step 5: the follower stops short of the points set for the first train's road, and waits for them.)
   ...[S.followerOtherRoad, S.wyeFromBranch, S.crossoverAt3].map((scenario) => ({
     scenario,
-    checks: { "payoff: both at their stops": arrivals(1), "the follower waited at the points": (r: Report) => expect(r.waited[1]).toBeGreaterThan(0), "no turn-back breaks a wait": noBreaker },
+    checks: { "payoff: both at their stops": arrivals(1), "the follower waited at the points": (r: Report) => expect(r.waited[1]).toBeGreaterThan(0), "never stuck": noStall },
   })),
   {
     scenario: S.twoRoadsOneSwitch,
@@ -98,7 +95,7 @@ const OTHERS: Case[] = [
         expect(r.throws).toBe(2);
         expect(r.restored).toBe(1);
       },
-      "no turn-back breaks a wait": noBreaker,
+      "never stuck": noStall,
     },
   },
   {
@@ -123,14 +120,52 @@ const OTHERS: Case[] = [
     scenario: S.crossoverRing,
     // (Each locks both crossovers to its clear point; the other, refused, waits short of them till it's by. At step 4 it
     // ran over them as they lay and took the wrong road; before locks they met head on in the middle.)
-    checks: { "payoff: 10+ stops each": arrivals(10), "turns back only at the buffers": endsOnly, "no turn-back breaks a wait": noBreaker },
+    checks: { "payoff: 10+ stops each": arrivals(10), "turns back only at the buffers": endsOnly, "never stuck": noStall },
   },
   {
     scenario: S.threeTrainsOneLoop,
-    // (One train has no room (loops + 1): held, by design. The other two carry on, each turning back short of the line
-    // end the held one stands at (`deadEndCap`): a breaker §16 Q3 would rule out, counted in its report, kept till the
-    // user settles what breaks a true deadlock.)
-    checks: { "payoff: the line delivers (30+ stops)": (r) => expect(r.arrivals.reduce((a, b) => a + b)).toBeGreaterThanOrEqual(30) },
+    // (One train has no room (loops + 1): held, by design, where it stands in the others' way. Nothing turns back short
+    // of it any more (§16 Q3, `deadEndCap` is gone): the two it has room for stand, stuck, "too many trains".)
+    checks: {
+      "turns back only at the buffers": endsOnly,
+      "the two it has room for stand stuck: too many trains": (r) => {
+        // (Room handed to the held one now and then (`unring`'s hand-over) changes which one is held: any may be.)
+        expect(r.stalls.why.filter((w) => w === "too-many").length).toBeGreaterThanOrEqual(2);
+        expect(Math.min(...r.stalls.stuck.filter((n) => n > 0))).toBeGreaterThan(60 * SIM_HZ);
+      },
+    },
+  },
+  {
+    scenario: S.threeTrainsPutAway,
+    // (The player's fix: the held one put away at 2 minutes. The other two pass at the loop and deliver.)
+    checks: { "turns back only at the buffers": endsOnly, "payoff: the two deliver once it's put away (30+ stops)": (r) => expect(r.arrivals.reduce((a, b) => a + b)).toBeGreaterThanOrEqual(30) },
+  },
+  {
+    scenario: S.headOnTwoLines,
+    // (Two single-train lines, unmanaged: they meet nose to nose and stand there, each stuck in the other's way.)
+    checks: {
+      "turns back only at the buffers": endsOnly,
+      "neither turns back: both stand nose to nose, stuck in each other's way": (r) => {
+        expect(r.turns).toEqual([
+          { buffer: 0, "open-end": 0 },
+          { buffer: 0, "open-end": 0 },
+        ]);
+        expect(r.stalls.why).toEqual(["in-way", "in-way"]);
+        expect(r.stalls.begun).toBe(1);
+        r.stalls.stuck.forEach((n) => expect(n).toBeGreaterThan(60 * SIM_HZ));
+      },
+    },
+  },
+  {
+    scenario: S.facingInLineEnd,
+    // (A ring of sections' waits: each of the line's two trains waits on the other, face to face in the line end.)
+    checks: {
+      "turns back only at the buffers": endsOnly,
+      "both stand, stuck in each other's way": (r) => {
+        expect(r.stalls.why).toEqual(["in-way", "in-way"]);
+        expect(r.stalls.begun).toBe(1);
+      },
+    },
   },
   {
     scenario: S.leverDuringLock,
@@ -176,8 +211,7 @@ function describeCase(c: Case): void {
 }
 
 function show(r: Report): void {
-  const b = r.breakers;
-  console.log(`${r.name}: ${(r.ticks / 120).toFixed(0)} s in ${r.ms.toFixed(0)} ms, router ${r.routerUs.toFixed(2)} µs/tick; stops ${r.arrivals.join("/")}; turns ${r.turns.map((t) => `${t.buffer}b ${t.train}t ${t.short}s ${t["open-end"]}e`).join(", ")}; longest still ${r.longestStill.map((s) => (s / 120).toFixed(1)).join("/")} s; facing ${r.facing}, throws ${r.throws}; locks ${r.locks}, refused ${r.refused}, put back ${r.restored}; waits ${r.waits}, stood waiting ${r.waited.map((w) => (w / 120).toFixed(1)).join("/")} s; breakers cross ${b.cross} yield ${b.yielded} short ${b.short} gave ${b.gaveWay} clear ${b.clear}; ${r.looks} looks, ${r.lookUs.toFixed(1)} µs each, ${r.pieceUs.toFixed(1)} µs a piece; trajectory ${r.trajectory}`);
+  console.log(`${r.name}: ${(r.ticks / 120).toFixed(0)} s in ${r.ms.toFixed(0)} ms, router ${r.routerUs.toFixed(2)} µs/tick; stops ${r.arrivals.join("/")}; turns ${r.turns.map((t) => `${t.buffer}b ${t["open-end"]}e`).join(", ")}; longest still ${r.longestStill.map((s) => (s / 120).toFixed(1)).join("/")} s; facing ${r.facing}, throws ${r.throws}; locks ${r.locks}, refused ${r.refused}, put back ${r.restored}; waits ${r.waits}, stood waiting ${r.waited.map((w) => (w / 120).toFixed(1)).join("/")} s; stalls ${r.stalls.begun}, stuck ${r.stalls.stuck.map((s) => (s / 120).toFixed(1)).join("/")} s (${r.stalls.why.map((w) => w ?? "-").join("/")}); ${r.looks} looks, ${r.lookUs.toFixed(1)} µs each, ${r.pieceUs.toFixed(1)} µs a piece; trajectory ${r.trajectory}`);
   for (const k of INVARIANTS) if (r.broke[k].count) console.log(`  ${k} ×${r.broke[k].count}: ${r.broke[k].first.join(" | ")}`);
 }
 

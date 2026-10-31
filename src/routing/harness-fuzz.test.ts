@@ -12,7 +12,7 @@ import { fuzz } from "./scenarios";
  *   npx vitest run src/routing/harness-fuzz.test.ts                         (8 seeds × 5 min: a few seconds)
  *   ROUTING_FUZZ=200 ROUTING_FUZZ_SECONDS=1800 npx vitest run --silent=false src/routing/harness-fuzz.test.ts
  *                                                                           (long: prints a line per seed that broke one,
- *                                                                           and one per seed where a turn-back broke a wait)
+ *                                                                           and one per seed where a stall began)
  */
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
@@ -31,9 +31,8 @@ describe(`routing fuzz: ${SEEDS} seeds × ${SECONDS} s`, () => {
       const r = h.run(SECONDS);
       const broke = INVARIANTS.filter((i) => r.broke[i].count > 0);
       if (LONG && broke.length > 0) console.log(`seed ${k + 1}: ${broke.map((i) => `${i} ×${r.broke[i].count} (${r.broke[i].first[0]})`).join("; ")}`);
-      // (Turn-backs that broke a wait, §16 Q3's last resort: each seed where one fired, by kind.)
-      const fired = Object.entries(r.breakers).filter(([, n]) => n > 0);
-      if (LONG && fired.length > 0) console.log(`seed ${k + 1} breakers: ${fired.map(([b, n]) => `${b} ${n}`).join(", ")}; waits ${r.waits}`);
+      // (Stalls: waits that can't end now nothing turns a train back (§16 Q3), each seed where one began.)
+      if (LONG && r.stalls.begun > 0) console.log(`seed ${k + 1} stalls: ${r.stalls.begun} begun, stuck ${r.stalls.stuck.map((s) => (s / 120).toFixed(0)).join("/")} s (${r.stalls.why.map((w) => w ?? "-").join("/")}); stops ${r.arrivals.join("/")}; waits ${r.waits}`);
       return r;
     }));
   for (const inv of INVARIANTS) {
@@ -46,7 +45,9 @@ describe(`routing fuzz: ${SEEDS} seeds × ${SECONDS} s`, () => {
     if (step) it.fails(`${inv} (expected to fail until ${step})`, check, timeout);
     else it(inv, check, timeout);
   }
-  it("trains deliver: at least one stop come to in each run", () => {
-    expect(run().filter((r) => r.arrivals.every((a) => a === 0)).map((r) => r.name)).toEqual([]);
+  // (A layout the fuzz deals that jams from the start (a train too many for the line, two lines head on) delivers
+  // nothing now nothing turns a train back (§16 Q3): its trains must then be said to be stuck, on their cards.)
+  it("trains deliver: at least one stop come to in each run, or its trains are said to be stuck", () => {
+    expect(run().filter((r) => r.arrivals.every((a) => a === 0) && r.stalls.begun === 0).map((r) => r.name)).toEqual([]);
   });
 });
