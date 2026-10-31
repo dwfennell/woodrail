@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
-import { SIM_HZ } from "../sim";
+import { SIM_HZ, advanceCursor, flipCursor } from "../sim";
 import { STAND_SHORT } from "../economy/sections";
 import { HarnessRun, INVARIANTS, runScenario, type Report, type Scenario } from "./harness";
 import { OVERLAP } from "./router";
@@ -364,4 +364,156 @@ describe("routing's cost", () => {
       expect(best, s.name).toBeLessThan(ROUTER_US);
     }
   }, 60_000);
+});
+
+/**
+ * Step 7 (spec §13, §16 Q5, Q6): hand-run trains respect locks. Each case is driven in steps, looking at the trains
+ * between them; the invariants (`lockRun` among them: never onto points locked for others only) are checked as ever.
+ */
+describe("step 7: hand-run trains respect locks", () => {
+  const noBreaks = (r: Report) => INVARIANTS.forEach((k) => expect(r.broke[k].first, k).toEqual([]));
+  /** The hand-run train's front on the trunk (past the points the routed one had set for P). */
+  const onTrunk = (run: HarnessRun, trunk: number[]) => trunk.includes(run.sim.findCar(run.engines[1])!.train.bogies[0].pieceId);
+
+  it("waits short of points set for a routed train's road, never over them, then goes as they lie; nothing is set for it", () => {
+    const h = S.handAtLock();
+    const run = new HarnessRun(new Layout(), h.scenario);
+    const j = h.j();
+    const [routed, hand] = run.engines;
+    let waitedS = 0;
+    let near = Infinity;
+    let wentAt = -1;
+    for (let k = 0; k < 15 * SIM_HZ; k++) {
+      run.step();
+      const H = run.sim.findCar(hand)!.train;
+      const w = run.router.waitOf(hand);
+      if (w && H.speed === 0) {
+        expect(w).toEqual({ kind: "points", pieceId: j.sw, by: routed });
+        waitedS += 1 / SIM_HZ;
+        near = Math.min(near, run.router.gapTo(H));
+      }
+      // (Never on the points while they're set for P.)
+      if (H.bogies.some((b) => b.pieceId === j.sw)) expect(run.layout.switchState(j.sw)).toBe(run.defaultOf(j.sw));
+      if (wentAt < 0 && onTrunk(run, j.trunk)) wentAt = run.tick / SIM_HZ;
+    }
+    const r = run.run(0);
+    noBreaks(r);
+    // (It stood a few seconds, its nose STAND_SHORT + OVERLAP short of the points, as a routed train does.)
+    expect(waitedS).toBeGreaterThan(3);
+    expect(near).toBeGreaterThanOrEqual(STAND_SHORT + OVERLAP - 1);
+    // (And went on, the way the points lie, once the routed one was by: down the trunk.)
+    expect(wentAt).toBeGreaterThan(0);
+    expect(r.arrivals[0]).toBeGreaterThanOrEqual(1);
+    // (§16 Q6: the points moved for the routed train and back, never for the hand-run one.)
+    expect(r.throws).toBe(2);
+    expect(r.turns[1]).toEqual({ buffer: 0, "open-end": 0 });
+  });
+
+  it("§16 Q5: waits as long as the train holding the points does (40 s), never turning back; said stuck while it's parked", () => {
+    const h = S.handAtLock();
+    const run = new HarnessRun(new Layout(), h.scenario);
+    const j = h.j();
+    const [routed, hand] = run.engines;
+    // (The routed train stands on the points, lever off, for 40 s: they stay locked for it.)
+    for (let k = 0; k < 20 * SIM_HZ && !run.sim.findCar(routed)!.train.bogies.some((b) => b.pieceId === j.sw); k++) run.step();
+    run.run(1);
+    run.sim.setLever(routed, 0);
+    let stuck: string | null = null;
+    for (let k = 0; k < 40 * SIM_HZ; k++) {
+      run.step();
+      stuck ??= run.stalls.stuckOf(hand)?.kind ?? null;
+    }
+    const H = run.sim.findCar(hand)!.train;
+    expect(run.router.waitOf(hand)).toEqual({ kind: "points", pieceId: j.sw, by: routed });
+    expect(H.speed).toBe(0);
+    expect(stuck).toBe("parked");
+    run.sim.setLever(routed, 1);
+    let went = false;
+    for (let k = 0; k < 20 * SIM_HZ && !went; k++) {
+      run.step();
+      went = onTrunk(run, j.trunk);
+    }
+    const r = run.run(0);
+    expect(went).toBe(true);
+    // (Never turned back: no turn at all for it.)
+    expect(r.turns[1]).toEqual({ buffer: 0, "open-end": 0 });
+    noBreaks(r);
+  });
+
+  it("no room to turn round at the end of the line: waits there, held by the train in the way (said stuck), never pushes; turns once it has room", () => {
+    const h = S.noRoomToTurn();
+    const run = new HarnessRun(new Layout(), h.scenario);
+    const A = () => run.sim.findCar(run.engines[0])!.train;
+    for (let k = 0; k < 20 * SIM_HZ && A().turnback < 0; k++) run.step();
+    // (A second train put down close behind it: 29 mm between axles, so turned round it would overlap the engine.)
+    const c = { ...A().bogies[A().bogies.length - 1] };
+    flipCursor(run.layout, c);
+    advanceCursor(run.layout, c, 29, null, { moved: 0, status: 0 });
+    flipCursor(run.layout, c);
+    const placed = run.sim.addTrain(["engine", "timber", "timber"], c);
+    expect(placed.kind).toBe("placed");
+    const b = run.sim.getTrain((placed as { trainId: number }).trainId)!;
+    const id = A().id;
+    run.run(10);
+    // (Still there, not turned, its engine leading and its lever as the player set it: not pushing back.)
+    expect(A().id).toBe(id);
+    expect(A().cars[0].kind).toBe("engine");
+    expect(A().cars[0].lever).toBe(1);
+    expect(run.sim.heldHow(A().id)).toBe("turn");
+    expect(run.sim.heldBy(A().id)).toBe(b.id);
+    expect(run.stalls.stuckOf(run.engines[0])?.kind).toBe("parked");
+    // (The player drives the other one away: it turns round and goes, engine first.)
+    run.sim.setLever(b.cars[0].id, -1);
+    run.run(6);
+    expect(A().id).not.toBe(id);
+    expect(A().cars[0].kind).toBe("engine");
+    expect(A().speed).toBeGreaterThan(0);
+    expect(run.stalls.stuckOf(run.engines[0])).toBeNull();
+  });
+
+  /** The shuttle line with train 0 standing (lever off) on piece `at` of it, and a hand-run train coming up behind it. */
+  function behindStanding(at: (ids: number[]) => number, s: number) {
+    const h = S.noRoomToTurn();
+    const run = new HarnessRun(new Layout(), h.scenario);
+    const ids = h.ids();
+    const first = run.engines[0];
+    // (Moved, as the player would, to where it stands: put down there, lever off.)
+    run.sim.removeTrain(run.sim.findCar(first)!.train.id);
+    const a = run.sim.addTrain(["engine", "timber", "timber"], { pieceId: at(ids), pathIndex: 0, reversed: false, s });
+    const b = run.sim.addTrain(["engine", "timber", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 180 });
+    if (a.kind !== "placed" || b.kind !== "placed") throw new Error("no room");
+    const engine = run.sim.getTrain(b.trainId)!.cars[0].id;
+    run.sim.setLever(engine, 1);
+    return { run, engine, standing: run.sim.getTrain(a.trainId)!.cars[0].id };
+  }
+
+  it("the user's decision (§16 Q9): a train standing at the end of the line is the end of it: one behind pulls up, turns round there and heads back engine first", () => {
+    const { run, engine } = behindStanding((ids) => ids[5], 160);
+    let turned = -1;
+    let pushed = 0;
+    for (let k = 0; k < 30 * SIM_HZ; k++) {
+      run.step();
+      const t = run.sim.findCar(engine)!.train;
+      if (turned < 0 && t.lastTurn) turned = run.tick / SIM_HZ;
+      let net = 0;
+      for (const c of t.cars) if (c.kind === "engine") net += c.lever * c.facing;
+      if (t.speed > 0 && t.cars[net > 0 ? 0 : t.cars.length - 1].kind !== "engine") pushed++;
+    }
+    const t = run.sim.findCar(engine)!.train;
+    expect(turned).toBeGreaterThan(0);
+    expect(t.lastTurn!.cause).toBe("buffer");
+    expect(pushed).toBe(0);
+    // (On its way back down the line, or at the other end by now: not standing stuck behind it.)
+    expect(run.stalls.stuckOf(engine)).toBeNull();
+    noBreaks(run.run(0));
+  });
+
+  it("mid-line, behind a train standing there, it waits (said stuck, parked) and never turns back (§16 Q3)", () => {
+    const { run, engine } = behindStanding((ids) => ids[3], 160);
+    run.run(30);
+    const t = run.sim.findCar(engine)!.train;
+    expect(t.lastTurn).toBeUndefined();
+    expect(t.speed).toBe(0);
+    expect(run.stalls.stuckOf(engine)?.kind).toBe("parked");
+  });
 });

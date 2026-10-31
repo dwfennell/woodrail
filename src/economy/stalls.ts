@@ -99,7 +99,8 @@ export class Stalls {
     const standing = new Set<number>();
     for (const id of ids) {
       const t = sim.getTrain(id)!;
-      if (t.derailed || t.speed >= 1 || t.turnback >= 0 || drive(t) === 0) continue;
+      // (Waiting at the end of the line to turn round counts only when another train leaves it no room: `heldHow` "turn".)
+      if (t.derailed || t.speed >= 1 || (t.turnback >= 0 && sim.heldHow(id) !== "turn") || drive(t) === 0) continue;
       standing.add(id);
       const by = this.waitOf(t);
       if (by !== null && by !== id) on.set(id, by);

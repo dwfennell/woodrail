@@ -49,6 +49,13 @@ const RERAIL_STEP = 24;
 const DECOUPLE_GAP = 8;
 /** How far (mm) a turned train is set down away from the buffer it turned at. */
 const TURN_CLEARANCE = 0.05;
+/** With no room to turn round at the end of the line, how long (ticks) a train waits before trying again. */
+const TURN_RETRY_TICKS = SIM_HZ / 2;
+/**
+ * How much further (mm) than the standing train's length the piece the line ends on may begin, for `endOfLineBehind`:
+ * the follower's inset and gap, the standing train a little short of the end, and a short end piece.
+ */
+const END_BEHIND_SLACK = 120;
 
 // Motion tuning (mm, s).
 export const ENGINE_SPEED = 120;
@@ -111,9 +118,10 @@ export type TurnCause = "buffer" | "open-end";
 
 /**
  * How one train holds another where it stands (`Sim.heldBy`): short of a crossing or switch it's on or coming onto
- * ("cross"), close behind it ("follow"), nose to nose with it ("nose"), or against its side ("side").
+ * ("cross"), close behind it ("follow"), nose to nose with it ("nose"), against its side ("side"), or at the end of the
+ * line with no room to turn round for it ("turn").
  */
-export type HeldHow = "cross" | "follow" | "nose" | "side";
+export type HeldHow = "cross" | "follow" | "nose" | "side" | "turn";
 
 export type SimEvent =
   | { readonly kind: "derailed"; readonly trainId: number }
@@ -205,6 +213,11 @@ export class Sim {
    * halt with a wagon under the crane. Infinity for no limit; 0 holds the train where it is.
    */
   speedCap: ((train: Train) => number) | null = null;
+  /**
+   * Optional: the points a train is held short of by routing (the router's wait, §3.3), or −1. It claims nothing there
+   * (`crossCap`): it isn't coming onto them till they're its, and a claim would stop the train they're set for.
+   */
+  waitsAt: ((train: Train) => number) | null = null;
   /** Optional top speed for a powered train (mm/s): a mode's faster engines. Null: every train runs at `ENGINE_SPEED`. */
   topSpeed: ((train: Train) => number) | null = null;
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
@@ -300,12 +313,41 @@ export class Sim {
     return { kind: "placed", trainId: train.id };
   }
 
+  /**
+   * The train (its id) in the way of turning this one round where it stands (`turnAround`'s room check, from its rear
+   * axle back over its stretch), or null: none (the track itself has no room).
+   */
+  private turnBlocker(train: Train): number | null {
+    const n = train.bogies.length;
+    const lead = { ...train.bogies[n - 1] };
+    flipCursor(this.layout, lead);
+    advanceCursor(this.layout, lead, TURN_CLEARANCE, null, adv);
+    const offsets = bogieOffsets(train.cars.map((c) => c.kind));
+    const bogies: Cursor[] = [];
+    for (const off of offsets) {
+      const c = { ...lead };
+      flipCursor(this.layout, c);
+      advanceCursor(this.layout, c, off, null, adv);
+      if (adv.status !== ADV_OK) return null;
+      flipCursor(this.layout, c);
+      bogies.push(c);
+    }
+    const t = this.occupant(bogies, train);
+    return t ? t.id : null;
+  }
+
   /** Would a train with these axles overlap a car already on the floor? */
   private occupied(bogies: Cursor[]): boolean {
+    return this.occupant(bogies, null) !== null;
+  }
+
+  /** The train with a car where a train with these axles would be (not `except`), or null. */
+  private occupant(bogies: Cursor[], except: Train | null): Train | null {
     const w = createWorldSample();
     for (const b of bogies) {
       cursorWorld(this.layout, b, w);
       for (const t of this.trains.values()) {
+        if (t === except) continue;
         for (let c = 0; c < t.cars.length; c++) {
           const f = t.world[2 * c];
           const r = t.world[2 * c + 1];
@@ -316,14 +358,16 @@ export class Sim {
           const proj = ((w.x - r.x) * dx + (w.z - r.z) * dz) / len;
           if (proj < -inset - 10 || proj > len + inset + 10) continue;
           const lateral = Math.abs((w.x - r.x) * dz - (w.z - r.z) * dx) / len;
-          if (lateral < 20 && Math.abs(w.y - f.y) < 30) return true;
+          if (lateral < 20 && Math.abs(w.y - f.y) < 30) return t;
         }
       }
     }
-    return false;
+    return null;
   }
 
   removeTrain(id: number): boolean {
+    this.turnBlocked.delete(id);
+    this.endBehind.delete(id);
     return this.trains.delete(id);
   }
 
@@ -1037,6 +1081,66 @@ export class Sim {
    * last so (good that tick and the next).
    */
   private readonly held = new Map<number, { by: number; how: HeldHow; tick: number }>();
+  /** Trains waiting at the end of the line with no room to turn round: the train in the way (`Sim.tick`). */
+  private readonly turnBlocked = new Map<number, number>();
+  /** Trains waiting to turn back close behind a train standing at the end of the line: that train (`endOfLineBehind`). */
+  private readonly endBehind = new Map<number, number>();
+
+  /**
+   * A train pulled up close behind another standing at the end of the line (the user's decision, routing spec §16 Q9):
+   * that train is its end of the line, so it waits there and turns round as at a buffer (the end-of-line flip), and
+   * heads back engine first. Only where the track ahead ends (a buffer or open end, no points with a choice) within
+   * the standing train's length and a little: mid-line, a train in the way is waited for, never turned back from (§16
+   * Q3). Asked only of a train standing held close behind another ("follow", this tick).
+   */
+  private endOfLineBehind(train: Train): void {
+    const h = this.held.get(train.id);
+    if (!h || h.how !== "follow" || h.tick !== this.ticks) return;
+    const b = this.trains.get(h.by);
+    // (Not a train on a lift or a turntable's deck: that's a ride, waited for, not the end of the line.)
+    if (!b || b.derailed || b.speed > 0 || this.onLift(b) || (this.rides.size > 0 && this.riding(b))) return;
+    let net = 0;
+    for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
+    if (net <= 0) return;
+    let len = 0;
+    for (const c of b.cars) len += CAR_SPECS[c.kind].length;
+    const end = this.endAhead(train, len + COUPLER_GAP * b.cars.length + END_BEHIND_SLACK);
+    if (!end) return;
+    train.turnback = TURNBACK_TICKS;
+    train.lastTurn = { cause: end.cause, pieceId: end.pieceId, tick: this.ticks };
+    this.endBehind.set(train.id, b.id);
+    this.events.push({ kind: "buffer", trainId: train.id });
+  }
+
+  /**
+   * Where the track ahead of a train's front ends (a buffer, or track that just stops) within `within` mm, with no
+   * points that give a choice on the way; null if it doesn't.
+   */
+  private endAhead(train: Train, within: number): { cause: TurnCause; pieceId: number } | null {
+    const c = crossAt;
+    Object.assign(c, train.bogies[0]);
+    let dist = -c.s;
+    for (let k = 0; k < MAX_BLOCK; k++) {
+      const piece = this.layout.getPiece(c.pieceId);
+      if (!piece) return null;
+      const def = getPieceDef(piece.type, piece.flipped);
+      // (A lift or a turntable's deck goes on somewhere else: not the end of the line.)
+      if (def.lift || def.gated) return null;
+      const path = def.paths[c.pathIndex];
+      // (Points that would give a choice from this end: not the end of the line.)
+      const entry = c.reversed ? path.to : path.from;
+      if (k > 0 && def.paths.filter((p) => p.from === entry || p.to === entry).length > 1) return null;
+      // (This piece begins beyond the reach: the end, if any, is too far.)
+      if (dist > within) return null;
+      const len = pathLength(path.geom);
+      dist += len;
+      advanceCursor(this.layout, c, len - c.s + 0.01, null, crossAdv);
+      if (crossAdv.status === ADV_BUFFER || crossAdv.status === ADV_OPEN_END) return { cause: crossAdv.status === ADV_BUFFER ? "buffer" : "open-end", pieceId: c.pieceId };
+      if (crossAdv.status !== ADV_OK) return null;
+      c.s = 0;
+    }
+    return null;
+  }
 
   /**
    * The train (its id) holding this one where it stands, this tick or the last: one it waits for short of a crossing or
@@ -1182,15 +1286,38 @@ export class Sim {
         const turned = this.turnAround(train);
         if (turned) {
           turned.lastTurn = train.lastTurn;
+          this.turnBlocked.delete(train.id);
+          this.endBehind.delete(train.id);
           this.events.push({ kind: "turned", trainId: train.id, newTrainId: turned.id });
           continue; // moves from next tick, as a new train
         }
-        // No room to set it down turned round: just send it back.
-        for (const car of train.cars) if (car.kind === "engine") car.lever = (-car.lever) as -1 | 0 | 1;
+        // No room to set it down turned round (another train close behind it, as a rule): it waits there and tries
+        // again, held by that train (`heldBy`, "turn"), never sent back pushing (routing spec §16 Q4). A wait that can't
+        // end is a stall, said on its card.
+        train.turnback = TURN_RETRY_TICKS;
+        const by = this.turnBlocker(train);
+        if (by !== null) this.turnBlocked.set(train.id, by);
+        else this.turnBlocked.delete(train.id);
+      }
+      if (this.turnBlocked.size > 0 && train.turnback >= 0) {
+        const by = this.turnBlocked.get(train.id);
+        const b = by === undefined ? undefined : this.trains.get(by);
+        if (b) this.holdBy(train, b, "turn");
+      } else if (this.turnBlocked.size > 0) this.turnBlocked.delete(train.id);
+      // Waiting to turn back behind a train standing at the end of the line: if that train moves off first, it waits
+      // no more and goes on.
+      if (train.turnback >= 0 && this.endBehind.size > 0) {
+        const by = this.endBehind.get(train.id);
+        const b = by === undefined ? undefined : this.trains.get(by);
+        if (by !== undefined && (!b || b.speed > 0)) {
+          this.endBehind.delete(train.id);
+          train.turnback = -1;
+        }
       }
       // Waiting to turn back, it stands still (not pressing on into a buffer or a train it met).
       if (train.turnback >= 0) continue;
       this.move(train);
+      if (train.speed < 1 && this.trains.size > 1) this.endOfLineBehind(train);
     }
     this.resolveContacts();
   }
@@ -1688,6 +1815,8 @@ export class Sim {
           if (room < 0.5) this.holdBy(train, by, "cross");
           return room < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (room - 0.5));
         }
+        // (Held short of these points by routing: it isn't coming onto them yet, nor beyond.)
+        if (k > 0 && this.waitsAt !== null && this.waitsAt(train) === c.pieceId) break;
         const key = c.pieceId * MAX_PATHS + c.pathIndex;
         const claim = this.crossClaims.get(key);
         if (claim) {
@@ -1849,7 +1978,7 @@ const crossCache = new WeakMap<PieceDef, readonly number[]>();
  * train on the other (a crossing's two lines, a switch's roads by its stem). None on a deck or lift (a train has it
  * to itself), or on double track. Worked out once per piece def.
  */
-function crossMasks(def: PieceDef): readonly number[] {
+export function crossMasks(def: PieceDef): readonly number[] {
   let masks = crossCache.get(def);
   if (masks) return masks;
   const n = def.paths.length;

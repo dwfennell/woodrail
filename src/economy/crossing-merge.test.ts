@@ -178,9 +178,11 @@ describe("trains of different lines joining at a switch (issue #2)", () => {
       expect(s.derailed).toBe(false);
       // (Y is a dead end: a line end, one train in it at a time (single-line working, sections shared by the lines).
       // Two routed trains go in turn, the first back out before the second goes in. A hand-run one goes the way the
-      // points lie, out of Y for X where the routed one waits: the two stand, said to be stuck on their cards.)
-      expect(reached.size).toBe(routing === "one" || routing === "other" ? 1 : 2);
-      if (routing === "one" || routing === "other") expect([a, b].map((e) => w.economy.stalls.stuckOf(e)?.kind)).toEqual(["in-way", "in-way"]);
+      // points lie (X's road), out of Y for X. X's routed, it waits there for P's hand-run one (on the routed one's
+      // way): the two stand, said to be stuck on their cards. P's routed (step 7): X's hand-run one locks the points as
+      // they lie and goes in first, P's waiting short of them, and comes back out to X, so P's goes in after it.)
+      expect(reached.size).toBe(routing === "one" ? 1 : 2);
+      if (routing === "one") expect([a, b].map((e) => w.economy.stalls.stuckOf(e)?.kind)).toEqual(["in-way", "in-way"]);
       expect(s.overlaps).toBe(0);
       expect(s.together).toBe(0);
       expect(s.headOn).toBe(0);

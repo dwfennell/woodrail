@@ -88,7 +88,9 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const unloads = w ? w.unload : r.takes.length > 0;
     return { kind: "worked", depotId: depot.id, work: loads && unloads ? "Loading and unloading" : unloads ? "Unloading" : "Loading" };
   }
-  if (train.turnback >= 0) return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1 };
+  // (No room to turn round, another train in the way, and said stuck: the stuck card below, not "turning back".)
+  const turnStuck = train.turnback >= 0 && sim.heldHow(train.id) === "turn" && train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id));
+  if (train.turnback >= 0 && !turnStuck) return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1 };
   const stopAt = economy.kitStops.dwellingAt(train.id);
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   const lift = sim.liftState(train.id);
