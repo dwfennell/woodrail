@@ -251,3 +251,10 @@ drift table, as the routing migration did.
    test)? On a phone, where should it live: the ☰ menu, or hidden?
 4. Saving ids changes the save format (v14, old saves still load). Fine?
 5. 3.7 (one controller per train) is the deepest fix but the biggest: decide now, or after seeing what 3.1–3.5 find?
+
+## Decisions (the user, 2026-10-31)
+1. **Soft pause** on new train-behaviour features: let things settle, but not for two weeks, and work can still be added when it's really needed. Signals finishes its current step and then waits; via points (asked for by the user) finishes.
+2. **No nightly GitHub Action.** The long fuzz, the QA diff and balance run at release points instead.
+3. **Copy map** stays in the ☰ menu.
+4. **Saving ids** (save v14) is fine.
+5. **The per-train controller (7):** not decided. Revisit after 1–5.
