@@ -16,10 +16,12 @@ export interface Prop {
   variant?: number;
   /** Drawn at this scale of its model (none: 1): a town's landmark on a smaller lot than it wants. */
   scale?: number;
+  /** A town house's storeys more than its model (Game mode: its town grew; see `props/storeys.ts`). None: 0. */
+  storeys?: number;
 }
 
 /** What a prop is part of, beyond its pose. */
-export type PropLinks = Pick<Prop, "building" | "town" | "variant" | "scale">;
+export type PropLinks = Pick<Prop, "building" | "town" | "variant" | "scale" | "storeys">;
 
 export type PropPose = Pick<Prop, "x" | "z" | "heading" | "y">;
 
@@ -55,6 +57,15 @@ export class PropStore {
     p.building = links.building;
     p.town = links.town;
     if ("variant" in links) p.variant = links.variant;
+    this.version++;
+  }
+
+  /** A town house's storeys (0: as modelled). Changes the version only if they change. */
+  setStoreys(id: number, storeys: number): void {
+    const p = this.props.get(id);
+    if (!p || (p.storeys ?? 0) === storeys) return;
+    if (storeys > 0) p.storeys = storeys;
+    else delete p.storeys;
     this.version++;
   }
 
