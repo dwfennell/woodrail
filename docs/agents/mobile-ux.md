@@ -78,6 +78,7 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 - Confirm the canvas fix on a real iPhone.
 
 ## 5. Gotchas
+- **A hold decided by event time, on a busy page:** under SwiftShader a press can be handled seconds after its stamp, and an unstamped CDP move sent next is stamped then: by stamps alone it was "held". The tray's long press (`trayPress`) counts the hold from the press's stamp or from when the page saw it, whichever is later (`heldFor`), so a flick out of the tray still picks up (e2e:touch `flick`). Do the same for any new hold.
 - Don't edit files in a worktree while e2e runs there (Vite hot-reloads).
 - Temporary scripts go inside the worktree (scripts/.x.mjs) so they can import playwright-core and vite. Delete them afterwards.
 - Use `bash -c` with && chains; write commit messages to a file and use `git commit -F`.
