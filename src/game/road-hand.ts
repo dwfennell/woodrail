@@ -1,7 +1,9 @@
 import type { Group } from "three";
 import type { Editor } from "../editor/editor";
-import { CELL, FEAT_TREE, SURF_LANE, SURF_RIVER, type LandscapeGrid } from "../landscape";
-import { plotSlotOf } from "../landscape/edit";
+import { CELL, FEAT_TREE, SURF_LANE, SURF_RIVER, type LandscapeGrid, type Town } from "../landscape";
+import { LandEditor, plotSlotOf } from "../landscape/edit";
+import { buildingPose, looksOf } from "../props/towns";
+import { moveStreet, streetFor, streetMoveMessage, streetTown, type StreetLot, type StreetMoveBlock } from "./street-moves";
 import { propsInRect } from "../props/placement";
 import { roadPieceGroup, roadMaterials } from "../render/dressing/roads";
 import { FootprintOutline } from "../render/props/outline";
@@ -25,6 +27,12 @@ export interface RoadDrag {
   ghostRoad: number;
   placer: RoadPlacer;
   overTray: boolean;
+  /**
+   * Game mode, a town's street being moved about its town (see street-moves.ts): its town, a checker for its new
+   * square, and where it would go (worked out again only when the square under the hand changes). Reasons it can't go
+   * are each told once a carry.
+   */
+  street?: { town: Town; editor: LandEditor; lot: StreetLot | StreetMoveBlock | null; told: Set<string> };
 }
 
 const OK = "#7ddc58";
@@ -48,6 +56,8 @@ export class RoadHand {
     private readonly editor: () => Editor,
     private readonly onRefused: () => void,
     private readonly onPlaced: () => void,
+    /** Game mode: a town's streets can be moved about their town. */
+    private readonly streetsMovable: () => boolean = () => false,
   ) {
     game.scene.add(this.outline.line);
   }
@@ -59,7 +69,12 @@ export class RoadHand {
   /** Is there a road piece the player may pick up on square `i`? (Not a town street.) */
   pickable(i: number): boolean {
     // The player's roads are lanes; a road bridge stands over a river square.
-    return i !== -1 && this.grid.road[i] !== 0 && (this.grid.surface[i] === SURF_LANE || this.grid.surface[i] === SURF_RIVER);
+    return (i !== -1 && this.grid.road[i] !== 0 && (this.grid.surface[i] === SURF_LANE || this.grid.surface[i] === SURF_RIVER)) || this.townStreet(i);
+  }
+
+  /** Is square `i` a town's street the player may move about its town (Game mode)? */
+  townStreet(i: number): boolean {
+    return i !== -1 && this.streetsMovable() && this.grid.road[i] !== 0 && streetTown(this.game.landscape, i) !== null;
   }
 
   private placer(): RoadPlacer {
@@ -80,6 +95,13 @@ export class RoadHand {
     const def = pieceOf(road)!;
     this.clear();
     this.hud.hideCards();
+    if (this.townStreet(cell)) {
+      // A town's street: it stays drawn on its square until it's put down (its houses still face it meanwhile).
+      const g = this.game;
+      const town = streetTown(g.landscape, cell)!;
+      const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, g.propLibrary.footprint, x0, z0, x1, z1) });
+      return { piece: def.id, auto: false, held: turnOf(road), from: { cell, road }, cell: -1, road, blocked: null, ghost: null, ghostRoad: 0, placer: this.placer(), overTray: false, street: { town, editor, lot: null, told: new Set() } };
+    }
     this.lift(cell, 0);
     return { piece: def.id, auto: isAutoRoad(road), held: turnOf(road), from: { cell, road }, cell: -1, road, blocked: null, ghost: null, ghostRoad: 0, placer: this.placer(), overTray: false };
   }
@@ -92,7 +114,7 @@ export class RoadHand {
 
   /** A moved piece back on its square as it was, before the edit that moves it is recorded. */
   private putBack(d: RoadDrag): void {
-    if (d.from) this.lift(d.from.cell, d.from.road);
+    if (d.from && !d.street) this.lift(d.from.cell, d.from.road);
   }
 
   /** The hand is over square `cell` (−1: off the land), or over the tray. Cheap: a few square lookups. */
@@ -107,6 +129,23 @@ export class RoadHand {
     }
     const moved = cell !== d.cell;
     d.cell = cell;
+    if (d.street) {
+      const s = d.street;
+      if (moved || !s.lot) s.lot = streetFor(this.game.landscape, s.town, d.from!.cell, cell, s.editor);
+      const lot = s.lot;
+      if (typeof lot === "string") {
+        const said = streetMoveMessage(lot);
+        if (!s.told.has(said)) {
+          s.told.add(said);
+          this.hud.toast(said);
+        }
+        d.road = d.from!.road;
+      } else d.road = lot.roads.find(([i]) => i === cell)?.[1] ?? d.from!.road;
+      this.showGhost(d);
+      this.showSquare(cell, typeof lot === "string" ? NO : OK);
+      this.game.invalidate();
+      return;
+    }
     d.road = d.auto ? autoShape(this.grid, cell, d.held) : d.placer.fit(d.piece, cell, d.held);
     let blocked = d.placer.check(cell, d.road);
     // A straight road on a station's way in turns to cross the line, if it can.
@@ -126,6 +165,8 @@ export class RoadHand {
 
   /** Turn the piece in the hand a quarter (to the next turn that looks different). */
   turnHeld(d: RoadDrag): void {
+    // (A town's street takes its shape from the streets around it.)
+    if (d.street) return;
     if (d.auto) {
       // An auto road takes its shape from the roads around it: turning only matters while it stands alone.
       d.held = (d.held + 1) & 3;
@@ -153,6 +194,18 @@ export class RoadHand {
     this.removeGhost(d);
     this.outline.hide();
     this.putBack(d);
+    if (d.street) {
+      const lot = d.street.lot;
+      if (d.overTray || d.cell === -1 || typeof lot === "string" || !lot) {
+        // (A town's street can't go in the box: it's the town's.)
+        if (d.cell !== -1 || d.overTray) this.onRefused();
+      } else if (lot.cell !== lot.from) {
+        this.moveTownStreet(d.street.town, lot);
+        this.onPlaced();
+      }
+      this.game.invalidate();
+      return;
+    }
     if (d.overTray || d.cell === -1) {
       // Back in the box: a moved piece is taken away (undoably), a new one never was.
       if (d.from) this.edit([[d.from.cell, 0]]);
@@ -181,9 +234,49 @@ export class RoadHand {
     this.game.invalidate();
   }
 
+  /**
+   * Game mode: a town's street put down on `lot` (from `streetFor`): the streets and the town's squares change (see
+   * `moveStreet`), and a house that faced its old square turns to face its new street. One undo step.
+   */
+  private moveTownStreet(town: Town, lot: StreetLot): void {
+    const g = this.game;
+    const land = g.landscape;
+    const turned = lot.turns.map((t) => {
+      const b = town.buildings.find((x) => x.id === t.id)!;
+      const prop = [...g.props.all()].find((p) => p.building === t.id);
+      return { b, front: t.front, prop, from: prop && { x: prop.x, z: prop.z, heading: prop.heading, y: prop.y } };
+    });
+    const looks = turned.length > 0 ? looksOf(land, town) : null;
+    const slots = [...new Set([lot.from, lot.cell, ...lot.roads.map(([i]) => i)].map(plotSlotOf))];
+    let putBack = () => {};
+    const doIt = () => {
+      putBack = moveStreet(land, town, lot);
+      for (const t of turned) {
+        if (!t.prop) continue;
+        const at = buildingPose(land, town, t.b, looks!.get(t.b.id) ?? "house", t.prop.asset, t.prop.scale ?? 1);
+        g.props.move(t.prop.id, { ...at, y: land.grid.groundY(t.b.cells[0]) });
+      }
+      g.roadsEdited(slots, false);
+      if (turned.length > 0) g.propsChanged();
+    };
+    doIt();
+    g.editLand(slots);
+    this.editor().recordLand({
+      do: doIt,
+      undo: () => {
+        putBack();
+        for (const t of turned) if (t.prop && t.from) g.props.move(t.prop.id, t.from);
+        g.roadsEdited(slots, false);
+        if (turned.length > 0) g.propsChanged();
+      },
+      slots: () => slots,
+    });
+  }
+
   /** Select the road on square `cell`: its outline, and (unless `card` is false) its card. */
   select(cell: number, card = true): void {
-    if (!this.pickable(cell)) return;
+    // (A town's street is only dragged about its town: it has no card to turn or remove it.)
+    if (!this.pickable(cell) || this.townStreet(cell)) return;
     this.selected = cell;
     this.showSquare(cell, "#fff2d8");
     const road = this.grid.road[cell];

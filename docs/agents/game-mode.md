@@ -79,6 +79,15 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 - From a town (level 2) new plain-house lots take half their styles from `STYLES_BY_LEVEL` (townhouses and narrow houses; at a city flats, a fire and a police station, a kiosk, a town hall on a 2×2; at ★ a hospital). From a city, a town with no church gets one on its next house lot of 2+ squares. Level 0 (Sandbox, new maps) dresses exactly as before.
 - Measured (starter Larkfield, swiftshader, 844×600 @1.5): City ★ 229 draws both before and after; triangles 1.26M → 1.35M (+7%); idle 0 frames. Pictures: `docs/agents/shots/towns-taller-before-after.jpg`.
 
+**Moving houses and streets in a town (#18):**
+- Game mode: a town's house is dragged onto another lot of its town (a green or edge grass beside a street) or swaps with a house its size (`town-moves.ts`, from before). A street piece is dragged the same way (`street-moves.ts`, `RoadHand` with `street` set): onto a town green, or grass at the town's edge within `MAX_REACH`, where it joins another street of its town at its level. Not onto track, props, a station's way in, a step, or anything that shuts a town or depot in (`checkLot`).
+- Houses keep facing a street: one that faced the street's old square turns to another street beside it (along a two-square house's long side), its prop re-posed; if it has none, "A house faces this street: move the house first".
+- The square a street leaves is a town green (grass again if it was edge grass the town took, as for houses). Street road bytes are reshaped as `growTown` does (dead ends stay straights). A town's street is never selected (a finger rests on it to pick it up, a mouse drags it; a tap opens its town's card), has no turn or remove, can't go in the box, and Clear leaves it ("The town's streets stay"). Moving one may split a street in two (allowed; not checked for growth). One undo step (`recordLand`, which also redraws roads).
+- **Town greens take track** (`clearance.ts`: only `SURF_ROAD` blocks as "town" now). The "garden plots" in the play-test screenshot are these greens: a painted lawn with flowers in its corners, drawn on a town square with nothing on it (`townGreens`/`green` in `render/dressing/buildings.ts`), left where a house was moved from. Growth and a moved house keep off a green with track on it (`checkLot`'s track check).
+- Storeys: a moved house keeps them (`setTownStoreys` never lowers a house's storeys at a level above 0).
+- Checks: `street-moves.test.ts`, `npm run e2e:town-drag` (390×844 touch: a house and a street dragged, town grows on; about 4 min).
+- Not checked: undoing a move after the town has since grown onto the squares involved (the undo puts back the squares as they were; house moves are the same).
+
 **Performance:** nothing new per frame. Cached checks go in the once-a-second update. Note timings.
 
 ## 4. Open items
@@ -100,7 +109,7 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 4. **Drop B5's empty-the-sawmill workaround** in `sections-qa.test.ts`. The idle head-on fix (39533c3) is on main; check that all sections-qa tests pass after.
 5. **School priority:** deferred until item 3. Propose the smallest rule if Foundry still stalls.
 
-Also waiting on the user: the coin-sink plan (town treats and a paint shop, plan a57a272) and the stuck-cargo hint. Related GitHub issues: #13 (caboose), #14 (research queue), #18 (moving houses and roads). #17 (towns growing taller) is on `claude/towns-taller`.
+Also waiting on the user: the coin-sink plan (town treats and a paint shop, plan a57a272) and the stuck-cargo hint. Related GitHub issues: #13 (caboose), #14 (research queue). #18 (moving houses and roads) is on `claude/town-drag`. #17 (towns growing taller) is on `claude/towns-taller`.
 
 ## 5. Gotchas
 - **Harness gaps hide game bugs:** the old farm, the harbour's stone, and crane pile spots were all missed because tests wrote piles directly. Test by the player's route.
