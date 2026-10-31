@@ -1,8 +1,9 @@
-import { COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
+import { CARGO, COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
 import { canResearch, coinsShort, costOf, lacks, studying, studyLeft, studyTime } from "./research";
-import { needMet, TECHS, techOf } from "./tech";
+import { needMet, TECHS, techOf, unlocksOf } from "./tech";
+import { ruleOf } from "./things";
 
 /**
  * Research in words and states, for the Research picker (the board's web), the HUD's pill and the school's card.
@@ -35,6 +36,38 @@ export function cardState(p: Progress, id: string): CardState {
 export interface Chip {
   text: string;
   short?: boolean;
+  /** The chip in words, for its tooltip: "Planks: 6 of 10 brought", "Coins: 20 (you have 5)". */
+  title: string;
+}
+
+/** A good's name in words, lower case: "planks", "grain"; one of a plural one is "1 plank". */
+const goodName = (k: CargoKind, n: number): string => {
+  const name = CARGO[k].label.toLowerCase();
+  return n === 1 && name.endsWith("s") ? name.slice(0, -1) : name;
+};
+
+/**
+ * Everything a research costs, in words with each icon, so no symbol needs learning: "10 🪵 planks, 6 🌾 grain,
+ * 40 🪙 coins" ("nothing" when free). Coins already paid (under way, or set aside) say so: "40 🪙 coins (paid)".
+ */
+export function costWords(p: Progress, id: string): string {
+  const cost = costOf(id);
+  const parts = (Object.keys(cost.goods) as CargoKind[]).map((k) => `${cost.goods[k]} ${GOODS_ICON[k]} ${goodName(k, cost.goods[k]!)}`);
+  const c = cost.coins ?? 0;
+  if (c > 0) parts.push(`${c} ${COIN_ICON} ${c === 1 ? "coin" : "coins"}${paid(p, id) ? " (paid)" : ""}`);
+  return parts.join(", ") || "nothing";
+}
+
+/**
+ * What a research unlocks, in words: the things it lets you make (their tray names), then what it lets you do
+ * ("Train routes"), else what it brings: "Switch, Y switch". Fixed per blueprint.
+ */
+export function unlocksWords(id: string): string {
+  const t = techOf(id);
+  if (!t) return "";
+  const names = unlocksOf(id).map((x) => ruleOf(x)!.label);
+  if (t.feature) names.push(t.feature.label);
+  return names.length ? names.join(", ") : t.brings;
 }
 
 /** Goods got so far toward a research: the current one's, or what a set-aside one kept (none otherwise). */
@@ -51,9 +84,12 @@ const paid = (p: Progress, id: string) => p.research.current === id || p.researc
 export function researchChips(p: Progress, id: string): Chip[] {
   const cost = costOf(id);
   const got = gotOf(p, id);
-  const chips: Chip[] = (Object.keys(cost.goods) as CargoKind[]).map((k) => ({ text: `${GOODS_ICON[k]} ${Math.min(got[k] ?? 0, cost.goods[k]!)}/${cost.goods[k]}` }));
+  const chips: Chip[] = (Object.keys(cost.goods) as CargoKind[]).map((k) => {
+    const n = Math.min(got[k] ?? 0, cost.goods[k]!);
+    return { text: `${GOODS_ICON[k]} ${n}/${cost.goods[k]}`, title: `${CARGO[k].label}: ${n} of ${cost.goods[k]} brought` };
+  });
   const c = cost.coins ?? 0;
-  if (c > 0 && !paid(p, id)) chips.push(p.coins < c ? { text: `${COIN_ICON} ${c}`, short: true } : { text: `${COIN_ICON} ${c}` });
+  if (c > 0 && !paid(p, id)) chips.push(p.coins < c ? { text: `${COIN_ICON} ${c}`, short: true, title: `Coins: ${c}, not enough yet` } : { text: `${COIN_ICON} ${c}`, title: `Coins: ${c}, paid when it starts` });
   return chips;
 }
 

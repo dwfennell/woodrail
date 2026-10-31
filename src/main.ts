@@ -54,7 +54,7 @@ import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, setSpeed, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
+import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -1833,7 +1833,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
       // Its price is its research: goods brought to a school, and from tier 2 coins.
       const cost = t.research;
-      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: costTag(cost.goods as Bag, cost.coins) || "free", requires };
+      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: costTag(cost.goods as Bag, cost.coins) || "free", cost: costWords(progress, t.id), unlocks: unlocksWords(t.id), requires };
       const state = cardState(progress, t.id);
       if (state === "learned") return { ...base, state };
       if (state === "soon") return { ...base, state, waits: PLAN_WORDS[t.plan!] };

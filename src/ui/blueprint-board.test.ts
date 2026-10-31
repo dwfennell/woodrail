@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 import { Progress } from "../game/progress";
 import { deliver, pick } from "../game/research";
 import { researchCard } from "../game/research-text";
-import { layoutWeb, researchFoot, TAG_W, type Station } from "./blueprint-board";
+import { layoutWeb, researchFoot, TAG_W, tagTitle, type Station } from "./blueprint-board";
 
-const st = (id: string, branch: string, needs: string[] = []): Station => ({ id, label: id, blurb: "", branch, makes: [], state: "locked", seen: "shown", needs, price: "free", requires: [] });
+const st = (id: string, branch: string, needs: string[] = []): Station => ({ id, label: id, blurb: "", branch, makes: [], state: "locked", seen: "shown", needs, price: "free", cost: "nothing", unlocks: "", requires: [] });
 
 describe("the blueprint web", () => {
   it("puts each blueprint a column right of its furthest prerequisite, branches in bands, nothing overlapping", () => {
@@ -37,7 +37,7 @@ describe("a research card's foot in the picker", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
     const html = researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false);
-    expect(html).toContain(`<span class="bp-chip">🪵 0/6</span><span class="bp-chip">🌾 0/6</span><span class="bp-chip short">🪙 40</span>`);
+    expect(html).toContain(`<span class="bp-chip" title="Planks: 0 of 6 brought">🪵 0/6</span><span class="bp-chip" title="Grain: 0 of 6 brought">🌾 0/6</span><span class="bp-chip short" title="Coins: 40, not enough yet">🪙 40</span>`);
     expect(html).toContain("⏱ 45 s study");
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(html).toContain(`data-act="pick" data-id="mills">Research</button>`);
@@ -75,3 +75,28 @@ describe("the P1 stopgap is gone", () => {
     expect(mainSrc).not.toMatch(/tapResearch|researchLine|learn: \(id\) => picked/);
   });
 });
+
+describe("tooltips and the full cost (#11)", () => {
+  const SCHOOL = "Larkfield school";
+  it("a tag's tooltip names what it unlocks and everything it costs, in words", () => {
+    expect(tagTitle({ label: "Mills", unlocks: "Mill, Van", cost: "6 🪵 planks, 6 🌾 grain, 40 🪙 coins" })).toBe("Mills. Unlocks: Mill, Van. Costs: 6 🪵 planks, 6 🌾 grain, 40 🪙 coins");
+    expect(tagTitle({ label: "X", unlocks: "", cost: "nothing" })).toBe("X. Costs: nothing");
+  });
+
+  it("each chip and the study time have a tooltip in words", () => {
+    const p = Progress.fresh();
+    p.learned.add("farming");
+    const html = researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false);
+    expect(html).toContain(`title="Planks: 0 of 6 brought"`);
+    expect(html).toContain(`title="Grain: 0 of 6 brought"`);
+    expect(html).toContain(`title="Coins: 40, not enough yet"`);
+    expect(html).toContain(`title="Study time at the school, once the goods are in"`);
+  });
+
+  it("the ticket heads its pictures Unlocks: and shows the full cost (main passes both)", () => {
+    expect(boardSrc).toContain(`<b class="bp-makes-head">Unlocks:</b>`);
+    expect(boardSrc).toContain(`<div class="bp-full-cost"><b>Costs:</b>`);
+    expect(mainSrc).toContain("cost: costWords(progress, t.id), unlocks: unlocksWords(t.id)");
+  });
+});
+

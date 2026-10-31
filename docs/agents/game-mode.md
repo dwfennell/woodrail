@@ -52,6 +52,7 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 - No ruins in Sandbox.
 - The harbour site needs 5. The mill costs 400 coins.
 - Player text is short and kid-clear. Fields count as whole fields ("2 of 2").
+- **Research tickets say it in words (#11).** Every card's ticket heads its pictures "Unlocks:" and has a "Costs:" line with every good and the coins, each as amount, icon and name ("6 🪵 planks, 6 🌾 grain, 40 🪙 coins"; "(paid)" once started). Both come from `costWords` and `unlocksWords` in `research-text.ts`. Tags on the web, cost chips and the study time have `title` tooltips for desktop hover; on a phone, a tap on a tag opens its ticket. The picker's rebuild key (`pickerKey`) is unchanged, so tooltips mustn't show live coin counts.
 
 **Workshop:**
 - It takes planks and iron, and owes stone. Moving iron to owed is open.
