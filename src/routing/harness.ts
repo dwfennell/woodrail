@@ -329,6 +329,9 @@ export class HarnessRun {
       soon: this.sections.steerSoon,
     });
     this.router.timing = true;
+    // (Path signals read the router's locks, as the economy wires them.)
+    const router = this.router;
+    sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
       routeWait: (engine) => this.router.waitingOn(engine),
@@ -668,6 +671,8 @@ export class HarnessRun {
         if (late) this.report.redLate++;
         else this.broke("redRun", `train ${this.trainIndex(id)} ran past signal ${g.key} at red (piece ${g.pieceId} end ${g.exit})`);
       }
+      // (A path signal's block may hold two trains on ways that don't meet: `blockOne` is for plain blocks.)
+      if (g.junction) continue;
       let inBlock = this.entered.get(g.key);
       if (!inBlock) this.entered.set(g.key, (inBlock = new Set()));
       if (inBlock.size > 0 && !late) this.broke("blockOne", `train ${this.trainIndex(id)} came into signal ${g.key}'s block with ${[...inBlock].map((x) => this.trainIndex(x)).join(",")} in it`);
@@ -679,7 +684,7 @@ export class HarnessRun {
    * Signals that turned red since `before`: trains on their approach, heading for their joint, past braking for them
    * (not braking for them) are let off (`excused`). Signals that turned clear let their trains' excuses go.
    */
-  private excuse(list: readonly { key: number; pieceId: number; exit: number; clear: boolean }[], before: ReadonlyMap<number, boolean>): void {
+  private excuse(list: readonly { key: number; pieceId: number; exit: number; clear: boolean; junction: boolean }[], before: ReadonlyMap<number, boolean>): void {
     const { sim, layout } = this;
     for (const g of list) {
       const was = before.get(g.key) ?? true;

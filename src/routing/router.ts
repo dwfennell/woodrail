@@ -13,7 +13,7 @@
  * short of them and waits (`RouteWait`), as a routed train does, for as long as that train holds them. Nothing turns it
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
-import { getPieceDef, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
+import { connectorRef, getPieceDef, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, type Cursor, type Sim, type Train } from "../sim";
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
@@ -81,7 +81,7 @@ export type LeverResult = { ok: true } | { refused: "under-train" } | { deferred
 /** What the router asks of the game (the economy): its routed trains and their stops, and sections' hints. */
 export interface RouterHost {
   readonly layout: Layout;
-  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "ticks" | "trainCount">;
+  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "ticks" | "trainCount" | "hasSignals" | "pathSignalAt">;
   /** The routed engines, in the order they're steered (the economy's routes). */
   readonly routed: { readonly size: number; keys(): Iterable<number>; has(engine: number): boolean };
   /** The piece of a routed engine's next stop; −1 while it has none on the map. */
@@ -169,6 +169,8 @@ export class Router {
   /** The layout's `piecesVersion` the locks were last checked against (locks on points taken up go). */
   private locksAt = -1;
   private readonly locks = new Map<number, Lock>();
+  /** Bumped whenever a lock is taken, shared, passed on or let go (path signals read it: `Sim.pathLocks`). */
+  locksVersion = 0;
   private readonly holding = new Map<number, Holding>();
   /** Points let go while a train (one with no lock: hand-run) stood on them: put back once it's off. */
   private readonly pending = new Set<number>();
@@ -226,6 +228,7 @@ export class Router {
     if (lock && [...lock.holders].every((e) => this.hand.has(e))) {
       for (const e of lock.holders) this.holding.get(e)?.held.delete(pieceId);
       this.locks.delete(pieceId);
+      this.locksVersion++;
       this.deferred.delete(pieceId);
       lock = undefined;
     }
@@ -426,6 +429,7 @@ export class Router {
     for (const id of [...this.locks.keys()]) {
       if (layout.getPiece(id)) continue;
       this.locks.delete(id);
+      this.locksVersion++;
       for (const h of this.holding.values()) h.held.delete(id);
     }
     for (const id of [...this.pending]) if (!layout.getPiece(id)) this.pending.delete(id);
@@ -504,7 +508,9 @@ export class Router {
       if (h.held.get(w.pieceId)?.state === w.state) continue;
       let lock = this.locks.get(w.pieceId);
       if (!lock || lock.state !== w.state) this.locks.set(w.pieceId, (lock = { state: w.state, entry: w.entry, holders: new Set() }));
+      this.locksVersion++;
       lock.holders.add(engine);
+      this.locksVersion++;
       h.held.set(w.pieceId, { state: w.state, entered: false });
       this.pending.delete(w.pieceId);
       this.granted++;
@@ -551,8 +557,10 @@ export class Router {
     const lock = this.locks.get(pieceId);
     if (!lock) return;
     lock.holders.delete(engine);
+    this.locksVersion++;
     if (lock.holders.size > 0) return;
     this.locks.delete(pieceId);
+    this.locksVersion++;
     for (const [e, o] of this.holding) {
       if (e === engine || o.want.get(pieceId) !== lock.state) continue;
       const asked = o.asked.find((w) => w.pieceId === pieceId);
@@ -560,6 +568,7 @@ export class Router {
       if (asked && pointsWayFrom(this.host.layout, pieceId, asked.entry, asked.ways) !== asked.state) continue;
       const entry = asked?.entry ?? lock.entry;
       this.locks.set(pieceId, { state: lock.state, entry, holders: new Set([e]) });
+      this.locksVersion++;
       o.held.set(pieceId, { state: lock.state, entered: false });
       return;
     }
@@ -612,7 +621,9 @@ export class Router {
       let lock = this.locks.get(id);
       // (Which end it came onto them by isn't known: any, for sharing.)
       if (!lock) this.locks.set(id, (lock = { state, entry: -1, holders: new Set() }));
+      this.locksVersion++;
       lock.holders.add(engine);
+      this.locksVersion++;
       h.held.set(id, { state, entered: true });
     }
     return h;
@@ -703,7 +714,11 @@ export class Router {
     let d = pathLength(path.geom) - c.s;
     this.alongIds.push(c.pieceId);
     this.alongAt.push(d);
+    const sim = this.host.sim;
+    const signals = sim.hasSignals;
     for (let k = 0; k < WALK && d <= reach; k++) {
+      // (A signal that holds it (held, its block or its way taken): it locks nothing beyond, standing at it.)
+      if (signals && exit !== null && exit >= 0 && sim.pathSignalAt(train, connectorRef(at, exit))?.free === false) break;
       const n = next(layout, at, exit);
       if (!n) break;
       const ways = waysFrom(layout, n.pieceId, n.entry);
@@ -764,8 +779,12 @@ export class Router {
         }
         if (!moving || w.seen) continue;
         lock.holders.add(engine);
+        this.locksVersion++;
       } else if (!moving || w.seen) continue;
-      else this.locks.set(w.pieceId, { state: w.state, entry: w.entry, holders: new Set([engine]) });
+      else {
+        this.locks.set(w.pieceId, { state: w.state, entry: w.entry, holders: new Set([engine]) });
+        this.locksVersion++;
+      }
       h.held.set(w.pieceId, { state: w.state, entered: false });
       this.pending.delete(w.pieceId);
     }
@@ -776,6 +795,60 @@ export class Router {
   private lockedForOthers(pieceId: number, h: Holding): boolean {
     const lock = this.locks.get(pieceId);
     return !!lock && !(lock.holders.size === 1 && h.held.has(pieceId));
+  }
+
+  /**
+   * For a path signal (signals spec §3.1, §3.3): may this train go on over these points (its way through the signal's
+   * block, each with whether it has a choice of way there)? −2: yes. Else the engine holding them against it, or −1: it
+   * must hold them first. A routed train must hold every points with a choice on its way (once sections have granted
+   * its move, for a line's train); any train, none locked for another train's road that meets its own.
+   */
+  pathLocks(train: Train, points: readonly number[], choice: readonly boolean[]): number {
+    let engine = -1;
+    let routed = false;
+    for (const c of train.cars) {
+      if (c.kind !== "engine") continue;
+      if (engine < 0) engine = c.id;
+      if (this.host.routed.has(c.id)) {
+        engine = c.id;
+        routed = true;
+        break;
+      }
+    }
+    // (A line's train still waiting for its move (sections): it asks for no locks till it's granted, and is granted only
+    // nearer its slot's end. It goes on to there, and waits at the points as without the signal, if it must.)
+    if (routed && this.host.awaitingGrant(engine)) routed = false;
+    // (Only points its last walk asked for: those beyond its stop, or past where its way is clear, it doesn't need.)
+    const want = routed ? this.holding.get(engine)?.want : undefined;
+    for (let i = 0; i < points.length; i++) {
+      const holders = this.holdersOf(points[i]);
+      if (holders.has(engine)) continue;
+      const other = holders.size > 0 ? holders.values().next().value! : -1;
+      if (routed && choice[i] && (!want || want.has(points[i]))) return other;
+      if (other !== -1 && !this.apartFrom(points[i], engine)) return other;
+    }
+    return -2;
+  }
+
+  /**
+   * For a path signal: the way (a path of the piece) a routed train will take over these points, come onto at `entry`:
+   * as locked for it, else as the plan (or its granted move) has it. −1: as they lie (not routed, or no choice there).
+   */
+  pathWay(train: Train, pieceId: number, entry: number): number {
+    let engine = -1;
+    for (const c of train.cars) if (c.kind === "engine" && this.host.routed.has(c.id)) engine = c.id;
+    if (engine < 0) return -1;
+    const layout = this.host.layout;
+    const ways = waysFrom(layout, pieceId, entry);
+    if (ways.length < 2) return -1;
+    const held = this.holding.get(engine)?.held.get(pieceId);
+    if (held) return ways[held.state]?.path ?? -1;
+    const goal = this.host.goal(engine);
+    if (goal === -1) return -1;
+    const grant = this.host.granted(engine);
+    const followed = grant?.follow ? ways.filter((x) => grant.follow(pieceId, x.path)) : [];
+    const best = followed.length === 1 ? followed[0].option : planWay(layout, pieceId, entry, ways, grant?.aim ?? goal);
+    return best === -1 ? -1 : (ways[best]?.path ?? -1);
   }
 
   /** Does this train's way over these points (as at its last look) not meet the way they're locked for (`apart`)? */
@@ -817,7 +890,8 @@ export class Router {
     let exit = c.reversed ? path.from : (path.to ?? -1);
     let at = c.pieceId;
     const v = train.speed;
-    const set = (v * v) / (2 * ACCELERATION) + SET_LOOK;
+    const sim = this.host.sim;
+    let set = (v * v) / (2 * ACCELERATION) + SET_LOOK;
     // (How far the next piece is from the front; and the plain track run since the last points asked for.)
     let d = pathLength(path.geom) - c.s;
     this.alongIds.push(c.pieceId);
@@ -827,7 +901,15 @@ export class Router {
     // (Points it holds not reached yet, such as the far ones of the last ask: still asked for, however far.)
     let ahead = false;
     for (const l of h.held.values()) if (!l.entered) ahead = true;
+    const signals = sim.hasSignals;
     for (let k = 0; k < WALK && clear < length; k++) {
+      // (A signal on its way (signals spec §3.3): one that holds it for something else (held, its block taken), it asks
+      // for nothing beyond; a path signal within its set distance, it asks for the locks beyond it, however far.)
+      if (signals && exit >= 0) {
+        const sig = sim.pathSignalAt(train, connectorRef(at, exit));
+        if (sig && !sig.free) break;
+        if (sig && d <= set) set = Infinity;
+      }
       if (want.length === 0 && d > set && !ahead) break;
       const n = next(layout, at, exit);
       if (!n || n.pieceId === target) break;

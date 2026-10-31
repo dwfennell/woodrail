@@ -46,6 +46,7 @@ export type TrainState =
   | { kind: "stuck"; why: "in-way"; line: string; loop: boolean }
   | { kind: "stuck"; why: "too-many" }
   | { kind: "stuck"; why: "parked" }
+  | { kind: "stuck"; why: "signals" }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -116,6 +117,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
         return { kind: "stuck", why: "too-many" };
       }
       if (s.kind === "parked") return { kind: "stuck", why: "parked" };
+      if (s.kind === "signals") return { kind: "stuck", why: "signals" };
       return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop };
     }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
@@ -263,6 +265,7 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
     case "stuck":
       if (s.why === "too-many") return "Stuck: too many trains for this line. Put one away or add a loop";
       if (s.why === "parked") return `Stuck: ${SPARE_CUT}`;
+      if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal or put one away";
       // (Two lines' trains with no passing loop where they meet: one lets them pass. Else moving one is the fix.)
       return `Stuck: ${s.line ? `the train on the ${s.line}` : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : "Put one away"}`;
     case "red-switch":
