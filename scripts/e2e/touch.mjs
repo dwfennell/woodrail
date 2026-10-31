@@ -2023,7 +2023,10 @@ async function routeWait(ctx, p) {
     // train be by, before SwiftShader's slow frames have shown the card.)
     w.paused = true;
     w.invalidate();
-    return { stood: s.stood, held: s.held, near: s.near, far: s.far, by: s.by, onPoints: w.sim.piecesUnder(w.sim.findCar(setup.second).train.id).has(setup.points), way: w.layout.switchState(setup.points) };
+    // (Which wait holds it as its card is opened: the router's (short of the points) or sections' (at its slot's end).)
+    const routerWait = w.economy.router.waitOf(setup.second)?.kind ?? null;
+    const sectionsWait = w.economy.sections.waitOf(setup.second)?.kind ?? null;
+    return { stood: s.stood, held: s.held, routerWait, sectionsWait, near: s.near, far: s.far, by: s.by, onPoints: w.sim.piecesUnder(w.sim.findCar(setup.second).train.id).has(setup.points), way: w.layout.switchState(setup.points) };
   }, { setup, watch });
   // (Short of the points by the router (its nose 30–40 mm short), or held by sections at its slot's end, which is
   // where two lines' trains sharing the track now wait: the first holds the section with the points.)
@@ -2034,7 +2037,13 @@ async function routeWait(ctx, p) {
   await p.waitForFunction(() => !!document.querySelector(".engine-status")?.textContent, null, { timeout: 30000 }).catch(() => {});
   const said = await p.evaluate(() => document.querySelector(".engine-status")?.textContent ?? "");
   const lineName = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, setup.first);
-  check("wait: its card says it's waiting for the first train", said === `Waiting for the train on the ${lineName} to pass the points` || said === "Waiting: another train is in the way", JSON.stringify({ said, lineName }));
+  // (Which wait it is says which words: short of the points by the router's word, the points wording, as it says what
+  // it waits for. Held by sections at its slot's end (the two lines share the single track, and the first holds the
+  // junction's section; `trainState` reads the router's wait first, so a points wait would win), the sections wait,
+  // which names the first train by its line, as every wait card now names who's in the way.)
+  const sectionsHeld = waited.routerWait === null && waited.sectionsWait !== null;
+  const waitWords = sectionsHeld ? `Waiting: the train on the ${lineName} is in the way` : `Waiting for the train on the ${lineName} to pass the points`;
+  check("wait: its card says it's waiting for the first train", said === waitWords, JSON.stringify({ said, lineName, routerWait: waited.routerWait, sectionsWait: waited.sectionsWait }));
   await p.keyboard.press("Escape");
   // The first by, the points are set for the second (it goes on). Before it's on them, two taps on their lever (§16 Q1,
   // as changed at step 5): they stay set for it, a toast says so, and the second tap's way (their curve, as set for
@@ -2699,6 +2708,9 @@ async function showBlocker(ctx, p) {
   const { tapOn, tapButton } = mapHelpers(p);
   await tapOn({ engine: setup.red });
   await p.waitForFunction(() => !document.querySelector(".engine-card .engine-blocker")?.hidden && /in the way/.test(document.querySelector(".engine-card .engine-status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
+  // (Measured once the card has popped in: `card-in` scales it from 0.96, and under SwiftShader's slow frames a box
+  // read mid-way is 0.96 of its size, 42 px for a 44 px button.)
+  await p.waitForFunction(() => document.querySelector(".engine-card")?.getAnimations().every((a) => a.playState === "finished") ?? false, null, { timeout: 30000 }).catch(() => {});
   const card = await p.evaluate(() => {
     const s = document.querySelector(".engine-card .engine-status");
     const one = s.cloneNode(false);
@@ -2708,11 +2720,11 @@ async function showBlocker(ctx, p) {
     const lh = one.getBoundingClientRect().height;
     one.remove();
     const r = s.getBoundingClientRect();
-    const box = (sel) => { const e = document.querySelector(sel); if (!e || getComputedStyle(e).display === "none" || e.hidden) return null; const q = e.getBoundingClientRect(); return { w: Math.round(q.width), h: Math.round(q.height), right: q.right }; };
+    const box = (sel) => { const e = document.querySelector(sel); if (!e || getComputedStyle(e).display === "none" || e.hidden) return null; const q = e.getBoundingClientRect(); return { w: Math.round(q.width), h: Math.round(q.height), right: q.right, laidW: e.offsetWidth, laidH: e.offsetHeight }; };
     return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth, show: box(".engine-card .show-blocker"), fix: box(".engine-card .fix-blocker") };
   });
   check("blocker: the card names the engine left in the way, plainly (parked, by where it is; no id) and the fix, in two lines at 360 px", /^(Waiting|Stuck): (the train parked by [A-Za-z ]+( \d)?|a parked train) is in the way\. Move it$/.test(card.said) && !/\d\d/.test(card.said) && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
-  check("blocker: Show and Put it away on the card, each 44 px or more", !!card.show && !!card.fix && card.show.h >= 44 && card.fix.h >= 44 && card.show.w >= 44 && card.fix.right <= card.vw, JSON.stringify(card));
+  check("blocker: Show and Put it away on the card, each 44 px or more", !!card.show && !!card.fix && card.show.h >= 44 && card.fix.h >= 44 && card.show.w >= 44 && card.show.laidH >= 44 && card.fix.laidH >= 44 && card.fix.right <= card.vw, JSON.stringify(card));
   // Show, tapped as a finger would once it's been drawn and stood still past the card tap guard's window.
   const before = await p.evaluate(({ parked }) => {
     const w = window.woodrail;
@@ -2914,6 +2926,9 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
   const { tapOn } = mapHelpers(p);
   await tapOn({ engine: setup.E[0] });
   await p.waitForFunction(() => /^Stuck/.test(document.querySelector(".engine-card .engine-status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
+  // (Measured once the card has popped in: `card-in` scales it from 0.96, and under SwiftShader's slow frames a box
+  // read mid-way is 0.96 of its size, 42 px for a 44 px button.)
+  await p.waitForFunction(() => document.querySelector(".engine-card")?.getAnimations().every((a) => a.playState === "finished") ?? false, null, { timeout: 30000 }).catch(() => {});
   const card = await p.evaluate(() => {
     const s = document.querySelector(".engine-card .engine-status");
     const one = s.cloneNode(false);
