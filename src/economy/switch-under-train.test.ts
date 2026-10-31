@@ -88,9 +88,14 @@ describe("points never move under a train (issue #3)", () => {
       const reached = new Set<string>();
       let thrownUnder = 0;
       for (let i = 0; i < 60 * SIM_HZ && reached.size < 2; i++) {
-        const before = w.layout.switchState(sw);
-        const held = w.sim.pointsHeld(sw);
+        // (Held as each throws: the sim's levers before its tick, the routes' steering after it, once a train may have
+        // just run off them.)
+        let before = w.layout.switchState(sw);
+        let held = w.sim.pointsHeld(sw);
         w.sim.tick();
+        if (held && w.layout.switchState(sw) !== before) thrownUnder++;
+        before = w.layout.switchState(sw);
+        held = w.sim.pointsHeld(sw);
         w.economy.tick();
         if (held && w.layout.switchState(sw) !== before) thrownUnder++;
         watch.check();
