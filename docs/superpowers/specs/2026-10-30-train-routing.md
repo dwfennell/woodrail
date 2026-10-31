@@ -669,7 +669,7 @@ lone-train check.
        (harness shortcut), forest and sawmill, the route planned by taps (engine, Plan a route, Forest, Sawmill, Done),
        4 game minutes ticked ahead: logs delivered, round the wye's loop (never on the spur), turns only at the
        forest's buffers, engine first at every stop (16), and the way drawn from the train's front off the sawmill goes
-       round the wye. Control (piece costs forced): 3 of its 5 checks fail (on the spur 7,645 ticks, a turn at the spur
+       round the wye. Full `e2e:touch` 121/121 (27.6 min). Control (piece costs forced): 3 of its 5 checks fail (on the spur 7,645 ticks, a turn at the spur
        each trip, the drawn line into the spur).
      - **Play-through:** seed 2027, 1 train a line: identical row to step 5c (coins 1291, City 64, City ★ 124, riders
        546, research 15 by 180, stall 12.5 min). The full A/B table (1–3 trains, seeds 1 and 2) waits for the release
