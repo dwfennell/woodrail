@@ -109,6 +109,26 @@ describe("storeys on a map's towns", () => {
     setTownStoreys(land, t, w.props, 0);
     expect(sum()).toBe(0);
   });
+
+  it("a house moved out from the middle keeps its storeys as the town grows on (issue #18)", () => {
+    const t = land.towns[0];
+    setTownStoreys(land, t, w.props, 3);
+    const tall = [...w.props.all()].find((p) => p.town === t.id && p.building !== undefined && (p.storeys ?? 0) > 0)!;
+    const b = t.buildings.find((x) => x.id === tall.building)!;
+    const had = tall.storeys!;
+    const cells = b.cells;
+    // (As if moved far out: its squares' record only, which is what the storeys go by.)
+    const g = land.grid;
+    let far = -1;
+    for (let i = 0; i < g.cellCount && far === -1; i++) if (Math.hypot(g.centreX(g.colOf(i)) - t.centre.x, g.centreZ(g.rowOf(i)) - t.centre.z) > INNER + 4 * RING) far = i;
+    b.cells = [far];
+    expect(storeysFor(tall.asset, 3, distanceFromCentre(land, t, b), jitterOf(b.id))).toBeLessThan(had);
+    setTownStoreys(land, t, w.props, 3);
+    setTownStoreys(land, t, w.props, 4);
+    expect(tall.storeys).toBe(had);
+    b.cells = cells;
+    setTownStoreys(land, t, w.props, 0);
+  });
 });
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
