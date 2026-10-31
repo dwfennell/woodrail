@@ -689,3 +689,52 @@ export function thrownUnder(pinned: boolean): Scenario {
     },
   };
 }
+
+// ── Step 7: hand-run trains respect locks ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * A junction (`junction`, switch, 6 straights of trunk), its points left set for X by the player. A routed train for P
+ * (5 cars, so the points stay set for it a while) comes up the trunk and has them set for P; a hand-run train comes
+ * down X's road toward them (trailing, going the way they lie) just then. It must stand short of them while they're set
+ * for P (never run over them), and go once the routed train is by and they're back as the player left them. Each runs
+ * alone (no line in common), so only the router keeps them apart. The test drives it in steps (`HarnessRun.run`).
+ */
+export function handAtLock(): { scenario: Scenario; j: () => ReturnType<typeof junction> } {
+  let j: ReturnType<typeof junction> | null = null;
+  return {
+    j: () => j!,
+    scenario: {
+      name: "step 7: a hand-run train meets points set for a routed train",
+      seconds: 30,
+      build: (layout) => {
+        j = junction(layout, "switch", 0, [1, 2], 6);
+        return {
+          trains: [
+            { pieceId: j.trunk[4], stops: [j.p, j.y], cars: ["engine", "timber", "timber", "timber", "timber"], s: 150 },
+            // (On X's stop, facing back toward the points: hand-run, no stops.)
+            { pieceId: j.x, reversed: true, s: 120, cars: CARS },
+          ],
+        };
+      },
+    },
+  };
+}
+
+/**
+ * A shuttle line (buffers at both ends), one hand-run train heading for the far buffer. The test puts a second train
+ * down close behind it once it waits there to turn, so there's no room to turn it round.
+ */
+export function noRoomToTurn(): { scenario: Scenario; ids: () => number[] } {
+  let ids: number[] = [];
+  return {
+    ids: () => ids,
+    scenario: {
+      name: "step 7: no room to turn round at the end of the line",
+      seconds: 30,
+      build: (layout) => {
+        ids = shuttleLine(layout, 4);
+        return { trains: [{ pieceId: ids[4], cars: CARS }] };
+      },
+    },
+  };
+}

@@ -62,7 +62,7 @@ export interface Scenario {
 }
 
 /** The invariants checked every tick (§12). */
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock"] as const;
+export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun"] as const;
 export type Invariant = (typeof INVARIANTS)[number];
 
 /** Turn-backs by cause (`Train.lastTurn`). */
@@ -176,6 +176,7 @@ export class HarnessRun {
   private readonly still: number[];
   private readonly front: { train: number; sign: number; pieceId: number }[];
   private readonly lastTurn: number[];
+  private readonly lockFront: number[];
   private traj = 0x811c9dc5;
   private readonly ownLines: boolean;
   private routerMs = 0;
@@ -239,6 +240,7 @@ export class HarnessRun {
     this.still = this.specs.map(() => 0);
     this.front = this.specs.map(() => ({ train: -1, sign: 0, pieceId: -1 }));
     this.lastTurn = this.specs.map(() => -1);
+    this.lockFront = this.specs.map(() => -1);
     this.specs.forEach((t, k) => {
       if (!t.stops) return;
       this.routes.set(this.engines[k], { stops: t.stops, next: t.next ?? 0, at: false });
@@ -292,6 +294,7 @@ export class HarnessRun {
     this.sections.shared = !this.ownLines;
     // (Sections' cap, and the router's: short of points it waits for, §3.3.)
     sim.speedCap = (train) => Math.min(this.sections.cap(train), this.router.speedCap(train));
+    sim.waitsAt = (train) => this.router.waitsAt(train);
     this.router = new Router({
       layout,
       sim,
@@ -531,6 +534,10 @@ export class HarnessRun {
         this.report.turns[k][t.lastTurn.cause]++;
       }
       this.checkSplit(t, k);
+      // (Step 7: a train never runs onto points locked for others only: a routed train's road, or a hand-run train's
+      // way as they lie, that another may not share. On them already when they were locked, it's let be: none is
+      // granted with a car on them that must move, and one coming the same way shares.)
+      this.checkLockRun(t, k, engine);
       if (this.watch.size > 0 && t.bogies.some((b) => this.watch.has(b.pieceId))) this.report.onWatched++;
       const net = drive(t);
       if (this.routes.has(engine)) this.checkRoad(t, k, engine, net);
@@ -637,6 +644,23 @@ export class HarnessRun {
       wrong = !(costs[taken.option] <= costs[best]);
     }
     if (wrong) this.broke("wrongRoad", `train ${k} took road ${taken.option} at points ${b.pieceId} (${followed.length === 1 ? "not the way granted" : `not its way to ${target}`})`);
+  }
+
+  /** Train `k`'s front came onto points locked for other trains only (once per points, while it's on them). */
+  private checkLockRun(t: Train, k: number, engine: number): void {
+    const net = drive(t);
+    if (net === 0) return;
+    const b = net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+    const was = this.lockFront[k];
+    if (b.pieceId === was) return;
+    this.lockFront[k] = b.pieceId;
+    const holders = this.router.holdersOf(b.pieceId);
+    if (holders.size === 0 || holders.has(engine)) return;
+    // (The other end of the train on them already: it came onto them before they were locked.)
+    if (t.bogies.some((x) => x !== b && x.pieceId === b.pieceId)) return;
+    // (A crossover's other straight, a road that doesn't meet theirs: both may use them.)
+    if (this.router.apartFrom(b.pieceId, engine)) return;
+    this.broke("lockRun", `train ${k} ran onto points ${b.pieceId} locked for ${[...holders].join(",")}`);
   }
 
   /**

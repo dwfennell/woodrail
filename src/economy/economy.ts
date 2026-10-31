@@ -324,6 +324,8 @@ export class Economy {
     // A kit with a depot on it (Game mode's halts) stops trains as the depot does, for its work: not for its dwell too.
     this.kitStops = new KitStops(layout, sim, (pieceId) => this.byPiece.has(pieceId));
     sim.speedCap = (train) => this.capFor(train);
+    // (A train the router holds short of points claims nothing there: routing spec §13 step 7.)
+    sim.waitsAt = (train) => this.router.waitsAt(train);
     this.sections = new Sections(layout, sim, {
       lineOf: (engine) => {
         const id = this.lineIdOf.get(engine);

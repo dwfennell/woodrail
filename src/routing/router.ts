@@ -7,9 +7,14 @@
  * Step 5 (§3.3): waits. A train refused its points (set or held for another train's road, or pinned against its way)
  * stops `STAND_SHORT` + `OVERLAP` short of them (`speedCap`) and waits, naming who it waits for (`waitOf`); it never runs
  * over points set against it.
+ * Step 7 (§13, §16 Q5, Q6): hand-run trains (lever on, no route) respect locks. With another train about, each looks at
+ * the points just ahead of it (braking distance + `HAND_LOOK`) as they lie: free, it locks them as they lie (nothing is
+ * ever set for it), so no route throws them in front of it; locked for another train's road that meets its own, it stands
+ * short of them and waits (`RouteWait`), as a routed train does, for as long as that train holds them. Nothing turns it
+ * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
 import { getPieceDef, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, COUPLER_GAP, flipCursor, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, type Cursor, type Sim, type Train } from "../sim";
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
 import { planWay } from "./plan";
@@ -29,6 +34,12 @@ const WALK = 64;
  * it's plainly waiting, clear of a train coming off the other road.
  */
 export const OVERLAP = 30;
+/**
+ * How far beyond its braking distance (mm) a hand-run train looks for points (step 7): about the sim's crossing look, a
+ * little more, so it has locked them (or seen them locked) before it would claim them there. Short, so a hand-run train
+ * standing behind another doesn't lock points beyond it.
+ */
+export const HAND_LOOK = 80;
 
 /**
  * Why a routed train waits short of points (§3.3): they're set for (or held by) the train `by` (an engine), or pinned
@@ -70,7 +81,7 @@ export type LeverResult = { ok: true } | { refused: "under-train" } | { deferred
 /** What the router asks of the game (the economy): its routed trains and their stops, and sections' hints. */
 export interface RouterHost {
   readonly layout: Layout;
-  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "ticks">;
+  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "ticks" | "trainCount">;
   /** The routed engines, in the order they're steered (the economy's routes). */
   readonly routed: { readonly size: number; keys(): Iterable<number>; has(engine: number): boolean };
   /** The piece of a routed engine's next stop; −1 while it has none on the map. */
@@ -117,6 +128,8 @@ interface Want {
   d: number;
   /** Pinned points set against its way, with another road that would take it there: it waits. */
   pinned?: boolean;
+  /** A hand-run train's points with another train on them: looked at for a lock against it, not locked (step 7). */
+  seen?: boolean;
 }
 
 /**
@@ -137,7 +150,15 @@ export class Router {
   restored = 0;
   /** Waits begun (a train refused its points, or stopped by pinned points: §3.3). */
   waitsBegun = 0;
+  /** Hand-run trains' looks (step 7), their time (ms, when `timing`), and their waits begun (counted in `waitsBegun` too). */
+  handLooks = 0;
+  handMs = 0;
+  handWaits = 0;
   private steerTicks = 0;
+  private handTicks = 0;
+  /** Hand-run trains' engines the router looks after (step 7): their locks as the points lie, and waits. */
+  private readonly hand = new Set<number>();
+  private readonly handSeen = new Set<number>();
   /**
    * Each switch's default (§3.4): the way the player last set it by hand, or as laid. Written by a lever tap the router
    * allowed and when points are laid, never by routing. Points not in it (not seen since laid) default to how they lie.
@@ -165,15 +186,28 @@ export class Router {
 
   /** One sim tick: routed trains ask for the points ahead, a few times a second (a train covers a few mm a tick). */
   tick(): void {
+    this.tickRouted();
+    // (Hand-run trains, with another train about: the points just ahead, a few times a second. A lone train: nothing.)
+    if ((this.host.sim.trainCount >= 2 || this.hand.size > 0) && ++this.handTicks % STEER_TICKS === 0) this.steerHand();
+  }
+
+  private tickRouted(): void {
     const h = this.host;
     if (h.routed.size === 0) {
-      if (this.holding.size > 0 || this.pending.size > 0) this.steerTrains();
+      if (this.routedHolding() || this.pending.size > 0) this.steerTrains();
       return;
     }
     if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
     // (And any just granted a move: the points on its way, now.)
     else if (h.soon.size > 0) this.steerTrains(h.soon);
     h.soon.clear();
+  }
+
+  /** Does a train that isn't hand-run hold a lock (one no longer routed, to let go)? */
+  private routedHolding(): boolean {
+    if (this.holding.size === 0) return false;
+    for (const e of this.holding.keys()) if (!this.hand.has(e)) return true;
+    return false;
   }
 
   /**
@@ -186,7 +220,15 @@ export class Router {
     const { sim, layout } = this.host;
     this.laid();
     if (sim.pointsHeld(pieceId)) return { refused: "under-train" };
-    const lock = this.locks.get(pieceId);
+    let lock = this.locks.get(pieceId);
+    // (Held only by hand-run trains: they take the points as they lie, so they move at once, as before (§16 Q1); each
+    // looks again at its next look.)
+    if (lock && [...lock.holders].every((e) => this.hand.has(e))) {
+      for (const e of lock.holders) this.holding.get(e)?.held.delete(pieceId);
+      this.locks.delete(pieceId);
+      this.deferred.delete(pieceId);
+      lock = undefined;
+    }
     if (lock) {
       // (Routed trains keep their route: the points stay set for it, and go back to the tap's way once it has passed.
       // The first tap is from the way they're set, as the player sees them; more taps on the same lock go on round.)
@@ -218,6 +260,11 @@ export class Router {
     return this.locks.has(pieceId);
   }
 
+  /** The trains (engines) holding the lock on these points; none: empty. */
+  holdersOf(pieceId: number): ReadonlySet<number> {
+    return this.locks.get(pieceId)?.holders ?? NO_HOLDERS;
+  }
+
   /** How many trains hold the lock on these points (0: none). */
   holders(pieceId: number): number {
     return this.locks.get(pieceId)?.holders.size ?? 0;
@@ -232,6 +279,13 @@ export class Router {
   waitingOn(engine: number): { engine: number; since: number } | null {
     const w = this.waits.get(engine);
     return w && w.wait.kind === "points" ? { engine: w.wait.by, since: w.since } : null;
+  }
+
+  /** The points a train waits short of (§3.3; the sim claims nothing there for it), or −1. One size check with no waits. */
+  waitsAt(train: Train): number {
+    if (this.waits.size === 0) return -1;
+    for (const w of this.waits.values()) if (w.trainId === train.id) return w.wait.pieceId;
+    return -1;
   }
 
   /**
@@ -366,7 +420,7 @@ export class Router {
   /** Locks of trains no longer routed go; so do locks on points taken up. */
   private tidy(): void {
     const { layout, routed } = this.host;
-    for (const engine of [...this.holding.keys()]) if (!routed.has(engine)) this.drop(engine);
+    for (const engine of [...this.holding.keys()]) if (!routed.has(engine) && !this.hand.has(engine)) this.drop(engine);
     if (this.locksAt === layout.piecesVersion) return;
     this.locksAt = layout.piecesVersion;
     for (const id of [...this.locks.keys()]) {
@@ -511,6 +565,8 @@ export class Router {
     }
     for (const [e, w] of this.waits) {
       if (e === engine || w.wait.kind !== "points" || w.wait.pieceId !== pieceId) continue;
+      // (A hand-run train has nothing set for it (§16 Q6): it looks again as the points then lie.)
+      if (this.hand.has(e)) continue;
       const o = this.holding.get(e);
       if (!o || this.ask(e, o, o.asked)) continue;
       this.waits.delete(e);
@@ -573,6 +629,174 @@ export class Router {
   }
 
   /**
+   * Hand-run trains (step 7: lever on, no route), with another train about: each looks at the points just ahead of it as
+   * they lie (`walkHand`), lets go those behind it, and locks those ahead (`askHand`), or waits short of points locked for
+   * another train's road. Nothing is set for it (§16 Q6). Trains stopped, gone or routed now are let go.
+   */
+  private steerHand(): void {
+    const t0 = this.timing ? performance.now() : 0;
+    const { sim, routed } = this.host;
+    const seen = this.handSeen;
+    seen.clear();
+    if (sim.trainCount >= 2)
+      for (const id of sim.trainIds()) {
+        const train = sim.getTrain(id)!;
+        if (train.derailed || train.turnback >= 0) continue;
+        let engine = -1;
+        let routedHere = false;
+        for (const c of train.cars) {
+          if (c.kind !== "engine") continue;
+          if (engine < 0) engine = c.id;
+          if (routed.has(c.id)) routedHere = true;
+        }
+        const net = this.host.drive(train);
+        if (engine < 0 || routedHere || net === 0) continue;
+        seen.add(engine);
+        this.hand.add(engine);
+        this.handLooks++;
+        const h = this.holdingOf(engine);
+        this.behind(engine, train, h);
+        const want = this.walkHand(train, net > 0);
+        h.want.clear();
+        for (const w of want) h.want.set(w.pieceId, w.state);
+        h.asked = want;
+        this.keep(engine, train, h, want);
+        const refused = this.askHand(engine, h, want, train.speed > 0);
+        if (refused) {
+          const was = this.waits.get(engine);
+          if (!was || was.wait.kind !== "points" || was.wait.pieceId !== refused.stop.pieceId) this.handWaits++;
+          this.wait(engine, train, Math.sign(net), { kind: "points", pieceId: refused.stop.pieceId, by: refused.by }, refused.stop);
+        } else this.waits.delete(engine);
+      }
+    for (const e of [...this.hand]) {
+      if (seen.has(e)) continue;
+      this.hand.delete(e);
+      // (Routed now: its holding is the router's as any routed train's; else let go.)
+      if (!routed.has(e)) this.drop(e);
+      else this.waits.delete(e);
+    }
+    this.retry();
+    if (this.timing) this.handMs += performance.now() - t0;
+  }
+
+  /**
+   * A hand-run train's points ahead: each it would come onto within braking distance + `HAND_LOOK` of its front, the
+   * way it takes them as they lie (facing or trailing), up to the first piece another train is on. The pieces it follows
+   * are kept in `along` (for `wait`).
+   */
+  private walkHand(train: Train, forward: boolean): Want[] {
+    const layout = this.host.layout;
+    const want: Want[] = [];
+    this.alongIds.length = 0;
+    this.alongAt.length = 0;
+    const n0 = train.bogies.length - 1;
+    const c: Cursor = { ...(forward ? train.bogies[0] : train.bogies[n0]) };
+    if (!forward) flipCursor(layout, c);
+    const piece = layout.getPiece(c.pieceId);
+    if (!piece) return want;
+    const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
+    let exit = c.reversed ? path.from : (path.to ?? -1);
+    let at = c.pieceId;
+    const v = train.speed;
+    const lead = forward ? train.cars[0] : train.cars[train.cars.length - 1];
+    const reach = (v * v) / (2 * ACCELERATION) + HAND_LOOK + CAR_SPECS[lead.kind].bogieInset;
+    let d = pathLength(path.geom) - c.s;
+    this.alongIds.push(c.pieceId);
+    this.alongAt.push(d);
+    for (let k = 0; k < WALK && d <= reach; k++) {
+      const n = next(layout, at, exit);
+      if (!n) break;
+      const ways = waysFrom(layout, n.pieceId, n.entry);
+      if (ways.length === 0) break;
+      const option = ways.length > 1 ? pointsWayFrom(layout, n.pieceId, n.entry, ways.length) : 0;
+      const w = ways[option] ?? ways[0];
+      // (Another train on them: only looked at (locked against it, it waits for the one they're locked for); it
+      // locks nothing there or beyond.)
+      const occupied = this.otherOn(n.pieceId, train.id);
+      if (isPoints(layout, n.pieceId)) want.push({ pieceId: n.pieceId, state: option, ways: ways.length, entry: n.entry, d, seen: occupied || undefined });
+      if (occupied) break;
+      const p = layout.getPiece(n.pieceId)!;
+      d += pathLength(getPieceDef(p.type, p.flipped).paths[w.path].geom);
+      this.alongIds.push(n.pieceId);
+      this.alongAt.push(d);
+      at = n.pieceId;
+      exit = w.exit;
+    }
+    return want;
+  }
+
+  /** Is another train (not `trainId`) on this piece? */
+  private otherOn(pieceId: number, trainId: number): boolean {
+    const sim = this.host.sim;
+    for (const id of sim.trainIds()) {
+      if (id === trainId) continue;
+      const t = sim.getTrain(id);
+      if (t && !t.derailed && t.bogies.some((b) => b.pieceId === pieceId)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * A hand-run train's locks on the points ahead, as they lie (never thrown for it, §16 Q6). Free (or held only by itself),
+   * it takes them; held by others coming onto them the same way for the same road, it shares; held for a road that
+   * doesn't meet its own (a crossover's other straight), it goes on by. Otherwise it's refused there: it lets go any it
+   * held beyond, and the points and who holds them are returned (it waits short of them).
+   */
+  private askHand(engine: number, h: Holding, want: readonly Want[], moving: boolean): { stop: Want; by: number } | null {
+    for (let i = 0; i < want.length; i++) {
+      const w = want[i];
+      const mine = h.held.get(w.pieceId);
+      // (Standing (held by sections, or behind a train), it isn't coming onto them yet: it holds none ahead, so a train
+      // they're needed for isn't kept waiting on one that waits itself. It still stands short of points locked against it.)
+      if (!moving && mine && !mine.entered) this.release(engine, h, w.pieceId);
+      else if (mine?.state === w.state) continue;
+      const lock = this.locks.get(w.pieceId);
+      const other = lock ? [...lock.holders].find((e) => e !== engine) : undefined;
+      if (lock && other !== undefined) {
+        const same = lock.state === w.state && (lock.entry === -1 || lock.entry === w.entry);
+        if (!same) {
+          if (this.apart(w, lock)) continue;
+          for (let j = i; j < want.length; j++) {
+            const l = h.held.get(want[j].pieceId);
+            if (l && !l.entered) this.release(engine, h, want[j].pieceId);
+          }
+          return { stop: w, by: other };
+        }
+        if (!moving || w.seen) continue;
+        lock.holders.add(engine);
+      } else if (!moving || w.seen) continue;
+      else this.locks.set(w.pieceId, { state: w.state, entry: w.entry, holders: new Set([engine]) });
+      h.held.set(w.pieceId, { state: w.state, entered: false });
+      this.pending.delete(w.pieceId);
+    }
+    return null;
+  }
+
+  /** Are these points locked for trains other than the one holding `h`? */
+  private lockedForOthers(pieceId: number, h: Holding): boolean {
+    const lock = this.locks.get(pieceId);
+    return !!lock && !(lock.holders.size === 1 && h.held.has(pieceId));
+  }
+
+  /** Does this train's way over these points (as at its last look) not meet the way they're locked for (`apart`)? */
+  apartFrom(pieceId: number, engine: number): boolean {
+    const w = this.holding.get(engine)?.asked.find((x) => x.pieceId === pieceId);
+    const lock = this.locks.get(pieceId);
+    return !!w && !!lock && this.apart(w, lock);
+  }
+
+  /** Do a hand-run train's road over these points (as they lie) and a lock's road not meet, so both may use them? */
+  private apart(w: Want, lock: Lock): boolean {
+    if (lock.entry === -1) return false;
+    const layout = this.host.layout;
+    const mine = waysFrom(layout, w.pieceId, w.entry)[w.state]?.path;
+    const theirs = waysFrom(layout, w.pieceId, lock.entry)[lock.state]?.path;
+    if (mine === undefined || theirs === undefined || mine === theirs) return false;
+    const p = layout.getPiece(w.pieceId)!;
+    return ((crossMasks(getPieceDef(p.type, p.flipped))[mine] >> theirs) & 1) === 0;
+  }
+
+  /**
    * The points a train asks for (§3.2): along its way from its front (the plan's choice at each points, or sections'
    * granted way), the first points within its set distance (braking distance + `SET_LOOK`) or already held for it, then
    * every points on to the next clear point: plain track as long as the train, its stop, or the slot its move ends at.
@@ -613,6 +837,9 @@ export class Router {
         want.push({ pieceId: n.pieceId, state: -1, ways: 1, entry: n.entry, d, pinned: true });
         break;
       }
+      // (Points with no choice from here (trailing through them) locked for another train (a hand-run one's way as they
+      // lie, step 7, or a route's): asked for, so it shares them coming the same way, or waits short of them.)
+      if (ways.length === 1 && this.lockedForOthers(n.pieceId, h)) want.push({ pieceId: n.pieceId, state: 0, ways: 1, entry: n.entry, d });
       let w = ways[0];
       if (ways.length > 1) {
         const followed = follow ? ways.filter((x) => follow(n.pieceId, x.path)) : [];
@@ -660,6 +887,8 @@ function trainLength(train: Train): number {
   for (const c of train.cars) len += CAR_SPECS[c.kind].length;
   return len + COUPLER_GAP * Math.max(0, train.cars.length - 1);
 }
+
+const NO_HOLDERS: ReadonlySet<number> = new Set();
 
 /** The cursor `speedCap` works with (no allocation per call). */
 const capAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };
