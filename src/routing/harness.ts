@@ -299,11 +299,8 @@ export class HarnessRun {
       layout,
       sim,
       routed: this.routes,
-      goal: (engine) => {
-        const r = this.routes.get(engine)!;
-        const p = r.stops[r.next % r.stops.length];
-        return this.layout.getPiece(p) ? p : -1;
-      },
+      // (As the economy's: the stop it's heading for, the one after once at one.)
+      goal: (engine) => this.target(engine),
       drive,
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
