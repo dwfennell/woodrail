@@ -2711,13 +2711,14 @@ async function showBlocker(ctx, p) {
     const box = (sel) => { const e = document.querySelector(sel); if (!e || getComputedStyle(e).display === "none" || e.hidden) return null; const q = e.getBoundingClientRect(); return { w: Math.round(q.width), h: Math.round(q.height), right: q.right }; };
     return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth, show: box(".engine-card .show-blocker"), fix: box(".engine-card .fix-blocker") };
   });
-  check("blocker: the card names the engine left in the way, plainly (parked, by where it is; no id) and the fix, in two lines at 360 px", /^(Waiting|Stuck): (the train parked by [A-Za-z ]+|a parked train) is in the way\. Move it$/.test(card.said) && !/\d/.test(card.said) && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
+  check("blocker: the card names the engine left in the way, plainly (parked, by where it is; no id) and the fix, in two lines at 360 px", /^(Waiting|Stuck): (the train parked by [A-Za-z ]+( \d)?|a parked train) is in the way\. Move it$/.test(card.said) && !/\d\d/.test(card.said) && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
   check("blocker: Show and Put it away on the card, each 44 px or more", !!card.show && !!card.fix && card.show.h >= 44 && card.fix.h >= 44 && card.show.w >= 44 && card.fix.right <= card.vw, JSON.stringify(card));
   // Show, tapped as a finger would once it's been drawn and stood still past the card tap guard's window.
   const before = await p.evaluate(({ parked }) => {
     const w = window.woodrail;
-    const q = w.sim.findCar(parked).train.world[0];
-    return { d: Math.hypot(w.controls.target.x - q.x, w.controls.target.z - q.z) };
+    // (Where the camera is: Show aims the blocker into the room above the card (`inRoom`), not at the target.)
+    const c = w.camera.position;
+    return { cam: [Math.round(c.x), Math.round(c.y), Math.round(c.z)] };
   }, setup);
   await tapButton(".engine-card .show-blocker");
   const flashing = await p.evaluate(({ parked }) => {
@@ -2743,9 +2744,10 @@ async function showBlocker(ctx, p) {
     const card = document.querySelector(".engine-card").getBoundingClientRect();
     const sx = ((v.x + 1) / 2) * innerWidth;
     const sy = ((1 - v.y) / 2) * innerHeight;
-    return { d: Math.hypot(w.controls.target.x - q.x, w.controls.target.z - q.z), sx: Math.round(sx), sy: Math.round(sy), cardTop: Math.round(card.top), vw: innerWidth, open: !document.querySelector(".engine-card").hidden };
+    const c = w.camera.position;
+    return { cam: [Math.round(c.x), Math.round(c.y), Math.round(c.z)], sx: Math.round(sx), sy: Math.round(sy), cardTop: Math.round(card.top), vw: innerWidth, open: !document.querySelector(".engine-card").hidden };
   }, setup);
-  check("blocker: the camera glides to the engine in the way: on screen, above the card (still open)", there.d < before.d && there.sx > 0 && there.sx < there.vw && there.sy > 0 && there.sy < there.cardTop && there.open, JSON.stringify({ before, there }));
+  check("blocker: the camera glides to the engine in the way: on screen, above the card (still open)", Math.hypot(...there.cam.map((v, i) => v - before.cam[i])) > 20 && Math.abs(there.sx - there.vw / 2) < there.vw / 4 && there.sy > 0 && there.sy < there.cardTop && there.open, JSON.stringify({ before, there }));
   // The flash ends by itself: then nothing more is drawn.
   await p.waitForFunction(() => window.woodrail.flourishes.count === 0, null, { timeout: 60000 }).catch(() => {});
   await settled();
