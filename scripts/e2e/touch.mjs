@@ -2193,6 +2193,9 @@ async function handWait(ctx, p) {
     // (The routed train with its front just short of the points; the engine on the straight road beyond, facing them.)
     const routed = put(["engine", "timber", "timber", "timber"], at(trunk[6]), 200, false);
     const hand = put(["engine"], at(a[0]), 150, true);
+    // (Paused while the route's planned and Go tapped: the game's own frames would run the sim on meanwhile, at
+    // SwiftShader's pace; both start together below.)
+    w.paused = true;
     w.invalidate();
     return { routed, hand, forest, mill, points: sw, trunk: trunk.map(at), def: w.economy.router.defaultOf(sw) };
   });
@@ -2205,9 +2208,7 @@ async function handWait(ctx, p) {
   await p.keyboard.press("Escape");
   const route = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, setup.routed);
   check("hand-wait: the routed train's route planned by taps (the curve's sawmill, then the forest)", JSON.stringify(route) === JSON.stringify([setup.mill, setup.forest]), JSON.stringify(route));
-  // The hand-run engine started by a tap on Go on its card, the game paused meanwhile (its real frames would run the
-  // sim on while SwiftShader shows the card), so both start together below.
-  await p.evaluate(() => void (window.woodrail.paused = true));
+  // The hand-run engine started by a tap on Go on its card (the game still paused).
   await tapOn({ engine: setup.hand });
   await tapButton(".engine-card .go");
   await p.keyboard.press("Escape");
@@ -2241,7 +2242,11 @@ async function handWait(ctx, p) {
       }
     }
     w.invalidate();
-    return { stood: s.stood, near: s.near, by: s.by, overSet: s.overSet, way: w.layout.switchState(o.points), def: o.def };
+    const state = (e) => {
+      const t = w.sim.findCar(e).train;
+      return { at: t.bogies.map((b) => b.pieceId).join(","), v: Math.round(t.speed), lever: t.cars.map((c) => c.lever).join(""), sections: w.economy.sections.waitOf(e), stuck: w.economy.stalls.stuckOf(e), held: w.sim.heldHow(t.id) };
+    };
+    return { stood: s.stood, near: s.near, by: s.by, overSet: s.overSet, way: w.layout.switchState(o.points), def: o.def, routed: state(o.routed), hand: state(o.hand), points: o.points };
   }, setup);
   check("hand-wait: the hand-run engine stands short of the points set for the routed train (a second or more, never on them)", waited.stood >= 120 && waited.near >= 30 && waited.overSet === 0 && waited.by === setup.routed && waited.way !== waited.def, JSON.stringify(waited));
   // Its card, opened by a tap on it while it waits (still paused), says who for.

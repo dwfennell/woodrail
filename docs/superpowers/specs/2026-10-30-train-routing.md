@@ -4,7 +4,8 @@
 
 A design, being built step by step (§13): steps 0 to 5 are done (step 2: the §12 harness and defaults; step 3: shadow
 plans; step 4: locks, setting and restore; step 5: waits), step 5b (no turn-backs: §16 Q3, stalls said on the cards), step 5c
-(single-line working across lines: two lines' trains pass at a loop) and step 6 (forward costs, #7). It covers four play-test
+(single-line working across lines: two lines' trains pass at a loop), step 6 (forward costs, #7) and step 7 (hand-run
+trains respect locks). It covers four play-test
 issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
@@ -75,7 +76,7 @@ issues:
 | `Sim.pointsHeld` | kept: the physical rule. The router calls it before every throw |
 | `Sim.toggleSwitch` for points | the lever path goes `interaction` → `router.lever(pieceId)` → `sim.toggleSwitch`. One gate, one set of toasts |
 | `route-path.ts`'s search | uses `plan.ts`, so the line drawn on the map is the plan the train runs |
-| `crossClaims` for points | router locks at step 7. Diamond crossings stay in `crossCap` |
+| `crossClaims` for points | router locks at step 7 (claims stay as the close-range backstop; a waiter claims nothing). Diamond crossings stay in `crossCap` |
 | decks, lifts, signals | unchanged: they belong to the sim and the player |
 
 **After step 1:** nothing outside `src/routing/` calls `setSwitchState` for a routed train. The only other writers
@@ -165,8 +166,9 @@ no line there, asks for its moves among them all, so they meet only at passing l
 5. **No early release:** a lock holds until the last axle clears.
 6. **Nothing breaks a wait** (§16 Q3, step 5b): no train turns back short of the end of the track. A wait that can't end
    (a ring, a line's held train in the way, a parked train) is a stall: the trains stand, and their cards say what to do.
-7. **Unplanned trains** (hand-run) take no locks. They stop short of points another train holds, and otherwise take
-   the points as they lie (step 7).
+7. **Unplanned trains** (hand-run) lock the points just ahead as they lie while moving (nothing is ever set for them),
+   stop short of points another train holds for a road that meets theirs, and otherwise take the points as they lie
+   (step 7).
 
 ## 6. Running forward (#7)
 
@@ -677,9 +679,56 @@ lone-train check.
      - **Cost:** a plan 12.5 → 16.2 µs median (31-piece fuzz layout; float costs); router looks 3.30 → 3.31 µs, 98 →
        101 µs a piece come onto (harness). Choices stay cached (23,557 of 23,618). Nothing per frame.
      - **Not done:** the sim's no-room fallback at the end of the line (no room to turn the train round: its levers
-       reversed, so it pushes) still pushes; it isn't the player's setup, but it needs another train in the way.
+       reversed, so it pushes) still pushes; it isn't the player's setup, but it needs another train in the way. (Done
+       at step 7: it waits for room, or is said stuck.)
 7. **Hand-run trains respect locks.** Router locks replace `crossClaims` at points, and the crossCap turn-back is tuned
    per Q5.
+   - **Done** (`claude/routing-7`).
+     - **Hand-run trains** (lever on, no route; on no line or a loose train on a line's network) are looked after by the
+       router, with two trains or more on the track (`Router.steerHand`, every `STEER_TICKS`; a lone train costs nothing
+       and is untouched). Each walks the points just ahead as they lie (`walkHand`: braking distance + `HAND_LOOK` 80 mm +
+       the lead car's inset, facing and trailing, up to points another train is on), and asks for them (`askHand`):
+       - free, it locks them **as they lie** (never thrown for it, §16 Q6), so a route can't set them in front of it;
+       - locked for another train coming the same way for the same road, it shares the lock (follows);
+       - locked for a road that doesn't meet its own (a crossover's other straight, `crossMasks`), it goes on by;
+       - otherwise (locked for another's road, or the same road from the other end), it holds nothing beyond, and waits
+         `STAND_SHORT` + `OVERLAP` short of them, `RouteWait { kind: "points", by }`, exactly as a routed train does
+         (`speedCap`); its card says "Waiting for the train on the Red line to pass the points", and stalls' chains see
+         the wait (`waitingOn`). When the holder lets go, the points go back to their default and the hand-run train
+         looks again as they then lie (it isn't handed the lock, so nothing is set for it).
+       - **Standing, it locks nothing ahead** (and lets go of what it held ahead): only a moving train holds points it's
+         coming to, so a hand-run train held by sections (or behind another) never keeps a routed one waiting for it.
+         It still stands short of points locked against it.
+       - Let go behind its last axle, as a routed train's; a lever tap on points only hand-run trains hold moves them at
+         once (§16 Q1), and they look again.
+     - **Routed trains** also ask for trailing points (no choice from where they come) when another train holds them, so
+       they share them or wait, never run onto points locked for another (the harness's new invariant `lockRun`).
+     - **`crossClaims`:** a train the router holds short of points claims nothing there or beyond (`Sim.waitsAt`), so a
+       waiter's claim never stops the train the points are set for (a ring). Claims stay as the sim's close-range
+       backstop, for diamond crossings and for trailing moves into points nobody has locked; the router's locks, taken
+       further out (routed: braking + `SET_LOOK`; hand-run: braking + `HAND_LOOK`), decide first at points.
+     - **§16 Q5 (about 15 s while the train in the way moves):** that rule was a turn-back timer (wait, then turn back).
+       With no turn-backs (step 5b) nothing of it is left but the wait: a hand-run train waits as long as the train in
+       its way holds the points, moving or not, and never turns short of the end of the track. A wait that can't end
+       (the holder parked, or a ring) is a stall, said on its card after `STUCK_S` ("Stuck: a parked train is in the way.
+       Move it", or in-way). No timer remains anywhere for hand-run trains (`clearCap`'s 2 s turn-back went at 5b).
+     - **No room to turn round at the end of the line** (step 6's leftover): `Sim.tick` no longer reverses the levers (it
+       pushed back, a setup the player never made). It waits there and tries again every `TURN_RETRY_TICKS` (0.5 s),
+       held by the train in the way (`heldBy`, `heldHow` "turn", found by `turnBlocker`: `turnAround`'s room check). It
+       turns once there's room; a wait that can't end (that train parked, or waiting on it) is a stall: stalls count a
+       train waiting to turn when it's "turn"-held, and its card shows the stuck text rather than "turning back". With
+       no train in the way (the track itself has no room) it just waits, its card "turning back".
+     - **Harness** (harness.test.ts "step 7"): a hand-run train meets points set for a routed one (`handAtLock`: stands
+       7 s its nose 36 mm short, never on them while set for P, then goes as they lie; 2 throws, both the route's); Q5
+       (the routed one stands on the points lever off 40 s: the hand-run one waits all of it, said stuck "parked", never
+       turns, and goes once it's off); no room to turn (`noRoomToTurn`: a train put down 29 mm behind one at the buffers;
+       it waits, "turn"-held, said stuck "parked", engine leading, lever unchanged; driven away, it turns and goes engine
+       first). Controls (the hand-run look off, the old lever flip back): all three fail. The `lockRun` invariant holds on
+       every case and the fuzz. The §8 automations, `SHARED` and `FORWARD` unchanged in their checks.
+     - **crossing-merge** (two lines joining at a switch into the dead-end Y, P's routed, X's hand-run): X's now locks the
+       points as they lie and goes in first, P's waiting short, and comes back out to X, so both reach Y (before, both
+       stood stuck). X's routed and P's hand-run: still both stuck ("Put one away", the open question in rail-road.md).
+     - **Player's path:** `E2E_ONLY=hand-wait` in `e2e:touch`.
 8. **Clean-up.** Delete `steer.ts`'s remains and update rail-road.md.
 
 ## 14. Cost
