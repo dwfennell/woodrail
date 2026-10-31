@@ -12,7 +12,8 @@ import { BRIDGE_PROP_SHELVES, PROP_TABS, type PropShelf } from "../catalogue/she
 export type TrayItem =
   /** `unlearned: "hide"`: in Game mode, not shown until its blueprint is learned (a railway kit), not shown "Locked". */
   | { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean; unlearned?: "hide" }
-  | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string; unlearned?: "hide" }
+  /** `gameDetail`: what it does in Game mode, shown with its name (a tooltip; a tap on a phone). */
+  | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string; unlearned?: "hide"; gameDetail?: string }
   /** A catalogue model, placed as a decorative prop. */
   | { kind: "prop"; asset: string; label: string; unlearned?: "hide" }
   /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
@@ -60,6 +61,9 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "balloon-loop", label: "Balloon loop" },
 ];
 
+/** A caboose's tray detail in Game mode: at a train's tail it makes the train a tenth faster (`CABOOSE_BONUS`). */
+export const CABOOSE_DETAIL = "Makes its train a bit faster";
+
 export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine", "hopper", "passenger", "caboose"], label: "Full train" },
   { kind: "train", cars: ["engine", "timber", "timber", "timber"], label: "Flatbed train" },
@@ -79,8 +83,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
   { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
   { kind: "train", cars: ["passenger"], looks: ["first-class"], label: "First class" },
-  { kind: "train", cars: ["caboose"], label: "Caboose" },
-  { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay caboose" },
+  { kind: "train", cars: ["caboose"], label: "Caboose", gameDetail: CABOOSE_DETAIL },
+  { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay caboose", gameDetail: CABOOSE_DETAIL },
 ];
 
 /** A shelf of the tray: a few related items behind one button. */
