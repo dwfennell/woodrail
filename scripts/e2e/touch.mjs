@@ -1951,7 +1951,9 @@ async function putAwayButton(p) {
     window.__run(1);
     const at = { x: g.x + 1200, z: g.z };
     w.director.glideTo(w.controls.target.clone().set(at.x, 0, at.z), frameDistance(1600, w.camera.fov, w.camera.aspect), { duration: 0.3 });
-    return { E: [first.e, second.e, third.e], forest: forest.id, sawmill: sawmill.id, lineId: first.lineId };
+    // (Where the two places stand: a reload gives out depot ids afresh, as it does car ids.)
+    const standsAt = (d) => { const q = w.layout.getPiece(d.pieceId).pose; return [q.x, q.z]; };
+    return { E: [first.e, second.e, third.e], forest: forest.id, sawmill: sawmill.id, forestAt: standsAt(forest), sawmillAt: standsAt(sawmill), lineId: first.lineId };
   });
   // The toast, said as the third came on: once, in the line's numbers, and it fits a 360 px phone.
   await p.waitForFunction(() => document.querySelector(".toast")?.classList.contains("show"), null, { timeout: 60000 }).catch(() => {});
@@ -2014,9 +2016,16 @@ async function putAwayButton(p) {
   check("trap: after a reload the same train is held, and the player isn't told again", reloaded.held === "room/room/held" && reloaded.said.length === 0, JSON.stringify(reloaded));
   const E = reloaded.E;
   // Harness shortcut: the run-ahead helper again (the page was reloaded); it's the same as above.
-  await p.evaluate(async ({ forest, sawmill }) => {
+  await p.evaluate(async ({ forestAt, sawmillAt }) => {
     const w = window.woodrail;
     const { PILE_CAP } = await import("/src/economy/constants.ts");
+    // (The two places found where they stand: their ids were given out afresh on loading.)
+    const placeAt = ([x, z]) => {
+      for (const id of w.layout.pieceIds()) { const q = w.layout.getPiece(id).pose; if (Math.hypot(q.x - x, q.z - z) < 1) return w.economy.depotAtPiece(id)?.id ?? -1; }
+      return -1;
+    };
+    const forest = placeAt(forestAt);
+    const sawmill = placeAt(sawmillAt);
     const { CARGO } = await import("/src/economy/cargo.ts");
     window.__run = (secs) => {
       let goods = 0;
@@ -2121,11 +2130,13 @@ async function runMode(mode) {
   }
   /**
    * Each check on its own: one that can't set up, or throws, fails only itself ("<name>: ran to the end") and the run
-   * goes on. Then what it laid is taken up (harness shortcut, setup only: its trains, then its pieces, places with
-   * them), so the small Sandbox map has room for the next, whatever the checks before did.
+   * goes on. Then what it laid is taken up (harness shortcut, setup only: the trains on it, then its pieces, places
+   * with them), so the small Sandbox map has room for the next, whatever the checks before did.
    */
   const step = async (name, fn) => {
-    const before = await p.evaluate(() => ({ pieces: [...window.woodrail.layout.pieceIds()], trains: window.woodrail.sim.trainIds() }));
+    // (Pieces by type and where they lie: a reload, as some checks make, gives out piece and car ids afresh.)
+    const pieceKeys = () => p.evaluate(() => [...window.woodrail.layout.pieceIds()].map((i) => { const q = window.woodrail.layout.getPiece(i); return `${q.type}@${Math.round(q.pose.x)},${Math.round(q.pose.z)}`; }));
+    const before = await pieceKeys();
     try {
       await fn();
     } catch (e) {
@@ -2135,10 +2146,11 @@ async function runMode(mode) {
     const left = await p.evaluate((before) => {
       const w = window.woodrail;
       w.paused = false;
-      if (w.interaction.mode.kind !== "idle") w.interaction.arm?.(null);
-      for (const id of w.sim.trainIds()) if (!before.trains.includes(id)) w.sim.removeTrain(id);
+      const key = (i) => { const q = w.layout.getPiece(i); return `${q.type}@${Math.round(q.pose.x)},${Math.round(q.pose.z)}`; };
+      const ids = [...w.layout.pieceIds()].filter((i) => !before.includes(key(i))).reverse();
+      // Trains standing on what's taken up go first (a train put down on the seed's own track stays).
+      for (const id of w.sim.trainIds()) if (w.sim.getTrain(id).bogies.some((b) => ids.includes(b.pieceId))) w.sim.removeTrain(id);
       w.economy.prune();
-      const ids = [...w.layout.pieceIds()].filter((id) => !before.pieces.includes(id)).reverse();
       // (A piece may hold up another, as points hold their roads: taken up over a few passes.)
       for (let pass = 0; pass < 4; pass++) for (const id of ids) if (w.layout.getPiece(id)) w.editor().remove(id);
       w.invalidate();
