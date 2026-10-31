@@ -43,7 +43,7 @@ export type TrainState =
    * that train's line (its name; "" for none, or one too long); its line has too many trains for its room; or a parked
    * train (lever off) is in the way.
    */
-  | { kind: "stuck"; why: "in-way"; line: string }
+  | { kind: "stuck"; why: "in-way"; line: string; loop: boolean }
   | { kind: "stuck"; why: "too-many" }
   | { kind: "stuck"; why: "parked" }
   | { kind: "held-up" }
@@ -114,7 +114,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
         return { kind: "stuck", why: "too-many" };
       }
       if (s.kind === "parked") return { kind: "stuck", why: "parked" };
-      return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by) };
+      return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop };
     }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
   if (train.speed < 1)
@@ -261,7 +261,8 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
     case "stuck":
       if (s.why === "too-many") return "Stuck: too many trains for this line. Put one away or add a loop";
       if (s.why === "parked") return `Stuck: ${SPARE_CUT}`;
-      return `Stuck: ${s.line ? `the train on the ${s.line}` : "another train"} is in the way. Put one away`;
+      // (Two lines' trains with no passing loop where they meet: one lets them pass. Else moving one is the fix.)
+      return `Stuck: ${s.line ? `the train on the ${s.line}` : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : "Put one away"}`;
     case "red-switch":
       return "A red switch is in the way. Tap and hold it to unpin";
     case "needs-loop":
@@ -313,13 +314,13 @@ export function trainsForReport(sim: Sim, economy: Economy, layout: Layout, cant
 }
 
 /**
- * The tip when two trains first meet head on: what lets them pass (a passing loop with signals), or the blueprint to
- * learn for it first. `learned`: Game mode's blueprints (null in Sandbox, where everything's at hand).
+ * The tip when two trains first meet head on: what lets them pass (a passing loop: trains meet there, each on its own
+ * road, whatever their lines; no signals needed), or the blueprint to learn for it first. `learned`: Game mode's
+ * blueprints (null in Sandbox, where everything's at hand).
  */
 export function headOnTip(learned: ReadonlySet<string> | null): string {
-  if (!learned || learned.has("signals")) return "Trains met head on. A passing loop with signals lets them pass";
-  if (learned.has("switches")) return "Trains met head on. Learn Signals so they can pass on a loop";
-  return "Trains met head on. Learn Switches, then Signals, so they can pass";
+  if (!learned || learned.has("switches")) return "Trains met head on. A passing loop lets trains pass";
+  return "Trains met head on. Learn Switches, so they can pass on a loop";
 }
 
 /**

@@ -54,6 +54,11 @@ export interface Scenario {
   seconds: number;
   /** The longest a lever-on train may stand still (seconds) before it counts as stuck (default 60, §12). */
   maxStill?: number;
+  /**
+   * Harness-only: each line works its single track alone (`Sections.shared` off), so the router's own wait at points is
+   * what's tested. In the game, sections hold such a train at its slot's end first (single-line working across lines).
+   */
+  ownLines?: boolean;
 }
 
 /** The invariants checked every tick (§12). */
@@ -67,6 +72,8 @@ export interface Report {
   name: string;
   /** Per invariant: how many times it broke, and the first few, in words. */
   broke: Record<Invariant, { count: number; first: string[] }>;
+  /** Per train: how long (ticks) it stood with its lever on, held by sections (`Sections.waitOf`). */
+  held: number[];
   /** Per train (in `trains` order): stops come to, turn-backs, the longest stand-still (s). */
   arrivals: number[];
   /** Of those, the ones made with the engine not leading (pushing its cars). */
@@ -170,6 +177,7 @@ export class HarnessRun {
   private readonly front: { train: number; sign: number; pieceId: number }[];
   private readonly lastTurn: number[];
   private traj = 0x811c9dc5;
+  private readonly ownLines: boolean;
   private routerMs = 0;
 
   constructor(
@@ -196,6 +204,7 @@ export class HarnessRun {
     this.polled = (built.events ?? []).filter((e) => e.when);
     this.watch = new Set(built.watch ?? []);
     this.maxStill = scenario.maxStill ?? 60;
+    this.ownLines = !!scenario.ownLines;
     const none = () => ({ count: 0, first: [] as string[] });
     this.report = {
       name: scenario.name,
@@ -221,6 +230,7 @@ export class HarnessRun {
       tapKept: false,
       trajectory: "",
       waited: this.specs.map(() => 0),
+      held: this.specs.map(() => 0),
       stoodFrom: this.specs.map(() => ({ near: Infinity, far: -Infinity })),
       waits: 0,
       stalls: { begun: 0, stuck: this.specs.map(() => 0), why: this.specs.map(() => null) },
@@ -276,7 +286,9 @@ export class HarnessRun {
           i = (i + 1) % r.stops.length;
         }
       },
+      restsAt: (pieceId) => this.router.defaultOf(pieceId),
     });
+    this.sections.shared = !this.ownLines;
     // (Sections' cap, and the router's: short of points it waits for, §3.3.)
     sim.speedCap = (train) => Math.min(this.sections.cap(train), this.router.speedCap(train));
     this.router = new Router({
@@ -535,6 +547,7 @@ export class HarnessRun {
         if (s === Math.round(this.maxStill * SIM_HZ)) this.broke("deadlock", `train ${k} still for ${this.maxStill} s on piece ${t.bogies[0].pieceId}`);
       } else this.still[k] = 0;
       const wait = this.sections.waitOf(engine);
+      if (wait && t.speed === 0 && net !== 0) this.report.held[k]++;
       if (wait && "engine" in wait && !sim.findCar(wait.engine)) this.broke("deadlock", `train ${k} waits (${wait.kind}) for a train that isn't there`);
       const rw = this.router.waitOf(engine);
       if (rw?.kind === "points" && t.speed === 0 && net !== 0) {

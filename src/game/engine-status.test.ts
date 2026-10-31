@@ -309,10 +309,10 @@ describe("a train just told to go", () => {
 
 describe("headOnTip", () => {
   it("points to Signals, or to what comes before them", () => {
-    expect(headOnTip(new Set())).toBe("Trains met head on. Learn Switches, then Signals, so they can pass");
-    expect(headOnTip(new Set(["switches"]))).toBe("Trains met head on. Learn Signals so they can pass on a loop");
-    expect(headOnTip(new Set(["switches", "signals"]))).toBe("Trains met head on. A passing loop with signals lets them pass");
-    expect(headOnTip(null)).toContain("signals");
+    expect(headOnTip(new Set())).toBe("Trains met head on. Learn Switches, so they can pass on a loop");
+    expect(headOnTip(new Set(["switches"]))).toBe("Trains met head on. A passing loop lets trains pass");
+    expect(headOnTip(new Set(["switches", "signals"]))).toBe("Trains met head on. A passing loop lets trains pass");
+    expect(headOnTip(null)).toBe("Trains met head on. A passing loop lets trains pass");
   });
 });
 
@@ -429,6 +429,37 @@ describe("stuck for good (stalls.ts; routing §16 Q3: nothing turns a train back
     for (const e of [red, blue]) expect(sim.findCar(e)!.train.lastTurn).toBeUndefined();
     // (Told once, for both.)
     expect(told).toEqual([[red, blue].sort((a, b) => a - b)]);
+  });
+
+  it("two lines' trains head on, A to B both, no passing loop: they stand; each card says to add a loop (one lets them pass)", () => {
+    const layout = new Layout();
+    const ids = loopChain(layout, ["depot-forest", ...Array<PieceTypeId>(6).fill("straight-216"), "depot-sawmill"]);
+    appendPiece(layout, "buffer-turnback", false, connectorRef(ids[0], 0));
+    appendPiece(layout, "buffer-turnback", false, connectorRef(ids[ids.length - 1], 1));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const forest = economy.addDepot("forest", ids[0]);
+    const mill = economy.addDepot("sawmill", ids[ids.length - 1]);
+    const place = (pieceId: number, reversed: boolean) => {
+      const r = sim.addTrain(["engine", "timber"], { pieceId, pathIndex: 0, reversed, s: 100 });
+      if (r.kind !== "placed") throw new Error("no room");
+      return sim.getTrain(r.trainId)!.cars[0].id;
+    };
+    const red = place(ids[2], false);
+    const blue = place(ids[ids.length - 3], true);
+    startLine(economy, red, [{ depotId: forest.id, action: "both" }, { depotId: mill.id, action: "both" }]);
+    startLine(economy, blue, [{ depotId: forest.id, action: "both" }, { depotId: mill.id, action: "both" }]);
+    economy.routeOf(red)!.next = 1;
+    economy.routeOf(blue)!.next = 0;
+    sim.setLever(red, 1);
+    sim.setLever(blue, 1);
+    for (let k = 0; k < 30 * 120; k++) {
+      sim.tick();
+      economy.tick();
+    }
+    const said = [red, blue].map((e) => engineStatus(sim, economy, e, () => "the stop"));
+    expect(said).toEqual(["Stuck: the train on the Blue line is in the way. Add a passing loop here", "Stuck: the train on the Red line is in the way. Add a passing loop here"]);
+    for (const e of [red, blue]) expect(sim.findCar(e)!.train.lastTurn).toBeUndefined();
   });
 });
 

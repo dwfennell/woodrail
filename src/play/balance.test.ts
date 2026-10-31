@@ -60,7 +60,10 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * (`unstick`, `shopThrough`), BALANCE_NOFILL=1 leaves a goods engine's spare pull empty, and BALANCE_NORUINS=1 never
  * restores an old industry's ruin (`restoreOld`: map sites step 2), building new ones as before. BALANCE_SPUR=1 (an A/B,
  * off by default) also lays a short spur to a ruin no line end reaches, its switch set by hand before Routes (`tendSpur`);
- * BALANCE_SPUR=routes, the same spur with Routes learned before Mills instead.
+ * BALANCE_SPUR=routes, the same spur with Routes learned before Mills instead. The people train (the second train, two
+ * coaches) runs a line of its own through the towns once routes are learned (`peopleLine`); BALANCE_PEOPLE_HAND=1 runs
+ * it by hand (lever on, no route) instead. Two trains stuck with no loop to meet at, the card says "Add a passing loop
+ * here" and the player lays one there (or picks the people train up meanwhile, and puts it back on the loop once laid).
  *
  * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
  *
@@ -377,6 +380,8 @@ class Player {
   heldSeconds = 0;
   /** Train-seconds held by sections (waiting for a section or slot; held for want of a loop: `roomSeconds`). */
   sectionSeconds = 0;
+  /** Seconds each engine stood with a sections wait (for another train, at a slot's end). */
+  readonly stoodWaiting = new Map<number, number>();
   roomSeconds = 0;
   /** Head-on meetings (a train held nose to nose by another, each meeting once), and arrivals of line trains at their stops. */
   headOn = 0;
@@ -640,6 +645,7 @@ class Player {
       for (const engine of this.w.economy.lineIdOf.keys()) {
         const sw = this.w.economy.sectionWait(engine);
         if (sw) this.sectionSeconds++;
+        if (sw && (this.w.sim.findCar(engine)?.train.speed ?? 0) < 1) this.stoodWaiting.set(engine, (this.stoodWaiting.get(engine) ?? 0) + 1);
         if (sw?.kind === "room") this.roomSeconds++;
         const at = !!this.w.economy.routeOf(engine)?.at;
         const key = JSON.stringify(sw);
@@ -869,6 +875,8 @@ const LOOP_MAX = 1600;
  * for a plain engine's 4 cars no longer counts for the line once the goods train has 8, and the line has no room).
  */
 const LONGEST_GOODS = CAR_SPECS.engine.length + 8 * CAR_SPECS.passenger.length + 8 * COUPLER_GAP;
+/** The people train (an engine, two coaches): the passing loop laid for it holds it. */
+const LONGEST_PEOPLE = CAR_SPECS.engine.length + 2 * CAR_SPECS.passenger.length + 2 * COUPLER_GAP;
 
 /**
  * A passing loop on the line (P5 (h)), as a player lays one for two trains on a line: two straights of the line a
@@ -1143,7 +1151,7 @@ function spurTo(P: Player, at: { x: number; z: number }, targets: () => number[]
  * become a switch, the main road (straights), the other road round beside it (a curve, straights, a curve) and a
  * switch, made at the workshop. The loop's pieces, or null with everything put back.
  */
-function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0, avoid: ReadonlySet<number> = new Set()): number[] | null {
+function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0, avoid: ReadonlySet<number> = new Set(), near?: { x: number; z: number }): number[] | null {
   const w = P.w;
   const L = w.layout;
   if (!P.canMake(new Map([["piece:switch", 2]]))) return null;
@@ -1154,7 +1162,7 @@ function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0, avoid
   };
   // Runs of straights on the line's ways between stops: first where the main road holds the line's longest train
   // (`longest`, mm) clear of both switches, then clear of the stops, then longest, then nearest the middle.
-  const runs: { ids: number[]; mid: number; clear: boolean; fits: boolean }[] = [];
+  const runs: { ids: number[]; mid: number; clear: boolean; fits: boolean; off: number }[] = [];
   for (const n of [4, 3])
     for (const leg of lineLegs(L, stopPieces)) {
       const ids: number[] = [];
@@ -1163,10 +1171,12 @@ function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0, avoid
         const run = ids.slice(k, k + n);
         if (run.some((id) => P.fixed.has(id) || avoid.has(id) || L.getPiece(id)!.type !== "straight-216" || w.sim.pieceOccupied(id))) continue;
         // (Clear of the stops at either end by two pieces: a long train worked at a stop creeps on past it.)
-        runs.push({ ids: run, mid: Math.abs(k + n / 2 - ids.length / 2), clear: k >= 3 && k + n <= ids.length - 3, fits: (n === 4 ? 576 : 360) >= longest + 12 });
+        const q = L.getPiece(run[Math.floor(n / 2)])!.pose;
+        runs.push({ ids: run, mid: Math.abs(k + n / 2 - ids.length / 2), clear: k >= 3 && k + n <= ids.length - 3, fits: (n === 4 ? 576 : 360) >= longest + 12, off: near ? Math.hypot(q.x - near.x, q.z - near.z) : 0 });
       }
     }
-  runs.sort((a, b) => Number(b.fits) - Number(a.fits) || Number(b.clear) - Number(a.clear) || b.ids.length - a.ids.length || a.mid - b.mid);
+  // (`near`: where trains are stuck, the card saying "Add a passing loop here": the nearest run there that holds them.)
+  runs.sort((a, b) => Number(b.fits) - Number(a.fits) || (near ? a.off - b.off : 0) || Number(b.clear) - Number(a.clear) || b.ids.length - a.ids.length || a.mid - b.mid);
   const rules = P.rules();
   /** The end joined to piece `id` other than by piece `not`. */
   const outer = (id: number, not: number): number => {
@@ -1628,6 +1638,20 @@ class Playthrough {
   readonly loopsAt: number[] = [];
   readonly loopPieces = new Set<number>();
   loopsTry = -99;
+  /** Passing loops laid because a stuck card said to (minutes), and when one was last tried. */
+  readonly stuckLoops: number[] = [];
+  stuckLoopTry = -99;
+  /** A stuck card said to add a loop and none could be laid then: the train was picked up, the loop's still to lay. */
+  loopOwed = false;
+  /** People trains put back on once a loop for them was laid. */
+  peopleBack = 0;
+  /** The pieces of the last passing loop laid for a stuck card (the people train is put back on it). */
+  stuckLoop: number[] = [];
+  /** When the goods train's waiting was last looked at (minutes), and its seconds stood waiting then. */
+  waitLookAt = -99;
+  stoodAt = 0;
+  /** Where trains were last stuck, the card saying to add a loop there. */
+  stuckAt: { x: number; z: number } | null = null;
   recomposed = -99;
   /** Minutes in a row with nothing new. */
   idle = 0;
@@ -1774,7 +1798,42 @@ class Playthrough {
     // A train of the player's stuck (stalls.ts: nothing turns a train back now, routing §16 Q3), its card saying so and
     // "Put one away": looked at once a minute, the player does, the newest first (as for a jam, below).
     const stuck = [...this.trains.keys()].find((e) => w.economy.stalls.stuckOf(e));
-    if (stuck !== undefined && this.trains.size >= 2 && !ENV.BALANCE_NOJAMCUT && !this.goods2On()) {
+    // (The card says "Add a passing loop here" (two lines' trains, or one on no line, with no loop to meet at): the
+    // player lays one on the line, as for a second train (`spliceLoop`), once the switches can be made, rather than
+    // picking a train up. Still stuck with a loop there, the card says "Put one away", and the player does, below.)
+    const fix = stuck === undefined ? null : w.economy.stalls.stuckOf(stuck);
+    let laidFor = false;
+    const owed = this.loopOwed && P.minute - this.stuckLoopTry >= 3;
+    if (((fix?.kind === "in-way" && fix.loop && P.minute - this.stuckLoopTry >= 3) || owed) && this.lines && this.lineId >= 0 && !ENV.BALANCE_NOJAMCUT) {
+      this.stuckLoopTry = P.minute;
+      const line = w.economy.lines.get(this.lineId);
+      const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
+      const longest = Math.max(450, LONGEST_PEOPLE, ...[...this.trains.keys()].map((e) => (w.sim.findCar(e) ? trainLength(w.sim.findCar(e)!.train) : 0)));
+      const said = stuck === undefined ? "" : engineStatus(w.sim, w.economy, stuck, () => "");
+      // ("Here": between the stuck train and the one in its way. Owed, where they stood.)
+      if (stuck !== undefined && fix?.kind === "in-way") {
+        const a = w.sim.findCar(stuck)?.train.world[0];
+        const b = w.sim.findCar(fix.by)?.train.world[0];
+        if (a && b) this.stuckAt = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+      }
+      const loop = spliceLoop(P, stops, longest, this.loopPieces, this.stuckAt ?? undefined);
+      if (loop) {
+        P.happened++;
+        laidFor = stuck !== undefined;
+        this.loopOwed = false;
+        this.stuckLoops.push(Math.round(P.minute));
+        this.stuckLoop = loop;
+        for (const id of loop) this.loopPieces.add(id);
+        P.findings.push(`Minute ${P.minute.toFixed(0)}: ${owed ? "the passing loop a stuck card asked for" : `trains stuck ("${said}")`}. Laid a passing loop on the line.`);
+        P.note(`${owed ? "the passing loop the stuck card asked for" : `STUCK TRAINS: "${said}"`}; laid a passing loop on the line (${loop.length} pieces)`);
+        this.sawnAt = P.minute;
+      } else if (!owed) {
+        // (No room, or the switches can't be made yet: the train is picked up meanwhile (below), the loop laid later.)
+        this.loopOwed = true;
+        P.note(`STUCK TRAINS: "${said}"; COULDN'T lay a passing loop yet (no room, or 2 switches to make)`);
+      }
+    }
+    if (stuck !== undefined && !laidFor && this.trains.size >= 2 && !ENV.BALANCE_NOJAMCUT && !this.goods2On()) {
       const [e, kind] = [...this.trains].find(([, k]) => k === "goods 2") ?? [...this.trains].find(([id]) => id !== this.timber) ?? [];
       if (e !== undefined) {
         const said = engineStatus(w.sim, w.economy, stuck, () => "");
@@ -1792,8 +1851,11 @@ class Playthrough {
       this.sawn = sawn;
       this.sawnAt = P.minute;
     } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2 && !ENV.BALANCE_NOJAMCUT && !this.goods2On()) {
-      // (The newest first: a second goods train before the people train, which came before it.)
-      const [e, kind] = [...this.trains].find(([, k]) => k === "goods 2") ?? [...this.trains].find(([id]) => id !== this.timber) ?? [];
+      // (The newest first: a second goods train before the people train, which came before it. Not the people train
+      // on a line of its own with nothing stuck: the two lines wait for each other at the passing loop, by the rules,
+      // and the stuck rule above sees to a jam.)
+      const own = (id: number) => this.trains.get(id) === "people" && this.peopleBack > 0 && w.economy.stalls.count === 0;
+      const [e, kind] = [...this.trains].find(([, k]) => k === "goods 2") ?? [...this.trains].find(([id]) => id !== this.timber && !own(id)) ?? [];
       if (e !== undefined) {
         P.lift(e);
         this.trains.delete(e);
@@ -2112,7 +2174,43 @@ class Playthrough {
         const e = P.train(cars, spot, 1);
         if (typeof e === "number") {
           this.trains.set(e, cars.includes("passenger") ? "people" : "timber 2");
-          P.note(`second train (${cars.join(", ")}) set going`);
+          P.note(`second train (${cars.join(", ")}) set going${cars.includes("passenger") ? this.peopleLine(e) : ""}`);
+        }
+      }
+    }
+    // The goods train standing a good while waiting for the people train (its card: "Waiting for the train on the Blue
+    // line"): looked at every 10 minutes, 2 minutes of waiting or more, the player lays another passing loop where it
+    // waits (up to 4 for the two lines).
+    if (P.minute - this.waitLookAt >= 10) {
+      this.waitLookAt = P.minute;
+      const stood = P.stoodWaiting.get(this.timber) ?? 0;
+      const found = w.sim.findCar(this.timber);
+      if (stood - this.stoodAt >= 120 && this.stuckLoops.length > 0 && this.stuckLoops.length < 4 && found && [...this.trains.values()].includes("people") && this.lineId >= 0) {
+        const line = w.economy.lines.get(this.lineId);
+        const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
+        const longest = Math.max(450, LONGEST_PEOPLE, ...[...this.trains.keys()].map((e) => (w.sim.findCar(e) ? trainLength(w.sim.findCar(e)!.train) : 0)));
+        const at = found.train.world[0];
+        const loop = spliceLoop(P, stops, longest, this.loopPieces, { x: at.x, z: at.z });
+        if (loop) {
+          P.happened++;
+          this.stuckLoops.push(Math.round(P.minute));
+          for (const id of loop) this.loopPieces.add(id);
+          P.note(`the goods train stood ${((stood - this.stoodAt) / 60).toFixed(1)} min in 10 waiting for the people train: laid another passing loop where it waits (${loop.length} pieces)`);
+        } else P.note(`the goods train stood ${((stood - this.stoodAt) / 60).toFixed(1)} min in 10 waiting for the people train: COULDN'T lay another passing loop (no room, or 2 switches to make)`);
+      }
+      this.stoodAt = stood;
+    }
+    // The people train picked up when stuck, put back on once the passing loop its card asked for is laid.
+    if (this.stuckLoops.length > this.peopleBack && this.trains.size < 2 && engines > 0 && s.learned.has("passengers") && ![...this.trains.values()].includes("people")) {
+      const cars: CarKind[] = ["engine", "passenger", "passenger"];
+      // (On the passing loop, out of the goods train's way: where two trains wait for each other to pass.)
+      const spot = this.stuckLoop.find((id) => w.layout.getPiece(id)?.type === "straight-216" && !w.sim.pieceOccupied(id));
+      if (spot !== undefined && P.canMake(thingsFor({ kind: "train", cars }))) {
+        const e = P.train(cars, spot, 1);
+        if (typeof e === "number") {
+          this.peopleBack++;
+          this.trains.set(e, "people");
+          P.note(`the people train put back on, the line's passing loop laid${this.peopleLine(e)}`);
         }
       }
     }
@@ -2127,7 +2225,7 @@ class Playthrough {
         const n = P.train(["engine", "passenger", "passenger"], on, 1);
         if (typeof n === "number") {
           this.trains.set(n, "people");
-          P.note("the second train is now a passenger train (engine, 2 coaches)");
+          P.note(`the second train is now a passenger train (engine, 2 coaches)${this.peopleLine(n)}`);
         } else P.note(`passenger train: ${n}`);
       }
     }
@@ -2967,6 +3065,21 @@ class Playthrough {
   }
 
   /** Give each train a line: the depots along the track in order, there and back, "auto" (the intent rules). */
+  /**
+   * The people train's own line, once routes are learned: the towns' stations along the track, there and back (as a
+   * player routes a passenger train). Else it runs by hand (lever on), as before routes. Returns words for the note.
+   */
+  peopleLine(e: number): string {
+    const P = this.p;
+    const w = P.w;
+    if (!this.lines || ENV.BALANCE_PEOPLE_HAND) return "";
+    const towns = lineOrder(P).filter((d) => w.economy.depot(d)?.role === "town");
+    if (towns.length < 2) return "";
+    const order = [...towns, ...towns.slice(1, -1).reverse()];
+    startLine(w.economy, e, order.map((depotId) => ({ depotId, action: "auto" as const })));
+    return `, on a line of its own (${towns.length} towns and back)`;
+  }
+
   routeGoods(): void {
     const P = this.p;
     const w = P.w;
@@ -2984,7 +3097,8 @@ class Playthrough {
     const stops: RouteStopDef[] = [...order, ...back].map((depotId) => ({ depotId, action: "auto" as const }));
     for (const kind of this.nearestPickup) onlyNearestPickup(w, stops, kind);
     // One line for every train (with routes-lines' auto-spacing to spread them out); its stops follow the track.
-    const live = [...this.trains.keys()].filter((e) => w.sim.findCar(e));
+    // (Not the people train on a line of its own: `peopleLine`.)
+    const live = [...this.trains.keys()].filter((e) => w.sim.findCar(e) && !(this.trains.get(e) === "people" && this.lineId >= 0 && (w.economy.lineIdOf.get(e) ?? this.lineId) !== this.lineId));
     if (live.length === 0) return;
     if (this.lineId < 0 || !w.economy.lines.has(this.lineId)) this.lineId = startLine(w.economy, live[0], stops.map((x) => ({ ...x }))).id;
     for (const e of live) joinLine(w.economy, e, this.lineId);
@@ -3024,7 +3138,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : `${Math.round(this.goods2At)} for ${this.goods2For}`}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min onlyNearest ${[...this.nearestPickup].join("+") || "-"} shopOff ${this.shopShut} townGap ${(P.townGap / 60).toFixed(1)}min loops ${this.loopsAt.join("/") || "-"} headOn ${P.headOn} lineHeadOn ${P.headOnLine} stalls ${w.economy.stalls.begun} stuck ${(P.stuckSeconds / 60).toFixed(1)}min lineStall ${P.lineStall.toFixed(1)} arrivals ${P.arrivals} sectionWait ${(P.sectionSeconds / 60).toFixed(1)}min roomWait ${(P.roomSeconds / 60).toFixed(1)}min releases ${w.economy.sections.released}${ENV.BALANCE_TIMING ? ` capUs ${w.economy.sections.capCalls ? ((1000 * w.economy.sections.capMs) / w.economy.sections.capCalls).toFixed(2) : "-"} capCalls ${w.economy.sections.capCalls}` : ""}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : `${Math.round(this.goods2At)} for ${this.goods2For}`}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min onlyNearest ${[...this.nearestPickup].join("+") || "-"} shopOff ${this.shopShut} townGap ${(P.townGap / 60).toFixed(1)}min loops ${this.loopsAt.join("/") || "-"} stuckLoops ${this.stuckLoops.join("/") || "-"} headOn ${P.headOn} lineHeadOn ${P.headOnLine} stalls ${w.economy.stalls.begun} stuck ${(P.stuckSeconds / 60).toFixed(1)}min lineStall ${P.lineStall.toFixed(1)} arrivals ${P.arrivals} sectionWait ${(P.sectionSeconds / 60).toFixed(1)}min roomWait ${(P.roomSeconds / 60).toFixed(1)}min releases ${w.economy.sections.released}${ENV.BALANCE_TIMING ? ` capUs ${w.economy.sections.capCalls ? ((1000 * w.economy.sections.capMs) / w.economy.sections.capCalls).toFixed(2) : "-"} capCalls ${w.economy.sections.capCalls}` : ""}`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} (${P.researchStallCause.goodsTrains} goods train(s), ${P.researchStallCause.stops} stops${P.researchStallCause.planks ? ", short of planks" : ""}) school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,

@@ -375,6 +375,7 @@ export class Economy {
           i = (i + 1) % r.stops.length;
         }
       },
+      restsAt: (pieceId) => this.router.defaultOf(pieceId),
     });
     this.router = new Router({
       layout,

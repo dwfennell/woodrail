@@ -79,6 +79,25 @@ const OTHERS: Case[] = [
     scenario,
     checks: { "payoff: both at their stops": arrivals(1), "the follower waited at the points": (r: Report) => expect(r.waited[1]).toBeGreaterThan(0), "never stuck": noStall },
   })),
+  // (Single-line working across lines, as in the game: the one behind is held by sections at its slot's end, short of
+  // the points, while the first holds the junction; the router never needs to stop it.)
+  {
+    scenario: S.followerOtherRoadShared,
+    checks: {
+      "payoff: both at their stops": arrivals(1),
+      "the follower waited at its slot's end, held by sections": (r: Report) => expect(r.held[1]).toBeGreaterThan(0),
+      "never stuck": noStall,
+    },
+  },
+  {
+    scenario: S.followerSameRoadShared,
+    // (X's siding is a line end: it holds one train. The follower waits for it to be clear, not running in behind the
+    // first, which would have no way back out.)
+    checks: {
+      "the first at its stop; the follower waits for X's siding": (r) => expect(r.arrivals).toEqual([1, 0]),
+      "the follower waited at its slot's end, held by sections": (r: Report) => expect(r.held[1]).toBeGreaterThan(0),
+    },
+  },
   {
     scenario: S.twoRoadsOneSwitch,
     checks: {
@@ -180,6 +199,46 @@ const OTHERS: Case[] = [
   { scenario: S.removedUnderLock, checks: { "payoff: on to Town (10+ stops)": arrivals(10) } },
 ];
 
+/**
+ * Single-line working across lines (sections shared by every line on a network, and trains on no line going the way
+ * the points lie): one train in each stretch of single track, and trains meet at the loops, taking different roads.
+ */
+const SHARED: Case[] = [
+  {
+    scenario: S.twoLinesOneLoop,
+    checks: { "payoff: 80+ stops each in 30 min": arrivals(80), "they pass at the loop: never stuck": noStall, "turns back only at the buffers": endsOnly },
+  },
+  {
+    scenario: S.threeLinesTwoLoops,
+    checks: { "payoff: 50+ stops each in 30 min": arrivals(50), "they pass at the loops: never stuck": noStall, "turns back only at the buffers": endsOnly },
+  },
+  {
+    scenario: S.twoLinesThreeTrains,
+    checks: { "payoff: 50+ stops each in 30 min": arrivals(50), "they pass at the loops: never stuck": noStall, "turns back only at the buffers": endsOnly },
+  },
+  {
+    scenario: S.linelessWithLine,
+    checks: {
+      "payoff: the line's train 80+ stops in 30 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(80),
+      "the hand-run one keeps going: 80+ turns at the buffers": (r) => expect(r.turns[1].buffer).toBeGreaterThanOrEqual(80),
+      "they pass at the loop: never stuck": noStall,
+      "turns back only at the buffers": endsOnly,
+    },
+  },
+  {
+    scenario: S.twoLinesNoLoop,
+    // (No passing place: each stands where it is, waiting for the other's end of the line, stuck in its way; the card
+    // says to add a passing loop, engine-status.ts.)
+    checks: {
+      "turns back only at the buffers": endsOnly,
+      "both stand, stuck in each other's way": (r) => {
+        expect(r.stalls.why).toEqual(["in-way", "in-way"]);
+        expect(r.stalls.begun).toBe(1);
+      },
+    },
+  },
+];
+
 /** The router's cost: mean µs per tick over the §8 runs (10 µs a steer every 8 ticks, today: about 1–2 µs a tick). */
 const ROUTER_US = 25;
 
@@ -217,6 +276,7 @@ function show(r: Report): void {
 
 describe("§8 kid automations: 30 game minutes, no wait over 20 s", () => KID.forEach(describeCase));
 describe("§12 scenarios", () => OTHERS.forEach(describeCase));
+describe("single-line working across lines: 30 game minutes, no wait over 20 s", () => SHARED.forEach(describeCase));
 
 describe("the checks catch what they're for (controls)", () => {
   it("points thrown under a train: a split, and a throw under a train", () => {
@@ -237,7 +297,7 @@ describe("the checks catch what they're for (controls)", () => {
 
 describe("every expected failure names a step", () => {
   it("and names a check the case has", () => {
-    for (const c of [...KID, ...OTHERS]) {
+    for (const c of [...KID, ...OTHERS, ...SHARED]) {
       const names = new Set<string>([...INVARIANTS, ...Object.keys(c.checks ?? {})]);
       for (const [name, step] of Object.entries(c.fails ?? {})) {
         expect(names.has(name), `${c.scenario.name}: ${name}`).toBe(true);

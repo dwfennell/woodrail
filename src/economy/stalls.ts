@@ -7,7 +7,7 @@ import { CHECK_TICKS, type Sections } from "./sections";
  *
  * - **A ring:** trains each waiting on the next, round to the first (two nose to nose on single track is the smallest).
  *   Its trains, and those waiting on one of them, are stuck "in the way" of each other: one must be moved or put away
- *   (a passing loop alone doesn't help two lines' trains: nothing has them wait for each other there).
+ *   (unless they're two lines' trains with no passing loop where they meet: then laying one is the fix).
  * - **Too many trains:** a chain of waits ending at a train its line has no room for (sections' room rule holds it), the
  *   line over room: "too many" for the line.
  * - **Parked:** a chain of waits ending at a train standing with its lever off (the player's own): only moving it helps.
@@ -26,8 +26,13 @@ export const STUCK_S = 5;
 
 /** Why a train is stuck. */
 export type Stuck =
-  /** In a ring of waits: `by` (an engine, or the first car of a train with none) is the train in its way. */
-  | { kind: "in-way"; by: number }
+  /**
+   * In a ring of waits: `by` (an engine, or the first car of a train with none) is the train in its way. `loop`: it's
+   * another line's (or a train on no line), and no passing loop is on its line's ways: laying one lets them pass
+   * (single-line working across lines, sections.ts). Else (a loop there, or two trains of one line nose to nose)
+   * moving one is what helps.
+   */
+  | { kind: "in-way"; by: number; loop: boolean }
   /** Its line has more trains than room, and the one held for it is in the way (`lineId`: that line). */
   | { kind: "too-many"; lineId: number }
   /** A train standing with its lever off (`by`) is in the way, of it or of the train it waits for. */
@@ -139,7 +144,7 @@ export class Stalls {
         const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
         if (engine < 0 || !by) continue;
-        found.set(engine, why === "ring" ? { kind: "in-way", by: nameOf(by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
+        found.set(engine, why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
     // (Said once it has held `STUCK_S`.)
@@ -178,6 +183,21 @@ export class Stalls {
       }
     }
     return sim.heldBy(t.id) ?? this.sections.clearWait(t.id);
+  }
+
+  /**
+   * Would a passing loop let `engine`'s train and `by` pass? When they're two lines' trains (or one on no line), and
+   * there's no passing loop on the line's ways for them to meet at: then laying one is the fix. (With a loop there and
+   * still stuck, or two of one line's trains nose to nose, moving one is.)
+   */
+  private loopFixes(engine: number, by: Train): boolean {
+    const mine = this.host.lineOf(engine);
+    const theirs = this.lineEngine(by);
+    const other = theirs >= 0 ? this.host.lineOf(theirs) : -1;
+    if (mine >= 0 && mine === other) return false;
+    const line = mine >= 0 ? mine : other;
+    if (line < 0) return false;
+    return this.sections.passingLoops(line) === 0;
   }
 
   /** A train's engine on a line, else its first engine (−1: none). */
