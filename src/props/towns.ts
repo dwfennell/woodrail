@@ -204,7 +204,7 @@ export function distanceFromCentre(land: Landscape, town: Town, b: Building): nu
 
 /**
  * Give a town's buildings their storeys for its level (see `storeysFor`): the centre tallest, a storey less each ring
- * out. Only props whose storeys change are touched (so only they are drawn again). Returns how many changed.
+ * out (never fewer than a house has, at a level above 0). Only props whose storeys change are touched (so only they are drawn again). Returns how many changed.
  */
 export function setTownStoreys(land: Landscape, town: Town, props: PropStore, level: number): number {
   const byId = new Map(town.buildings.map((b) => [b.id, b]));
@@ -213,7 +213,9 @@ export function setTownStoreys(land: Landscape, town: Town, props: PropStore, le
     if (p.town !== town.id || p.building === undefined) continue;
     const b = byId.get(p.building);
     if (!b) continue;
-    const n = storeysFor(p.asset, level, distanceFromCentre(land, town, b), jitterOf(b.id));
+    // (Never fewer than it has while its town has a size: a house the player moved out from the middle keeps its
+    // storeys, issue #18. A town only grows, so this changes nothing for a house that stayed put.)
+    const n = Math.max(storeysFor(p.asset, level, distanceFromCentre(land, town, b), jitterOf(b.id)), level > 0 ? (p.storeys ?? 0) : 0);
     if ((p.storeys ?? 0) === n) continue;
     props.setStoreys(p.id, n);
     changed++;
