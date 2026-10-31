@@ -1,3 +1,4 @@
+import { installDevChecks } from "./game/dev-checks";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
@@ -241,6 +242,10 @@ let reports: Reporter | null = null;
 
 function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>, cloudNotes: CloudNotes): void {
   const game = new Game(canvas, opening.world);
+  // Dev builds (the dev server, or `?dev`): the train invariants checked as the game runs, a red badge when one breaks
+  // (src/game/dev-checks.ts). In a production build without `?dev` they never run (8.9 KB of the bundle).
+  let devChecks: { frame(): void } | null = null;
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has("dev")) devChecks = installDevChecks(game);
   let mode = opening.mode;
   /** The research pill as last drawn: its key (`pillKey`) and the progress it was for (a new game starts a new one). */
   let pillKeyShown = "";
@@ -3717,6 +3722,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // (The camera tutorial counts the player's own camera moves: told only on frames the camera moved.)
   game.onCameraMoved = () => hud.coach.cameraMoved();
   game.onFrame = (dt) => {
+    devChecks?.frame();
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
     hud.setTrayArrow(interaction.trayArrow(hud.propsTab && !interaction.holdingKit));

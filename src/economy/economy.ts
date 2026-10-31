@@ -340,18 +340,7 @@ export class Economy {
         }
         return live;
       },
-      target: (engine) => {
-        const r = this.routes.get(engine);
-        if (!r || r.stops.length === 0) return -1;
-        let i = r.next % r.stops.length;
-        // (At its stop: the stop after, a different depot.)
-        if (r.at) {
-          const here = r.stops[i].depotId;
-          for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
-        }
-        const d = this.depots[r.stops[i].depotId];
-        return d && this.onMap(d) ? d.pieceId : -1;
-      },
+      target: (engine) => this.routeTarget(engine),
       stopPieces: (lineId) => {
         const line = this.lines.get(lineId);
         const out: number[] = [];
@@ -408,6 +397,29 @@ export class Economy {
   readonly router: Router;
   /** Trains stuck for good (a ring of waits, or a line's held train in the way), for their cards: see stalls.ts. */
   readonly stalls: Stalls;
+
+  /**
+   * Where a routed engine is going: its next stop's piece, or (standing at it) the next different depot's; −1: no
+   * route, or that stop isn't on the map.
+   */
+  routeTarget(engine: number): number {
+    const r = this.routes.get(engine);
+    if (!r || r.stops.length === 0) return -1;
+    let i = r.next % r.stops.length;
+    // (At its stop: the stop after, a different depot.)
+    if (r.at) {
+      const here = r.stops[i].depotId;
+      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+    }
+    const d = this.depots[r.stops[i].depotId];
+    return d && this.onMap(d) ? d.pieceId : -1;
+  }
+
+  /**
+   * Checks run after every tick (the train invariants, src/sim/invariants.ts: dev builds, QA, the play-throughs).
+   * Null in a production build: nothing is checked.
+   */
+  checker: { check(): void } | null = null;
 
   /** Why a routed engine is held by sections (null: it isn't). */
   sectionWait(engine: number): BlockWait | null {
@@ -1469,7 +1481,7 @@ export class Economy {
   }
 
   /** Net drive of a train's engines toward its front (sign only matters). */
-  private drive(train: Train): number {
+  drive(train: Train): number {
     let net = 0;
     for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
     return net;
@@ -1561,6 +1573,8 @@ export class Economy {
     this.router.tick();
     // Trains stuck for good, for their cards (every CHECK_TICKS, with two trains or more).
     this.stalls.tick();
+    // (The invariants, where they're on: they only read.)
+    this.checker?.check();
     // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
     for (const d of this.allDepots()) {
       if (!this.working(d)) {

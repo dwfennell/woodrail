@@ -12,6 +12,8 @@ import { loopOn } from "./loop-fixtures";
 import { next, waysFrom } from "../routing/graph";
 import { planStats } from "../routing/plan";
 import type { Router } from "../routing/router";
+import { economyChecks } from "../game/dev-checks";
+import { INVARIANTS, type Invariant } from "../sim/invariants";
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const TRACE = !!ENV.TRACE;
@@ -29,6 +31,16 @@ if (ROUTERS)
       `QA routing: ${ROUTERS.length} worlds, ${looks} looks, ${((sum((r) => r.ms) * 1000) / Math.max(1, looks)).toFixed(2)} µs a look (locks included); ${sum((r) => r.granted)} locks, ${sum((r) => r.refused)} asks refused, ${sum((r) => r.waitsBegun)} waits at points begun, ${sum((r) => r.restored)} points put back; plan choices ${planStats.choices} worked out, ${planStats.hits} cached, ${planStats.searches} searches`,
     );
   });
+
+/**
+ * The train invariants (src/sim/invariants.ts) on every QA world, as a dev build checks them: each world's breaks, by
+ * the test that made it. INVARIANTS=0 leaves them off.
+ */
+const CHECKED: { test: string; checks: ReturnType<typeof economyChecks> }[] = [];
+function checked(economy: Economy): void {
+  if (ENV.INVARIANTS === "0") return;
+  CHECKED.push({ test: expect.getState().currentTestName ?? "?", checks: economyChecks(economy) });
+}
 
 /** QA's layout builder (scratchpad/qa/ss/lib.js `H.line0`), on a plain Layout. */
 function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTypeId[] | null; branch?: PieceTypeId[]; branchFlips?: boolean[]; eastT?: PieceTypeId[]; sideAt?: boolean }) {
@@ -78,6 +90,7 @@ function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTy
   put("buffer-turnback", false, connectorRef(east[east.length - 1], 1));
   const sim = new Sim(L);
   const economy = new Economy(L, sim);
+  checked(economy);
   if (ROUTERS) {
     economy.router.timing = true;
     ROUTERS.push(economy.router);
@@ -1159,6 +1172,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const reload = (keep: boolean, heldIs = 2) => {
         const sim = new Sim(q.L);
         const economy = new Economy(q.L, sim);
+        checked(economy);
         const depots = [...q.economy.allDepots()].map((d) => economy.addDepot(d.role, d.pieceId, d.townId));
         const told2: string[] = [];
         economy.sections.onFull = (lineId, room, trains, more) => told2.push(`${lineId}:${room}/${trains}/${more}`);
@@ -1292,4 +1306,30 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       // (Before it's put away, the cards say what to do: unpin, or for the one put down, the same.)
       expect([...r.cards].some((c) => c.endsWith("unpin the passing loop's switches so trains can pass"))).toBe(true);
     });
+});
+
+/**
+ * Breaks the invariants found on main when they were first run here (claude/harden-1, 2026-10-31), by the test whose
+ * world broke them, and why. Each is a bug to fix (reported to the CoS); when a fix lands, take its entry off (the
+ * guard below fails on an entry that no longer breaks).
+ */
+const KNOWN_BREAKS: { test: string; invariant: Invariant; why: string }[] = [
+  { test: "random put-downs: no head-ons", invariant: "deadlock", why: "a sections slot wait names a train that isn't there (from 92 s), as the long fuzz's seeds 74, 127, 135, 183 did" },
+  { test: "B5: QA's spare sweep, in order in one world", invariant: "deadlock", why: "a sections slot wait names a train that isn't there (from 5718 s)" },
+  { test: "B5: QA's spare sweep with the trains idle", invariant: "deadlock", why: "a router points wait names a train that isn't there (at 2100 s, points 4)" },
+  { test: "QA's N2: a train taken off its line", invariant: "split", why: "a train put down across a switch's toe: its last axle on the other road (piece 5: axles 1-3 on path 1, axle 4 on path 0 at 10.9 mm, the points at 0)" },
+];
+
+describe("the train invariants (src/sim/invariants.ts)", () => {
+  it.skipIf(ENV.INVARIANTS === "0")("hold in every QA world, but the breaks known on main (KNOWN_BREAKS)", () => {
+    const known = (test: string, k: Invariant) => KNOWN_BREAKS.some((b) => b.invariant === k && test.includes(b.test));
+    const broke: string[] = [];
+    for (const c of CHECKED) for (const k of INVARIANTS) if (c.checks.broke[k].count > 0 && !known(c.test, k)) broke.push(`${c.test}: ${k} ×${c.checks.broke[k].count}: ${c.checks.broke[k].first.join(" | ")}`);
+    if (ENV.SHOW || broke.length > 0) console.log(`QA invariants:\n${CHECKED.filter((c) => c.checks.count > 0).map((c) => `${c.test}: ${c.checks.summary()}`).join("\n")}`);
+    expect(broke, "broken, and not known").toEqual([]);
+    // (Known, its test run, and no longer broken: fixed, so off the list.)
+    const ran = KNOWN_BREAKS.filter((b) => CHECKED.some((c) => c.test.includes(b.test)));
+    const fixed = ran.filter((b) => !CHECKED.some((c) => c.test.includes(b.test) && c.checks.broke[b.invariant].count > 0));
+    expect(fixed.map((b) => `${b.test}: ${b.invariant}`), "known breaks that no longer break (take them off)").toEqual([]);
+  });
 });
