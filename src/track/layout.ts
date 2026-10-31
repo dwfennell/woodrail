@@ -7,6 +7,23 @@ export const connectorRef = (pieceId: number, index: number): number => pieceId 
 export const pieceOfRef = (ref: number): number => Math.floor(ref / MAX_CONNECTORS);
 export const indexOfRef = (ref: number): number => ref % MAX_CONNECTORS;
 
+/** How a signal mark is drawn (docs/superpowers/specs/2026-10-31-signals.md §5). */
+export type SignalStyle = "plain" | "semaphore" | "colour-light";
+export const SIGNAL_STYLES: readonly SignalStyle[] = ["plain", "semaphore", "colour-light"];
+
+/**
+ * A signal the player put on a joint (signals spec §3): not a piece but a mark on a joint between two pieces already
+ * laid, facing one way. `at` is the joint's end on the approach piece (a connector ref): it guards trains crossing the
+ * joint from that piece. A joint takes one signal each way.
+ */
+export interface Signal {
+  readonly id: number;
+  readonly at: number;
+  readonly style: SignalStyle;
+  /** Held at red by hand (a tap). */
+  readonly held: boolean;
+}
+
 export interface PlacedPiece {
   readonly id: number;
   readonly type: PieceTypeId;
@@ -53,6 +70,20 @@ export class Layout {
   private readonly freeConnectors = new SpatialHash(SPATIAL_CELL_SIZE);
   private readonly switchStates = new Map<number, number>();
   private readonly lifted = new Set<number>();
+
+  // ---- signal marks (signals spec §3) ----
+  private nextSignalId = 1;
+  private readonly signalMarks = new Map<number, Signal>();
+  /** The mark on each joint end (`Signal.at`), by id. */
+  private readonly signalByAt = new Map<number, number>();
+  /**
+   * Marks whose joint parted (a piece taken up, lifted to be moved, or a joint broken), kept by their `at` with the end
+   * they were joined to: the same joint made again (undo, a piece put back where it was) brings the mark back.
+   */
+  private readonly stashedSignals = new Map<number, { signal: Signal; partner: number }>();
+
+  /** Bumped whenever a signal mark is added, taken away (or its joint parts), turned round or restyled. */
+  signalsVersion = 0;
 
   get pieceCount(): number {
     return this.pieces.size;
@@ -300,6 +331,7 @@ export class Layout {
     this.joinedTo.set(b, a);
     const lo = Math.min(a, b);
     this.jointMap.set(lo, { a: lo, b: Math.max(a, b), posError: pos, angleError: angle });
+    this.jointMade(a, b);
     for (const ref of parted) this.seatFree(ref);
     return true;
   }
@@ -350,6 +382,7 @@ export class Layout {
     this.joinedTo.delete(partner);
     this.jointMap.delete(Math.min(ref, partner));
     this.jointsVersion++;
+    this.jointParted(ref, partner);
     for (const r of [ref, partner]) {
       const w = this.worldConnector(r, scratchA);
       this.freeConnectors.insert(r, w.x, w.z);
@@ -384,6 +417,110 @@ export class Layout {
       for (let i = 0; i < count; i++) if (this.seatFree(connectorRef(id, i))) seated.push(connectorRef(id, i));
     }
     return seated;
+  }
+
+  // ---- signal marks ----
+
+  get signalCount(): number {
+    return this.signalMarks.size;
+  }
+
+  signals(): IterableIterator<Signal> {
+    return this.signalMarks.values();
+  }
+
+  getSignal(id: number): Signal | undefined {
+    return this.signalMarks.get(id);
+  }
+
+  /** The mark guarding trains that cross a joint from this end of it (a connector ref), if any. */
+  signalAt(at: number): Signal | undefined {
+    if (this.signalMarks.size === 0) return undefined;
+    const id = this.signalByAt.get(at);
+    return id === undefined ? undefined : this.signalMarks.get(id);
+  }
+
+  /**
+   * Put a signal on a joint, guarding trains that cross it from `at`'s piece. Its id, or −1 when `at` isn't one end of
+   * a joint (signals go on joints only) or a signal already faces that way there. `id`: as a save or undo had it.
+   */
+  addSignal(at: number, style: SignalStyle = "plain", held = false, id?: number): number {
+    if (!this.joinedTo.has(at) || this.signalByAt.has(at)) return -1;
+    if (id !== undefined && this.signalMarks.has(id)) return -1;
+    const sid = id ?? this.nextSignalId;
+    if (sid >= this.nextSignalId) this.nextSignalId = sid + 1;
+    this.signalMarks.set(sid, { id: sid, at, style, held });
+    this.signalByAt.set(at, sid);
+    this.stashedSignals.delete(at);
+    this.signalsVersion++;
+    return sid;
+  }
+
+  removeSignal(id: number): boolean {
+    const s = this.signalMarks.get(id);
+    if (!s) return false;
+    this.signalMarks.delete(id);
+    this.signalByAt.delete(s.at);
+    this.signalsVersion++;
+    return true;
+  }
+
+  /** Turn a signal round to face the other way on its joint. False if one already faces that way there. */
+  turnSignal(id: number): boolean {
+    const s = this.signalMarks.get(id);
+    const other = s ? this.joinedTo.get(s.at) : undefined;
+    if (!s || other === undefined || this.signalByAt.has(other)) return false;
+    this.signalByAt.delete(s.at);
+    this.signalByAt.set(other, id);
+    this.signalMarks.set(id, { ...s, at: other });
+    this.signalsVersion++;
+    return true;
+  }
+
+  setSignalStyle(id: number, style: SignalStyle): void {
+    const s = this.signalMarks.get(id);
+    if (!s || s.style === style) return;
+    this.signalMarks.set(id, { ...s, style });
+    this.signalsVersion++;
+  }
+
+  /** Hold a signal at red by hand, or let it go (no version bump: the sim reads holds as it works out aspects). */
+  setSignalHeld(id: number, held: boolean): void {
+    const s = this.signalMarks.get(id);
+    if (s && s.held !== held) this.signalMarks.set(id, { ...s, held });
+  }
+
+  /** A joint parted: its marks are put by, to come back if the same joint is made again. */
+  private jointParted(a: number, b: number): void {
+    if (this.signalMarks.size === 0) return;
+    for (const [at, partner] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const id = this.signalByAt.get(at);
+      if (id === undefined) continue;
+      this.stashedSignals.set(at, { signal: this.signalMarks.get(id)!, partner });
+      this.signalMarks.delete(id);
+      this.signalByAt.delete(at);
+      this.signalsVersion++;
+    }
+  }
+
+  /** A joint made: a mark put by when this same joint parted comes back. */
+  private jointMade(a: number, b: number): void {
+    if (this.stashedSignals.size === 0) return;
+    for (const [at, partner] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const st = this.stashedSignals.get(at);
+      if (!st || st.partner !== partner) continue;
+      this.stashedSignals.delete(at);
+      if (this.signalMarks.has(st.signal.id) || this.signalByAt.has(at)) continue;
+      this.signalMarks.set(st.signal.id, st.signal);
+      this.signalByAt.set(at, st.signal.id);
+      this.signalsVersion++;
+    }
   }
 
   private seatAll(id: number): void {
@@ -424,6 +561,7 @@ export class Layout {
     const a = Math.min(ref, best);
     this.jointMap.set(a, { a, b: Math.max(ref, best), posError: bestPos, angleError: bestAngle });
     this.jointsVersion++;
+    this.jointMade(ref, best);
   }
 
   private detachAll(id: number): void {
@@ -443,6 +581,7 @@ export class Layout {
       this.joinedTo.delete(partner);
       this.jointMap.delete(Math.min(ref, partner));
       this.jointsVersion++;
+      this.jointParted(ref, partner);
       partners.push(partner);
     }
     // Freed partners may now meet another free connector at the same spot (overlapping pieces).

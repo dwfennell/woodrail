@@ -14,7 +14,7 @@
  *   `deserializeWorld` does.
  */
 import { Sim, SIM_HZ, type CarKind, type Cursor, type Train } from "../sim";
-import { getPieceDef, type Layout } from "../track";
+import { connectorRef, getPieceDef, pathExitConnector, pieceOfRef, type Layout, type SignalStyle } from "../track";
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
@@ -62,7 +62,7 @@ export interface Scenario {
 }
 
 /** The invariants checked every tick (§12). */
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun"] as const;
+export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne"] as const;
 export type Invariant = (typeof INVARIANTS)[number];
 
 /** Turn-backs by cause (`Train.lastTurn`). */
@@ -100,6 +100,12 @@ export interface Report {
   onWatched: number;
   /** Sections' safety-net releases (`Sections.released`): the "30 s net", 0 when all is well. */
   net: number;
+  /**
+   * Signals (signals spec §10.1): fronts that crossed a red signal's joint having been past braking for it when it
+   * turned red (not a break of `redRun`, but counted), and fronts that crossed a joint guarded by a signal at all.
+   */
+  redLate: number;
+  signalPasses: number;
   ticks: number;
   ms: number;
   /** The router's time (`Router.tick`), mean µs a tick. */
@@ -178,6 +184,17 @@ export class HarnessRun {
   private readonly lastTurn: number[];
   private readonly lockFront: number[];
   private traj = 0x811c9dc5;
+  /** Signals: each train's front axle as of the tick before (by train id), and each signal's aspect then (by key). */
+  private readonly leadWas = new Map<number, { pieceId: number; pathIndex: number; reversed: boolean }>();
+  private aspectsWas = new Map<number, boolean>();
+  /** Each signal's aspect as of the last check (for one held or let go between ticks). */
+  private aspectsSeen = new Map<number, boolean>();
+  /** Trains past braking for a signal when it turned red (`${key}:${trainId}`): crossing it is late, not a run. */
+  private readonly excused = new Set<string>();
+  /** Per signal (key): the trains that came into its block through it, still on it. */
+  private readonly entered = new Map<number, Set<number>>();
+  private blocks = new Map<number, Set<number>>();
+  private blocksAt = "";
   private readonly ownLines: boolean;
   private routerMs = 0;
 
@@ -219,6 +236,8 @@ export class HarnessRun {
       throws: 0,
       onWatched: 0,
       net: 0,
+      redLate: 0,
+      signalPasses: 0,
       ticks: 0,
       ms: 0,
       routerUs: 0,
@@ -387,6 +406,21 @@ export class HarnessRun {
     this.sections.prune(new Set(this.lineOf.keys()));
   }
 
+  /** A signal mark held at red by hand, or let go (a tap on it). */
+  holdSignal(id: number, on: boolean): void {
+    if (!!this.layout.getSignal(id)?.held !== on) this.sim.toggleMark(id);
+  }
+
+  /** A signal mark turned round on its joint (its card's Turn round). */
+  turnSignal(id: number): void {
+    this.layout.turnSignal(id);
+  }
+
+  /** A signal mark taken away (its card's Remove). */
+  removeSignal(id: number): void {
+    this.layout.removeSignal(id);
+  }
+
   pin(pieceId: number, on: boolean): void {
     this.layout.setPinned(pieceId, on);
     if (on) this.pinnedAt.set(pieceId, this.layout.switchState(pieceId));
@@ -480,6 +514,7 @@ export class HarnessRun {
 
   /** One tick, in the economy's order (the sim, routes come to and left, the router), then the checks. */
   step(): void {
+    this.noteSignals();
     this.sim.tick();
     this.advanceRoutes();
     const t0 = performance.now();
@@ -575,6 +610,106 @@ export class HarnessRun {
     }
     for (const [id, state] of this.pinnedAt) if (layout.switchState(id) !== state) this.broke("pinned", `pinned points ${id} moved to ${layout.switchState(id)}`);
     this.checkRestore();
+    this.checkSignals();
+  }
+
+  /** Before a tick: each train's front axle and each signal's aspect (for `checkSignals`). */
+  private noteSignals(): void {
+    const list = this.sim.signalList();
+    if (list.length === 0) {
+      this.aspectsWas.clear();
+      return;
+    }
+    // (Held or let go since the last check, by a scripted event.)
+    this.excuse(list, this.aspectsSeen);
+    this.aspectsWas = new Map(list.map((g) => [g.key, g.clear]));
+    this.leadWas.clear();
+    for (const id of this.sim.trainIds()) {
+      const t = this.sim.getTrain(id)!;
+      if (!t.derailed) this.leadWas.set(id, { pieceId: t.bogies[0].pieceId, pathIndex: t.bogies[0].pathIndex, reversed: t.bogies[0].reversed });
+    }
+  }
+
+  /**
+   * `redRun`: no train's front axle crosses a signal's joint while it's red, unless it was past braking for it when it
+   * turned red (counted in `redLate`). `blockOne`: a plain block never has two trains in it that came in through its
+   * signal. (Old signal pieces are read as marks at their far joint, as the sim reads them.)
+   */
+  private checkSignals(): void {
+    const { sim, layout } = this;
+    const list = sim.signalList();
+    if (list.length === 0) return;
+    const byExit = new Map<number, (typeof list)[number]>();
+    for (const g of list) if (g.exit >= 0) byExit.set(connectorRef(g.pieceId, g.exit), g);
+    this.excuse(list, this.aspectsWas);
+    this.aspectsSeen = new Map(list.map((g) => [g.key, g.clear]));
+    this.refreshBlocks(list.map((g) => g.key));
+    // Trains that have left a block are no longer in it.
+    for (const [key, trains] of this.entered) {
+      const pieces = this.blocks.get(key);
+      for (const id of trains) {
+        const t = sim.getTrain(id);
+        if (!t || t.derailed || !pieces || !t.bogies.some((b) => pieces.has(b.pieceId))) trains.delete(id);
+      }
+    }
+    for (const id of sim.trainIds()) {
+      const t = sim.getTrain(id)!;
+      const was = this.leadWas.get(id);
+      if (t.derailed || !was || was.pieceId === t.bogies[0].pieceId) continue;
+      const p = layout.getPiece(was.pieceId);
+      if (!p) continue;
+      const exit = pathExitConnector(getPieceDef(p.type, p.flipped), was.pathIndex, was.reversed);
+      const g = exit === -1 ? undefined : byExit.get(connectorRef(was.pieceId, exit));
+      // (Only a front that went on over that joint: a train that turned has a new front somewhere else.)
+      if (!g || pieceOfRef(layout.joinedConnector(connectorRef(was.pieceId, exit))) !== t.bogies[0].pieceId) continue;
+      this.report.signalPasses++;
+      const late = this.excused.delete(`${g.key}:${id}`);
+      if (this.aspectsWas.get(g.key) === false) {
+        if (late) this.report.redLate++;
+        else this.broke("redRun", `train ${this.trainIndex(id)} ran past signal ${g.key} at red (piece ${g.pieceId} end ${g.exit})`);
+      }
+      let inBlock = this.entered.get(g.key);
+      if (!inBlock) this.entered.set(g.key, (inBlock = new Set()));
+      if (inBlock.size > 0 && !late) this.broke("blockOne", `train ${this.trainIndex(id)} came into signal ${g.key}'s block with ${[...inBlock].map((x) => this.trainIndex(x)).join(",")} in it`);
+      inBlock.add(id);
+    }
+  }
+
+  /**
+   * Signals that turned red since `before`: trains on their approach, heading for their joint, past braking for them
+   * (not braking for them) are let off (`excused`). Signals that turned clear let their trains' excuses go.
+   */
+  private excuse(list: readonly { key: number; pieceId: number; exit: number; clear: boolean }[], before: ReadonlyMap<number, boolean>): void {
+    const { sim, layout } = this;
+    for (const g of list) {
+      const was = before.get(g.key) ?? true;
+      if (g.clear) {
+        if (!was) for (const e of this.excused) if (e.startsWith(`${g.key}:`)) this.excused.delete(e);
+        continue;
+      }
+      if (!was) continue;
+      for (const id of sim.trainIds()) {
+        const t = sim.getTrain(id)!;
+        const b = t.bogies[0];
+        const p = layout.getPiece(b.pieceId);
+        if (t.derailed || !p || b.pieceId !== g.pieceId) continue;
+        if (pathExitConnector(getPieceDef(p.type, p.flipped), b.pathIndex, b.reversed) !== g.exit) continue;
+        if (sim.redSignalKeyAhead(id) !== g.key) this.excused.add(`${g.key}:${id}`);
+      }
+    }
+  }
+
+  /** The signals' blocks (their pieces), found again when the track or the marks change. */
+  private refreshBlocks(keys: number[]): void {
+    const at = `${this.layout.revision}:${this.layout.jointsVersion}:${this.layout.signalsVersion}`;
+    if (at === this.blocksAt) return;
+    this.blocksAt = at;
+    this.blocks = new Map(keys.map((k) => [k, new Set(this.sim.signalBlock(k))]));
+  }
+
+  /** A train's index in the scenario (by its engine), for messages; −1 if it's none of them. */
+  private trainIndex(trainId: number): number {
+    return this.engines.findIndex((e) => this.sim.findCar(e)?.train.id === trainId);
   }
 
   /**
@@ -710,6 +845,16 @@ function joinedBehind(layout: Layout, a: Cursor, b: Cursor): boolean {
     return getPieceDef(p.type, p.flipped).paths.some((q) => (q.from === n.entry ? search(n.pieceId, q.to, depth + 1) : q.to === n.entry && search(n.pieceId, q.from, depth + 1)));
   };
   return search(a.pieceId, a.reversed ? pathA.to : pathA.from, 1);
+}
+
+/**
+ * In a scenario's `build`: a signal mark on the joint at a piece's connector, guarding trains that cross it from that
+ * piece (signals spec §10.1). Its id (for events: `holdSignal`, `turnSignal`, `removeSignal`).
+ */
+export function signal(layout: Layout, pieceId: number, connector: number, opts: { held?: boolean; style?: SignalStyle } = {}): number {
+  const id = layout.addSignal(connectorRef(pieceId, connector), opts.style ?? "plain", !!opts.held);
+  if (id === -1) throw new Error(`signal: piece ${pieceId}'s end ${connector} is no joint (or has a signal that way)`);
+  return id;
 }
 
 /** Run a scenario on a new layout from start to end. */

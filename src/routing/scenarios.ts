@@ -17,7 +17,7 @@ const BUFFER: PieceTypeId = "buffer-turnback";
 const CARS: CarKind[] = ["engine", "timber", "timber"];
 
 /** `stop ══ ══ … ══ stop` between buffers: the pieces (first and last are the stops). */
-function shuttleLine(layout: Layout, straights: number): number[] {
+export function shuttleLine(layout: Layout, straights: number): number[] {
   const ids = chain(layout, [STOP, ...Array<PieceTypeId>(straights).fill(S), STOP]);
   appendPiece(layout, BUFFER, false, connectorRef(ids[0], 0));
   appendPiece(layout, BUFFER, false, connectorRef(ids[ids.length - 1], 1));
@@ -25,7 +25,7 @@ function shuttleLine(layout: Layout, straights: number): number[] {
 }
 
 /** An oval: A ══ ══ (half round) B ══ ══ (half round) back to A. Its pieces, and the stops A and B. */
-function oval(layout: Layout) {
+export function oval(layout: Layout) {
   const ids = chain(layout, [STOP, S, S, C, C, C, C, STOP, S, S, C, C, C, C]);
   if (layout.joinedConnector(connectorRef(ids[0], 0)) === -1) throw new Error("the oval doesn't close");
   return { ids, a: ids[0], b: ids[7] };

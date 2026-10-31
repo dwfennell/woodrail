@@ -50,6 +50,8 @@ const SIDE_HIT_DISTANCE = 12;
 /** How far ahead (mm) a train looks for a signal at red, and in what steps: well past its stopping distance. */
 const SIGNAL_LOOK = 300;
 const SIGNAL_STEP = 12;
+/** A train stands with its nose this far (mm) short of a red mark's joint (as sections' `STAND_SHORT`). */
+const MARK_STAND = 6;
 /** A block runs on through at most this many pieces (a loop with no signal in it ends somewhere). */
 const MAX_BLOCK = 64;
 /**
@@ -209,10 +211,15 @@ export class Sim {
   quickness: ((train: Train) => number) | null = null;
 
   /**
-   * The signals on the layout, as keys (`signalKey`: a signal piece and one of its roads), found again after the track
-   * changes (see `trackChanged`).
+   * The signals on the layout, found again after the track or the marks change (see `trackChanged`): old signal pieces
+   * (each road's, keyed by `signalKey`) and the player's marks on joints (`Layout.signals`, keyed by `markKey`), read as
+   * one list (signals spec §9: a piece is a mark at its far joint, with its stop point where it is on the piece).
    */
-  private signals: number[] | null = null;
+  private signals: SignalAt[] | null = null;
+  /** The marks' keys by the joint end they guard (`Signal.at`), for looks ahead and the ends of blocks. */
+  private readonly marksAt = new Map<number, number>();
+  /** `Layout.signalsVersion` the list was found at. */
+  private marksVersion = -1;
   /** Each signal's aspect as of this tick, by key (`signalKey`): true at clear (its block's free), false at red. */
   private readonly aspects = new Map<number, boolean>();
   /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
@@ -1364,61 +1371,130 @@ export class Sim {
     return ((this.layout.switchState(pieceId) >> road) & 1) === 1;
   }
 
+  /** Is this mark (a `Layout` signal id) at clear? A mark not yet worked out shows clear. */
+  markClear(id: number): boolean {
+    return this.aspects.get(markKey(id)) ?? true;
+  }
+
+  /** Hold a mark at red by hand, or let it go (a tap on it). Shown at once (even paused). */
+  toggleMark(id: number): void {
+    const m = this.layout.getSignal(id);
+    if (!m) return;
+    this.layout.setSignalHeld(id, !m.held);
+    this.updateSignals();
+  }
+
+  /**
+   * The signals as the sim reads them (for the harness and reports): each one's key (`signalKey` for an old piece's
+   * road, `markKey` for a mark), the piece trains come from and the end of it they leave by, crossing the joint it
+   * guards, and whether it's at clear. Fresh as of the last tick.
+   */
+  signalList(): readonly { key: number; pieceId: number; exit: number; clear: boolean }[] {
+    this.findSignals();
+    return this.signals!.map((g) => ({ key: g.key, pieceId: g.pieceId, exit: g.exit, clear: this.aspects.get(g.key) ?? true }));
+  }
+
+  /** The pieces of a signal's block (by key, as `signalList`), in the order the block runs (the harness's checks). */
+  signalBlock(key: number): number[] {
+    this.findSignals();
+    const g = this.signals!.find((x) => x.key === key);
+    const out: number[] = [];
+    if (g) this.walkBlock(g, (id) => (out.push(id), false));
+    return out;
+  }
+
+  /** The red signal a train is held by or braking for, by key (`signalList`), or −1. */
+  redSignalKeyAhead(trainId: number): number {
+    const t = this.trains.get(trainId);
+    return t ? (this.redAhead(t)?.key ?? -1) : -1;
+  }
+
+  /** The list of signals, found again if the track or the marks changed since. */
+  private findSignals(): void {
+    if (this.signals !== null && this.marksVersion === this.layout.signalsVersion) return;
+    this.marksVersion = this.layout.signalsVersion;
+    const list: SignalAt[] = [];
+    for (const id of this.layout.pieceIds()) {
+      const p = this.layout.getPiece(id)!;
+      const def = getPieceDef(p.type, p.flipped);
+      if (!def.signal) continue;
+      for (let road = 0; road < def.paths.length; road++) {
+        const far = def.paths[road].to;
+        list.push({ key: signalKey(id, road), pieceId: id, exit: far ?? -1, road, markId: -1 });
+      }
+    }
+    this.marksAt.clear();
+    for (const m of this.layout.signals()) {
+      const key = markKey(m.id);
+      list.push({ key, pieceId: pieceOfRef(m.at), exit: indexOfRef(m.at), road: -1, markId: m.id });
+      this.marksAt.set(m.at, key);
+    }
+    this.signals = list;
+    for (const key of this.aspects.keys()) if (!list.some((g) => g.key === key)) this.aspects.delete(key);
+  }
+
   /**
    * Each signal's aspect: red while it's held, or while any train stands on its block, the track from its far end up
    * to and including the next signal, switch or crossing (or to the end of the line). Worked out once a tick.
    *
    * A signal piece has a signal on each of its paths (`PieceDef.signal`): a plain signal one, a gantry over two roads
-   * two, each guarding its own road from the path's `from` end to its `to` end, with a block of its own beyond.
+   * two, each guarding its own road from the path's `from` end to its `to` end, with a block of its own beyond. A mark
+   * on a joint guards trains crossing it from its approach piece; its block begins over the joint and ends at the next
+   * mark (either facing: at its joint), signal piece (on it), switch or crossing (on it), or the end of the line.
    */
   private updateSignals(): void {
-    if (this.signals === null) {
-      this.signals = [];
-      for (const id of this.layout.pieceIds()) {
-        const p = this.layout.getPiece(id)!;
-        const def = getPieceDef(p.type, p.flipped);
-        if (def.signal) for (let road = 0; road < def.paths.length; road++) this.signals.push(signalKey(id, road));
-      }
-      for (const key of this.aspects.keys()) if (!this.signals.includes(key)) this.aspects.delete(key);
-    }
-    if (this.signals.length === 0) return;
+    this.findSignals();
+    const list = this.signals!;
+    if (list.length === 0) return;
     // Pieces with a train on them: which of their paths (a bit each).
     const occupied = new Map<number, number>();
     for (const t of this.trains.values()) for (const b of t.bogies) occupied.set(b.pieceId, (occupied.get(b.pieceId) ?? 0) | (1 << b.pathIndex));
-    for (const key of this.signals) {
-      const id = signalPiece(key);
-      const road = signalRoad(key);
-      if (!this.layout.getPiece(id) || this.layout.isLifted(id)) continue;
-      const clear = !this.signalHeld(id, road) && !this.blockOccupied(id, road, occupied);
-      if (this.aspects.get(key) !== clear) {
-        this.aspects.set(key, clear);
+    for (const g of list) {
+      if (!this.layout.getPiece(g.pieceId) || this.layout.isLifted(g.pieceId)) continue;
+      const held = g.markId === -1 ? this.signalHeld(g.pieceId, g.road) : !!this.layout.getSignal(g.markId)?.held;
+      const clear = !held && !this.blockOccupied(g, occupied);
+      if (this.aspects.get(g.key) !== clear) {
+        this.aspects.set(g.key, clear);
         this.signalsVersion++;
       }
     }
   }
 
-  /** Is any train on the block beyond this signal (a signal piece's road: see `updateSignals`)? */
-  private blockOccupied(signalId: number, road: number, occupied: ReadonlyMap<number, number>): boolean {
-    const p0 = this.layout.getPiece(signalId)!;
-    const far = getPieceDef(p0.type, p0.flipped).paths[road]?.to;
+  /** Is any train on the block beyond this signal (see `updateSignals`)? */
+  private blockOccupied(g: SignalAt, occupied: ReadonlyMap<number, number>): boolean {
+    return this.walkBlock(g, (id, def, entry) => {
+      const on = occupied.get(id);
+      // A train on the piece the block runs into holds it; on double track (roads side by side that never meet), only
+      // one on the road the block runs onto does: a train on the other line is on another block.
+      return on !== undefined && (!pathsApart(def) || (on & pathsAt(def, entry)) !== 0);
+    });
+  }
+
+  /**
+   * Walk a signal's block, piece by piece (with the end each is come onto by), till `visit` says true (then true) or the
+   * block ends (false). See `updateSignals` for where it ends.
+   */
+  private walkBlock(g: SignalAt, visit: (pieceId: number, def: PieceDef, entry: number) => boolean): boolean {
     // A road that ends at a buffer in the piece has no block beyond it.
-    if (far === null || far === undefined) return false;
-    let ref = connectorRef(signalId, far);
+    if (g.exit < 0) return false;
+    const marks = this.marksAt.size > 0;
+    let ref = connectorRef(g.pieceId, g.exit);
     for (let n = 0; n < MAX_BLOCK; n++) {
       const next = this.layout.joinedConnector(ref);
       if (next === -1) return false;
       const id = pieceOfRef(next);
-      if (id === signalId) return false;
+      if (id === g.pieceId && g.markId === -1) return false;
+      // (A mark facing back at this joint: the block ends at it.)
+      if (marks && this.marksAt.has(next)) return false;
       const p = this.layout.getPiece(id);
       if (!p) return false;
       const def = getPieceDef(p.type, p.flipped);
-      const on = occupied.get(id);
-      // A train on the piece the block runs into holds it; on double track (roads side by side that never meet), only
-      // one on the road the block runs onto does: a train on the other line is on another block.
-      if (on !== undefined && (!pathsApart(def) || (on & pathsAt(def, indexOfRef(next))) !== 0)) return true;
+      if (visit(id, def, indexOfRef(next))) return true;
       // The block ends here: at the next signal, or at a switch or crossing (where lines meet).
       if (def.signal || def.connectors.length !== 2) return false;
       ref = connectorRef(id, 1 - indexOfRef(next));
+      // (A mark facing on at the piece's far joint: the block ends there.)
+      if (marks && this.marksAt.has(ref)) return false;
     }
     return false;
   }
@@ -1435,18 +1511,23 @@ export class Sim {
   /** The red signal (its piece) a train is held by or braking for, or −1 (for the engine card and reports). */
   redSignalAhead(trainId: number): number {
     const t = this.trains.get(trainId);
-    return t ? (this.redAhead(t)?.pieceId ?? -1) : -1;
+    const red = t ? this.redAhead(t) : null;
+    return red === null ? -1 : red.key < 0 ? pieceOfRef(this.layout.getSignal(markOfKey(red.key))?.at ?? -1) : signalPiece(red.key);
   }
 
-  /** The red signal a train is running toward, and how far its stop point is ahead of the front axle; or null. */
-  private redAhead(train: Train): { pieceId: number; dist: number } | null {
+  /** The red signal a train is running toward (by key), and how far its stop point is ahead of the front axle; or null. */
+  private redAhead(train: Train): { key: number; dist: number } | null {
     if (!this.signals || this.signals.length === 0) return null;
     let anyRed = false;
     for (const clear of this.aspects.values()) if (!clear) anyRed = true;
     if (!anyRed) return null;
+    const marks = this.marksAt.size > 0;
+    // (A mark's stop point: the train's nose `MARK_STAND` short of its joint.)
+    const markStand = MARK_STAND + CAR_SPECS[train.cars[0].kind].bogieInset;
     // Walk ahead of the front axle a step at a time, looking for the stop point of a red signal it's running toward.
     const c: Cursor = { ...train.bogies[0] };
     let walked = 0;
+    let passed = 0;
     for (let k = 0; walked <= SIGNAL_LOOK; k++) {
       const piece = c.pieceId;
       if (k > 0) {
@@ -1454,14 +1535,25 @@ export class Sim {
         walked += lookAdv.moved;
       }
       const p = this.layout.getPiece(c.pieceId);
-      const stopAt = p ? getPieceDef(p.type, p.flipped).signal?.stopAt : undefined;
+      const def = p ? getPieceDef(p.type, p.flipped) : undefined;
+      const stopAt = def?.signal?.stopAt;
       if (stopAt !== undefined && !c.reversed && this.aspects.get(signalKey(c.pieceId, c.pathIndex)) === false) {
         // Short of the stop point: brake to it. Stepped onto the piece already past it: it was within this step.
         // (Already past it where the axle stands: that signal's behind; look on.)
         let dist = -1;
         if (c.s <= stopAt) dist = walked + stopAt - c.s;
         else if (k > 0 && c.pieceId !== piece) dist = walked - (c.s - stopAt);
-        if (dist >= 0) return { pieceId: c.pieceId, dist };
+        if (dist >= 0) return { key: signalKey(c.pieceId, c.pathIndex), dist };
+      }
+      if (marks && def) {
+        const exit = pathExitConnector(def, c.pathIndex, c.reversed);
+        const key = exit === -1 ? undefined : this.marksAt.get(connectorRef(c.pieceId, exit));
+        if (key !== undefined && key !== passed && this.aspects.get(key) === false) {
+          // (Past the stop point where the axle stands: it's too late to stand short; look on.)
+          const dist = walked + pathLength(def.paths[c.pathIndex].geom) - c.s - markStand;
+          if (k > 0 || dist >= 0) return { key, dist: Math.max(0, dist) };
+          passed = key;
+        }
       }
       if (k > 0 && (lookAdv.status !== ADV_OK || lookAdv.moved === 0)) return null;
     }
@@ -1876,8 +1968,23 @@ function drive(t: Train): number {
 
 /** A signal's key: its piece and which of the piece's paths (roads) it guards (as many as it has connectors, at most). */
 export const signalKey = (pieceId: number, road: number): number => pieceId * MAX_CONNECTORS + road;
+/** A signal mark's key (`Layout.signals`): below −1, so it never meets a signal piece's (nor −1, "none"). */
+export const markKey = (id: number): number => -1 - id;
+const markOfKey = (key: number): number => -1 - key;
+
+/** A signal as the sim reads it: an old signal piece's road, or a mark on a joint (`Sim.signals`). */
+interface SignalAt {
+  key: number;
+  /** The piece trains come from (a signal piece itself, or a mark's approach piece). */
+  pieceId: number;
+  /** The end of it they leave by, crossing into the block (−1: a road that ends in the piece). */
+  exit: number;
+  /** A signal piece's road (−1 for a mark). */
+  road: number;
+  /** A mark's id (−1 for a signal piece). */
+  markId: number;
+}
 const signalPiece = (key: number): number => Math.floor(key / MAX_CONNECTORS);
-const signalRoad = (key: number): number => key % MAX_CONNECTORS;
 
 /** The paths (a bit each) that end at a piece's connector. */
 function pathsAt(def: PieceDef, connector: number): number {
