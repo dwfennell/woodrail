@@ -630,6 +630,26 @@ export function loadStickers(): string[] {
   }
 }
 
+/** Game mode: the stickers seen in their tab (this device's: only what the chip's dot shows). */
+const STICKERS_SEEN_KEY = "woodrail.game.stickers.seen.v1";
+
+export function saveStickersSeen(ids: readonly string[]): void {
+  try {
+    localStorage.setItem(STICKERS_SEEN_KEY, JSON.stringify(ids));
+  } catch {
+    // storage unavailable: the dot shows again next time
+  }
+}
+
+export function loadStickersSeen(): string[] {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(STICKERS_SEEN_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Game mode: the toy box, blueprints learned and the workshop's orders (see `Progress`), beside the game's autosave. */
 const PROGRESS_KEY = "woodrail.game.progress.v1";
 

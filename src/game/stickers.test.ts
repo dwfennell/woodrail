@@ -122,7 +122,19 @@ describe("saves and the cloud", () => {
 
   it("are checked in the goals' pass (checkGoals), not per frame", () => {
     const fn = mainSrc.slice(mainSrc.indexOf("function checkGoals("), mainSrc.indexOf("function checkGoals(") + 4000);
-    expect(fn).toMatch(/checkStickers\(\)/);
+    expect(fn).toMatch(/checkStickers\(announce/);
     expect(mainSrc.match(/stickers\.update\(/g)?.length).toBe(1);
+  });
+});
+
+describe("a sticker's ticket (the Stickers tab)", () => {
+  it("says how to earn it; a hidden one not yet earned gives only its hint", async () => {
+    const { stickerTicket } = await import("../ui/goals-panel");
+    const track = STICKERS.find((s) => s.id === "track-layer")!;
+    const hidden = STICKERS.find((s) => s.hidden)!;
+    expect(stickerTicket(track, false)).toBe("Lay 40 pieces of track.");
+    expect(stickerTicket(track, true)).toBe("Earned! Lay 40 pieces of track.");
+    expect(stickerTicket(hidden, false)).toBe(`Hint: ${hidden.hint}`);
+    expect(stickerTicket(hidden, true)).toBe(`Earned! ${hidden.how}.`);
   });
 });

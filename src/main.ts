@@ -10,7 +10,7 @@ import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBluep
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { reporter, startLog, type Reporter } from "./debug/report";
@@ -1228,6 +1228,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let goals = new GoalTracker(loadGoals());
   // Stickers: earned with the goals' check, from the start (quietly till the core goals are done).
   let stickers = new StickerTracker(loadStickers());
+  /** The stickers seen in their tab (the chip's dot is for the rest), and whether the tab is out yet (core goals done). */
+  let stickersSeen = new Set(loadStickersSeen());
+  let stickersOpen = false;
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
   // Refusals aren't logged: they stay plain `hud.toast`s.
   // On game time: "2 min ago" means two minutes of play (it stands still while paused).
@@ -1238,6 +1241,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       newGame: () => newGame(),
       showMe: () => showGoal(),
       fly: (place) => flyTo(place),
+      stickersSeen: () => {
+        stickersSeen = new Set(stickers.ids());
+        saveStickersSeen([...stickersSeen]);
+        showStickers();
+      },
     },
     journal,
   );
@@ -1357,11 +1365,31 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let ticks = new GoalTicks();
   let ticksEntry: JournalEntry | null = null;
   /** Stickers earned now (in `checkGoals`, so about once a second; each is checked only when what it reads changed). */
-  function checkStickers(): void {
-    const fresh = stickers.update(game.world, { coins: progress.coins, counts: progress.counts, learned: progress.learned, goalsDone: (id) => goals.isDone(id) }, goals.doneCount);
-    if (fresh.length === 0) return;
-    saveStickers(stickers.ids());
-    cloud?.edited(mode, "progress");
+  function checkStickers(announce: boolean, ticked: boolean): void {
+    // Shown once the core goals are all done: till then earned quietly (a dot on the chip), then one toast a check.
+    const open = goals.current() === null && goals.lockedCount === 0;
+    const loud = announce && open && stickersOpen;
+    const fresh = stickers.update(game.world, { coins: progress.coins, counts: progress.counts, learned: progress.learned, goalsDone: (id) => goals.isDone(id) }, goals.doneCount, loud ? 1 : Infinity);
+    if (fresh.length > 0) {
+      saveStickers(stickers.ids());
+      cloud?.edited(mode, "progress");
+    }
+    if (open && !stickersOpen) {
+      stickersOpen = true;
+      // Said only as the last goal is ticked (after its own toast: the toasts queue), not on a load of a finished game.
+      if (announce && ticked) {
+        const n = stickers.count;
+        const text = n > 0 ? `🌟 Stickers! You've earned ${n} already. Tap to see them` : "🌟 Stickers! Collect them as you play. Tap to see them";
+        if (note({ kind: "milestone", text: n > 0 ? `Stickers open: you've earned ${n}` : "Stickers open" }, 5200, true)) hud.toast(text, true, 5200, () => goalsPanel.openStickers());
+      }
+    } else if (loud) {
+      for (const s of fresh) if (note({ kind: "milestone", text: `🌟 Sticker: ${s.title}` }, 3600, true)) hud.toast(`🌟 Sticker: ${s.title}!`, true, 3600, () => goalsPanel.openStickers(s.id));
+    }
+    showStickers();
+  }
+  function showStickers(): void {
+    const earned = stickers.ids();
+    goalsPanel.setStickers({ earned, unseen: earned.filter((id) => !stickersSeen.has(id)), open: stickersOpen });
   }
   function checkGoals(announce: boolean): void {
     if (mode !== "game" || !playing) return;
@@ -1399,7 +1427,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         goalsPanel.celebrate();
       }
     }
-    checkStickers();
+    checkStickers(announce, fresh.length > 0);
     const current = goals.current();
     goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next(), goals.total, goals.lockedHint(), goals.lockedCount);
   }
@@ -3346,6 +3374,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     saveGoals([]);
     stickers = new StickerTracker();
     saveStickers([]);
+    stickersSeen = new Set();
+    saveStickersSeen([]);
+    stickersOpen = false;
     journal.clear();
     growth = null;
     ticks = new GoalTicks();
@@ -3899,6 +3930,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       crafting.setProgress(progress);
       goals = new GoalTracker(loadGoals());
       stickers = new StickerTracker(loadStickers());
+      stickersOpen = false;
       syncLandmarks();
       hud.setCoins(progress.coins);
       hud.refreshTrayBadges();
