@@ -288,6 +288,12 @@ export class Sim {
     way(train: Train, pieceId: number, entry: number): number;
     version(): number;
   } | null = null;
+  /**
+   * Sections' waiting points (signals spec §3.2): `at` gives the train a mark's waiting point holds (by the mark's joint
+   * end, `Signal.at`) with no move on past it granted, −1: none (the mark shows red then, so its green is the grant);
+   * `version` changes whenever an answer would. Null: no sections.
+   */
+  signalGate: { at(ref: number): number; version(): number } | null = null;
   /** Each signal's aspect as of this tick, by key (`signalKey`): true at clear (its block's free), false at red. */
   private readonly aspects = new Map<number, boolean>();
   /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
@@ -1580,6 +1586,7 @@ export class Sim {
     this.findSignals();
     const g = this.signalByExit.get(ref);
     if (!g) return null;
+    if (this.gatedFor(g) !== -1) return { free: false };
     if (!g.junction) return { free: !this.isHeld(g) && (this.blockBy.get(g.key) ?? -1) === -1 };
     const r = this.pathFor(train, g, false);
     return { free: r.clear };
@@ -1689,6 +1696,7 @@ export class Sim {
       for (const b of t.bogies) stamp = (Math.imul(stamp, 0x01000193) ^ (b.pieceId * 16 + b.pathIndex)) | 0;
     }
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.pathLocks ? this.pathLocks.version() : 0)) | 0;
+    stamp = (Math.imul(stamp, 0x01000193) ^ (this.signalGate ? this.signalGate.version() : 0)) | 0;
     if (!force && stamp === this.signalStamp) return;
     this.signalStamp = stamp;
     this.pathCache.clear();
@@ -1708,12 +1716,18 @@ export class Sim {
       if (g.junction) continue;
       const by = this.isHeld(g) ? -1 : this.blockOccupant(g, -1);
       this.blockBy.set(g.key, by);
-      const clear = !this.isHeld(g) && by === -1;
+      const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
       if (this.aspects.get(g.key) !== clear) {
         this.aspects.set(g.key, clear);
         this.signalsVersion++;
       }
     }
+  }
+
+  /** The train a mark's waiting point holds there for want of a grant (`signalGate`), or −1 (an old piece: none). */
+  private gatedFor(g: SignalAt): number {
+    if (!this.signalGate || g.markId === -1 || g.exit < 0) return -1;
+    return this.signalGate.at(connectorRef(g.pieceId, g.exit));
   }
 
   /** The first train (its id) on a signal's block other than `self`, or −1. On double track only the block's road counts. */
@@ -1822,6 +1836,11 @@ export class Sim {
    * noted as coming to it, for its aspect: `junctionSeen`).
    */
   private redFor(train: Train, g: SignalAt): { by: number } | null {
+    // (A waiting point's train with no move past it granted: red for it, whatever the block (sections' wait names who).)
+    if (g.junction && this.gatedFor(g) === train.id) {
+      if (!this.junctionNear.has(g.key)) this.junctionNear.set(g.key, false);
+      return { by: -1 };
+    }
     if (!g.junction) return this.aspects.get(g.key) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
     const r = this.pathFor(train, g);
     if (!this.junctionNear.has(g.key)) this.junctionNear.set(g.key, r.clear);
