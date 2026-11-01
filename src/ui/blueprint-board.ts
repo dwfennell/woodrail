@@ -485,7 +485,7 @@ export class BlueprintBoard {
     } else html += `<div class="bp-web-scroll"><div class="bp-web" style="width:${web.width}px;height:${web.height}px">${bands}<svg class="bp-links" width="${web.width}" height="${web.height}" aria-hidden="true">${svg}</svg>${drawn.map((s) => node(s, web.at.get(s.id)!)).join("")}</div></div>`;
     this.renderSheet(v, byId);
     const scroll = this.body.querySelector(".bp-web-scroll");
-    const kept = scroll ? { left: scroll.scrollLeft, top: scroll.scrollTop } : narrow && this.body.childElementCount > 0 ? { left: 0, top: this.body.scrollTop } : null;
+    const kept = scroll ? { left: scroll.scrollLeft, top: scroll.scrollTop, body: this.body.scrollTop } : narrow && this.body.childElementCount > 0 ? { left: 0, top: this.body.scrollTop, body: this.body.scrollTop } : null;
     this.body.innerHTML = html;
     // Keep the web where it was scrolled to; on first opening, bring the selected tag into view (its band's name
     // with it: the pane scrolls to the band's top when the tag is near it).
@@ -494,11 +494,16 @@ export class BlueprintBoard {
     if (kept) {
       (pane ?? this.body).scrollLeft = kept.left;
       (pane ?? this.body).scrollTop = kept.top;
+      if (pane) this.body.scrollTop = kept.body;
     } else if (pane && sel) {
       const band = web.bands.find((b) => b.top <= sel.offsetTop && sel.offsetTop < b.top + b.height);
       // Only as far right as shows the tag: what leads to it stays in view on a wide screen.
       pane.scrollLeft = Math.max(0, Math.min(sel.offsetLeft - LEFT, sel.offsetLeft + sel.offsetWidth + 24 - pane.clientWidth));
-      pane.scrollTop = Math.max(0, band && sel.offsetTop - band.top < pane.clientHeight - 60 ? band.top : sel.offsetTop - 60);
+      // (A phone on its side: the web isn't capped in height, and the panel's body scrolls it.)
+      const scroller = pane.scrollHeight > pane.clientHeight + 1 ? pane : this.body;
+      const top = Math.max(0, band && sel.offsetTop - band.top < scroller.clientHeight - 60 ? band.top : sel.offsetTop - 60);
+      if (scroller === pane) pane.scrollTop = top;
+      else this.body.scrollTop = top + pane.offsetTop - this.body.offsetTop;
     } else if (sel) {
       // The list: its band's name and the tag in view above the ticket.
       const band = sel.closest<HTMLElement>(".bp-list-band");
