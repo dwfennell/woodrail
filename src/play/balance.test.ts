@@ -2107,6 +2107,9 @@ class Playthrough {
         const d = w.economy.depotAtPiece(id)!;
         P.note(`placed the school on the line beside ${w.landscape.towns.find((t) => t.id === d.townId)?.name ?? "?"}`);
         this.firsts["school"] = Math.round(P.minute);
+        // Its card's choice (a tap there): Takes all it needs, as a player who wants research does (nothing is held back
+        // for the school at the stops before it any more). BALANCE_SCHOOL=share leaves it sharing, its default.
+        if (ENV.BALANCE_SCHOOL !== "share") w.economy.setTakesAll(d.id, true);
         if (this.lines) this.routeGoods();
       } else this.why = `the school: ${id.why}`;
     }

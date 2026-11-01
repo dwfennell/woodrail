@@ -37,8 +37,6 @@ export interface YardMode {
   keptFor?: string;
   /** Its yard's cap. */
   cap: number;
-  /** A school is on the map (Takes all still leaves it what its research needs: the hint says so). */
-  school?: boolean;
 }
 
 export const SHARES_LABEL = "Shares with towns";
@@ -47,7 +45,20 @@ export const TAKES_ALL_LABEL = "Takes all planks";
 /** The line under the choice: what the workshop does with the planks trains bring. */
 export function yardHint(m: YardMode): string {
   if (!m.takesAll) return `Leaves planks for towns further on, keeping ${m.keeps} for you${m.keptFor ? `, enough for ${/^[aeiou]/i.test(m.keptFor) ? "an" : "a"} ${m.keptFor}` : ""}`;
-  return `Fills its yard first, up to ${m.cap}${m.school ? " (your school still gets what it needs)" : ""}`;
+  return `Fills its yard first, up to ${m.cap}`;
+}
+
+export const SCHOOL_TAKES_ALL_LABEL = "Takes all it needs";
+
+/**
+ * The school's two-way choice (its card, Game mode), as the workshop's: Shares with towns (its share of a load while a
+ * town the train goes on to wants it too: `SCHOOL_SHARE`) or Takes all it needs (all its research lacks). `data-school`.
+ */
+export function schoolYardHtml(takesAll: boolean): string {
+  const chip = (all: boolean, label: string) =>
+    `<button class="chip text${takesAll === all ? " active" : ""}" data-school="${all ? "all" : "share"}" aria-pressed="${takesAll === all}">${label}</button>`;
+  const hint = takesAll ? "Takes all its research needs from each train; towns further on get the rest" : "Takes part of a load when a town further on wants it too";
+  return `<div class="yard-mode" role="group" aria-label="Goods">${chip(false, SHARES_LABEL)}${chip(true, SCHOOL_TAKES_ALL_LABEL)}</div><div class="yard-hint">${hint}</div>`;
 }
 
 /** The workshop's two-way choice, Shares with towns / Takes all planks, and its hint. */
