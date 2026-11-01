@@ -2203,7 +2203,7 @@ async function handWait(ctx, p) {
     const routed = put(["engine", "timber", "timber", "timber"], at(trunk[6]), 200, false);
     const hand = put(["engine"], at(a[0]), 150, true);
     // (Paused while the route's planned and Go tapped: the game's own frames would run the sim on meanwhile, at
-    // SwiftShader's pace; both start together below.)
+    // SwiftShader's pace; both start below, the routed one first.)
     w.paused = true;
     w.invalidate();
     return { routed, hand, forest, mill, points: sw, trunk: trunk.map(at), def: w.economy.router.defaultOf(sw) };
@@ -2237,8 +2237,17 @@ async function handWait(ctx, p) {
       if (t.bogies.some((b) => b.pieceId === o.points) && way !== o.def) s.overSet++;
       if (s.wentAt < 0 && o.trunk.includes(t.bogies[0].pieceId)) s.wentAt = w.sim.ticks;
     };
+    // (The routed train first, the hand-run one close behind (its lever, set by Go on its card, back on 16 ticks later):
+    // started on the same tick, whichever the router looks at first takes the points, as its routed and hand-run looks
+    // each come round every 8 ticks on counters of their own, their phase left by whatever ran before. The hand-run one
+    // first, it takes them as they lie and runs up the trunk into the routed one, head on: stuck, rightly, and not what
+    // this checks (that a hand-run train keeps off points set for a routed one).)
+    const HAND_AFTER = 16;
+    const handLever = w.sim.findCar(o.hand).train.cars[0].lever;
+    w.sim.setLever(o.hand, 0);
     w.sim.setLever(o.routed, 1);
     for (let i = 0; i < 30 * 120 && s.stood < 120; i++) {
+      if (i === HAND_AFTER) w.sim.setLever(o.hand, handLever);
       w.sim.tick();
       w.economy.tick();
       window.__handWatch();
