@@ -348,6 +348,135 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await ctx.close();
 }
 
+// ---- tight curves with the mouse (the user: the next tight curve waited loose, unjoined, by a station's track) ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    w.director.glideTo(w.interaction.groundAt(innerWidth / 2, innerHeight / 2), frameDistance(700, w.camera.fov, w.camera.aspect), { duration: 0.2 });
+  });
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  // The tight curve: among the favourites, else on the Curve shelf.
+  const tight = async () => {
+    const find = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
+    let at = await find();
+    if (!at) {
+      const shelf = await p.evaluate(() => { const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Curve"); if (!g) return null; g.scrollIntoView({ inline: "center" }); const q = g.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
+      if (shelf) await p.mouse.click(shelf[0], shelf[1]);
+      await frames(p);
+      at = await find();
+    }
+    if (!at) throw new Error("no tight curve in the tray");
+    return at;
+  };
+  const curves = (before) => p.evaluate((before) => {
+    const w = window.woodrail;
+    const ids = [...w.layout.pieceIds()].filter((i) => !before.includes(i) && w.layout.getPiece(i).type === "curve-small");
+    return { ids, open: ids.flatMap((id) => [0, 1].filter((c) => w.layout.joinedConnector(id * 8 + c) === -1).map((c) => `${id}.${c}`)) };
+  }, before);
+  const screenOf = (v) => p.evaluate((v) => { const w = window.woodrail; const c = new w.camera.position.constructor(v.x, v.y ?? 0, v.z).project(w.camera); return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight]; }, v);
+  /**
+   * Open ground for a ring of tight curves (within 260 mm of its first), on screen: no track or model near, and a straight
+   * clear there either way round (the game's own placement check). Glided to, and its spot on screen returned.
+   */
+  const ringSpot = async () => {
+    const spot = await p.evaluate(async () => {
+      const w = window.woodrail;
+      const { checkPlacement } = await import("/src/landscape/clearance.ts");
+      const t = w.controls.target;
+      const clear = (x, z) => w.landscape.grid.cellAtWorld(x, z) !== -1 && [0, Math.PI / 2].every((h) => checkPlacement(w.landscape, "straight-216", false, { x: x - 108 * Math.cos(h), z: z - 108 * Math.sin(h), heading: h }, 0).kind === "clear");
+      for (let d = 0; d < 6000; d += 72)
+        for (let a = 0, n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 72)); a < n; a++) {
+          const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+          const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+          if ([...w.layout.pieceIds()].some((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) < 500; })) continue;
+          if (w.props.all().some((q) => Math.hypot(q.x - x, q.z - z) < 450)) continue;
+          const pts = [[0, 0]];
+          for (const r of [100, 200, 260]) for (let k = 0; k < 16; k++) pts.push([r * Math.cos((k * Math.PI) / 8), r * Math.sin((k * Math.PI) / 8)]);
+          if (pts.every(([dx, dz]) => clear(x + dx, z + dz))) return { x, z };
+        }
+      return null;
+    });
+    if (!spot) throw new Error("no open ground for a ring of tight curves");
+    await p.evaluate((s) => { const w = window.woodrail; w.director.glideTo(w.controls.target.clone().set(s.x, 0, s.z), w.camera.position.distanceTo(w.controls.target), { duration: 0.1 }); }, spot);
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+    await frames(p);
+    return screenOf(spot);
+  };
+  const takeUp = (ids) => p.evaluate((ids) => { const w = window.woodrail; for (const id of ids) if (w.layout.getPiece(id)) w.editor().remove(id); w.invalidate(); }, ids);
+
+  // 1. Dragged out with the mouse onto open ground; then the next waits at its free end, seated: seven clicks on it
+  // close a ring of eight, every joint joined.
+  {
+    const item = await tight();
+    const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    const drop = await ringSpot();
+    await p.mouse.move(item[0], item[1]);
+    await p.mouse.down();
+    await p.mouse.move(item[0], item[1] - 60, { steps: 4 });
+    await p.mouse.move(drop[0], drop[1], { steps: 12 });
+    await p.mouse.up();
+    await frames(p);
+    const waits = [];
+    for (let k = 0; k < 7; k++) {
+      // (The view on where it waits, as a player pans to it: the ring runs out of view.)
+      await p.evaluate(() => { const w = window.woodrail; const a = w.interaction.previewAt; if (a) w.director.glideTo(w.controls.target.clone().set(a.x, 0, a.z), w.camera.position.distanceTo(w.controls.target), { duration: 0.1 }); });
+      await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+      await frames(p);
+      const g = await p.evaluate(() => {
+        const w = window.woodrail;
+        const m = w.interaction.preview;
+        if (!m || !w.interaction.previewAt) return null;
+        const v = w.interaction.previewAt.clone().project(w.camera);
+        return { visible: m.ghost.visible, snap: m.snap.kind, blocked: m.blocked ?? null, at: [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight] };
+      });
+      waits.push(g && { snap: g.snap, blocked: g.blocked });
+      if (!g?.visible) break;
+      await p.mouse.click(g.at[0], g.at[1]);
+      await frames(p);
+    }
+    const ring = await curves(before);
+    check("tight curves: the next waits at the free end seated there (not loose), each time", waits.length === 7 && waits.every((g) => g?.snap === "snapped" && !g.blocked), JSON.stringify(waits));
+    check("tight curves: seven clicks on it close a ring of eight, every joint joined", ring.ids.length === 8 && ring.open.length === 0, JSON.stringify(ring));
+    await p.keyboard.press("Escape");
+    await takeUp(ring.ids);
+  }
+
+  // 2. Carried (clicked in the tray), each hand: one clicked down on open ground, then one clicked with the mouse where
+  // it would go on that one's free end (its middle there): it joins, turning on round.
+  for (const hand of [false, true]) {
+    if (hand !== (await p.evaluate(() => window.woodrail.interaction.trayFlipped))) await p.evaluate(() => document.querySelector(".tray-flip").click());
+    const item = await tight();
+    const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    const drop = await ringSpot();
+    await p.mouse.click(item[0], item[1]);
+    await p.mouse.move(drop[0], drop[1], { steps: 4 });
+    await p.mouse.click(drop[0], drop[1]);
+    await frames(p);
+    const one = await curves(before);
+    const aim = one.ids.length === 1 && (await p.evaluate((id) => {
+      const w = window.woodrail;
+      const c = { x: 0, z: 0, y: 0, heading: 0 };
+      w.layout.worldConnector(id * 8 + 1, c);
+      return { x: c.x + 34 * Math.cos(c.heading), z: c.z + 34 * Math.sin(c.heading) };
+    }, one.ids[0]));
+    let two = one;
+    if (aim) {
+      const at = await screenOf(aim);
+      await p.mouse.move(at[0], at[1], { steps: 4 });
+      await p.mouse.click(at[0], at[1]);
+      await frames(p);
+      two = await curves(before);
+    }
+    check(`tight curves (${hand ? "right" : "left"}, carried): clicked where it goes on a free end, the next joins there`, two.ids.length === 2 && two.open.length === 2, JSON.stringify({ one, two }));
+    await p.keyboard.press("Escape");
+    await takeUp(two.ids);
+  }
+  await ctx.close();
+}
+
 // ---- touch: a tap in the tray carries nothing (as before) ----
 {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });

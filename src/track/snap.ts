@@ -219,12 +219,30 @@ export const AHEAD_SLACK = 15;
 /** ...and how far to one side of the end's line (was 45). */
 export const AHEAD_ACROSS = 15;
 
-/** Half the span of a piece's ends (mm), from its first: a 216 straight's is 108. */
-function halfSpan(type: PieceTypeId, flipped: boolean): number {
+/**
+ * Half the span of a piece's ends (mm), from its first: a 216 straight's is 108, a tight curve's 34. Where its middle
+ * is, along an end's line, seated on that end: what `findSnapAhead` reaches from (and the waiting piece aims at).
+ */
+export function halfSpan(type: PieceTypeId, flipped: boolean): number {
   const c = getPieceDef(type, flipped).connectors;
   let far = 0;
   for (let k = 1; k < c.length; k++) far = Math.max(far, Math.hypot(c[k].pose.x - c[0].pose.x, c[k].pose.z - c[0].pose.z));
   return far / 2;
+}
+
+/** How far (mm) beyond a free end the next ready piece waits for a tap (`waitAhead`), at most. */
+export const WAIT_AHEAD = 60;
+
+/**
+ * Where (mm along a free end's line, beyond it) the next ready piece waits to be tapped down, worked out as if held
+ * there: `WAIT_AHEAD`, or, for a short piece that doesn't reach that far ahead of an end (`findSnapAhead`: half its
+ * span and 15 mm), where its middle is seated on the end (half its span: 34 mm for a tight curve, 27 for a 54
+ * straight). A flat 60 mm was out of a short piece's reach once that followed the piece: a tight curve waited loose,
+ * unjoined, turned as the camera faces (the user's map, by a station).
+ */
+export function waitAhead(type: PieceTypeId, flipped: boolean): number {
+  const span = halfSpan(type, flipped);
+  return span > 0 && WAIT_AHEAD >= span + AHEAD_SLACK - 1 ? span : WAIT_AHEAD;
 }
 
 /**

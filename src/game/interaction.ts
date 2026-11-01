@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { pieceInfo } from "../ui/piece-info";
@@ -1150,13 +1150,17 @@ export class Interaction {
     const r = g.canvas.getBoundingClientRect();
     // Only at an end the line runs on from (not beside the road a terminus came in by, nor round a turntable).
     const ends = onwardEnds(def, def.connectors.map((_, i) => g.layout.joinedConnector(connectorRef(pieceId, i)) !== -1));
+    // A little beyond the end, clear of the track (a tap there puts it down; one on the track selects that), within the
+    // piece's reach ahead of the end: a short one's middle as seated there (`waitAhead`; a flat 60 mm left a tight
+    // curve waiting loose, unjoined, turned as the camera faces). The Auto piece is held as the long straight.
+    const item = this.armed;
+    const ahead = item?.kind === "piece" ? waitAhead(item.auto ? "straight-216" : item.type, this.trayFlipped) : WAIT_AHEAD;
     // A free end in view (clear of the tray) if there is one; else one out of view, waiting there till you pan to it.
     for (const inView of [true, false]) {
       for (const i of ends) {
         const ref = connectorRef(pieceId, i);
         g.layout.worldConnector(ref, w);
-        // A little beyond the end, clear of the track (a tap there puts it down; one on the track selects that).
-        const at = new Vector3(w.x + Math.cos(w.heading) * 60, w.y, w.z + Math.sin(w.heading) * 60);
+        const at = new Vector3(w.x + Math.cos(w.heading) * ahead, w.y, w.z + Math.sin(w.heading) * ahead);
         const v = at.clone().project(g.camera);
         if (v.z > 1) continue;
         const sx = r.left + ((v.x + 1) / 2) * r.width;

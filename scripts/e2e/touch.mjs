@@ -3386,6 +3386,106 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
 }
 
 /**
+ * Tight curves round (the user: "auto-place for tight curves seems broken": the next tight curve waited at a station
+ * curve's open end loose, unjoined, turned as the camera faces). A tight curve dragged out of the Curve shelf by touch
+ * and dropped on open ground; then the next waits at its free end, seated there, and each tap on it puts one down
+ * joined, turning on round: eight close a ring, every joint joined. Each hand (the tray's Flip for the second ring).
+ */
+async function tightCurves(ctx, p, tapSel) {
+  await p.keyboard.press("Escape");
+  await frames(p);
+  const cdp = await ctx.newCDPSession(p);
+  let stamp = Date.now() / 1000;
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp = Math.max(stamp + 0.016, Date.now() / 1000)) });
+  const screenOf = (v) => p.evaluate((v) => { const w = window.woodrail; const c = new w.camera.position.constructor(v.x, v.y ?? 0, v.z).project(w.camera); return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight]; }, v);
+  const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 30000))]));
+  for (const hand of ["left", "right"]) {
+    // (The Curve shelf, unless it's open already.)
+    if (!(await p.evaluate(() => !!document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]')))) {
+      if (await p.evaluate(() => !document.querySelector(".scroller .tray-group") && !!document.querySelector(".scroller .tray-back"))) {
+        await tapSel(".scroller .tray-back");
+        await p.waitForFunction(() => document.querySelector(".scroller .tray-group") !== null, null, { timeout: 10000 });
+      }
+      const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Curve"));
+      await tapSel(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+    }
+    // The second ring mirrored: the tray's Flip, tapped.
+    if ((hand === "right") !== (await p.evaluate(() => window.woodrail.interaction.trayFlipped))) await tapSel(".tray-flip");
+    // Open ground for a ring (radius 90 mm about its middle), clear of track and models; the view on it, close.
+    const spot = await p.evaluate(async () => {
+      const ring = [];
+      // (The ring lies within 200 mm of the first curve, whichever way it turns.)
+      for (const r of [100, 200, 260]) for (let a = 0; a < 16; a++) ring.push([Math.round(r * Math.cos((a * Math.PI) / 8)), Math.round(r * Math.sin((a * Math.PI) / 8))]);
+      return window.__openGround([[0, 0], ...ring], { pieceGap: 400, propGap: 300, onMat: true });
+    });
+    if (!spot) throw new Error("no open ground for a ring of tight curves");
+    await p.evaluate((s) => { const w = window.woodrail; w.director.glideTo(w.controls.target.clone().set(s.x, 0, s.z), 700, { duration: 0.2 }); }, spot);
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+    await frames(p);
+    const item = await p.evaluate(() => {
+      const e = document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]');
+      if (!e) return null;
+      e.scrollIntoView({ inline: "center" });
+      const r = e.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
+    });
+    if (!item) throw new Error("no tight curve in the Curve shelf");
+    const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    // The first, dragged out by touch and let go on the open ground (the piece held its lift above the finger).
+    const target = await screenOf({ x: spot.x, z: spot.z });
+    await touch("touchStart", item[0], item[1]);
+    for (let k = 1; k <= 16; k++) await touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 16, item[1] + ((target[1] + 56 - item[1]) * k) / 16);
+    await frames(p);
+    await touch("touchEnd", 0, 0);
+    await settled();
+    await frames(p);
+    const laid = () => p.evaluate((before) => {
+      const w = window.woodrail;
+      const ids = [...w.layout.pieceIds()].filter((i) => !before.includes(i) && w.layout.getPiece(i).type === "curve-small");
+      return { ids, open: ids.flatMap((id) => [0, 1].filter((c) => w.layout.joinedConnector(id * 8 + c) === -1).map((c) => `${id}.${c}`)) };
+    }, before);
+    const first = await laid();
+    check(`tight-curves (${hand}): a tight curve dragged out by touch goes down on open ground`, first.ids.length === 1, JSON.stringify({ first, item, target }));
+    if (first.ids.length !== 1) continue;
+    // Then the next waits at its free end, seated there: a tap on it puts it down, joined. Seven more close the ring.
+    const waits = [];
+    for (let k = 0; k < 7; k++) {
+      // (The view on where it waits, as a player pans to it: the ring runs out of view.)
+      await p.evaluate(() => { const w = window.woodrail; const a = w.interaction.previewAt; if (a) w.director.glideTo(w.controls.target.clone().set(a.x, 0, a.z), w.camera.position.distanceTo(w.controls.target), { duration: 0.1 }); });
+      await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+      await frames(p);
+      const g = await p.evaluate(() => {
+        const w = window.woodrail;
+        const m = w.interaction.preview;
+        if (!m || !w.interaction.previewAt) return null;
+        const v = w.interaction.previewAt.clone().project(w.camera);
+        const at = [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight];
+        const e = document.elementFromPoint(at[0], at[1]);
+        return { visible: m.ghost.visible, snap: m.snap.kind, blocked: m.blocked ?? null, at, under: e === w.canvas ? "map" : e ? `${e.tagName}.${e.className}` : null };
+      });
+      if (!g?.visible) {
+        waits.push(g && { snap: g.snap, blocked: g.blocked });
+        break;
+      }
+      const n0 = (await laid()).ids.length;
+      await touch("touchStart", g.at[0], g.at[1]);
+      await touch("touchEnd", g.at[0], g.at[1]);
+      await settled();
+      await frames(p);
+      waits.push({ snap: g.snap, blocked: g.blocked, at: g.at.map(Math.round), under: g.under, added: (await laid()).ids.length - n0 });
+    }
+    const ring = await laid();
+    check(`tight-curves (${hand}): the next tight curve waits at the free end seated there (not loose), and each tap on it puts one down`, waits.length === 7 && waits.every((g) => g?.snap === "snapped" && !g.blocked && g.added === 1), JSON.stringify(waits));
+    check(`tight-curves (${hand}): seven taps on it close a ring of eight tight curves, every joint joined`, ring.ids.length === 8 && ring.open.length === 0, JSON.stringify(ring));
+    await p.keyboard.press("Escape");
+    // (This ring taken up for the next: the step's own clean-up takes what's left.)
+    await p.evaluate((ids) => { const w = window.woodrail; for (const id of ids) if (w.layout.getPiece(id)) w.editor().remove(id); w.invalidate(); }, ring.ids);
+  }
+  // (Back to the hand pieces came out with.)
+  if (await p.evaluate(() => window.woodrail.interaction.trayFlipped)) await tapSel(".tray-flip");
+}
+
+/**
  * Route keep (the user: a planks train found with no route after a loop was laid at the end of its line, two routed
  * lines sharing the track). Two lines' trains, Red and Blue, both forest → sawmill over one passing loop, the sawmill
  * at the line's open end. The player lays a straight on at the sawmill's end from the tray (by touch), then taps Undo,
@@ -3661,7 +3761,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;
