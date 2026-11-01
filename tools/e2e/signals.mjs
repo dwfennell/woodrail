@@ -315,6 +315,40 @@ if (!setup.error) {
     check("Undo takes the last signal away", (await marks()).length === 1, JSON.stringify(await marks()));
   }
 }
+// 6. Idle with signals placed and the game paused: no frames drawn; and a few draws however many (signals spec §5).
+if (!setup.error) {
+  const more = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { connectorRef } = await import("/src/track/layout.ts");
+    // (Harness shortcuts: more marks on the line's joints, by the editor as a drop would, in each style; the game paused
+    // as the toolbar's pause would.)
+    const styles = ["plain", "semaphore", "colour-light"];
+    let n = 0;
+    for (const id of [...w.layout.pieceIds()]) {
+      if (n >= 12) break;
+      for (const c of [0, 1]) {
+        const at = connectorRef(id, c);
+        if (w.layout.joinedConnector(at) === -1 || w.layout.signalAt(at) || w.layout.signalAt(w.layout.joinedConnector(at))) continue;
+        const m = w.editor().addSignal(at, styles[n % 3]);
+        if (m !== -1) n++;
+        break;
+      }
+    }
+    w.paused = true;
+    w.invalidate();
+    return { n, count: w.layout.signalCount };
+  });
+  // (The kits' models load, the arms glide to their aspects: then nothing.)
+  await p.waitForTimeout(3000);
+  await settle();
+  const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.waitForTimeout(4000);
+  const f1 = await p.evaluate(() => window.woodrail.framesDrawn);
+  check("paused, with signals placed: no frames drawn while idle", f1 === f0, JSON.stringify({ ...more, f0, f1 }));
+  const draws = await p.evaluate(() => window.woodrail.marksView.drawCalls);
+  check("signals drawn instanced: a few draws for them all", draws > 0 && draws <= 24, JSON.stringify({ draws, marks: more.count }));
+  await shot("8-styles");
+}
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 console.log(`${failures === 0 ? "ALL PASSED" : `${failures} FAILED`}`);
 await b.close();
