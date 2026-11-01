@@ -1354,6 +1354,35 @@ async function trainCardAll(p) {
       // Upright, the card stays above the tray, as every card does.
       if (H > W) check(`train-card ${W}×${H}: the card sits above the tray`, !v.overTray, JSON.stringify(v.card));
     }
+    // Moving, Swap ends and Decouple would only be refused: greyed, saying why, and a tap does nothing; stopped, back.
+    const refusal = () => p.evaluate((e) => {
+      const c = document.querySelector(".engine-card");
+      const st = (sel) => {
+        const b = c.querySelector(sel);
+        const cs = getComputedStyle(b);
+        return { off: b.getAttribute("aria-disabled") === "true", title: b.title, opacity: cs.opacity, color: cs.color };
+      };
+      const f = window.woodrail.sim.findCar(e);
+      return { speed: f?.train.speed ?? -1, trains: window.woodrail.sim.trainIds().length, swap: st(".swap-ends"), decouple: st(".decouple"), remove: st(".remove") };
+    }, engine);
+    const r0 = await refusal();
+    check("train-card: standing, Swap ends and Decouple are on", !r0.swap.off && !r0.decouple.off, JSON.stringify(r0));
+    await tapButton(".engine-card .go");
+    await p.waitForFunction((e) => (window.woodrail.sim.findCar(e)?.train.speed ?? 0) > 0, engine, { timeout: 10000 }).catch(() => {});
+    await frames(p);
+    const r1 = await refusal();
+    check("train-card: moving, Swap ends and Decouple are greyed (aria-disabled, solid wood), saying to stop first; Remove isn't",
+      r1.speed > 0 && r1.swap.off && r1.decouple.off && r1.swap.title === "Stop the train first" && r1.decouple.title === "Stop the train first" && !r1.remove.off && r1.swap.opacity === "1",
+      JSON.stringify(r1));
+    await tapButton(".engine-card .decouple");
+    await frames(p);
+    const r2 = await refusal();
+    check("train-card: a tap on the greyed Decouple does nothing (no split)", r2.trains === r1.trains, JSON.stringify(r2));
+    await tapButton(".engine-card .go");
+    await p.waitForFunction((e) => window.woodrail.sim.findCar(e)?.train.speed === 0, engine, { timeout: 15000 }).catch(() => {});
+    await frames(p);
+    const r3 = await refusal();
+    check("train-card: stopped again, Swap ends and Decouple are back on", r3.speed === 0 && !r3.swap.off && !r3.decouple.off && r3.swap.title !== "Stop the train first", JSON.stringify(r3));
     // What each is for, tapped as a player would (on its side, the card's room smallest).
     const at = () => p.evaluate((e) => { const f = window.woodrail.sim.findCar(e); return f ? { index: f.index, cars: f.train.cars.length, trains: window.woodrail.sim.trainIds().length } : null; }, engine);
     const a0 = await at();

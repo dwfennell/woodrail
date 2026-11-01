@@ -91,7 +91,38 @@ describe("decouple", () => {
     expect(sim2.decouple(wagons.cars[0].id).kind).toBe("alone");
   });
 
-  it("the halves stay apart standing still; an engine driven back into its wagons couples them again", () => {
+  it("says why it'd be refused without trying (the cards grey Decouple and Swap ends): moving, then fine once stopped", () => {
+    const { layout, ids: p } = line();
+    const sim = new Sim(layout);
+    const t = trainOn(sim, p[2], 150, ["engine", "hopper"]);
+    const [engine, hopper] = t.cars.map((c) => c.id);
+    expect(sim.decoupleRefusal(hopper)).toBe(null);
+    expect(sim.runAroundRefusal(engine)).toBe(null);
+    sim.setLever(engine, 1);
+    for (let k = 0; k < 30; k++) sim.tick();
+    expect(sim.decoupleRefusal(hopper)).toBe("moving");
+    expect(sim.decoupleRefusal(engine)).toBe("moving");
+    expect(sim.runAroundRefusal(engine)).toBe("moving");
+    // Asking changes nothing.
+    expect(sim.trainCount).toBe(1);
+    sim.setLever(engine, 0);
+    for (let k = 0; k < 600 && sim.getTrain(t.id)!.speed > 0; k++) sim.tick();
+    expect(sim.decoupleRefusal(hopper)).toBe(null);
+    expect(sim.runAroundRefusal(engine)).toBe(null);
+    expect(sim.decoupleRefusal(9999)).toBe("none");
+    expect(sim.runAroundRefusal(9999)).toBe("none");
+
+    // An engine alone: nothing to uncouple, but Swap ends only turns it, moving or not.
+    const { layout: l2, ids: p2 } = line();
+    const sim2 = new Sim(l2);
+    const lone = trainOn(sim2, p2[3], 150, ["engine"]);
+    expect(sim2.decoupleRefusal(lone.cars[0].id)).toBe("alone");
+    sim2.setLever(lone.cars[0].id, 1);
+    for (let k = 0; k < 30; k++) sim2.tick();
+    expect(sim2.runAroundRefusal(lone.cars[0].id)).toBe(null);
+  });
+
+    it("the halves stay apart standing still; an engine driven back into its wagons couples them again", () => {
     const { layout, ids: p } = line();
     const sim = new Sim(layout);
     const t = trainOn(sim, p[3], 150, ["engine", "hopper", "timber"]);
