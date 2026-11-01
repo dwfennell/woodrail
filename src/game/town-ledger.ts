@@ -4,7 +4,7 @@ import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
 import { ruleOf, type ThingId } from "./things";
 import { receivedBy } from "./town-life";
-import { townLevel, townStatus } from "./towns";
+import { FOODS, townLevel, townStatus } from "./towns";
 import { DEPOT_NAMES, depotName, type World } from "./world";
 
 /**
@@ -39,6 +39,11 @@ export interface TownLedger {
   station: { waiting: number; room: number; carried: number } | null;
   /** The lines that call at the town, with how many trains run on each (once Train routes is learned). */
   lines: { id: number; name: string; colour: string; trains: number }[];
+  /**
+   * The everyday food it always buys at full pay, of what's learned (`FOODS`: milk once Dairy farm is, bread once
+   * Bakery is, fruit once Orchards is): "Always buys 🥛 milk and 🥖 bread at full pay", or null.
+   */
+  buys: string | null;
 }
 
 /** What the ledger needs of the game beyond the world: what's learned, and the station's room for waiting people. */
@@ -51,7 +56,22 @@ export interface LedgerContext {
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
-const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest"];
+const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard"];
+
+/** The everyday food a town always buys, by the blueprint that brings its maker, in cargo order. */
+const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
+  ["milk", "dairy"],
+  ["bread", "bakery"],
+  ["fruit", "orchard"],
+];
+
+/** "Always buys 🥛 milk, 🥖 bread and 🍎 fruit at full pay" for the foods whose blueprint is learned, or null. */
+export function buysText(learned: ReadonlySet<string>): string | null {
+  const foods = FOOD_TECH.filter(([k, tech]) => FOODS.has(k) && learned.has(tech)).map(([k]) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
+  if (foods.length === 0) return null;
+  const list = foods.length === 1 ? foods[0] : `${foods.slice(0, -1).join(", ")} and ${foods[foods.length - 1]}`;
+  return `Always buys ${list} at full pay`;
+}
 const makerOf = (kind: CargoKind): Exclude<DepotRole, "town"> | undefined => MAKERS.find((r) => RECIPES[r].gives.includes(kind));
 
 /**
@@ -103,6 +123,7 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     market: townLandmarks(town).has("market") ? MARKET_BONUS : 1,
     station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried },
     lines,
+    buys: buysText(ctx.learned),
   };
 }
 

@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -18,6 +18,11 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   // Made goods: furniture from a carpenter's yard, tools from a smithy (towns pay well for them).
   furniture: { index: 8, label: "Furniture" },
   tools: { index: 9, label: "Tools" },
+  // The dairy chain (tech-tree I3, I4): milk from a dairy farm; a bakery makes bread of flour and milk. Fruit from an
+  // orchard (towns eat it as it comes; juice and jam come later).
+  milk: { index: 10, label: "Milk" },
+  bread: { index: 11, label: "Bread" },
+  fruit: { index: 12, label: "Fruit" },
 };
 
 /**
@@ -36,6 +41,10 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   iron: "🔩",
   furniture: "🪑",
   tools: "🧰",
+  // Placeholders until their SVGs land (the house icon set, claude/planks-icon).
+  milk: "🥛",
+  bread: "🥖",
+  fruit: "🍎",
 };
 
 /** Coins, beside goods in a cost. */
@@ -43,10 +52,12 @@ export const COIN_ICON = "🪙";
 
 /** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
 export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
-  // Timber wagons are flatbeds: logs, planks and iron bars.
-  timber: ["log", "planks", "iron"],
+  // Timber wagons are flatbeds: logs, planks, iron bars and crates of fruit.
+  timber: ["log", "planks", "iron", "fruit"],
   hopper: ["grain", "stone", "coal", "ore"],
-  van: ["flour", "furniture", "tools"],
+  // Vans: sacks and crates (flour, made goods, bread). Milk goes in a tank wagon.
+  van: ["flour", "furniture", "tools", "bread"],
+  tanker: ["milk"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

@@ -4,13 +4,18 @@ import { CARGO, CARGO_KINDS, COIN_ICON, GOODS_ICON, canCarry } from "./cargo";
 
 describe("cargo", () => {
   it("a kind of wagon per kind of goods: timber wagons take logs and planks, hoppers grain, vans flour", () => {
-    for (const k of CAR_KINDS) expect(canCarry(k), k).toBe(k === "timber" || k === "hopper" || k === "van");
+    for (const k of CAR_KINDS) expect(canCarry(k), k).toBe(k === "timber" || k === "hopper" || k === "van" || k === "tanker");
     expect(canCarry("van", "flour")).toBe(true);
     expect(canCarry("van", "planks")).toBe(false);
     expect(canCarry("timber", "planks")).toBe(true);
     expect(canCarry("timber", "grain")).toBe(false);
     expect(canCarry("hopper", "grain")).toBe(true);
     expect(canCarry("hopper", "log")).toBe(false);
+    // The dairy chain and the orchard: milk in a tank wagon (and only there), bread in vans, fruit crates on flatbeds.
+    expect(CAR_KINDS.filter((k) => canCarry(k, "milk"))).toEqual(["tanker"]);
+    expect(canCarry("tanker", "flour")).toBe(false);
+    expect(CAR_KINDS.filter((k) => canCarry(k, "bread"))).toEqual(["van"]);
+    expect(CAR_KINDS.filter((k) => canCarry(k, "fruit"))).toEqual(["timber"]);
   });
 
   it("every kind of goods has one icon of its own, a single glyph", () => {

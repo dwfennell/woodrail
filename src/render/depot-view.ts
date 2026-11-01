@@ -1,4 +1,4 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Plane, Quaternion, Vector3, type Ray, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector3, type Ray, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
@@ -179,7 +179,33 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   harbour: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
-    piles: Object.fromEntries(CARGO_KINDS.map((k, i) => [k, { t: 22 + i * 17.5, l: 62, y: YARD, across: 1, axis: "l", show: 4 }])),
+    // (Spread along the quay's 180 mm, however many kinds of goods there are: 15 mm apart for 13.)
+    piles: Object.fromEntries(CARGO_KINDS.map((k, i) => [k, { t: 18 + i * Math.min(17.5, 180 / (CARGO_KINDS.length - 1)), l: 62, y: YARD, across: 1, axis: "l", show: 4 }])),
+    trackT: 60,
+  },
+  // The dairy chain and the orchard: the dairy's churns and the bakery's flour, milk and bread under a jib, at the near
+  // end; their buildings (the catalogue's models, `building`) at the far end. The orchard's apple trees stand in rows
+  // along the yard's back, its crates by the track.
+  dairy: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { milk: { t: 60, l: 70, y: YARD, across: 3, rows: 2, axis: "t" } },
+    trackT: 60,
+  },
+  bakery: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      flour: { t: 38, l: 64, y: YARD, across: 3, axis: "t" },
+      milk: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      bread: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
+  orchard: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { fruit: { t: 60, l: 66, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 60,
   },
   mill: {
@@ -255,6 +281,30 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   power: { part: "industry-power", slots: {} },
   harbour: { part: "industry-harbour", slots: { roof: "#2f6fb0" } },
   foundry: { part: "industry-foundry", slots: {} },
+};
+
+/**
+ * Industries dressed with the catalogue's own models (no Blender part of their own): each model, where it stands in the
+ * yard (depot frame), turned by `turn` (default a quarter turn: a building's front, +z, to the track) and scaled by
+ * `scale`. Loaded on first use (`catalogueModel`); till then, and in unit tests, stand-ins are drawn from code.
+ */
+const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t: number; l: number; turn?: number; scale?: number }[]>> = {
+  // The dairy at the far end, cows grazing between it and the churns.
+  dairy: [
+    { asset: "bldg-dairy", t: 160, l: 84 },
+    { asset: "life-cow", t: 104, l: 98, turn: 0.4 },
+    { asset: "life-cow", t: 122, l: 80, turn: 2.6 },
+  ],
+  bakery: [{ asset: "bldg-bakery", t: 156, l: 84 }],
+  // Two rows of apple trees beyond the crates.
+  orchard: [
+    { asset: "scene-apple-tree", t: 112, l: 70, turn: 0 },
+    { asset: "scene-apple-tree", t: 148, l: 72, turn: 1.3 },
+    { asset: "scene-apple-tree", t: 184, l: 70, turn: 2.1 },
+    { asset: "scene-apple-tree", t: 96, l: 100, turn: 0.7 },
+    { asset: "scene-apple-tree", t: 132, l: 102, turn: 2.9 },
+    { asset: "scene-apple-tree", t: 168, l: 100, turn: 1.8 },
+  ],
 };
 
 /** Where a hopper's grain heap sits (car-local y): the top of its bin (Asset Gen: hopper-classic). */
@@ -424,6 +474,20 @@ export class DepotView {
         [sack, mats.lacquer("#f1ebdd")],
         [tie, mats.lacquer("#2f6db5")],
       ],
+      // The dairy chain and the orchard (stand-ins of turned and boxed shapes; no models yet): a churn with a blue lid,
+      // a tray of three loaves, a crate of apples.
+      milk: [
+        [new CylinderGeometry(3.6, 4.2, CRATE_HEIGHT - 2, 14), mats.lacquer("#d8dadc")],
+        [new CylinderGeometry(2.4, 2.4, 2, 12).translate(0, CRATE_HEIGHT / 2 - 1, 0), mats.lacquer("#2f6db5")],
+      ],
+      bread: [
+        [new RoundedBoxGeometry(SACK_LENGTH, 3, SACK_WIDTH, 1, 0.8).translate(0, -CRATE_HEIGHT / 2 + 1.5, 0), mats.naturalWood],
+        [mergeGeometries([-1, 0, 1].map((k) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH / 3 - 0.4, 5, SACK_WIDTH - 1.5, 2, 1.8).translate((k * SACK_LENGTH) / 3, 0.5, 0))))!, mats.lacquer("#c98a3e")],
+      ],
+      fruit: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2.5, SACK_WIDTH, 1, 0.8).translate(0, -1.25, 0), mats.naturalWood],
+        [new RoundedBoxGeometry(SACK_LENGTH - 2, 2.5, SACK_WIDTH - 2, 2, 1.2).translate(0, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer("#c8442f")],
+      ],
     };
     // The modelled sack when it's loaded (its base at y 0: units are placed by their centre).
     if (hasPart("load-flour-sack")) looks.flour = partPieces(mats, "load-flour-sack").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]);
@@ -482,6 +546,11 @@ export class DepotView {
    * town), as baked parts in its own frame, drawn at `scale` (1 if none) so it fits the yard; null or none: a stand-in
    * is drawn. `depot` is the yard's (only `role` for the held piece's model). Set it, then `setWorld` to draw it.
    */
+  /**
+   * A catalogue model's parts by asset id (for `CATALOGUE_DRESSING`): null if there's none, undefined while it loads
+   * (the caller redraws the yards once it has: `setWorld`).
+   */
+  catalogueModel: ((asset: string) => { parts: readonly { geometry: BufferGeometry; material: Material }[] } | null | undefined) | null = null;
   building: ((role: DepotRole, depot?: DepotState) => { parts: readonly { geometry: BufferGeometry; material: Material }[]; scale?: number } | null | undefined) | null = null;
 
   /** Rebuild for a world: one site per economy depot. */
@@ -636,6 +705,20 @@ export class DepotView {
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(14, 22, 3, 1, 1), 150, 63.5, PAD_H + 11));
       return;
     }
+    const dressing = CATALOGUE_DRESSING[site.depot.role];
+    if (dressing) {
+      // The catalogue's models once they're all loaded (one of them missing: the stand-ins, drawn whole).
+      const models = dressing.map((d) => this.catalogueModel?.(d.asset));
+      if (models.every((m) => !!m)) {
+        dressing.forEach((d, i) => {
+          const k = d.scale ?? 1;
+          for (const p of models[i]!.parts) b.add(p.material, place(p.geometry.clone().scale(k, k, k).rotateY(d.turn ?? Math.PI / 2), d.t, d.l, PAD_H));
+        });
+        return;
+      }
+      this.foodStandIns(site.depot.role, place, b);
+      return;
+    }
     const model = INDUSTRY_MODELS[site.depot.role];
     if (model && hasPart(model.part)) {
       // The industry's buildings, modelled in Blender in this depot frame (tools/blender/dressing.py, "Industries").
@@ -754,6 +837,26 @@ export class DepotView {
       b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 26, 24, 2, 2.5), 186, 96, PAD_H + 13));
       b.add(mats.lacquer("#3c8f4e"), place(new RoundedBoxGeometry(36, 4, 30, 1, 1.5), 186, 96, PAD_H + 28));
     }
+  }
+
+  /** The dairy's, the bakery's and the orchard's buildings drawn from code, till their catalogue models load. */
+  private foodStandIns(role: DepotRole, place: (g: BufferGeometry, t: number, l: number, y: number) => BufferGeometry, b: Pick<Batcher, "add">): void {
+    const mats = this.mats;
+    if (role === "orchard") {
+      // Apple trees: a beech trunk, a round green crown, a few red apples.
+      for (const d of CATALOGUE_DRESSING.orchard!) {
+        b.add(mats.naturalWood, place(new CylinderGeometry(2.4, 3, 20, 8), d.t, d.l, PAD_H + 10));
+        b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(12, 12, 9), d.t, d.l, PAD_H + 28));
+        for (const [dt, dl, dy] of [[8, -6, 30], [-6, 8, 26], [2, -10, 22]] as const) b.add(mats.lacquer("#c8442f"), place(new SphereGeometry(2.4, 8, 6), d.t + dt, d.l + dl, PAD_H + dy));
+      }
+      return;
+    }
+    // A shed at the far end: the dairy white with a red roof, the bakery cream with a brown one and a chimney.
+    const [wall, roof] = role === "dairy" ? ["#f6f3ec", "#c8442f"] : ["#efd9a7", "#7a4a2a"];
+    b.add(mats.lacquer(wall), place(new RoundedBoxGeometry(56, 30, 36, 2, 3), 158, 88, PAD_H + 15));
+    b.add(mats.lacquer(roof), place(new RoundedBoxGeometry(62, 5, 42, 1, 2), 158, 88, PAD_H + 32));
+    if (role === "bakery") b.add(mats.lacquer("#9a4f3a"), place(new CylinderGeometry(3.5, 4, 18, 10), 174, 100, PAD_H + 40));
+    else for (const t of [110, 128]) b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(22, 12, 10, 2, 3), t, 92, PAD_H + 8));
   }
 
   private buildCrane(pose: SitePose, c: CraneSpec): CraneParts {

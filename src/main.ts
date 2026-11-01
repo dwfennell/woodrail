@@ -28,6 +28,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
+import { firstFoodNews } from "./game/food-text";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
@@ -1419,6 +1420,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
       if (firstFlour && progress.firstFlour) note({ kind: "milestone", text: `First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus`, place: { x: town.station.x, z: town.station.z } }, 3600);
+      // The first milk, bread or fruit any town has had (the dairy chain, the orchard): a milestone, once a game.
+      let total = 0;
+      for (const bag of game.economy.deliveredGoods.values()) total += bag[kind] ?? 0;
+      const food = firstFoodNews(kind, n, total, town.name);
+      if (food) note({ kind: "milestone", text: food, place: { x: town.station.x, z: town.station.z } }, 3600);
       // (A routine delivery isn't news: the coins and the town's card show it. The News keeps what changes things.)
     },
     grew: (town, status, built) => {
@@ -1752,6 +1758,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return m && { parts: m.parts, scale };
   }
 
+  /**
+   * A catalogue model for an industry's yard (the dairy's, the bakery's, the orchard's trees): loaded on first use, then
+   * the yards are drawn again once (never per frame).
+   */
+  function yardModel(asset: string): { parts: PropModel["parts"] } | null | undefined {
+    const m = game.propLibrary.model(asset);
+    if (m === undefined)
+      void game.propLibrary.load(asset).then(
+        () => {
+          game.depotView.setWorld(game.economy, game.layout);
+          game.invalidate();
+        },
+        () => {},
+      );
+    return m;
+  }
+
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
   function industriesChanged(): void {
@@ -1767,6 +1790,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     key += `#${mode === "game" ? schoolGradesKey(game.world, progress.learned) : ""}`;
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     game.depotView.building = schoolHouse;
+    game.depotView.catalogueModel = yardModel;
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
