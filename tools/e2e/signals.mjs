@@ -399,7 +399,7 @@ if (!setup.error) {
   const line = await p.evaluate(async () => {
     const w = window.woodrail;
     const { chain, loopOn } = await import("/src/economy/loop-fixtures.ts");
-    const { appendPiece, connectorRef } = await import("/src/track/layout.ts");
+    const { appendPiece, connectorRef } = await import("/src/track/index.ts");
     const { editLine, joinLine } = await import("/src/game/lines.ts");
     const { CARGO } = await import("/src/economy/cargo.ts");
     const { PILE_CAP } = await import("/src/economy/constants.ts");
@@ -443,20 +443,28 @@ if (!setup.error) {
     };
     // Ticks run ahead: goods unloaded at the mill by each engine's train, and ticks both trains ran in the long stretch.
     window.__lineRun = (secs) => {
-      const out = { unloaded: 0, together: 0, arrived: {} };
+      const out = { unloaded: 0, together: 0, arrived: {}, firstAtMill: {} };
       const engines = window.__engines;
       const onMid = (e) => {
         const t = w.sim.findCar(e)?.train;
         return !!t && t.speed > 1 && t.bogies.some((x) => mid.includes(x.pieceId));
       };
       for (let i = 0; i < secs * 120; i++) {
-        if (i % 120 === 0) w.economy.depot(forest).piles[CARGO.log.index] = PILE_CAP;
+        // (The forest kept stocked and the mill's yard cleared, so neither run is held up by the other's goods.)
+        if (i % 120 === 0) {
+          w.economy.depot(forest).piles[CARGO.log.index] = PILE_CAP;
+          w.economy.depot(mill).piles[CARGO.log.index] = 0;
+        }
         const before = engines.map((e) => w.economy.routeOf(e)?.at ?? false);
         w.sim.tick();
         w.economy.tick();
         for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === mill) out.unloaded++;
         engines.forEach((e, k) => {
-          if (!before[k] && w.economy.routeOf(e)?.at && w.economy.routeOf(e).stops[w.economy.routeOf(e).next]?.depotId === mill) out.arrived[k] = (out.arrived[k] ?? 0) + 1;
+          if (!before[k] && w.economy.routeOf(e)?.at) {
+            out.arrived[k] = (out.arrived[k] ?? 0) + 1;
+            const r = w.economy.routeOf(e);
+            if (r.stops[r.next]?.depotId === mill && out.firstAtMill[k] === undefined) out.firstAtMill[k] = i / 120;
+          }
         });
         if (onMid(engines[0]) && onMid(engines[1])) out.together++;
       }
@@ -556,7 +564,12 @@ if (!setup.error) {
   check("4. Delete on its card takes the signal away", await p.evaluate((at) => !window.woodrail.layout.signalAt(at), line.at));
   await p.evaluate(() => window.__lineTrains());
   const without = await p.evaluate(() => window.__lineRun(240));
-  check("4. payoff: with the signal more goods delivered in 4 game minutes than without", withSignal.unloaded > without.unloaded, JSON.stringify({ with: withSignal.unloaded, without: without.unloaded, togetherWithout: without.together }));
+  const stops = (r) => (r.arrived[0] ?? 0) + (r.arrived[1] ?? 0);
+  // (The trains follow each other only while they go the same way: from the start, here. After that they meet and pass
+  // at the loops, as without the signal; so the payoff is the follower's delivery coming sooner, and no fewer stops or
+  // goods in the 4 minutes. The harness's lineFollowers counts the gain over 30 minutes: 78 stops against 73.)
+  check("4. payoff: the follower delivers sooner with the signal", (withSignal.firstAtMill[1] ?? Infinity) < (without.firstAtMill[1] ?? Infinity), JSON.stringify({ with: withSignal.firstAtMill, without: without.firstAtMill }));
+  check("4. …and no fewer stops or goods delivered in 4 game minutes", stops(withSignal) >= stops(without) && withSignal.unloaded >= without.unloaded, JSON.stringify({ with: withSignal, without }));
   check("4. without it, never both in the stretch at once", without.together === 0, JSON.stringify(without));
 }
 
@@ -567,15 +580,17 @@ if (!setup.error) {
   const old = await p.evaluate(async () => {
     const w = window.woodrail;
     const { chain } = await import("/src/economy/loop-fixtures.ts");
-    const { appendPiece, connectorRef } = await import("/src/track/layout.ts");
+    const { appendPiece, connectorRef } = await import("/src/track/index.ts");
     const b = w.director.bounds;
-    const first = w.layout.addPiece("straight-216", { x: b.x0 + 260, z: b.z1 - 520, heading: 0 });
+    // (Along the other edge of the view's bounds, clear of the payoff's line.)
+    const first = w.layout.addPiece("straight-216", { x: b.x0 + 260, z: b.z0 + 260, heading: 0 });
     appendPiece(w.layout, "buffer-turnback", false, connectorRef(first, 0));
     const ids = [first, ...chain(w.layout, ["straight-216", "kit-semaphore-signal", "straight-216", "straight-216"], connectorRef(first, 1))];
     appendPiece(w.layout, "buffer-turnback", false, connectorRef(ids[ids.length - 1], 1));
     const sig = ids[2];
     w.sim.toggleSignal(sig);
-    const r = w.sim.addTrain(["engine", "timber"], { pieceId: first, pathIndex: 0, reversed: false, s: 40 });
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 120 });
+    if (r.kind !== "placed") return { error: `no room for the train: ${r.kind}` };
     w.sim.setLever(w.sim.getTrain(r.trainId).cars[0].id, 0);
     return { sig, held: w.sim.signalHeld(sig) };
   });

@@ -10,6 +10,9 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **Signals, step 6: cards and hints** (on `claude/signals-6`; signals spec §6, §7).
+  - **Now:** a train held at a signal the player holds says so after 5 s ("… you're holding. Tap it to let go"); the follow hint once ever (`Sections.followSpot`, `FOLLOW_TIP`, "Show me where" glides there and shows a ghost); the Signals blurb, the second engine's note and the two-trains goal no longer say signals are needed to share a line.
+  - **Gotchas:** `followSpot` remembers per wait that the leader went ahead the same way (`sawLead`, by `waitSince`): by 20 s the leader has usually left the stretch.
 - **Signals, step 5: how they look** (on `claude/signals-5`; signals spec §5).
   - **Now:** marks drawn instanced by look (`SignalMarksView`): plain (the toy semaphore), semaphore and colour light (the kits' models without their slabs, from `PropLibrary`), and a gantry drawn by itself over two marks side by side on double track. Arms glide 0.3 s (`animate`, frames only while gliding) and cast no shadow; colour lights swap lenses between two batches.
   - **Gotchas:** `drawCalls` counts batches in use; a look's batch grows (made again, doubled) only when its marks outgrow it. The model frame is a signal piece's (far end at x = 144 on the mark's joint).
