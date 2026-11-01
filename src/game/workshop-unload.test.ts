@@ -22,8 +22,8 @@ import { attachResearch, lacking, pick } from "./research";
 import { keptText } from "./workshop-text";
 import { engineView } from "./engine-status";
 
-type Stop = "workshop" | "school" | "town";
-const PIECE: Record<Stop, PieceTypeId> = { workshop: "depot-workshop", school: "depot-school", town: "straight-216" };
+type Stop = "workshop" | "school" | "town" | "forest" | "sawmill";
+const PIECE: Record<Stop, PieceTypeId> = { workshop: "depot-workshop", school: "depot-school", town: "straight-216", forest: "depot-forest", sawmill: "depot-sawmill" };
 
 /**
  * Along +x: two straights (the train: an engine and three timber wagons of 3 planks each, heading +x), then the stops
@@ -57,7 +57,7 @@ function line(p: Progress, stops: readonly Stop[], opts: { branchSchool?: boolea
   sim.setLever(train().cars[0].id, 1);
   /** What its engine card said while passing a stop that takes planks and keeping them (`keptAt`). */
   const told = new Set<string>();
-  const names: Record<string, string> = { workshop: "the workshop", school: "the school", town: "Ashby" };
+  const names: Record<string, string> = { workshop: "the workshop", school: "the school", town: "Ashby", forest: "the forest", sawmill: "the sawmill" };
   const run = (seconds: number) => {
     for (let i = 0; i < seconds * SIM_HZ; i++) {
       sim.tick();
@@ -70,7 +70,15 @@ function line(p: Progress, stops: readonly Stop[], opts: { branchSchool?: boolea
   const delivered = () => economy.delivered.get(0) ?? 0;
   const route = (stops: { stop: DepotState; action?: "auto" | "drop" | "pick" }[], next = 0) =>
     economy.setRoute(train().cars[0].id, { stops: stops.map((s) => ({ depotId: s.stop.id, action: s.action ?? "auto" })), next });
-  return { layout, economy, train, run, at, planks, delivered, route, told, branchSchool };
+  /** What each timber wagon carries, front to back ("planks 3", "logs 2", "empty"). */
+  const loads = () =>
+    train()
+      .cars.filter((c) => c.kind === "timber")
+      .map((c) => {
+        const g = economy.cargoOf(c.id);
+        return g.kind && g.count > 0 ? `${g.kind} ${g.count}` : "empty";
+      });
+  return { layout, economy, sim, train, run, at, planks, delivered, route, told, branchSchool, loads };
 }
 
 /** Research picked that lacks more planks than the train carries (Bridges: 10). */
@@ -162,16 +170,18 @@ describe("a school set to Research first (its card's choice): trains keep what i
     expect(w.delivered()).toBe(0);
     expect(w.planks(w.at("workshop"))).toBe(0);
     expect(p.research.got).toEqual({ planks: 9 });
-    expect(w.told.has("Keeping planks for the school: it's set to Research first")).toBe(true);
+    expect(w.told.has("Keeping 9 planks for the school (Research first)")).toBe(true);
   });
 
-  it("a routed line the same", () => {
+  it("a routed line: one wagon's worth, the rest dropped at the town", () => {
     const p = lackingPlanks();
     const w = line(p, ["town", "workshop", "school"]);
     w.economy.setTakesAll(w.at("school").id, true);
     w.route([{ stop: w.at("town") }, { stop: w.at("workshop") }, { stop: w.at("school") }]);
     w.run(90);
-    expect(p.research.got).toEqual({ planks: 9 });
+    expect(w.delivered()).toBe(6);
+    expect(p.research.got).toEqual({ planks: 3 });
+    expect(w.told.has("Keeping 3 planks for the school (Research first)")).toBe(true);
   });
 
   it("only for a school the train comes to: one on joined track, the points set away from it, gets nothing kept", () => {
@@ -189,6 +199,65 @@ describe("a school set to Research first (its card's choice): trains keep what i
     v.run(90);
     expect(v.planks(v.at("workshop"))).toBe(0);
     expect(q.research.got).toEqual({ planks: 9 });
+  });
+});
+
+describe("a routed train holds at most one wagon's worth for a Research-first school (issue #20)", () => {
+  // (The 2026-11-01 release QA, balance seed 5: planks held for the school filled both timber wagons of a routed
+  // train, so at the forest they took no logs, nothing was sawn and a city went 70 minutes without planks.)
+  const routed = (p: Progress, stops: Stop[]) => {
+    const w = line(p, stops);
+    w.economy.setTakesAll(w.at("school").id, true);
+    w.route(stops.map((s) => ({ stop: w.at(s) })));
+    return w;
+  };
+
+  it("never more than the research lacks: lacking 2, it keeps 2 and drops the other 7 at the town", () => {
+    const p = lackingPlanks();
+    const need = lacking(p, "planks");
+    p.research.got = { planks: need - 2 }; // (setup: research part done, not the thing under test)
+    expect(lacking(p, "planks")).toBe(2);
+    const w = routed(p, ["town", "school"]);
+    w.run(90);
+    expect(w.delivered()).toBe(7);
+    expect(p.research.got.planks).toBe(need);
+    expect(w.told.has("Keeping 2 planks for the school (Research first)")).toBe(true);
+  });
+
+  it("the held planks stay in one wagon: the others drop theirs at the town and load logs at the forest", () => {
+    const p = lackingPlanks();
+    const w = routed(p, ["town", "forest", "school", "sawmill"]);
+    w.at("forest").piles[CARGO.log.index] = 6;
+    // Till the back two wagons have taken logs at the forest: the front one still holds the school's 3.
+    for (let t = 0; t < 60 && !w.loads().slice(1).every((l) => l.startsWith("log ")); t++) w.run(1);
+    expect(w.delivered()).toBe(6);
+    const loads = w.loads();
+    expect(loads[0]).toBe("planks 3");
+    expect(loads.slice(1).every((l) => l.startsWith("log "))).toBe(true);
+    w.run(60);
+    expect(p.research.got).toEqual({ planks: 3 });
+  });
+
+  it("a hand-run train on the same line keeps all the research lacks, as before (no cap)", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["town", "school"]);
+    w.economy.setTakesAll(w.at("school").id, true);
+    w.run(90);
+    expect(w.delivered()).toBe(0);
+    expect(p.research.got).toEqual({ planks: 9 });
+  });
+
+  it("the cap is one wagon's worth: more with heavy wagons", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["town", "school"]);
+    expect(w.economy.schoolHoldCap).toBe(3);
+    w.economy.wagonCapacity = 5;
+    for (const c of w.train().cars) if (c.kind === "timber") w.economy.setCargo(c.id, "planks", 5);
+    w.economy.setTakesAll(w.at("school").id, true);
+    w.route([{ stop: w.at("town") }, { stop: w.at("school") }]);
+    w.run(90);
+    expect(w.delivered()).toBe(10);
+    expect(p.research.got).toEqual({ planks: 5 });
   });
 });
 
