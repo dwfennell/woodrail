@@ -62,7 +62,7 @@ import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlocksWords } from "./game/research-text";
+import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, CLASSIC_KMH, trainSummary, type SummaryCar } from "./game/train-summary";
@@ -385,6 +385,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           interaction.tapTrayPiece(item);
         } else if (trayAllowed(item, item.kind !== "train")) interaction.tapTrayPiece(item);
       },
+      showResearch: (id) => setBoardOpen(true, id),
       trayTabChanged: () => interaction.arm(null),
       trayDraw: (on) => interaction.setDrawing(on),
       trayErase: (on) => interaction.setErasing(on),
@@ -1572,18 +1573,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
     // (A new take: whatever an earlier one made is settled, or never was.)
     if (make) trainMade = pieceMade = null;
-    const look = lockedLook(item);
-    if (look) {
-      const t = techOf(look)!;
-      hud.toast(t.plan ? `${t.label}: coming soon` : `${t.label}: learn its blueprint first${t.requires.length ? ` (${t.requires.map(describeNeed).join(", ")})` : ""}`, false, 3600);
+    // Not learned yet: how to unlock it, in plain words ("Switch: Research Switches to unlock"); a tap on the toast
+    // opens Research there. (A tap on a locked tile shows its note instead: Hud.lockedTap. This is a drag out of it.)
+    const lock = lockOf(item);
+    if (lock) {
+      const how = unlockHow(progress, lock.tech);
+      const jump = how.jump;
+      hud.toast(`${lock.label}: ${how.text}`, false, 3600, jump ? () => setBoardOpen(true, jump) : undefined);
       return false;
     }
     const needs = thingsFor(item as ThingItem);
-    for (const id of needs.keys()) {
-      if (progress.knows(id)) continue;
-      hud.toast(`${ruleOf(id)!.label}: not learned yet`);
-      return false;
-    }
     // None left of something it takes: all of what's missing is made on the spot from the workshop's yard, or none.
     const lack = lacking(game.world, progress, needs);
     if (lack.size === 0) return true;
@@ -1664,6 +1663,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.refreshTrayBadges();
     showWorkshop(true);
     scheduleSave();
+  }
+
+  /**
+   * What keeps a tray item locked (Game mode): the blueprint to learn, and the name to say it by (the train's look, or
+   * the thing not known yet: "Switch"), or null if it isn't locked.
+   */
+  function lockOf(item: ThingItem | TrayItem | { kind: string }): { tech: string; label: string } | null {
+    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return null;
+    const look = lockedLook(item);
+    if (look) return { tech: look, label: "label" in item && typeof item.label === "string" ? item.label : techOf(look)!.label };
+    for (const id of thingsFor(item as ThingItem).keys()) {
+      const tech = ruleOf(id)?.tech;
+      if (tech && !progress.knows(id)) return { tech, label: ruleOf(id)!.label };
+    }
+    return null;
   }
 
   /** A train item in a look whose blueprint isn't learned yet (a dining car, an express engine): that blueprint. */
@@ -4051,6 +4065,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       flourBefore(progress, game.world);
       syncLandmarks();
       hud.trayBadge = trayBadge;
+      hud.trayLock = (item) => {
+        const lock = lockOf(item);
+        return lock && unlockHow(progress, lock.tech);
+      };
       hud.trayKnown = (item) => (item.kind === "road" ? progress.learned.has(ROAD_TECH[item.piece]) : item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id)));
       // A tab that needs a blueprint (Roads) shows once it's learned.
       hud.tabKnown = (tech) => progress.learned.has(tech);
@@ -4068,6 +4086,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWaiting();
       shownDelivered = new Map();
       hud.trayBadge = null;
+      hud.trayLock = null;
+      hud.hideLockNote();
       hud.trayKnown = null;
       hud.tabKnown = null;
       hud.refreshTabs();

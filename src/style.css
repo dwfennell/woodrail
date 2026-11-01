@@ -335,11 +335,30 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) > .close { position: sticky; bottom: -11px; z-index: 2; order: 3; align-self: flex-start; margin: -57px 0 -11px -10px; }
   /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
   .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
-  .depot-extra.ledger > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
+  .depot-extra.ledger > *, .ledger-main > *, .ledger-side > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
   /* (The card's top is a resting place too, its title's: with none there, a card opened at its top could be snapped
      down to the first row, its name half cut off. QA at 740x360: opened at 25 px.) */
   .depot-card:has(.depot-extra.ledger) > .card-title { scroll-snap-align: start; scroll-margin-top: 12px; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
+  /* A town's card on its side: two columns, so its ledger shows whole on a 390 px tall phone (it was one 146 px column
+     that scrolled, its ✕ in the footer). How it grows (level, goods, what holds it back) at the left; what it has
+     (school, market, station, lines), then Automatic and the station's upgrades at the right. The ✕ at the top right,
+     as on every card. It keeps to the right 60% of the screen (the map's room is beside it), and comes down over the
+     tray as the engine card does: it's in charge while it's open. Taller still (a long upgrade list) it scrolls. */
+  .depot-card:has(.depot-extra.ledger) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr; column-gap: 16px; row-gap: 6px; align-items: start; width: min(540px, calc(60vw - 12px - env(safe-area-inset-right))); box-sizing: border-box; padding-top: 10px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); scroll-snap-type: none; }
+  .depot-card:has(.depot-extra.ledger) > * { grid-column: 1 / -1; }
+  .depot-card:has(.depot-extra.ledger) > .card-title { grid-row: 1; scroll-snap-align: none; padding: 2px 40px 0 0; text-align: left; }
+  /* (Placed by the card's edges, not a grid area's: a grid area would hold it inside the card's padding.) */
+  .depot-card:has(.depot-extra.ledger) > .close { grid-column: auto; grid-row: auto; position: absolute; top: 0; right: 0; bottom: auto; margin: 0; order: 0; }
+  .depot-card .depot-extra.ledger { display: contents; }
+  .depot-extra.ledger .ledger-main { grid-column: 1; grid-row: 2 / 6; display: flex; flex-direction: column; gap: 7px; }
+  .depot-extra.ledger .ledger-side { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; gap: 6px; }
+  .depot-extra.ledger .ledger-side:not(:has(> :not(.ledger-pay))) { display: none; }
+  .depot-card:has(.depot-extra.ledger) > .card-row { grid-column: 2; grid-row: 3; position: static; margin: 0; padding: 0; background: none; box-shadow: none; justify-content: flex-start; }
+  .depot-extra.ledger .station-upgrade { grid-column: 2; grid-row: 4; }
+  /* (Narrower columns: the good's name, its bar and its count fit in half a 667 px phone's card.) */
+  .depot-extra.ledger .ledger-good { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 8px; font-size: 13.5px; }
+  .depot-extra.ledger .ledger-row { font-size: 13.5px; }
 }
 
 /* ---- motion ---------------------------------------------------------------------------------------------- */
@@ -351,7 +370,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .menu:not([hidden]) { animation: pop-in 0.18s ease-out; transform-origin: top right; }
 .chip, .tray-item, .menu-item, .tab { transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), filter 0.15s, background-color 0.15s; }
 .chip:active, .tray-item:active { transform: translateY(1px) scale(0.93); transition-duration: 0.06s; }
-@media (prefers-reduced-motion: reduce) { .card:not([hidden]), .menu:not([hidden]) { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .card:not([hidden]), .menu:not([hidden]), .lock-note.in { animation: none; } }
 
 /* Turn / Flip: above the tray while a group of track pieces is open. */
 .tray-orient { position: absolute; right: 12px; top: -52px; display: none; gap: 6px; }
@@ -417,6 +436,21 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .chip { min-width: 34px; padding: 0 5px; }
   .tray-tools .chip::after { inset: -5px -2px; }
 }
+/* A 360 px phone: tighter still, so Game's three tabs show in words beside all four tools (Industries, with Turn and
+   Flip). The drawn chips are narrower; their reach (::after) keeps them 40–44 px to tap. */
+@media (max-width: 380px) {
+  .tray-head .tab { padding-left: 5px; padding-right: 5px; font-size: 12.5px; min-height: 44px; }
+  .tray-tools, .tray-tools .tray-orient { gap: 3px; }
+  .tray-tools .chip { min-width: 32px; padding: 0 4px; }
+  .tray-tools .chip.tray-erase { min-width: 40px; }
+  .tray-tools .chip::after { inset: -5px -2px; }
+}
+/* Still too many to fit (hud.ts `fitTabs`): the tabs not open show their picture, then all do. A tab's word stays in
+   the page (its name for a screen reader); the picture is drawn over it. */
+.tab::before { content: none; }
+/* (40 px wide, 44 tall: four of them and the four tools fit 360 px, as the tools' own 40 px reach.) */
+.tabs.short .tab:not(.active), .tabs.icons .tab { font-size: 0; min-width: 40px; min-height: 44px; padding-left: 0; padding-right: 0; display: inline-flex; align-items: center; justify-content: center; }
+.tabs.short .tab:not(.active)::before, .tabs.icons .tab::before { content: attr(data-icon); font-size: 19px; line-height: 18px; }
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
 
@@ -679,6 +713,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-card:has(.depot-extra.ledger) > .card-title { font-size: 20px; font-weight: 900; color: #3a2a1c; }
 .depot-card:has(.depot-extra.ledger) > .card-row { order: 2; }
 .depot-extra.ledger { order: 1; align-self: stretch; gap: 8px; width: min(340px, 84vw); max-height: min(62vh, 560px); text-align: left; color: #3a2a1c; }
+/* (Its two groups are one column upright: see the phone on its side for the two.) */
+.ledger-main, .ledger-side { display: contents; }
 .ledger-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ledger-level { padding: 2px 9px; border-radius: 999px; background: #d9ead2; color: #2d5a2a; font-size: 12px; font-weight: 900; }
 .ledger-growing { font-size: 13px; font-weight: 700; color: #6b5440; }
@@ -1002,6 +1038,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tooltip.details { max-width: 260px; padding: 7px 11px; }
 .tooltip .tip-name { font-weight: 800; font-size: 14px; }
 .tooltip .tip-detail { font-weight: 600; }
+.tooltip .tip-lock { font-weight: 700; font-size: 12.5px; color: #f6d48a; margin-top: 3px; }
+/* A locked tray tile, tapped: a cream tag over it says how to unlock it, with a way into Research. */
+.lock-note { position: fixed; z-index: 34; max-width: min(300px, calc(100vw - 16px)); padding: 10px 12px 12px; border-radius: 14px; background: #faf3e6; color: #3a2a1c; box-shadow: inset 0 1px 0 #fff8, 0 10px 34px rgba(60, 40, 20, 0.3); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.lock-note[hidden] { display: none; }
+.lock-note::after { content: ""; position: absolute; bottom: -7px; left: calc(var(--notch, 50%) - 8px); width: 16px; height: 16px; background: #faf3e6; transform: rotate(45deg); border-radius: 0 0 4px 0; }
+.lock-note.in { animation: card-in 0.24s cubic-bezier(0.3, 1.4, 0.5, 1); transform-origin: var(--notch, 50%) 100%; }
+.lock-note-name { font-size: 15px; font-weight: 800; }
+.lock-note-how { font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #5e4128; text-wrap: pretty; }
+.lock-note-go { margin-top: 6px; align-self: stretch; min-height: 44px; }
 .tooltip .tip-use { font-weight: 600; font-size: 12px; opacity: 0.7; margin-top: 3px; }
 .engine-extra { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .engine-extra-label { font-weight: 700; opacity: 0.75; font-size: 0.9em; }

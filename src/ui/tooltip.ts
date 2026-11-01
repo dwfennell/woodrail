@@ -56,7 +56,9 @@ export function installTooltips(root: HTMLElement): Tooltips {
     const text = el.dataset.tip ?? "";
     const name = el.dataset.tipName;
     if ((!text && !name) || !el.isConnected) return;
-    if (name) tip.replaceChildren(line("tip-name", name), line("tip-detail", el.dataset.tipDetail ?? ""), ...(withUse && text ? [line("tip-use", text)] : []));
+    // A locked tray item: how to unlock it, in place of how to use it.
+    const lock = el.dataset.tipLock;
+    if (name) tip.replaceChildren(line("tip-name", name), line("tip-detail", el.dataset.tipDetail ?? ""), ...(lock ? [line("tip-lock", lock)] : withUse && text ? [line("tip-use", text)] : []));
     else tip.textContent = text;
     tip.classList.toggle("details", !!name);
     tip.hidden = false;
