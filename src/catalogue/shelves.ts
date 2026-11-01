@@ -246,11 +246,9 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-turntable",
           "mech-transfer-table",
           "mech-train-lift",
-          // Signal skins and the buffer stop (kit pieces: the signal's and buffer's track, the model drawn on it), and
-          // crossing styles (props dropped on a level crossing: src/landscape/crossing-styles.ts).
-          "mech-semaphore-signal",
-          "mech-colour-light-signal",
-          "mech-signal-gantry",
+          // The buffer stop (a kit piece: the buffer's track, the model drawn on it), and crossing styles (props dropped
+          // on a level crossing: src/landscape/crossing-styles.ts). (The signal skins are a Signal's styles now, on its
+          // card: signals spec §4, §9. Their pieces in old saves still load and work.)
           "mech-buffer-stop-lamp",
           "mech-level-crossing",
           "mech-gated-crossing",
@@ -265,6 +263,12 @@ export const PROP_TABS: readonly PropTab[] = [
  * own deck of track that trains can't use (see RAIL_HELD_BACK).
  */
 export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [];
+
+/**
+ * The signal skins' models (kit pieces: a signal piece's track with the model on it). No longer offered on a shelf:
+ * a Signal (a mark on a joint) has their looks as its styles (signals spec §4, §9). Old saves' pieces still load and work.
+ */
+export const SIGNAL_SKIN_ASSETS: readonly string[] = ["mech-semaphore-signal", "mech-colour-light-signal", "mech-signal-gantry"];
 
 /**
  * Catalogue models that look as if they join the railway but don't yet: each carries its own stretch of track (or runs

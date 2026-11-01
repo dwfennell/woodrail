@@ -307,6 +307,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     // Every props edit, done, undone or redone (and a land edit recorded): the one place a prop coming or going is
     // heard, so Game mode's toy box counts on the tray follow it here (a made prop, once placed, isn't one left).
+    // Every signal-mark edit, done, undone or redone (signals spec §4): saved; an open signal card follows it.
+    ed.onSignalsChange = () => {
+      hud.setHistory(ed.canUndo, ed.canRedo);
+      interaction?.signalsChanged();
+      game.invalidate();
+      scheduleSave();
+    };
     ed.onPropsChange = () => {
       game.propsChanged();
       hud.setHistory(ed.canUndo, ed.canRedo);
@@ -1566,6 +1573,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
   function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {
+    // (A signal mark is free once Signals is learned: it's no piece from the toy box, signals spec §4.)
+    if (mode === "game" && item.kind === "signal" && !progress.knows("piece:signal")) {
+      hud.toast("Signal: not learned yet");
+      return false;
+    }
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
     // (A new take: whatever an earlier one made is settled, or never was.)
     if (make) trainMade = pieceMade = null;
@@ -1680,6 +1692,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** The toy box on the tray (Game mode): how many of each are left. */
   function trayBadge(item: ThingItem | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
+    if (item.kind === "signal") return progress.knows("piece:signal") ? null : { text: "Locked", empty: true, locked: true };
     if (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop") return null;
     const needs = thingsFor(item as ThingItem);
     if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true, locked: true };

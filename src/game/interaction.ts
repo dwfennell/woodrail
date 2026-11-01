@@ -10,7 +10,11 @@ import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWor
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
-import { trayKey } from "../ui/tray-catalogue";
+import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
+import { markGhost, placeGhost } from "../render/signal-marks-view";
+import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
+import { topologyOf, trainLength } from "../economy/sections";
+import type { SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
@@ -187,13 +191,27 @@ type Press =
   /** A placed prop (catalogue model). */
   | { kind: "prop"; propId: number }
   /** A road piece the player laid (on square `cell`). */
-  | { kind: "road"; cell: number };
+  | { kind: "road"; cell: number }
+  /** A signal mark's post (signals spec §4): a tap holds it at red or lets it go, a long press opens its card. */
+  | { kind: "signal"; markId: number };
 
 /** A car held in the hand: what it is, which way it faces, its lever, and (when picked up) its id and load. */
 type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; look?: CarLook; cargo?: { kind: CargoKind; count: number } };
 
 type Mode =
   | { kind: "idle" }
+  /**
+   * A signal in the hand (signals spec §4): from the tray (`moving` −1) or picked up (`moving`: its mark). `target`:
+   * the joint end it would go on (−1: none), facing `dir` along the track under the finger (+1: that path's way; 0:
+   * not known yet), `fx`/`fz` where the finger last was on the ground.
+   */
+  | { kind: "drag-signal"; pointerId: number; ghost: Group; target: number; dir: -1 | 0 | 1; fx: number; fz: number; overTray: boolean; moving: number }
+  /**
+   * The Signal tool, a drag along the track (signals spec §4): a signal at each joint passed, a train's length or more
+   * apart (`gap`), facing the way the finger goes (`ats`, each with its ghost). Let go: all put down, one undo step. A
+   * press that hardly moves is a tap (one, on the nearest joint).
+   */
+  | { kind: "signal-run"; pointerId: number; x: number; y: number; moved: boolean; ats: number[]; ghosts: Group[]; gap: number; fx: number; fz: number }
   /** `add`: Shift was held (a tap picks the piece, along with any already picked). */
   | {
       kind: "press";
@@ -588,6 +606,321 @@ export class Interaction {
   private readonly tiltEuler = new Euler();
   private readonly scaleVec = new Vector3();
 
+  // ---- signal marks (signals spec §4) ------------------------------------------------------------------------
+
+  /** The signal mark whose card is open (its blocks tinted), or −1. */
+  selectedMark = -1;
+  /** The Signal tool: tapped in the tray, each tap on the track puts a signal on the nearest joint, till tapped again. */
+  private signalReady = false;
+  private signalHinted = false;
+  /** How long (ms) each pointer move placing a signal took (its snap and its tint), latest last: for the e2e. */
+  readonly signalMoveMs: number[] = [];
+
+  /** A signal in the hand: a new one from the tray (`moving` −1), or a placed one picked up (its mark's id). */
+  private signalDrag(pointerId: number, moving: number): Extract<Mode, { kind: "drag-signal" }> {
+    const ghost = markGhost(this.game.mats);
+    ghost.visible = false;
+    this.game.scene.add(ghost);
+    if (moving !== -1) {
+      this.game.marksView.hidden = moving;
+      this.onPickup?.();
+    }
+    this.game.controls.enabled = false;
+    return { kind: "drag-signal", pointerId, ghost, target: -1, dir: 0, fx: NaN, fz: NaN, overTray: moving === -1, moving };
+  }
+
+  /**
+   * A signal in the hand, moved: onto the nearer joint of the track under the finger (lifted above it on touch),
+   * facing the way the finger last went along the track (at first: away from the camera), its blocks tinted. Cheap: the
+   * nearest track and a cached tint (built again only for another joint). Each move's time is kept (`signalMoveMs`).
+   */
+  private updateSignalDrag(m: Extract<Mode, { kind: "drag-signal" }>, x: number, y: number): void {
+    const t0 = performance.now();
+    const g = this.game;
+    const layout = g.layout;
+    this.lastX = x;
+    this.lastY = y;
+    m.overTray = this.hud.isOverTray(x, y);
+    const r = g.canvas.getBoundingClientRect();
+    const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
+    g.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
+    const ground = m.overTray ? null : this.groundAt(x, this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y);
+    let target = -1;
+    if (ground) {
+      const near = nearestCursor(layout, ground.x, ground.z, TRAIN_DROP_RANGE, this.cameraHeading());
+      if (near) {
+        const h = pathHeading(layout, near.cursor);
+        // (Which way the finger goes along the track: by its moves of 4 mm or more.)
+        if (!Number.isNaN(m.fx)) {
+          const along = (ground.x - m.fx) * Math.cos(h) + (ground.z - m.fz) * Math.sin(h);
+          if (Math.abs(along) >= 4) m.dir = along > 0 ? 1 : -1;
+        }
+        if (m.dir === 0) m.dir = Math.cos(h - this.cameraHeading()) >= 0 ? 1 : -1;
+        target = snapJoint(layout, near.cursor, m.dir);
+        const there = target === -1 ? undefined : layout.signalAt(target);
+        if (there && there.id !== m.moving) target = -1;
+      }
+      if (Number.isNaN(m.fx) || Math.hypot(ground.x - m.fx, ground.z - m.fz) >= 4) {
+        m.fx = ground.x;
+        m.fz = ground.z;
+      }
+    }
+    if (target !== m.target || m.ghost.visible !== (target !== -1)) {
+      m.target = target;
+      m.ghost.visible = target !== -1;
+      if (target !== -1) {
+        placeGhost(m.ghost, layout, target);
+        this.showTint(target, m.moving);
+      } else g.blockTint.hide();
+      g.invalidate();
+    }
+    this.signalMoveMs.push(performance.now() - t0);
+    if (this.signalMoveMs.length > 400) this.signalMoveMs.shift();
+  }
+
+  /** Tint the blocks a signal at `at` would guard and end (`ignore`: a mark being moved, not counted). */
+  private showTint(at: number, ignore = -1): void {
+    const layout = this.game.layout;
+    const key = `${at}:${ignore}:${layout.revision}:${layout.signalsVersion}`;
+    this.game.blockTint.show(layout, key, () => blocksOf(layout, at, ignore));
+    this.game.invalidate();
+  }
+
+  /** The signal in the hand put away: its ghost and tint gone, a picked-up one shown again where it was. */
+  private letGoSignal(m: Extract<Mode, { kind: "drag-signal" }>): void {
+    const g = this.game;
+    g.director.setEdgePointer(null);
+    g.scene.remove(m.ghost);
+    disposeObject(m.ghost);
+    g.marksView.hidden = -1;
+    g.blockTint.hide();
+    g.invalidate();
+  }
+
+  /** A signal let go: on its joint (a new one, or moved there), a toast offering to turn it round; else why not, or back in the box. */
+  private dropSignal(m: Extract<Mode, { kind: "drag-signal" }>): void {
+    this.letGoSignal(m);
+    this.mode = { kind: "idle" };
+    this.game.controls.enabled = true;
+    const ed = this.editor();
+    if (m.target === -1) {
+      // (A placed one taken back to the tray: taken away.)
+      if (m.overTray && m.moving !== -1) {
+        ed.removeSignal(m.moving);
+        this.hud.toast("Back in the box");
+      } else if (!m.overTray) this.hud.toast("Drop it onto the track");
+      return;
+    }
+    let id = m.moving;
+    if (id === -1) id = ed.addSignal(m.target);
+    else if (this.game.layout.getSignal(id)?.at !== m.target) ed.moveSignal(id, m.target);
+    if (id === -1) return;
+    // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
+    this.hud.toast("Signal placed. Tap here to turn it round", false, 3600, () => {
+      if (this.game.layout.getSignal(id) && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
+    });
+  }
+
+  /** The Signal tool on (tapped in the tray) or off. */
+  private readySignal(on: boolean): void {
+    if (!on) {
+      if (this.signalReady) {
+        this.signalReady = false;
+        this.onArmed?.(null);
+      }
+      return;
+    }
+    this.arm(null);
+    this.clearSelection();
+    this.hud.hideCards();
+    this.signalReady = true;
+    this.onArmed?.(SIGNAL_ITEM);
+    if (!this.signalHinted) {
+      this.signalHinted = true;
+      this.hud.toast("Tap the track to put a signal there · tap Signal again to stop", false, 3200);
+    }
+  }
+
+  /** Is the Signal tool on? */
+  get signalToolOn(): boolean {
+    return this.signalReady;
+  }
+
+  /** With the Signal tool: one on the joint nearest a tap on the track, facing away from the camera. */
+  private placeSignalAt(x: number, y: number): void {
+    const layout = this.game.layout;
+    const ground = this.groundAt(x, y);
+    const near = ground ? nearestCursor(layout, ground.x, ground.z, TRAIN_DROP_RANGE, this.cameraHeading()) : null;
+    if (!near) {
+      this.hud.toast("Tap the track to put a signal there");
+      return;
+    }
+    const dir = Math.cos(pathHeading(layout, near.cursor) - this.cameraHeading()) >= 0 ? 1 : -1;
+    let at = snapJoint(layout, near.cursor, dir);
+    // (One there facing that way already: the other way, if that's free.)
+    if (at !== -1 && layout.signalAt(at)) at = layout.signalAt(layout.joinedConnector(at)) ? -1 : layout.joinedConnector(at);
+    if (at === -1) {
+      this.hud.toast("There's a signal there already");
+      return;
+    }
+    this.editor().addSignal(at);
+    this.game.invalidate();
+  }
+
+  /** Is there track under a screen point (within a train's drop range)? */
+  private onTrackAt(x: number, y: number): boolean {
+    const ground = this.groundAt(x, y);
+    return !!ground && !!nearestCursor(this.game.layout, ground.x, ground.z, TRAIN_DROP_RANGE, this.cameraHeading());
+  }
+
+  /** The longest train on the map's length, and room to spare (a three-car train's with none): a run's signals' gap. */
+  private trainGap(): number {
+    const g = this.game;
+    let len = 0;
+    for (const id of g.sim.trainIds()) {
+      const t = g.sim.getTrain(id);
+      if (t && !t.derailed) len = Math.max(len, trainLength(t));
+    }
+    if (len === 0) len = CAR_SPECS.engine.length + 2 * CAR_SPECS.timber.length + 2 * COUPLER_GAP;
+    return len + 2 * 6;
+  }
+
+  /** The Signal tool's drag along the track: a ghost at each joint passed a gap or more past the last. */
+  private runSignals(m: Extract<Mode, { kind: "signal-run" }>, x: number, y: number): void {
+    const g = this.game;
+    const layout = g.layout;
+    if (!m.moved && Math.hypot(x - m.x, y - m.y) < dragSlop("touch")) return;
+    m.moved = true;
+    const ground = this.groundAt(x, y);
+    if (!ground) return;
+    const near = nearestCursor(layout, ground.x, ground.z, TRAIN_DROP_RANGE, this.cameraHeading());
+    if (!near) return;
+    if (Number.isNaN(m.fx)) {
+      m.fx = ground.x;
+      m.fz = ground.z;
+      return;
+    }
+    const h = pathHeading(layout, near.cursor);
+    const along = (ground.x - m.fx) * Math.cos(h) + (ground.z - m.fz) * Math.sin(h);
+    if (Math.abs(along) < 4) return;
+    m.fx = ground.x;
+    m.fz = ground.z;
+    const at = snapJoint(layout, near.cursor, along > 0 ? 1 : -1);
+    if (at === -1 || m.ats.includes(at) || m.ats.includes(layout.joinedConnector(at)) || layout.signalAt(at)) return;
+    const j = postAt(layout, at);
+    if (!j) return;
+    // (The finger nearer this joint than the gap from the last one put down: not yet.)
+    if (Math.hypot(ground.x - j.x, ground.z - j.z) > 40) return;
+    const last = m.ats.length > 0 ? postAt(layout, m.ats[m.ats.length - 1]) : null;
+    if (last && Math.hypot(last.x - j.x, last.z - j.z) < m.gap) return;
+    m.ats.push(at);
+    const ghost = markGhost(g.mats);
+    placeGhost(ghost, layout, at);
+    g.scene.add(ghost);
+    m.ghosts.push(ghost);
+    g.invalidate();
+  }
+
+  private clearRun(m: Extract<Mode, { kind: "signal-run" }>): void {
+    for (const gh of m.ghosts) {
+      this.game.scene.remove(gh);
+      disposeObject(gh);
+    }
+    m.ghosts = [];
+    this.game.invalidate();
+  }
+
+  /** The Signal tool's drag let go: its signals put down (one undo step); hardly moved, a tap: one on the nearest joint. */
+  private endSignalRun(m: Extract<Mode, { kind: "signal-run" }>, x: number, y: number): void {
+    this.clearRun(m);
+    this.mode = { kind: "idle" };
+    this.game.controls.enabled = true;
+    if (!m.moved) {
+      this.placeSignalAt(x, y);
+      return;
+    }
+    if (m.ats.length > 0) this.editor().addSignals(m.ats);
+  }
+
+  /** The signal mark whose post is under a screen point (CSS px), with a fingertip's slack on touch; −1: none. */
+  private markAt(x: number, y: number, touch: boolean): number {
+    const g = this.game;
+    const r = g.canvas.getBoundingClientRect();
+    return g.marksView.pick(x - r.left, y - r.top, g.camera, r.width, r.height, touch ? 20 : 8);
+  }
+
+  /** A tap on a signal: held at red, or let go (the toy: signals spec §4, the user's decision 1). */
+  private tapMark(id: number): void {
+    if (!this.game.layout.getSignal(id)) return;
+    this.game.sim.toggleMark(id);
+    this.onSwitched?.();
+    this.game.invalidate();
+    if (this.selectedMark === id) this.showMarkCard();
+  }
+
+  /** Open a signal's card, its blocks tinted. */
+  selectMark(id: number): void {
+    if (!this.game.layout.getSignal(id)) return;
+    this.clearSelection();
+    this.selectedMark = id;
+    this.showMarkCard();
+  }
+
+  /** The styles a signal cycles through on its card, and their names. */
+  private static readonly STYLES: readonly SignalStyle[] = ["plain", "semaphore", "colour-light"];
+  private static readonly STYLE_NAMES: Record<SignalStyle, string> = { plain: "Plain", semaphore: "Semaphore", "colour-light": "Colour light" };
+
+  /** The open signal's card: guards which way, Turn round, Hold at red, Style, Remove; and if it's too short to wait at. */
+  private showMarkCard(): void {
+    const g = this.game;
+    const id = this.selectedMark;
+    const m = g.layout.getSignal(id);
+    if (!m) {
+      this.clearSelection();
+      this.hud.hideCards();
+      return;
+    }
+    this.hud.showPieceCard(false, "Signal: guards this way →", false, false, false, this.markWaits(m.at) ? "" : "Too short for a train to wait here");
+    this.hud.showLevers(
+      [
+        { label: "Turn round", title: "Guard trains going the other way" },
+        { label: m.held ? "Let go" : "Hold at red", title: m.held ? "Let trains past it again" : "Stop trains at it" },
+        { label: `Style: ${Interaction.STYLE_NAMES[m.style]}`, title: "Plain, semaphore or colour light" },
+      ],
+      (i) => {
+        if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
+        if (i === 1) this.tapMark(id);
+        if (i === 2) {
+          const k = Interaction.STYLES.indexOf(m.style);
+          this.editor().setSignalStyle(id, Interaction.STYLES[(k + 1) % Interaction.STYLES.length]);
+        }
+        if (this.selectedMark === id) this.showMarkCard();
+      },
+    );
+    this.showTint(m.at);
+  }
+
+  /** Signals changed (an edit, its undo or redo): an open card follows, or closes if its signal's gone. */
+  signalsChanged(): void {
+    if (this.selectedMark !== -1) this.showMarkCard();
+    this.game.invalidate();
+  }
+
+  /**
+   * Can a train wait at a signal here (sections make a waiting point of it: room in front for the longest train on the
+   * map, clear of points; a three-car train's if there are none)?
+   */
+  private markWaits(at: number): boolean {
+    const g = this.game;
+    let len = 0;
+    for (const id of g.sim.trainIds()) {
+      const t = g.sim.getTrain(id);
+      if (t && !t.derailed) len = Math.max(len, trainLength(t));
+    }
+    if (len === 0) len = CAR_SPECS.engine.length + 2 * CAR_SPECS.timber.length + 2 * COUPLER_GAP;
+    return topologyOf(g.layout, len).slots.some((s) => s.kind === "signal" && s.mark === at);
+  }
+
   // ---- tray -------------------------------------------------------------------------------------------------
 
   startTrayDrag(item: TrayItem, e: PointerEvent): void {
@@ -595,12 +928,13 @@ export class Interaction {
     this.cancel();
     this.setErasing(false);
     // Something else taken from the tray: the ready piece is put away (a piece dragged out is ready once placed).
-    if ((this.armed && trayKey(this.armed) !== trayKey(item)) || this.roadReady || (this.carriedThing && trayKey(this.carriedThing.item) !== trayKey(item))) this.arm(null);
+    if ((this.armed && trayKey(this.armed) !== trayKey(item)) || this.roadReady || this.signalReady || (this.carriedThing && trayKey(this.carriedThing.item) !== trayKey(item))) this.arm(null);
     if (this.carriedThing) this.showCarriedThing(null);
     this.clearSelection();
     // The last piece's card would cover the bottom of the view, where this one may be going.
     this.hud.hideCards();
     if (item.kind === "piece") this.mode = this.pieceFromTray(item, e.pointerId);
+    else if (item.kind === "signal") this.mode = this.signalDrag(e.pointerId, -1);
     else if (item.kind === "road") {
       // Comes out turned as set in the tray.
       this.mode = { kind: "drag-road", pointerId: e.pointerId, drag: this.roads.begin(item.piece, this.trayHeld(), item.auto), overTray: true };
@@ -775,6 +1109,10 @@ export class Interaction {
   private eraseHinted = false;
 
   arm(item: TrayItem | null): void {
+    if (this.signalReady) {
+      this.signalReady = false;
+      if (!item) this.onArmed?.(null);
+    }
     // Taking something from the tray puts the eraser down.
     if (item) this.setErasing(false);
     // (A carried model or train is put away by anything made ready, or by nothing: see `carriedThing`.)
@@ -836,6 +1174,10 @@ export class Interaction {
 
   /** Tray tap: a road is made ready to lay (or put away, if it already is); the ready piece is put away. */
   tapTrayPiece(item: TrayItem): void {
+    if (item.kind === "signal") {
+      this.readySignal(!this.signalReady);
+      return;
+    }
     if (item.kind === "road") {
       this.arm(this.roadReady && trayKey(this.roadReady.item) === trayKey(item) ? null : item);
       return;
@@ -1347,6 +1689,17 @@ export class Interaction {
         return;
       }
     }
+    // The Signal tool: on the track, a drag along it puts signals down (`signal-run`); off it, a tap still says where
+    // to tap, and a drag pans.
+    if (this.signalReady && this.touches.size <= 1) {
+      if (this.onTrackAt(e.clientX, e.clientY)) {
+        this.game.controls.enabled = false;
+        this.mode = { kind: "signal-run", pointerId: e.pointerId, x: e.clientX, y: e.clientY, moved: false, ats: [], ghosts: [], gap: this.trainGap(), fx: NaN, fz: NaN };
+        return;
+      }
+      this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, signal: true };
+      return;
+    }
     // A ready road: a tap lays it there (handled as a floor tap, so a drag still pans).
     if (this.roadReady && this.touches.size <= 1) {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, road: true };
@@ -1476,6 +1829,9 @@ export class Interaction {
         return dragMoves("road", press.cell === this.roads.selected, pointerType);
       case "cargo":
         return dragMoves("cargo", false, pointerType);
+      case "signal":
+        // (Its card open, or a mouse: a drag moves it. Else a drag pans: a finger rests on it for its card.)
+        return press.markId === this.selectedMark || pointerType === "mouse";
       default:
         return true;
     }
@@ -1519,6 +1875,10 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "erase") {
       this.sweepErase(m, e);
+      return;
+    }
+    if (m.kind === "signal-run") {
+      for (const c of coalesced(e)) this.runSignals(m, c.clientX, c.clientY);
       return;
     }
     if (this.vetoHold(e)) return;
@@ -1631,6 +1991,12 @@ export class Interaction {
     else if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) !== -1) this.beginPieceMove(this.movableIndustry(m.press.depotId), m.pointerId, m.ground);
     else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
     else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
+    else if (m.press.kind === "signal") {
+      const id = m.press.markId;
+      this.clearSelection();
+      this.hud.hideCards();
+      this.mode = this.signalDrag(m.pointerId, id);
+    }
     else if (m.press.kind === "road") {
       const drag = this.roads.pickUp(m.press.cell);
       if (!drag) return idle();
@@ -1655,7 +2021,7 @@ export class Interaction {
     // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
     // (And a town's street, as its houses: issue #18.)
     const house = (m.press.kind === "prop" && this.townHouse(m.press.propId)) || (m.press.kind === "road" && this.roads.townStreet(m.press.cell));
-    const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : house ? "piece" : null;
+    const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : house || k === "signal" ? "piece" : null;
     // Drawing, on a line's body: a drag draws a branch, so a long press (a mouse's too) is how the piece is picked up.
     // (Never while planning a route: then a press draws nothing, `drawsNow`, and a hold picks nothing up.)
     const branch = this.drawsNow && m.branch !== undefined;
@@ -1790,6 +2156,15 @@ export class Interaction {
       if (this.mode !== m || !h || h.armed) return;
       const outcome = decideHold(h.strayedAt, performance.now() - h.t, this.touches.size);
       if (outcome !== "hold") return;
+      // A signal: a long press opens its card (signals spec §4); a drag then moves it.
+      if (m.press.kind === "signal") {
+        m.hold = undefined;
+        this.selectMark(m.press.markId);
+        this.mode = { kind: "idle" };
+        this.game.controls.enabled = true;
+        this.holdCueIf(() => true);
+        return;
+      }
       // A train is picked up once the finger moves: let go here and it's selected, still running, as it was.
       if (m.press.kind === "car") {
         h.armed = true;
@@ -1890,6 +2265,11 @@ export class Interaction {
           return;
         }
         const ground = this.groundAt(e.clientX, e.clientY);
+        if (f.signal && this.signalReady) {
+          this.placeSignalAt(e.clientX, e.clientY);
+          this.lastTap = null;
+          return;
+        }
         if (f.road && this.roadReady) {
           const r = this.roadReady;
           this.roads.update(r.drag, this.squareAt(e.clientX, e.clientY), false);
@@ -1998,6 +2378,10 @@ export class Interaction {
       this.commitErase(m);
       return;
     }
+    if (m.kind === "signal-run") {
+      this.endSignalRun(m, e.clientX, e.clientY);
+      return;
+    }
     if (m.kind === "draw-track") {
       this.game.director.setEdgePointer(null);
       this.mode = { kind: "idle" };
@@ -2011,10 +2395,11 @@ export class Interaction {
       this.roads.drop(m.drag);
     } else if (m.kind === "drag-scenery") this.dropScenery(m);
     else if (m.kind === "drag-cargo") this.dropCargo(m, e.clientX, e.clientY);
+    else if (m.kind === "drag-signal") this.dropSignal(m);
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; carry?: boolean; press?: Press; moved?: boolean } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; signal?: boolean; carry?: boolean; press?: Press; moved?: boolean } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;
@@ -2055,6 +2440,8 @@ export class Interaction {
     this.heldUnsure = null;
     this.pinUnsure = null;
     this.game.controls.enabled = true;
+    if (m.kind === "drag-signal") this.letGoSignal(m);
+    if (m.kind === "signal-run") this.clearRun(m);
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);
       if (m.pieceId !== -1 && m.from) this.game.layout.dropPiece(m.pieceId, m.from.pose, m.from.y);
@@ -2120,6 +2507,10 @@ export class Interaction {
 
   private tap(p: Press, add = false): void {
     const g = this.game;
+    if (p.kind === "signal") {
+      this.tapMark(p.markId);
+      return;
+    }
     if (p.kind === "route-stop") {
       this.onTapStopDisc?.(p.index);
       return;
@@ -2292,6 +2683,10 @@ export class Interaction {
   }
 
   clearSelection(): void {
+    if (this.selectedMark !== -1) {
+      this.selectedMark = -1;
+      if (this.game.blockTint.hide()) this.game.invalidate();
+    }
     if (this.selectedPiece !== -1 || this.picking) {
       this.game.trackView.setHighlight(-1);
       this.game.invalidate();
@@ -3153,6 +3548,13 @@ export class Interaction {
   }
 
   deleteSelected(): void {
+    if (this.selectedMark !== -1) {
+      const id = this.selectedMark;
+      this.clearSelection();
+      this.hud.hideCards();
+      this.editor().removeSignal(id);
+      return;
+    }
     if (this.roads.selected !== -1) {
       this.roads.removeSelected();
       return;
@@ -3812,6 +4214,10 @@ export class Interaction {
 
   private updateDrag(x: number, y: number, keepingTurn: SnapResult | null = null): void {
     const m = this.mode;
+    if (m.kind === "drag-signal") {
+      this.updateSignalDrag(m, x, y);
+      return;
+    }
     if (m.kind === "drag-group") {
       this.lastX = x;
       this.lastY = y;
@@ -5078,6 +5484,11 @@ export class Interaction {
     // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
     if (exact?.kind === "route-stop" || exact?.kind === "route-via") return exact;
     if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
+    // A signal's post, over the track or the ground (not over a train or a model: those win).
+    if (!this.onPickPlace && (!exact || exact.kind === "piece") && this.game.layout.signalCount > 0) {
+      const mark = this.markAt(x, y, touch);
+      if (mark !== -1) return { kind: "signal", markId: mark };
+    }
     if (!touch) return this.deckOverTrain(exact, exact);
     const under: TapUnder = exact ? (exact.kind === "depot" && exact.footprint ? "station" : (exact.kind as TapUnder)) : null;
     // A car or a lever within a fingertip (see `nearCarWins`, `nearLeverWins`): the nearer of them, where it may.
