@@ -51,7 +51,7 @@ import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
-import { blockerOf, engineView, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
+import { blockerOf, engineView, FOLLOW_TIP, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
 import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
@@ -4261,6 +4261,33 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return false;
     }
   })();
+  /**
+   * A line's trains waiting for each other on a long stretch (signals spec §7): once ever, after Signals is learned,
+   * say a signal would let them follow, and show where. Looked for once a game second till said.
+   */
+  let followTold = (() => {
+    try {
+      return localStorage.getItem("woodrail.followTip") === "1";
+    } catch {
+      return false;
+    }
+  })();
+  let followLooked = 0;
+  function lookForFollowers(): void {
+    if (followTold || Math.abs(game.simSeconds - followLooked) < 1) return;
+    followLooked = game.simSeconds;
+    if (mode === "game" && !progress.learned.has("signals")) return;
+    const at = game.economy.sections.followSpot();
+    if (at === -1) return;
+    followTold = true;
+    try {
+      localStorage.setItem("woodrail.followTip", "1");
+    } catch {
+      // storage unavailable: it may show again next visit
+    }
+    hud.toast(FOLLOW_TIP, false, 8000, () => interaction.showSignalSpot(at));
+  }
+
   /** A train too long for a lift is told so once (for a few minutes), not on every approach. */
   const tooLong = new TooLongNotice();
   /** The lifts heard riding (for the clunk as each gets there), and where. */
@@ -4411,6 +4438,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
     if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
     if (game.economy.stalls.onStuck !== stuckTip) game.economy.stalls.onStuck = stuckTip;
+    lookForFollowers();
     showEngineView();
     showSummary();
     let derailed = false;

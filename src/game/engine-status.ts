@@ -1,3 +1,4 @@
+import { STUCK_S } from "../economy/stalls";
 import { RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import { kitOf, type Layout } from "../track";
@@ -12,7 +13,8 @@ export type TrainState =
   | { kind: "derailed" }
   | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading" }
   | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
-  | { kind: "red-signal"; signalId: number }
+  /** At a red signal; `holding`: held there by the player's hand, for `STUCK_S` or more (signals spec §6). */
+  | { kind: "red-signal"; signalId: number; holding?: boolean }
   /** Standing at a kit's stop (a platform) for its dwell. */
   | { kind: "at-stop"; pieceId: number }
   /** Carried by a train lift, or waiting for its platform (on it, about to go; or at its far end). */
@@ -99,7 +101,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   const lift = sim.liftState(train.id);
   if (lift) return { kind: "lift", riding: lift === "riding" };
-  if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id) };
+  if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   // Held a moment at its stop so its line's trains spread out.
   for (const car of train.cars) {
@@ -301,6 +303,9 @@ const OR_MOVE_OTHER = ", or move the other train";
 /** A train not on the line standing in one of its passing loops: moving it gives the loop back, as laying one would. */
 const OR_MOVE = ", or move the parked train";
 
+/** Said once ever, when a line's trains wait for each other on a long stretch a signal could split (signals spec §7). */
+export const FOLLOW_TIP = "Trains on this line wait for the whole stretch. A signal here lets them follow · Show me where";
+
 /**
  * What a train is doing, in a few words for its engine's card: off the rails, being worked at a depot, turning back,
  * waiting at a red signal, too heavy or without power, stopped, held up, or on its way (to the next stop on its route,
@@ -363,7 +368,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";
     case "red-signal":
-      return "Waiting at a red signal";
+      return s.holding ? "Waiting at a signal you're holding. Tap it to let go" : "Waiting at a red signal";
     case "at-stop": {
       const type = economy.layout.getPiece(s.pieceId)?.type;
       return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;

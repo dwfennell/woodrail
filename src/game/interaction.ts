@@ -900,6 +900,27 @@ export class Interaction {
     this.showTint(m.at);
   }
 
+  /**
+   * "Show me where" a signal would help (signals spec §7): the view glides to the joint, and a signal's ghost stands
+   * there with its blocks tinted, for a few seconds.
+   */
+  showSignalSpot(at: number): void {
+    const g = this.game;
+    const j = postAt(g.layout, at);
+    if (!j) return;
+    g.director.glideTo(g.controls.target.clone().set(j.x, j.y, j.z), 900, { duration: 0.6 });
+    const ghost = markGhost(g.mats);
+    placeGhost(ghost, g.layout, at);
+    g.scene.add(ghost);
+    this.showTint(at);
+    window.setTimeout(() => {
+      g.scene.remove(ghost);
+      disposeObject(ghost);
+      if (this.selectedMark === -1 && this.mode.kind !== "drag-signal") g.blockTint.hide();
+      g.invalidate();
+    }, 6000);
+  }
+
   /** Signals changed (an edit, its undo or redo): an open card follows, or closes if its signal's gone. */
   signalsChanged(): void {
     if (this.selectedMark !== -1) this.showMarkCard();

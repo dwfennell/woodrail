@@ -1548,6 +1548,25 @@ export class Sim {
     return t ? (this.redAhead(t)?.key ?? -1) : -1;
   }
 
+  /** Since when (tick) each train (by id) has stood at a red signal, as `signalCap` stops it there. */
+  private readonly redSince = new Map<number, number>();
+
+  /** How long (s) a train has stood at a red signal: 0 if it isn't standing at one (signals spec §6). */
+  redWaitSeconds(trainId: number): number {
+    const t = this.trains.get(trainId);
+    const since = this.redSince.get(trainId);
+    if (!t || since === undefined || !this.atRedSignal(trainId)) return 0;
+    return (this.ticks - since) / SIM_HZ;
+  }
+
+  /** Is the red signal a train stands at, or brakes for, held at red by hand (a tap, or its card)? */
+  redHeldByHand(trainId: number): boolean {
+    const key = this.redSignalKeyAhead(trainId);
+    if (key === -1) return false;
+    const g = this.signals?.find((x) => x.key === key);
+    return !!g && this.isHeld(g);
+  }
+
   /** Are there any signals (marks or old signal pieces)? (None: the router's walks ask nothing of them.) */
   get hasSignals(): boolean {
     if (this.layout.signalCount > 0) return true;
@@ -1816,8 +1835,10 @@ export class Sim {
    */
   private signalCap(train: Train): number {
     const red = this.redAhead(train);
+    if (red === null || red.dist >= 0.5) this.redSince.delete(train.id);
     if (red === null) return Infinity;
     if (red.dist >= 0.5) return Math.sqrt(2 * ACCELERATION * (red.dist - 0.5));
+    if (!this.redSince.has(train.id)) this.redSince.set(train.id, this.ticks);
     // (Standing at it for a train on its block or way, or holding its points: held by that train, for wait chains.)
     const by = red.by >= 0 ? this.trains.get(red.by) : undefined;
     if (by && by !== train) this.holdBy(train, by, "signal");

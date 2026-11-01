@@ -1,5 +1,5 @@
 import { connectorRef, getPieceDef, indexOfRef, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, waysFrom } from "../routing/graph";
 import { plan, planWay, type KeepTest } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
@@ -51,6 +51,8 @@ export const ROAD_MARGIN = 2 * STAND_SHORT;
 const ASK_LOOK = 24;
 /** How often (sim ticks) a waiting train asks again. */
 export const CHECK_TICKS = 12;
+/** How long (s) a line's train waits for a line-mate going its way before a signal is suggested (signals spec §7). */
+export const FOLLOW_HINT_S = 20;
 
 /**
  * A slot (see the header): a loop road, a line end, or a signal's waiting point (signals spec §3.2): the track in front
@@ -1444,6 +1446,96 @@ export class Sections {
   private gateVer = 0;
   private gate = new Map<number, number>();
   private gateNext = new Map<number, number>();
+
+  /**
+   * Where a signal would let a line's trains follow each other (signals spec §7): a train of a line standing at its
+   * slot's end for `FOLLOW_HINT_S` or more, waiting for a train of its line that's going the same way through the stretch
+   * ahead, on a stretch long enough to split (plain track for the longest train, and room, either side of a joint). The
+   * joint end nearest the middle of that run (facing the way they go), or −1. Looked at by the game now and then (once
+   * a second, till told).
+   */
+  followSpot(): number {
+    if (!this.enabled) return -1;
+    for (const st of this.states.values()) {
+      const w = st.wait;
+      if (!w || (w.kind !== "section" && w.kind !== "slot") || st.slot < 0 || st.exitPiece < 0 || st.waitSince < 0) continue;
+      const line = this.host.lineOf(st.engine);
+      if (line < 0 || this.host.lineOf(w.engine) !== line) continue;
+      const info = this.lineInfo.get(line);
+      if (!info?.managed) continue;
+      const way = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
+      if (!way) continue;
+      // (The one it waits for: going through the stretch ahead its way, or the other way, as its move has it.)
+      const lead = this.states.get(w.engine)?.move;
+      let same = false;
+      let against = false;
+      if (lead)
+        for (const x of lead.steps) {
+          const y = way.steps.find((z) => z.pieceId === x.pieceId);
+          if (!y) continue;
+          if (y.entry === x.entry) same = true;
+          else against = true;
+        }
+      // (Seen going ahead its way during this wait: noted, by when the wait began.)
+      if (same && !against) this.sawLead.set(st.engine, st.waitSince);
+      if (this.sawLead.get(st.engine) !== st.waitSince || this.sim.ticks - st.waitSince < FOLLOW_HINT_S * SIM_HZ) continue;
+      // (Not one coming back toward it now: into its slot or its loop, or through the stretch the other way.)
+      if (lead) {
+        const here = st.topo.slots[st.slot];
+        const dest = lead.dest >= 0 ? st.topo.slots[lead.dest] : undefined;
+        if (against || lead.dest === st.slot || lead.through.includes(st.slot) || (dest && here.kind === "road" && dest.kind === "road" && dest.loop === here.loop)) continue;
+      }
+      let longest = 0;
+      for (const u of info.users) {
+        const t = this.sim.findCar(u)?.train;
+        if (t) longest = Math.max(longest, trainLength(t));
+      }
+      const spot = this.splitAt(way.steps, longest + ROAD_MARGIN);
+      if (spot !== -1) return spot;
+    }
+    return -1;
+  }
+
+  /** Trains seen waiting while the train they wait for went ahead their way (by engine: that wait's start, `waitSince`). */
+  private readonly sawLead = new Map<number, number>();
+
+  /** The joint end along these steps with plain track at least `need` either side, nearest the middle; −1: none. */
+  private splitAt(steps: readonly Step[], need: number): number {
+    const { layout } = this;
+    const len: number[] = [];
+    const plain: boolean[] = [];
+    for (const x of steps) {
+      plain.push(!branches(layout, x.pieceId));
+      len.push(lengthOfPath(layout, x.pieceId, x.path));
+    }
+    const before: number[] = [];
+    let run = 0;
+    for (let k = 0; k < steps.length; k++) {
+      run = plain[k] ? run + len[k] : 0;
+      before.push(run);
+    }
+    const after: number[] = new Array(steps.length).fill(0);
+    run = 0;
+    for (let k = steps.length - 1; k >= 0; k--) {
+      after[k] = run;
+      run = plain[k] ? run + len[k] : 0;
+    }
+    let best = -1;
+    let bestD = Infinity;
+    for (let k = 0; k < steps.length - 1; k++) {
+      if (!plain[k] || before[k] < need || after[k] < need) continue;
+      const w = waysFrom(layout, steps[k].pieceId, steps[k].entry).find((x) => x.path === steps[k].path);
+      if (!w) continue;
+      const ref = connectorRef(steps[k].pieceId, w.exit);
+      if (layout.signalAt(ref)) continue;
+      const d = Math.abs(before[k] - after[k]);
+      if (d < bestD) {
+        bestD = d;
+        best = ref;
+      }
+    }
+    return best;
+  }
 
   /** Steering for a train holding a move: its way (`follow`), aimed at a piece of the slot it goes to. */
   steerHint(engine: number): { follow: AvoidTest; aim: number } | undefined {

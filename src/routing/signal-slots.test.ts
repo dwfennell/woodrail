@@ -49,11 +49,11 @@ function waitingPoints(run: HarnessRun): number {
 describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () => {
   /** Two trains of one line, both heading for B, the follower on the first loop: with or without a signal mid-way. */
   let stretch: number[] = [];
-  const followers = (withSignal: boolean): Scenario => ({
+  const followers = (withSignal: boolean, long = 10): Scenario => ({
     name: `lineFollowers${withSignal ? "" : " (no signal)"}`,
     seconds: 1800,
     build: (layout) => {
-      const l = longLine(layout, 10, 2);
+      const l = longLine(layout, long, 2);
       stretch = l.mid;
       // (Mid-way along the long stretch, facing B: trains from A wait there.)
       if (withSignal) signal(layout, l.mid[4], 1);
@@ -206,6 +206,47 @@ describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () 
     noBreaks(r);
     expect(r.stalls.begun).toBe(0);
     for (const a of r.arrivals) expect(a).toBeGreaterThan(4);
+  });
+
+  it("the follow hint (step 6, §7): a follower waiting 20 s for the leader going its way: a joint mid-stretch, where a signal makes a waiting point", () => {
+    // (A longer stretch: the follower waits over 20 s for the leader to go through it.)
+    const run = new HarnessRun(new Layout(), followers(false, 14));
+    let spot = -1;
+    let at = -1;
+    for (let i = 0; i < 300 * SIM_HZ && spot === -1; i++) {
+      run.step();
+      if (i % SIM_HZ === 0) {
+        spot = run.sections.followSpot();
+        at = i;
+      }
+    }
+    expect(spot).not.toBe(-1);
+    // (Not before the follower has waited 20 s.)
+    expect(at).toBeGreaterThanOrEqual(20 * SIM_HZ);
+    // In the long stretch, facing the way they go: a signal there is a waiting point.
+    expect(stretch).toContain(Math.floor(spot / 8));
+    run.layout.addSignal(spot);
+    expect(waitingPoints(run)).toBe(1);
+  });
+
+  it("no follow hint where a train only waits for one coming the other way", () => {
+    const run = new HarnessRun(new Layout(), {
+      name: "meets",
+      seconds: 300,
+      build: (layout) => {
+        const l = longLine(layout, 10, 2);
+        return {
+          trains: [
+            { pieceId: l.l2!.main[1], reversed: true, stops: [l.a, l.b], next: 0, line: 1, cars: CARS },
+            { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+          ],
+        };
+      },
+    });
+    for (let i = 0; i < 300 * SIM_HZ; i++) {
+      run.step();
+      if (i % SIM_HZ === 0) expect(run.sections.followSpot()).toBe(-1);
+    }
   });
 
   it("no signals: the topology has no waiting points", () => {
