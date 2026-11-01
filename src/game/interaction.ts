@@ -3912,7 +3912,10 @@ export class Interaction {
         const held = heldAt(level) ?? m.pose;
         const finger = this.planeAt(x, sy, level);
         const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, Math.max(capture, m.tapReach ?? 0)) : null;
-        const s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture);
+        let s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture);
+        // Held loose, it's drawn on the quarter-square grid: up to 13 mm from where the finger holds it. Drawn with an
+        // end on a free end, it joins there (the tight capture alone would miss a ghost that looks seated).
+        if (s.kind !== "snapped") s = findSnap(this.game.layout, holdType, m.heldFlipped, loose({ ...held }), level, m.pieceId, capture);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
         if (s.kind === "snapped" && isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
