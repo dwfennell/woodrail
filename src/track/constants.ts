@@ -40,8 +40,9 @@ export const ARCH_CROWN_DROP = RISER_HEIGHT / 4;
 export const JOINT_POS_TOLERANCE = 9;
 export const JOINT_ANGLE_TOLERANCE = (4 * Math.PI) / 180;
 
-// Drag snapping: how close a dragged connector must come to a free one to snap.
-export const SNAP_CAPTURE_RADIUS = 30;
+// Drag snapping: how close a dragged connector must come to a free one to snap. Tight (was 30), so a piece put down
+// near track stays where it's put unless it's dropped at the joint (play-test: the pull made pieces hard to place).
+export const SNAP_CAPTURE_RADIUS = 10;
 export const SNAP_HEIGHT_TOLERANCE = RISER_HEIGHT / 2;
 
 export const SPATIAL_CELL_SIZE = 64;

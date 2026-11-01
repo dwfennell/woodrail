@@ -134,10 +134,10 @@ const GRAB_PIECE_MM = 144;
 /** A press on the ground let go within this (ms) is a tap (a long one counts: a slow phone delays the lift). */
 const FLOOR_TAP_MS = 1200;
 /** How far (mm) a picked group's free end reaches for a free end of other track to click onto, and how far off facing. */
-const GROUP_SNAP_REACH = 30;
+const GROUP_SNAP_REACH = SNAP_CAPTURE_RADIUS;
 const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
-/** A ready piece put down with a tap seats on a free track end this far (mm) from the finger (the end itself is track). */
-const TAP_REACH = 80;
+/** A ready piece put down with a tap seats on a free track end this far (mm) from the finger (the end itself is track; was 80). */
+const TAP_REACH = 27;
 /** A clearing sweep looks under the pointer this often along its way (px): a fast sweep doesn't jump a piece. */
 const ERASE_STEP_PX = 8;
 /** …but at most this many looks a move (a raycast each): a far flick on a phone is looked along more sparsely. */
@@ -3918,7 +3918,10 @@ export class Interaction {
         const held = heldAt(level) ?? m.pose;
         const finger = this.planeAt(x, sy, level);
         const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, Math.max(capture, m.tapReach ?? 0)) : null;
-        const s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture);
+        let s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture);
+        // Held loose, it's drawn on the quarter-square grid: up to 13 mm from where the finger holds it. Drawn with an
+        // end on a free end, it joins there (the tight capture alone would miss a ghost that looks seated).
+        if (s.kind !== "snapped") s = findSnap(this.game.layout, holdType, m.heldFlipped, loose({ ...held }), level, m.pieceId, capture);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
         if (s.kind === "snapped" && isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
@@ -3934,7 +3937,9 @@ export class Interaction {
       // (aiming into a gap, the piece held at an angle): it goes on that end.
       if (m.snap.kind !== "snapped" && getPieceDef(holdType, m.heldFlipped).connectors.length > 0) {
         for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY])) {
-          const finger = this.planeAt(x, sy, level);
+          // Where the held piece's middle is drawn (on touch it's held lifted, as `heldAt`): on a tilted view the
+          // ground under the finger is well behind it, off the end's line.
+          const finger = this.planeAt(x, sy, level + (touch ? HOLD_LIFT + geometryMiddle(shape).y : 0));
           const s = finger ? findSnapAhead(this.game.layout, holdType, m.heldFlipped, heldAt(level) ?? m.pose, level, finger, m.pieceId) : null;
           if (s?.kind !== "snapped") continue;
           if (isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
@@ -5288,12 +5293,15 @@ export class Interaction {
     return Math.min(60, a.distanceTo(b));
   }
 
-  /** Snap capture in mm: about 28 screen pixels at the pointer, never less than the physical 30 mm. */
+  /**
+   * Snap capture in mm: about 10 screen pixels at the pointer (was 28), never less than the physical 10 mm (was 30),
+   * at most 40 mm zoomed far out (was 120). Tight, so a piece only jumps onto track dropped close to the joint.
+   */
   private captureRadius(x: number, y: number): number {
     const a = this.groundAt(x, y);
-    const b = this.groundAt(x + 28, y);
+    const b = this.groundAt(x + 10, y);
     if (!a || !b) return SNAP_CAPTURE_RADIUS;
-    return Math.min(120, Math.max(SNAP_CAPTURE_RADIUS, a.distanceTo(b)));
+    return Math.min(40, Math.max(SNAP_CAPTURE_RADIUS, a.distanceTo(b)));
   }
 
   /** Heading (plan) pointing away from the camera, used for new pieces and trains. */

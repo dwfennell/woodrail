@@ -210,10 +210,22 @@ export function findSnapAtPoint(
   return best.kind === "snapped" ? best : beyond;
 }
 
-/** How far ahead of a free end (mm) a finger still aims a piece onto it: about a long piece's length. */
-export const AHEAD_REACH = 230;
-/** ...and how far to one side of the end's line. */
-export const AHEAD_ACROSS = 45;
+/**
+ * How far ahead of a free end (mm) a finger still aims a piece onto it: where the held piece's middle would be seated
+ * on that end (half its length) and this much beyond. A piece is held by its middle, so a finger in the middle of a
+ * gap aims its piece in. (Was a flat 230 mm, any piece: a short one dropped well clear of an end jumped onto it.)
+ */
+export const AHEAD_SLACK = 15;
+/** ...and how far to one side of the end's line (was 45). */
+export const AHEAD_ACROSS = 15;
+
+/** Half the span of a piece's ends (mm), from its first: a 216 straight's is 108. */
+function halfSpan(type: PieceTypeId, flipped: boolean): number {
+  const c = getPieceDef(type, flipped).connectors;
+  let far = 0;
+  for (let k = 1; k < c.length; k++) far = Math.max(far, Math.hypot(c[k].pose.x - c[0].pose.x, c[k].pose.z - c[0].pose.z));
+  return far / 2;
+}
 
 /**
  * Nothing seats by the held piece's ends or under the finger, but the finger is just ahead of a free end, on its line
@@ -229,7 +241,8 @@ export function findSnapAhead(
   point: { x: number; z: number },
   excludePieceId = -1,
 ): SnapResult {
-  const n = layout.queryFreeConnectors(point.x, point.z, AHEAD_REACH, candidates);
+  const reach = halfSpan(type, flipped) + AHEAD_SLACK;
+  const n = layout.queryFreeConnectors(point.x, point.z, reach, candidates);
   let ref = -1;
   let best = Infinity;
   const held = getPieceDef(type, flipped);
@@ -241,7 +254,7 @@ export function findSnapAhead(
     const dz = point.z - t.z;
     const along = dx * Math.cos(t.heading) + dz * Math.sin(t.heading);
     const across = Math.abs(-dx * Math.sin(t.heading) + dz * Math.cos(t.heading));
-    if (along <= 0 || along > AHEAD_REACH || across > AHEAD_ACROSS || along >= best) continue;
+    if (along <= 0 || along > reach || across > AHEAD_ACROSS || along >= best) continue;
     best = along;
     ref = candidates[j];
   }
