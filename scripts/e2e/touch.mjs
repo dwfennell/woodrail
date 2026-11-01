@@ -1207,9 +1207,10 @@ async function wyeLevers(ctx, p, tapOn) {
 // wait (a train waiting at points set for another), wye (a wye's three levers, #15), stuck (two trains of a line head
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
-// routing step 7), blocker (a card's Show and Put it away for an engine left in a line train's way), follow (a
+// routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
 // follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
-// lines' routes kept through track laid at a stop, undo and redo, the stop taken up).)
+// lines' routes kept through track laid at a stop, undo and redo, the stop taken up), blocker (a card's Show and Put
+// it away for an engine left in a line train's way).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -1299,8 +1300,8 @@ function mapHelpers(p) {
       const [a, b] = [t.world[0], t.world[1]];
       return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
     }
-    // (A piece's pose is at its start: its middle is half its 216 mm on.)
-    const piece = w.layout.getPiece(w.economy.depot(what.depot).pieceId);
+    // (A piece's pose is at its start: its middle is half its 216 mm on. `piece`: a straight-216 of track itself.)
+    const piece = w.layout.getPiece(what.piece ?? w.economy.depot(what.depot).pieceId);
     const q = piece.pose;
     return { x: q.x + Math.cos(q.heading) * 108, y: piece.y, z: q.z + Math.sin(q.heading) * 108 };
   }, what);
@@ -1895,6 +1896,136 @@ async function forwardRoute(ctx, p) {
     return { legs: legs.length, fromMill: fromMill.map((r) => ({ round: r.runs.filter((x) => loop.has(x.pieceId)).length, spur: r.runs.filter((x) => o.spur.includes(x.pieceId)).length })) };
   }, { ...setup });
   check("forward: the line drawn on the map goes from the sawmill round the wye's loop, as the train does", line.fromMill.length > 0 && line.fromMill.every((l) => l.round > 0 && l.spur === 0), JSON.stringify(line));
+  await p.keyboard.press("Escape");
+}
+
+/**
+ * Via points (the user, 2026-10-31: "I wanted the quarry train to mainly stay on the top"), by the player's path: the
+ * routing harness's two ways between a forest and a sawmill (a loop's roads: the bottom straight and shorter, the top
+ * round by curves). A train's route planned by taps: its engine, Plan a route, the forest, the top road's track (a via
+ * point), the sawmill, the top road again (for the way back), Done. The card shows two "via" chips, the map a via disc
+ * and a line by the top road; the train runs the top road every lap, never the bottom, and delivers.
+ */
+async function viaRoute(ctx, p) {
+  await p.keyboard.press("Escape");
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    // Harness shortcut (setup, not what's tested): the harness's `twoWays` layout, moved to open, flat ground and put
+    // down through the editor as dropping its pieces would.
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const { scenario } = S.twoWays(false, true);
+    const built = scenario.build(scratch);
+    const ids = [...scratch.pieceIds()];
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    if (!g) throw new Error("no open ground for the run");
+    const t = built.trains[0];
+    const placed = w.editor().placeRun(ids.map((i) => {
+      const q = scratch.getPiece(i);
+      return { type: i === t.stops[1] ? "depot-sawmill" : q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const at = (i) => placed[ids.indexOf(i)];
+    // (The loop's roads, as `twoWays` lays them: its switches are the run's two "switch" pieces; the top road is the
+    // straight between the two curves off them, the bottom the two straights between them.)
+    const run = placed;
+    const sw = run.filter((i) => w.layout.getPiece(i).type === "switch");
+    const curves = run.filter((i) => w.layout.getPiece(i).type === "curve-large");
+    const between = run.slice(run.indexOf(sw[0]) + 1, run.indexOf(sw[1]));
+    const top = between.filter((i) => !curves.includes(i) && w.layout.getPiece(i).type === "straight-216").find((i) => {
+      // (The straight joined to a curve at each end: the top road's.)
+      const ends = [w.layout.joinedConnector(i * 8), w.layout.joinedConnector(i * 8 + 1)].map((c) => Math.floor(c / 8));
+      return ends.every((e) => curves.includes(e));
+    });
+    const bottom = between.filter((i) => w.layout.getPiece(i).type === "straight-216" && i !== top);
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = [depot(at(t.stops[0]), "forest").id, depot(at(t.stops[1]), "sawmill").id];
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: at(t.pieceId), pathIndex: 0, s: 150, reversed: !!t.reversed });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(engine, 0);
+    w.invalidate();
+    return { engine, places, top, bottom, side: [curves[0], top, curves[1]], forest: at(t.stops[0]), sawmill: at(t.stops[1]) };
+  });
+  if (!setup.top || setup.bottom.length !== 2) check("via: the two ways laid", false, JSON.stringify(setup));
+  const { tapOn, tapButton } = mapHelpers(p);
+  // (Planned on the smallest phone the cards are made for.)
+  await p.setViewportSize({ width: 360, height: 740 });
+  await tapOn({ engine: setup.engine });
+  await tapButton(".engine-extra .route-plan");
+  await tapOn({ depot: setup.places[0] });
+  await tapOn({ piece: setup.top });
+  await tapOn({ depot: setup.places[1] });
+  await tapOn({ piece: setup.top });
+  const card = await p.evaluate(() => {
+    const box = document.querySelector(".engine-extra");
+    const rows = new Set([...box.querySelectorAll("button")].filter((b) => b.offsetParent !== null).map((b) => Math.round(b.getBoundingClientRect().top)));
+    const r = box.getBoundingClientRect();
+    return { vias: [...box.querySelectorAll(".route-via")].map((b) => ({ text: b.textContent, h: b.getBoundingClientRect().height })), rows: rows.size, inside: r.left >= 0 && r.right <= innerWidth };
+  });
+  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/via-planning.png` });
+  check('via: the card shows two "via" chips, 44 px tall or more, the planning card 2 lines at 360 px', card.vias.length === 2 && card.vias.every((v) => v.text.startsWith("via") && v.h >= 44) && card.rows <= 2 && card.inside, JSON.stringify(card));
+  // A via chip tapped: its tools (what it is, ✕), the card's buttons 44 px or more.
+  await tapButton(".engine-extra .route-via");
+  const tools = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-tools button")].map((b) => ({ text: b.textContent, h: Math.round(b.getBoundingClientRect().height), w: Math.round(b.getBoundingClientRect().width) })));
+  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/via-picked.png` });
+  check("via: a via chip tapped shows its ✕, 44 px or more", tools.some((t) => t.text === "✕") && tools.every((t) => t.h >= 44 && t.w >= 44), JSON.stringify(tools));
+  await tapButton(".engine-extra .route-via.picked");
+  await tapButton(".engine-extra .route-plan.on");
+  await p.setViewportSize({ width: 390, height: 844 });
+  const stops = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => ({ d: s.depotId, via: s.via ?? [] })) ?? null, setup.engine);
+  check("via: the route planned by taps (Forest via the top road, Sawmill via the top road)", JSON.stringify(stops) === JSON.stringify([{ d: setup.places[0], via: [setup.top] }, { d: setup.places[1], via: [setup.top] }]), JSON.stringify(stops));
+  await p.keyboard.press("Escape");
+  // Harness shortcut: the game's own sim and economy ticks, run ahead of SwiftShader's frames, the forest kept stocked.
+  const seen = await p.evaluate(async (o) => {
+    const w = window.woodrail;
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    w.sim.setLever(o.engine, 1);
+    const side = new Set(o.side);
+    const bottom = new Set(o.bottom);
+    let goods = 0;
+    let tops = 0;
+    let bottoms = 0;
+    let arrivals = 0;
+    let was = -1;
+    let at = null;
+    for (let i = 0; i < 300 * 120; i++) {
+      if (i % 120 === 0) for (const d of w.economy.allDepots()) if (d.role === "forest") d.piles[CARGO.log.index] = PILE_CAP;
+      w.sim.tick();
+      w.economy.tick();
+      for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === o.places[1]) goods++;
+      const t = w.sim.findCar(o.engine).train;
+      let net = 0;
+      for (const c of t.cars) if (c.kind === "engine") net += c.lever * c.facing;
+      const front = (net >= 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]).pieceId;
+      if (front !== was) {
+        if (side.has(front) && !side.has(was)) tops++;
+        if (bottom.has(front) && !bottom.has(was)) bottoms++;
+        was = front;
+      }
+      const on = t.bogies.map((b) => b.pieceId);
+      const stop = on.includes(o.forest) ? "forest" : on.includes(o.sawmill) ? "sawmill" : null;
+      if (stop && stop !== at) arrivals++;
+      at = stop;
+    }
+    w.invalidate();
+    return { goods, tops, bottoms, arrivals };
+  }, { ...setup });
+  check("via: the train delivers (logs at the sawmill in 5 min)", seen.goods >= 2, JSON.stringify(seen));
+  check("via: it runs the top road every lap, never the bottom", seen.bottoms === 0 && seen.tops >= seen.arrivals - 1 && seen.arrivals >= 4, JSON.stringify(seen));
+  // The map and the card agree with the train: the line drawn goes by the top road, with a via disc on it.
+  await tapOn({ engine: setup.engine });
+  await p.waitForTimeout(500);
+  const line = await p.evaluate((o) => {
+    const w = window.woodrail;
+    const legs = w.routeShown().filter((r) => !r.dotted && r.runs.length > 0);
+    const runs = legs.flatMap((r) => r.runs.map((x) => x.pieceId));
+    const route = w.scene.getObjectByName("route-stop")?.parent;
+    const viaDiscs = route ? route.children.filter((c) => c.userData?.kind === "route-via" && c.name === "route-stop").length : 0;
+    return { legs: legs.length, top: runs.filter((id) => id === o.top).length, bottom: runs.filter((id) => o.bottom.includes(id)).length, viaDiscs };
+  }, { ...setup });
+  check("via: the line drawn goes by the top road (never the bottom), with a via disc on it", line.top > 0 && line.bottom === 0 && line.viaDiscs >= 1, JSON.stringify(line));
   await p.keyboard.press("Escape");
 }
 
@@ -3442,7 +3573,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), blocker: () => showBlocker(ctx, p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), blocker: () => showBlocker(ctx, p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

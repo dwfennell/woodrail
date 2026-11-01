@@ -1,7 +1,7 @@
 import { getPieceDef, pathLength, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, waysFrom } from "../routing/graph";
-import { plan, planWay } from "../routing/plan";
+import { plan, planWay, type KeepTest } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
 
 /**
@@ -112,6 +112,8 @@ export interface SectionsHost {
   skipStops(engine: number, pieces: ReadonlySet<number>): void;
   /** The way points lie once trains have passed (the router's default; as they lie now if not given). */
   restsAt?(pieceId: number): number;
+  /** The ways a routed engine's line keeps (stickiness: the router's `ways`), so a move is granted the way it'll take. */
+  keep?(engine: number): KeepTest | undefined;
 }
 
 /** One step of a move's way: a piece, the path along it, and the end it comes in by. */
@@ -846,6 +848,7 @@ export class Sections {
     const { layout } = this;
     const topo = info.topo;
     const target = this.host.target(st.engine);
+    const keep = this.host.keep?.(st.engine);
     const loose = this.host.lineOf(st.engine) < 0;
     const steps: Step[] = [];
     const sections: number[] = [];
@@ -968,7 +971,7 @@ export class Sections {
       }
       else if (ways.length > 1) {
         // (The router's choice: the plan's way to its stop.)
-        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target);
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
       }
       steps.push({ pieceId: at.pieceId, path: w.path, entry: at.entry });

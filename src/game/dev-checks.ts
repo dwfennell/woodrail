@@ -22,6 +22,7 @@ export function economyWorld(economy: Economy): InvariantWorld {
     stalls: economy.stalls,
     routed: (engine) => economy.routeOf(engine) !== undefined,
     target: (engine) => economy.routeTarget(engine),
+    owner: (engine) => economy.ownerOf(engine),
     drive: (train) => economy.drive(train),
   };
 }

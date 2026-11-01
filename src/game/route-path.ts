@@ -1,7 +1,7 @@
 import { createRouteStep, createSample, getPieceDef, pathLength, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
 import type { Cursor } from "../sim";
 import { SEARCH, type PinnedTest } from "../routing/graph";
-import { walkTo, type At, type PathRun, type Leg } from "../routing/plan";
+import { walkTo, type At, type KeepTest, type PathRun, type Leg } from "../routing/plan";
 
 export type { Leg, PathRun } from "../routing/plan";
 
@@ -17,7 +17,7 @@ export const runsLength = (runs: readonly PathRun[]): number => runs.reduce((t, 
  * From a train's front cursor to a piece: the way a routed train would go (as the router chooses), or null. `pinned`: see
  * `walkTo`.
  */
-export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number, pinned?: PinnedTest): Leg {
+export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number, pinned?: PinnedTest, keep?: KeepTest): Leg {
   if (!layout.getPiece(front.pieceId) || !layout.getPiece(targetPiece)) return null;
   const len = lengthOf(layout, front.pieceId, front.pathIndex);
   const s = front.reversed ? len - front.s : front.s;
@@ -26,19 +26,19 @@ export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number
     const ahead = front.reversed ? s >= len / 2 : s <= len / 2;
     if (ahead) return [{ pieceId: front.pieceId, pathIndex: front.pathIndex, s0: s, s1: len / 2 }];
   }
-  return walkTo(layout, { pieceId: front.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s }, targetPiece, pinned);
+  return walkTo(layout, { pieceId: front.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s }, targetPiece, pinned, keep);
 }
 
 /**
  * The way from the middle of stop piece `from` to the middle of `to`, leaving by whichever end of `from` is shorter.
  * Empty when they're the same piece. Only where the way into `from` isn't known (`lineLegs` chains the rest).
  */
-function legBetween(layout: Layout, from: number, to: number): Leg {
+function legBetween(layout: Layout, from: number, to: number, keep?: KeepTest): Leg {
   if (from === to) return layout.getPiece(from) ? [] : null;
   if (!layout.getPiece(from) || !layout.getPiece(to)) return null;
   const mid = lengthOf(layout, from, 0) / 2;
-  const a = walkTo(layout, { pieceId: from, pathIndex: 0, reversed: false, s: mid }, to);
-  const b = walkTo(layout, { pieceId: from, pathIndex: 0, reversed: true, s: mid }, to);
+  const a = walkTo(layout, { pieceId: from, pathIndex: 0, reversed: false, s: mid }, to, undefined, keep);
+  const b = walkTo(layout, { pieceId: from, pathIndex: 0, reversed: true, s: mid }, to, undefined, keep);
   if (!a || !b) return a ?? b;
   return runsLength(b) < runsLength(a) ? b : a;
 }
@@ -50,10 +50,10 @@ export function arrivalOf(leg: Leg): At | null {
 }
 
 /** The way on from `at` (standing at a stop, running one way) to the middle of `to`. A train doesn't turn at a stop. */
-function legOn(layout: Layout, at: At, to: number): Leg {
+function legOn(layout: Layout, at: At, to: number, keep?: KeepTest): Leg {
   if (at.pieceId === to) return [];
   if (!layout.getPiece(to)) return null;
-  return walkTo(layout, at, to);
+  return walkTo(layout, at, to, undefined, keep);
 }
 
 /**
@@ -66,7 +66,7 @@ function legOn(layout: Layout, at: At, to: number): Leg {
  * round twice from the first stop and the second lap is drawn, so the way into the first stop is known too. Where a leg
  * is null (no way leads there), the next leaves its stop by the shorter end.
  */
-export function lineLegs(layout: Layout, stopPieces: readonly number[], from?: { k: number; leg: Leg }): Leg[] {
+export function lineLegs(layout: Layout, stopPieces: readonly number[], from?: { k: number; leg: Leg }, keep?: KeepTest): Leg[] {
   const n = stopPieces.length;
   if (n < 2) return [];
   const legs: Leg[] = new Array<Leg>(n).fill(null);
@@ -76,7 +76,7 @@ export function lineLegs(layout: Layout, stopPieces: readonly number[], from?: {
       const k = (k0 + i) % n;
       const a = stopPieces[k];
       const b = stopPieces[(k + 1) % n];
-      const leg = at && at.pieceId === a ? legOn(layout, at, b) : legBetween(layout, a, b);
+      const leg = at && at.pieceId === a ? legOn(layout, at, b, keep) : legBetween(layout, a, b, keep);
       legs[k] = leg;
       if (leg && leg.length > 0) at = arrivalOf(leg);
       else if (!leg) at = null;
@@ -89,6 +89,61 @@ export function lineLegs(layout: Layout, stopPieces: readonly number[], from?: {
   if (from && known && known.pieceId === stopPieces[from.k]) lap(from.k, known);
   else lap(0, lap(0, null));
   return legs;
+}
+
+/** A line's stop for `viaLegs`: its piece (−1: not on the map), and the via points on the way out of it to the next. */
+export interface LegStop {
+  piece: number;
+  via?: readonly number[];
+}
+
+/**
+ * A line's legs with its via points (routing spec §3.5): leg k is stop k to stop k+1 by way of stop k's vias in order
+ * (those on the map), the vias chained as `lineLegs` chains stops (a train doesn't turn at one either). Null where any
+ * part has no way. `from`: the train's own way (as `legFromCursor` gives it) to where it's aimed on its way into stop
+ * `from.k`, `from.done` of the vias there passed (`aimOf`). `keep`: the line's kept ways (stickiness), as its trains choose.
+ */
+export function viaLegs(layout: Layout, stops: readonly LegStop[], from?: { k: number; done: number; leg: Leg }, keep?: KeepTest): Leg[] {
+  const n = stops.length;
+  // The waypoints: each stop, then its vias on the map; `first[k]`, where stop k's are; `raw`, each via's index.
+  const points: number[] = [];
+  const raw: number[] = [];
+  const first: number[] = [];
+  for (const st of stops) {
+    first.push(points.length);
+    points.push(st.piece);
+    raw.push(-1);
+    (st.via ?? []).forEach((v, i) => {
+      if (!layout.getPiece(v)) return;
+      points.push(v);
+      raw.push(i);
+    });
+  }
+  first.push(points.length);
+  if (points.length < 2) return stops.map(() => null).slice(0, n > 1 ? n : 0);
+  // (The train's own way: to its aim on the way into stop `from.k`: the first via of the stop before not passed, else
+  // the stop.)
+  let at: { k: number; leg: Leg } | undefined;
+  if (from) {
+    const b = (from.k - 1 + n) % n;
+    let w = first[from.k];
+    for (let x = first[b] + 1; x < first[b + 1]; x++)
+      if (raw[x] >= from.done) {
+        w = x;
+        break;
+      }
+    at = { k: w, leg: from.leg };
+  }
+  const parts = lineLegs(layout, points, at, keep);
+  return stops.map((_, k) => {
+    const runs: PathRun[] = [];
+    for (let w = first[k]; w < first[k + 1]; w++) {
+      const leg = parts[w];
+      if (!leg) return null;
+      runs.push(...leg);
+    }
+    return runs;
+  });
 }
 
 const step = createRouteStep();

@@ -175,6 +175,8 @@ type Press =
   | { kind: "lever"; pieceId: number; road?: number; corner?: number; slack?: number; at?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
+  /** A via point's disc of the route being planned (the piece it's on). */
+  | { kind: "route-via"; pieceId: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
   | { kind: "piece"; pieceId: number; deck?: boolean }
   /** A depot's yard, building or crane (economy depot id). */
@@ -392,6 +394,8 @@ export class Interaction {
   onLeavePlanning: (() => void) | null = null;
   /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
   onPickPlace: ((depotId: number) => boolean) | null = null;
+  /** Planning a route: plain track tapped (or a via point's disc), a via point (true: taken as one). */
+  onPickVia: ((pieceId: number) => boolean) | null = null;
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
   routeGroup: Object3D | null = null;
   onTapStopDisc: ((index: number) => void) | null = null;
@@ -1386,7 +1390,8 @@ export class Interaction {
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     // (While picking several, any track in view can be tapped.)
     // (Planning a route, a station or depot is tapped from any zoom.)
-    const place = !!this.onPickPlace && hit?.kind === "piece" && !!this.game.economy.depotAtPiece(hit.pieceId);
+    // (And any track, from any zoom: a via point.)
+    const place = !!this.onPickPlace && hit?.kind === "piece";
     // (Drawing, though, a line's body branches from any zoom: only taking hold of it needs to be close by. See `far`.)
     let far = false;
     if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) {
@@ -2118,6 +2123,10 @@ export class Interaction {
       this.onTapStopDisc?.(p.index);
       return;
     }
+    if (p.kind === "route-via") {
+      this.onPickVia?.(p.pieceId);
+      return;
+    }
     // Planning a train's route: a station or depot tapped is a stop (see `onPickPlace`).
     if (this.onPickPlace) {
       // A train tapped: the station or depot it stands at (its engine's own station, the first stop of many a route).
@@ -2134,6 +2143,8 @@ export class Interaction {
         this.onPickPlace(depot.id);
         return;
       }
+      // Plain track: a via point, passed on the way to the next stop (see `onPickVia`).
+      if (p.kind === "piece" && this.onPickVia?.(p.pieceId)) return;
       // Another train, out on the line: planning ends and its card opens, as a tap on it does (QA: it did nothing).
       const other = p.kind === "car" && g.sim.findCar(p.carId)?.train !== g.sim.findCar(this.selectedCar)?.train;
       if (!other) return;
@@ -5058,7 +5069,7 @@ export class Interaction {
   private pick(x: number, y: number, touch = false): Press | null {
     const exact = this.pickExact(x, y);
     // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
-    if (exact?.kind === "route-stop") return exact;
+    if (exact?.kind === "route-stop" || exact?.kind === "route-via") return exact;
     if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
     if (!touch) return this.deckOverTrain(exact, exact);
     const under: TapUnder = exact ? (exact.kind === "depot" && exact.footprint ? "station" : (exact.kind as TapUnder)) : null;
@@ -5165,7 +5176,10 @@ export class Interaction {
     const g = this.game;
     // Planning a route: its stop discs float over everything, and win.
     if (this.routeGroup?.visible && this.onTapStopDisc) {
-      for (const h of this.raycaster.intersectObject(this.routeGroup, true)) if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
+      for (const h of this.raycaster.intersectObject(this.routeGroup, true)) {
+        if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
+        if (h.object.userData.kind === "route-via") return { kind: "route-via", pieceId: h.object.userData.pieceId as number };
+      }
     }
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)

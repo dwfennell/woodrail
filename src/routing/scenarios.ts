@@ -810,6 +810,59 @@ export function noRoomToTurn(): { scenario: Scenario; ids: () => number[] } {
   };
 }
 
+// ── Via points (§3.5): two ways between the stops ─────────────────────────────────────────────────────────────────
+
+/** Times each train ran onto each road of the loop (top: the side road, bottom: the main road), counted at its front. */
+export interface RoadLog {
+  top: number[];
+  bottom: number[];
+}
+
+/**
+ * Two lines, Red and Blue, each one train, on `⊐ A ══ ══ (two ways) ══ E ══ B ⊏`: the loop's two roads are the two
+ * ways between the stops (top: round by the curves; bottom: the straight road, shorter). Red runs A ⇄ B; Blue, a
+ * shorter train, A ⇄ E, so their laps differ and they meet in different places. `via`: Red passes the top
+ * road (its middle straight) and Blue the bottom, both ways. `alone`: Red's train only (the router's plan alone, no
+ * sections). The log counts which road each train takes.
+ */
+export function twoWays(via: boolean, alone = false): { scenario: Scenario; log: RoadLog } {
+  const log: RoadLog = { top: [0, 0], bottom: [0, 0] };
+  const was = [-1, -1];
+  let roads: { top: Set<number>; bottom: Set<number> } | null = null;
+  const watchRoads = (run: HarnessRun): boolean => {
+    run.engines.forEach((engine, k) => {
+      const t = run.sim.findCar(engine)?.train;
+      if (!t || !roads) return;
+      const net = t.cars.reduce((n, c) => n + (c.kind === "engine" ? c.lever * c.facing : 0), 0);
+      if (net === 0) return;
+      const front = (net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]).pieceId;
+      if (front === was[k]) return;
+      for (const [name, road] of [["top", roads.top], ["bottom", roads.bottom]] as const) if (road.has(front) && !road.has(was[k])) log[name][k]++;
+      was[k] = front;
+    });
+    return false;
+  };
+  const scenario: Scenario = {
+    name: `two ways between the stops, ${alone ? "one train" : "two lines"}${via ? ", a via point on each line's own way" : ", no via points"}`,
+    seconds: KID_SECONDS,
+    maxStill: KID_STILL,
+    build: (layout) => {
+      const l = lineWithLoop(layout);
+      roads = { top: new Set(l.loop.side), bottom: new Set(l.loop.main) };
+      const top = l.loop.side[1];
+      const bottom = l.loop.main[0];
+      return {
+        trains: [
+          { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS, ...(via ? { vias: [[top], [top]] } : {}) },
+          ...(alone ? [] : [{ pieceId: l.e1, reversed: true, stops: [l.a, l.e2], next: 0, line: 2, cars: ["engine", "timber"] as CarKind[], ...(via ? { vias: [[bottom], [bottom]] } : {}) }]),
+        ],
+        events: [{ when: watchRoads, do: () => {} }],
+      };
+    },
+  };
+  return { scenario, log };
+}
+
 // ── A stop right before points (route-keep: the user's loop added at the end of a line) ─────────────────────────────
 
 /**

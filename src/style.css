@@ -939,6 +939,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
 .route-chip[data-intent="drop"]::after { content: " ↓"; opacity: 0.7; }
 .route-chip[data-intent="pick"]::after { content: " ↑"; opacity: 0.7; }
+/* A via point (passed, not stopped at): a lighter chip, "via" and the line's dot. */
+.route-chip.route-via { border-left: none; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 2px var(--line, #888); font-weight: 700; font-size: 13px; padding-inline: 8px; display: inline-flex; align-items: center; }
+.route-via-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--line, #888); box-shadow: inset 0 0 0 3px #fff, 0 0 0 1px var(--line, #888); }
+.route-via-what { align-self: center; white-space: nowrap; }
 .route-tools { display: flex; gap: 4px; }
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }

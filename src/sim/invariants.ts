@@ -25,7 +25,7 @@ import type { Sections } from "../economy/sections";
 import type { Stalls } from "../economy/stalls";
 import type { Router } from "../routing/router";
 import { next, waysFrom } from "../routing/graph";
-import { planChoice, ROUTE_COSTS } from "../routing/plan";
+import { planChoice, ROUTE_COSTS, sticks } from "../routing/plan";
 
 export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne"] as const;
 export type Invariant = (typeof INVARIANTS)[number];
@@ -41,6 +41,8 @@ export interface InvariantWorld {
   routed(engine: number): boolean;
   /** Where a routed engine is going: its next stop's piece (standing at it, the next different one); −1: none. */
   target(engine: number): number;
+  /** Whose kept ways (stickiness) a routed engine's plan keeps, as the router's `owner` (none: no stickiness allowed). */
+  owner?(engine: number): number;
   /** A train's net drive toward its front (as `Economy.drive`). */
   drive(train: Train): number;
 }
@@ -521,7 +523,10 @@ export class Invariants {
       const costs: number[] = [];
       const best = planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
       if (best === -1 || best === taken.option) return;
-      wrong = !(costs[taken.option] <= costs[best]);
+      // (Or the way its line kept, costing nearly the best: stickiness, via points' §3.5.)
+      const aim = held?.aim ?? target;
+      const kept = this.world.owner !== undefined && this.world.router.ways.get(this.world.owner(engine), b.pieceId, entry, aim) === taken.option && sticks(costs[taken.option], costs[best]);
+      wrong = !(costs[taken.option] <= costs[best]) && !kept;
     }
     if (wrong) this.break("wrongRoad", `${this.name(key, engine)} took road ${taken.option} at points ${b.pieceId} (${followed.length === 1 ? "not the way granted" : `not its way to ${target}`})`, engine, b.pieceId);
   }

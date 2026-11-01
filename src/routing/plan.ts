@@ -30,9 +30,9 @@ export interface At {
  * The way a routed train goes from `start` to the middle of piece `target`, choosing at each switch as the router does
  * (`planWay`) and turning back at the end of a line. Null if it never gets there: no way leads there, or it would go
  * round for ever. Bounded by `SEARCH` steps. `pinned`: which switches stay as they're set (by default the layout's
- * pinned ones).
+ * pinned ones). `keep`: the line's kept ways (stickiness), as the router chooses for it.
  */
-export function walkTo(layout: Layout, start: At, target: number, pinned?: PinnedTest): Leg {
+export function walkTo(layout: Layout, start: At, target: number, pinned?: PinnedTest, keep?: KeepTest): Leg {
   const runs: PathRun[] = [];
   const visited = new Set<number>();
   let at = { ...start };
@@ -58,7 +58,7 @@ export function walkTo(layout: Layout, start: At, target: number, pinned?: Pinne
     }
     let option = 0;
     if (n.pieceId !== target && ways.length > 1) {
-      option = planWay(layout, n.pieceId, n.entry, ways, target, pinned);
+      option = planWay(layout, n.pieceId, n.entry, ways, target, pinned, keep?.(n.pieceId, n.entry, target));
       // No way on leads there: the switch stays as it's set.
       if (option === -1) option = pointsWayFrom(layout, n.pieceId, n.entry, ways.length);
     } else if (ways.length > 1) option = pointsWayFrom(layout, n.pieceId, n.entry, ways.length);
@@ -307,8 +307,52 @@ export function planChoice(
 }
 
 /**
+ * Stickiness (the user, 2026-10-31: "the quarry train to mainly stay on the top"): where two ways cost nearly the same,
+ * a line keeps the way it last took, so its trains don't flip between them. "Nearly": within `STICK` of the best plus
+ * `STICK_MM` (or one piece, by piece counts).
+ */
+export const STICK = 0.15;
+export const STICK_MM = 300;
+
+/** Does a kept way costing `kept` stay chosen over the best, costing `best`? */
+export function sticks(kept: number, best: number): boolean {
+  return Number.isFinite(kept) && kept <= best * (1 + STICK) + (ROUTE_FORWARD ? STICK_MM : 1);
+}
+
+/**
+ * The ways each line (an owner: a line id, or a lineless train's) last took at points, by (target, points, entry): what
+ * stickiness keeps. Written only by the router as it sets its trains' way (deterministic: sim-driven, nothing per frame);
+ * sections and the drawn line read it, so the map, the card and the train agree.
+ */
+export class WayMemory {
+  private readonly kept = new Map<number, Map<number, Map<number, number>>>();
+  get(owner: number, pieceId: number, entry: number, target: number): number | undefined {
+    return this.kept.get(owner)?.get(target)?.get(pieceId * MAX_CONNECTORS + entry);
+  }
+  set(owner: number, pieceId: number, entry: number, target: number, option: number): void {
+    let byTarget = this.kept.get(owner);
+    if (!byTarget) this.kept.set(owner, (byTarget = new Map()));
+    let m = byTarget.get(target);
+    if (!m) byTarget.set(target, (m = new Map()));
+    m.set(pieceId * MAX_CONNECTORS + entry, option);
+  }
+  /** A line gone (or its train): what it kept goes. */
+  forget(owner: number): void {
+    this.kept.delete(owner);
+  }
+  /** A lookup for one owner, as `planWay`'s `keep` and `walkTo`'s take it. */
+  of(owner: number): KeepTest {
+    return (pieceId, entry, target) => this.get(owner, pieceId, entry, target);
+  }
+}
+
+/** The option a line last took at points toward a target (undefined: none kept). */
+export type KeepTest = (pieceId: number, entry: number, target: number) => number | undefined;
+
+/**
  * The plan's choice at points (`pieceId`, come in by `entry`, `ways` out from `waysFrom` with the same `pinned`): the
  * option whose way to `target` costs least (`ROUTE_COSTS`: in mm since step 6), the earlier on a tie; −1 if none reaches it.
+ * `keep`: the option the line last took here (stickiness): kept while it costs nearly the best (`sticks`).
  * The one choice at points for everything that decides (the router, sections, the drawn line). Cached per layout by the
  * track, the pins and the decks (a throw of unpinned points changes nothing a plan sees); a caller's own `pinned` test
  * isn't cached.
@@ -320,24 +364,35 @@ export function planWay(
   ways: readonly { option: number; path: number; exit: number }[],
   target: number,
   pinned?: PinnedTest,
+  keep?: number,
 ): number {
-  if (pinned) return planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, undefined, pinned);
-  const cache = cacheOf(layout);
-  const key = pieceId * MAX_CONNECTORS + entry;
-  let byTarget = cache.choices.get(target);
-  if (!byTarget) cache.choices.set(target, (byTarget = new Map()));
-  let c = byTarget.get(key);
-  if (c === undefined) {
-    planStats.choices++;
-    byTarget.set(key, (c = planChoice(layout, pieceId, true, ways, target)));
-  } else planStats.hits++;
-  return c;
+  let best: number;
+  let costs: number[];
+  if (pinned) {
+    costs = [];
+    best = planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, costs, pinned);
+  } else {
+    const cache = cacheOf(layout);
+    const key = pieceId * MAX_CONNECTORS + entry;
+    let byTarget = cache.choices.get(target);
+    if (!byTarget) cache.choices.set(target, (byTarget = new Map()));
+    let c = byTarget.get(key);
+    if (c === undefined) {
+      planStats.choices++;
+      const out: number[] = [];
+      byTarget.set(key, (c = { best: planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, out), costs: out }));
+    } else planStats.hits++;
+    best = c.best;
+    costs = c.costs;
+  }
+  if (keep !== undefined && keep !== best && best !== -1 && ways.some((w) => w.option === keep) && sticks(costs[keep], costs[best])) return keep;
+  return best;
 }
 
 /** Per layout: `planWay`'s choices, for the track, pins and decks as `key` says. */
 interface ChoiceCache {
   key: string;
-  choices: Map<number, Map<number, number>>;
+  choices: Map<number, Map<number, { best: number; costs: number[] }>>;
   switchesAt: number;
   piecesAt: number;
   decks: number[];

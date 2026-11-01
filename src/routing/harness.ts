@@ -18,6 +18,7 @@ import { connectorRef, type Layout, type SignalStyle } from "../track";
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
+import { aimOf, passVias, resetVias, skipVias, type ViaProgress } from "./via";
 import { INVARIANTS, Invariants, type Invariant, type InvariantWorld } from "../sim/invariants";
 
 export { INVARIANTS, type Invariant };
@@ -33,6 +34,8 @@ export interface TrainSpec {
   stops?: number[];
   /** The stop it heads for first (an index into `stops`). */
   next?: number;
+  /** Via points (§3.5): per stop, the pieces passed on the way from it to the next. */
+  vias?: number[][];
   /** Trains with the same line number share a line; a routed train with none runs a line of its own. */
   line?: number;
   lever?: -1 | 0 | 1;
@@ -129,10 +132,11 @@ export interface Report {
   trajectory: string;
 }
 
-interface RouteState {
+interface RouteState extends ViaProgress {
   stops: number[];
   next: number;
   at: boolean;
+  vias?: number[][];
 }
 
 /** FNV-1a, as the trajectory recorder hashes (scripts/trajectory/record.ts). */
@@ -243,7 +247,7 @@ export class HarnessRun implements InvariantWorld {
     this.lastTurn = this.specs.map(() => -1);
     this.specs.forEach((t, k) => {
       if (!t.stops) return;
-      this.routes.set(this.engines[k], { stops: t.stops, next: t.next ?? 0, at: false });
+      this.routes.set(this.engines[k], { stops: t.stops, next: t.next ?? 0, at: false, ...(t.vias ? { vias: t.vias } : {}) });
       this.lineOf.set(this.engines[k], t.line ?? 1000 + k);
     });
     this.wire();
@@ -279,6 +283,7 @@ export class HarnessRun implements InvariantWorld {
       skipStops: (engine, pieces) => {
         const r = this.routes.get(engine);
         if (!r || r.stops.length === 0 || r.at) return;
+        if (skipVias(r, r.stops.length, (k) => r.vias?.[k], pieces)) return;
         let i = r.next % r.stops.length;
         for (let k = 0; k < r.stops.length; k++) {
           if (!pieces.has(r.stops[i])) {
@@ -289,6 +294,7 @@ export class HarnessRun implements InvariantWorld {
         }
       },
       restsAt: (pieceId) => this.router.defaultOf(pieceId),
+      keep: (engine) => this.router.ways.of(this.lineOf.get(engine) ?? engine),
     });
     this.sections.shared = !this.ownLines;
     // (Sections' cap, and the router's: short of points it waits for, §3.3.)
@@ -298,8 +304,10 @@ export class HarnessRun implements InvariantWorld {
       layout,
       sim,
       routed: this.routes,
-      // (As the economy's: the stop it's heading for, the one after once at one.)
-      goal: (engine) => this.target(engine),
+      // (As the economy's: where it's heading, the stop after once at one, or a via point on the way; `then` aims on.)
+      goal: (engine) => this.goal(engine, 0),
+      then: (engine) => this.goal(engine, 1),
+      owner: (engine) => this.owner(engine),
       drive,
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
@@ -325,8 +333,24 @@ export class HarnessRun implements InvariantWorld {
     return this.router.defaultOf(pieceId);
   }
 
-  /** Where a routed engine is going: its next stop, or (standing at it) the next different one; −1: none on the map. */
+  /** Where a routed engine is going: its next stop, or (standing at it) the next different one, or a via point on the way; −1: none on the map. */
   target(engine: number): number {
+    return this.goal(engine, 0);
+  }
+
+  /** Whose kept ways (stickiness) a routed engine's plan keeps: its line's. */
+  owner(engine: number): number {
+    return this.lineOf.get(engine) ?? engine;
+  }
+
+  /** Where a route is aimed on its way into stop `i`: its next via point not passed, else the stop (as the economy's). */
+  private aim(r: RouteState, i: number, skip = 0): number {
+    const onMap = (p: number) => !!this.layout.getPiece(p);
+    return aimOf(r, r.stops.length, i, (k) => r.vias?.[k], onMap, onMap(r.stops[i]) ? r.stops[i] : -1, skip);
+  }
+
+  /** The router's goal (as `Economy.goalOf`): its next stop, at it the stop after (a different one); or a via point on the way (`skip` aims on). */
+  private goal(engine: number, skip: number): number {
     const r = this.routes.get(engine);
     if (!r || r.stops.length === 0) return -1;
     let i = r.next % r.stops.length;
@@ -334,7 +358,7 @@ export class HarnessRun implements InvariantWorld {
       const here = r.stops[i];
       for (let k = 0; k < r.stops.length && r.stops[i] === here; k++) i = (i + 1) % r.stops.length;
     }
-    return this.layout.getPiece(r.stops[i]) ? r.stops[i] : -1;
+    return this.aim(r, i, skip);
   }
 
   // ── What the player does ──────────────────────────────────────────────────────────────────────────────────────────
@@ -497,6 +521,11 @@ export class HarnessRun implements InvariantWorld {
         return;
       }
       const on = found.train.bogies.some((b) => b.pieceId === stop);
+      if (!on && !r.at && r.vias) {
+        const t = found.train;
+        const net = drive(t);
+        if (net !== 0) passVias(r, r.stops.length, (i) => r.vias?.[i], (p) => !!this.layout.getPiece(p), (net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]).pieceId);
+      }
       if (on) {
         if (!r.at) {
           this.report.arrivals[k]++;
@@ -511,6 +540,7 @@ export class HarnessRun implements InvariantWorld {
           r.next = (r.next + 1) % r.stops.length;
           if (r.stops[r.next] !== stop) break;
         }
+        resetVias(r);
       }
     });
   }

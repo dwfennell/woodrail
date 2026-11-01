@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
@@ -15,7 +15,7 @@ const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
 import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type SignalStyle, type Pose, type RelaxOptions } from "../track";
-import { joinSavedLine, LINE_COLOURS } from "../game/lines";
+import { joinSavedLine, LINE_COLOURS, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 import { FEAT_NONE, FEAT_RUIN } from "../landscape";
@@ -68,7 +68,8 @@ const trainSchema = z.object({
         /** The line an engine runs (its id in `lines`), and the stop it heads for. */
         // (`joined`: when it came to its line, a count, the newest being the one held when there's no room; `held`: its
         // line had no room for it. Optional: older saves work them out afresh.)
-        line: z.object({ id: z.number().int().min(1), next: z.number().int().min(0), joined: z.number().int().min(0).optional(), held: z.literal(true).optional() }).optional(),
+        /** `via`: via points passed on the way to its next stop (routing spec §3.5). */
+        line: z.object({ id: z.number().int().min(1), next: z.number().int().min(0), joined: z.number().int().min(0).optional(), held: z.literal(true).optional(), via: z.number().int().min(1).optional() }).optional(),
       }),
     )
     .min(1),
@@ -146,7 +147,15 @@ const saveSchema = z.object({
         id: z.number().int().min(1),
         colour: z.string().max(16),
         name: z.string().max(40),
-        stops: z.array(z.tuple([z.number().int().min(0), z.enum(["auto", "both", "drop", "pick"]), z.boolean()])).min(1),
+        /** A stop's 4th item, its via points (piece ids passed on the way to the next stop): left out where it has none. */
+        stops: z
+          .array(
+            z.union([
+              z.tuple([z.number().int().min(0), z.enum(["auto", "both", "drop", "pick"]), z.boolean()]),
+              z.tuple([z.number().int().min(0), z.enum(["auto", "both", "drop", "pick"]), z.boolean(), z.array(z.number().int().min(0)).max(MAX_VIAS)]),
+            ]),
+          )
+          .min(1),
         /** Its player has been told it has no room for a train put on it (said once a line). */
         toldFull: z.literal(true).optional(),
       }),
@@ -210,7 +219,11 @@ export function serializeWorld(world: World): SaveData {
       const line = world.economy.lines.get(world.economy.lineIdOf.get(car.id) ?? -1);
       let lineId = savedLine.get(r.stops);
       if (lineId === undefined) {
-        const stops = r.stops.flatMap((s) => (renumbered.has(s.depotId) ? [[renumbered.get(s.depotId)!, s.action, !!s.waitFill] as [number, StopAction, boolean]] : []));
+        const stops = r.stops.flatMap((s): SavedLine["stops"] => {
+          if (!renumbered.has(s.depotId)) return [];
+          const via = (s.via ?? []).filter((p) => layout.getPiece(p)).slice(0, MAX_VIAS);
+          return [via.length > 0 ? [renumbered.get(s.depotId)!, s.action, !!s.waitFill, via] : [renumbered.get(s.depotId)!, s.action, !!s.waitFill]];
+        });
         if (stops.length === 0) continue;
         lineId = line?.id ?? spareId++;
         savedLine.set(r.stops, lineId);
@@ -220,7 +233,9 @@ export function serializeWorld(world: World): SaveData {
       }
       const kept = r.stops.slice(0, r.next).filter((s) => renumbered.has(s.depotId)).length;
       const n = lines.find((l) => l.id === lineId)!.stops.length;
-      lineSaved.set(car.id, { id: lineId, next: Math.min(kept, n - 1), ...(line ? world.economy.sections.savedPlace(car.id) : {}) });
+      // (Via points passed on the way to its next stop, so it doesn't go back for them.)
+      const via = !r.at && r.viaFor === r.next % r.stops.length && renumbered.has(r.stops[r.next % r.stops.length].depotId) ? (r.viaDone ?? 0) : 0;
+      lineSaved.set(car.id, { id: lineId, next: Math.min(kept, n - 1), ...(line ? world.economy.sections.savedPlace(car.id) : {}), ...(via > 0 ? { via } : {}) });
     }
   const trains: SaveData["trains"] = sim.trainIds().map((id) => {
     const t = sim.getTrain(id)!;
@@ -474,7 +489,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
       const on = t.cars[i].line;
       if (car.kind === "engine" && on) {
-        joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next);
+        joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next, on.via);
         if (economy.lineIdOf.get(car.id) === on.id) economy.sections.restorePlace(car.id, on.id, on);
       }
       const cargo = t.cars[i].cargo;
