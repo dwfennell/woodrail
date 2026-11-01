@@ -10,6 +10,7 @@ import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
 import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
+import { RoadVehicles } from "../roads/vehicles";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -345,6 +346,11 @@ export class Economy {
   private drained: EconomyEvent[] = [];
   /** Trains stopping at kit pieces' stops (a platform's dwell: see `KitStops`). */
   readonly kitStops: KitStops;
+  /**
+   * Road vehicles (roads spec §3: vans and buses), ticked here with the trains' work so a headless run moves them too.
+   * Nothing at all while they're all parked.
+   */
+  readonly roadVehicles = new RoadVehicles();
 
   constructor(
     readonly layout: Layout,
@@ -1851,6 +1857,7 @@ export class Economy {
     this.stalls.tick();
     // (The invariants, where they're on: they only read.)
     this.checker?.check();
+    this.roadVehicles.tick(SIM_DT);
     // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
     for (const d of this.allDepots()) {
       if (!this.working(d)) {

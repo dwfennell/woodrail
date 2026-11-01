@@ -4,6 +4,8 @@ import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
+import { RoadVehiclesView } from "../render/road-vehicles-view";
+import { Vans } from "./vans";
 import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
 import { LoopShowView } from "../render/loop-show";
@@ -161,6 +163,10 @@ export class Game {
   readonly propLibrary: PropLibrary;
   /** Boats calling at harbours (Game mode). */
   readonly boats: BoatsView;
+  /** Road vehicles drawn (vans and buses: roads spec §3); they move in the economy's tick (`Economy.roadVehicles`). */
+  readonly roadVehiclesView: RoadVehiclesView;
+  /** Road vehicles' trips: their ways out and back, cached, and checked again after a road or track edit. */
+  readonly vans: Vans;
   readonly propsView: PropsView;
   /** The kit pieces' models, drawn where their pieces stand (see `KitView`). */
   readonly kitView: KitView;
@@ -198,6 +204,7 @@ export class Game {
     this.ruins = world.ruins;
     this.economy = world.economy;
     this.watchSwitches();
+    this.watchRoadVehicles();
     this.props = world.props;
     this.quality = detectQuality();
 
@@ -293,6 +300,13 @@ export class Game {
     this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.boats.group);
+    this.roadVehiclesView = new RoadVehiclesView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.roadVehiclesView.group);
+    this.vans = new Vans(
+      () => this,
+      () => this.crossingSquares,
+    );
+    this.watchRoadVehicles();
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
 
     this.landChanged();
@@ -591,9 +605,25 @@ export class Game {
     return this.drawnProps;
   }
 
+  /** The crossings' road squares, and a version that goes up as they're found again (road vehicles' paths key on it). */
+  private readonly crossingSquares = { version: 0, squares: new Set<number>(), has(i: number): boolean { return this.squares.has(i); } };
+
+  /** Road vehicles wait at a crossing while its barriers say it's shut (the same answer they show). */
+  private watchRoadVehicles(): void {
+    this.economy.roadVehicles.shut = (i) => this.crossingsView.shutAt(i);
+    void this.vans?.vehicles;
+  }
+
   /** Track or roads changed (or a new world): the crossings are found again, and styled. */
   private crossingsChanged(): void {
     this.crossings = findCrossings(this.landscape, this.layout);
+    const squares = new Set<number>();
+    for (const c of this.crossings) for (const i of c.squares) squares.add(i);
+    const old = this.crossingSquares.squares;
+    if (squares.size !== old.size || [...squares].some((i) => !old.has(i))) {
+      this.crossingSquares.squares = squares;
+      this.crossingSquares.version++;
+    }
     this.styleCrossings(true);
   }
 
@@ -844,6 +874,8 @@ export class Game {
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || this.shadowsMoving;
     this.shadowsMoving = false;
+    // Road vehicles moving in view: drawn, but they cast no shadows (their blob is baked), so no shadow pass for them.
+    if (this.roadVehiclesView.update(this.economy.roadVehicles, this.camera)) active = true;
     this.onFrame?.(dt);
     this.flourishes.update(dt);
     // A finger fling glides on between touches (a director glide or zoom takes over from it).

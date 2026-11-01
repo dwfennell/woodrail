@@ -27,6 +27,8 @@ export interface LevelCrossing {
   /** The ground's height there (a road on a hilltop). */
   y: number;
   gates: CrossingGate[];
+  /** The road squares the track runs over (road vehicles wait short of them while it's shut). */
+  squares: number[];
 }
 
 /** Gates stand this far out from the middle of the crossing's edge square (mm): just past its edge. */
@@ -132,7 +134,7 @@ export function findCrossings(land: Landscape, layout: Layout): LevelCrossing[] 
         }
       }
     }
-    out.push({ x: x / n, z: z / n, y: g.groundY(start), gates });
+    out.push({ x: x / n, z: z / n, y: g.groundY(start), gates, squares: [...group] });
   }
   return out;
 }

@@ -15,7 +15,7 @@ import { encodeRoad, roadsJoin, type Edge } from "./pieces";
 export type TownLinks = ReadonlyMap<number, readonly number[]>;
 
 /** A square's road for joining: its piece, or a crossroads for an old town street square with no piece. */
-function roadAt(land: Landscape, i: number): number {
+export function roadAt(land: Landscape, i: number): number {
   const g = land.grid;
   if (g.road[i] !== 0) return g.road[i];
   return g.surface[i] === SURF_ROAD && g.feature[i] === FEAT_NONE ? encodeRoad("cross", 0) : 0;

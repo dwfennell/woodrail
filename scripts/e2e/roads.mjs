@@ -703,6 +703,126 @@ if (route && route.path.length <= 60) {
   check("N5 nine planks delivered to the joined town count as ten toward its growth", growth.after.got - growth.before.got === 9 && growth.after.growth - growth.before.growth === 10, JSON.stringify(growth));
 }
 
+// ---- V: a van that only drives (roads spec step 4) -------------------------------------------------------------------
+// The vehicle layer on the road just laid between the two towns. Setup shortcuts (named): in step 4 nothing in play
+// sends a van yet (D5 does), so the show van is sent by `vans.drive`; the game is ticked ahead in `evaluate` where only
+// the trip's end matters (software drawing runs the game slowly: the sim is capped at 0.1 s a frame).
+if (route && route.path.length <= 60) {
+  const ahead = (seconds) => p.evaluate((n) => { const w = window.woodrail; for (let k = 0; k < n; k++) { w.sim.tick(); w.economy.tick(); } }, Math.round(seconds * 120));
+  const van = () => p.evaluate(() => { const w = window.woodrail; const v = w.economy.roadVehicles.list[0]; return v ? { leg: v.leg, sq: w.landscape.grid.cellAtWorld(v.x, v.z), x: v.x, z: v.z, t: v.t } : null; });
+  const sent = await p.evaluate(({ a, b }) => window.woodrail.vans.drive(a, b), route);
+  const home = await p.evaluate((a) => window.woodrail.vans.homeOf(a), route.a);
+  // Drawn while it drives in view (frames come from the van alone: no train runs).
+  await p.evaluate(() => { const w = window.woodrail; const v = w.economy.roadVehicles.list[0]; const V = w.camera.position.constructor; w.director.focus(new V(v.x, v.y, v.z), 260); });
+  await settle().catch(() => {});
+  // (Up to 30 s for it to move and be drawn: software drawing manages about a frame a second here.)
+  const drawn = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const v = w.economy.roadVehicles.list[0];
+    const f = w.framesDrawn;
+    const t = v.t;
+    for (let k = 0; k < 300 && !(w.framesDrawn > f && v.t > t); k++) await new Promise((r) => setTimeout(r, 100));
+    return { frames: w.framesDrawn - f, moved: v.t - t, leg: v.leg };
+  });
+  // (The scene had settled: any frame drawn is the van's.)
+  check("V1 a van sent from the station drives out along the road, drawn as it goes", sent && drawn.frames >= 1 && drawn.moved > 0, `${JSON.stringify(drawn)}, sent ${sent}`);
+  await shot("V-van-driving");
+  // The payoff: it gets to the other town's streets, and back home, where it parks.
+  const there = await p.evaluate(({ b }) => {
+    const w = window.woodrail;
+    const v = w.economy.roadVehicles.list[0];
+    const cells = new Set(w.landscape.towns.find((t) => t.id === b).cells);
+    for (let k = 0; k < 120 * 120 && v.leg === "out"; k++) { w.sim.tick(); w.economy.tick(); }
+    return { leg: v.leg, inTown: cells.has(w.landscape.grid.cellAtWorld(v.x, v.z)) };
+  }, route);
+  await ahead(60);
+  const back = await van();
+  check(`V2 it reaches ${route.bName}'s streets, comes back and parks by the station`, there.leg === "there" && there.inTown && back.leg === "home" && back.sq === home, `${JSON.stringify(there)} → ${JSON.stringify(back)} (home ${home})`);
+  // Parked: a still instance, no frames.
+  await p.evaluate(() => Promise.race([window.woodrail.settled(30), new Promise((r) => setTimeout(r, 60000))]));
+  const idle = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const n = w.framesDrawn;
+    await new Promise((res) => setTimeout(res, 5000));
+    return w.framesDrawn - n;
+  });
+  check("V3 with the van parked, an idle scene draws (next to) no frames", idle <= 1, `${idle} frames drawn in 5 s`);
+  // Measured on a 360×740 phone view: eight vans on the move (seven more sent the same way: a measuring shortcut).
+  await p.setViewportSize({ width: 360, height: 740 });
+  await settle().catch(() => {});
+  const measured = await p.evaluate(async ({ a, b }) => {
+    const w = window.woodrail;
+    const rv = w.economy.roadVehicles;
+    const vans = w.vans;
+    const home = vans.homeOf(a);
+    const cells = new Set(w.landscape.towns.find((t) => t.id === b).cells);
+    const G = w.landscape.grid;
+    const extra = [];
+    vans.drive(a, b);
+    for (let k = 0; k < 7; k++) {
+      for (let j = 0; j < 40; j++) w.economy.tick();
+      const v = vans.park("van", home);
+      extra.push(v);
+      vans.send(v, { home, goalKey: `town${b}`, goal: (i) => cells.has(i) && G.surface[i] === 2, reach: 64, to: -1 });
+    }
+    const first = rv.list[0];
+    const V = w.camera.position.constructor;
+    w.director.focus(new V(first.x, first.y, first.z), 500);
+    await new Promise((r) => setTimeout(r, 1500));
+    let viewMs = 0;
+    let tickMs = 0;
+    let ticks = 0;
+    const view = w.roadVehiclesView;
+    const upd = view.update;
+    view.update = function (...args) { const t0 = performance.now(); const r = upd.apply(this, args); viewMs += performance.now() - t0; return r; };
+    const tick = rv.tick;
+    rv.tick = function (dt) { const t0 = performance.now(); tick.call(this, dt); tickMs += performance.now() - t0; ticks++; };
+    const f0 = w.framesDrawn;
+    const t0 = performance.now();
+    await new Promise((r) => setTimeout(r, 5000));
+    const frames = w.framesDrawn - f0;
+    const ms = performance.now() - t0;
+    const out = { moving: rv.moving, frames, msPerFrame: +(ms / Math.max(1, frames)).toFixed(1), vehiclesMsPerFrame: +((viewMs + tickMs) / Math.max(1, frames)).toFixed(3), tickUs: +((tickMs * 1000) / Math.max(1, ticks)).toFixed(2), drawCalls: view.drawCalls, shadowsCast: view.group.children.some((m) => m.castShadow) };
+    delete view.update;
+    delete rv.tick;
+    for (const v of extra) rv.remove(v);
+    return out;
+  }, route);
+  console.log(`(measured, 360×740, software drawing: ${JSON.stringify(measured)})`);
+  check("V4 eight vans moving: a few draw calls in all, no shadow casters, under a millisecond a frame for the vehicles", measured.moving === 8 && measured.drawCalls <= 6 && !measured.shadowsCast && measured.vehiclesMsPerFrame < 1, JSON.stringify(measured));
+  await shot("V-eight-vans-phone");
+  await p.setViewportSize({ width: 1200, height: 800 });
+  await ahead(90);
+  // A road taken up ahead of it (the player's path: Undo takes back the last square laid, the one beside Elderwick's
+  // street, with the game paused for it): it turns back and comes home. Redo lays it again.
+  await p.evaluate(({ a, b }) => window.woodrail.vans.drive(a, b), route);
+  await ahead(1);
+  const cut = route.path[route.path.length - 1];
+  await p.evaluate(() => {
+    window.woodrail.paused = true;
+    window.woodrail.interaction.undo();
+  });
+  await until((i) => T.g().road[i] === 0, cut);
+  const cutDone = await road(cut);
+  // (Unpaused, a tick at a time: the leg it takes once the edit is seen.)
+  const turned = await p.evaluate(() => {
+    const w = window.woodrail;
+    w.paused = false;
+    const v = w.economy.roadVehicles.list[0];
+    for (let k = 0; k < 120 && v.leg === "out"; k++) {
+      w.sim.tick();
+      w.economy.tick();
+    }
+    return { leg: v.leg, sq: w.landscape.grid.cellAtWorld(v.x, v.z), t: v.t };
+  });
+  await ahead(60);
+  const home2 = await van();
+  check("V5 the road ahead taken up mid-trip (Undo): the van turns back and comes home", cutDone === 0 && turned.leg === "back" && home2.leg === "home" && home2.sq === home, `cut ${cutDone}, ${JSON.stringify(turned)} → ${JSON.stringify(home2)}`);
+  await p.evaluate(() => window.woodrail.interaction.redo());
+  await until((i) => T.g().road[i] !== 0, cut);
+  check("V6 Redo lays it again: the towns are joined", (await road(cut)) !== 0 && (await p.evaluate(async ({ a, b }) => (await import("/src/roads/graph.ts")).townLinks(window.woodrail.landscape).get(a)?.includes(b), route)));
+}
+
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

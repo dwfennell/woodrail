@@ -43,6 +43,8 @@ interface Crossing {
   posts: Group[];
   /** The level-crossing style's lit lamps: each post's pair, shown in turn while the booms are down. */
   lamps: Mesh[][];
+  /** A train was near at the last update (the barriers are coming down, or down). */
+  near: boolean;
 }
 
 const keyOf = (c: StyledCrossing) =>
@@ -57,6 +59,8 @@ const keyOf = (c: StyledCrossing) =>
 export class CrossingsView {
   readonly group = new Group();
   private crossings: Crossing[] = [];
+  /** Road square → its crossing (road vehicles ask `shutAt`). */
+  private bySquare = new Map<number, Crossing>();
   private readonly post: BufferGeometry;
   private readonly lamp: BufferGeometry;
   private readonly base: BufferGeometry;
@@ -124,6 +128,18 @@ export class CrossingsView {
     }
     for (const gone of had.values()) for (const post of gone.posts) this.group.remove(post);
     this.crossings = next;
+    this.bySquare = new Map();
+    for (const x of next) for (const i of x.c.squares) this.bySquare.set(i, x);
+  }
+
+  /**
+   * Is the crossing on road square `i` shut to road traffic: a train near (its barriers coming down), or any barrier
+   * not yet back up? The same answer the barriers show (road vehicles wait at its edge while it's true). False for a
+   * square that's no crossing's.
+   */
+  shutAt(i: number): boolean {
+    const x = this.bySquare.get(i);
+    return !!x && (x.near || x.barriers.some((b) => b.angle !== b.open));
   }
 
   /** The crossing prop (its id) whose style a raycast hit, or −1 (an unstyled crossing's posts, or anything else). */
@@ -133,7 +149,7 @@ export class CrossingsView {
   }
 
   private build(c: StyledCrossing, key: string): Crossing {
-    const out: Crossing = { c, key, barriers: [], posts: [], lamps: [] };
+    const out: Crossing = { c, key, barriers: [], posts: [], lamps: [], near: false };
     // A barrier at each gate, its arm (or gate) reaching across that half of the road.
     for (const gate of c.gates) {
       // The post where the gate is (clear of the track: see `findCrossings`).
@@ -230,7 +246,8 @@ export class CrossingsView {
     let moving = false;
     this.time += dt;
     const blink = Math.floor(this.time * FLASH) % 2;
-    for (const { c, barriers, lamps } of this.crossings) {
+    for (const crossing of this.crossings) {
+      const { c, barriers, lamps } = crossing;
       let near = false;
       for (let i = 0; i < snap.count && !near; i++) {
         if (snap.derailed[i]) continue;
@@ -238,6 +255,7 @@ export class CrossingsView {
         const dz = snap.transforms[i * 6 + 2] - c.z;
         near = dx * dx + dz * dz < NEAR * NEAR;
       }
+      crossing.near = near;
       for (const b of barriers) {
         const target = near ? b.shut : b.open;
         if (b.angle === target) continue;
@@ -268,6 +286,7 @@ export class CrossingsView {
   private clear(): void {
     this.group.clear();
     this.crossings = [];
+    this.bySquare.clear();
   }
 
   dispose(): void {
