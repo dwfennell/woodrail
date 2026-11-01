@@ -68,6 +68,7 @@ export const landscapeSchema = z.object({
           front: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
           corner: z.boolean().optional(),
           landmark: z.string().optional(),
+          born: z.number().int().min(0).max(99).optional(),
         }),
       ),
       claimed: cells.optional(),

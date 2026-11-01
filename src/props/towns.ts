@@ -5,7 +5,7 @@ import { COLOR_VARIANTS } from "../render/props/library";
 import type { PropStore } from "./store";
 import { landmarkOf } from "../game/landmarks";
 import { scaleOf } from "../catalogue/scale";
-import { extraStyles, jitterOf, SPIRE_LEVEL, storeysFor, STYLES_BY_LEVEL } from "./storeys";
+import { chanceOf, extraStyles, jitterOf, SPIRE_LEVEL, storeysFor, STYLES_BY_LEVEL } from "./storeys";
 
 /**
  * Towns built from catalogue models: each town building (`towns[].buildings`, generated with the map) becomes a prop
@@ -203,19 +203,40 @@ export function distanceFromCentre(land: Landscape, town: Town, b: Building): nu
 }
 
 /**
- * Give a town's buildings their storeys for its level (see `storeysFor`): the centre tallest, a storey less each ring
- * out (never fewer than a house has, at a level above 0). Only props whose storeys change are touched (so only they are drawn again). Returns how many changed.
+ * Each of a town's buildings' share of the others nearer its centre than it (0 the nearest, 1 the farthest; equal
+ * distances, equal shares), by id: where it stands in its town, whatever the town's shape (see `tallBand`).
+ */
+export function sharesOut(land: Landscape, town: Town): Map<number, number> {
+  const d = town.buildings.map((b) => [b.id, distanceFromCentre(land, town, b)] as const);
+  const sorted = d.map(([, x]) => x).sort((a, b) => a - b);
+  const out = new Map<number, number>();
+  for (const [id, x] of d) {
+    let k = 0;
+    while (k < sorted.length && sorted[k] < x - 1e-6) k++;
+    out.set(id, k / Math.max(1, sorted.length - 1));
+  }
+  return out;
+}
+
+/**
+ * Give a town's buildings their storeys for its level (see `storeysFor`): some of the houses near the centre rise (by their
+ * share of the town out from it, `sharesOut`), the middle most, and the edge stays single-storey. A building counts the levels since it went up (`Building.born`), so
+ * a new one starts single-storey. Never fewer than a house has, at a level above 0. Only props whose storeys change
+ * are touched (so only they are drawn again). Returns how many changed.
  */
 export function setTownStoreys(land: Landscape, town: Town, props: PropStore, level: number): number {
   const byId = new Map(town.buildings.map((b) => [b.id, b]));
+  const shares = sharesOut(land, town);
   let changed = 0;
   for (const p of props.all()) {
     if (p.town !== town.id || p.building === undefined) continue;
     const b = byId.get(p.building);
     if (!b) continue;
+    const grown = level - (b.born ?? 0);
+    const wants = storeysFor(p.asset, grown, { distance: distanceFromCentre(land, town, b), share: shares.get(b.id) ?? 0, jitter: jitterOf(b.id), chance: chanceOf(b.id) });
     // (Never fewer than it has while its town has a size: a house the player moved out from the middle keeps its
     // storeys, issue #18. A town only grows, so this changes nothing for a house that stayed put.)
-    const n = Math.max(storeysFor(p.asset, level, distanceFromCentre(land, town, b), jitterOf(b.id)), level > 0 ? (p.storeys ?? 0) : 0);
+    const n = Math.max(wants, level > 0 ? (p.storeys ?? 0) : 0);
     if ((p.storeys ?? 0) === n) continue;
     props.setStoreys(p.id, n);
     changed++;
