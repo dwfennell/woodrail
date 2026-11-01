@@ -255,8 +255,6 @@ export class Game {
     this.trackView.signalClear = (id) => this.sim.signalClear(id);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
-    this.marksView = new SignalMarksView(this.layout, this.markAspects(), this.mats);
-    this.scene.add(this.marksView.group, this.blockTint.mesh);
     this.trainView = new TrainView(this.mats);
     this.trainView.lookOf = (id) => this.sim.lookOf(id);
     this.scene.add(this.trainView.group);
@@ -270,6 +268,10 @@ export class Game {
     this.scene.add(this.crossingsView.group);
     this.crossingsChanged();
     this.propLibrary = new PropLibrary(this.mats);
+    // (Signal marks draw their styles from the kits' models: signals spec §5.)
+    this.marksView = new SignalMarksView(this.layout, this.markAspects(), this.mats, this.propLibrary);
+    this.marksView.onLoaded = () => this.invalidate();
+    this.scene.add(this.marksView.group, this.blockTint.mesh);
     this.propsView = new PropsView(this.propLibrary);
     this.scene.add(this.propsView.group);
     this.kitView = new KitView(this.propLibrary);
@@ -820,6 +822,8 @@ export class Game {
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
     let active = this.crossingsView.update(this.snapshot, dt);
+    // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
+    if (this.marksView.animate(dt)) active = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
     const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused);
     if (depots === "moving") active = true;
