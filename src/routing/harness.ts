@@ -14,7 +14,7 @@
  *   (`savedPlace`/`restorePlace`), as `deserializeWorld` does.
  */
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
-import type { Layout } from "../track";
+import { connectorRef, type Layout, type SignalStyle } from "../track";
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
@@ -97,6 +97,12 @@ export interface Report {
   onWatched: number;
   /** Sections' safety-net releases (`Sections.released`): the "30 s net", 0 when all is well. */
   net: number;
+  /**
+   * Signals (signals spec §10.1): fronts that crossed a red signal's joint having been past braking for it when it
+   * turned red (not a break of `redRun`, but counted), and fronts that crossed a joint guarded by a signal at all.
+   */
+  redLate: number;
+  signalPasses: number;
   ticks: number;
   ms: number;
   /** The router's time (`Router.tick`), mean µs a tick. */
@@ -213,6 +219,8 @@ export class HarnessRun implements InvariantWorld {
       throws: 0,
       onWatched: 0,
       net: 0,
+      redLate: 0,
+      signalPasses: 0,
       ticks: 0,
       ms: 0,
       routerUs: 0,
@@ -355,6 +363,21 @@ export class HarnessRun implements InvariantWorld {
     this.stalls.prune();
   }
 
+  /** A signal mark held at red by hand, or let go (a tap on it). */
+  holdSignal(id: number, on: boolean): void {
+    if (!!this.layout.getSignal(id)?.held !== on) this.sim.toggleMark(id);
+  }
+
+  /** A signal mark turned round on its joint (its card's Turn round). */
+  turnSignal(id: number): void {
+    this.layout.turnSignal(id);
+  }
+
+  /** A signal mark taken away (its card's Remove). */
+  removeSignal(id: number): void {
+    this.layout.removeSignal(id);
+  }
+
   pin(pieceId: number, on: boolean): void {
     this.layout.setPinned(pieceId, on);
     this.checks.pinned(pieceId, on);
@@ -441,12 +464,15 @@ export class HarnessRun implements InvariantWorld {
     this.stalls.begun = 0;
     this.report.pieces = this.checks.pieces;
     this.report.facing = this.checks.facing;
+    this.report.redLate = this.checks.redLate;
+    this.report.signalPasses = this.checks.signalPasses;
     this.report.trajectory = this.traj.toString(16).padStart(8, "0");
     return this.report;
   }
 
   /** One tick, in the economy's order (the sim, routes come to and left, the router), then the checks. */
   step(): void {
+    this.checks.beforeTick();
     this.sim.tick();
     this.advanceRoutes();
     const t0 = performance.now();
@@ -539,6 +565,16 @@ export class HarnessRun implements InvariantWorld {
     }
     this.traj = fnv(s, this.traj);
   }
+}
+
+/**
+ * In a scenario's `build`: a signal mark on the joint at a piece's connector, guarding trains that cross it from that
+ * piece (signals spec §10.1). Its id (for events: `holdSignal`, `turnSignal`, `removeSignal`).
+ */
+export function signal(layout: Layout, pieceId: number, connector: number, opts: { held?: boolean; style?: SignalStyle } = {}): number {
+  const id = layout.addSignal(connectorRef(pieceId, connector), opts.style ?? "plain", !!opts.held);
+  if (id === -1) throw new Error(`signal: piece ${pieceId}'s end ${connector} is no joint (or has a signal that way)`);
+  return id;
 }
 
 /** Run a scenario on a new layout from start to end. */
