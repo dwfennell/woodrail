@@ -2480,7 +2480,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** The school's card's choice as drawn (its depot and setting), or "" for none: drawn again only when it changes. */
   let schoolYardShown = "";
-  /** The school's Shares with towns / Takes all it needs (Game mode), on its card while it's open. Cheap: a key per frame. */
+  /** The school's Shares with towns / Research first (Game mode), on its card while it's open. Cheap: a key per frame. */
   function showSchoolYard(): void {
     const d = mode === "game" && hud.depotCardOpen ? game.economy.depot(interaction.openDepotId) : undefined;
     const key = d?.role === "school" ? `${d.id}:${d.takesAll}` : "";
@@ -2497,7 +2497,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!b || d?.role !== "school") return;
     e.stopPropagation();
     if (b.classList.contains("active")) return;
-    game.economy.setTakesAll(d.id, b.dataset.school === "all");
+    game.economy.setTakesAll(d.id, b.dataset.school === "first");
     showSchoolYard();
     scheduleSave();
   });
@@ -2549,6 +2549,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       keeps: Math.min(keeps, capAt(yard)),
       keptFor: keptFor ? thingLabel(keptFor) : undefined,
       cap: capAt(yard),
+      school: game.economy.allDepots().some((d) => d.role === "school" && d.takesAll),
     });
   }
 

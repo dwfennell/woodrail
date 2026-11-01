@@ -3,7 +3,8 @@
 // - a tap on Takes all planks switches it (the line says so) and draws no frames of the map (only the card changes);
 // - it's still Takes all planks after a reload; a tap on Shares with towns switches it back;
 // - with a school placed, Takes all's line is the same (nothing is held back for the school); both fit at 360 and 390 px;
-// - the school's card has the same choice, Shares with towns (on) / Takes all it needs: a tap switches it, kept on reload;
+// - the school's card has a choice too, Shares with towns (on) / Research first: a tap switches it, kept on reload, and the
+//   workshop's Takes all line then says the school comes first;
 // - the card says how planks get there (a train on a route drops them only if the workshop is one of its stops).
 //
 // Usage: npm run e2e:workshop [-- <out dir>]   (default out: e2e-out/workshop)
@@ -192,19 +193,23 @@ const openSchool = async () => {
 await p.setViewportSize({ width: 390, height: 844 });
 await openSchool();
 let sc = await schoolCard();
-check("the school's card: Shares with towns (on) / Takes all it needs", sc.on === "Shares with towns" && JSON.stringify(sc.chips) === JSON.stringify(["Shares with towns", "Takes all it needs"]) && sc.takesAll === false, JSON.stringify(sc));
-check("…its line", sc.hint === "Takes part of a load when a town further on wants it too", String(sc.hint));
-await tap('.depot-card [data-school="all"]');
+check("the school's card: Shares with towns (on) / Research first", sc.on === "Shares with towns" && JSON.stringify(sc.chips) === JSON.stringify(["Shares with towns", "Research first"]) && sc.takesAll === false, JSON.stringify(sc));
+check("…its line", sc.hint === "Trains drop goods at each stop in turn; here, a share when a town further on wants them too", String(sc.hint));
+await tap('.depot-card [data-school="first"]');
 sc = await schoolCard();
-check("a tap on Takes all it needs switches it", sc.on === "Takes all it needs" && sc.takesAll === true && sc.hint === "Takes all its research needs from each train; towns further on get the rest", JSON.stringify(sc));
-await shot("school-takes-all");
+check("a tap on Research first switches it", sc.on === "Research first" && sc.takesAll === true && sc.hint === "Trains keep what its research needs for it, past towns and the workshop", JSON.stringify(sc));
+await shot("school-research-first");
+await openCard();
+await tap('.yard-mode [data-yard="all"]');
+c = await card();
+check("…and the workshop's Takes all line says so", c.on === "Takes all planks" && c.hint === `${ALL_HINT}, after your school's research (it's set to Research first)`, JSON.stringify(c));
 await p.waitForTimeout(2500);
 await p.reload();
 await enterGame();
 school = await p.evaluate(() => window.woodrail.economy.allDepots().find((d) => d.role === "school")?.id ?? null);
 await openSchool();
 sc = await schoolCard();
-check("after a reload the school still takes all it needs", sc.on === "Takes all it needs" && sc.takesAll === true, JSON.stringify(sc));
+check("after a reload the school is still Research first", sc.on === "Research first" && sc.takesAll === true, JSON.stringify(sc));
 await tap('.depot-card [data-school="share"]');
 sc = await schoolCard();
 check("a tap on Shares with towns switches it back", sc.on === "Shares with towns" && sc.takesAll === false, JSON.stringify(sc));

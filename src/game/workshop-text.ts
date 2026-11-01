@@ -1,7 +1,8 @@
 /**
  * What the game says about how goods reach the workshop and the school, and why a train passes a stop keeping its
  * goods (`Economy.keptAt`). Each stop takes goods in the order a train comes to it, by its own setting: nothing is held
- * back for a stop further on (but a workshop's waiting tray order). Short and kid-clear, as the warehouse's words
+ * back for a stop further on but by a setting you can see (a school set to Research first, a workshop's waiting tray
+ * order). Short and kid-clear, as the warehouse's words
  * (warehouse-text.ts).
  */
 import { CARGO, type CargoKind } from "../economy/cargo";
@@ -28,5 +29,7 @@ export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: Cargo
       return `Keeping ${goods} for the workshop's order`;
     case "unwanted":
       return role === "school" ? `${head}the research doesn't need any` : `${head}${place} doesn't need any now`;
+    case "school":
+      return `Keeping ${goods} for the school: it's set to Research first`;
   }
 }

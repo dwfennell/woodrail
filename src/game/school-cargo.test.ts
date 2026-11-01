@@ -203,7 +203,7 @@ describe("the school and the towns share a pass's planks (QA P4: the school took
     expect(p.research.got).toEqual({});
   });
 
-  it("the school set to Takes all it needs, then a town: all its research lacks, the town the rest", () => {
+  it("the school set to Research first, then a town: all its research lacks, the town the rest", () => {
     const p = researching("bridges");
     const w = line(["depot-school", "station"], p);
     w.economy.setTakesAll(w.depots[0].id, true);

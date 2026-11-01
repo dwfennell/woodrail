@@ -123,7 +123,7 @@ const saveSchema = z.object({
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
-      /** A workshop that takes all the planks trains bring, or a school all its research needs (optional: absent, it shares with towns further on). */
+      /** A workshop that takes all the planks trains bring, or a school set to Research first (optional: absent, it shares with towns further on). */
       takesAll: z.literal(true).optional(),
       /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
       piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_KINDS.length),

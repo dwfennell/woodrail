@@ -1,4 +1,4 @@
-import { getPieceDef, isKit, pathLength, pieceOfRef, type Layout } from "../track";
+import { getPieceDef, isKit, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -7,6 +7,7 @@ import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
 import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
+import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
 import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
 
@@ -156,10 +157,10 @@ export type StopAction = "auto" | "both" | "drop" | "pick";
  * Why a wagon keeps its goods at a depot it's beside (`Economy.keepWhy`): it has nothing the depot takes ("nothing"),
  * the depot doesn't want it now ("unwanted": a town that has all it needs, a school whose research doesn't lack it),
  * its yard is full ("full"), it's set to share with towns and has its part ("shares"), the train's route has no stop
- * there ("not-stop") or drops it there on another visit ("route"), or a town leaves it for the workshop's waiting
- * order ("order").
+ * there ("not-stop") or drops it there on another visit ("route"), a town leaves it for the workshop's waiting order
+ * ("order"), or a town or the workshop leaves it for a school set to Research first ("school").
  */
-export type KeepWhy = "nothing" | "unwanted" | "full" | "shares" | "not-stop" | "route" | "order";
+export type KeepWhy = "nothing" | "unwanted" | "full" | "shares" | "not-stop" | "route" | "order" | "school";
 
 /** A stop on a route: the depot, what the train does there, and (lines) whether it waits there to fill. */
 export interface RouteStopDef {
@@ -222,7 +223,8 @@ export interface DepotState {
   /**
    * A workshop that takes all the planks a train brings, up to its yard's cap, though a town further on wants them
    * ("Takes all planks"); false (the default), it shares: `shopKeeps` says how many it keeps. A school the same way:
-   * all its research lacks ("Takes all it needs"), or (the default) its share of a load while a town ahead wants it.
+   * set to Research first: trains keep what its research lacks for it past towns and workshops (`keptForSchool`), and
+   * it takes all of it; or (the default) its share of a load while a town ahead wants it, nothing kept for it.
    */
   takesAll: boolean;
   /** Units on each pile, by cargo index. */
@@ -281,6 +283,11 @@ interface Later {
   uses: number;
   /** Goods a later workshop takes (it has the first claim on them while they're `reserved`). */
   shop: number;
+  /**
+   * Goods a later school set to Research first (`takesAll`) takes (what its research still lacks) before any later stop
+   * but a town's or a workshop's does: a town or a workshop leaves them on the train for it (`keptForSchool`).
+   */
+  school: number;
   /** A later stop is a town's station (riders have somewhere to get off). */
   town: boolean;
   /** Goods some later town takes (it wants them): a school takes only its share of them (`SCHOOL_SHARE`). */
@@ -518,6 +525,89 @@ export class Economy {
   private liveVersion = -1;
   private liveOf = -1;
 
+  /**
+   * Does this car's train keep its `kind` on board for a school set to Research first (`takesAll` on a school), at a
+   * town or a workshop? While the research lacks some (`sinkWants`), a train keeps as many as it lacks and a town or
+   * workshop takes only the rest. A routed train keeps them while its line comes to such a school that takes them before
+   * anywhere else but a town or workshop that does (`Later.school`); an unrouted one while it comes to one, the points
+   * as they lie (`reachOf`: one on joined track it never comes to kept a workshop's planks on the train for good). Only
+   * by the school's own visible setting: a school left sharing (its default) holds nothing back (the 2026-11-01 report).
+   * A workshop still gets what it keeps for its waiting tray order (`reserved`). Cheap: lookups and the train's cars,
+   * only at a town or workshop and only while the research lacks this good.
+   */
+  private keptForSchool(carId: number, kind: CargoKind, route: Route | null): boolean {
+    const want = this.sinkWants?.(kind) ?? 0;
+    if (want <= 0) return false;
+    const found = this.sim.findCar(carId);
+    if (!found) return false;
+    if (route) {
+      if (!(this.laterOf(route.stops, route.next % route.stops.length).school & (1 << CARGO[kind].index))) return false;
+    } else {
+      const all = this.allDepots();
+      if (this.schoolsOf !== all) {
+        this.schoolsOf = all;
+        this.schools = all.filter((d) => d.role === "school");
+      }
+      const first = (d: DepotState) => d.takesAll && d.auto && (!this.accepts || this.accepts(d, kind));
+      if (!this.schools.some(first)) return false;
+      const reach = this.reachOf(found.train);
+      if (!this.schools.some((d) => first(d) && reach.has(d.pieceId))) return false;
+    }
+    return this.onBoard(found.train, kind) <= want;
+  }
+  private schools: DepotState[] = [];
+  private schoolsOf: readonly DepotState[] | null = null;
+
+  /**
+   * The pieces a hand-run train comes to from where it is, the way it's driven: the points as they lie (facing ones as
+   * set, trailing ones whichever way), turning back at the end of a line (a buffer, or track that just stops) as trains
+   * do, until it would go round the same way again. Kept per train till its front is on another piece, it's driven the
+   * other way, or pieces, joints or points change.
+   */
+  private reachOf(train: Train): ReadonlySet<number> {
+    const l = this.layout;
+    const forward = this.drive(train) >= 0;
+    const b = forward ? train.bogies[0] : train.bogies[train.bogies.length - 1];
+    const key = `${b.pieceId}:${b.pathIndex}:${b.reversed !== !forward}:${l.piecesVersion}:${l.jointsVersion}:${l.switchesVersion}`;
+    const kept = this.reaches.get(train.id);
+    if (kept && kept.key === key) return kept.pieces;
+    const pieces = new Set<number>([b.pieceId]);
+    const piece = l.getPiece(b.pieceId);
+    if (piece) {
+      const path = getPieceDef(piece.type, piece.flipped).paths[b.pathIndex];
+      // Leaving the piece: by `to` heading along its path, by `from` heading back (flipped when driven backward).
+      const back = b.reversed === forward;
+      let at = b.pieceId;
+      let entry = back ? (path.to ?? -1) : path.from;
+      let exit = back ? path.from : (path.to ?? -1);
+      const seen = new Set<number>();
+      for (let k = 0; k < SEARCH; k++) {
+        const n = nextPiece(l, at, exit);
+        if (!n) {
+          // The end of the line: it turns back, out the way it came onto this piece.
+          const turn = ~(at * MAX_CONNECTORS + exit + 1);
+          if (entry < 0 || seen.has(turn)) break;
+          seen.add(turn);
+          [entry, exit] = [exit, entry];
+          continue;
+        }
+        const state = n.pieceId * MAX_CONNECTORS + n.entry;
+        if (seen.has(state)) break;
+        seen.add(state);
+        pieces.add(n.pieceId);
+        const ways = waysFrom(l, n.pieceId, n.entry);
+        if (ways.length === 0) break;
+        const w = ways[ways.length > 1 ? pointsWayFrom(l, n.pieceId, n.entry, ways.length) : 0] ?? ways[0];
+        at = n.pieceId;
+        entry = n.entry;
+        exit = w.exit;
+      }
+    }
+    this.reaches.set(train.id, { key, pieces });
+    return pieces;
+  }
+  private readonly reaches = new Map<number, { key: string; pieces: Set<number> }>();
+
   /** How many of `kind` a train has on board. */
   private onBoard(train: Train, kind: CargoKind): number {
     let on = 0;
@@ -698,12 +788,15 @@ export class Economy {
   }
 
   /**
-   * A workshop takes all the planks trains bring, or a school all its research lacks (true), or it shares them with
+   * A workshop takes all the planks trains bring, or a school is set to Research first (true), or it shares them with
    * towns further on (`takesAll`).
    */
   setTakesAll(depotId: number, on: boolean): void {
     const d = this.depots[depotId];
-    if (d) d.takesAll = on;
+    if (!d || d.takesAll === on) return;
+    d.takesAll = on;
+    // (A school's Research first changes what routed lines keep for it: `Later.school`.)
+    if (d.role === "school") this.stopsStamp++;
   }
 
   /** Can a pile hold this cargo (it is the depot's input or output) and is there room? */
@@ -890,8 +983,9 @@ export class Economy {
   /**
    * Why this car keeps its goods at this depot (null: it drops them here). Each stop takes goods in the order the train
    * comes to it, by its own setting: a town what it wants, a workshop what it keeps or (Takes all) up to its cap, a
-   * school what its research lacks (Shares with towns: its share of the load while a town ahead wants it). No stop
-   * holds goods back for one further on, but a workshop's waiting tray order (`reserved`). A constant per reason, so
+   * school what its research lacks (Shares with towns: its share of the load while a town ahead wants it). Nothing is
+   * held back for a stop further on but by a setting the player can see: a school set to Research first
+   * (`keptForSchool`), and a workshop's waiting tray order (`reserved`). A constant per reason, so
    * asking every tick costs nothing more than the answer did.
    */
   private keepWhy(d: DepotState, carId: number): KeepWhy | null {
@@ -909,6 +1003,8 @@ export class Economy {
       // What a town still wants it takes in even with its platform's pile full (it's counted, not stacked).
       if (d.role !== "town" && d.piles[CARGO[c.kind].index] >= capAt(d)) return "full";
     } else if (d.piles[CARGO[c.kind].index] >= capAt(d)) return "full";
+    // What a school set to Research first lacks rides on past a town or a workshop for it (a workshop's tray order first).
+    if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route)) return "school";
     // A workshop's yard takes no more than it keeps (its tray order's, or a few) while a town the train goes on to wants
     // them too (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved). Not one set
     // to take all (`takesAll`), nor at a stop set to Only drop (QA N3: it still shared): it fills its yard.
@@ -1244,7 +1340,9 @@ export class Economy {
     }
     const at: Later[] = [];
     for (let i = 0; i < n; i++) {
-      const later: Later = { takes: 0, uses: 0, shop: 0, town: false, towns: 0 };
+      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false, towns: 0 };
+      /** Goods some later stop other than a town's or a workshop's takes, so far round the line. */
+      let taken = 0;
       for (let k = 1; k < n; k++) {
         const j = (i + k) % n;
         if (stops[j].depotId === stops[i].depotId) continue;
@@ -1252,6 +1350,8 @@ export class Economy {
         later.takes |= takes[j];
         if (role && !RECIPES[role].routedOnly) later.uses |= takes[j];
         if (role === "workshop") later.shop |= takes[j];
+        if (role === "school" && this.depots[stops[j].depotId].takesAll) later.school |= takes[j] & ~taken;
+        if (role && role !== "town" && role !== "workshop") taken |= takes[j];
         later.town ||= town[j];
         if (role === "town") later.towns |= takes[j];
       }
@@ -1771,6 +1871,12 @@ export class Economy {
    * vanishes (Sandbox's unloader).
    */
   intoSink: ((d: DepotState, kind: CargoKind) => void) | null = null;
+
+  /**
+   * How many more of `kind` a sink depot takes (Game mode: what the current research still lacks). A train keeps that
+   * many on board past towns and workshops for a school set to Research first (`keptForSchool`). Null: none kept.
+   */
+  sinkWants: ((kind: CargoKind) => number) | null = null;
 
   /**
    * What `accepts` says changed without goods reaching a town or a sink (Game mode: a research picked): routed trains'

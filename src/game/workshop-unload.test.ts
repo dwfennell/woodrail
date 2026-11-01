@@ -7,7 +7,8 @@
  * - a hand-run train drops as it passes; a train on a route only where its route has a stop there (`dropsAt`);
  * - a workshop on Takes all planks fills its yard; on Shares with towns it keeps a few while a town ahead wants them;
  * - a school takes what its research lacks when the train gets there: on Shares with towns (its default) its share of
- *   the load while a town ahead wants it too, on Takes all it needs all it lacks;
+ *   the load while a town ahead wants it too; set to Research first (its card), trains keep what its research lacks
+ *   for it past towns and the workshop, and it takes all of it (but only a school the train comes to);
  * - a train passing a stop keeping goods it takes says why on its engine card (`Economy.keptAt`, `keptText`).
  */
 import { describe, expect, it } from "vitest";
@@ -125,7 +126,7 @@ describe("a school takes what its research lacks when the train gets there", () 
     expect(w.told.has("Not dropping planks: the school shares with towns and has had its part")).toBe(true);
   });
 
-  it("Takes all it needs: all its research lacks, the town the rest", () => {
+  it("Research first: all its research lacks, the town the rest", () => {
     const p = lackingPlanks();
     const w = line(p, ["school", "town"]);
     w.economy.setTakesAll(w.at("school").id, true);
@@ -148,6 +149,46 @@ describe("a school takes what its research lacks when the train gets there", () 
     w.run(20);
     expect(p.research.got).toEqual({});
     expect(w.told.has("Not dropping planks: the research doesn't need any")).toBe(true);
+  });
+});
+
+describe("a school set to Research first (its card's choice): trains keep what its research lacks for it", () => {
+  it("past a town and a workshop on Takes all planks, and the engine card says why", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["town", "workshop", "school"]);
+    w.economy.setTakesAll(w.at("workshop").id, true);
+    w.economy.setTakesAll(w.at("school").id, true);
+    w.run(90);
+    expect(w.delivered()).toBe(0);
+    expect(w.planks(w.at("workshop"))).toBe(0);
+    expect(p.research.got).toEqual({ planks: 9 });
+    expect(w.told.has("Keeping planks for the school: it's set to Research first")).toBe(true);
+  });
+
+  it("a routed line the same", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["town", "workshop", "school"]);
+    w.economy.setTakesAll(w.at("school").id, true);
+    w.route([{ stop: w.at("town") }, { stop: w.at("workshop") }, { stop: w.at("school") }]);
+    w.run(90);
+    expect(p.research.got).toEqual({ planks: 9 });
+  });
+
+  it("only for a school the train comes to: one on joined track, the points set away from it, gets nothing kept", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["workshop"], { branchSchool: true });
+    w.economy.setTakesAll(w.at("workshop").id, true);
+    w.economy.setTakesAll(w.branchSchool!.id, true);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(9);
+    // The points set its way: kept for it.
+    const q = lackingPlanks();
+    const v = line(q, ["workshop"], { branchSchool: true, toBranch: true });
+    v.economy.setTakesAll(v.at("workshop").id, true);
+    v.economy.setTakesAll(v.branchSchool!.id, true);
+    v.run(90);
+    expect(v.planks(v.at("workshop"))).toBe(0);
+    expect(q.research.got).toEqual({ planks: 9 });
   });
 });
 
