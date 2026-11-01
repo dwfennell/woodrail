@@ -11,11 +11,12 @@ import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoredText, re
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker, secondEngineTip, trayRing } from "./game/goals";
+import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
@@ -1337,6 +1338,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // Game mode's goals: checked about once a second and after every change to the track.
   let goals = new GoalTracker(loadGoals());
+  // Stickers: earned with the goals' check, from the start (quietly till the core goals are done).
+  let stickers = new StickerTracker(loadStickers());
+  /** The stickers seen in their tab (the chip's dot is for the rest), and whether the tab is out yet (core goals done). */
+  let stickersSeen = new Set(loadStickersSeen());
+  let stickersOpen = false;
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
   // Refusals aren't logged: they stay plain `hud.toast`s.
   // On game time: "2 min ago" means two minutes of play (it stands still while paused).
@@ -1347,6 +1353,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       newGame: () => newGame(),
       showMe: () => showGoal(),
       fly: (place) => flyTo(place),
+      stickersSeen: () => {
+        stickersSeen = new Set(stickers.ids());
+        saveStickersSeen([...stickersSeen]);
+        showStickers();
+      },
     },
     journal,
   );
@@ -1465,6 +1476,33 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The latest goals ticked, a moment apart at most: their News entry and toast take the next one in (see `GoalTicks`). */
   let ticks = new GoalTicks();
   let ticksEntry: JournalEntry | null = null;
+  /** Stickers earned now (in `checkGoals`, so about once a second; each is checked only when what it reads changed). */
+  function checkStickers(announce: boolean, ticked: boolean): void {
+    // Shown once the core goals are all done: till then earned quietly (a dot on the chip), then one toast a check.
+    const open = goals.current() === null && goals.lockedCount === 0;
+    const loud = announce && open && stickersOpen;
+    const fresh = stickers.update(game.world, { coins: progress.coins, counts: progress.counts, learned: progress.learned, goalsDone: (id) => goals.isDone(id) }, goals.doneCount, loud ? 1 : Infinity);
+    if (fresh.length > 0) {
+      saveStickers(stickers.ids());
+      cloud?.edited(mode, "progress");
+    }
+    if (open && !stickersOpen) {
+      stickersOpen = true;
+      // Said only as the last goal is ticked (after its own toast: the toasts queue), not on a load of a finished game.
+      if (announce && ticked) {
+        const n = stickers.count;
+        const text = n > 0 ? `🌟 Stickers! You've earned ${n} already. Tap to see them` : "🌟 Stickers! Collect them as you play. Tap to see them";
+        if (note({ kind: "milestone", text: n > 0 ? `Stickers open: you've earned ${n}` : "Stickers open" }, 5200, true)) hud.toast(text, true, 5200, () => goalsPanel.openStickers());
+      }
+    } else if (loud) {
+      for (const s of fresh) if (note({ kind: "milestone", text: `🌟 Sticker: ${s.title}` }, 3600, true)) hud.toast(`🌟 Sticker: ${s.title}!`, true, 3600, () => goalsPanel.openStickers(s.id));
+    }
+    showStickers();
+  }
+  function showStickers(): void {
+    const earned = stickers.ids();
+    goalsPanel.setStickers({ earned, unseen: earned.filter((id) => !stickersSeen.has(id)), open: stickersOpen });
+  }
   function checkGoals(announce: boolean): void {
     if (mode !== "game" || !playing) return;
     const ctx = { learned: progress.learned, owned: progress.owned, orders: progress.orders };
@@ -1501,6 +1539,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         goalsPanel.celebrate();
       }
     }
+    checkStickers(announce, fresh.length > 0);
     const current = goals.current();
     goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next(), goals.total, goals.lockedHint(), goals.lockedCount);
   }
@@ -3709,6 +3748,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     closeRewards();
     goals = new GoalTracker();
     saveGoals([]);
+    stickers = new StickerTracker();
+    saveStickers([]);
+    stickersSeen = new Set();
+    saveStickersSeen([]);
+    stickersOpen = false;
     journal.clear();
     growth = null;
     ticks = new GoalTicks();
@@ -4236,7 +4280,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [] });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [] });
   if (cloud) {
     const card = new CloudCard(hud.root, cloud, {
       mode: () => mode,
@@ -4261,6 +4305,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       progressSig = JSON.stringify(progress.toJSON());
       crafting.setProgress(progress);
       goals = new GoalTracker(loadGoals());
+      stickers = new StickerTracker(loadStickers());
+      stickersOpen = false;
       syncLandmarks();
       hud.setCoins(progress.coins);
       hud.refreshTrayBadges();
