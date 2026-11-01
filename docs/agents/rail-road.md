@@ -5,7 +5,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Draw:** drag-to-draw (`src/track/draw-path.ts`, `src/game/draw-hand.ts`).
 - **Switches:** levers, pins, and how clearly they read.
 - **Sharing lines:** sections and slots (`src/economy/sections.ts`).
-- **Engine-card commands:** Go/Stop, ⇄, Swap ends, Continue, Put away.
+- **Engine-card commands:** Go/Stop, ⇄, Swap ends, Decouple, Remove (all shown, no ⋯), Continue, Put away.
 - **The sim** (`src/sim/sim.ts`), where it bears on any of the above.
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
