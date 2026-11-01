@@ -73,6 +73,13 @@ Rail and road owns the sim and sections. Send them head-ons and switch-path issu
 - `shopNeeds` counts a known thing only while none of it is on the map (`builtOf`). Queued orders always count. A thing still in the toy box still owes.
 - The cache is keyed by learned count, layout and `Layout.piecesVersion`. No scans per unload.
 - `owes` is checked once a second in `updatePlanksKept`. Routed lines re-plan via `acceptsChanged`.
+- **When a train drops planks there** (the 2026-11-01 report, "a train passed with planks and didn't unload"):
+  - the workshop is its own stop: a train on its piece is served by its crane, no station needed. Automatic off: trains run through;
+  - a hand-run train drops as it passes; a routed train only where its route has a stop at the workshop and it's the stop it's heading for (`dropsAt`). An Automatic or Only drop stop drops; Only pick up doesn't;
+  - Shares with towns: the yard keeps `yardKeeps` (7, an order's, or `shopSpare`) while a town ahead wants planks, the rest ride on. Takes all planks (or an Only drop stop): it fills to the cap (30);
+  - either way, what a school's research lacks rides on for it (`keptForSchool`, all it lacks, not just `SCHOOL_SHARE`), unless the workshop has a waiting tray order (`reserved`). No per-visit cap other than the yard's.
+  - **Fixed:** a hand-run train kept that school's planks for any school on joined track, even one it never comes to (points set away), so a Takes all workshop got nothing while research lacked planks. Now only for a school it comes to, points as they lie, turning back at line ends (`Economy.reachOf`, kept per train till its front changes piece or the track or points change; ~8 ms cold for a 2000-piece line, under 1 µs cached). `workshop-unload.test.ts`.
+  - **Explained** (`src/game/workshop-text.ts`): the card says "Trains drop planks here as they pass. On a route, add the workshop as a stop"; a routed train passing a workshop that isn't one of its stops with planks it would take (`Economy.shopItSkips`) says "Not dropping planks: the workshop isn't on this route. Edit the route to add a stop here" on its engine card, and as a toast once per workshop per session. `e2e:workshop` checks the card line.
 
 **Spare rule:**
 - `WORKSHOP_SPARE` is 7 while a town on the line wants planks.

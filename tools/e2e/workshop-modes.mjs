@@ -2,7 +2,8 @@
 // - its card shows Shares with towns (on) / Takes all planks, with a line under them;
 // - a tap on Takes all planks switches it (the line says so) and draws no frames of the map (only the card changes);
 // - it's still Takes all planks after a reload; a tap on Shares with towns switches it back;
-// - with a school placed, Takes all's line says the school still gets what it needs; both choices fit at 360 and 390 px.
+// - with a school placed, Takes all's line says the school still gets what it needs; both choices fit at 360 and 390 px;
+// - the card says how planks get there (a train on a route drops them only if the workshop is one of its stops).
 //
 // Usage: npm run e2e:workshop [-- <out dir>]   (default out: e2e-out/workshop)
 // Starts its own dev server (on 5384, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -62,6 +63,7 @@ const card = () =>
       on: document.querySelector(".yard-mode .chip.active")?.textContent ?? null,
       chips: [...document.querySelectorAll(".yard-mode .chip")].map((c) => c.textContent),
       hint: document.querySelector(".yard-hint")?.textContent ?? null,
+      help: ((h) => (h && !h.hidden && h.getBoundingClientRect().height > 0 ? h.textContent : null))(document.querySelector(".depot-card .depot-help")),
       takesAll: window.woodrail.economy.depot(id)?.takesAll,
     }),
     shop,
@@ -73,6 +75,7 @@ const openCard = async () => {
 };
 const SHARES_HINT = "Leaves planks for towns further on, keeping 7 for you";
 const ALL_HINT = "Fills its yard first, up to 30";
+const SHOP_HELP = "Trains drop planks here as they pass. On a route, add the workshop as a stop";
 
 await p.goto(PAGE);
 await enterGame();
@@ -89,6 +92,7 @@ await openCard();
 let c = await card();
 check("its card: Shares with towns (on) / Takes all planks", c.on === "Shares with towns" && JSON.stringify(c.chips) === JSON.stringify(["Shares with towns", "Takes all planks"]) && c.takesAll === false, JSON.stringify(c));
 check("…the line under it", c.hint === SHARES_HINT, String(c.hint));
+check("…and how planks get there", c.help === SHOP_HELP, String(c.help));
 await shot("01-shares-with-towns");
 
 // Takes all planks: only the card changes. The map isn't drawn again for it (no `invalidate`); a touch anywhere wakes
@@ -162,6 +166,7 @@ for (const width of [390, 360]) {
     const f = await fits();
     const want = mode === "all" ? `${ALL_HINT} (your school still gets what it needs)` : SHARES_HINT;
     check(`${width} px, ${c.on}: its line`, c.hint === want, String(c.hint));
+    check(`${width} px, ${c.on}: how planks get there`, c.help === SHOP_HELP, String(c.help));
     check(`${width} px, ${c.on}: the card in view, chips unclipped, clear of the Automatic row`, f.inView && f.chipsFit && f.gap >= 14, JSON.stringify(f));
     await shot(`${width}-${mode === "all" ? "takes-all" : "shares"}`);
   }

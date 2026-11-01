@@ -1,4 +1,4 @@
-import { getPieceDef, isKit, pathLength, pieceOfRef, type Layout } from "../track";
+import { getPieceDef, isKit, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -7,6 +7,7 @@ import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
 import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
+import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
 import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
 
@@ -518,10 +519,11 @@ export class Economy {
    * trains (its research lacks some: `sinkWants`), a train keeps as many as the research lacks and a town or workshop
    * takes only the rest (QA: a school past a station got no planks, the town before it taking them all; P5: nor past a
    * workshop, whose yard filled while research waited). A routed train keeps them while its line comes to a school
-   * that takes them before anywhere else but a town or workshop that does (`Later.school`); an unrouted one while an
-   * automatic school taking them is on its track (joined to it). A workshop still gets what it keeps for its waiting
-   * tray order (`reserved`). Cheap: lookups and the train's cars, only at a town or workshop and only while the
-   * research lacks this good.
+   * that takes them before anywhere else but a town or workshop that does (`Later.school`); an unrouted one while it
+   * comes to an automatic school taking them, the points as they lie (`reachOf`: a school on joined track it never
+   * comes to kept a Takes all workshop's planks on the train for good). A workshop still gets what it keeps for its
+   * waiting tray order (`reserved`). Cheap: lookups and the train's cars, only at a town or workshop and only while the
+   * research lacks this good (the walk ahead is kept per train till it moves to another piece or the track changes).
    */
   private keptForSchool(carId: number, kind: CargoKind, route: Route | null, atTown = false): boolean {
     const want = this.sinkWants?.(kind) ?? 0;
@@ -538,11 +540,63 @@ export class Economy {
       }
       const net = this.networkOf(found.train.bogies[0].pieceId);
       if (!this.schools.some((d) => d.auto && this.networkOf(d.pieceId) === net && (!this.accepts || this.accepts(d, kind)))) return false;
+      const reach = this.reachOf(found.train);
+      if (!this.schools.some((d) => d.auto && reach.has(d.pieceId) && (!this.accepts || this.accepts(d, kind)))) return false;
     }
     // At a town (it wants them), no more than what's left of the school's share this pass (`SCHOOL_SHARE`).
     const keep = atTown ? Math.min(want, this.schoolShareLeft(found.train, kind)) : want;
     return this.onBoard(found.train, kind) <= keep;
   }
+
+  /**
+   * The pieces a hand-run train comes to from where it is, the way it's driven: the points as they lie (facing ones as
+   * set, trailing ones whichever way), turning back at the end of a line (a buffer, or track that just stops) as trains
+   * do, until it would go round the same way again. Kept per train till its front is on another piece, it's driven the
+   * other way, or pieces, joints or points change.
+   */
+  private reachOf(train: Train): ReadonlySet<number> {
+    const l = this.layout;
+    const forward = this.drive(train) >= 0;
+    const b = forward ? train.bogies[0] : train.bogies[train.bogies.length - 1];
+    const key = `${b.pieceId}:${b.pathIndex}:${b.reversed !== !forward}:${l.piecesVersion}:${l.jointsVersion}:${l.switchesVersion}`;
+    const kept = this.reaches.get(train.id);
+    if (kept && kept.key === key) return kept.pieces;
+    const pieces = new Set<number>([b.pieceId]);
+    const piece = l.getPiece(b.pieceId);
+    if (piece) {
+      const path = getPieceDef(piece.type, piece.flipped).paths[b.pathIndex];
+      // Leaving the piece: by `to` heading along its path, by `from` heading back (flipped when driven backward).
+      const back = b.reversed === forward;
+      let at = b.pieceId;
+      let entry = back ? (path.to ?? -1) : path.from;
+      let exit = back ? path.from : (path.to ?? -1);
+      const seen = new Set<number>();
+      for (let k = 0; k < SEARCH; k++) {
+        const n = nextPiece(l, at, exit);
+        if (!n) {
+          // The end of the line: it turns back, out the way it came onto this piece.
+          const turn = ~(at * MAX_CONNECTORS + exit + 1);
+          if (entry < 0 || seen.has(turn)) break;
+          seen.add(turn);
+          [entry, exit] = [exit, entry];
+          continue;
+        }
+        const state = n.pieceId * MAX_CONNECTORS + n.entry;
+        if (seen.has(state)) break;
+        seen.add(state);
+        pieces.add(n.pieceId);
+        const ways = waysFrom(l, n.pieceId, n.entry);
+        if (ways.length === 0) break;
+        const w = ways[ways.length > 1 ? pointsWayFrom(l, n.pieceId, n.entry, ways.length) : 0] ?? ways[0];
+        at = n.pieceId;
+        entry = n.entry;
+        exit = w.exit;
+      }
+    }
+    this.reaches.set(train.id, { key, pieces });
+    return pieces;
+  }
+  private readonly reaches = new Map<number, { key: string; pieces: Set<number> }>();
 
   /** How many of `kind` a train has on board. */
   private onBoard(train: Train, kind: CargoKind): number {
@@ -1373,6 +1427,29 @@ export class Economy {
       if (!d || !d.auto || !RECIPES[d.role].routedOnly) continue;
       const route = this.routeOfTrain(train);
       return route && route.stops.some((s) => s.depotId === d.id) ? null : d;
+    }
+    return null;
+  }
+
+  /**
+   * The good a routed train carries that the workshop it's beside takes (planks, iron, stone while owed), where its
+   * route has no stop at that workshop, or null: it keeps them on board there (it drops goods only at its stops:
+   * `dropsAt`). The engine card and a once-per-workshop toast say why (workshop-text.ts). Cheap: a lookup per bogie,
+   * asked once a second and while the card is open.
+   */
+  shopItSkips(trainId: number): { depot: DepotState; kind: CargoKind } | null {
+    const train = this.sim.getTrain(trainId);
+    if (!train) return null;
+    for (const b of train.bogies) {
+      const d = this.byPiece.get(b.pieceId);
+      if (!d || !d.auto || d.role !== "workshop") continue;
+      const route = this.routeOfTrain(train);
+      if (!route || route.stops.some((s) => s.depotId === d.id)) return null;
+      for (const car of train.cars) {
+        const c = this.cargo.get(car.id);
+        if (c && c.kind !== null && c.count > 0 && this.takesNow(d, c.kind) && d.piles[CARGO[c.kind].index] < capAt(d)) return { depot: d, kind: c.kind };
+      }
+      return null;
     }
     return null;
   }

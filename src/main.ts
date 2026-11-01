@@ -53,6 +53,7 @@ import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { blockerOf, engineView, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
+import { shopSkipText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
@@ -2232,9 +2233,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Warehouses a hand-run train has been told about (this session): each says why it trades nothing, once. */
   const storesTold = new Set<number>();
+  /** Workshops a routed train passing with planks (no stop there) has been told about (this session), once each. */
+  const shopsTold = new Set<number>();
   /**
    * A hand-run train with wagons beside a warehouse: it trades nothing there (only routed trains do), so a toast says
-   * why and what to do, once per warehouse. Once a second: a lookup per bogie of each train.
+   * why and what to do, once per warehouse; and a routed train passing a workshop that isn't one of its stops, with
+   * planks the workshop would take, once per workshop. Once a second: a lookup per bogie of each train.
    */
   function storeToasts(): void {
     for (const id of game.sim.trainIds()) {
@@ -2244,6 +2248,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (!t || game.economy.routeOfTrain(t)) continue;
       storesTold.add(d.id);
       hud.toast(STORE_NO_ROUTE, false, 4200);
+    }
+    // A routed train passing the workshop with planks, no stop there: it keeps them (once per workshop).
+    for (const id of game.sim.trainIds()) {
+      const skip = game.economy.shopItSkips(id);
+      if (!skip || shopsTold.has(skip.depot.id)) continue;
+      shopsTold.add(skip.depot.id);
+      hud.toast(shopSkipText(skip.kind), false, 4200);
     }
   }
 
