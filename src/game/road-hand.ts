@@ -10,6 +10,7 @@ import { FootprintOutline } from "../render/props/outline";
 import { autoReshapes, autoShape, distinctTurns, encodeRoad, groundUnder, isAutoRoad, pieceOf, ROAD_MESSAGES, RoadPlacer, setRoadSquare, turnOf, type RoadBlock, type RoadPieceId } from "../roads";
 import type { Hud } from "../ui/hud";
 import type { Game } from "./game";
+import { roadsAdded } from "./road-box";
 
 /** A road piece in the hand: new from the tray, or picked up off its square (`from`). */
 export interface RoadDrag {
@@ -35,6 +36,15 @@ export interface RoadDrag {
   street?: { town: Town; editor: LandEditor; lot: StreetLot | StreetMoveBlock | null; told: Set<string> };
 }
 
+/**
+ * Game mode: road squares are bought with coins (see road-box.ts). Asked before an edit (and its undo or redo) that
+ * leaves more of your road squares on the map; what's bought is paid once it's down (`settle`, in main).
+ */
+export interface RoadTill {
+  /** Why `added` more of your road squares can't go down now ("Road: needs 2🪙 more"), or null if they can. */
+  refuse(added: number): string | null;
+}
+
 const OK = "#7ddc58";
 const NO = "#ff4a3a";
 /** How high a held piece floats above its square (mm). */
@@ -49,6 +59,8 @@ export class RoadHand {
   readonly outline = new FootprintOutline();
   /** The selected road square, or −1. */
   selected = -1;
+  /** Game mode: road squares cost coins (null: free, as in Sandbox). */
+  till: RoadTill | null = null;
 
   constructor(
     private readonly game: Game,
@@ -221,7 +233,10 @@ export class RoadHand {
     const changes: [number, number][] = [];
     if (d.from && d.from.cell !== d.cell) changes.push([d.from.cell, 0]);
     changes.push([d.cell, d.road]);
-    this.edit(changes);
+    if (!this.edit(changes)) {
+      this.game.invalidate();
+      return;
+    }
     this.onPlaced();
     // Its card would cover where the next one goes: it's opened by a tap.
     if (select) this.select(d.cell, false);
@@ -323,7 +338,7 @@ export class RoadHand {
    * Set squares' road pieces as one undo step, with the auto roads beside them reshaped to meet them (an auto road
    * over track, or on a station's way in, keeps a shape the track can cross).
    */
-  private edit(direct: readonly [number, number][]): void {
+  private edit(direct: readonly [number, number][]): boolean {
     const g = this.grid;
     const placer = this.placer();
     const reshaped = autoReshapes(g, new Map(direct), (i, road) => {
@@ -335,8 +350,19 @@ export class RoadHand {
     for (const c of changes) if (reshaped.has(c[0])) c[1] = reshaped.get(c[0])!;
     const slots = [...new Set(changes.map(([i]) => plotSlotOf(i)))];
     const trees = changes.some(([i]) => g.feature[i] === FEAT_TREE);
+    // Game mode: more road squares than are in the box are bought, and refused if the coins are short (the undo of a
+    // road taken up, or the redo of one laid, too).
+    const till = this.till;
+    const added = till ? roadsAdded(g, changes) : 0;
+    const why = till && added > 0 ? till.refuse(added) : null;
+    if (why) {
+      this.hud.toast(why);
+      this.onRefused();
+      return false;
+    }
     let restore: (() => void)[] = [];
     this.editor().editRoads({
+      ...(till && added !== 0 ? { refuse: (way: "undo" | "redo") => (way === "redo" ? (added > 0 ? till.refuse(added) : null) : added < 0 ? till.refuse(-added) : null) } : {}),
       do: () => {
         restore = changes.map(([i, road]) => setRoadSquare(g, i, road, groundUnder(this.game.landscape, i)));
       },
@@ -346,6 +372,7 @@ export class RoadHand {
       slots,
       trees,
     });
+    return true;
   }
 
   private showSquare(cell: number, color: string): void {

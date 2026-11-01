@@ -30,7 +30,7 @@ import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
-import { RoadHand, type RoadDrag } from "./road-hand";
+import { RoadHand, type RoadDrag, type RoadTill } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { eraseRefusal, sweepLooks, type EraseRefusal } from "./erase";
 import { branchesOff } from "./draw-junctions";
@@ -446,6 +446,10 @@ export class Interaction {
   landMove = false;
   /** Props can be selected and moved (Sandbox); in Game mode the town's houses stay put (the player's own furniture moves). */
   propsEditable = true;
+  /** Game mode: road squares cost coins (see `RoadTill`); null in Sandbox. */
+  set roadTill(till: RoadTill | null) {
+    this.roads.till = till;
+  }
   private selectedScenery: Scenery | null = null;
   /** Round the selected scenery, or where it would go. */
   private readonly sceneryOutline = new FootprintOutline();
