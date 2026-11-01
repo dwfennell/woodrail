@@ -86,6 +86,7 @@ import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
+import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
@@ -302,6 +303,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     ed.onRoadsChange = (slots, trees) => {
       game.roadsEdited(slots, trees);
+      // Game mode: road squares beyond the box are bought now they're down; the tray's road counts follow.
+      if (mode === "game") settleRoads();
       hud.setHistory(ed.canUndo, ed.canRedo);
       scheduleSave();
     };
@@ -1690,8 +1693,35 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Game mode: a track piece not learned yet, as the tray says it, or null. */
   const pieceUnlearned = (type: PieceTypeId): string | null => unlearnedOf(progress, type);
 
+  /** Why `added` more road squares can't go down now (coins short for those beyond the box), or null. */
+  function roadRefusal(added: number): string | null {
+    const price = roadsPrice(progress.roads, roadsOnMap(game.landscape.grid), added);
+    return price > progress.coins ? roadShortText(price, progress.coins) : null;
+  }
+
+  /**
+   * Road squares on the map beyond those owned are bought (`ROAD_COINS` each), after a road edit, its undo or redo
+   * (each checked first: `roadRefusal`). Taken up, they go back in the box, free to lay again, as track does.
+   */
+  function settleRoads(): void {
+    const buy = roadsOnMap(game.landscape.grid) - progress.roads;
+    if (buy > 0) {
+      progress.roads += buy;
+      progress.coins = Math.max(0, progress.coins - buy * ROAD_COINS);
+      hud.setCoins(progress.coins);
+      hud.toast(`Laid ${buy === 1 ? "a square of road" : `${buy} squares of road`}: ${buy * ROAD_COINS}🪙`, false, 2200);
+    }
+    hud.refreshTrayBadges();
+  }
+
   /** The toy box on the tray (Game mode): how many of each are left. */
-  function trayBadge(item: ThingItem | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
+  function trayBadge(item: ThingItem | TrayItem | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
+    // A road piece: the squares in the box, or (none left) what the next one costs.
+    if (item.kind === "road") {
+      const spare = roadsSpare(progress.roads, roadsOnMap(game.landscape.grid));
+      return spare > 0 ? { text: String(spare), empty: false } : { text: `${ROAD_COINS}🪙`, empty: false, craft: true };
+    }
+    // (A signal mark: free once Signals is learned, signals spec §4.)
     if (item.kind === "signal") return progress.knows("piece:signal") ? null : { text: "Locked", empty: true, locked: true };
     if (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop") return null;
     const needs = thingsFor(item as ThingItem);
@@ -4018,18 +4048,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
+    // Road squares cost coins (Game mode's Roads blueprint): a square beyond those in the box is bought as it goes down.
+    interaction.roadTill = mode === "game" ? { refuse: (added) => roadRefusal(added) } : null;
     if (mode === "game") {
       ensureGameModels();
       townLife.reset();
       passengersOn();
       progress.coverMap(game.world);
+      // (The lanes the map came with are yours: a new game's, or a save's from before roads were bought.)
+      progress.coverRoads(roadsOnMap(game.landscape.grid));
       // (A save from before first-time gifts: its towns' levels were reached already.)
       for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
       // (A save from before the first-flour bonus whose towns have had flour: it's had its first.)
       flourBefore(progress, game.world);
       syncLandmarks();
       hud.trayBadge = trayBadge;
-      hud.trayKnown = (item) => item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id));
+      hud.trayKnown = (item) => (item.kind === "road" ? progress.learned.has(ROAD_TECH[item.piece]) : item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id)));
+      // A tab that needs a blueprint (Roads) shows once it's learned.
+      hud.tabKnown = (tech) => progress.learned.has(tech);
+      hud.refreshTabs();
       hud.setCoins(progress.coins);
       refreshBoard();
     } else {
@@ -4044,6 +4081,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       shownDelivered = new Map();
       hud.trayBadge = null;
       hud.trayKnown = null;
+      hud.tabKnown = null;
+      hud.refreshTabs();
       hud.setCoins(null);
     }
     industriesChanged();

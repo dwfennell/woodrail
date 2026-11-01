@@ -8,7 +8,7 @@
  * Self-contained (no imports but types) so a plain Node script can read it.
  */
 
-export type BranchId = "track" | "trains" | "logistics" | "industry" | "food" | "craft" | "learning" | "civic" | "leisure" | "water" | "passengers" | "ending";
+export type BranchId = "track" | "trains" | "logistics" | "industry" | "food" | "craft" | "learning" | "civic" | "leisure" | "water" | "passengers" | "roads" | "ending";
 
 export interface Branch {
   readonly id: BranchId;
@@ -30,6 +30,7 @@ export const BRANCHES: readonly Branch[] = [
   { id: "leisure", label: "Leisure and sports", sub: "days out by train", color: "#5c9e3c" },
   { id: "water", label: "Water and air", sub: "harbours, ships, planes", color: "#3d86b8" },
   { id: "passengers", label: "Passengers", sub: "by people carried", color: "#e0a526" },
+  { id: "roads", label: "Roads", sub: "roads between towns", color: "#6f6a62" },
   { id: "ending", label: "The ending", sub: "", color: "#3a2a1c" },
 ];
 
@@ -216,7 +217,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "carpentry", label: "Carpenter's bench", branch: "craft", tier: 2, key: true, needs: [], price: { planks: 7, coins: 60 }, requires: [delivered("planks", 50)], blurb: "A carpenter's yard makes furniture from planks: towns pay well for it, and the biggest cities want it.", brings: "Carpenter's yard, furniture" }),
   row({ id: "paint", label: "Dye works", branch: "craft", tier: 2, plan: "next", needs: ["farming"], price: { planks: 12, coins: 40 }, requires: [landmark("market", "a market")], blurb: "Flower fields make dye, and dye makes paint.", brings: "Dye works, flower fields, paint" }),
   row({ id: "toys", label: "Toy workshop", branch: "craft", tier: 2, plan: "next", needs: ["carpentry", "paint"], price: { planks: 16, coins: 60 }, requires: [delivered("furniture", 20)], blurb: "Planks and paint make toys, the goods towns pay best for.", brings: "Toys, toy van" }),
-  row({ id: "scenery", label: "Scenery kit", branch: "craft", tier: 1, needs: ["carpentry"], price: { planks: 5 }, blurb: "Sights for the line (a castle gate, a train wash, a weighbridge, a track cleaner), furniture beside it (clocks, whistle posts, signal boxes), and crossing gates.", brings: "Castle gate, train wash, weighbridge, track cleaner, lineside furniture, crossing styles" }),
+  row({ id: "scenery", label: "Scenery kit", branch: "craft", tier: 1, needs: ["carpentry"], price: { planks: 5 }, blurb: "Sights for the line (a castle gate, a train wash, a weighbridge, a track cleaner) and furniture beside it (clocks, whistle posts, signal boxes).", brings: "Castle gate, train wash, weighbridge, track cleaner, lineside furniture" }),
   row({ id: "paint-trains", label: "Paint your trains", branch: "craft", tier: 2, plan: "later", needs: ["paint"], price: { planks: 6, coins: 20 }, blurb: "Paint engines, wagons and stations in your own colours.", brings: "A paint pot on every card" }),
   row({ id: "smithy", label: "Smithy", branch: "craft", tier: 3, needs: ["foundry", "carpentry"], price: { coins: 60, goods: { iron: 10 } }, blurb: "A smithy makes tools from iron, and your wagons hold 5 instead of 3.", brings: "Smithy, tools, heavy wagons", feature: { label: "Wagons hold 5", icon: "🧰" } }),
   row({ id: "clockmaker", label: "Clockmaker", branch: "craft", tier: 3, plan: "later", needs: ["smithy", "college"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Clocks for every station: trains keep a timetable.", brings: "Station clocks, timetables" }),
@@ -280,6 +281,14 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "express", label: "Express engine", branch: "passengers", tier: 2, needs: ["double-decker"], price: { planks: 10, coins: 240 }, requires: [count("riders", 250)], blurb: "An engine that runs half as fast again.", brings: "Express engine", feature: { label: "Express engine (Trains tab)", icon: "⚡" } }),
   row({ id: "sleeper", label: "Night sleepers", branch: "passengers", tier: 3, plan: "later", needs: ["first-class", "telegraph"], requires: [count("riders", 400)], blurb: "Sleeper trains between far cities: big fares.", brings: "Sleeper coach" }),
   row({ id: "observation", label: "Observation car", branch: "passengers", tier: 3, plan: "later", needs: ["first-class", "beach"], requires: [count("riders", 300)], blurb: "Glass-roofed sightseeing: resort visitors pay double.", brings: "Observation car" }),
+
+  // Roads (spec 2026-10-31-roads.md): the Roads tab in Game mode, each square bought with coins (`ROAD_COINS`). Its
+  // pieces are road squares, not things of `THING_RULES`, so the rows name what they open as a feature.
+  row({ id: "roads", label: "Roads", branch: "roads", tier: 2, needs: ["passengers"], price: { planks: 2, coins: 60 }, requires: [level(1)], blurb: "Lay roads between your towns. Each square of road costs 2 coins.", brings: "Road, bend, T-junction, crossroads, dead end", feature: { label: "Roads tab: 2🪙 a square", icon: "🛣️" } }),
+  row({ id: "road-crossings", label: "Crossing gates", branch: "roads", tier: 2, needs: ["roads"], price: { planks: 2, coins: 40 }, blurb: "Gates that close the road when a train comes, and a zebra crossing.", brings: "Level crossing, gated crossing, zebra crossing" }),
+  row({ id: "road-bridges", label: "Road bridges", branch: "roads", tier: 2, needs: ["roads", "bridges"], price: { planks: 3, coins: 80 }, blurb: "Roads over rivers and up hills.", brings: "Road bridge, road ramps", feature: { label: "Road bridge and ramps (Roads tab)", icon: "🌉" } }),
+  row({ id: "vans", label: "Delivery vans", branch: "roads", tier: 2, plan: "soon", needs: ["roads", "warehouses"], price: { planks: 4, coins: 150 }, blurb: "Vans take goods from the station to towns off the line.", brings: "Delivery van" }),
+  row({ id: "buses", label: "Buses", branch: "roads", tier: 2, plan: "soon", needs: ["vans", "halts"], price: { coins: 120 }, blurb: "A bus brings people to your trains.", brings: "Bus stop, bus" }),
 
   // The ending
   row({ id: "rocket", label: "Rocket works", branch: "ending", key: true, plan: "ending", needs: ["observatory", "trade", "express", "cranes3", "electricity"], requires: [level(4, 3)], blurb: "Build the rocket from parts brought by train. Not designed yet.", brings: "Rocket works" }),

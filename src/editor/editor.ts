@@ -210,9 +210,9 @@ export class Editor {
   /** Called after a road edit is done, undone or redone, with its plots and whether it cleared or brought back trees. */
   onRoadsChange: ((slots: number[], trees: boolean) => void) | null = null;
 
-  /** Do a road edit (pieces on squares) as one undo step. */
-  editRoads(c: { do(): void; undo(): void; slots: number[]; trees: boolean }): void {
-    this.run({ do: c.do, undo: c.undo, roads: { slots: c.slots, trees: c.trees } });
+  /** Do a road edit (pieces on squares) as one undo step. `refuse` as `Command`'s (Game mode: a road square short of coins). */
+  editRoads(c: { do(): void; undo(): void; slots: number[]; trees: boolean; refuse?: (way: "undo" | "redo") => string | null }): void {
+    this.run({ do: c.do, undo: c.undo, roads: { slots: c.slots, trees: c.trees }, ...(c.refuse ? { refuse: c.refuse } : {}) });
   }
 
   /** Do a props edit (or one of trains, off the track: a train put away) as one undo step. `refuse` as `Command`'s. */
