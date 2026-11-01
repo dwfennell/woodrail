@@ -443,9 +443,12 @@ describe("findSnapAtPoint", () => {
       expect(s.kind, `${deg}°`).toBe("snapped");
       if (s.kind === "snapped") expect(Math.abs(Math.cos(s.pose.heading))).toBeCloseTo(1, 6);
     }
-    // Not behind the end, nor off its line, nor further than half a short piece ahead (the old, looser reach: 104 ahead,
-    // 10 aside, and 230 ahead, no longer pull a piece put down freely near the end).
-    for (const point of [{ x: 150, z: 0 }, { x: 270, z: 30 }, { x: 320, z: 10 }, { x: 216 + 100, z: 0 }]) {
+    // In the middle of a gap one piece long (the piece held by its middle): it goes in.
+    expect(findSnapAhead(layout, "straight-216", false, { x: 0, z: 0, heading: Math.PI / 2 }, 0, { x: 216 + 108, z: 3 }).kind).toBe("snapped");
+    // Not behind the end, nor off its line, nor beyond the held piece's middle seated there (the old, looser reach: 30
+    // aside, and 230 ahead, no longer pull a piece put down freely near the end; a short piece reaches less).
+    expect(findSnapAhead(layout, "straight-54", false, { x: 0, z: 0, heading: 0 }, 0, { x: 216 + 60, z: 0 }).kind).toBe("none");
+    for (const point of [{ x: 150, z: 0 }, { x: 270, z: 30 }, { x: 216 + 140, z: 0 }, { x: 216 + 220, z: 0 }]) {
       expect(findSnapAhead(layout, "straight-216", false, { x: 0, z: 0, heading: 0 }, 0, point).kind, JSON.stringify(point)).toBe("none");
     }
   });
