@@ -46,6 +46,7 @@ import { putAway, type PutAway } from "./put-away";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
+import { STORE_HELP, storeStock } from "./warehouse-text";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
 function whenIdle(f: () => void): void {
@@ -2150,7 +2151,8 @@ export class Interaction {
     if (p.kind === "piece") {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
-      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type);
+      // (A town's station upgraded to a big station's kit still opens its town's card.)
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId);
       const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
       else if (ruin !== -1 && this.onRuinTap) {
@@ -2483,6 +2485,11 @@ export class Interaction {
       .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
+    // A warehouse: only what it holds (not a row for every good), and how to use it.
+    if (d.role === "warehouse") {
+      this.hud.updateDepotCard([], d.auto, d.waitFull, storeStock(piles), false, STORE_HELP);
+      return;
+    }
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     const note = d.role === "town" ? `Delivered ${delivered}` : d.role === "harbour" && piles.length === 0 ? "Nothing on the quay: drop goods here for the boats" : "";
     this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note);
@@ -2955,6 +2962,15 @@ export class Interaction {
     }
     this.hintFor = { key, hint };
     return hint;
+  }
+
+  /**
+   * Why a piece of `type` can't go down at `pose` (as a drop would say it), with piece `ignoreId` not counted; null if
+   * it can (a town's station upgraded in place: src/game/station-upgrade.ts).
+   */
+  placeWhy(type: PieceTypeId, pose: Pose, y: number, ignoreId: number): string | null {
+    const r = this.placement(type, false, pose, y, ignoreId).reason;
+    return r ? this.blockMessage(r) : null;
   }
 
   /** What to say for a piece refused for `reason` (never nothing: a refusal always says something). */

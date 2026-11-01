@@ -1207,7 +1207,8 @@ async function wyeLevers(ctx, p, tapOn) {
 // wait (a train waiting at points set for another), wye (a wye's three levers, #15), stuck (two trains of a line head
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
-// routing step 7).)
+// routing step 7), follow (a follower keeps a gap behind a moving train and pulls up close behind one the player
+// stopped, #6).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -1880,6 +1881,19 @@ async function forwardRoute(ctx, p) {
   check("forward: turns only at the end of the line (the forest's buffers)", seen.turns.length > 0 && seen.turns.every((t) => t === "forest"), JSON.stringify(seen.turns));
   check("forward: engine first at every stop", seen.arrivals.length >= 3 && seen.arrivals.every((a) => a.engineFirst), JSON.stringify(seen.arrivals));
   check("forward: the way drawn from the sawmill goes round the wye, not into the spur", !!seen.drawn && seen.drawn.spur === 0 && seen.drawn.round > 0 && seen.drawn.wye > 0, JSON.stringify(seen.drawn));
+  // The line drawn on the map with its card open (the user, 2026-10-31: "why is it not using the loop?"): the leg
+  // from the sawmill runs on round the wye's loop, as the train does, not straight back to the forest (as it was drawn
+  // when each leg left its stop by the shorter end).
+  await tapOn({ engine: setup.engine });
+  await p.waitForTimeout(500);
+  const line = await p.evaluate((o) => {
+    const w = window.woodrail;
+    const loop = new Set(o.run.filter((i) => w.layout.getPiece(i).type === "curve-large" && !o.spur.includes(i)));
+    const legs = w.routeShown().filter((r) => !r.dotted && r.runs.length > 0);
+    const fromMill = legs.filter((r) => r.runs[0].pieceId === o.sawmill && r.runs[r.runs.length - 1].pieceId === o.forest);
+    return { legs: legs.length, fromMill: fromMill.map((r) => ({ round: r.runs.filter((x) => loop.has(x.pieceId)).length, spur: r.runs.filter((x) => o.spur.includes(x.pieceId)).length })) };
+  }, { ...setup });
+  check("forward: the line drawn on the map goes from the sawmill round the wye's loop, as the train does", line.fromMill.length > 0 && line.fromMill.every((l) => l.round > 0 && l.spur === 0), JSON.stringify(line));
   await p.keyboard.press("Escape");
 }
 
@@ -1941,7 +1955,9 @@ async function routeWait(ctx, p) {
       }
       throw new Error("no room for a train");
     };
-    const first = put(["engine", "timber", "timber", "timber"], [[6, 200]]);
+    // (The first five wagons long: it holds the points a while, so the second, keeping its follow gap (#6) behind it,
+    // still comes up to them while they're held and stands a second or more.)
+    const first = put(["engine", "timber", "timber", "timber", "timber", "timber"], [[6, 200]]);
     const second = put(["engine", "timber"], [[4, 200], [4, 150], [4, 100], [3, 200], [3, 100]]);
     w.invalidate();
     return { first, second, forest, millA, millB, points: sw, roadA: a.map(at), roadB: b.map(at) };
@@ -2616,6 +2632,110 @@ async function putAwayButton(p) {
 }
 
 /**
+ * Issue #6: a train following another on one line keeps a visible gap while that one moves, about a wagon's length
+ * (70 mm), and once it stops pulls up close behind it (the stop-short margin, 10 mm: the user's call). A straight run
+ * with a buffer at each end; two trains on it running the same way, the first at half speed, the second catching it up
+ * and following at the gap. The player taps the first and its card's Stop: the second eases in and stands about 10 mm
+ * behind, held by it (not touching, not coupled), on the game's own sim.
+ */
+async function followGap(ctx, p, tapSel) {
+  await p.keyboard.press("Escape");
+  await p.setViewportSize({ width: 360, height: 740 });
+  await frames(p);
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
+    const { checkPlacement } = await import("/src/landscape/clearance.ts");
+    // Harness shortcut (setup, not what's tested): the run worked out on a scratch layout and laid in one go, as the
+    // player's pieces would be.
+    const L = new Layout();
+    const first = L.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    appendPiece(L, "buffer-turnback", false, connectorRef(first, 0));
+    const ids = [first];
+    for (let k = 1; k < 7; k++) ids.push(appendPiece(L, "straight-216", false, connectorRef(ids[k - 1], 1)));
+    appendPiece(L, "buffer-turnback", false, connectorRef(ids[6], 1));
+    let g = null;
+    let turn = 0;
+    const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
+    for (let k = 0; k < 4 && !g; k++) {
+      turn = (k * Math.PI) / 2;
+      const pts = (id) => { const q = turned(L.getPiece(id).pose, turn); return [0, 54, 108, 162, 216].map((d) => [q.x + d * Math.cos(q.heading), q.z + d * Math.sin(q.heading)]); };
+      const ok = (x, z) =>
+        [...L.pieceIds()].every((id) => {
+          const q = L.getPiece(id);
+          const t = turned(q.pose, turn);
+          const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
+          return c.kind === "clear" || c.reason === "off-mat";
+        });
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, ok });
+    }
+    if (!g) throw new Error("no open ground for the run");
+    const scratch = [...L.pieceIds()];
+    const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
+    const run = w.editor().placeRun(scratch.map((id) => { const q = L.getPiece(id); return { type: q.type, pose: at(q.pose), y: 0, flipped: q.flipped }; }));
+    const real = (id) => run[scratch.indexOf(id)];
+    // Harness shortcut (setup): the trains put down in code, as the tray would, levers on.
+    const put = (piece, s) => {
+      const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: real(piece), pathIndex: 0, reversed: false, s });
+      if (r.kind !== "placed") throw new Error("no room for a train");
+      const e = w.sim.getTrain(r.trainId).cars[0].id;
+      w.sim.setLever(e, 1);
+      return e;
+    };
+    const lead = put(ids[3], 200);
+    const follower = put(ids[1], 100);
+    // Harness shortcut (setup): the first runs at half speed, so the second catches it up (put back after the check).
+    const top = w.sim.topSpeed;
+    const leadTrain = w.sim.findCar(lead).train.id;
+    window.__followTop = top;
+    w.sim.topSpeed = (t) => (t.id === leadTrain ? 60 : top ? top(t) : 120);
+    // Harness shortcut: the game's own sim ticks (as `Game.frame` runs them), run ahead of SwiftShader's few frames a
+    // second. Notes the closest the follower's front came to the lead's back (their end faces, as the sim measures),
+    // while the lead moved and in all.
+    window.__followRun = (secs) => {
+      const f = { x: 0, y: 0, z: 0 };
+      const r = { x: 0, y: 0, z: 0 };
+      let least = Infinity;
+      let leastMoving = Infinity;
+      for (let i = 0; i < secs * 120; i++) {
+        w.sim.tick();
+        w.sim.endFace(w.sim.findCar(follower).train, true, f);
+        w.sim.endFace(w.sim.findCar(lead).train, false, r);
+        const d = Math.hypot(f.x - r.x, f.z - r.z);
+        least = Math.min(least, d);
+        if (w.sim.findCar(lead).train.speed > 0) leastMoving = Math.min(leastMoving, d);
+      }
+      w.invalidate();
+      const ft = w.sim.findCar(follower).train;
+      const k = (x) => Math.round(x * 10) / 10;
+      return { least: k(least), leastMoving: k(leastMoving), gap: k(Math.hypot(f.x - r.x, f.z - r.z)), speeds: [lead, follower].map((e) => Math.round(w.sim.findCar(e).train.speed)), held: w.sim.heldHow(ft.id), trains: w.sim.trainCount };
+    };
+    // (Both running: the follower catches up and follows.)
+    const following = window.__followRun(8);
+    w.paused = true;
+    w.invalidate();
+    return { lead, follower, following };
+  });
+  check("follow (#6): following a moving train, the follower keeps a visible gap (66–74 mm, never closer)", setup.following.leastMoving >= 66 && setup.following.gap >= 66 && setup.following.gap <= 74 && setup.following.speeds.every((v) => v === 60), JSON.stringify(setup.following));
+  // The player taps the first train, and its card's Stop. (Paused while tapping: the game's frames would run it on.)
+  const { tapOn, tapButton } = mapHelpers(p);
+  await tapOn({ engine: setup.lead });
+  await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 30000 }).catch(() => {});
+  const goSaid = await p.evaluate(() => document.querySelector(".engine-card .go")?.title ?? null);
+  await tapButton(".engine-card .go");
+  const lever = await p.evaluate((e) => { const f = window.woodrail.sim.findCar(e); return f.train.cars[f.index].lever; }, setup.lead);
+  check("follow: the lead's card Stop turns its lever off", goSaid === "Stop" && lever === 0, JSON.stringify({ goSaid, lever }));
+  // Ten seconds on: the lead has stopped; the follower pulled up close behind and stands there, held by it.
+  const after = await p.evaluate(() => {
+    const r = window.__followRun(10);
+    window.woodrail.sim.topSpeed = window.__followTop;
+    return r;
+  });
+  check("follow (#6): once the train ahead stops, the follower pulls up close behind it (8–14 mm, never touching), held by it, not coupled", after.speeds.every((v) => v === 0) && after.gap >= 8 && after.gap <= 14 && after.least >= 8 && after.held === "follow" && after.trains >= 2, JSON.stringify(after));
+  await p.keyboard.press("Escape");
+}
+
+/**
  * Stuck, and the player's fix (routing §16 Q3: nothing turns a train back short of the end of the track). Two trains on
  * one line head on along single track: a passing loop laid in the middle but for one straight of its side road, so no
  * loop yet. The line has room for one: the second is held at its end, the first comes up to it and stands. Neither
@@ -2936,7 +3056,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), follow: () => followGap(ctx, p, tapOn) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

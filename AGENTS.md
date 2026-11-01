@@ -12,8 +12,10 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run e2e:roads`: end-to-end road tests in a headless browser
 - `npm run e2e:kits [-- <out> [groups]]`: end-to-end track props (kits, lineside furniture) in Sandbox, headless (about 12 min)
 - `npm run e2e:research [-- <out>]`: end-to-end Research picker and pill on a 390×844 phone, headless (about 3 min)
+- `npm run e2e:copy-map [-- <out>]`: ☰ "Copy map for a bug report" and the dev-only `#load=` back in, on a phone, headless (about 2 min)
 - `npm run e2e:train-summary [-- <out>]`: end-to-end train summary and wagon loads on the cards, Game mode on a 360×740 phone, headless (about 8 min)
 - `npm run e2e:stickers [-- <out>]`: end-to-end stickers: one earned quietly by laying track, the dot, the last core goal, the toast and the Stickers tab, on a 390×844 phone, headless
+- `npm run e2e:warehouse [-- <out>]`: end-to-end warehouses in Game mode on a 390×844 phone: the hand-run explanation, a route dropping planks there and one taking them to a town, by taps, headless (about 3.5 min)
 
 Designs and plans are in `docs/superpowers/specs` and `docs/superpowers/plans`.
 

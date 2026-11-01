@@ -798,6 +798,25 @@ describe("kit pieces in saves", () => {
     expect(w.layout.joinedConnector(connectorRef(lamp, 0))).toBe(connectorRef(gantry, 1));
   });
 
+  it("signal marks on joints round-trip with their style and hold; a save without any writes no signals", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const s1 = appendPiece(world.layout, "straight-216", false, connectorRef(station, 1));
+    const s2 = appendPiece(world.layout, "straight-216", false, connectorRef(s1, 1));
+    expect(serializeWorld(world).signals).toBeUndefined();
+    const m1 = world.layout.addSignal(connectorRef(s1, 1), "semaphore");
+    const m2 = world.layout.addSignal(connectorRef(s2, 0), "colour-light", true);
+    expect(m1).toBeGreaterThan(0);
+    expect(m2).toBeGreaterThan(0);
+    const w = roundTripOf(world);
+    const marks = [...w.layout.signals()].map((m) => ({ at: m.at, style: m.style, held: m.held }));
+    expect(marks).toEqual([
+      { at: connectorRef(s1, 1), style: "semaphore", held: false },
+      { at: connectorRef(s2, 0), style: "colour-light", held: true },
+    ]);
+  });
+
   it("old saves load unchanged: a plain signal held at red, buffers, and the held-back signal and crossing models as props", () => {
     const world = buildStarterWorld();
     const [a] = world.landscape.towns;

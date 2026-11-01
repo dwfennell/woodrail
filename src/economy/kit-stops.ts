@@ -236,6 +236,7 @@ export class KitStops {
   private stopsFor(who: KitStopWho, train: Train): boolean {
     if (who === "any") return true;
     if (who === "passengers") return train.cars.some((c) => c.kind === "passenger");
+    if (who === "diesel") return train.cars.some((c) => c.kind === "engine" && this.sim.lookOf(c.id) === "diesel");
     return train.cars.some((c) => c.kind === "engine" && STEAM.has(this.sim.lookOf(c.id)));
   }
 

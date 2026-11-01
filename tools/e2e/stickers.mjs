@@ -72,7 +72,8 @@ await p.evaluate(() => {
 });
 
 // 2. Setup shortcut (named; not what's tested): every core goal but "Connect every town" marked done, as if played
-// (the goals play-through reaches them the player's way). The stickers aren't touched.
+// (the goals play-through reaches them the player's way). That includes "Buy some land", which in the goals' order
+// comes after Connect every town: marked done here so that the last link is the goal that completes the core. The stickers aren't touched.
 const towns = await p.evaluate(async () => {
   const { GOALS } = await import("/src/game/goals.ts");
   const w = window.woodrail;
