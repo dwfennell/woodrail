@@ -80,13 +80,53 @@ const tapAt = (x, y) => tapped(() => p.touchscreen.tap(x, y));
 const marks = () => p.evaluate(() => [...window.woodrail.layout.signals()].map((m) => ({ id: m.id, at: m.at, held: m.held, style: m.style })));
 const tintShown = () => p.evaluate(() => window.woodrail.blockTint.mesh.visible && (window.woodrail.blockTint.mesh.geometry.getAttribute("position")?.count ?? 0) > 0);
 
+/** Into Game mode from the title (a new game, or the saved one after a reload). */
+const start = async () => {
+  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await settle();
+  await p.keyboard.press("Escape");
+};
+/**
+ * The Signal dragged out of the Switch shelf (opened if it isn't) and along the track toward a joint, the way trains
+ * go, then let go: the joint end it went on (−1: none).
+ */
+const dragSignal = async (joint) => {
+  const shelf = await p.evaluate(() => {
+    // (The shelf open already: the Signal's on the tray.)
+    if (document.querySelector('.scroller .tray-item[data-key="signal"]')) return null;
+    const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Switch");
+    if (!g) return null;
+    const r = g.getBoundingClientRect();
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  });
+  if (shelf) await tapAt(...shelf);
+  await p.evaluate(() => document.querySelector('.scroller .tray-item[data-key="signal"]')?.scrollIntoView({ inline: "center" }));
+  await frames();
+  const from = await p.evaluate(() => {
+    const e = document.querySelector('.scroller .tray-item[data-key="signal"]');
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  });
+  if (!from) return -1;
+  const before = new Set((await marks()).map((m) => m.id));
+  const [bx, by] = await screenOf({ x: joint.x - Math.cos(joint.heading) * 120, y: joint.y, z: joint.z - Math.sin(joint.heading) * 120 });
+  const [nx, ny] = await screenOf({ x: joint.x - Math.cos(joint.heading) * 30, y: joint.y, z: joint.z - Math.sin(joint.heading) * 30 });
+  let t = Date.now() / 1000;
+  await touch("touchStart", from[0], from[1], t);
+  for (let k = 1; k <= 12; k++) await touch("touchMove", from[0] + ((bx - from[0]) * k) / 12, from[1] + ((by + 56 - from[1]) * k) / 12, (t += 0.03));
+  for (let k = 1; k <= 10; k++) await touch("touchMove", bx + ((nx - bx) * k) / 10, by + 56 + ((ny - by) * k) / 10, (t += 0.03));
+  await frames();
+  await touch("touchEnd", 0, 0, (t += 0.05));
+  await settle();
+  return (await marks()).find((m) => !before.has(m.id))?.at ?? -1;
+};
+
 // A new game.
 await p.goto(PAGE);
-await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
-await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-await settle();
-await p.keyboard.press("Escape");
+await start();
 await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
 
 // Setup (not what's tested): Switches, Signals and Routes learned; the station's line to the forest laid by the game's
@@ -349,6 +389,209 @@ if (!setup.error) {
   check("signals drawn instanced: a few draws for them all", draws > 0 && draws <= 24, JSON.stringify({ draws, marks: more.count }));
   await shot("8-styles");
 }
+// 4-5. The payoff, on a line of two trains between two loops (setup, harness shortcuts: laid on the flat table past
+// the land's edge, depots, trains and their line made by the economy's own functions, as a player's taps would; the
+// game's own sim and economy ticked ahead of SwiftShader's few frames a second, the forest kept stocked).
+if (!setup.error) {
+  const line = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { chain, loopOn } = await import("/src/economy/loop-fixtures.ts");
+    const { appendPiece, connectorRef } = await import("/src/track/layout.ts");
+    const { editLine, joinLine } = await import("/src/game/lines.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    // (Clear what parts 1-3 and 6 left: their marks, so the payoff's run is about this line's signal only.)
+    for (const m of [...w.layout.signals()]) w.layout.removeSignal(m.id);
+    const b = w.director.bounds;
+    const S = "straight-216";
+    const x0 = b.x0 + 260;
+    const z = b.z1 - 260;
+    const [a] = [w.layout.addPiece("depot-forest", { x: x0, z, heading: 0 })];
+    appendPiece(w.layout, "buffer-turnback", false, connectorRef(a, 0));
+    const [w1] = chain(w.layout, [S], connectorRef(a, 1));
+    const l1 = loopOn(w.layout, connectorRef(w1, 1), [S, S], [S]);
+    const mid = chain(w.layout, Array(10).fill(S), connectorRef(l1.s2, 0));
+    const l2 = loopOn(w.layout, connectorRef(mid[9], 1), [S, S], [S]);
+    const [e1, bb] = chain(w.layout, [S, "depot-sawmill"], connectorRef(l2.s2, 0));
+    appendPiece(w.layout, "buffer-turnback", false, connectorRef(bb, 1));
+    const forest = w.economy.addDepot("forest", a).id;
+    const mill = w.economy.addDepot("sawmill", bb).id;
+    const put = (pieceId) => {
+      const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId, pathIndex: 0, reversed: false, s: 60 });
+      if (r.kind !== "placed") return -1;
+      const e = w.sim.getTrain(r.trainId).cars[0].id;
+      w.sim.setLever(e, 1);
+      return e;
+    };
+    const starts = [mid[1], l1.main[0]];
+    window.__lineTrains = () => {
+      for (const e of window.__engines ?? []) {
+        const t = w.sim.findCar(e)?.train;
+        if (t) w.sim.removeTrain(t.id);
+      }
+      w.economy.prune();
+      const engines = starts.map(put);
+      const red = editLine(w.economy, engines[0], (s) => s.push({ depotId: forest, action: "auto" }, { depotId: mill, action: "auto" }));
+      joinLine(w.economy, engines[1], red.id);
+      for (const e of engines) w.economy.routeOf(e).next = 1;
+      window.__engines = engines;
+      w.invalidate();
+      return engines;
+    };
+    // Ticks run ahead: goods unloaded at the mill by each engine's train, and ticks both trains ran in the long stretch.
+    window.__lineRun = (secs) => {
+      const out = { unloaded: 0, together: 0, arrived: {} };
+      const engines = window.__engines;
+      const onMid = (e) => {
+        const t = w.sim.findCar(e)?.train;
+        return !!t && t.speed > 1 && t.bogies.some((x) => mid.includes(x.pieceId));
+      };
+      for (let i = 0; i < secs * 120; i++) {
+        if (i % 120 === 0) w.economy.depot(forest).piles[CARGO.log.index] = PILE_CAP;
+        const before = engines.map((e) => w.economy.routeOf(e)?.at ?? false);
+        w.sim.tick();
+        w.economy.tick();
+        for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === mill) out.unloaded++;
+        engines.forEach((e, k) => {
+          if (!before[k] && w.economy.routeOf(e)?.at && w.economy.routeOf(e).stops[w.economy.routeOf(e).next]?.depotId === mill) out.arrived[k] = (out.arrived[k] ?? 0) + 1;
+        });
+        if (onMid(engines[0]) && onMid(engines[1])) out.together++;
+      }
+      w.invalidate();
+      return out;
+    };
+    window.__lineTrains();
+    return { mid, joint: (await import("/src/game/signal-place.ts")).jointPose(w.layout, connectorRef(mid[4], 1)), at: connectorRef(mid[4], 1), engines: window.__engines };
+  });
+  check("setup: a line of two trains between two loops, on the table", line.engines.every((e) => e !== -1), JSON.stringify(line.engines));
+  await glideTo(line.joint, 900);
+  await settle();
+  await shot("9-line");
+  // The Signal dragged from the tray onto the middle of the long stretch, along it the way the trains go.
+  const placedAt = await dragSignal(line.joint);
+  check("4. the Signal dragged onto the middle of the long stretch", placedAt === line.at, JSON.stringify({ placedAt, want: line.at }));
+  const withSignal = await p.evaluate(() => window.__lineRun(240));
+  check("4. the follower leaves its loop while the leader is still in the stretch", withSignal.together > 120 * 5, JSON.stringify(withSignal));
+  check("4. both trains deliver", (withSignal.arrived[0] ?? 0) > 0 && (withSignal.arrived[1] ?? 0) > 0, JSON.stringify(withSignal));
+  await shot("10-following");
+
+  // 5. A tap on its post: held at red. The next train stops at it, its card says so, and after 5 s that it's held.
+  const markId = await p.evaluate((at) => window.woodrail.layout.signalAt(at)?.id ?? -1, line.at);
+  const postScreen = async () => {
+    const top = await p.evaluate((id) => window.woodrail.marksView.topOf(id), markId);
+    await glideTo(top, 900);
+    return screenOf({ x: top.x, y: top.y - 20, z: top.z });
+  };
+  await tapAt(...(await postScreen()));
+  check("5. a tap on its post holds it at red", await p.evaluate((id) => window.woodrail.layout.getSignal(id)?.held === true, markId));
+  const stopped = await p.evaluate(() => {
+    const w = window.woodrail;
+    for (let s = 0; s < 120; s++) {
+      window.__lineRun(1);
+      for (const e of window.__engines) {
+        const t = w.sim.findCar(e)?.train;
+        if (t && w.sim.atRedSignal(t.id)) return e;
+      }
+    }
+    return -1;
+  });
+  check("5. the next train stops at it", stopped !== -1);
+  if (stopped !== -1) {
+    // (Its engine's card, opened by a tap on the engine, as a player would: its words.)
+    const cardText = async () => {
+      if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) {
+        const mid = await p.evaluate((e) => {
+          const t = window.woodrail.sim.findCar(e).train;
+          const [a, c] = [t.world[0], t.world[1]];
+          return { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2, z: (a.z + c.z) / 2 };
+        }, stopped);
+        await glideTo(mid, 900);
+        await tapAt(...(await screenOf(mid)));
+        await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
+      }
+      // (The card's words follow the game: a frame drawn after the ticks.)
+      await p.evaluate(() => window.woodrail.invalidate());
+      await frames();
+      await frames();
+      return p.evaluate(() => document.querySelector(".engine-card .engine-status")?.textContent ?? null);
+    };
+    check("5. its card: waiting at a red signal", (await cardText()) === "Waiting at a red signal", await cardText());
+    await p.evaluate(() => window.__lineRun(6));
+    const held = await cardText();
+    check("5. after 5 s: waiting at a signal you're holding", held === "Waiting at a signal you're holding. Tap it to let go", held);
+    await p.keyboard.press("Escape");
+    await p.evaluate(() => window.woodrail.hud.hideCards?.());
+    await tapAt(...(await postScreen()));
+    const went = await p.evaluate((e) => {
+      const w = window.woodrail;
+      const t0 = w.sim.findCar(e).train.bogies[0].pieceId;
+      window.__lineRun(10);
+      return w.sim.findCar(e).train.bogies[0].pieceId !== t0;
+    }, stopped);
+    check("5. a tap lets it go: the train goes on", went);
+  }
+
+  // 4 (on). The same layout with no signal: removed by its card (a long press on its post, then Delete); the trains put
+  // back where they began; fewer goods delivered in the same 4 minutes.
+  const [lx, ly] = await postScreen();
+  let t = Date.now() / 1000;
+  await touch("touchStart", lx, ly, t);
+  await p.waitForTimeout(800);
+  await touch("touchEnd", 0, 0, Date.now() / 1000);
+  await frames();
+  const del = await p.evaluate(() => {
+    const e = [...document.querySelectorAll(".piece-card button")].find((b) => b.textContent === "Delete" && b.getBoundingClientRect().width > 0);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  });
+  check("4. its card has Delete", !!del);
+  if (del) {
+    await p.waitForTimeout(400);
+    await tapAt(...del);
+  }
+  check("4. Delete on its card takes the signal away", await p.evaluate((at) => !window.woodrail.layout.signalAt(at), line.at));
+  await p.evaluate(() => window.__lineTrains());
+  const without = await p.evaluate(() => window.__lineRun(240));
+  check("4. payoff: with the signal more goods delivered in 4 game minutes than without", withSignal.unloaded > without.unloaded, JSON.stringify({ with: withSignal.unloaded, without: without.unloaded, togetherWithout: without.together }));
+  check("4. without it, never both in the stretch at once", without.together === 0, JSON.stringify(without));
+}
+
+// 7. An old save with a semaphore signal piece (a kit skin, no longer on the tray) loads, and its signal still holds a
+// train (setup: the piece laid and held, and a train put down before it, as the old tray and a tap would; saved by the
+// reload itself, as a player leaving would).
+if (!setup.error) {
+  const old = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { chain } = await import("/src/economy/loop-fixtures.ts");
+    const { appendPiece, connectorRef } = await import("/src/track/layout.ts");
+    const b = w.director.bounds;
+    const first = w.layout.addPiece("straight-216", { x: b.x0 + 260, z: b.z1 - 520, heading: 0 });
+    appendPiece(w.layout, "buffer-turnback", false, connectorRef(first, 0));
+    const ids = [first, ...chain(w.layout, ["straight-216", "kit-semaphore-signal", "straight-216", "straight-216"], connectorRef(first, 1))];
+    appendPiece(w.layout, "buffer-turnback", false, connectorRef(ids[ids.length - 1], 1));
+    const sig = ids[2];
+    w.sim.toggleSignal(sig);
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: first, pathIndex: 0, reversed: false, s: 40 });
+    w.sim.setLever(w.sim.getTrain(r.trainId).cars[0].id, 0);
+    return { sig, held: w.sim.signalHeld(sig) };
+  });
+  check("7. setup: a semaphore signal piece laid and held, a train before it", old.held === true, JSON.stringify(old));
+  await p.reload();
+  await start();
+  const after = await p.evaluate(() => {
+    const w = window.woodrail;
+    const sig = [...w.layout.pieceIds()].find((id) => w.layout.getPiece(id).type === "kit-semaphore-signal");
+    if (sig === undefined) return { error: "no signal piece after the reload" };
+    const t = [...w.sim.trainIds()].map((i) => w.sim.getTrain(i)).find((x) => x.cars.length === 2 && x.cars[0].kind === "engine");
+    if (!t) return { error: "no train" };
+    w.sim.setLever(t.cars[0].id, 1);
+    for (let i = 0; i < 120 * 20; i++) w.sim.tick();
+    return { held: w.sim.signalHeld(sig), stood: t.speed < 1 && w.sim.atRedSignal(t.id), front: t.bogies[0].pieceId, sig };
+  });
+  check("7. an old save's semaphore signal piece loads, held, and holds a train at it", !after.error && after.held && after.stood, JSON.stringify(after));
+}
+
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 console.log(`${failures === 0 ? "ALL PASSED" : `${failures} FAILED`}`);
 await b.close();
