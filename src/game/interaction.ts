@@ -133,10 +133,10 @@ const GRAB_PIECE_MM = 144;
 /** A press on the ground let go within this (ms) is a tap (a long one counts: a slow phone delays the lift). */
 const FLOOR_TAP_MS = 1200;
 /** How far (mm) a picked group's free end reaches for a free end of other track to click onto, and how far off facing. */
-const GROUP_SNAP_REACH = 30;
+const GROUP_SNAP_REACH = SNAP_CAPTURE_RADIUS;
 const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
-/** A ready piece put down with a tap seats on a free track end this far (mm) from the finger (the end itself is track). */
-const TAP_REACH = 80;
+/** A ready piece put down with a tap seats on a free track end this far (mm) from the finger (the end itself is track; was 80). */
+const TAP_REACH = 27;
 /** A clearing sweep looks under the pointer this often along its way (px): a fast sweep doesn't jump a piece. */
 const ERASE_STEP_PX = 8;
 /** …but at most this many looks a move (a raycast each): a far flick on a phone is looked along more sparsely. */
@@ -5282,12 +5282,15 @@ export class Interaction {
     return Math.min(60, a.distanceTo(b));
   }
 
-  /** Snap capture in mm: about 28 screen pixels at the pointer, never less than the physical 30 mm. */
+  /**
+   * Snap capture in mm: about 10 screen pixels at the pointer (was 28), never less than the physical 10 mm (was 30),
+   * at most 40 mm zoomed far out (was 120). Tight, so a piece only jumps onto track dropped close to the joint.
+   */
   private captureRadius(x: number, y: number): number {
     const a = this.groundAt(x, y);
-    const b = this.groundAt(x + 28, y);
+    const b = this.groundAt(x + 10, y);
     if (!a || !b) return SNAP_CAPTURE_RADIUS;
-    return Math.min(120, Math.max(SNAP_CAPTURE_RADIUS, a.distanceTo(b)));
+    return Math.min(40, Math.max(SNAP_CAPTURE_RADIUS, a.distanceTo(b)));
   }
 
   /** Heading (plan) pointing away from the camera, used for new pieces and trains. */

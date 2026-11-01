@@ -137,6 +137,16 @@ describe("the next curve from the tray keeps turning (#8: after one was put down
 });
 
 describe("findSnap", () => {
+  it("snaps only close to the joint: a piece put down freely 20 mm off a free end stays loose (play-test: the pull was 30 mm)", () => {
+    const layout = new Layout();
+    layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 }, 0); // free peg end at x = 216, facing +x
+    expect(findSnap(layout, "straight-216", false, { x: 236, z: 0, heading: 0 }, 0).kind).toBe("none");
+    expect(findSnap(layout, "straight-216", false, { x: 216, z: 20, heading: 0 }, 0).kind).toBe("none");
+    expect(findSnapAtPoint(layout, "straight-216", false, { x: 300, z: 0, heading: 0 }, 0, { x: 216, z: 20 }).kind).toBe("none");
+    // Dropped within a few mm of it, it joins.
+    expect(findSnap(layout, "straight-216", false, { x: 222, z: 5, heading: 0.05 }, 0).kind).toBe("snapped");
+  });
+
   it("snaps a nearby dragged piece exactly onto a free peg", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0));
@@ -429,12 +439,13 @@ describe("findSnapAtPoint", () => {
     layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 }, 0); // free peg end at x = 216, facing +x
     for (const deg of [0, 45, 135, 225, 315]) {
       const held = { x: 300, z: 60, heading: (deg * Math.PI) / 180 };
-      const s = findSnapAhead(layout, "straight-216", false, held, 0, { x: 320, z: 10 });
+      const s = findSnapAhead(layout, "straight-216", false, held, 0, { x: 270, z: 8 });
       expect(s.kind, `${deg}°`).toBe("snapped");
       if (s.kind === "snapped") expect(Math.abs(Math.cos(s.pose.heading))).toBeCloseTo(1, 6);
     }
-    // Not behind the end, nor well off its line, nor further than a piece ahead.
-    for (const point of [{ x: 150, z: 0 }, { x: 320, z: 80 }, { x: 216 + 260, z: 0 }]) {
+    // Not behind the end, nor off its line, nor further than half a short piece ahead (the old, looser reach: 104 ahead,
+    // 10 aside, and 230 ahead, no longer pull a piece put down freely near the end).
+    for (const point of [{ x: 150, z: 0 }, { x: 270, z: 30 }, { x: 320, z: 10 }, { x: 216 + 100, z: 0 }]) {
       expect(findSnapAhead(layout, "straight-216", false, { x: 0, z: 0, heading: 0 }, 0, point).kind, JSON.stringify(point)).toBe("none");
     }
   });
@@ -458,7 +469,7 @@ describe("a train lift held square across a line (QA: dropped loose, held at π 
       [0, -Math.PI / 2],
     ] as const) {
       // Held at π with its low end (connector 0, the pose's origin) a little off the line's end.
-      const s = findSnap(l, LIFT, false, P(10, endZ + 8, Math.PI), 0);
+      const s = findSnap(l, LIFT, false, P(6, endZ + 6, Math.PI), 0);
       expect(s.kind, `end z=${endZ}`).toBe("snapped");
       if (s.kind !== "snapped") continue;
       expect(s.connector).toBe(0);
@@ -483,7 +494,7 @@ describe("a train lift held square across a line (QA: dropped loose, held at π 
     for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
       const at = findSnapAtPoint(l, LIFT, false, P(0, 600, heading), 0, { x: 4, z: 440 });
       expect(at.kind, `at, held ${heading}`).toBe("snapped");
-      const ahead = findSnapAhead(l, LIFT, false, P(0, 600, heading), 0, { x: 10, z: 432 + LEN / 2 });
+      const ahead = findSnapAhead(l, LIFT, false, P(0, 600, heading), 0, { x: 6, z: 432 + 60 });
       expect(ahead.kind, `ahead, held ${heading}`).toBe("snapped");
       if (ahead.kind === "snapped") expect(Math.cos(ahead.pose.heading - Math.PI / 2)).toBeCloseTo(1, 6);
     }

@@ -210,10 +210,10 @@ export function findSnapAtPoint(
   return best.kind === "snapped" ? best : beyond;
 }
 
-/** How far ahead of a free end (mm) a finger still aims a piece onto it: about a long piece's length. */
-export const AHEAD_REACH = 230;
-/** ...and how far to one side of the end's line. */
-export const AHEAD_ACROSS = 45;
+/** How far ahead of a free end (mm) a finger still aims a piece onto it: about half a short piece (was 230). */
+export const AHEAD_REACH = 77;
+/** ...and how far to one side of the end's line (was 45). */
+export const AHEAD_ACROSS = 15;
 
 /**
  * Nothing seats by the held piece's ends or under the finger, but the finger is just ahead of a free end, on its line
