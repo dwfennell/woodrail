@@ -4,7 +4,7 @@ import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, I
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
-import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
+import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
 import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
 
@@ -21,14 +21,15 @@ import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./lan
 import { FEAT_NONE, FEAT_RUIN } from "../landscape";
 
 /**
- * Save format, version 13 (the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
+ * Save format, version 14 (car ids and the sim's id counters, so ids last across a load: older saves load with fresh
+ * ids, as before; 13: the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
  * 12: research, the school a depot beside a town, saved with its town's id; 11: town
  * buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes with a colour and a name). Plain JSON validated with Zod; only this module
  * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
  * never regenerates it. No backward compatibility until the game reaches v1: a save older than `MIGRATES_FROM` is
  * turned away (`OLDER_SAVE`), and the game starts afresh.
  */
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 
 /**
  * The oldest save that still loads. A v12 map is a v13 map (v13 changed only the progress's offers, beside the save:
@@ -53,6 +54,8 @@ const trainSchema = z.object({
   cars: z
     .array(
       z.object({
+        /** Its id (v14; optional: older saves, whose cars get fresh ids). */
+        id: z.number().int().positive().optional(),
         kind: z.enum(CAR_KINDS as unknown as [CarKind, ...CarKind[]]),
         facing: z.union([z.literal(1), z.literal(-1)]),
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
@@ -109,6 +112,8 @@ const saveSchema = z.object({
    */
   wyeLevers: z.literal(3).optional(),
   trains: z.array(trainSchema),
+  /** The sim's next car and train ids (v14; optional: older saves start afresh). */
+  ids: z.object({ car: z.number().int().positive(), train: z.number().int().positive() }).optional(),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(
     z.object({
@@ -241,6 +246,7 @@ export function serializeWorld(world: World): SaveData {
         const look = sim.lookOf(c.id);
         const line = lineSaved.get(c.id);
         return {
+          id: c.id,
           kind: c.kind,
           facing: c.facing,
           lever: c.lever,
@@ -267,6 +273,7 @@ export function serializeWorld(world: World): SaveData {
     ...(defaults ? { switchDefaults: defaults } : {}),
     wyeLevers: 3,
     trains,
+    ids: sim.idCounters(),
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
@@ -457,13 +464,21 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.deliveredGoods.set(townId, goods);
   }
+  // Ids as saved (v14): the counters go on from the save's (and past every saved car's id); a train whose cars all
+  // have ids, none taken, gets them back. Older saves: fresh ids, as before.
+  const used = new Set<number>();
+  let top = 0;
+  for (const t of save.trains) for (const c of t.cars) if (c.id !== undefined) top = Math.max(top, c.id);
+  sim.setIdCounters({ car: Math.max(save.ids?.car ?? 1, top + 1), train: save.ids?.train ?? 1 });
   for (const t of save.trains) {
     const lead = layout.getPiece(t.lead.pieceId);
     if (!lead) continue;
     const path = getPieceDef(lead.type, lead.flipped).paths[t.lead.pathIndex];
     if (!path || t.lead.s < 0 || t.lead.s > pathLength(path.geom)) continue;
-    const placed = putBack(sim, layout, t.cars.map((c) => c.kind), t.lead);
+    const ids = t.cars.every((c) => c.id !== undefined && !used.has(c.id)) && new Set(t.cars.map((c) => c.id)).size === t.cars.length ? t.cars.map((c) => c.id!) : undefined;
+    const placed = sim.putBack(t.cars.map((c) => c.kind), t.lead, ids);
     if (placed.kind !== "placed") continue;
+    if (ids) for (const id of ids) used.add(id);
     const train = sim.getTrain(placed.trainId)!;
     // Running on as it was (only where it was saved: a train put back elsewhere starts at rest).
     if (t.speed && train.bogies[0].pieceId === t.lead.pieceId && Math.abs(train.bogies[0].s - t.lead.s) < 1e-6) train.speed = t.speed;
@@ -508,37 +523,6 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     landscape.siteless = true;
   } else if (save.landscape.sites === undefined) addSitesToOldSave(world);
   return ok(world);
-}
-
-/** How far along the track a saved train may be moved to find room (a few train lengths). */
-const PUT_BACK_REACH = 1200;
-
-/**
- * Put a saved train back where it was; or, when that's taken (a derailed train lying across another after a crash),
- * on the nearest free stretch along the track either way, so a save never loses a train it can fit.
- */
-function putBack(sim: Sim, layout: Layout, kinds: readonly CarKind[], lead: Cursor): AddTrainResult {
-  const placed = sim.addTrain(kinds, lead);
-  if (placed.kind === "placed") return placed;
-  const adv = createAdvance();
-  const ways = [{ ...lead }, { ...lead }];
-  flipCursor(layout, ways[1]);
-  const open = [true, true];
-  for (let moved = 24; moved <= PUT_BACK_REACH; moved += 24) {
-    for (let k = 0; k < 2; k++) {
-      if (!open[k]) continue;
-      advanceCursor(layout, ways[k], 24, null, adv);
-      if (adv.status !== ADV_OK) {
-        open[k] = false;
-        continue;
-      }
-      const at = { ...ways[k] };
-      if (k === 1) flipCursor(layout, at);
-      const r = sim.addTrainAround(kinds, at);
-      if (r.kind === "placed") return r;
-    }
-  }
-  return placed;
 }
 
 /**

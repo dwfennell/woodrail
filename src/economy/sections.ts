@@ -859,14 +859,17 @@ export class Sections {
     if (own) for (const b of own.bogies) under.set(b.pieceId, b.pathIndex);
     let at: { pieceId: number; entry: number } | null = start;
     // A dead end short of `at`: its way cut back clear of switches; what's past where it stands, passed over.
-    const deadEnd = (blockedBy: number): Way => {
+    // (Named: the train given, else one standing on `on` (a train on no line there is the end of the line too), else
+    // the first the line has no room for.)
+    const deadEnd = (blockedBy: number, on: ReadonlySet<number>): Way => {
       const kept = this.shortOfSwitch(steps, own ? trainLength(own) : 0);
+      if (blockedBy === -1) blockedBy = this.standingOn(on, own);
       return { steps: kept, sections, through, dest: DEAD_END, outBy: -1, blockedBy: blockedBy !== -1 ? blockedBy : this.heldOf(info, st.engine), deadEnd: this.beyondOf(at!, steps.slice(kept.length).map((x) => x.pieceId)) };
     };
     for (let k = 0; at && k < SEARCH; k++) {
       // A train with no room standing ahead: a dead end short of it (the rest of the way on, and its stops, passed over).
       if (short?.has(at.pieceId)) {
-        return deadEnd(-1);
+        return deadEnd(-1, new Set([at.pieceId]));
       }
       const slot = topo.slotOf.get(at.pieceId);
       if (slot !== undefined) {
@@ -875,7 +878,7 @@ export class Sections {
           const u = this.slotUser(info, slot, st.engine);
           // (Held there for want of room on the line: it won't move, so the section before it is a dead end, turned
           // back in.)
-          if (u !== -1 && !this.hasRoom(info, u)) return deadEnd(u);
+          if (u !== -1 && !this.hasRoom(info, u)) return deadEnd(u, s.pieces);
           return { steps, sections, through, dest: u === -1 ? slot : -1, outBy: -1, blockedBy: u };
         }
         const loop = topo.loops[s.loop];
@@ -887,7 +890,7 @@ export class Sections {
         if (info.blocked.has(s.loop)) {
           const free = loop.roads.find((r) => !this.heldOnRoad(info, r));
           // (Both roads held: the loop is the end of the line from here, a dead end short of it.)
-          if (free === undefined) return deadEnd(-1);
+          if (free === undefined) return deadEnd(-1, new Set(loop.roads.flatMap((r) => [...topo.slots[r].pieces])));
           const u = this.slotUser(info, free, st.engine);
           if (u !== -1 || !prev) return { steps, sections, through, dest: -1, outBy, blockedBy: u };
           // (A train on no line can't be sent onto the free road: the points lie for the held one's.)
@@ -1196,6 +1199,15 @@ export class Sections {
     // (One the line has no room for is held for that: its card says how many loops to lay.)
     this.hold(st, this.hasRoom(info, st.engine) ? { kind: "slot", engine: way.blockedBy } : this.roomWait(st, info));
     return false;
+  }
+
+  /** The first train standing (not running) with an axle on `pieces`, other than `own`, by its name; −1: none. */
+  private standingOn(pieces: ReadonlySet<number>, own: Train | undefined): number {
+    for (const id of this.sim.trainIds()) {
+      const t = this.sim.getTrain(id);
+      if (t && t !== own && t.speed < 1 && t.bogies.some((b) => pieces.has(b.pieceId))) return nameOf(t);
+    }
+    return -1;
   }
 
   /** The first train of the line it has no room for (other than `engine`), standing on the track; −1: none. */

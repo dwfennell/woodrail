@@ -1208,7 +1208,8 @@ async function wyeLevers(ctx, p, tapOn) {
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
-// follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6).)
+// follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
+// lines' routes kept through track laid at a stop, undo and redo, the stop taken up).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -3113,6 +3114,209 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
   check(`${tag}: loop laid, both run, pass at the loop and deliver logs to the sawmill (none stuck)`, after.run.goods >= 4 && setup.E.every((e) => (after.run.at[e] ?? 0) >= 1) && after.held.every((h) => !h) && after.stuck === 0, JSON.stringify(after));
 }
 
+/**
+ * Route keep (the user: a planks train found with no route after a loop was laid at the end of its line, two routed
+ * lines sharing the track). Two lines' trains, Red and Blue, both forest → sawmill over one passing loop, the sawmill
+ * at the line's open end. The player lays a straight on at the sawmill's end from the tray (by touch), then taps Undo,
+ * then redoes it (Ctrl+Shift+Z: Redo is a wide-screen button): both trains keep their lines and both stops. The
+ * sawmill taken up, its train's card says so by name ("Sawmill was taken up, so it's off the route"), never a "?";
+ * Undo brings it back. Payoff: both trains go on delivering logs to the sawmill.
+ */
+async function routeKeep(ctx, p, tapSel) {
+  await p.keyboard.press("Escape");
+  await p.setViewportSize({ width: 360, height: 740 });
+  await frames(p);
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
+    const { loopOn } = await import("/src/economy/loop-fixtures.ts");
+    const { editLine } = await import("/src/game/lines.ts");
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const { checkPlacement } = await import("/src/landscape/clearance.ts");
+    // Harness shortcut (setup, not what's tested): the line worked out on a scratch layout and laid in one go, as the
+    // player's pieces would be; the straight past the sawmill (`more`) is the one the player lays below.
+    // (The straight the player lays (`more`) is on the loop's other road, next to the sawmill there: as in stuck's
+    // run, the line lies mostly past the land's edge with that road on the land.)
+    const L = new Layout();
+    const a = L.addPiece("depot-forest", { x: 0, z: 0, heading: 0 });
+    appendPiece(L, "buffer-turnback", false, connectorRef(a, 0));
+    const chain = (n, from) => { const ids = []; for (let k = 0; k < n; k++) { ids.push(appendPiece(L, "straight-216", false, from)); from = connectorRef(ids[k], 1); } return ids; };
+    const west = chain(2, connectorRef(a, 1));
+    const loop = loopOn(L, connectorRef(west[1], 1), ["straight-216", "straight-216", "straight-216"], ["straight-216", "depot-sawmill"]);
+    const east = chain(2, connectorRef(loop.s2, 0));
+    appendPiece(L, "buffer-turnback", false, connectorRef(east[1], 1));
+    const more = loop.side[1];
+    const b = loop.side[2];
+    let g = null;
+    let turn = 0;
+    const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
+    for (let k = 0; k < 4 && !g; k++) {
+      turn = (k * Math.PI) / 2;
+      const pts = (id) => { const q = turned(L.getPiece(id).pose, turn); return [0, 54, 108, 162, 216].map((d) => [q.x + d * Math.cos(q.heading), q.z + d * Math.sin(q.heading)]); };
+      const ok = (x, z) =>
+        [...L.pieceIds()].every((id) => {
+          const q = L.getPiece(id);
+          const t = turned(q.pose, turn);
+          const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
+          return c.kind === "clear" || (id !== more && c.reason === "off-mat");
+        });
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more), ok });
+    }
+    if (!g) {
+      // (Why not, for the record: with only the clear points, then the land too.)
+      const pts = (id) => { const q = L.getPiece(id).pose; return [0, 54, 108, 162, 216].map((d) => [q.x + d * Math.cos(q.heading), q.z + d * Math.sin(q.heading)]); };
+      const a1 = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350 });
+      const a2 = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more) });
+      throw new Error(`no open ground for the line, its piece by the sawmill on the land (${JSON.stringify({ a1, a2, bounds: w.director.bounds })})`);
+    }
+    const scratch = [...L.pieceIds()].filter((id) => id !== more);
+    const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
+    const run = w.editor().placeRun(scratch.map((id) => { const q = L.getPiece(id); return { type: q.type, pose: at(q.pose), y: 0, flipped: q.flipped }; }));
+    const real = (id) => run[scratch.indexOf(id)];
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const forest = depot(real(a), "forest");
+    const sawmill = depot(real(b), "sawmill");
+    // Harness shortcut (setup): the two trains put down and each given its line in code, as the tray and "Plan a
+    // route" would (the routes check taps that path).
+    const put = (piece, s, reversed, next) => {
+      const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: real(piece), pathIndex: 0, reversed, s });
+      if (r.kind !== "placed") throw new Error("no room for a train");
+      const e = w.sim.getTrain(r.trainId).cars[0].id;
+      w.sim.setLever(e, 1);
+      editLine(w.economy, e, (st) => st.push({ depotId: forest.id, action: "auto" }, { depotId: sawmill.id, action: "auto" }));
+      w.economy.routeOf(e).next = next;
+      return e;
+    };
+    // (One each end of the line: the sawmill is reached from the east end till the loop is whole, then either way.)
+    const E = [put(west[0], 200, false, 1), put(east[0], 200, true, 0)];
+    // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's
+    // few frames a second; the forest kept stocked (its logs aren't what's tested).
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    window.__keepRun = (secs) => {
+      let goods = 0;
+      const came = {};
+      const was = {};
+      for (let i = 0; i < secs * 120; i++) {
+        const f = w.economy.depot(forest.id);
+        if (f && i % 120 === 0) f.piles[CARGO.log.index] = PILE_CAP;
+        w.sim.tick();
+        w.economy.tick();
+        for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === sawmill.id) goods++;
+        for (const e of E) {
+          const r = w.economy.routeOf(e);
+          const here = !!r?.at && r.stops[r.next % r.stops.length]?.depotId === sawmill.id;
+          if (here && !was[e]) came[e] = (came[e] ?? 0) + 1;
+          was[e] = here;
+        }
+      }
+      w.invalidate();
+      return { goods, came };
+    };
+    // Both trains on their lines, each with both its stops.
+    window.__keepLines = () => E.map((e) => { const id = w.economy.lineIdOf.get(e); const l = w.economy.lines.get(id); return `${l?.name ?? "none"}:${w.economy.routeOf(e)?.stops.length ?? 0}`; });
+    window.__keepRun(20);
+    const q = at(L.getPiece(more).pose);
+    const mid = { x: q.x + Math.cos(q.heading) * 108, z: q.z + Math.sin(q.heading) * 108 };
+    w.director.glideTo(w.controls.target.clone().set(mid.x, 0, mid.z), frameDistance(1400, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    return { E, mid, sawmill: sawmill.id, sawmillPiece: real(b) };
+  });
+  const lines0 = await p.evaluate(() => window.__keepLines());
+  // The player lays the straight on at the sawmill's open end: dragged out of the Straight shelf by touch (as stuck's
+  // missing straight), held its lift above the finger, nudged by what's seen till it seats there.
+  const cdp = await ctx.newCDPSession(p);
+  let stamp = Date.now() / 1000;
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp += 0.016) });
+  if (!(await p.evaluate(() => !!document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]')))) {
+    if (await p.evaluate(() => !document.querySelector(".scroller .tray-group") && !!document.querySelector(".scroller .tray-back"))) {
+      await tapSel(".scroller .tray-back");
+      await p.waitForFunction(() => document.querySelector(".scroller .tray-group") !== null, null, { timeout: 10000 });
+    }
+    const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Straight"));
+    await tapSel(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  }
+  const item = await p.evaluate(() => {
+    const e = document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]');
+    if (!e) return null;
+    e.scrollIntoView({ inline: "center" });
+    const r = e.getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  });
+  if (!item) throw new Error("no straight-216 in the Straight shelf");
+  await p.evaluate((m) => {
+    const w = window.woodrail;
+    w.paused = true;
+    w.director.glideTo(w.controls.target.clone().set(m.x, 0, m.z), 1200, { duration: 0.2 });
+  }, setup.mid);
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+  await frames(p);
+  const target = await p.evaluate((m) => {
+    const w = window.woodrail;
+    const c = new w.camera.position.constructor(m.x, 0, m.z).project(w.camera);
+    return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight + 56];
+  }, setup.mid);
+  const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
+  await touch("touchStart", item[0], item[1]);
+  for (let k = 1; k <= 20; k++) await touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 20, item[1] + ((target[1] - item[1]) * k) / 20);
+  let finger = [...target];
+  for (let k = 0; k < 10; k++) {
+    await touch("touchMove", finger[0], finger[1]);
+    await frames(p);
+    const holding = await p.evaluate((m) => {
+      const w = window.woodrail;
+      const mode = w.interaction.mode;
+      if (!mode.pose) return { mode: mode.kind };
+      const q = mode.pose;
+      const c = { x: q.x + 108 * Math.cos(q.heading), z: q.z + 108 * Math.sin(q.heading) };
+      const px = (v) => { const r = new w.camera.position.constructor(v.x, 0, v.z).project(w.camera); return [((r.x + 1) / 2) * innerWidth, ((1 - r.y) / 2) * innerHeight]; };
+      return { snap: mode.snap?.kind ?? null, off: Math.hypot(c.x - m.x, c.z - m.z), ghost: px(c), gap: px(m) };
+    }, setup.mid);
+    if (!holding.ghost) break;
+    if (holding.snap === "snapped" && holding.off < 5) break;
+    finger = [finger[0] + holding.gap[0] - holding.ghost[0], finger[1] + holding.gap[1] - holding.ghost[1]];
+  }
+  await touch("touchEnd", 0, 0);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await frames(p);
+  const laid = await p.evaluate(({ sawmillPiece }) => ({ pieces: window.woodrail.layout.pieceCount, joined: [0, 1].every((c) => window.woodrail.layout.joinedConnector(sawmillPiece * 8 + c) !== -1), lines: window.__keepLines() }), setup);
+  check("route-keep: a straight laid from the tray next to the sawmill (the line's stop, its way in): both trains keep their lines and stops", laid.pieces === before + 1 && laid.joined && JSON.stringify(laid.lines) === JSON.stringify(lines0) && lines0.every((l) => /line:2$/.test(l)), JSON.stringify({ before, lines0, ...laid }));
+  // Undo (the HUD's button, tapped), then redo (Ctrl+Shift+Z).
+  const { tapButton, tapOn } = mapHelpers(p);
+  await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
+  await frames(p);
+  const undone = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, lines: window.__keepLines() }));
+  await p.keyboard.press("Control+Shift+z");
+  await frames(p);
+  const redone = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, lines: window.__keepLines() }));
+  check("route-keep: undone and redone, both trains keep their lines and stops", undone.pieces === before && redone.pieces === before + 1 && [undone.lines, redone.lines].every((l) => JSON.stringify(l) === JSON.stringify(lines0)), JSON.stringify({ undone, redone, lines0 }));
+  // The sawmill taken up (harness shortcut: the eraser's own command, `Editor.remove`, once no train is on it): its
+  // stop stays on the line, and the card says so by name; Undo (tapped) brings it back.
+  const off = await p.evaluate(({ sawmillPiece }) => {
+    const w = window.woodrail;
+    for (let k = 0; k < 120 && w.sim.pieceOccupied(sawmillPiece); k++) window.__keepRun(0.5);
+    return w.editor().remove(sawmillPiece);
+  }, setup);
+  await tapOn({ engine: setup.E[0] });
+  await p.waitForFunction(() => !!document.querySelector(".engine-card .route-lost"), null, { timeout: 30000 }).catch(() => {});
+  const card = await p.evaluate(() => ({
+    lost: [...document.querySelectorAll(".engine-card .route-lost")].map((e) => e.textContent),
+    chips: [...document.querySelectorAll(".engine-card .route-chip")].map((e) => e.textContent),
+    lines: window.__keepLines(),
+  }));
+  check("route-keep: the sawmill taken up, the card says so by name, the stop kept (no \"?\")", off && card.lost.length === 1 && card.lost[0] === "Sawmill was taken up, so it's off the route" && card.chips.length === 2 && card.chips.every((c) => !c.includes("?")) && JSON.stringify(card.lines) === JSON.stringify(lines0), JSON.stringify({ off, ...card }));
+  await p.keyboard.press("Escape");
+  await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
+  await frames(p);
+  const after = await p.evaluate(({ sawmillPiece }) => {
+    const w = window.woodrail;
+    w.paused = false;
+    const back = !!w.layout.getPiece(sawmillPiece);
+    const run = window.__keepRun(240);
+    return { back, run, lines: window.__keepLines() };
+  }, setup);
+  check("route-keep: Undo brings the sawmill back; both trains run on, both lines delivering logs to the sawmill", after.back && after.run.goods >= 4 && setup.E.every((e) => (after.run.came[e] ?? 0) >= 1) && JSON.stringify(after.lines) === JSON.stringify(lines0), JSON.stringify(after));
+}
+
 async function runMode(mode) {
   const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -3186,7 +3390,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

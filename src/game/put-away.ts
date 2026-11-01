@@ -1,6 +1,6 @@
 import type { CargoKind, Economy } from "../economy";
 import type { CarKind, CarLook, Cursor, Sim } from "../sim";
-import { joinLine } from "./lines";
+import { joinLine, startLine } from "./lines";
 
 /** A train taken off the map into the box, as it was: enough to put it back (undo). */
 export interface PutAway {
@@ -24,6 +24,9 @@ export function putAway(sim: Sim, economy: Economy, engine: number): PutAway | n
   });
   const at: Cursor = { ...t.bogies[0] };
   const lineId = economy.lineIdOf.get(engine);
+  // (Its line as it was: if it was the line's last train, the line goes with it (`prune`), and comes back with it.)
+  const was = lineId === undefined ? undefined : economy.lines.get(lineId);
+  const line = was && { id: was.id, colour: was.colour, name: was.name, stops: was.stops.map((s) => ({ ...s })) };
   const next = economy.routeOf(engine)?.next ?? 0;
   sim.removeTrain(t.id);
   economy.prune();
@@ -47,7 +50,15 @@ export function putAway(sim: Sim, economy: Economy, engine: number): PutAway | n
         const cargo = cars[i].cargo;
         if (cargo) economy.setCargo(car.id, cargo.kind, cargo.count);
       });
-      if (lineId !== undefined && joinLine(economy, engine, lineId)) {
+      // Back on its line (the same line, edited meanwhile or not); gone (it was its last train), the line comes back as
+      // it was, under a new id if another line has taken its own.
+      if (was && economy.lines.get(was.id) === was) joinLine(economy, engine, was.id);
+      else if (line) {
+        const stops = line.stops.filter((s) => economy.depot(s.depotId));
+        const id = economy.lines.has(line.id) ? Math.max(...economy.lines.keys()) + 1 : line.id;
+        if (stops.length > 0) economy.lines.get(startLine(economy, engine, stops, id, line).id)!.name = line.name;
+      }
+      if (line && economy.lineIdOf.get(engine) !== undefined) {
         const route = economy.routeOf(engine);
         if (route && route.stops.length > 0) route.next = next % route.stops.length;
       }

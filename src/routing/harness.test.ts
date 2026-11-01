@@ -98,6 +98,12 @@ const OTHERS: Case[] = [
       "the follower waited at its slot's end, held by sections": (r: Report) => expect(r.held[1]).toBeGreaterThan(0),
     },
   },
+  // (Route keep: the user's follower through points set for the train ahead, with a stop right before them, as a loop
+  // laid at the end of a line puts them. At a stop, a train is heading for the one after: it asks for the points as it
+  // leaves, and waits for them while they're set for the train ahead. Before: wrong road, alone or following.)
+  { scenario: S.stopBeforePoints(false), checks: { "payoff: at both its stops": arrivals(1) } },
+  { scenario: S.stopBeforePoints(true), checks: { "payoff: both at their stops": arrivals(1) } },
+  { scenario: S.stopBeforePoints(true, true), checks: { "payoff: the routed one at its stops": (r) => expect(r.arrivals[1]).toBeGreaterThanOrEqual(1) } },
   {
     scenario: S.twoRoadsOneSwitch,
     checks: {
@@ -331,6 +337,34 @@ describe("the checks catch what they're for (controls)", () => {
   });
 });
 
+describe("stalls", () => {
+  it("a train put away: stalls drop it at once, so no card names it as in the way (they look every 30 ticks)", () => {
+    // (Two single-train lines nose to nose, each said stuck in the other's way; one put away mid-look.)
+    let before: string | undefined;
+    let after: unknown = "not run";
+    const scenario: Scenario = {
+      ...S.headOnTwoLines,
+      seconds: 70,
+      build: (layout) => ({
+        ...S.headOnTwoLines.build(layout),
+        events: [
+          {
+            when: (run) => run.sim.ticks >= 60 * SIM_HZ && run.sim.ticks % 30 === 7,
+            do: (run) => {
+              before = run.stalls.stuckOf(run.engines[1])?.kind;
+              run.putAway(0);
+              after = run.stalls.stuckOf(run.engines[1]);
+            },
+          },
+        ],
+      }),
+    };
+    runScenario(new Layout(), scenario);
+    expect(before).toBe("in-way");
+    expect(after).toBeNull();
+  });
+});
+
 describe("every expected failure names a step", () => {
   it("and names a check the case has", () => {
     for (const c of [...KID, ...OTHERS, ...SHARED, ...FORWARD]) {
@@ -407,6 +441,24 @@ describe("step 7: hand-run trains respect locks", () => {
     // (§16 Q6: the points moved for the routed train and back, never for the hand-run one.)
     expect(r.throws).toBe(2);
     expect(r.turns[1]).toEqual({ buffer: 0, "open-end": 0 });
+  });
+
+  it("a hand-run train close behind a routed one never follows it over points set for it: it goes the player's way", () => {
+    const h = S.handFollower();
+    const run = new HarnessRun(new Layout(), h.scenario);
+    const j = h.j();
+    const hand = run.engines[1];
+    let onX = false;
+    for (let k = 0; k < 30 * SIM_HZ; k++) {
+      run.run(1 / SIM_HZ);
+      const H = run.sim.findCar(hand)!.train;
+      // (Never on the points while they're set for P, the routed one's road.)
+      if (H.bogies.some((b) => b.pieceId === j.sw)) expect(run.layout.switchState(j.sw)).toBe(run.defaultOf(j.sw));
+      if (H.bogies.some((b) => b.pieceId === j.p)) throw new Error("the hand-run train followed onto P's road");
+      onX ||= H.bogies[0].pieceId === j.x;
+    }
+    expect(onX).toBe(true);
+    noBreaks(run.run(0));
   });
 
   it("§16 Q5: waits as long as the train holding the points does (40 s), never turning back; said stuck while it's parked", () => {

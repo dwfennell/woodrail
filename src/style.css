@@ -930,6 +930,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-goods { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; }
 /* (Its ⬆ and ⬇ say what Only drop or Only pick up does: the chip's own arrow would sit on a line of its own.) */
 .route-chip.has-goods[data-intent]::after { content: none; }
+.route-chip.lost { opacity: 0.55; text-decoration: line-through; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
 .route-chip[data-intent="drop"]::after { content: " ↓"; opacity: 0.7; }
 .route-chip[data-intent="pick"]::after { content: " ↑"; opacity: 0.7; }

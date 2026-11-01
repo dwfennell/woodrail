@@ -43,3 +43,17 @@ export function nextStop(stops: readonly RouteStop[], depotId: number): number {
   const i = stops.findIndex((s) => s.depotId === depotId);
   return stops[(i + 1) % stops.length].depotId;
 }
+
+/**
+ * A stop whose depot isn't on the map now (its piece taken up), as the engine card names it: by its kind or town
+ * (no number: it's not among the stops to pick), "A stop" when unknown.
+ */
+export function lostStopName(w: Pick<World, "landscape" | "economy">, depotId: number): string {
+  const d = w.economy.depot(depotId);
+  return (d && depotName(w, d)) || "A stop";
+}
+
+/** What the engine card says of a stop taken up: the train runs on past it till it's back (undo) or taken off. */
+export function lostStopWords(name: string): string {
+  return `${name} was taken up, so it's off the route`;
+}
