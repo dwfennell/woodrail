@@ -9,9 +9,9 @@
  *   through its stops, and turns back only where the track ends.
  * - **Lines:** trains given the same `line` share one (sections manage a line of two or more, as in the game).
  * - **Speed cap:** sections' only (no depot or kit stops).
- * - **A save round-trip:** a new `Sim` on the same layout with each train put back where it stood (new car ids, as a load
- *   gives), and new `Sections` and `Router` with the lines' places restored (`savedPlace`/`restorePlace`), as
- *   `deserializeWorld` does.
+ * - **A save round-trip:** a new `Sim` on the same layout with each train put back where it stood (its car ids and the
+ *   sim's id counters kept, as a v14 load does), and new `Sections` and `Router` with the lines' places restored
+ *   (`savedPlace`/`restorePlace`), as `deserializeWorld` does.
  */
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
 import type { Layout } from "../track";
@@ -148,7 +148,7 @@ export class HarnessRun implements InvariantWorld {
   sections!: Sections;
   router!: Router;
   stalls!: Stalls;
-  /** Engine car ids by train (in `trains` order); they change on a save round-trip, as a load's do. */
+  /** Engine car ids by train (in `trains` order); a save round-trip keeps them, as a load does (save v14). */
   readonly engines: number[] = [];
   /** Routes by engine (in the order they were set: the router steers in this order, as the economy's routes). */
   routes = new Map<number, RouteState>();
@@ -366,22 +366,24 @@ export class HarnessRun implements InvariantWorld {
     this.sim.trackChanged();
   }
 
-  /** Saved and loaded: every train put back where it stood on a new sim (new car ids), routing and sections afresh. */
+  /** Saved and loaded: every train put back where it stood on a new sim (ids kept), routing and sections afresh. */
   saveAndLoad(): void {
     const old = this.sim;
     // (The points' defaults go through the save as the game's do: only those that differ from how the points lie.)
     const defaults = this.router.save();
     const saved = this.engines.map((engine) => {
       const t = old.findCar(engine)?.train;
-      return t && !t.derailed ? { kinds: t.cars.map((c) => c.kind), lead: { ...t.bogies[0] }, facing: t.cars.map((c) => c.facing), levers: t.cars.map((c) => c.lever), speed: t.speed, place: this.sections.savedPlace(engine) } : null;
+      return t && !t.derailed ? { kinds: t.cars.map((c) => c.kind), ids: t.cars.map((c) => c.id), lead: { ...t.bogies[0] }, facing: t.cars.map((c) => c.facing), levers: t.cars.map((c) => c.lever), speed: t.speed, place: this.sections.savedPlace(engine) } : null;
     });
+    const counters = old.idCounters();
     this.sim = new Sim(this.layout);
+    this.sim.setIdCounters(counters);
     const routes = new Map<number, RouteState>();
     const lines = new Map<number, number>();
-    const renamed = new Map<number, number>();
+    const back = new Set<number>();
     saved.forEach((s, k) => {
       if (!s) return;
-      const placed = this.sim.addTrain(s.kinds, s.lead);
+      const placed = this.sim.addTrain(s.kinds, s.lead, s.ids);
       if (placed.kind !== "placed") throw new Error("a saved train didn't fit back");
       const t = this.sim.getTrain(placed.trainId)!;
       if (t.bogies[0].pieceId === s.lead.pieceId && Math.abs(t.bogies[0].s - s.lead.s) < 1e-6) t.speed = s.speed;
@@ -389,14 +391,12 @@ export class HarnessRun implements InvariantWorld {
         if (s.facing[i] === -1) this.sim.flipCar(car.id);
         if (car.kind === "engine") this.sim.setLever(car.id, s.levers[i]);
       });
-      const engine = t.cars[0].id;
-      renamed.set(this.engines[k], engine);
-      this.engines[k] = engine;
+      back.add(this.engines[k]);
       this.checks.forget(k);
       this.lastTurn[k] = -1;
     });
-    for (const [engine, r] of this.routes) if (renamed.has(engine)) routes.set(renamed.get(engine)!, r);
-    for (const [engine, id] of this.lineOf) if (renamed.has(engine)) lines.set(renamed.get(engine)!, id);
+    for (const [engine, r] of this.routes) if (back.has(engine)) routes.set(engine, r);
+    for (const [engine, id] of this.lineOf) if (back.has(engine)) lines.set(engine, id);
     this.routes = routes;
     this.lineOf = lines;
     this.report.stalls.begun += this.stalls.begun;
