@@ -76,11 +76,14 @@ export interface WebLayout {
 
 /** Tag size and spacing on the web (px). */
 export const TAG_W = 148;
+/** A "?" (not found yet) is a small token, not a full tag: there are many of them and they say little. */
+export const HINT_W = 44;
 const COL_W = 176;
-const ROW_H = 62;
-const BAND_PAD = 10;
-const LABEL_W = 92;
-
+const ROW_H = 60;
+const BAND_PAD = 8;
+/** Each band's name sits in a strip above its tags (sticky as the web scrolls), never over them. */
+const BAND_HEAD = 30;
+const LEFT = 14;
 /**
  * Lay out the web: each blueprint one column right of its furthest prerequisite (among those drawn), each branch a band
  * across the web, and within a band's column the tags ordered by where their prerequisites sit (a few sweeps), so lines
@@ -117,11 +120,11 @@ export function layoutWeb(stations: readonly Station[], branches: readonly strin
       let rows = 0;
       for (let c = 1; c <= cols; c++) {
         const list = cells.get(`${b}:${c}`) ?? [];
-        list.forEach((s, r) => y.set(s.id, top + BAND_PAD + r * ROW_H));
+        list.forEach((s, r) => y.set(s.id, top + BAND_HEAD + r * ROW_H));
         rows = Math.max(rows, list.length);
       }
       if (rows === 0) continue;
-      const h = BAND_PAD * 2 + rows * ROW_H;
+      const h = BAND_HEAD + BAND_PAD + rows * ROW_H;
       bands.push({ id: b, top, height: h });
       top += h;
     }
@@ -142,8 +145,86 @@ export function layoutWeb(stations: readonly Station[], branches: readonly strin
     }
     place();
   }
-  const at = new Map(stations.map((s) => [s.id, { x: LABEL_W + (depth.get(s.id)! - 1) * COL_W, y: y.get(s.id)! }]));
-  return { at, bands, width: LABEL_W + (cols - 1) * COL_W + TAG_W + 12, height };
+  const at = new Map(stations.map((s) => [s.id, { x: LEFT + (depth.get(s.id)! - 1) * COL_W, y: y.get(s.id)! }]));
+  return { at, bands, width: LEFT + (cols - 1) * COL_W + TAG_W + LEFT, height };
+}
+
+/** One arrow on the web: from a tag's right edge to another's left, at their middles. */
+export interface WebLink {
+  from: string;
+  to: string;
+  /** The width of the tag it leaves (a "?" is narrower). */
+  fromW: number;
+}
+
+/**
+ * The arrows' paths, laid like track: straight out of a tag, one turn down or up in the gap between columns, straight
+ * in. Arrows leaving different tags into the same gap get lanes of their own, so they never run on top of each other,
+ * and one that spans more than a column runs its long straight along whichever row is clear of tags (its own or its
+ * end's), not through them. Pure, worked out once per redraw of the web.
+ */
+export function routeLinks(web: WebLayout, links: readonly WebLink[]): string[] {
+  const MID = 22;
+  const colOf = (x: number) => Math.round((x - LEFT) / COL_W);
+  // The tags in each column, by their top (for "is this row clear").
+  const cols = new Map<number, number[]>();
+  for (const p of web.at.values()) cols.set(colOf(p.x), [...(cols.get(colOf(p.x)) ?? []), p.y]);
+  const clear = (c0: number, c1: number, y: number) => {
+    for (let c = c0; c <= c1; c++) if ((cols.get(c) ?? []).some((t) => y > t - 6 && y < t + 50)) return false;
+    return true;
+  };
+  // Each arrow's turns: in the gap before its end (its straight at its start's row), or after its start (the straight at
+  // its end's row), whichever row is clear of cards; if neither is, down into the gutter under its start's row, along
+  // it, and up in the gap before its end.
+  const plan = links.map((l) => {
+    const a = web.at.get(l.from)!, b = web.at.get(l.to)!;
+    const ca = colOf(a.x), cb = colOf(b.x);
+    const y0 = a.y + MID, y1 = b.y + MID;
+    const near = cb - ca <= 1;
+    const turns: { gap: number; y: number }[] =
+      near || clear(ca + 1, cb - 1, y0) ? (Math.abs(y1 - y0) < 1 ? [] : [{ gap: cb - 1, y: y1 }])
+      : clear(ca + 1, cb - 1, y1) ? [{ gap: ca, y: y1 }]
+      : [{ gap: ca, y: a.y + ROW_H - 7 }, { gap: cb - 1, y: y1 }];
+    return { l, a, b, y0, y1, turns };
+  });
+  const lanes = new Map<number, string[]>();
+  for (const p of plan)
+    for (const t of p.turns) {
+      const list = lanes.get(t.gap) ?? [];
+      if (!list.includes(p.l.from)) list.push(p.l.from);
+      lanes.set(t.gap, list);
+    }
+  for (const list of lanes.values()) list.sort((u, v) => web.at.get(u)!.y - web.at.get(v)!.y);
+  const GAP = COL_W - TAG_W;
+  const laneX = (gap: number, from: string) => {
+    const list = lanes.get(gap)!;
+    const k = list.indexOf(from), n = list.length;
+    return LEFT + gap * COL_W + TAG_W + GAP / 2 + (n > 1 ? (k - (n - 1) / 2) * Math.min(6, (GAP - 8) / (n - 1)) : 0);
+  };
+  return plan.map(({ l, a, b, y0, turns }) => {
+    // The corners: out along the start's row, then for each turn across to its lane and down (or up) to its row.
+    const pts: [number, number][] = [[a.x + l.fromW, y0]];
+    for (const t of turns) {
+      const x = laneX(t.gap, l.from);
+      pts.push([x, pts[pts.length - 1][1]], [x, t.y]);
+    }
+    pts.push([b.x - 2, pts[pts.length - 1][1]]);
+    return rounded(pts);
+  });
+}
+
+/** A path through right-angled corners, each rounded (up to 8 px, less where the runs are short). */
+function rounded(pts: [number, number][]): string {
+  let d = `M${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [px, py] = pts[i - 1], [x, y] = pts[i], [nx, ny] = pts[i + 1];
+    const r = Math.min(8, Math.hypot(x - px, y - py) / 2, Math.hypot(nx - x, ny - y) / 2);
+    if (r < 0.5) continue;
+    const ux = Math.sign(x - px), uy = Math.sign(y - py), vx = Math.sign(nx - x), vy = Math.sign(ny - y);
+    d += ` ${uy === 0 ? "H" : "V"}${uy === 0 ? x - ux * r : y - uy * r} Q${x} ${y} ${x + vx * r} ${y + vy * r}`;
+  }
+  const [lx, ly] = pts[pts.length - 1], [qx] = pts[pts.length - 2];
+  return d + (lx !== qx ? ` H${lx}` : ` V${ly}`);
 }
 
 const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -156,13 +237,19 @@ const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
  * beyond that nothing yet. Tapping a tag opens its ticket: what it brings, its goods and study time, what it needs, and
  * one button (Research, or Next up). Rebuilt only when what it shows changed.
  */
-/** The small tag on a card in the web, by its state. */
+/**
+ * The small tag on a card in the web, by its state: every card not learned has one, in the same slot (its price while
+ * it can be or will be researched, else where it stands).
+ */
 const NODE_TAG: Partial<Record<CardState, (s: Station) => string>> = {
   researching: () => `<span class="bp-tag now">📘 Researching</span>`,
   next: (s) => `<span class="bp-tag next">${s.queued && s.queued > 1 ? `In line: ${s.queued}` : "Next up"}</span>`,
-  ready: (s) => `<span class="bp-tag">${esc(s.price)}</span>`,
+  ready: (s) => `<span class="bp-tag price">${esc(s.price)}</span>`,
+  locked: (s) => `<span class="bp-tag price later">${esc(s.price)}</span>`,
   soon: () => `<span class="bp-tag soon">Soon</span>`,
 };
+/** How a card stands, in words, for a screen reader (its tag and dot say it on screen). */
+const STATE_WORDS: Record<CardState, string> = { learned: "learned", researching: "researching now", next: "in the queue", ready: "can research", locked: "later", soon: "coming soon" };
 
 /** A tag's tooltip (a hover on desktop; a tap opens its ticket, which says the same): "Mills. Unlocks: Mill. Costs: 6 🌾 grain, 40 🪙 coins". */
 export const tagTitle = (s: Pick<Station, "label" | "unlocks" | "cost">): string => `${s.label}.${s.unlocks ? ` Unlocks: ${s.unlocks}.` : ""} Costs: ${s.cost}`;
@@ -202,11 +289,12 @@ export class BlueprintBoard {
     this.root.hidden = true;
     const head = document.createElement("div");
     head.className = "board-head";
-    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one, or line up a few; trains bring the goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary><div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key researching"></span>Researching<span class="bp-key next"></span>In queue<span class="bp-key ready"></span>Can research<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Soon<span class="bp-key hint">?</span>Not found yet</div></details>`;
+    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one, or line up a few; trains bring the goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary><div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key researching"></span>Researching<span class="bp-key next"></span>Next up<span class="bp-key ready"></span>Can research<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Soon<span class="bp-key hint">?</span>Not found yet</div></details>`;
     const close = document.createElement("button");
     close.className = "close";
     close.textContent = "✕";
     close.title = "Close";
+    close.setAttribute("aria-label", "Close research");
     close.addEventListener("click", (e) => {
       e.stopPropagation();
       handlers.close();
@@ -286,6 +374,17 @@ export class BlueprintBoard {
     if (key === this.shownKey) return;
     this.shownKey = key;
     this.view = v;
+    // What was learned since the board last showed (open, or the next time it opens): stamped in once (`render`). Not
+    // on the first showing, nor for a handful at once (a save loaded, not a research finished).
+    const learned = new Set(v.stations.filter((s) => s.state === "learned").map((s) => s.id));
+    if (this.learnedSeen) {
+      const fresh = [...learned].filter((id) => !this.learnedSeen!.has(id));
+      if (fresh.length > 0 && fresh.length <= 2) {
+        this.fresh = new Set(fresh);
+        this.freshUntil = performance.now() + 1500;
+      }
+    }
+    this.learnedSeen = learned;
     const was = this.selected;
     // Keep the ticket that's showing; else open on the goal's research, or the one under way, or one to pick.
     const shown = v.stations.filter((s) => s.seen === "shown");
@@ -302,6 +401,10 @@ export class BlueprintBoard {
   }
   /** What the web was last drawn from (see `show`). */
   private webKey = "";
+  /** Learned blueprints as last shown, and the ones just learned (stamped in until `freshUntil`). */
+  private learnedSeen: Set<string> | null = null;
+  private fresh = new Set<string>();
+  private freshUntil = 0;
 
   private render(): void {
     const v = this.view;
@@ -317,58 +420,89 @@ export class BlueprintBoard {
     };
     back(this.selected);
     for (const s of drawn) if (s.needs.includes(this.selected)) path.add(s.id);
+    // Just learned (`show`): its dot is stamped and the track to what it opens is laid, once.
+    const fresh = performance.now() < this.freshUntil ? this.fresh : new Set<string>();
 
-    let html = "";
-    let svg = `<defs><marker id="bp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>`;
+    const hintOf = (s: Station) => s.seen === "hint";
+    const links: (WebLink & { cls: string; color: string })[] = [];
     for (const s of drawn) {
-      const to = web.at.get(s.id)!;
       for (const n of s.needs) {
-        const from = web.at.get(n);
-        if (!from) continue;
-        const cross = byId.get(n)!.branch !== s.branch;
+        const from = byId.get(n);
+        if (!from || !web.at.has(n)) continue;
+        const cross = from.branch !== s.branch;
         const lit = path.has(s.id) && path.has(n);
-        // Within a branch, always drawn; across branches, only on the selected path (the ticket names the rest).
-        if (cross && !lit) continue;
-        const x0 = from.x + TAG_W, y0 = from.y + 22, x1 = to.x - 2, y1 = to.y + 22, dx = Math.max(18, (x1 - x0) / 2);
-        const cls = `bp-link${lit ? " lit" : ""}${byId.get(n)!.state === "learned" ? " laid" : ""}`;
-        svg += `<path class="${cls}" style="stroke:${color.get(byId.get(n)!.branch)}" marker-end="url(#bp-arrow)" d="M${x0} ${y0} C${x0 + dx} ${y0} ${x1 - dx} ${y1} ${x1} ${y1}"/>`;
+        // Within a branch, always drawn; across branches, only on the selected path (the ticket names the rest). One
+        // "?" to another says nothing: not drawn.
+        if ((cross && !lit) || (hintOf(from) && hintOf(s) && !lit)) continue;
+        // Laid: both learned (quiet track behind you). Open: learned into one you can research, or under way (an
+        // arrow). Future: anything further on (a faint dotted line, no arrow).
+        const done = from.state === "learned" && !hintOf(from);
+        const kind = done && s.state === "learned" && !hintOf(s) ? "laid" : done && !hintOf(s) && (s.state === "ready" || s.state === "researching" || s.state === "next") ? "open" : "future";
+        // A dotted line across several columns only tangles the web: the ticket names what a card needs.
+        if (kind === "future" && !lit && web.at.get(s.id)!.x - web.at.get(n)!.x > 1.5 * COL_W) continue;
+        const cls = `bp-link ${kind}${lit ? " lit" : ""}${fresh.has(n) && kind !== "future" ? " fresh" : ""}`;
+        links.push({ from: n, to: s.id, fromW: hintOf(from) ? HINT_W : TAG_W, cls, color: color.get(from.branch) ?? "#b8a68c" });
       }
     }
+    // Future lines first, then laid, open and lit on top.
+    const rank = (c: string) => (c.includes(" lit") ? 3 : c.includes(" open") ? 2 : c.includes(" laid") ? 1 : 0);
+    links.sort((x, y) => rank(x.cls) - rank(y.cls));
+    const paths = routeLinks(web, links);
+    let svg = `<defs><marker id="bp-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>`;
+    links.forEach((l, i) => {
+      const arrow = l.cls.includes(" open") || l.cls.includes(" lit") ? ` marker-end="url(#bp-arrow)"` : "";
+      svg += `<path class="${l.cls}" style="stroke:${l.color}"${arrow}${l.cls.includes(" fresh") ? ` pathLength="1"` : ""} d="${paths[i]}"/>`;
+    });
     let bands = "";
     web.bands.forEach((b, i) => {
       const br = v.branches.find((x) => x.id === b.id)!;
-      bands += `<div class="bp-band${i % 2 ? " alt" : ""}" style="top:${b.top}px;height:${b.height}px"><span class="bp-band-label" style="border-left-color:${br.color}">${esc(br.label)}</span></div>`;
+      bands += `<div class="bp-band${i % 2 ? " alt" : ""}" style="top:${b.top}px;height:${b.height}px"><span class="bp-band-label" style="--c:${br.color}">${esc(br.label)}</span></div>`;
     });
+    const opened = new Set(drawn.filter((s) => s.needs.some((n) => fresh.has(n)) && s.state !== "learned").map((s) => s.id));
     const node = (s: Station, p: { x: number; y: number } | null) => {
-      const hint = s.seen === "hint";
+      const hint = hintOf(s);
       const tag = hint ? "" : (NODE_TAG[s.state]?.(s) ?? "");
-      const cls = `bp-node ${hint ? "hint" : s.state}${s.id === this.selected ? " selected" : ""}`;
+      const cls = `bp-node ${hint ? "hint" : s.state}${s.id === this.selected ? " selected" : ""}${fresh.has(s.id) ? " fresh" : ""}${opened.has(s.id) && !hint ? " opened" : ""}`;
       const at = p ? `left:${p.x}px;top:${p.y}px;` : "";
-      return `<button class="${cls}" style="${at}--c:${color.get(s.branch)}" data-act="select" data-id="${s.id}" aria-label="${hint ? "Not found yet" : esc(s.label)}" title="${hint ? "Not found yet" : esc(tagTitle(s))}"><span class="bp-dot">${s.state === "learned" && !hint ? "✓" : ""}</span><span class="bp-name">${hint ? "?" : esc(s.label)}</span>${tag}</button>`;
+      const fill = s.state === "researching" && s.research?.fill !== undefined ? `--fill:${Math.round(s.research.fill * 100)}%;` : "";
+      const gauge = s.state === "researching" && !hint ? `<span class="bp-node-gauge" aria-hidden="true"></span>` : "";
+      const label = hint ? `Not found yet, in ${v.branches.find((b) => b.id === s.branch)?.label ?? "this branch"}` : `${s.label}, ${STATE_WORDS[s.state]}`;
+      return `<button class="${cls}" style="${at}${fill}--c:${color.get(s.branch)}" data-act="select" data-id="${s.id}" aria-label="${esc(label)}"${s.id === this.selected ? ` aria-current="true"` : ""} title="${hint ? "Not found yet" : esc(tagTitle(s))}"><span class="bp-dot">${s.state === "learned" && !hint ? "✓" : ""}</span><span class="bp-name">${hint ? "?" : esc(s.label)}</span>${tag}${gauge}</button>`;
     };
-    const tags = drawn.map((s) => node(s, web.at.get(s.id)!)).join("");
-    if (this.narrow()) {
+    let html = "";
+    const narrow = this.narrow();
+    if (narrow) {
       // A phone: each branch a list of its tags, earliest first, in columns that fit the width (no sideways
-      // scrolling, and only the panel scrolls). A tag's ticket names what it needs.
+      // scrolling, and only the panel scrolls). A tag's ticket names what it needs. Its "?"s are one chip at the end
+      // ("2 more to find"), which opens the first one's ticket.
       for (const b of web.bands) {
         const br = v.branches.find((x) => x.id === b.id)!;
         const mine = drawn.filter((s) => s.branch === b.id).sort((a, c) => web.at.get(a.id)!.x - web.at.get(c.id)!.x || web.at.get(a.id)!.y - web.at.get(c.id)!.y);
-        html += `<div class="bp-list-band"><span class="bp-band-label" style="border-left-color:${br.color}">${esc(br.label)}</span><div class="bp-list">${mine.map((s) => node(s, null)).join("")}</div></div>`;
+        const hints = mine.filter(hintOf);
+        const more = hints.length ? `<button class="bp-hints${hints.some((h) => h.id === this.selected) ? " selected" : ""}" data-act="select" data-id="${hints[0].id}" aria-label="${hints.length} more not found yet in ${esc(br.label)}"><span class="bp-dot" aria-hidden="true">?</span>${hints.length} more to find</button>` : "";
+        html += `<div class="bp-list-band"><span class="bp-band-label" style="--c:${br.color}">${esc(br.label)}</span><div class="bp-list">${mine.filter((s) => !hintOf(s)).map((s) => node(s, null)).join("")}${more}</div></div>`;
       }
-    } else html += `<div class="bp-web-scroll"><div class="bp-web" style="width:${web.width}px;height:${web.height}px">${bands}<svg class="bp-links" width="${web.width}" height="${web.height}" aria-hidden="true">${svg}</svg>${tags}</div></div>`;
+    } else html += `<div class="bp-web-scroll"><div class="bp-web" style="width:${web.width}px;height:${web.height}px">${bands}<svg class="bp-links" width="${web.width}" height="${web.height}" aria-hidden="true">${svg}</svg>${drawn.map((s) => node(s, web.at.get(s.id)!)).join("")}</div></div>`;
     this.renderSheet(v, byId);
     const scroll = this.body.querySelector(".bp-web-scroll");
-    const kept = scroll ? { left: scroll.scrollLeft, top: scroll.scrollTop } : null;
+    const kept = scroll ? { left: scroll.scrollLeft, top: scroll.scrollTop } : narrow && this.body.childElementCount > 0 ? { left: 0, top: this.body.scrollTop } : null;
     this.body.innerHTML = html;
-    // Keep the web where it was scrolled to; on first opening, bring the selected tag into view.
+    // Keep the web where it was scrolled to; on first opening, bring the selected tag into view (its band's name
+    // with it: the pane scrolls to the band's top when the tag is near it).
     const pane = this.body.querySelector<HTMLElement>(".bp-web-scroll");
-    const sel = this.body.querySelector<HTMLElement>(".bp-node.selected");
-    if (pane && kept) {
-      pane.scrollLeft = kept.left;
-      pane.scrollTop = kept.top;
+    const sel = this.body.querySelector<HTMLElement>(".bp-node.selected, .bp-hints.selected");
+    if (kept) {
+      (pane ?? this.body).scrollLeft = kept.left;
+      (pane ?? this.body).scrollTop = kept.top;
     } else if (pane && sel) {
-      pane.scrollLeft = Math.max(0, sel.offsetLeft - 100);
-      pane.scrollTop = Math.max(0, sel.offsetTop - 60);
+      const band = web.bands.find((b) => b.top <= sel.offsetTop && sel.offsetTop < b.top + b.height);
+      // Only as far right as shows the tag: what leads to it stays in view on a wide screen.
+      pane.scrollLeft = Math.max(0, Math.min(sel.offsetLeft - LEFT, sel.offsetLeft + sel.offsetWidth + 24 - pane.clientWidth));
+      pane.scrollTop = Math.max(0, band && sel.offsetTop - band.top < pane.clientHeight - 60 ? band.top : sel.offsetTop - 60);
+    } else if (sel) {
+      // The list: its band's name and the tag in view above the ticket.
+      const band = sel.closest<HTMLElement>(".bp-list-band");
+      this.body.scrollTop = Math.max(0, (band && sel.offsetTop - band.offsetTop < this.body.clientHeight - 80 ? band.offsetTop : sel.offsetTop - 40) - this.body.offsetTop - 4);
     }
   }
 
@@ -381,6 +515,9 @@ export class BlueprintBoard {
     this.wanted = new Set();
     const sheet = s ? this.ticket(s, v, byId) : "";
     if (this.sheet.innerHTML !== sheet) this.sheet.innerHTML = sheet;
+    // The one under way's gauge on the web moves with the ticket's, without drawing the web again.
+    const now = v.stations.find((x) => x.state === "researching");
+    if (now?.research?.fill !== undefined) this.body.querySelector<HTMLElement>(`.bp-node.researching[data-id="${now.id}"]`)?.style.setProperty("--fill", `${Math.round(now.research.fill * 100)}%`);
     this.handlers.needPictures?.([...this.wanted]);
   }
 
@@ -411,6 +548,13 @@ export class BlueprintBoard {
     if (s.state === "learned") foot = `<span class="bp-done">Learned</span>`;
     else if (s.research) foot = researchFoot(s.id, s.research, !!s.goal);
     else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
-    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes"><b class="bp-makes-head">Unlocks:</b>${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs: ${esc(needs.join(" + "))}</span>` : ""}${opens.length ? `<span>Opens: ${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}</span>` : ""}${s.state !== "learned" && reqs ? reqs : ""}</div>${s.state !== "learned" ? `<div class="bp-full-cost"><b>Costs:</b> ${esc(s.cost)}</div>` : ""}<div class="bp-ticket-foot">${foot}</div></div>`;
+    const fact = (label: string, body: string, cls: string) => `<div class="bp-fact ${cls}"><b>${label}</b><span class="bp-fact-body">${body}</span></div>`;
+    const facts =
+      (makes ? `<div class="bp-fact bp-makes"><b class="bp-makes-head">Unlocks:</b><span class="bp-fact-body">${makes}</span></div>` : "") +
+      // (What must be done first, besides research, sits with what it needs: "Needs: Harvesters ✓ [100 logs cut]".)
+      (needs.length || (s.state !== "learned" && reqs) ? fact("Needs:", `${needs.length ? `<span>${esc(needs.join(" + "))}</span>` : ""}${s.state !== "learned" ? reqs : ""}`, "bp-ticket-needs") : "") +
+      (opens.length ? fact("Opens:", `${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}`, "bp-opens") : "") +
+      (s.state !== "learned" ? `<div class="bp-full-cost"><b>Costs:</b> ${esc(s.cost)}</div>` : "");
+    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${facts ? `<div class="bp-facts">${facts}</div>` : ""}<div class="bp-ticket-foot">${foot}</div></div>`;
   }
 }

@@ -721,39 +721,57 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .board-body { overflow-y: auto; touch-action: pan-y; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
 .board-sub { flex: 1; margin-left: 12px; font-size: 13px; font-weight: 700; color: #74522f; }
 /* The web: a band per branch, a tag per blueprint, arrows from each to what it opens in its branch. */
-.bp-web-scroll { flex: none; max-height: min(52vh, 460px); overflow: auto; overscroll-behavior: contain; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); touch-action: pan-x pan-y; }
+.bp-web-scroll { flex: none; max-height: min(54vh, 480px); overflow: auto; overscroll-behavior: contain; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); touch-action: pan-x pan-y; scrollbar-color: #c9a878 transparent; }
 .bp-web { position: relative; }
 .bp-band { position: absolute; left: 0; right: 0; }
 .bp-band.alt { background: rgba(160, 106, 54, 0.06); }
-.bp-band-label { position: sticky; left: 0; display: inline-block; margin-top: 10px; max-width: 84px; padding: 4px 8px 4px 6px; border-left: 5px solid #b8a68c; border-radius: 0 8px 8px 0; background: rgba(255, 250, 240, 0.94); font-size: 11.5px; font-weight: 900; line-height: 1.15; color: #5a3d22; z-index: 2; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); }
+.bp-band + .bp-band { border-top: 1.5px solid rgba(167, 138, 102, 0.22); }
+/* A band's name: a painted tab in a strip of its own above its tags, kept in view as the web
+   scrolls sideways (never over a tag: the board opens scrolled to the top of the picked tag's band). */
+.bp-band-label { position: sticky; left: 0; display: inline-flex; align-items: center; height: 24px; margin: 3px 0 0 8px; padding: 0 10px 0 8px; border-left: 4px solid var(--c, #b8a68c); border-radius: 0 8px 8px 0; background: #fff8ea; font-size: 12px; font-weight: 900; line-height: 1; color: #3a2a1c; white-space: nowrap; z-index: 3; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.18), 0 2px 6px rgba(60, 40, 20, 0.08); }
 .bp-links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
-.bp-link { fill: none; stroke-width: 2; stroke-dasharray: 5 4; opacity: 0.55; }
-.bp-link.laid { stroke-dasharray: none; stroke-width: 3; opacity: 0.8; }
-.bp-link.lit { stroke: #2f6db5 !important; stroke-dasharray: none; stroke-width: 3.5; opacity: 1; }
-.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 44px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 6px; align-items: center; padding: 5px 7px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: opacity 0.15s, transform 0.15s; }
+/* Links, quiet to loud: future (dotted, no arrow), laid (learned to learned: solid, soft), open (learned into one you can
+   research: solid, an arrow), lit (the selected tag's path: blue). */
+.bp-link { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bp-link.future { stroke-width: 1.75; stroke-dasharray: 0.5 5; opacity: 0.55; }
+.bp-link.laid { stroke-width: 3; opacity: 0.45; }
+.bp-link.open { stroke-width: 2.5; opacity: 0.9; }
+.bp-link.lit { stroke: #2f6db5 !important; stroke-dasharray: none; stroke-width: 3; opacity: 1; }
+.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 46px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 7px; align-items: center; padding: 5px 8px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: transform 0.15s; }
+.bp-node:focus-visible, .bp-hints:focus-visible { outline: 3px solid #2f6fb5; outline-offset: 2px; }
 .bp-node .bp-dot { grid-row: 1 / span 2; width: 20px; height: 20px; font-size: 12px; }
-.bp-node .bp-name { font-size: 12px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
+.bp-node .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
 .bp-node .bp-tag { justify-self: start; margin-top: 2px; }
 .bp-node:hover { transform: translateY(-1px); }
-.bp-node.selected { box-shadow: 0 0 0 3px #a8703a, 0 0 0 6px #fff1c2, 0 4px 10px rgba(80, 50, 20, 0.25); transform: translateY(-1px); }
-.bp-node.soon { border-style: dashed; background: rgba(255, 250, 240, 0.7); }
-.bp-node.soon .bp-name { color: #7a6650; }
-.bp-node.hint { border-style: dashed; background: transparent; box-shadow: none; }
-.bp-node.hint .bp-name { font-size: 18px; color: #b8a68c; }
-.bp-node.hint .bp-dot { visibility: hidden; }
-.bp-tag.soon { color: #7a6650; background: transparent; border: 1.5px dashed #b8a68c; }
+.bp-node.selected { box-shadow: 0 0 0 3px #a8703a, 0 0 0 6px #fff1c2, 0 4px 10px rgba(80, 50, 20, 0.25); transform: translateY(-1px); z-index: 2; }
+.bp-node.soon { border-style: dashed; border-color: #a08a6c; border-left-style: solid; border-left-color: var(--c, #b8a68c); background: rgba(255, 250, 240, 0.6); box-shadow: none; }
+.bp-node.soon .bp-name { color: #5e4128; }
+/* Not found yet: a small "?" token, not a tag. */
+.bp-node.hint { width: 44px; min-height: 44px; grid-template-columns: 1fr; place-items: center; padding: 0; border: 1.5px dashed #a08a6c; border-radius: 50%; background: rgba(255, 250, 240, 0.55); box-shadow: none; }
+.bp-node.hint .bp-name { font-size: 17px; font-weight: 900; color: #74522f; text-align: center; }
+.bp-node.hint .bp-dot { display: none; }
+.bp-tag.soon { color: #5e4128; background: transparent; border: 1.5px dashed #a08a6c; padding: 0 6px; }
 .bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; }
 .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
-.bp-tag { font-size: 10.5px; font-weight: 800; color: #7a5532; background: #f1e1c2; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+/* The tag slot on a card: one height, one shape, whatever it says. */
+.bp-tag { display: inline-flex; align-items: center; height: 18px; font-size: 11px; font-weight: 800; line-height: 1; color: #5e4128; background: #f1e1c2; padding: 0 7px; border-radius: 9px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bp-tag.price { color: #4a3018; background: #ffe7a8; box-shadow: inset 0 0 0 1px #d9a441; }
+.bp-tag.price.later { color: #5e4128; background: transparent; box-shadow: inset 0 0 0 1px #c9b28c; }
 .bp-tag.free { color: #5a3d06; background: #ffd88a; }
-.learned .bp-dot { background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: 0 0 0 2px #3f7d3c; }
-.ready .bp-dot { background: #fff6dc; box-shadow: 0 0 0 2px #d9a441; }
-.researching .bp-dot { background: #cfe0f7; box-shadow: 0 0 0 2px #2f6db5, 0 0 10px 3px rgba(47, 109, 181, 0.45); animation: bp-lamp 1.8s ease-in-out infinite; }
+.learned .bp-dot { background: linear-gradient(180deg, #5aa35a, #3f7d3c); color: #fff; box-shadow: 0 0 0 2px #2f6a2d; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
+.ready .bp-dot { background: #ffd88a; box-shadow: 0 0 0 2px #c8901f; }
+.bp-node.ready { background: #fffdf6; border-color: #e0c48c; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.2), 0 3px 8px rgba(60, 40, 20, 0.1); }
+/* Under way: a blue tag, a blue ring round the card, and its progress along the bottom (as the top bar's pill). */
+.researching .bp-dot { background: #2f6db5; box-shadow: 0 0 0 2px #1f4f8a; }
+.bp-node.researching { background: #f1f6fd; border-color: #2f6db5; box-shadow: 0 0 0 1.5px #2f6db5, 0 3px 8px rgba(47, 109, 181, 0.18); padding-bottom: 8px; }
+.bp-node-gauge { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: #d6e3f4; }
+.bp-node-gauge::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; transition: width 0.4s ease-out; }
 .next .bp-dot { background: #fffaf0; box-shadow: 0 0 0 2px #2f6db5; }
+.bp-node.next { border-color: #9dbbe0; }
 .locked .bp-dot, .soon .bp-dot { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; }
-.locked .bp-name { color: #6a5340; }
-@keyframes bp-lamp { 50% { filter: brightness(1.12); } }
-.bp-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 11.5px; font-weight: 700; color: #7a6650; }
+.bp-node.locked { background: #f8f0e1; box-shadow: none; }
+.locked .bp-name { color: #5e4128; }
+.bp-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; font-weight: 700; color: #5e4128; }
 /* The selected blueprint's ticket: under the web, always fully in view (only the web above it scrolls). */
 .board-sheet { flex: none; padding: 0 20px 16px; }
 .board-sheet:empty { display: none; }
@@ -764,9 +782,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-legend-box .bp-legend { position: absolute; right: 0; top: 44px; z-index: 5; width: 240px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 6px 18px rgba(60, 40, 20, 0.25); }
 /* Phones: each branch a list of tags in two columns (see BlueprintBoard.narrow); the panel is the one thing that scrolls. */
 .bp-list-band { display: flex; flex-direction: column; gap: 6px; }
-.bp-list-band .bp-band-label { position: static; align-self: flex-start; margin: 0; max-width: none; }
+.bp-list-band .bp-band-label { position: static; align-self: flex-start; margin: 0; }
 .bp-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bp-list .bp-node { position: relative; width: auto; }
+/* A band's "?"s on a phone: one chip at its end. */
+.bp-hints { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border: 1.5px dashed #a08a6c; border-radius: 10px; background: rgba(255, 250, 240, 0.55); font: inherit; font-size: 12.5px; font-weight: 800; color: #5e4128; text-align: left; cursor: pointer; }
+.bp-hints .bp-dot { width: 22px; height: 22px; font-size: 13px; color: #74522f; background: transparent; box-shadow: 0 0 0 1.5px #a08a6c; }
+.bp-hints.selected { box-shadow: 0 0 0 3px #a8703a, 0 0 0 6px #fff1c2; }
 @media (max-width: 560px) {
   .board-sub { display: none; }
   .board-head { padding: 10px 8px 2px 16px; }
@@ -776,16 +798,21 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 .bp-key { width: 12px; height: 12px; border-radius: 50%; margin-left: 8px; }
 .bp-key:first-child { margin-left: 0; }
-.bp-key.learned { background: #5aa35a; }
-.bp-key.ready { background: #fff6dc; box-shadow: 0 0 0 2px #d9a441; }
-.bp-key.researching { background: #cfe0f7; box-shadow: 0 0 0 2px #2f6db5; }
+.bp-key.learned { background: #3f7d3c; }
+.bp-key.ready { background: #ffd88a; box-shadow: 0 0 0 2px #c8901f; }
+.bp-key.researching { background: #2f6db5; box-shadow: 0 0 0 2px #1f4f8a; }
 .bp-key.next { background: #fffaf0; box-shadow: 0 0 0 2px #2f6db5; }
 .bp-key.locked { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; }
-.bp-key.soon { border: 2px dashed #b8a68c; }
-.bp-key.hint { width: auto; height: auto; border-radius: 0; font-weight: 900; color: #b8a68c; }
-.bp-ticket-needs { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; font-weight: 700; color: #6a5340; }
-.bp-req { padding: 0 7px; border-radius: 8px; background: #e7eef8; color: #2a4f80; }
-.bp-req.met { background: #e1f0dd; color: #3f7d3c; }
+.bp-key.soon { border: 2px dashed #a08a6c; }
+.bp-key.hint { width: auto; height: auto; border-radius: 0; font-weight: 900; color: #74522f; }
+/* The ticket's facts: a label column (Unlocks, Needs, Opens, Costs) and what each says. */
+.bp-facts { display: flex; flex-direction: column; gap: 6px; }
+.bp-fact, .bp-full-cost { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 700; color: #5a3d22; line-height: 1.35; }
+.bp-fact > b, .bp-full-cost > b { flex: none; width: 60px; font-size: 12px; font-weight: 800; color: #74522f; }
+.bp-fact-body { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.bp-fact.bp-makes { align-items: center; }
+.bp-req { padding: 1px 7px; border-radius: 8px; background: #e7eef8; color: #2a4f80; font-size: 12.5px; }
+.bp-req.met { background: #e1f0dd; color: #2f6a2d; }
 .bp-ticket { border-left-color: var(--c, #b8a68c) !important; }
 /* The ticket: a station's details, punched like a railway ticket. */
 .bp-ticket { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-radius: 12px; background: #fffaf0; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.18), 0 6px 18px rgba(60, 40, 20, 0.12); border-left: 6px solid #b8a68c; }
@@ -796,37 +823,36 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-ticket.ready { border-left-color: #d9a441; }
 .bp-ticket.researching, .bp-ticket.next { border-left-color: #2f6db5; }
 .bp-tag.now, .bp-tag.next { color: #1f4f8a; background: #dde9f8; }
+.bp-tag.now { color: #fff; background: #2f6db5; }
 .bp-tag.goal { align-self: center; color: #5a3d06; background: #ffd88a; }
 /* A research card's cost: a chip a good ("🪵 6/10"), the coins red while short, and its study time. */
 .bp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .bp-chip { padding: 2px 8px; border-radius: 9px; background: #f1e1c2; font-size: 13px; font-weight: 800; color: #5a3d22; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bp-chip.short { background: #f8d9cc; color: #a33a1a; }
-.bp-chip.study { background: transparent; color: #7a6650; padding-inline: 2px; }
+.bp-chip.study { background: transparent; color: #5e4128; padding-inline: 2px; }
 .bp-now { font-size: 14px; font-weight: 800; color: #1f4f8a; }
 .bp-ticket.researching .bp-gauge-fill { background: linear-gradient(180deg, #6f9fd8, #2f6db5); }
 .bp-ticket-foot .chip.text { min-width: 112px; }
 /* The goal's research: its button ringed (nothing is picked without a tap). */
 .chip.bp-goal { box-shadow: 0 0 0 3px #ffc21f; }
-.bp-ticket-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-.bp-ticket-head b { font-size: 17px; }
-.bp-ticket-head span { font-size: 13.5px; color: #6a5340; }
-.bp-makes { display: flex; flex-wrap: wrap; gap: 6px; }
-.bp-makes-head { align-self: center; font-size: 12.5px; color: #6a5340; }
-.bp-full-cost { font-size: 13px; font-weight: 700; color: #5a3d22; line-height: 1.35; }
-.bp-full-cost b { color: #6a5340; }
+.bp-ticket-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+.bp-ticket-head b { font-size: 18px; font-weight: 900; }
+.bp-ticket-head > span:last-child { flex-basis: 100%; font-size: 13.5px; font-weight: 700; color: #5e4128; }
+.bp-makes .bp-fact-body { gap: 6px; }
 .bp-make { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px; border-radius: 10px; background: #f3e6cf; font-size: 12.5px; font-weight: 700; color: #5a3d22; }
 .bp-make svg { width: 34px; height: 22px; }
 /* A thing's tray picture (its model, three-quarter view), and the blank that waits for one (a prop not drawn yet). */
 .bp-make img { width: 40px; height: 33px; margin: -4px 0; object-fit: contain; }
 .bp-make .bp-pending { display: block; width: 34px; height: 22px; border-radius: 6px; background: rgba(160, 110, 60, 0.12); }
-.bp-ticket-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+/* The foot, torn off along a perforation: how it stands and its one button. */
+.bp-ticket-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; padding-top: 10px; border-top: 2px dashed rgba(167, 138, 102, 0.45); }
 .bp-ticket-foot .chip { height: 44px; font-size: 14.5px; }
 .bp-ticket-foot .chip.text.bp-remove { min-width: 0; margin-left: auto; }
 .bp-ticket-foot .chip:disabled { opacity: 0.5; cursor: default; }
 .bp-cost { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 150px; }
 .bp-gauge { height: 10px; border-radius: 5px; background: #ecdcbf; overflow: hidden; box-shadow: inset 0 1px 2px rgba(80, 50, 20, 0.2); }
-.bp-gauge-fill { display: block; height: 100%; border-radius: 5px; background: linear-gradient(180deg, #d8a35c, #a86e32); }
-.bp-gauge-text, .bp-waits, .bp-done { font-size: 12.5px; font-weight: 700; color: #7a6650; }
+.bp-gauge-fill { display: block; height: 100%; border-radius: 5px; background: linear-gradient(180deg, #d8a35c, #a86e32); transition: width 0.4s ease-out; }
+.bp-gauge-text, .bp-waits, .bp-done { font-size: 12.5px; font-weight: 700; color: #5e4128; }
 .bp-why { font-size: 12.5px; font-weight: 800; color: #9a4a2a; }
 .chip[aria-disabled="true"] { opacity: 0.55; }
 .bp-done { color: #3f7d3c; }
@@ -848,7 +874,29 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .board-sheet { grid-column: 2; grid-row: 2; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 14px 12px 4px; }
   .bp-web-scroll { max-height: none; }
 }
-@media (prefers-reduced-motion: reduce) { .researching .bp-dot { animation: none; } .bp-node { transition: none; } }
+/* A research learned (on the open board, or the next time it opens): its check is stamped on like a sticker, a glint runs
+   over the card, the track to what it opens is laid, and those cards click up. Once, then still. */
+.bp-node.fresh { animation: bp-click 0.5s ease-out 0.15s backwards; }
+.bp-node.fresh .bp-dot { animation: bp-stamp 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s backwards; }
+.bp-node.fresh::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.85) 50%, transparent 65%); transform: translateX(-110%); animation: bp-glint 0.7s ease-out 0.45s; pointer-events: none; }
+.bp-link.fresh { stroke-dasharray: 1; stroke-dashoffset: 1; animation: bp-lay 0.7s ease-out 0.55s forwards; }
+.bp-node.opened { animation: bp-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) 1.05s backwards; }
+@keyframes bp-click { 0% { transform: translateY(-5px); } 55% { transform: translateY(1px); } 100% { transform: none; } }
+@keyframes bp-stamp { 0% { transform: scale(0.2) rotate(-30deg); opacity: 0; } 60% { transform: scale(1.35) rotate(6deg); opacity: 1; } 100% { transform: none; } }
+@keyframes bp-glint { to { transform: translateX(110%); } }
+@keyframes bp-lay { to { stroke-dashoffset: 0; } }
+@keyframes bp-pop { 0% { transform: scale(0.9); } 100% { transform: none; } }
+/* A big screen: a wider board, so more of the web shows at once. */
+@media (min-width: 1100px) and (min-height: 700px) {
+  .board-panel { left: max(12px, calc(50% - 520px)); right: max(12px, calc(50% - 520px)); }
+  .bp-web-scroll { max-height: min(58vh, 560px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-node, .bp-node-gauge::after, .bp-gauge-fill { transition: none; }
+  .bp-node.fresh, .bp-node.fresh .bp-dot, .bp-node.opened, .bp-link.fresh { animation: none; }
+  .bp-node.fresh::before { display: none; }
+  .bp-link.fresh { stroke-dashoffset: 0; }
+}
 .icon-btn-alert { position: relative; }
 .icon-btn-alert::after { content: ""; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #c8442f; box-shadow: 0 0 0 2px #fbf3e4; animation: alert-pulse 1.2s ease-in-out infinite; }
 @keyframes alert-pulse { 50% { transform: scale(1.3); } }
