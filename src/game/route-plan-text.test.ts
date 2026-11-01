@@ -3,8 +3,8 @@ import { planIcons, planWords } from "./route-plan-text";
 
 describe("a stop's plan on the route card", () => {
   it("icons under the chip: ⬆ what it picks up, ⬇ what it drops", () => {
-    expect(planIcons({ picks: ["planks"], drops: ["log"] })).toBe("⬆🪵 ⬇🌲");
-    expect(planIcons({ picks: [], drops: ["planks", "log"] })).toBe("⬇🪵🌲");
+    expect(planIcons({ picks: ["planks"], drops: ["log"] })).toBe("⬆\uE000 ⬇🪵");
+    expect(planIcons({ picks: [], drops: ["planks", "log"] })).toBe("⬇\uE000🪵");
     expect(planIcons({ picks: [], drops: [] })).toBe("");
   });
   it("in words, a stop tapped", () => {

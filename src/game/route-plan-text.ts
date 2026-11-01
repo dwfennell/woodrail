@@ -6,7 +6,7 @@ export interface StopPlan {
   readonly drops: readonly CargoKind[];
 }
 
-/** Under a stop's chip, icons only: "⬆🪵 ⬇🌲" (picks up planks, drops logs); "" for nothing. */
+/** Under a stop's chip, icons only: "⬆\uE000 ⬇🪵" (picks up planks, drops logs); "" for nothing. */
 export function planIcons(p: StopPlan): string {
   const part = (arrow: string, ks: readonly CargoKind[]) => (ks.length ? arrow + ks.map((k) => GOODS_ICON[k]).join("") : "");
   return [part("⬆", p.picks), part("⬇", p.drops)].filter(Boolean).join(" ");

@@ -21,7 +21,7 @@ export interface Station {
   seen: "shown" | "hint" | "unseen";
   /** Blueprints to learn first. */
   needs: string[];
-  /** What researching it takes, in a few words ("10🪵 20🪙"), or "free". */
+  /** What researching it takes, in a few words ("10\uE000 20🪙"), or "free". */
   price: string;
   /** Everything it costs, in words with the icons ("6 🌾 grain, 40 🪙 coins"): see `costWords`. */
   cost: string;
@@ -255,7 +255,7 @@ const STATE_WORDS: Record<CardState, string> = { learned: "learned", researching
 export const tagTitle = (s: Pick<Station, "label" | "unlocks" | "cost">): string => `${s.label}.${s.unlocks ? ` Unlocks: ${s.unlocks}.` : ""} Costs: ${s.cost}`;
 
 /**
- * A research card's foot: its goods as chips ("🪵 6/10", the coins red while short) and its study time, a bar for the
+ * A research card's foot: its goods as chips ("\uE000 6/10", the coins red while short) and its study time, a bar for the
  * one under way, how it stands, and its one button (Research, Add to queue; in the queue Remove and Research now, the swap), 44 px tall.
  */
 export function researchFoot(id: string, r: ResearchCardView, goal: boolean): string {

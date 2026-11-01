@@ -20,8 +20,8 @@ describe("warehouse words", () => {
   });
 
   it("the card lists only goods it holds, or Empty", () => {
-    expect(storeStock([{ label: "🌲 Logs", count: 0, cap: 24 }])).toBe("Empty");
-    expect(storeStock([{ label: "🌲 Logs", count: 0, cap: 24 }, { label: "🪵 Planks", count: 6, cap: 24 }, { label: "⚙ Iron", count: 2, cap: 24 }])).toBe("🪵 Planks 6/24   ·   ⚙ Iron 2/24");
+    expect(storeStock([{ label: "🪵 Logs", count: 0, cap: 24 }])).toBe("Empty");
+    expect(storeStock([{ label: "🪵 Logs", count: 0, cap: 24 }, { label: "\uE000 Planks", count: 6, cap: 24 }, { label: "⚙ Iron", count: 2, cap: 24 }])).toBe("\uE000 Planks 6/24   ·   ⚙ Iron 2/24");
   });
 
   it("each stop action says what it does at a warehouse", () => {

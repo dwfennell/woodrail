@@ -97,6 +97,8 @@ import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { CloudCard } from "./ui/cloud-card";
 import "./style.css";
+// The planks glyph's font (style.css) loads with the game, not on the first card that shows planks.
+void document.fonts?.load('16px "Woodrail Icons"', GOODS_ICON.planks).catch(() => undefined);
 
 /** A blueprint's requirement in words, a count of goods with its icon: "20🪨 stone delivered". */
 function describeNeed(n: Need): string {
@@ -1623,7 +1625,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** What was made for the piece in hand (taken from the tray), until it's put down. */
   let pieceMade: Map<ThingId, number> | null = null;
   let pieceSaid = "";
-  /** ...and what's said if it's given back ("Switch back in the box, 3🪵 returned"). */
+  /** ...and what's said if it's given back ("Switch back in the box, 3\uE000 returned"). */
   let pieceRefund = "";
   interaction.onTrayPieceDropped = (placed) => {
     const made = pieceMade;

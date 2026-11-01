@@ -1,12 +1,12 @@
 import { COIN_ICON } from "../economy/cargo";
 import { iconCounts, type Bag } from "../economy/goods";
 
-/** A tray badge's cost, short: "30🪵 10🪨 100🪙" (goods by icon, in cargo order, then coins). */
+/** A tray badge's cost, short: "30\uE000 10🪨 100🪙" (goods by icon, in cargo order, then coins). */
 export function costTag(cost: Bag, coins = 0): string {
   return [iconCounts(cost), coins > 0 ? `${coins}${COIN_ICON}` : ""].filter(Boolean).join(" ");
 }
 
-/** A piece made from the tray but not put down, given back: "Switch back in the box, 3🪵 returned". */
+/** A piece made from the tray but not put down, given back: "Switch back in the box, 3\uE000 returned". */
 export function refundText(name: string, cost: Bag, coins = 0): string {
   const back = costTag(cost, coins);
   const named = name.charAt(0).toUpperCase() + name.slice(1);
@@ -33,8 +33,8 @@ const LONG_PX = 60;
 const LONG_SIZES = [11, 10, 9];
 
 /**
- * The type size for a tray badge to stay on one line inside its item: null for the corner pill at 12 px ("3", "12🪵",
- * "Locked"), else the largest size (px, 11 down to 9; `trayCostTag` keeps a badge short enough for that) at which a long one ("30🪵 10🪨 100🪙") fits across the item.
+ * The type size for a tray badge to stay on one line inside its item: null for the corner pill at 12 px ("3", "12\uE000",
+ * "Locked"), else the largest size (px, 11 down to 9; `trayCostTag` keeps a badge short enough for that) at which a long one ("30\uE000 10🪨 100🪙") fits across the item.
  */
 export function costTagSize(text: string): number | null {
   const em = badgeEms(text);
@@ -47,7 +47,7 @@ const fits = (text: string) => badgeEms(text) <= PILL_EMS || badgeEms(text) * LO
 
 /**
  * A tray badge's cost, shortened to fit at 9 px or more (the card shows the full price): all of it if it fits, else
- * without the coins, else the first goods and "…" ("30🪵 …").
+ * without the coins, else the first goods and "…" ("30\uE000 …").
  */
 export function trayCostTag(cost: Bag, coins = 0): string {
   const full = costTag(cost, coins);

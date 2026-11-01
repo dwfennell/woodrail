@@ -3,7 +3,7 @@
 // Once the forest's crane has loaded logs onto the flatbed, a tap on the train opens its engine card: the summary says
 // "1 car · 40 km/h" and the logs on board, in two lines that fit the card at 360 px, its buttons 44 px or more; it
 // follows the load as it changes, and is set only then (not per frame). A second tap, on the wagon, opens its card with
-// its load ("🌲 Logs: 3 of 3").
+// its load ("🪵 Logs: 3 of 3").
 //
 // Usage: npm run e2e:train-summary [-- <out dir>]   (default out: e2e-out/train-summary)
 import { existsSync, mkdirSync } from "node:fs";
@@ -149,7 +149,7 @@ if (!setup.error) {
           break;
         }
         const c = w.economy.cargoOf(wagon);
-        const want = c.count > 0 ? `🌲 ${c.count}` : "Empty";
+        const want = c.count > 0 ? `🪵 ${c.count}` : "Empty";
         const got = document.querySelector(".summary-load").textContent;
         seen.add(got === want ? "ok" : `${got} != ${want}`);
         if (c.count >= 1) break;
@@ -201,7 +201,7 @@ if (!setup.error) {
     { wagon },
   );
   check("the engine card opens on the loaded train", card.open);
-  check("the summary says the logs on board", card.about === "1 car · 40 km/h" && card.load === `🌲 ${card.count}`, JSON.stringify({ about: card.about, load: card.load, count: card.count }));
+  check("the summary says the logs on board", card.about === "1 car · 40 km/h" && card.load === `🪵 ${card.count}`, JSON.stringify({ about: card.about, load: card.load, count: card.count }));
   check("…in two lines at 360 px, neither cut short", card.lines === 2 && card.height <= 2 * card.lineHeight + 1 && !card.clipped, JSON.stringify(card));
   check("…the card inside the screen", card.card.left >= 0 && card.card.right <= 360, JSON.stringify(card.card));
   check("…its buttons 44 px or more", card.small.length === 0, JSON.stringify(card.small));
@@ -230,7 +230,7 @@ if (!setup.error) {
   await p.waitForFunction(() => window.woodrail.hud.carCardOpen, null, { timeout: 20000 }).catch(() => {});
   await settle();
   const wagonCard = await p.evaluate((id) => ({ open: window.woodrail.hud.carCardOpen, text: document.querySelector(".car-load")?.textContent, count: window.woodrail.economy.cargoOf(id).count, room: window.woodrail.economy.wagonCapacity }), wagon);
-  check("a tap on the wagon opens its card, with its load", wagonCard.open && (wagonCard.count > 0 ? wagonCard.text === `🌲 Logs: ${wagonCard.count} of ${wagonCard.room}` : /^Empty/.test(wagonCard.text ?? "")), JSON.stringify(wagonCard));
+  check("a tap on the wagon opens its card, with its load", wagonCard.open && (wagonCard.count > 0 ? wagonCard.text === `🪵 Logs: ${wagonCard.count} of ${wagonCard.room}` : /^Empty/.test(wagonCard.text ?? "")), JSON.stringify(wagonCard));
   await shot("2-wagon-card");
 }
 

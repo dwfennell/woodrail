@@ -199,8 +199,8 @@ describe("map sites: what the player is told", () => {
       own: "Or build your own anywhere from the Industries tab.",
       clear: `Clear the ruin · ${CLEAR_PRICE}🪙`,
     });
-    // Learned: Restore, at half a new farm yard's price (6🪵 90🪙), and building your own is still said.
-    expect(ruinCard(w.landscape, farm, "game", (id) => id === "farming")).toMatchObject({ status: "🔧 Half the price of a new farm yard", open: true, restore: "Restore · 3🪵 45🪙", own: "Or build your own anywhere from the Industries tab." });
+    // Learned: Restore, at half a new farm yard's price (6\uE000 90🪙), and building your own is still said.
+    expect(ruinCard(w.landscape, farm, "game", (id) => id === "farming")).toMatchObject({ status: "🔧 Half the price of a new farm yard", open: true, restore: "Restore · 3\uE000 45🪙", own: "Or build your own anywhere from the Industries tab." });
     // Sandbox: no blueprints, no Industries tab, no coins.
     expect(ruinCard(w.landscape, farm, "sandbox", () => false)).toMatchObject({ status: "🔧 Restore it to work again", restore: "Restore", own: null, clear: "Clear the ruin" });
   });

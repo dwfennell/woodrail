@@ -1,3 +1,7 @@
+/* Planks have no emoji (\uE000 is a log), so they're a glyph of our own: `GOODS_ICON.planks`, U+E000, three sawn boards
+   with a strap, in colour (scripts/planks-font.py). This face only has that one character, so the rest of the text is
+   Nunito's; listed first wherever a font is named, it sits in any text as an emoji does. */
+@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+E000; font-weight: 100 900; font-display: block; }
 :root {
   --ink: #2b2118;
   --paper: #f6efe3;
@@ -11,7 +15,7 @@
 [hidden] { display: none !important; }
 /* An icon standing in for a tray picture not drawn yet: laid out as the icon itself. */
 .thumb-icon { display: contents; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Woodrail Icons", "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
 /* A toy, not a page: nothing on screen is selected as text or brings up a long-press menu, and a quick second tap on
    a button is another tap, never a page zoom (iOS ignores user-scalable=no in the viewport; touch-action is what
    stops it there). The game canvas takes all its own gestures (touch-action: none, below). Text typed in a box is
@@ -570,7 +574,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .report-card { z-index: 30; width: min(420px, calc(100% - 24px)); align-items: stretch; }
 .report-card .card-title { text-align: center; }
 .report-card .card-row { justify-content: flex-end; }
-.report-note { font: 500 15px/1.35 Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; resize: vertical; background: #fffaf2; color: #2b2118; }
+.report-note { font: 500 15px/1.35 "Woodrail Icons", Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; resize: vertical; background: #fffaf2; color: #2b2118; }
 .cloud-card { z-index: 30; width: min(400px, calc(100% - 24px)); align-items: stretch; gap: 8px; }
 .cloud-card .card-title { text-align: center; }
 .cloud-card .card-row { justify-content: flex-end; flex-wrap: wrap; }
@@ -580,7 +584,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .cloud-label { font-size: 13px; font-weight: 800; color: #6a4a2c; text-transform: uppercase; letter-spacing: 0.04em; }
 .cloud-code-row { display: flex; align-items: center; gap: 10px; }
 .cloud-code { flex: 1; font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: #2b2118; background: #fffaf2; border-radius: 10px; padding: 6px 10px; user-select: all; -webkit-user-select: all; }
-.cloud-input { font: 700 18px/1.3 Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; background: #fffaf2; color: #2b2118; }
+.cloud-input { font: 700 18px/1.3 "Woodrail Icons", Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; background: #fffaf2; color: #2b2118; }
 .cloud-error { font-size: 14px; font-weight: 700; color: #a3361f; }
 .cloud-card .cloud-restore { align-self: flex-start; }
 .cloud-copy-field { position: fixed; left: -9999px; top: 0; opacity: 0; }
@@ -655,7 +659,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #3f8f4a; color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; text-align: center;
   /* One line, never wider than the item: it may cover the top of the picture, never more. */
   white-space: nowrap; max-width: calc(100% - 12px); overflow: hidden; box-sizing: border-box; }
-/* A long cost ("30🪵 10🪨 100🪙") spans the item's top, its type as small as its length needs (`costTagSize`, 11 to
+/* A long cost ("30\uE000 10🪨 100🪙") spans the item's top, its type as small as its length needs (`costTagSize`, 11 to
    7 px, set inline). */
 .tray-item .have.long { left: 2px; right: 2px; max-width: none; padding: 1px 3px; letter-spacing: -0.01em; }
 /* A long cost spans the item's top: no ★ over it. */
@@ -830,7 +834,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-tag.now, .bp-tag.next { color: #1f4f8a; background: #dde9f8; }
 .bp-tag.now { color: #fff; background: #2f6db5; }
 .bp-tag.goal { align-self: center; color: #5a3d06; background: #ffd88a; }
-/* A research card's cost: a chip a good ("🪵 6/10"), the coins red while short, and its study time. */
+/* A research card's cost: a chip a good ("\uE000 6/10"), the coins red while short, and its study time. */
 .bp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .bp-chip { padding: 2px 8px; border-radius: 9px; background: #f1e1c2; font-size: 13px; font-weight: 800; color: #5a3d22; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bp-chip.short { background: #f8d9cc; color: #a33a1a; }
@@ -933,14 +937,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .brand:has(.game-date:not([hidden])) .coins { padding: 1px 7px 1px 2px; }
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
 }
-/* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10🪵"); tap for the picker. */
+/* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10\uE000"); tap for the picker. */
 .research-pill { position: relative; overflow: hidden; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
 .research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
 .research-pill .rp-line { display: flex; flex: 0 100 auto; align-items: center; gap: 4px; min-width: 0; }
 .research-pill .rp-icon { flex: none; font-size: 16px; line-height: 1; }
 .research-pill .rp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* The count: every good the research needs ("🪵0/6 🌾0/6"). Where they don't all fit, `fitPill` shortens it to the
+/* The count: every good the research needs ("\uE0000/6 🌾0/6"). Where they don't all fit, `fitPill` shortens it to the
    goods still lacking, then to the one most lacking and "+1" (it's measured against this room: the name gives way first). */
 .research-pill .rp-count { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; font-variant-numeric: tabular-nums; color: #1f4f8a; }
 .research-pill .rp-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; }
@@ -989,7 +993,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .research-pill .rp-name { grid-area: name; }
   .research-pill .rp-count { grid-area: count; }
 }
-/* At 360 px the pill has about 76 px: the book gives way so the count stays whole (QA: "13/14🪵" lost its log); the
+/* At 360 px the pill has about 76 px: the book gives way so the count stays whole (QA: "13/14\uE000" lost its log); the
    pill's place, its bar and its colours say what it is. */
 @media (max-width: 370px) {
   .research-pill .rp-text { grid-template-columns: minmax(0, max-content); grid-template-areas: "name" "count"; }
@@ -997,7 +1001,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 
 /* Tooltips for the HUD's controls (see ui/tooltip.ts). */
-.tooltip { position: fixed; left: 0; top: 0; z-index: 100; max-width: 240px; padding: 5px 10px; border-radius: 9px; background: #3a2a1c; color: #fbf3e4; font: 700 13px/1.3 Nunito, system-ui, sans-serif; box-shadow: 0 4px 14px rgba(30, 20, 10, 0.3); pointer-events: none; }
+.tooltip { position: fixed; left: 0; top: 0; z-index: 100; max-width: 240px; padding: 5px 10px; border-radius: 9px; background: #3a2a1c; color: #fbf3e4; font: 700 13px/1.3 "Woodrail Icons", Nunito, system-ui, sans-serif; box-shadow: 0 4px 14px rgba(30, 20, 10, 0.3); pointer-events: none; }
 /* A tray item's details (hover, or a long press): its name, what it does, and (hover) how to use it. */
 .tooltip.details { max-width: 260px; padding: 7px 11px; }
 .tooltip .tip-name { font-weight: 800; font-size: 14px; }

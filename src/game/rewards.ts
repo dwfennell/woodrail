@@ -148,7 +148,7 @@ function schoolPlaced(world: World): boolean {
 /**
  * What a research boost of `share` puts into the current research now: that share of each good it lacks (rounded up),
  * at least `BOOST_FLOOR` of it, but no more than it lacks. A good that would come to fewer than the floor (it lacks
- * only a few) is left out, so every good a card shows is the floor or more (QA N2: "+1🪵 2🌾"). Empty if none is.
+ * only a few) is left out, so every good a card shows is the floor or more (QA N2: "+1\uE000 2🌾"). Empty if none is.
  */
 export function boostGoods(p: Progress, share: number): Bag {
   const out: Bag = {};
@@ -284,7 +284,7 @@ export interface CardView {
   line: string;
   ok: boolean;
   why?: string;
-  /** What the toast says once it's taken, where that's more than the amount: "+3🪵 to Bridges" (QA: where it went). */
+  /** What the toast says once it's taken, where that's more than the amount: "+3\uE000 to Bridges" (QA: where it went). */
   taken?: string;
 }
 
@@ -293,7 +293,7 @@ export function carIcon(id: ThingId): string {
   return `<span class="gs-car">${trainIcon([id.slice(4) as CarKind])}</span>`;
 }
 
-/** "4🪵 3🌾". */
+/** "4\uE000 3🌾". */
 const goodsLine = (bag: Bag) =>
   kindsOf(bag)
     .map((k) => `${bag[k]}${GOODS_ICON[k]}`)

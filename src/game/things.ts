@@ -143,7 +143,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
  */
 export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine" };
 
-/** A thing's whole price, for cards, by icon as tickets show it: "12🪵 30🪙" ("free" if nothing). */
+/** A thing's whole price, for cards, by icon as tickets show it: "12\uE000 30🪙" ("free" if nothing). */
 export function costText(rule: ThingRule): string {
   return [iconCounts(rule.cost), rule.coins ? `${rule.coins}${COIN_ICON}` : ""].filter(Boolean).join(" ") || "free";
 }

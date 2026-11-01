@@ -32,7 +32,7 @@ export function cardState(p: Progress, id: string): CardState {
   return canResearch(p, id) ? "ready" : "locked";
 }
 
-/** One chip of a card's cost: "🪵 6/10" (got of needed), or "🪙 20"; `short` when the coins aren't in hand. */
+/** One chip of a card's cost: "\uE000 6/10" (got of needed), or "🪙 20"; `short` when the coins aren't in hand. */
 export interface Chip {
   text: string;
   short?: boolean;
@@ -47,7 +47,7 @@ const goodName = (k: CargoKind, n: number): string => {
 };
 
 /**
- * Everything a research costs, in words with each icon, so no symbol needs learning: "10 🪵 planks, 6 🌾 grain,
+ * Everything a research costs, in words with each icon, so no symbol needs learning: "10 \uE000 planks, 6 🌾 grain,
  * 40 🪙 coins" ("nothing" when free). Coins already paid (under way, or set aside) say so: "40 🪙 coins (paid)".
  */
 export function costWords(p: Progress, id: string): string {
@@ -93,7 +93,7 @@ export function researchChips(p: Progress, id: string): Chip[] {
   return chips;
 }
 
-/** The chips as one line: "🪵 6/10 · 🌾 0/6 · 🪙 20". */
+/** The chips as one line: "\uE000 6/10 · 🌾 0/6 · 🪙 20". */
 export const chipsText = (chips: readonly Chip[]): string => chips.map((c) => c.text).join(" · ");
 
 /** How far a research's goods are in (0–1), or its study once they are. */
@@ -110,7 +110,7 @@ export function researchFill(p: Progress, id: string): number {
   return need > 0 ? have / need : 0;
 }
 
-/** What the current research waits for: "bring 4🪵 to Larkfield school", "studying: 12 s", "place a school by a town". */
+/** What the current research waits for: "bring 4\uE000 to Larkfield school", "studying: 12 s", "place a school by a town". */
 export function researchWants(p: Progress, school: string | null): string {
   if (studying(p)) return `studying: ${Math.ceil(studyLeft(p))} s`;
   return school ? `bring ${iconCounts(lacks(p))} to ${school}` : "place a school by a town";
@@ -121,7 +121,7 @@ export interface ResearchCardView {
   chips: Chip[];
   /** "20 s study". */
   study: string;
-  /** How it stands, in a short line ("bring 4🪵 to Larkfield school", "Next up, after Switches", "Needs a school"). */
+  /** How it stands, in a short line ("bring 4\uE000 to Larkfield school", "Next up, after Switches", "Needs a school"). */
   why?: string;
   /** Its button: "Research", "Add to queue" or "Research now" (the swap); none while it's the research under way. */
   action?: string;
@@ -168,7 +168,7 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
 
 /**
  * One part of the pill's count: a good the research needs (or the coins the one up next waits for), got of needed.
- * Shown "🪵2/6", or "🪵✓" once it's all in.
+ * Shown "\uE0002/6", or "\uE000✓" once it's all in.
  */
 export interface PillPart {
   icon: string;
@@ -176,14 +176,14 @@ export interface PillPart {
   need: number;
 }
 
-/** The pill on the HUD: a name and a count (shown as "📘 Mills 🪵0/6 🌾0/6"), how far along, and whether to pick one. */
+/** The pill on the HUD: a name and a count (shown as "📘 Mills \uE0000/6 🌾0/6"), how far along, and whether to pick one. */
 export interface PillView {
   name: string;
-  /** The count in full: every part ("🪵✓ 🌾2/6"), the study time left ("⏱ 12 s"), or "research" (Pick research). */
+  /** The count in full: every part ("\uE000✓ 🌾2/6"), the study time left ("⏱ 12 s"), or "research" (Pick research). */
   count: string;
   /** Every good the research needs (or the coins it waits for), in cargo order; empty while studying or idle. */
   parts: PillPart[];
-  /** The cost in words, for the pill's tooltip and its name for a screen reader ("0 of 6 🪵 planks, 0 of 6 🌾 grain"). */
+  /** The cost in words, for the pill's tooltip and its name for a screen reader ("0 of 6 \uE000 planks, 0 of 6 🌾 grain"). */
   words: string;
   fill: number;
   /** Nothing picked: "Pick research". */
@@ -195,7 +195,7 @@ export interface PillView {
 const partText = (x: PillPart): string => (x.got >= x.need ? `${x.icon}✓` : `${x.icon}${x.got}/${x.need}`);
 
 /**
- * The pill's count, as much as fits: `fit` 0 is every part, a ticked one for a good all in ("🪵✓ 🌾2/6 🔩0/10"); 1
+ * The pill's count, as much as fits: `fit` 0 is every part, a ticked one for a good all in ("\uE000✓ 🌾2/6 🔩0/10"); 1
  * leaves the ticked ones out ("🌾2/6 🔩0/10"); 2 is the good most lacking (the most of it still to come, as a share)
  * and how many more ("🔩0/10 +1"). Never a good cut off unsaid: what's left out is all in, or counted in the "+N".
  * Only parts with a count; the study time and "research" are the count as is.
@@ -211,7 +211,7 @@ export function pillCount(v: PillView, fit: 0 | 1 | 2 = 0): string {
 }
 
 /**
- * The HUD's research pill: the research under way and every good it needs, each got of needed ("Mills", "🪵0/6 🌾0/6";
+ * The HUD's research pill: the research under way and every good it needs, each got of needed ("Mills", "\uE0000/6 🌾0/6";
  * a good all in ticked), its study time left once the goods are in ("⏱ 12 s"), the one waiting for coins ("Routes",
  * "🪙5/20"), or "Pick research" with nothing picked. Coins paid (as a research starts) aren't shown. Hidden (null) with
  * nothing picked and no school placed.
@@ -250,7 +250,7 @@ export function pillResearch(p: Progress): string | null {
   return r.next && coinsShort(p) > 0 ? r.next : null;
 }
 
-/** The pill in one line, in full: "📘 Mills 🪵0/6 🌾0/6", "📘 Pick research" ("" when it's hidden). */
+/** The pill in one line, in full: "📘 Mills \uE0000/6 🌾0/6", "📘 Pick research" ("" when it's hidden). */
 export const pillText = (v: PillView | null): string => (v ? `📘 ${v.name} ${v.count}${v.more > 0 ? ` +${v.more}` : ""}` : "");
 
 /**
