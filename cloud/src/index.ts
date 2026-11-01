@@ -4,6 +4,7 @@
  *   PUT  /v1/saves/:mode         store a bundle (the one it replaces is kept as `<mode>.prev`)
  *   GET  /v1/saves/:mode         the bundle (`?prev=1`: the one before it)
  *   HEAD /v1/saves/:mode         just its headers: what's there, without the bytes
+ *   POST /v1/stats               anonymous play stats, from players who said yes (stats.ts)
  *
  * The sync code is the only key: sent in `X-Woodrail-Code` (never in the URL, so it stays out of logs), and stored only
  * as an HMAC under the Worker's secret `CODE_KEY` (so the bucket's keys can't be tried against codes without it). The bundle is opaque here: the game gzips it, and checks it when it loads it. What the Worker keeps beside
@@ -18,8 +19,9 @@
  */
 
 import { MAX_BYTES, MIN_PUT_INTERVAL_MS, MODES } from "./limits";
+import { handleStats, type StatsEnv } from "./stats";
 
-export interface Env {
+export interface Env extends StatsEnv {
   SAVES: R2Bucket;
   /** The pages that may call the Worker, comma separated (`https://example.com,http://localhost:5173`). */
   ALLOWED_ORIGINS: string;
@@ -37,6 +39,8 @@ const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = request.headers.get("Origin");
+    // Play stats (stats.ts): from any page, so not behind the saves' origin check.
+    if (new URL(request.url).pathname === "/v1/stats") return handleStats(request, env, { "Access-Control-Allow-Origin": "*" });
     const allowed = origin !== null && (LOCAL.test(origin) || env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).includes(origin));
     const cors = (res: Response): Response => {
       // (The Worker's clock, so a game can tell how far off its own is: see `X-Stored-At`.)
