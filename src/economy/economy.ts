@@ -535,7 +535,7 @@ export class Economy {
    * A workshop still gets what it keeps for its waiting tray order (`reserved`). Cheap: lookups and the train's cars,
    * only at a town or workshop and only while the research lacks this good.
    */
-  private keptForSchool(carId: number, kind: CargoKind, route: Route | null, atTown = false): boolean {
+  private keptForSchool(carId: number, kind: CargoKind, route: Route | null): boolean {
     const want = this.sinkWants?.(kind) ?? 0;
     if (want <= 0) return false;
     const found = this.sim.findCar(carId);
@@ -553,10 +553,7 @@ export class Economy {
       const reach = this.reachOf(found.train);
       if (!this.schools.some((d) => first(d) && reach.has(d.pieceId))) return false;
     }
-    // At a town (it wants them), no more than what's left of the school's share this pass (`SCHOOL_SHARE`): research
-    // first, but a town on the way still gets part of a load.
-    const keep = atTown ? Math.min(want, this.schoolShareLeft(found.train, kind)) : want;
-    return this.onBoard(found.train, kind) <= keep;
+    return this.onBoard(found.train, kind) <= want;
   }
   private schools: DepotState[] = [];
   private schoolsOf: readonly DepotState[] | null = null;
@@ -1007,7 +1004,7 @@ export class Economy {
       if (d.role !== "town" && d.piles[CARGO[c.kind].index] >= capAt(d)) return "full";
     } else if (d.piles[CARGO[c.kind].index] >= capAt(d)) return "full";
     // What a school set to Research first lacks rides on past a town or a workshop for it (a workshop's tray order first).
-    if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route, d.role === "town")) return "school";
+    if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route)) return "school";
     // A workshop's yard takes no more than it keeps (its tray order's, or a few) while a town the train goes on to wants
     // them too (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved). Not one set
     // to take all (`takesAll`), nor at a stop set to Only drop (QA N3: it still shared): it fills its yard.
