@@ -1,12 +1,13 @@
-import { Box3, Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type BufferGeometry, type Object3D, type TOUCH } from "three";
+import { Box3, DoubleSide, Euler, Group, Matrix4, MeshBasicMaterial, MOUSE, Plane, Raycaster, Shape, ShapeGeometry, Vector2, Vector3, Mesh, type BufferGeometry, type Object3D, type TOUCH } from "three";
 import { Editor, pieceCentre, poseCentre, poseForCentre, TRAIN_ON_TRACK, type Placement, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
+import { copyPointerMotion, createPointerMotion, facingAlong, notePointer, type PointerMotion } from "./place-facing";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
 import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
-import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
+import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
@@ -359,7 +360,37 @@ type Mode =
       ghost: Group;
       target: Cursor | null;
       overTray: boolean;
+      /** The pointer's recent motion: the train faces the way it's been going along the track (`place-facing.ts`). */
+      motion: PointerMotion;
+      /**
+       * The way (world heading) the held train's leading end goes, once the pointer has said (`motion`); followed
+       * along the track as the train is moved. Null till then: it goes the way the view looks, as before.
+       */
+      facing: number | null;
     };
+
+/**
+ * A flat arrow lying on the track, pointing +x (its tip 22 mm out): which way a held train will go. Its own geometry
+ * and material, freed with the ghost (`disposeObject`).
+ */
+function facingArrow(): Mesh {
+  const s = new Shape();
+  s.moveTo(22, 0);
+  s.lineTo(0, 18);
+  s.lineTo(0, 8);
+  s.lineTo(-12, 8);
+  s.lineTo(-12, -8);
+  s.lineTo(0, -8);
+  s.lineTo(0, -18);
+  s.closePath();
+  const geometry = new ShapeGeometry(s);
+  geometry.rotateX(-Math.PI / 2);
+  const mesh = new Mesh(geometry, new MeshBasicMaterial({ color: "#fff6e0", transparent: true, opacity: 0.9, depthWrite: false, side: DoubleSide }));
+  mesh.userData.ownsMaterial = true;
+  mesh.renderOrder = 2;
+  mesh.name = "facing-arrow";
+  return mesh;
+}
 
 /** Signed shortest turn from angle a to angle b. */
 function angleDelta(a: number, b: number): number {
@@ -610,7 +641,7 @@ export class Interaction {
       // Ids now, so the train in the hand wears the colours it will have on the track.
       const ids = this.game.sim.newCarIds(item.cars.length);
       const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i], look: item.looks?.[i] ?? ("classic" as const) }));
-      this.mode = { kind: "drag-train", pointerId: e.pointerId, cars, origin: null, ghost: this.trainGhost(cars), target: null, overTray: true };
+      this.mode = { kind: "drag-train", pointerId: e.pointerId, cars, origin: null, ghost: this.trainGhost(cars), target: null, overTray: true, motion: createPointerMotion(), facing: null };
     }
     // Taken out by a move (up off the shelf): held where that move is now. This handler had already seen that move
     // (before there was anything to drag), so a flick that lifts straight after it, with no move between, would drop
@@ -900,7 +931,7 @@ export class Interaction {
     const ghost = this.trainGhost(cars);
     ghost.visible = false;
     this.game.scene.add(ghost);
-    return { kind: "drag-train", pointerId: -3, cars, origin: null, ghost, target: null, overTray: true };
+    return { kind: "drag-train", pointerId: -3, cars, origin: null, ghost, target: null, overTray: true, motion: createPointerMotion(), facing: null };
   }
 
   /** The carried model or train shown where the mouse is (x, y), as its drag would hold it there; or hidden (null). */
@@ -940,6 +971,11 @@ export class Interaction {
     this.startTrayDrag(c.item, { pointerId: -1 } as PointerEvent);
     const m = this.mode;
     if (m.kind !== "drag-prop" && m.kind !== "drag-train") return;
+    // (Facing as the carried ghost shown there faces: the mouse's way along the track.)
+    if (m.kind === "drag-train" && c.m.kind === "drag-train") {
+      copyPointerMotion(c.m.motion, m.motion);
+      m.facing = c.m.facing;
+    }
     const touch = this.lastPointerWasTouch;
     this.lastPointerWasTouch = false;
     this.updateDrag(x, y);
@@ -4094,31 +4130,67 @@ export class Interaction {
       }
       return;
     }
+    notePointer(m.motion, x, y);
     m.ghost.visible = !m.overTray && !!ground;
     if (!ground) return;
     // On touch, a train is held (and seeks track) a little above the finger too, so it and where it'll go can be seen.
     // Its middle as drawn (an engine stands tall) at the lifted point: on the track it'd stand on, or held up loose.
     const mid = objectMiddle(m.ghost).y;
     const sy = y - TOUCH_LIFT_PX;
+    // It goes the way it's been going (once the pointer's said a way), else the way the view looks.
+    const way = m.facing ?? this.cameraHeading();
     let at = (this.lastPointerWasTouch ? this.planeAt(x, sy, 30 + mid) : null) ?? ground;
-    let near = nearestCursor(this.game.layout, at.x, at.z, TRAIN_DROP_RANGE, this.cameraHeading());
+    let near = nearestCursor(this.game.layout, at.x, at.z, TRAIN_DROP_RANGE, way);
     if (near && this.lastPointerWasTouch) {
-      const h = cursorWorld(this.game.layout, near.cursor, createWorldSample()).y + 4 + mid;
+      const h = cursorWorld(this.game.layout, near.cursor, this.trainSample).y + 4 + mid;
       const onTrack = this.planeAt(x, sy, h);
       if (onTrack) {
         at = onTrack;
-        near = nearestCursor(this.game.layout, at.x, at.z, TRAIN_DROP_RANGE, this.cameraHeading());
+        near = nearestCursor(this.game.layout, at.x, at.z, TRAIN_DROP_RANGE, way);
       }
     }
     m.target = near?.cursor ?? null;
     if (near) {
-      const w = cursorWorld(this.game.layout, near.cursor, createWorldSample());
+      const w = cursorWorld(this.game.layout, near.cursor, this.trainSample);
+      // The pointer pushed the other way along the track: turned round to go that way (the cursor is the drop's, so
+      // the train put down goes just as the ghost shows).
+      const said = this.facingSaid(m, w);
+      if (said === -1) {
+        flipCursor(this.game.layout, near.cursor);
+        cursorWorld(this.game.layout, near.cursor, w);
+      }
+      if (said !== 0 || m.facing !== null) m.facing = w.heading;
       m.ghost.position.set(w.x, w.y + 4, w.z);
       m.ghost.rotation.set(0, -w.heading, 0);
     } else {
       m.ghost.position.set(at.x, 30, at.z);
-      m.ghost.rotation.set(0, -this.cameraHeading(), 0);
+      m.ghost.rotation.set(0, -way, 0);
     }
+  }
+
+  private readonly trainSample = createWorldSample();
+  private readonly facingA = new Vector3();
+  private readonly facingB = new Vector3();
+
+  /**
+   * Has the pointer said which way the held train goes on the track at `w` (going `w.heading`)? 1: that way, −1: the
+   * other way, 0: not said. By the way its engine faces: an engine facing back along its train (Swap ends, then
+   * picked up) faces the pointer's way with its train going the other.
+   */
+  private facingSaid(m: Extract<Mode, { kind: "drag-train" }>, w: { x: number; y: number; z: number; heading: number }): -1 | 0 | 1 {
+    const cam = this.game.camera;
+    const a = this.facingA.set(w.x, w.y, w.z).project(cam);
+    const b = this.facingB.set(w.x + Math.cos(w.heading) * 20, w.y, w.z + Math.sin(w.heading) * 20).project(cam);
+    const c = this.game.canvas;
+    // (Screen px, y down.)
+    const said = facingAlong(m.motion, ((b.x - a.x) * c.clientWidth) / 2, (-(b.y - a.y) * c.clientHeight) / 2);
+    let engine: 1 | -1 = 1;
+    for (const car of m.cars)
+      if (car.kind === "engine") {
+        engine = car.facing;
+        break;
+      }
+    return (said * engine) as -1 | 0 | 1;
   }
 
   private lastX = 0;
@@ -4270,7 +4342,7 @@ export class Interaction {
     // route, #4. Back in the box, `dropTrain` prunes it.)
     this.changed();
     sim.removeTrain(t.id);
-    this.mode = { kind: "drag-train", pointerId, cars, origin, ghost: this.trainGhost(cars), target: null, overTray: false };
+    this.mode = { kind: "drag-train", pointerId, cars, origin, ghost: this.trainGhost(cars), target: null, overTray: false, motion: createPointerMotion(), facing: null };
   }
 
   private dropTrain(m: Extract<Mode, { kind: "drag-train" }>): void {
@@ -4379,6 +4451,18 @@ export class Interaction {
     // Centred between the first and last bogies, as a dropped train is placed (see `Sim.addTrainAround`).
     const span = -(x + CAR_SPECS[cars[cars.length - 1].kind].bogieInset);
     for (const m of g.children) m.position.x += span / 2;
+    // Which way it'll go, at the end its engine faces: an arrow on the track just past it (picked by the pointer's way
+    // along the track, `facingSaid`).
+    const engine = cars.find((c) => c.kind === "engine");
+    if (engine) {
+      const first = g.children[0];
+      const last = g.children[g.children.length - 1];
+      const end = engine.facing === 1 ? first.position.x + CAR_SPECS[cars[0].kind].length / 2 : last.position.x - CAR_SPECS[cars[cars.length - 1].kind].length / 2;
+      const arrow = facingArrow();
+      arrow.position.set(end + engine.facing * 14, 0.5, 0);
+      if (engine.facing === -1) arrow.rotation.y = Math.PI;
+      g.add(arrow);
+    }
     g.visible = false;
     this.game.scene.add(g);
     return g;
