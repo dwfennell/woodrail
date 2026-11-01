@@ -288,7 +288,6 @@ export class Hud {
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
-  private readonly engineMore = el("div", "engine-more");
   private readonly followBtn: HTMLButtonElement;
   /** The engine's lever as last shown, and the way Go will send it (+1: its own front first). */
   private engineLever = 0;
@@ -543,11 +542,10 @@ export class Hud {
     // Engine card
     this.engineCard.hidden = true;
     this.engineCard.appendChild(el("div", "card-title", "Engine"));
-    // Follow (the camera rides along) in the top corner, and a ⋯ for swapping ends or putting the train away.
+    // Follow (the camera rides along) in the top corner.
     this.followBtn = button("", "Follow this train with the camera", h.follow, "corner follow");
     this.followBtn.innerHTML = CAMERA_ICON;
-    const more = button("⋯", "More", () => (this.engineMore.hidden = !this.engineMore.hidden), "corner more");
-    this.engineCard.append(this.followBtn, more);
+    this.engineCard.append(this.followBtn);
     this.engineStatus.setAttribute("aria-live", "polite");
     this.engineCard.appendChild(this.engineStatus);
     this.engineSummary.append(this.summaryAbout, this.summaryLoad);
@@ -573,24 +571,18 @@ export class Hud {
       else this.drawEngine();
     }, "chip way");
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
-    controls.append(this.goBtn, this.wayBtn);
-    this.engineCard.appendChild(controls);
     this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
     this.continueBtn.hidden = true;
-    this.engineCard.appendChild(this.continueBtn);
-    this.engineMore.hidden = true;
-    this.engineMore.append(
-      button("Swap ends", "Move the engine to the other end of its train", () => {
-        this.engineMore.hidden = true;
-        h.swapEnds();
-      }, "chip text"),
-      button("Decouple", "Uncouple the engine from its cars", () => {
-        this.engineMore.hidden = true;
-        h.decouple();
-      }, "chip text"),
-      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
+    // Swap ends, Decouple and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): under Go and
+    // the arrow, or beside them on a phone on its side (style.css).
+    const engineActions = el("div", "engine-actions");
+    engineActions.append(
+      button("Swap ends", "Move the engine to the other end of its train", h.swapEnds, "chip text swap-ends"),
+      button("Decouple", "Uncouple the engine from its cars", h.decouple, "chip text decouple"),
+      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove"),
     );
-    this.engineCard.appendChild(this.engineMore);
+    controls.append(this.goBtn, this.wayBtn, this.continueBtn, engineActions);
+    this.engineCard.appendChild(controls);
     this.engineExtra.hidden = true;
     this.engineCard.appendChild(this.engineExtra);
     this.engineCard.appendChild(button("✕", "Close", h.closeCards, "close"));
@@ -1354,7 +1346,6 @@ export class Hud {
   showEngineCard(lever: number, following: boolean): void {
     this.hideCards();
     this.engineCard.hidden = false;
-    this.engineMore.hidden = true;
     this.root.classList.add("card-open");
     this.shownStatus = "";
     this.shownAngle = NaN;
