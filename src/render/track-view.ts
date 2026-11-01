@@ -584,9 +584,12 @@ export function arrowEnds(def: PieceDef): number[] {
 }
 
 /**
- * The roads a switch's chevrons mark in a state, and from which ends: each end it shows (`arrowEnds`) sets one road;
- * a road set from both its ends (a wye's curve with both its corners' levers on it, a crossover set over) is listed
- * once with both. A road set from neither end isn't listed: it shows nothing.
+ * The roads a switch's chevrons mark in a state, and from which ends trains are sent along them: each end it shows
+ * (`arrowEnds`) sets one road; a road so set is also run from its other end when that end sets it too (a wye's curve
+ * with both its corners' levers on it, a crossover set over) or has no choice there, the road being its only one (a
+ * switch's road set from the trunk, run back from its branch end; each line of a crossover set straight). A road with
+ * two ends here is run both ways. A road no lever sets isn't listed: it shows nothing (a switch's other road, though
+ * trains trail along it from its branch end, isn't what the lever says).
  */
 export function arrowRoads(def: PieceDef, state: number): { route: PathDef; ends: number[] }[] {
   const out: { route: PathDef; ends: number[] }[] = [];
@@ -596,29 +599,31 @@ export function arrowRoads(def: PieceDef, state: number): { route: PathDef; ends
     if (had) had.ends.push(end);
     else out.push({ route, ends: [end] });
   }
+  for (const road of out) {
+    const other = road.ends[0] === road.route.from ? road.route.to : road.route.from;
+    // (A road ending in the piece, as a buffer's does, has no other end to be run from.)
+    if (other !== null && !road.ends.includes(other) && routesFrom(def, other).length === 1) road.ends.push(other);
+  }
   return out;
 }
 
 /**
- * Every chevron a switch shows in a state, road by road (`arrowRoads`). A road set from one end: a row along it, pointing
- * away from that end (">>>"); on a crossover, every such row points the one way, as the link goes over (line B's row
- * lies where it did, turned round), so set straight its two lines read as two rows side by side, not facing each other
- * (QA, sc3). A road set from both ends, so trains are sent along it either way: a double-headed mark, a chevron near
- * each end pointing out toward it ("<  >"; the user, #15: a wye's curve set at both corners showed one way only). Never
- * two rows facing each other mid-road, like trains meeting (QA on switch clarity 2).
+ * Every chevron a switch shows in a state, road by road (`arrowRoads`). A road run one way, from one end: a row along
+ * it, pointing away from that end (">>>"). A road run both ways: a double-headed mark, the first and last chevron of
+ * the row from its first end, each pointing out toward the end it's nearer ("<  >"; the user, #15: a wye's curve set
+ * at both corners showed one way only; then: "both directions on the straight too, and for the double-track
+ * crossover"). Where the row lies is where the road has parted from the piece's other track (`switchArrowPoses`), so
+ * the mark keeps clear of other grooves at every size, as the row does. Never two rows facing each other mid-road, like
+ * trains meeting (QA on switch clarity 2).
  */
 export function switchArrows(def: PieceDef, state: number, scale = 1): { x: number; z: number; heading: number }[] {
   return arrowRoads(def, state).flatMap(({ route, ends }) => {
-    if (ends.length > 1)
-      // (Each end's own row's first chevron, where the road has parted from the others there, turned to point back out.)
-      return ends.map((end) => {
-        const a = switchArrowPoses(route, def, end, scale)[0];
-        return { ...a, heading: a.heading + Math.PI };
-      });
-    const end = ends[0];
-    const row = switchArrowPoses(route, def, end, scale);
-    // (A crossover's line set from its far end: the same places, turned round, first to last the way they now point.)
-    return def.web && end !== route.from ? row.reverse().map((a) => ({ ...a, heading: a.heading + Math.PI })) : row;
+    const row = switchArrowPoses(route, def, ends[0], scale);
+    if (ends.length > 1) {
+      const first = row[0];
+      return [{ ...first, heading: first.heading + Math.PI }, row[row.length - 1]];
+    }
+    return row;
   });
 }
 
@@ -654,6 +659,8 @@ export function switchArrowPoses(route: PathDef, def?: PieceDef, end = 0, scale 
   return SWITCH_ARROW_AT.map((_, i) => at(a + ((b - a) * i) / (n - 1)));
 }
 
+/** How far (mm) short of a socket end a row of chevrons stops: past its keyhole (`PEG_NECK_LENGTH` + `PEG_HEAD_RADIUS` × 2, and a little). */
+const SOCKET_END_MARGIN = 24;
 const clearSpans = new WeakMap<PathDef, Map<string, [number, number] | null>>();
 /** How far a route is from the piece's other tracks, every `SPAN_STEP` mm along it (each way along it): see `clearSpan`. */
 const clearances = new WeakMap<PathDef, Map<boolean, Float64Array>>();
@@ -729,7 +736,10 @@ function clearSpan(route: PathDef, def: PieceDef, back: boolean, scale = 1): [nu
   const CLEAR = burn ? 16 + burn.reach + 0.6 : SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.margin) + (ARROW.wide + ARROW.margin) * scale;
   // (Bigger, nested: `BURN_GAP` of wood square across their arms, which is further than that along the row.)
   const needs = (burn ? burn.depth + BURN_GAP / Math.sin(burn.slant) : 2 * ARROW_HALF + 1) * (SWITCH_ARROW_AT.length - 1);
-  const END_MARGIN = 8;
+  // (Short of the far end: a little, or clear of the keyhole where that end is a socket (its neck and head reach about
+  // 21 mm in), where a chevron was burned half into the hole: a crossover's line B, the far half of its "<  >".)
+  const farEnd = back ? route.from : route.to;
+  const END_MARGIN = farEnd !== null && def.connectors[farEnd].kind === "socket" ? SOCKET_END_MARGIN : 8;
   const len = pathLength(route.geom);
   const along = clearanceAlong(route, def, back);
   const clear = (d: number) => along[Math.round(d / STEP)] >= CLEAR;
