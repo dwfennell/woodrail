@@ -143,6 +143,7 @@ if (!setup.error) {
     const groups = [...document.querySelectorAll(".scroller .tray-group")];
     const g = groups.find((b) => b.querySelector(".label")?.textContent === "Switch");
     if (!g) return null;
+    g.scrollIntoView({ inline: "center" });
     const r = g.getBoundingClientRect();
     return [r.left + r.width / 2, r.top + r.height / 2];
   });
@@ -156,7 +157,7 @@ if (!setup.error) {
     const r = e.getBoundingClientRect();
     return [r.x + r.width / 2, r.y + r.height / 2];
   });
-  check("the Signal is on the Switch shelf", !!from);
+  check("the Signal is on the Switch shelf", !!from, from ? "" : JSON.stringify(await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-item")].map((e) => e.dataset.key ?? e.querySelector(".label")?.textContent))));
   // (On touch a held thing rides 56 px above the finger: the finger goes that far below the track.)
   const back = { x: joint.x - Math.cos(joint.heading) * 120, y: joint.y, z: joint.z - Math.sin(joint.heading) * 120 };
   const near = { x: joint.x - Math.cos(joint.heading) * 30, y: joint.y, z: joint.z - Math.sin(joint.heading) * 30 };
@@ -293,6 +294,9 @@ if (!setup.error) {
       const after = (await marks()).length;
       check("a drag along the track with the Signal tool: signals at joints along it", after - before >= 2, JSON.stringify({ before, after, joints: run.length }));
       await shot("7-run");
+      // (Put away by a tap on it in the tray; Undo, as for a ready piece, would put it away too.)
+      await tapAt(...item);
+      check("…tapped again, the Signal tool is put away", !(await p.evaluate(() => window.woodrail.interaction.signalToolOn)));
       const undoAt = await p.evaluate(() => {
         const r = document.querySelector('button[aria-label="Undo (Ctrl+Z)"]').getBoundingClientRect();
         return [r.x + r.width / 2, r.y + r.height / 2];
@@ -301,8 +305,6 @@ if (!setup.error) {
       await p.waitForTimeout(300);
       check("…one Undo takes the whole run away", (await marks()).length === before, JSON.stringify(await marks()));
     } else check("a run of joints along the line to drag over", false, JSON.stringify(run));
-    await tapAt(...item);
-    check("…tapped again, the Signal tool is put away", !(await p.evaluate(() => window.woodrail.interaction.signalToolOn)));
     // Undo (the toolbar's): the last one taken away.
     const undo = await p.evaluate(() => {
       const e = document.querySelector('button[aria-label="Undo (Ctrl+Z)"]');
