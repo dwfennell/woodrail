@@ -76,6 +76,8 @@ export interface Report {
   held: number[];
   /** Per train (in `trains` order): stops come to, turn-backs, the longest stand-still (s). */
   arrivals: number[];
+  /** Per train: whether it runs a route (has stops); a hand-run one comes to no stop, it shuttles end to end. */
+  routed: boolean[];
   /** Of those, the ones made with the engine not leading (pushing its cars). */
   pushed: number[];
   turns: Turns[];
@@ -216,6 +218,7 @@ export class HarnessRun implements InvariantWorld {
       name: scenario.name,
       broke: this.checks.broke,
       arrivals: this.specs.map(() => 0),
+      routed: this.specs.map((t) => !!t.stops),
       pushed: this.specs.map(() => 0),
       turns: this.specs.map(() => ({ buffer: 0, "open-end": 0 })),
       longestStill: this.specs.map(() => 0),
