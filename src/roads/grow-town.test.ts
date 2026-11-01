@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CELL, FEAT_BUILDING, FEAT_STATION, generateLandscape, gridWithPlots, SURF_GRASS, SURF_ROAD } from "../landscape";
 import { growTown, startsBothSides, type GrowthStep } from "./grow-town";
-import { roadsJoin, type Edge } from "./pieces";
+import { encodeRoad, roadsJoin, type Edge } from "./pieces";
 
 /** A town on an empty plot: station along x through row `cr`, platform on row `cr + 1`, the line kept clear. */
 function openSite(cc = 15, cr = 11) {
@@ -119,5 +119,34 @@ describe("growTown", () => {
     const t0 = performance.now();
     for (let k = 0; k < 10; k++) growTown(g, town, 10, { canUse });
     expect((performance.now() - t0) / 10).toBeLessThan(20);
+  });
+});
+
+describe("growTown keeps roads laid to a town joined", () => {
+  it("a street square a road was laid up to keeps its end toward it as the town grows round it", () => {
+    let checked = 0;
+    for (const cc of [10, 13, 15, 18, 21]) {
+      const { g, town, canUse } = openSite(cc);
+      apply(g, growTown(g, town, 4, { canUse }));
+      const nb = g.neighbours();
+      // A road laid on at every street end: a straight on the open square its piece points at, joined to it.
+      const laid: [number, number][] = [];
+      for (let i = 0; i < g.cellCount; i++) {
+        if (g.surface[i] !== SURF_ROAD) continue;
+        for (let e = 0; e < 4; e++) {
+          const j = nb[i * 4 + e];
+          if (j === -1 || g.surface[j] !== SURF_GRASS || !roadsJoin(g.road[i], e as Edge, encodeRoad("straight", e & 1))) continue;
+          g.setRoad(j, encodeRoad("straight", e & 1));
+          laid.push([i, e]);
+        }
+      }
+      // The town grows on (the roads' squares are lanes now: it keeps off them).
+      apply(g, growTown(g, town, 30, { canUse }));
+      for (const [i, e] of laid) {
+        expect(roadsJoin(g.road[i], e as Edge, g.road[nb[i * 4 + e]]), `street ${i} still joins the road laid to it`).toBe(true);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
