@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Ore</title>
+<g transform="rotate(45 12 12)">
+<rect x="10.4" y="4" width="3.2" height="19" rx="1.4" fill="#5a3a20"/>
+<rect x="11.3" y="5" width="1.4" height="17" fill="#d8a868"/>
+<path d="M1.5 7.2 C5 3.4 19 3.4 22.5 7.2 L21.4 8 C17.8 5.8 6.2 5.8 2.6 8 Z" fill="#2e3338"/>
+<path d="M2.6 6.6 C6.4 3.4 17.6 3.4 21.4 6.6 L20.6 7.2 C17 5.2 7 5.2 3.4 7.2 Z" fill="#8a96a3"/>
+<rect x="9.8" y="3.2" width="4.4" height="4.8" rx="1" fill="#2e3338"/>
+<rect x="10.7" y="4" width="2.6" height="3.2" fill="#6f7a86"/>
+</g></svg>

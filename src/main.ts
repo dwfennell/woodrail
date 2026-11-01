@@ -97,7 +97,7 @@ import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { CloudCard } from "./ui/cloud-card";
 import "./style.css";
-// The planks glyph's font (style.css) loads with the game, not on the first card that shows planks.
+// The icon font (style.css) loads with the game, not on the first card that shows an icon.
 void document.fonts?.load('16px "Woodrail Icons"', GOODS_ICON.planks).catch(() => undefined);
 
 /** A blueprint's requirement in words, a count of goods with its icon: "20🪨 stone delivered". */

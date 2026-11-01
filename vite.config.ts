@@ -28,7 +28,7 @@ export default defineConfig(({ command }) => ({
     __UPDATE_CHECK__: updateCheckOn() ? "true" : "false",
   },
   build: {
-    // The planks glyph's font is its own file, never a data: URL (an artifact's page may not allow data: fonts).
+    // The icon font is its own file, never a data: URL (an artifact's page may not allow data: fonts).
     assetsInlineLimit: (file: string) => (file.endsWith(".woff2") ? false : undefined),
   },
   test: {
