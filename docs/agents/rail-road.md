@@ -5,11 +5,19 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Draw:** drag-to-draw (`src/track/draw-path.ts`, `src/game/draw-hand.ts`).
 - **Switches:** levers, pins, and how clearly they read.
 - **Sharing lines:** sections and slots (`src/economy/sections.ts`).
-- **Engine-card commands:** Go/Stop, ⇄, Swap ends, Continue, Put away.
+- **Engine-card commands:** Go/Stop, ⇄, Swap ends, Decouple, Remove (all shown, no ⋯), Continue, Put away.
 - **The sim** (`src/sim/sim.ts`), where it bears on any of the above.
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **Signals, step 3: sections' waiting points** (on `claude/signals-3`; signals spec §3.2, §11 step 3).
+  - **Now:** a mark with room for the network's longest train in front of it, clear of points, with a section either side, is a one-way slot (`Slot.kind "signal"`, `mark`/`out`/`back`). Trains going its way stop there, so a follower leaves when the leader is past the signal; trains going against it take it as `through` with the sections either side. The convoy rule (`Sections.convoy`): a follower stops at one only if the next real slot is a passing loop or an empty line end nobody's heading for. Sections' gate holds the mark red for the train waiting there till its move on is granted (`Sim.signalGate`).
+  - **Gotchas:** anything that walks slots must handle `kind "signal"` (it has no `loop`); `loopsOn` doesn't count waiting points as making a line managed. The topology key includes the marks' places (`marksKey`), not holds.
+- **Signals, step 2: blocks through points, aspects on events** (on `claude/signals-2`; signals spec §11 step 2, issue #16).
+  - **Now:** a signal's block runs on through points to the next signal (either facing), buffer or open end (`Sim.findBlock`). Plain block: red while held or occupied. Junction block (points or a crossing in it) is a path signal, worked out per train coming to it (`Sim.pathFor`): its way (`Router.pathWay`) to its next clear point free of trains, and its locks held (`Router.pathLocks`); the router asks for those locks within its set distance of the signal and nothing past a signal that holds it. `Sim.heldBy` "signal"; a ring through signals is stall kind "signals" with its own card line.
+  - **Aspects on events:** worked out again only when a stamp (bogie pieces, `switchesVersion`, `Router.locksVersion`) changes; a quiet tick is a few integer ops per bogie. Path signals' shown aspect is the nearest train's.
+  - **Gotchas:** `blockOne` skips path signals (two trains on ways that don't meet may share a junction block). Two trains coming at one junction block from different signals can both see clear; the router's locks keep them apart at the points.
+  - **Proof:** sections QA and seed 2027's play-through identical to main (no signals there). Sim tick with 0–6 marks on the fuzz 13.6–15.2 → 9.4–11.9 µs; none: noise. Tests: `src/routing/signals.test.ts` step 2 cases, the fuzz with marks.
 - **Via points and stickiness** (on `claude/via-points`; spec §3.5; the user, 2026-10-31: the quarry train on the top, the plank train on the bottom, "they would get mixed up a lot").
   - **Now:** a stop's `via` (pieces passed on the way out of it, in order). Planning a route, a tap on plain track adds one after the last stop ("via ●" chip, a small white-dot disc on the map); a via chip tapped: ✕, or "Stop here" on a station's piece; a stop's action cycles on to pass by (three stops or more). The train's aim is its next via not passed, then the stop (`src/routing/via.ts`), for the router (`goal`, and `then`: its look goes on past a via), sections (`target`) and the drawn line (`viaLegs`).
   - **Stickiness:** `Router.ways` (`WayMemory`) keeps each line's way at points; `planWay(…, keep)` keeps it while within 15% + 300 mm of the best. Written only by the router's walk, read by sections and the line drawn. `planWay`'s cache now holds each option's cost.
