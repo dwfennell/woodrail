@@ -287,7 +287,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "roads", label: "Roads", branch: "roads", tier: 2, needs: ["passengers"], price: { planks: 2, coins: 60 }, requires: [level(1)], blurb: "Lay roads between your towns. Each square of road costs 2 coins.", brings: "Road, bend, T-junction, crossroads, dead end", feature: { label: "Roads tab: 2🪙 a square", icon: "🛣️" } }),
   row({ id: "road-crossings", label: "Crossing gates", branch: "roads", tier: 2, needs: ["roads"], price: { planks: 2, coins: 40 }, blurb: "Gates that close the road when a train comes, and a zebra crossing.", brings: "Level crossing, gated crossing, zebra crossing" }),
   row({ id: "road-bridges", label: "Road bridges", branch: "roads", tier: 2, needs: ["roads", "bridges"], price: { planks: 3, coins: 80 }, blurb: "Roads over rivers and up hills.", brings: "Road bridge, road ramps", feature: { label: "Road bridge and ramps (Roads tab)", icon: "🌉" } }),
-  row({ id: "vans", label: "Delivery vans", branch: "roads", tier: 2, plan: "soon", needs: ["roads", "warehouses"], price: { planks: 4, coins: 150 }, blurb: "Vans take goods from the station to towns off the line.", brings: "Delivery van" }),
+  row({ id: "vans", label: "Delivery vans", branch: "roads", tier: 2, needs: ["roads", "warehouses"], price: { planks: 4, coins: 150 }, blurb: "Vans take goods from the station to towns off the line.", brings: "Delivery van", feature: { label: "A van at a station joined by road to a town off the line", icon: "🚐" } }),
   row({ id: "buses", label: "Buses", branch: "roads", tier: 2, plan: "soon", needs: ["vans", "halts"], price: { coins: 120 }, blurb: "A bus brings people to your trains.", brings: "Bus stop, bus" }),
 
   // The ending

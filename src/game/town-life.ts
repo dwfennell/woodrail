@@ -1,6 +1,7 @@
 import type { Bag } from "../economy/goods";
 import { kindsOf, minus, plus, total } from "../economy/goods";
 import type { CargoKind } from "../economy/cargo";
+import type { DepotState } from "../economy";
 import { LandEditor } from "../landscape/edit";
 import type { Town } from "../landscape";
 import { propsInRect } from "../props/placement";
@@ -74,6 +75,18 @@ export interface TownLifeEvents {
   knows?(tech: string): boolean;
   /** Does a school take `kind` from trains now (the research still lacks some)? A lookup: the crane asks per unit. */
   school?(kind: CargoKind): boolean;
+  /**
+   * Does station `d`'s delivery van take `kind` now, for the town off the line it serves (roads spec D5:
+   * `DeliveryVans.takes`)? The station takes it from trains though its own town doesn't want it, onto the van's yard.
+   */
+  vanTakes?(d: DepotState, kind: CargoKind): boolean;
+  /** Goods went on station `d`'s van yard (its van loads up and goes). */
+  vanYard?(d: DepotState): void;
+  /**
+   * A unit both station `d`'s own town and its van want: is it the van's turn? (Every other one: `DeliveryVans.share`.)
+   * Asked once per unit as it lands.
+   */
+  vanShare?(d: DepotState): boolean;
 }
 
 /**
@@ -102,7 +115,13 @@ export class TownLife {
     // A town takes from trains only what it still wants for its next level: the rest rides on to the next town.
     // (Made goods, furniture and tools, are always welcome: towns pay for them, wanted or not.)
     // A school takes only what its research still lacks (`TownLifeEvents.school`; none: nothing).
-    this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind) : d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind));
+    this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind) : d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind) || !!this.events.vanTakes?.(d, kind));
+    // A good its delivery van takes goes on the van's yard (roads spec D5): all of it if its own town doesn't want it,
+    // else every other unit (the station shares with the town off the line, as a school shares a load).
+    this.game.economy.toVan = this.events.vanTakes
+      ? (d, kind) => !!this.events.vanTakes?.(d, kind) && (!(this.wants(d.townId, kind) || LUXURIES.has(kind)) || !!this.events.vanShare?.(d))
+      : null;
+    this.game.economy.onVanYard = this.events.vanYard ? (d) => this.events.vanYard?.(d) : null;
     // A town joined by road to another counts some of what it receives twice toward growing (roads spec D2).
     this.game.economy.joinedByRoad = (townId) => joinedByRoad(this.game.landscape, townId);
     for (const t of this.game.landscape.towns) {
@@ -121,6 +140,8 @@ export class TownLife {
     for (const t of this.game.landscape.towns) this.game.setSignBadge(t.id, null);
     this.shown.clear();
     this.game.economy.accepts = null;
+    this.game.economy.toVan = null;
+    this.game.economy.onVanYard = null;
     this.game.economy.joinedByRoad = null;
   }
 
@@ -134,6 +155,13 @@ export class TownLife {
     return (s.status.got[kind] ?? 0) < (s.status.wants[kind] ?? 0);
   }
   private readonly statuses = new Map<number, { key: number; status: TownStatus }>();
+
+  /** How many more of `kind` a town wants for its next level (0: none). Cached as `wants` is. */
+  lacks(townId: number, kind: CargoKind): number {
+    if (!this.wants(townId, kind)) return 0;
+    const s = this.statuses.get(townId)!.status;
+    return (s.wants[kind] ?? 0) - (s.got[kind] ?? 0);
+  }
 
   /** Call each frame: cheap unless something was delivered. */
   update(): void {

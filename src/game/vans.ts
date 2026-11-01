@@ -30,6 +30,16 @@ export interface CrossingSquares {
   has(i: number): boolean;
 }
 
+/** What happens as a vehicle's trip goes. */
+export interface TripEvents {
+  /** It reached the far end (D5: it hands over its load). */
+  arrive?(v: RoadVehicle, trip: Trip): void;
+  /** Its trip ended at home (D5: what it brought back stays on the yard). */
+  home?(v: RoadVehicle, trip: Trip): void;
+  /** Its loading time at home is up (D5: it takes its load and goes). */
+  ready?(v: RoadVehicle, trip: Trip): void;
+}
+
 /** A vehicle's trip: home (the square it parks on), and what it's going to. */
 export interface Trip {
   readonly home: number;
@@ -50,10 +60,8 @@ export class Vans {
   private seenRevision = -1;
   private seenCrossings = -1;
   private seenVehicles: RoadVehicles | null = null;
-  /** Called when a vehicle's trip ends at home (D5: what it brought back goes back on the yard). */
-  onHome: ((v: RoadVehicle, trip: Trip) => void) | null = null;
-  /** Called when a vehicle reaches the far end (D5: it hands over its load). */
-  onArrive: ((v: RoadVehicle, trip: Trip) => void) | null = null;
+  /** What the game does as each kind's trips go (D5's delivery vans, D6's buses). */
+  readonly on: Partial<Record<VehicleKind, TripEvents>> = {};
 
   constructor(
     private readonly world: () => VanWorld,
@@ -70,9 +78,10 @@ export class Vans {
         trip.to = this.world().landscape.grid.cellAtWorld(x.x, x.z);
         // The way back, from where it got to (worked out now: the land may have changed on the way).
         x.back = this.way([trip.to], (i) => i === trip.home, `home${trip.home}`, Infinity);
-        this.onArrive?.(x, trip);
+        this.on[x.kind]?.arrive?.(x, trip);
       };
-      v.onHome = (x) => this.onHome?.(x, x.data as Trip);
+      v.onHome = (x) => this.on[x.kind]?.home?.(x, x.data as Trip);
+      v.onReady = (x) => this.on[x.kind]?.ready?.(x, x.data as Trip);
     }
     return v;
   }
@@ -152,7 +161,7 @@ export class Vans {
     if (w.landscape.grid.revision === this.seenRevision && cross.version === this.seenCrossings) return;
     this.seenRevision = w.landscape.grid.revision;
     this.seenCrossings = cross.version;
-    for (const v of this.vehicles.list) if (v.leg !== "home") this.reroute(v);
+    for (const v of this.vehicles.list) if (v.leg !== "home" && v.leg !== "loading") this.reroute(v);
   }
 
   private reroute(v: RoadVehicle): void {
@@ -194,7 +203,7 @@ export class Vans {
     }
     // No road home at all: it's put back home.
     this.vehicles.park(v, g.centreX(g.colOf(trip.home)), g.groundY(trip.home) + ROAD_TOP, g.centreZ(g.rowOf(trip.home)), v.heading);
-    this.onHome?.(v, trip);
+    this.on[v.kind]?.home?.(v, trip);
   }
 }
 

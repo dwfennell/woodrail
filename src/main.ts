@@ -27,6 +27,7 @@ import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blende
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
+import { DeliveryVans } from "./game/delivery-vans";
 import { plotPrice } from "./game/towns";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
@@ -1409,11 +1410,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return p ? { x: p.x, z: p.z } : undefined;
   };
 
+  // Delivery vans (roads spec D5): a station on the line serves a town off it by road (src/game/delivery-vans.ts).
+  const deliveryVans = new DeliveryVans({ world: game, vans: game.vans, knows: () => mode === "game" && progress.learned.has("vans"), lacks: (t, k) => townLife.lacks(t, k) });
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
     knows: (tech) => progress.learned.has(tech),
     // A school takes only what the research still lacks (a lookup: the crane asks for every unit).
     school: (kind) => researchLacking(progress, kind) > 0,
+    // A station's delivery van takes what the town off the line it serves wants (roads spec D5).
+    vanTakes: (d, kind) => deliveryVans.takes(d, kind),
+    vanYard: (d) => deliveryVans.yardFilled(d),
+    vanShare: (d) => deliveryVans.share(d),
     received: (town, kind, n, before) => {
       const firstFlour = !progress.firstFlour;
       payDelivery(progress, kind, n, before, town);
@@ -1883,6 +1890,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function learned(id: string): void {
+    // Delivery vans: each station serving a town off the line by road gets its van now.
+    if (id === "vans") deliveryVans.sync();
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
     // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
@@ -2222,6 +2231,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   setInterval(() => {
     updatePlanksKept();
     if (playing && !game.paused) storeToasts();
+    // Delivery vans' runs: worked out again only after the land, the track or what's learned changed.
+    deliveryVans.sync();
     const sailed = simElapsed(harbourClock, game.simSeconds);
     if (mode !== "game" || !playing || game.paused || sailed <= 0) return;
     for (const e of harbourTrade.update(game.world, progress, sailed)) {
@@ -2295,7 +2306,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // A town's card (Game mode): its ledger (src/game/town-ledger.ts), drawn again only when its key changes. Its station
   // row says who is waiting for a coach.
-  const ledgerContext: LedgerContext = { learned: progress.learned, room: null, carried: 0 };
+  const ledgerContext: LedgerContext = { learned: progress.learned, room: null, carried: 0, van: { line: (d) => deliveryVans.cardLine(d), key: (d) => deliveryVans.cardKey(d) } };
   const ledgerOf = (): LedgerContext => {
     ledgerContext.learned = progress.learned;
     ledgerContext.carried = progress.riders;

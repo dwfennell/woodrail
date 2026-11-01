@@ -823,6 +823,114 @@ if (route && route.path.length <= 60) {
   check("V6 Redo lays it again: the towns are joined", (await road(cut)) !== 0 && (await p.evaluate(async ({ a, b }) => (await import("/src/roads/graph.ts")).townLinks(window.woodrail.landscape).get(a)?.includes(b), route)));
 }
 
+// ---- W: delivery vans (roads spec D5) ---------------------------------------------------------------------------------
+// The player's path for what's tested: Delivery vans learned, the station put on the line, a train's wagons unloaded at
+// it by the crane, the van taking the share for the town off the line there, and that town receiving it and growing.
+// Setup shortcuts (named, not what's tested): the blueprint learned through the game's own `learn` (the study skipped);
+// the step-4 show van taken away; the track to the forest laid by the player's own pathfinder (`play`, as the warehouse
+// e2e does); a train of planks put down by the station as the tray would, its wagons loaded as the sawmill's crane
+// loads them; the game ticked ahead in `evaluate` (software drawing is slow).
+if (route && route.path.length <= 60) {
+  const vanState = () => p.evaluate((a) => {
+    const w = window.woodrail;
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === a);
+    const v = w.economy.roadVehicles.list.find((x) => x.data?.depotId === d.id);
+    return { vans: w.economy.roadVehicles.list.length, leg: v?.leg ?? null, yard: w.economy.vanYard.get(d.id) ?? null, depot: d.id };
+  }, route.a);
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.economy.roadVehicles.clear();
+    w.learn("warehouses");
+    w.learn("vans");
+  });
+  // A second for the once-a-second update to look.
+  await p.waitForTimeout(1500);
+  const before = await vanState();
+  check(`W1 Delivery vans learned, but ${route.aName}'s station isn't on the line yet: no van`, before.vans === 0, JSON.stringify(before));
+  const laid = await p.evaluate(async (a) => {
+    const { play } = await import("/src/play/player.ts");
+    const { rulesFor } = await import("/src/play/rules.ts");
+    const { connectorRef } = await import("/src/track/layout.ts");
+    const w = window.woodrail;
+    const station = w.world.stations.get(a);
+    const forest = [...w.world.depots.values()].find((id) => w.layout.getPiece(id)?.type === "depot-forest");
+    for (const [i, j] of [[1, 0], [1, 1], [0, 0], [0, 1]]) {
+      const r = play(w.world.layout, w.editor(), connectorRef(station, i), connectorRef(forest, j), { blocked: rulesFor(w.world), maxPieces: 80, fiddle: 3 });
+      if (r.ok) return { ok: true, end: i };
+    }
+    return { ok: false };
+  }, route.a);
+  await until((a) => {
+    const w = window.woodrail;
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === a);
+    return w.economy.roadVehicles.list.some((x) => x.data?.depotId === d.id);
+  }, route.a);
+  const parked = await vanState();
+  check(`W2 its station on the line, a van parks by it (for ${route.bName}, off the line)`, laid.ok && parked.vans === 1 && parked.leg === "home", `${JSON.stringify(laid)} ${JSON.stringify(parked)}`);
+  await p.evaluate((id) => window.woodrail.interaction.openDepotCard(id), parked.depot);
+  await until((n) => [...document.querySelectorAll(".ledger-rows")].some((r) => r.textContent.includes(`Van to ${n}`)), route.bName);
+  const vanCard = await p.evaluate(() => [...document.querySelectorAll(".ledger-rows")].map((r) => r.textContent).join(" | "));
+  check(`W3 the station's card says "Van to ${route.bName} (off the line)"`, vanCard.includes(`Van to ${route.bName} (off the line)`), vanCard);
+  await p.keyboard.press("Escape");
+  // A train of planks stops at the station; the crane unloads it.
+  const fed = await p.evaluate(async ({ a, b, end }) => {
+    const { growthOf, receivedBy } = await import("/src/game/town-life.ts");
+    const { townStatus } = await import("/src/game/towns.ts");
+    const w = window.woodrail;
+    const station = w.world.stations.get(a);
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === a);
+    const lacks = (t) => { const s = townStatus(growthOf(w.world, t)); return { level: s.level, planks: (s.wants.planks ?? 0) - (s.got.planks ?? 0) }; };
+    const b0 = { ...lacks(b), got: receivedBy(w.world, b).planks ?? 0 };
+    let engine = -1;
+    for (const reversed of [false, true]) {
+      for (const s of [0, 20, 40, 60, 80]) {
+        const r = w.sim.addTrain(["engine", "timber", "timber", "timber"], { pieceId: station, pathIndex: 0, reversed, s });
+        if (r.kind !== "placed") continue;
+        const t = w.sim.getTrain(r.trainId);
+        for (const c of t.cars.slice(1)) w.economy.setCargo(c.id, "planks", 3);
+        engine = t.cars[0].id;
+        break;
+      }
+      if (engine !== -1) break;
+    }
+    // Off toward the forest: it passes the crane.
+    w.sim.setLever(engine, 1);
+    let left = 0;
+    const out = { unloaded: 0, vanLeft: false };
+    for (let k = 0; k < 120 * 90; k++) {
+      w.sim.tick();
+      w.economy.tick();
+      for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === d.id) out.unloaded++;
+      const v = w.economy.roadVehicles.list[0];
+      if (v && v.leg === "out") out.vanLeft = true;
+      if (out.vanLeft && v.leg === "home") break;
+    }
+    w.invalidate();
+    return { b0, engine, ...out, yard: w.economy.vanYard.get(d.id) ?? null };
+  }, { a: route.a, b: route.b, end: laid.end });
+  check(`W4 a train's planks unloaded at ${route.aName}: the van loads its share and drives off`, fed.unloaded > 0 && fed.vanLeft, JSON.stringify(fed));
+  await p.waitForTimeout(1500);
+  const after = await p.evaluate(async (b) => {
+    const { growthOf, receivedBy } = await import("/src/game/town-life.ts");
+    const { townStatus } = await import("/src/game/towns.ts");
+    const w = window.woodrail;
+    const s = townStatus(growthOf(w.world, b));
+    return { level: s.level, got: receivedBy(w.world, b).planks ?? 0, coins: w.progress().coins };
+  }, route.b);
+  const got = after.got - fed.b0.got;
+  check(`W5 ${route.bName}, off the line, receives the planks by van${fed.b0.planks <= got ? " and grows" : ""}`, got > 0 && got <= 8 && (fed.b0.planks > got || after.level > fed.b0.level), `${got} planks; level ${fed.b0.level} → ${after.level} (it lacked ${fed.b0.planks})`);
+  await shot("W-van-delivered");
+  await p.evaluate((b) => {
+    const w = window.woodrail;
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === b);
+    w.interaction.openDepotCard(d.id);
+  }, route.b);
+  await until((n) => [...document.querySelectorAll(".ledger-rows")].some((r) => r.textContent.includes(`Goods by van from ${n}`)), route.aName);
+  const bCard = await p.evaluate(() => [...document.querySelectorAll(".ledger-rows")].map((r) => r.textContent).join(" | "));
+  check(`W6 ${route.bName}'s card says "Goods by van from ${route.aName}"`, bCard.includes(`Goods by van from ${route.aName}`), bCard);
+  await p.keyboard.press("Escape");
+}
+
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

@@ -9,8 +9,11 @@
 
 export type VehicleKind = "van" | "bus";
 
-/** Where a vehicle is in its trip: parked at home, driving out, standing at the far end, or driving back. */
-export type Leg = "home" | "out" | "there" | "back";
+/**
+ * Where a vehicle is in its trip: parked at home, loading at home (about to leave: a timer, no moving), driving out,
+ * standing at the far end, or driving back.
+ */
+export type Leg = "home" | "loading" | "out" | "there" | "back";
 
 /** A crossing on a path: where a vehicle stops short of it while it's shut (distance along), and its first square. */
 export interface PathHold {
@@ -37,7 +40,7 @@ export interface RoadVehicle {
   back: RoadPath | null;
   /** Distance along `path` (mm). */
   t: number;
-  /** Seconds left standing at the far end. */
+  /** Seconds left standing at the far end (or loading at home). */
   dwell: number;
   /** Waiting at a crossing's edge (it's shut). */
   holding: boolean;
@@ -72,13 +75,22 @@ export class RoadVehicles {
   onArrive: ((v: RoadVehicle) => void) | null = null;
   /** A vehicle came home and parked. */
   onHome: ((v: RoadVehicle) => void) | null = null;
+  /** A vehicle's loading time at home ran out (see `load`): the game sends it, or parks it again. */
+  onReady: ((v: RoadVehicle) => void) | null = null;
   private nextId = 1;
 
   /** How many are on the move (out, standing there or back). */
   get moving(): number {
     let n = 0;
-    for (const v of this.list) if (v.leg !== "home") n++;
+    for (const v of this.list) if (v.leg !== "home" && v.leg !== "loading") n++;
     return n;
+  }
+
+  /** Start loading a parked vehicle: in `seconds` (game time, ticked here) `onReady` is called for it. */
+  load(v: RoadVehicle, seconds: number): void {
+    if (v.leg !== "home") return;
+    v.leg = "loading";
+    v.dwell = seconds;
   }
 
   count(kind: VehicleKind): number {
@@ -157,6 +169,13 @@ export class RoadVehicles {
     this.beforeTick?.();
     for (const v of this.list) {
       if (v.leg === "home") continue;
+      if (v.leg === "loading") {
+        v.dwell -= dt;
+        if (v.dwell > 0) continue;
+        v.leg = "home";
+        this.onReady?.(v);
+        continue;
+      }
       if (v.leg === "there") {
         v.dwell -= dt;
         if (v.dwell > 0) continue;

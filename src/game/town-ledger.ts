@@ -40,6 +40,8 @@ export interface TownLedger {
   station: { waiting: number; room: number; carried: number } | null;
   /** "Joined by road to Fernby" (roads spec D2: it grows faster), or null when no road joins it to another town. */
   road: string | null;
+  /** Its delivery van's line (roads spec D5: "Van to Fernby (off the line): 3 🪵 waiting", "Goods by van from Ashby"), or null. */
+  van: string | null;
   /** The lines that call at the town, with how many trains run on each (once Train routes is learned). */
   lines: { id: number; name: string; colour: string; trains: number }[];
 }
@@ -51,6 +53,8 @@ export interface LedgerContext {
   room: number | null;
   /** People carried by coach, all game. */
   carried: number;
+  /** A station's delivery van line, and a key that changes with it (roads spec D5: `DeliveryVans`); none: no vans. */
+  van?: { line(d: DepotState): string | null; key(d: DepotState): number };
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
@@ -105,6 +109,7 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     school,
     market: townLandmarks(town).has("market") ? MARKET_BONUS : 1,
     road: roadLine(world, town.id),
+    van: ctx.van?.line(d) ?? null,
     station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried },
     lines,
   };
@@ -149,6 +154,7 @@ export function ledgerKey(world: World, d: DepotState, ctx: LedgerContext): numb
   h = mix(h, ctx.room ?? -1);
   h = mix(h, ctx.carried);
   h = mix(h, d.waiting);
+  if (ctx.van) h = mix(h, ctx.van.key(d));
   for (const l of world.economy.lines.values()) {
     h = mix(h, l.id);
     h = mixText(h, l.name);

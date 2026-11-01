@@ -71,6 +71,7 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
   }
   if (v.market > 1) rows.append(row("Market", "pays extra for goods"));
   if (v.road) rows.append(row("Road", `${v.road}: grows faster`));
+  if (v.van) rows.append(row("Van", v.van));
   if (v.station) rows.append(row("Station", `${v.station.waiting} of ${v.station.room} waiting · ${v.station.carried} carried in all`));
   if (rows.childElementCount > 0) box.append(rows);
 
