@@ -19,6 +19,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 html, body, button, .hud, .card, .tray, .title-screen, #loading { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 html, body, button { touch-action: manipulation; }
 input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+/* Keyboard focus: a ring in the logo's blue, clear of the button's edge (a mouse or a finger shows none). */
+:focus-visible { outline: 3px solid #2f6fb5; outline-offset: 2px; }
+/* Scroll bars (a mouse's lists: the News, the research board, a card): thin, in the wood's own brown. */
+* { scrollbar-width: thin; scrollbar-color: rgba(138, 100, 64, 0.45) transparent; }
 #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 /* The loading screen and the wooden block letters are styled in index.html, so they show before scripts load. */
 
@@ -27,7 +31,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .hud > * { pointer-events: auto; }
 .topbar { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; }
 .topbar > * { pointer-events: auto; }
-.brand { font-weight: 800; font-size: 20px; letter-spacing: 0.02em; color: #3a2a1c; background: rgba(250, 243, 230, 0.82); backdrop-filter: blur(8px); padding: 8px 14px 8px 10px; border-radius: 14px; box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); display: flex; align-items: center; gap: 8px; }
+.brand { font-weight: 800; font-size: 20px; letter-spacing: 0.02em; color: #3a2a1c; background: rgba(250, 243, 230, 0.94); padding: 8px 14px 8px 10px; border-radius: 14px; box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); display: flex; align-items: center; gap: 8px; }
 .brand-block { font-size: 26px; }
 /* The brand is the way home (back to my railway): a finger's height, and a ⌖ while it's pressed. */
 .brand { position: relative; min-height: 44px; min-width: 44px; cursor: pointer; transition: transform 0.12s; }
@@ -40,6 +44,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip:hover { filter: brightness(1.04); }
 .chip:active { transform: translateY(1px) scale(0.98); }
 .chip:disabled { opacity: 0.45; cursor: default; }
+/* In the top bar a disabled button (Undo with nothing to undo) stays solid wood, its picture faded: see-through, it
+   was lost against the grass. */
+.actions .chip:disabled { opacity: 1; color: rgba(58, 42, 28, 0.3); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
 .chip.text { font-size: 15px; }
 .chip.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
 /* A switch: label, then a pill with a knob. Off = outline and knob left; on = filled green and knob right. */
@@ -58,12 +65,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip .ui-icon { display: block; margin: 0 auto; }
 @keyframes nudge { 0%, 70%, 100% { transform: none; } 78% { transform: rotate(-4deg); } 86% { transform: rotate(4deg); } }
 
-.menu { z-index: 36; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: max(12px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.94); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
-.menu-item { text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 12px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
+.menu { z-index: 36; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: max(12px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.97); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
+.menu-item { min-height: 44px; text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 11px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
 .menu-item:hover { background: #ead7b8; }
 .menu-item:disabled { opacity: 0.45; cursor: default; }
 /* A menu item asking before it acts (New game): as the route's Leave asks. */
 .menu-item.asking, .menu-item.asking:hover { background: #b0391f; color: #fff; }
+/* Between the menu's groups (playing, settings, help, leaving, the bug report): a faint saw line. */
+.menu-sep { flex: none; height: 2px; margin: 3px 10px; border: 0; border-radius: 1px; background: rgba(150, 100, 50, 0.16); }
 .narrow-only { display: none; }
 @media (max-width: 640px) { .menu .narrow-only { display: block; } }
 
@@ -73,7 +82,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   box-shadow: inset 0 1px 0 #fff9, inset 0 -3px 0 rgba(120, 75, 35, 0.28), 0 12px 34px rgba(60, 40, 20, 0.32); }
 .tabs { display: flex; gap: 4px; padding: 0 6px; transform: translateY(-1px); overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
-.tab { flex: none; border: none; font: inherit; font-weight: 800; font-size: 13.5px; color: #7a5a3a; padding: 6px 14px 5px; border-radius: 0 0 10px 10px; cursor: pointer; background: rgba(120, 80, 40, 0.1); }
+.tab { flex: none; border: none; font: inherit; font-weight: 800; font-size: 13.5px; color: #5e4128; padding: 6px 14px 5px; border-radius: 0 0 10px 10px; cursor: pointer; background: rgba(120, 80, 40, 0.1); }
 .tab.active { background: #fbf2e2; color: #3a2a1c; box-shadow: 0 2px 6px rgba(80, 50, 20, 0.18); }
 .scroller { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; padding: 7px 2px 2px; overscroll-behavior-x: contain; touch-action: none; }
 .scroller::-webkit-scrollbar { display: none; }
@@ -113,7 +122,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item.tray-back .icon { font-size: 34px; font-weight: 800; color: #7a5a3a; height: 52px; width: auto; }
 
 /* A card sits just clear of the tray (138 px with its tabs): over it, it would cover the tabs. */
-.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); background: rgba(250, 243, 230, 0.95); backdrop-filter: blur(10px); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
+.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); background: rgba(250, 243, 230, 0.97); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
 .card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
@@ -185,7 +194,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip.way .way-arrow { display: inline-block; line-height: 0; transform: rotate(var(--way, 0deg)); transition: transform 0.25s ease; }
 .engine-more { display: flex; gap: 8px; }
 .engine-more[hidden] { display: none; }
-.close { position: absolute; top: 0; right: 0; width: 44px; height: 44px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 0; }
+.close { position: absolute; top: 0; right: 0; width: 44px; height: 44px; border: none; background: transparent; font-size: 18px; font-weight: 900; color: #6a4a2c; cursor: pointer; padding: 0; border-radius: 12px; }
+.close:hover { background: rgba(150, 100, 50, 0.1); }
 /* Titles of cards with a ✕ keep clear of it (padded both sides, so they stay centred). */
 .depot-card > .card-title, .piece-card > .card-title { padding: 0 34px; }
 
@@ -198,7 +208,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* While the map takes taps (picking pieces, drawing, clearing, picking stops): a tap goes through a toast to the map. */
 .toast.show.taps-through { pointer-events: none; cursor: auto; }
 /* Toasts sit above every panel and card (the Blueprints board too), so a message is never hidden. */
-.toast { z-index: 35; }
+.toast { z-index: 35; text-wrap: balance; }
 .toast.celebrate { background: #fff3c9; border-left-color: #e6b52c; }
 
 .help { position: absolute; inset: 0; z-index: 32; background: rgba(40, 28, 16, 0.35); display: grid; place-items: center; padding: 16px; }
@@ -392,11 +402,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-width: 400px) {
   /* (Its word goes only while a shelf is open, Turn and Flip beside it; at the top there's room: QA, a bare ✎.) */
   .tray.in-group .tray-tools .draw-word { display: none; }
-  .tray-head { gap: 4px; }
-  .tray-head .tabs { padding: 0 4px; }
-  .tray-head .tab { padding-left: 8px; padding-right: 8px; font-size: 13px; }
-  /* (36 px drawn; with their reach either side still 42 px to tap, and 44 tall.) */
-  .tray-tools .chip { min-width: 36px; padding: 0 6px; }
+  .tray-head { gap: 2px; }
+  .tray-head .tabs { gap: 2px; padding: 0 2px; }
+  .tray-head .tab { padding-left: 7px; padding-right: 7px; font-size: 13px; }
+  /* (34 px drawn, 4 apart; with their reach either side still 40 px to tap, and 44 tall: so that Industries, with
+     Turn and Flip beside it, shows whole at 390 px.) */
+  .tray-tools { gap: 4px; }
+  .tray-tools .tray-orient { gap: 4px; }
+  .tray-tools .chip { min-width: 34px; padding: 0 5px; }
+  .tray-tools .chip::after { inset: -5px -2px; }
 }
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
@@ -448,7 +462,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals.collapsed { width: auto; max-width: min(460px, calc(100% - 24px)); }
 .goals-top { display: flex; align-items: center; gap: 4px; padding-right: 8px; }
 .goals-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 6px 6px 14px; min-height: 44px; cursor: pointer; text-align: left; }
-.goals-label { flex: none; font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; }
+.goals-label { flex: none; font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #74522f; }
 .goals-count { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 12px; background: #d9ead2; color: #2d5a2a; border-radius: 999px; padding: 2px 8px; }
 .goals-now { display: none; font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .goals.collapsed .goals-label { display: none; }
@@ -468,7 +482,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals.collapsed.show-tight .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
 .goals.collapsed.show-tight .goals-show-word { display: none; }
 .goals.collapsed.title-small .goals-now { font-size: 13px; letter-spacing: -0.01em; }
-.goals-show { margin-top: 6px; height: 40px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.goals-show { margin-top: 6px; height: 44px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .goals-body { display: none; }
 .goals.collapsed .goals-head { padding-bottom: 10px; }
 .goals-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px; }
@@ -478,7 +492,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goal-progress { display: inline-block; margin-top: 3px; font-size: 12px; font-weight: 800; color: #2d5a2a; background: #e5f0dd; border-radius: 6px; padding: 1px 7px; }
 .goal-box, .goal-tick { flex: none; width: 20px; height: 20px; border-radius: 5px; margin-top: 1px; background: #fffaf0; box-shadow: inset 0 0 0 2px #c9a57a; }
 .goal-tick { display: grid; place-items: center; background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: none; color: #fff; font-weight: 800; font-size: 14px; }
-.goal.upcoming { opacity: 0.55; font-size: 13px; font-weight: 700; align-items: center; }
+.goal.upcoming { opacity: 0.72; font-size: 13px; font-weight: 700; align-items: center; }
 .goal.upcoming .goal-box { width: 16px; height: 16px; margin: 0 2px; }
 .goal.upcoming.locked .goal-box { background: none; box-shadow: none; font-size: 12px; line-height: 16px; text-align: center; }
 .goal.arrive { animation: goal-arrive 0.5s cubic-bezier(0.3, 1.4, 0.5, 1); }
@@ -514,7 +528,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals-tab.fresh::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #e2a12b; }
 .stickers-pane { display: flex; flex-direction: column; gap: 4px; }
 .stickers-count { margin: 2px 2px 0; font-size: 14px; font-weight: 800; color: #3a2a1c; }
-.stickers-theme { margin: 6px 2px 0; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; }
+.stickers-theme { margin: 6px 2px 0; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #74522f; }
 .stickers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
 .sticker { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; min-height: 72px; padding: 6px 2px; border: 0; border-radius: 12px; background: rgba(255, 250, 240, 0.55); box-shadow: inset 0 0 0 2px #e2d3b8; font: inherit; font-size: 11.5px; font-weight: 800; line-height: 1.15; color: #8a7660; cursor: pointer; text-align: center; position: relative; }
 .sticker-icon { font-size: 28px; line-height: 34px; filter: grayscale(1); opacity: 0.45; }
@@ -641,7 +655,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item .have.long { left: 2px; right: 2px; max-width: none; padding: 1px 3px; letter-spacing: -0.01em; }
 /* A long cost spans the item's top: no ★ over it. */
 .tray-item:has(.have.long) .fav { display: none; }
-.tray-item.empty .have { background: #b9a487; }
+.tray-item.empty .have { background: #8a7458; }
 .tray-item.empty .icon { opacity: 0.45; filter: grayscale(0.6); }
 
 /* Game mode: the workshop's card lists what it can make. */
@@ -705,7 +719,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .board-head h2 { margin: 0; font-size: 22px; font-weight: 900; }
 .board-head .close { position: static; }
 .board-body { overflow-y: auto; touch-action: pan-y; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
-.board-sub { flex: 1; margin-left: 12px; font-size: 13px; font-weight: 700; color: #8a6440; }
+.board-sub { flex: 1; margin-left: 12px; font-size: 13px; font-weight: 700; color: #74522f; }
 /* The web: a band per branch, a tag per blueprint, arrows from each to what it opens in its branch. */
 .bp-web-scroll { flex: none; max-height: min(52vh, 460px); overflow: auto; overscroll-behavior: contain; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); touch-action: pan-x pan-y; }
 .bp-web { position: relative; }
@@ -721,7 +735,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-node .bp-name { font-size: 12px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
 .bp-node .bp-tag { justify-self: start; margin-top: 2px; }
 .bp-node:hover { transform: translateY(-1px); }
-.bp-node.selected { box-shadow: 0 0 0 3px #3a2a1c, 0 0 0 6px #fff1c2; }
+.bp-node.selected { box-shadow: 0 0 0 3px #a8703a, 0 0 0 6px #fff1c2, 0 4px 10px rgba(80, 50, 20, 0.25); transform: translateY(-1px); }
 .bp-node.soon { border-style: dashed; background: rgba(255, 250, 240, 0.7); }
 .bp-node.soon .bp-name { color: #7a6650; }
 .bp-node.hint { border-style: dashed; background: transparent; box-shadow: none; }
@@ -745,7 +759,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .board-sheet:empty { display: none; }
 /* What the colours mean: behind an ⓘ (the tags mostly explain themselves). */
 .bp-legend-box { position: relative; }
-.bp-legend-box summary { list-style: none; width: 44px; height: 44px; display: grid; place-items: center; font-size: 20px; color: #8a6440; cursor: pointer; }
+.bp-legend-box summary { list-style: none; width: 44px; height: 44px; display: grid; place-items: center; font-size: 20px; color: #74522f; cursor: pointer; }
 .bp-legend-box summary::-webkit-details-marker { display: none; }
 .bp-legend-box .bp-legend { position: absolute; right: 0; top: 44px; z-index: 5; width: 240px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 6px 18px rgba(60, 40, 20, 0.25); }
 /* Phones: each branch a list of tags in two columns (see BlueprintBoard.narrow); the panel is the one thing that scrolls. */
@@ -821,8 +835,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .board-panel { top: calc(max(10px, env(safe-area-inset-top)) + 56px); left: 8px; right: 8px; }
   .board-head { padding: 12px 14px 4px; }
   .board-body { padding: 4px 12px 14px; }
-  .bp-tag { font-size: 10px; }
+  .bp-tag { font-size: 11px; }
   .bp-ticket { padding: 10px 12px; }
+}
+/* A phone on its side: the picked research's ticket beside the web, not under it (under, it covered all but a strip of
+   the web, and nothing else could be picked). */
+@media (max-height: 520px) and (min-width: 600px) {
+  .board-panel { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); grid-template-rows: auto minmax(0, 1fr); }
+  .board-panel:has(> .board-sheet:empty) { grid-template-columns: minmax(0, 1fr); }
+  .board-head { grid-column: 1 / -1; padding: 8px 8px 0 16px; }
+  .board-body { grid-column: 1; grid-row: 2; padding: 2px 10px 12px 14px; }
+  .board-sheet { grid-column: 2; grid-row: 2; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 14px 12px 4px; }
+  .bp-web-scroll { max-height: none; }
 }
 @media (prefers-reduced-motion: reduce) { .researching .bp-dot { animation: none; } .bp-node { transition: none; } }
 .icon-btn-alert { position: relative; }
