@@ -89,6 +89,8 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 - **Measure a card's buttons once it has popped in.** `card-in` scales the card from 0.96: a box read mid-way under SwiftShader is 0.96 of its size (42 px for a 44 px chip). Wait for `card.getAnimations()` to finish, and check `offsetHeight` too.
 - **Two trains started on one tick at the same points** race: the router's routed and hand-run looks come round on counters of their own, phased by everything that ran before, so the winner changes with the run order. Start them in a stated order (`hand-wait`, `wait`).
 - `pgrep -f <script>` in a wait loop matches the loop's own command line: wait on a log line instead.
+- **The focus ring and the game's keys:** Chrome's `:focus-visible` turns on for a clicked button at the next key press, and the game takes keys (the camera, shortcuts), so a clicked tab grew a ring. The ring is drawn only under `.kbd-nav` (set by Tab, cleared by a pointer press: `src/ui/focus-ring.ts`) and inset (`outline-offset: -3px`) so a scrolling strip can't clip it. Don't add a control-specific `:focus-visible` outline; the global rule covers every control (`e2e:focus-ring`).
+- **Headless, an idle page may not tick a CSS transition along:** a tab's background can stay part-way after a click. `document.getAnimations().forEach((a) => a.finish())` before a screenshot.
 - Temporary scripts go inside the worktree (scripts/.x.mjs) so they can import playwright-core and vite. Delete them afterwards.
 - Use `bash -c` with && chains; write commit messages to a file and use `git commit -F`.
 - ResizeObserver callbacks arrive only with a rendering update. Wait for conditions.

@@ -95,8 +95,11 @@ import { loadMuted, saveMuted } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
+import { installFocusRing } from "./ui/focus-ring";
 import { CloudCard } from "./ui/cloud-card";
 import "./style.css";
+
+installFocusRing(window, document.documentElement);
 
 /** A blueprint's requirement in words, a count of goods with its icon: "20🪨 stone delivered". */
 function describeNeed(n: Need): string {
