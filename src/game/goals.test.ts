@@ -596,9 +596,10 @@ describe("place-workshop guide", () => {
     expect(secondEngineTip(1, 2)).toBe("Engine in the Trains tab");
     expect(secondEngineTip(0, 1)).toBe("Make an engine at the workshop");
     expect(secondEngineTip(0, 2)).toBe("");
-    // The game's "Learned" note folds them in.
+    // The game's "Learned" toast folds them in; the News has them as two lines (what was learned, the new goal).
     expect(mainSrc).toMatch(/goals\.openedBy\(id, progress\.learned\)/);
-    expect(mainSrc).toMatch(/present \+ goalLine/);
+    expect(mainSrc).toMatch(/note\(\{ kind: "milestone", text: goalLine \}/);
+    expect(mainSrc).toMatch(/`\$\{learnedLine\} · \$\{goalLine\}`/);
   });
 
   it("two trains at once, with one train on the map, says to put the second engine on first; Show me opens Engines", () => {

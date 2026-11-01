@@ -497,21 +497,20 @@ export class Hud {
     this.soundItem = narrow(opts.muted ? "Sound: off" : "Sound: on", "Sound on or off", h.toggleSound);
     this.redoItem = narrow("Redo", "Redo what was undone", h.redo);
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
-    this.menu.append(this.redoItem, this.landItem, this.soundItem);
+    this.menu.append(this.redoItem, this.landItem);
     this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
       this.menu.hidden = true;
       h.openLines();
     }, "menu-item");
     this.linesItem.hidden = true;
+    // In groups, a line between them: playing (Redo, Add land and Lines, when here), settings, help, leaving this map,
+    // and the bug report last. (A group never empties: Graphics, How to play, Title screen and Copy map always show.)
+    const sep = () => el("hr", "menu-sep");
     this.menu.append(
       this.linesItem,
-      button("Title screen", "Save and go back to the title screen", () => {
-        this.menu.hidden = true;
-        h.titleScreen();
-      }, "menu-item"),
-      ...this.sandboxItems,
-      ...this.gameItems,
+      this.soundItem,
       quality,
+      sep(),
       button("How to play", "Show help", () => {
         this.menu.hidden = true;
         // (Not both at once: the help card takes the camera tutorial's place, as on a first visit.)
@@ -523,6 +522,14 @@ export class Hud {
         this.help.hidden = true;
         this.coach.start();
       }, "menu-item"),
+      sep(),
+      button("Title screen", "Save and go back to the title screen", () => {
+        this.menu.hidden = true;
+        h.titleScreen();
+      }, "menu-item"),
+      ...this.sandboxItems,
+      ...this.gameItems,
+      sep(),
       this.reportItem,
       button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
         this.menu.hidden = true;

@@ -374,7 +374,7 @@ export class GoalsPanel {
     const entries = this.journal.entries;
     const pane = this.newsPane;
     if (entries.length === 0) {
-      pane.innerHTML = `<p class="news-empty">Nothing yet. Deliveries and boats show up here.</p>`;
+      pane.innerHTML = `<p class="news-empty">Nothing yet. Towns growing, things learned and new places show up here.</p>`;
       this.drawnSeq = 0;
       return;
     }
