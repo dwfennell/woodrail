@@ -1522,8 +1522,6 @@ const GOALS_KNOWN_BREAKS: Partial<Record<Invariant, string>> = {};
 /** The long part's own (it plays on past the fast part's minutes): the fast part's and these. */
 const GOALS_LONG_KNOWN_BREAKS: Partial<Record<Invariant, string>> = {
   ...GOALS_KNOWN_BREAKS,
-  wrongRoad:
-    "since 'Buy some land' moved before 'Connect every town' (claude/speed-words-land-goal, 2026-11-01: the plot 0,-2 bought at minute 23 and Teasel End joined): from about minute 223 the goods train takes road 0 at one set of points, not its way to stop 2, about every 15 min. A routing bug for Rail and road (reported to the CoS); main's map never showed it",
 };
 
 /** The invariants' breaks not in `known`, and the known ones that didn't break (both should be empty). */
