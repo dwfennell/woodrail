@@ -2866,7 +2866,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRoute();
     showEngineView();
     showSummary();
+    showRefusals();
   };
+
+  /**
+   * Swap ends and Decouple greyed on the open card where they'd only be refused (moving, or nothing to uncouple), with
+   * why. Its key changes only as the train starts or stops, or its make-up changes: the buttons are touched only then.
+   */
+  let refusalsKey = "";
+  const REFUSED_WHY = { moving: "Stop the train first", alone: "Nothing coupled to uncouple", none: "" } as const;
+  function showRefusals(): void {
+    const engineId = interaction.openEngineCarId;
+    const carId = engineId !== -1 ? engineId : interaction.openCarCardId;
+    if (carId === -1) {
+      refusalsKey = "";
+      return;
+    }
+    const swap = engineId !== -1 ? game.sim.runAroundRefusal(engineId) : null;
+    const dec = game.sim.decoupleRefusal(carId);
+    const key = `${carId}:${swap}:${dec}`;
+    if (key === refusalsKey) return;
+    refusalsKey = key;
+    hud.setCardRefusals(swap ? REFUSED_WHY[swap] : "", dec ? REFUSED_WHY[dec] : "");
+  }
 
   /**
    * The engine card's train summary and the wagon card's load (#9): redrawn only when what they say could have changed
@@ -4440,6 +4462,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (game.economy.stalls.onStuck !== stuckTip) game.economy.stalls.onStuck = stuckTip;
     showEngineView();
     showSummary();
+    showRefusals();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);
