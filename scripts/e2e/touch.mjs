@@ -3006,8 +3006,13 @@ async function showBlocker(ctx, p) {
   check("blocker: the flash ends by itself, and then 0 frames are drawn (paused, all still)", idle.frames === 0 && idle.shown.every((v) => v === 0) && idle.flourishes === 0, JSON.stringify(idle));
   // The fix, as the card says: the player taps the parked engine (shown above the card now) and its own Remove; the
   // line's train runs on and delivers.
+  // (The Red train's card closed first: at 360 × 740 it covers the middle of the screen, where the engine is panned to.)
+  await p.keyboard.press("Escape");
+  await frames(p);
   await tapOn({ engine: setup.parked });
-  await p.waitForFunction((parked) => window.woodrail.interaction.openEngineCarId === parked && !document.querySelector(".engine-card").hidden, setup.parked, { timeout: 30000 }).catch(() => {});
+  const opened = await p.waitForFunction((parked) => window.woodrail.interaction.openEngineCarId === parked && !document.querySelector(".engine-card").hidden, setup.parked, { timeout: 30000 }).then(() => true, () => false);
+  check("blocker: a tap on the parked engine opens its own card", opened, JSON.stringify(await p.evaluate(() => window.woodrail.interaction.openEngineCarId)));
+  if (!opened) return;
   await p.waitForFunction(() => document.querySelector(".engine-card")?.getAnimations().every((a) => a.playState === "finished") ?? false, null, { timeout: 30000 }).catch(() => {});
   await tapButton(".engine-card .remove");
   const after = await p.evaluate(({ red, parked }) => {
