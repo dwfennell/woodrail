@@ -121,10 +121,12 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 13 (the growth menu's cards), loads a v12 map as it is, and turns older saves away, saying so", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("is at version 14 (car ids and the id counters), loads a v12 or v13 map as it is, and turns older saves away, saying so", () => {
+    expect(SAVE_VERSION).toBe(14);
     expect(MIGRATES_FROM).toBe(12);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
+    data.version = 13;
+    expect(deserializeWorld(data).ok).toBe(true);
     data.version = 12;
     expect(deserializeWorld(data).ok).toBe(true);
     data.version = 11;
@@ -258,6 +260,24 @@ describe("save format", () => {
     ]);
     expect(r.value.economy.routeOf(loaded.id)!.stops).toBe(back.stops);
     expect(r.value.economy.routeOf(loaded.id)!.next).toBe(1);
+  });
+
+  it("keeps a line through a reload with one of its stops taken up: on its line, with the stops still on the map", () => {
+    const world = worldWithTrain();
+    const engine = world.sim.getTrain(world.sim.trainIds()[0])!.cars[0];
+    const end = appendPiece(world.layout, "depot-school", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    const school = world.economy.depotAtPiece(end)!;
+    const [town] = world.economy.allDepots().filter((d) => d.role === "town");
+    editLine(world.economy, engine.id, (s) => s.push({ depotId: town.id, action: "auto" }, { depotId: school.id, action: "auto" }));
+    world.layout.removePiece(end);
+    world.economy.prune();
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    if (!r.ok) throw new Error(r.error);
+    const loaded = r.value.sim.getTrain(r.value.sim.trainIds()[0])!.cars[0];
+    const back = lineOf(r.value.economy, loaded.id)!;
+    expect(back.stops.map((s) => r.value.economy.depot(s.depotId)!.pieceId)).toEqual([town.pieceId]);
+    expect(r.value.economy.routeOf(loaded.id)!.stops).toBe(back.stops);
   });
 
   it("refuses version 7 saves (their landscape was only a seed)", () => {
@@ -799,6 +819,25 @@ describe("kit pieces in saves", () => {
     expect(w.layout.joinedConnector(connectorRef(lamp, 0))).toBe(connectorRef(gantry, 1));
   });
 
+  it("signal marks on joints round-trip with their style and hold; a save without any writes no signals", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const s1 = appendPiece(world.layout, "straight-216", false, connectorRef(station, 1));
+    const s2 = appendPiece(world.layout, "straight-216", false, connectorRef(s1, 1));
+    expect(serializeWorld(world).signals).toBeUndefined();
+    const m1 = world.layout.addSignal(connectorRef(s1, 1), "semaphore");
+    const m2 = world.layout.addSignal(connectorRef(s2, 0), "colour-light", true);
+    expect(m1).toBeGreaterThan(0);
+    expect(m2).toBeGreaterThan(0);
+    const w = roundTripOf(world);
+    const marks = [...w.layout.signals()].map((m) => ({ at: m.at, style: m.style, held: m.held }));
+    expect(marks).toEqual([
+      { at: connectorRef(s1, 1), style: "semaphore", held: false },
+      { at: connectorRef(s2, 0), style: "colour-light", held: true },
+    ]);
+  });
+
   it("old saves load unchanged: a plain signal held at red, buffers, and the held-back signal and crossing models as props", () => {
     const world = buildStarterWorld();
     const [a] = world.landscape.towns;
@@ -831,3 +870,64 @@ function roundTripOf(w: World): World {
   if (!r.ok) throw new Error(r.error);
   return r.value;
 }
+
+describe("ids in saves (v14, architecture review §3.4)", () => {
+  /** Two trains, the second put down after one was taken off: car ids with a gap, the counters past them. */
+  function twoTrains(): { world: World; ids: number[][] } {
+    const world = worldWithTrain();
+    const free = [...world.layout.pieceIds()].filter((id) => world.layout.getPiece(id)!.type === "straight-216" && !world.sim.pieceOccupied(id));
+    const at = (k: number) => ({ pieceId: free[k], pathIndex: 0, reversed: false, s: 150 });
+    const gone = world.sim.addTrain(["engine"], at(0));
+    if (gone.kind === "placed") world.sim.removeTrain(gone.trainId);
+    const a = world.sim.addTrain(["engine", "hopper"], at(free.length - 1));
+    if (a.kind !== "placed") throw new Error("no room");
+    const ids = world.sim.trainIds().map((id) => world.sim.getTrain(id)!.cars.map((c) => c.id));
+    return { world, ids };
+  }
+
+  it("a reload keeps every car's id, and the counters: the next car put down gets a new id, not a reused one", () => {
+    const { world, ids } = twoTrains();
+    const counters = world.sim.idCounters();
+    const back = roundTripOf(world);
+    expect(back.sim.trainIds().map((id) => back.sim.getTrain(id)!.cars.map((c) => c.id))).toEqual(ids);
+    // (Train ids go on from the saved counter: putting the trains back takes the next ones.)
+    expect(back.sim.idCounters()).toEqual({ car: counters.car, train: counters.train + ids.length });
+    const free = [...back.layout.pieceIds()].find((id) => back.layout.getPiece(id)!.type === "straight-216" && !back.sim.pieceOccupied(id))!;
+    const more = back.sim.addTrain(["engine"], { pieceId: free, pathIndex: 0, reversed: false, s: 150 });
+    const next = more.kind === "placed" ? back.sim.getTrain(more.trainId)!.cars[0].id : -1;
+    expect(ids.flat()).not.toContain(next);
+    expect(next).toBe(counters.car);
+  });
+
+  it("an engine's line and its place on it come back on the same engine id", () => {
+    const world = worldWithTrain();
+    const t = world.sim.getTrain(world.sim.trainIds()[0])!;
+    const engine = t.cars[0].id;
+    const station = world.stations.get(world.landscape.towns[0].id)!;
+    const line = editLine(world.economy, engine, (stops) => stops.push({ depotId: world.economy.depotAtPiece(station)!.id, action: "auto" }));
+    expect(line).not.toBeNull();
+    const back = roundTripOf(world);
+    expect(back.sim.findCar(engine)?.train.cars[0].kind).toBe("engine");
+    expect(lineOf(back.economy, engine)?.id).toBe(line!.id);
+  });
+
+  it("an older save (no ids) loads with fresh ids, as before", () => {
+    const { world, ids } = twoTrains();
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData & { ids?: unknown };
+    delete data.ids;
+    for (const t of data.trains) for (const c of t.cars) delete (c as { id?: number }).id;
+    const r = deserializeWorld(data);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.sim.trainIds().map((id) => r.value.sim.getTrain(id)!.cars.map((c) => c.id))).toEqual(ids.map((cars, k) => cars.map((_, i) => ids.slice(0, k).flat().length + i + 1)));
+  });
+
+  it("a save with two cars of one id (hand-edited) gives the second train fresh ids, never two cars one id", () => {
+    const { world } = twoTrains();
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    data.trains[1].cars[0].id = data.trains[0].cars[0].id;
+    const r = deserializeWorld(data);
+    if (!r.ok) throw new Error(r.error);
+    const all = r.value.sim.trainIds().flatMap((id) => r.value.sim.getTrain(id)!.cars.map((c) => c.id));
+    expect(new Set(all).size).toBe(all.length);
+  });
+});

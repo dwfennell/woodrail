@@ -1,6 +1,7 @@
 import { RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import { kitOf, type Layout } from "../track";
+import { storeSkipText } from "./warehouse-text";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -329,6 +330,11 @@ export function engineView(
   const found = sim.findCar(engineCarId);
   if (!found) return { status: "", blocker: null };
   const s = trainState(sim, economy, found.train, found.train.cars[found.index].lever, cantMove);
+  // Standing (or turning back) beside a warehouse it can't trade with: why nothing happens, and what to do (no one is in
+  // its way, so no Show).
+  if (s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || (s.kind === "turning-back" && s.cause !== "open-end")) {
+    if (economy.storeItSkips(found.train.id)) return { status: storeSkipText(!!economy.routeOfTrain(found.train)), blocker: null };
+  }
   const blocker = blockerOf(sim, economy, s);
   // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
   const place = blocker && blocker.car >= 0 && (!blocker.line || blocker.how === "parked" || blocker.how === "stopped") ? placeOf(blocker.car) : "";

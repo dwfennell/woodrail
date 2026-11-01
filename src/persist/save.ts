@@ -4,7 +4,7 @@ import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, I
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
-import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
+import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
 import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
 
@@ -14,21 +14,22 @@ const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?
 const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type Pose, type RelaxOptions } from "../track";
+import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type SignalStyle, type Pose, type RelaxOptions } from "../track";
 import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 import { FEAT_NONE, FEAT_RUIN } from "../landscape";
 
 /**
- * Save format, version 13 (the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
+ * Save format, version 14 (car ids and the sim's id counters, so ids last across a load: older saves load with fresh
+ * ids, as before; 13: the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
  * 12: research, the school a depot beside a town, saved with its town's id; 11: town
  * buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes with a colour and a name). Plain JSON validated with Zod; only this module
  * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
  * never regenerates it. No backward compatibility until the game reaches v1: a save older than `MIGRATES_FROM` is
  * turned away (`OLDER_SAVE`), and the game starts afresh.
  */
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 
 /**
  * The oldest save that still loads. A v12 map is a v13 map (v13 changed only the progress's offers, beside the save:
@@ -53,6 +54,8 @@ const trainSchema = z.object({
   cars: z
     .array(
       z.object({
+        /** Its id (v14; optional: older saves, whose cars get fresh ids). */
+        id: z.number().int().positive().optional(),
         kind: z.enum(CAR_KINDS as unknown as [CarKind, ...CarKind[]]),
         facing: z.union([z.literal(1), z.literal(-1)]),
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
@@ -93,6 +96,11 @@ const saveSchema = z.object({
   /** Pinned switches, by piece id: routed engines don't throw them (optional: older saves load with none). */
   pinned: z.array(z.number().int().positive()).optional(),
   /**
+   * Signal marks on joints (signals spec §9), each as the joint end it guards from (piece id, connector index), its
+   * style and whether it's held at red (optional: older saves have none).
+   */
+  signals: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.enum(["plain", "semaphore", "colour-light"]), z.boolean()])).optional(),
+  /**
    * Points' defaults (the way the player last set them by hand, which routes put them back to), only where one differs
    * from how the switch is set (optional: older saves, and points not named, default to how they're set).
    */
@@ -103,6 +111,8 @@ const saveSchema = z.object({
    */
   wyeLevers: z.literal(3).optional(),
   trains: z.array(trainSchema),
+  /** The sim's next car and train ids (v14; optional: older saves start afresh). */
+  ids: z.object({ car: z.number().int().positive(), train: z.number().int().positive() }).optional(),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(
     z.object({
@@ -221,6 +231,7 @@ export function serializeWorld(world: World): SaveData {
         const look = sim.lookOf(c.id);
         const line = lineSaved.get(c.id);
         return {
+          id: c.id,
           kind: c.kind,
           facing: c.facing,
           lever: c.lever,
@@ -243,9 +254,11 @@ export function serializeWorld(world: World): SaveData {
     switches,
     joints: [...layout.joints()].map((j) => [pieceOfRef(j.a), indexOfRef(j.a), pieceOfRef(j.b), indexOfRef(j.b)] as [number, number, number, number]),
     ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
+    ...(layout.signalCount > 0 ? { signals: [...layout.signals()].map((m) => [pieceOfRef(m.at), indexOfRef(m.at), m.style, m.held] as [number, number, SignalStyle, boolean]) } : {}),
     ...(defaults ? { switchDefaults: defaults } : {}),
     wyeLevers: 3,
     trains,
+    ids: sim.idCounters(),
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
@@ -347,7 +360,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   for (const town of landscape.towns) {
     const saved = save.towns.find((t) => t.id === town.id);
     const piece = saved ? layout.getPiece(saved.stationPieceId) : undefined;
-    if (!piece || piece.type !== "station") return err(`invalid save: station for town ${town.id} is missing`);
+    // (Or a big station's kit it was upgraded to, in place: src/game/station-upgrade.ts.)
+    if (!piece || (piece.type !== "station" && piece.type !== town.upgraded)) return err(`invalid save: station for town ${town.id} is missing`);
     if (Math.hypot(piece.pose.x - town.station.x, piece.pose.z - town.station.z) > 0.5) return err(`invalid save: station for town ${town.id} is not at its town`);
     stations.set(town.id, piece.id);
   }
@@ -380,6 +394,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   }
   // An older save's joints past the tolerance (parted by seating afresh), joined again before the trains go on.
   const broughtBack = save.joints ? [] : layout.seatNearMisses();
+  // (Marks go on joints: after every joint is back. One whose joint didn't come back is dropped.)
+  for (const [pieceId, index, style, held] of save.signals ?? []) layout.addSignal(connectorRef(pieceId, index), style, held);
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);
@@ -399,12 +415,14 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     if (!expected.has(d.pieceId) && piece && HALT_KITS.has(piece.type) && d.role === "town" && landscape.towns.some((t) => t.id === d.townId)) expected.set(d.pieceId, { role: "town", townId: d.townId });
   }
   if (save.depots.length !== expected.size) return err("invalid save: wrong number of economy depots");
+  const stationIds = new Set(stations.values());
+  for (const id of stationIds) economy.stationPieces.add(id);
   for (const [i, d] of save.depots.entries()) {
     const want = expected.get(d.pieceId);
     if (d.id !== i || !want || want.role !== d.role || want.townId !== d.townId) return err(`invalid save: economy depot ${d.id} doesn't match the landscape`);
     expected.delete(d.pieceId);
     // A town's station stops wagons by its crane; a halt's coaches stop along its platform (its middle).
-    const halt = d.role === "town" && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
+    const halt = d.role === "town" && !stationIds.has(d.pieceId) && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
     const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId, d.townId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
@@ -431,13 +449,21 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.deliveredGoods.set(townId, goods);
   }
+  // Ids as saved (v14): the counters go on from the save's (and past every saved car's id); a train whose cars all
+  // have ids, none taken, gets them back. Older saves: fresh ids, as before.
+  const used = new Set<number>();
+  let top = 0;
+  for (const t of save.trains) for (const c of t.cars) if (c.id !== undefined) top = Math.max(top, c.id);
+  sim.setIdCounters({ car: Math.max(save.ids?.car ?? 1, top + 1), train: save.ids?.train ?? 1 });
   for (const t of save.trains) {
     const lead = layout.getPiece(t.lead.pieceId);
     if (!lead) continue;
     const path = getPieceDef(lead.type, lead.flipped).paths[t.lead.pathIndex];
     if (!path || t.lead.s < 0 || t.lead.s > pathLength(path.geom)) continue;
-    const placed = putBack(sim, layout, t.cars.map((c) => c.kind), t.lead);
+    const ids = t.cars.every((c) => c.id !== undefined && !used.has(c.id)) && new Set(t.cars.map((c) => c.id)).size === t.cars.length ? t.cars.map((c) => c.id!) : undefined;
+    const placed = sim.putBack(t.cars.map((c) => c.kind), t.lead, ids);
     if (placed.kind !== "placed") continue;
+    if (ids) for (const id of ids) used.add(id);
     const train = sim.getTrain(placed.trainId)!;
     // Running on as it was (only where it was saved: a train put back elsewhere starts at rest).
     if (t.speed && train.bogies[0].pieceId === t.lead.pieceId && Math.abs(train.bogies[0].s - t.lead.s) < 1e-6) train.speed = t.speed;
@@ -482,37 +508,6 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     landscape.siteless = true;
   } else if (save.landscape.sites === undefined) addSitesToOldSave(world);
   return ok(world);
-}
-
-/** How far along the track a saved train may be moved to find room (a few train lengths). */
-const PUT_BACK_REACH = 1200;
-
-/**
- * Put a saved train back where it was; or, when that's taken (a derailed train lying across another after a crash),
- * on the nearest free stretch along the track either way, so a save never loses a train it can fit.
- */
-function putBack(sim: Sim, layout: Layout, kinds: readonly CarKind[], lead: Cursor): AddTrainResult {
-  const placed = sim.addTrain(kinds, lead);
-  if (placed.kind === "placed") return placed;
-  const adv = createAdvance();
-  const ways = [{ ...lead }, { ...lead }];
-  flipCursor(layout, ways[1]);
-  const open = [true, true];
-  for (let moved = 24; moved <= PUT_BACK_REACH; moved += 24) {
-    for (let k = 0; k < 2; k++) {
-      if (!open[k]) continue;
-      advanceCursor(layout, ways[k], 24, null, adv);
-      if (adv.status !== ADV_OK) {
-        open[k] = false;
-        continue;
-      }
-      const at = { ...ways[k] };
-      if (k === 1) flipCursor(layout, at);
-      const r = sim.addTrainAround(kinds, at);
-      if (r.kind === "placed") return r;
-    }
-  }
-  return placed;
 }
 
 /**
@@ -610,6 +605,46 @@ export function loadGoals(): string[] {
   }
 }
 
+/** Game mode: the ids of the stickers earned (see `game/stickers.ts`), kept as the goals are. */
+const STICKERS_KEY = "woodrail.game.stickers.v1";
+
+export function saveStickers(ids: readonly string[]): void {
+  try {
+    localStorage.setItem(STICKERS_KEY, JSON.stringify(ids));
+  } catch {
+    // storage unavailable: those that hold are earned again from the railway next time
+  }
+}
+
+export function loadStickers(): string[] {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(STICKERS_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Game mode: the stickers seen in their tab (this device's: only what the chip's dot shows). */
+const STICKERS_SEEN_KEY = "woodrail.game.stickers.seen.v1";
+
+export function saveStickersSeen(ids: readonly string[]): void {
+  try {
+    localStorage.setItem(STICKERS_SEEN_KEY, JSON.stringify(ids));
+  } catch {
+    // storage unavailable: the dot shows again next time
+  }
+}
+
+export function loadStickersSeen(): string[] {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(STICKERS_SEEN_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Game mode: the toy box, blueprints learned and the workshop's orders (see `Progress`), beside the game's autosave. */
 const PROGRESS_KEY = "woodrail.game.progress.v1";
 
@@ -699,9 +734,9 @@ export function loadSession(mode: GameMode): SessionData | null {
  * seen) stay with the device.
  */
 /** Game mode's progress and goals keys (what two devices' cloud copies merge: `persist/progress-merge.ts`). */
-export const PROGRESS_KEYS = { progress: PROGRESS_KEY, goals: GOALS_KEY } as const;
+export const PROGRESS_KEYS = { progress: PROGRESS_KEY, goals: GOALS_KEY, stickers: STICKERS_KEY } as const;
 
 export function modeKeys(mode: GameMode): string[] {
   const keys = [STORAGE_KEYS[mode], sessionKey(mode)];
-  return mode === "game" ? [...keys, GOALS_KEY, PROGRESS_KEY, GAMES_KEY] : keys;
+  return mode === "game" ? [...keys, GOALS_KEY, STICKERS_KEY, PROGRESS_KEY, GAMES_KEY] : keys;
 }

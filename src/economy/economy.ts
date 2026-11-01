@@ -340,18 +340,7 @@ export class Economy {
         }
         return live;
       },
-      target: (engine) => {
-        const r = this.routes.get(engine);
-        if (!r || r.stops.length === 0) return -1;
-        let i = r.next % r.stops.length;
-        // (At its stop: the stop after, a different depot.)
-        if (r.at) {
-          const here = r.stops[i].depotId;
-          for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
-        }
-        const d = this.depots[r.stops[i].depotId];
-        return d && this.onMap(d) ? d.pieceId : -1;
-      },
+      target: (engine) => this.headingFor(engine),
       stopPieces: (lineId) => {
         const line = this.lines.get(lineId);
         const out: number[] = [];
@@ -383,11 +372,9 @@ export class Economy {
       layout,
       sim,
       routed: this.routes,
-      goal: (engine) => {
-        const r = this.routes.get(engine)!;
-        const d = this.depots[r.stops[r.next % r.stops.length].depotId];
-        return d && this.onMap(d) ? d.pieceId : -1;
-      },
+      // (The stop it's heading for: at one, the one after, as sections have it. Not the stop it's at: leaving a stop right
+      // before points, it would ask for nothing and run over them as they lie, set for the train ahead.)
+      goal: (engine) => this.headingFor(engine),
       drive: (train) => this.drive(train),
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
@@ -408,6 +395,21 @@ export class Economy {
   readonly router: Router;
   /** Trains stuck for good (a ring of waits, or a line's held train in the way), for their cards: see stalls.ts. */
   readonly stalls: Stalls;
+
+  /**
+   * Where a routed engine is going: its next stop's piece, or (standing at it) the next different depot's; −1: no
+   * route, or that stop isn't on the map.
+   */
+  routeTarget(engine: number): number {
+    return this.headingFor(engine);
+  }
+
+
+  /**
+   * Checks run after every tick (the train invariants, src/sim/invariants.ts: dev builds, QA, the play-throughs).
+   * Null in a production build: nothing is checked.
+   */
+  checker: { check(): void } | null = null;
 
   /** Why a routed engine is held by sections (null: it isn't). */
   sectionWait(engine: number): BlockWait | null {
@@ -640,10 +642,16 @@ export class Economy {
    * its station? People get on and off there as at the station, but it takes no goods.
    */
   isHalt(d: DepotState): boolean {
-    if (d.role !== "town") return false;
+    if (d.role !== "town" || this.stationPieces.has(d.pieceId)) return false;
     const p = this.layout.getPiece(d.pieceId);
     return !!p && isKit(p.type);
   }
+
+  /**
+   * The pieces that are towns' own stations (the map's: `World.stations`): never a halt, even upgraded to a big
+   * station's kit (src/game/station-upgrade.ts). Filled as the stations' depots are added.
+   */
+  readonly stationPieces = new Set<number>();
 
   setAuto(depotId: number, on: boolean): void {
     const d = this.depots[depotId];
@@ -751,6 +759,8 @@ export class Economy {
     if (slot.kind === "pile") {
       const d = this.depots[slot.depotId];
       if (!RECIPES[d.role].endless) d.piles[CARGO[kind].index]--;
+      // (A warehouse's last of a good gone: lines' plans change, `plansVersion`.)
+      if (RECIPES[d.role].routedOnly && d.piles[CARGO[kind].index] === 0) this.storeStamp++;
     } else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count - 1);
   }
 
@@ -765,6 +775,8 @@ export class Economy {
         }
         return;
       }
+      // (A warehouse's first of a good: lines' plans change, `plansVersion`.)
+      if (RECIPES[d.role].routedOnly && d.piles[CARGO[kind].index] === 0) this.storeStamp++;
       d.piles[CARGO[kind].index] = Math.min(capAt(d), d.piles[CARGO[kind].index] + 1);
       // Less is owed now: what routed lines plan to bring here may have changed.
       if (RECIPES[d.role].owed?.includes(kind)) this.wantsStamp++;
@@ -884,6 +896,36 @@ export class Economy {
     const route = this.routeOfCar(carId);
     if (!route) return null;
     return { stops: route.stops.map((s) => ({ depot: s.depotId, intent: s.action === "both" ? "auto" : s.action, waitFill: !!s.waitFill })) };
+  }
+
+  /**
+   * The stops on this engine's line whose depot isn't on the map now (its piece taken up: undo brings it back). They
+   * stay on the line, and the train runs on past them (`advanceRoutes`); the card says which (never a silent "?").
+   */
+  lostStops(engineCarId: number): RouteStopDef[] {
+    const r = this.routes.get(engineCarId);
+    if (!r) return [];
+    return r.stops.filter((s) => {
+      const d = this.depots[s.depotId];
+      return !d || !this.layout.getPiece(d.pieceId);
+    });
+  }
+
+  /**
+   * The piece of the stop this routed engine is heading for: its next stop; standing at it (`at`), the stop after (a
+   * different depot). −1: none, or not on the map. What sections and the router both steer for.
+   */
+  private headingFor(engine: number): number {
+    const r = this.routes.get(engine);
+    if (!r || r.stops.length === 0) return -1;
+    let i = r.next % r.stops.length;
+    // (At its stop: the stop after, a different depot.)
+    if (r.at) {
+      const here = r.stops[i].depotId;
+      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+    }
+    const d = this.depots[r.stops[i].depotId];
+    return d && this.onMap(d) ? d.pieceId : -1;
   }
 
   /** This engine's route, if it has one. */
@@ -1026,6 +1068,62 @@ export class Economy {
     }
     return false;
   }
+  /**
+   * A line's plan, stop by stop: the goods a train on it picks up and drops there, as the intent rules have it
+   * (`picksAt`, `dropsAt`; what each depot takes and gives, the stop's Only drop or Only pick up, what later stops take
+   * or use, warehouses keeping what no later stop uses). Drops list only goods picked up somewhere on the line. Not
+   * counted: room (`roomAhead`: an Automatic stop picks up only while a later stop has room) and the workshop's claim
+   * on planks at a town; nor riders. For the route card (built when `plansVersion` changes, never per frame).
+   */
+  routePlan(stops: readonly RouteStopDef[]): { picks: CargoKind[]; drops: CargoKind[] }[] {
+    const n = stops.length;
+    const picks: number[] = [];
+    const drops: number[] = [];
+    const mask = (ks: readonly CargoKind[]) => ks.reduce((m, k) => m | (1 << CARGO[k].index), 0);
+    for (let i = 0; i < n; i++) {
+      const s = stops[i];
+      const d = this.depots[s.depotId];
+      if (!d || !d.auto || !this.layout.getPiece(d.pieceId)) {
+        picks.push(0);
+        drops.push(0);
+        continue;
+      }
+      const r = RECIPES[d.role];
+      let takes = 0;
+      for (const k of r.takes) if (!this.accepts || this.accepts(d, k)) takes |= 1 << CARGO[k].index;
+      for (const k of r.owed ?? []) if (this.takesNow(d, k)) takes |= 1 << CARGO[k].index;
+      // (A warehouse gives every good: only what it holds now.)
+      let gives = mask(this.givesAt(d));
+      if (r.routedOnly) gives &= mask(CARGO_KINDS.filter((k) => d.piles[CARGO[k].index] > 0));
+      const later = this.laterOf(stops, i);
+      const keeps = r.routedOnly || d.role === "harbour";
+      if (s.action === "drop") {
+        picks.push(0);
+        drops.push(takes);
+      } else if (s.action === "pick") {
+        // (Only pick up takes everything there.)
+        picks.push(gives);
+        drops.push(0);
+      } else {
+        picks.push(gives & (r.routedOnly ? later.uses : later.takes));
+        drops.push(keeps ? takes & ~later.uses : takes);
+      }
+    }
+    const carried = picks.reduce((m, p) => m | p, 0);
+    const kinds = (m: number) => CARGO_KINDS.filter((k) => m & (1 << CARGO[k].index));
+    return stops.map((_, i) => ({ picks: kinds(picks[i]), drops: kinds(drops[i] & carried) }));
+  }
+
+  /**
+   * Changes whenever a line's plan (`routePlan`) may: a route set, a depot's Automatic, what's wanted, pieces, a
+   * warehouse's first or last of a good.
+   */
+  get plansVersion(): string {
+    return `${this.stopsStamp}.${this.wantsStamp}.${this.storeStamp}.${this.layout.pieceCount}`;
+  }
+  /** Bumped when a warehouse gets its first of a good, or its last goes (see `plansVersion`). */
+  private storeStamp = 0;
+
   /** Which depots `roomAhead` has counted this call (by depot id: its stamp), so one twice on a line counts once. */
   private roomMark = new Int32Array(0);
   private roomStamp = 0;
@@ -1210,6 +1308,23 @@ export class Economy {
   servingDepot(trainId: number): DepotState | undefined {
     const s = this.services.get(trainId);
     return s && s.phase !== NONE && s.depotId !== -1 ? this.depots[s.depotId] : undefined;
+  }
+
+  /**
+   * A warehouse (a `routedOnly` depot, its crane on) this train is beside but can't trade with, or null: a train with
+   * wagons and no route, or one whose route has no stop there. The engine card and a once-per-warehouse toast say why
+   * (warehouse-text.ts). Cheap: a lookup per bogie, asked once a second and while the card is open.
+   */
+  storeItSkips(trainId: number): DepotState | null {
+    const train = this.sim.getTrain(trainId);
+    if (!train || !train.cars.some((c) => canCarry(c.kind))) return null;
+    for (const b of train.bogies) {
+      const d = this.byPiece.get(b.pieceId);
+      if (!d || !d.auto || !RECIPES[d.role].routedOnly) continue;
+      const route = this.routeOfTrain(train);
+      return route && route.stops.some((s) => s.depotId === d.id) ? null : d;
+    }
+    return null;
   }
 
   /**
@@ -1469,7 +1584,7 @@ export class Economy {
   }
 
   /** Net drive of a train's engines toward its front (sign only matters). */
-  private drive(train: Train): number {
+  drive(train: Train): number {
     let net = 0;
     for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
     return net;
@@ -1561,6 +1676,8 @@ export class Economy {
     this.router.tick();
     // Trains stuck for good, for their cards (every CHECK_TICKS, with two trains or more).
     this.stalls.tick();
+    // (The invariants, where they're on: they only read.)
+    this.checker?.check();
     // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
     for (const d of this.allDepots()) {
       if (!this.working(d)) {
@@ -1733,6 +1850,7 @@ export class Economy {
     for (const id of this.lines.keys()) if (!run.has(id)) this.lines.delete(id);
     this.spacing.prune(run, new Set(this.lineIdOf.keys()));
     this.sections.prune(new Set(this.lineIdOf.keys()));
+    this.stalls.prune();
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
     this.kitStops.prune();
     // (Points laid take the way they lie as their default; points taken up lose theirs.)

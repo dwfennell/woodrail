@@ -43,6 +43,9 @@ export function powered(world: World): boolean {
 /** A train with a caboose at its tail runs this much faster (#13). One counts; more don't add to it. */
 export const CABOOSE_BONUS = 1.1;
 
+/** Better boilers (research, tech-tree R1): every engine runs this much faster. On top of a caboose's. */
+export const BOILERS_BONUS = 1.1;
+
 /**
  * Has the train a caboose at its tail: an end car (the end away from its engines, whichever way it's going: the cars
  * run front first and turn round with it), and an engine to pull it? A caboose mid-train doesn't count.
@@ -54,15 +57,15 @@ export function cabooseAtTail(train: Train): boolean {
 }
 
 /**
- * A train's top speed (mm/s): its slowest engine's, a tenth faster with a caboose at its tail; 0 if it's too heavy
- * for its engines, or electric with no power.
+ * A train's top speed (mm/s): its slowest engine's, a tenth faster with a caboose at its tail, and a tenth again with
+ * Better boilers learned (`boilers`); 0 if it's too heavy for its engines, or electric with no power.
  */
-export function topSpeed(world: World, train: Train): number {
+export function topSpeed(world: World, train: Train, boilers = false): number {
   const l = load(world, train);
   if (l.engines.length === 0) return ENGINE_SPEED;
   if (l.cars > l.pulls) return 0;
   if (l.engines.some((e) => e.electric) && !powered(world)) return 0;
-  return ENGINE_SPEED * Math.min(...l.engines.map((e) => e.speed)) * (cabooseAtTail(train) ? CABOOSE_BONUS : 1);
+  return ENGINE_SPEED * Math.min(...l.engines.map((e) => e.speed)) * (cabooseAtTail(train) ? CABOOSE_BONUS : 1) * (boilers ? BOILERS_BONUS : 1);
 }
 
 /** Why a train can't move at all (its top speed is 0): too heavy for its engines, or electric with no power; or null. */
@@ -91,8 +94,8 @@ export function tooHeavy(world: World, train: Train): string | null {
 }
 
 /** Game mode's engines on the sim (Sandbox: none, every engine alike). */
-export function attachEngines(world: World): void {
-  world.sim.topSpeed = (train) => topSpeed(world, train);
+export function attachEngines(world: World, boilers: () => boolean = () => false): void {
+  world.sim.topSpeed = (train) => topSpeed(world, train, boilers());
   world.sim.quickness = (train) => quickness(world, train);
 }
 

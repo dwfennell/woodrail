@@ -118,7 +118,7 @@ describe("kit pieces", () => {
     expect(KITS["kit-castle-gate"].stop).toBeUndefined();
   });
 
-  it("engine services: 108 straights that splice, a 3 s stop for steam (fuel: any engine) with a minute's cool-down", () => {
+  it("engine services: 108 straights that splice, a 3 s stop for steam (fuel: diesels) with a minute's cool-down", () => {
     const services = ["kit-water-tower", "kit-coal-stage", "kit-water-crane", "kit-coaling-crane", "kit-fuel-station"] as const;
     for (const type of services) {
       const kit = KITS[type];
@@ -126,7 +126,7 @@ describe("kit pieces", () => {
       expect(kit.splices, type).toBe(true);
       expect(kit.stop?.seconds, type).toBe(3);
       expect(kit.stop?.cooldown, type).toBe(60);
-      expect(kit.stop?.who, type).toBe(type === "kit-fuel-station" ? "any" : "steam");
+      expect(kit.stop?.who, type).toBe(type === "kit-fuel-station" ? "diesel" : "steam");
       // The spout or chute works while the engine stands there.
       expect(kit.moves, type).toBe("stopped");
       for (const r of kit.footprint) expect(r.l - r.d / 2, type).toBeGreaterThanOrEqual(20);

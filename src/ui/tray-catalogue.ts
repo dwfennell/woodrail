@@ -179,6 +179,9 @@ export const GAME_TRACK_KITS: TrayGroup = {
     kit("kit-signal-gantry", "Signal gantry"),
     kit("kit-turntable", "Turntable"),
     kit("kit-transfer-table", "Transfer table"),
+    kit("kit-train-lift", "Train lift"),
+    kit("kit-loop-the-loop", "Loop-the-loop"),
+    kit("kit-buffer-stop-lamp", "Buffer stop"),
   ],
 };
 export const GAME_KIT_GROUPS: TrayGroup[] = [
@@ -191,6 +194,26 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
       kit("kit-water-crane", "Water crane"),
       kit("kit-coaling-crane", "Coaling crane"),
       kit("kit-roundhouse-segment", "Roundhouse"),
+      kit("kit-fuel-station", "Fuel station"),
+    ],
+  },
+  {
+    label: "Stations",
+    items: [kit("kit-two-platform-station", "Two-platform station"), kit("kit-grand-terminus", "Terminus")],
+  },
+  {
+    label: "Yard",
+    items: [
+      kit("kit-log-loader", "Log loader"),
+      kit("kit-grain-elevator", "Grain elevator"),
+      kit("kit-drop-hopper", "Drop hopper"),
+      kit("kit-goods-shed", "Goods shed"),
+      kit("kit-gantry-crane", "Gantry crane"),
+      kit("kit-magnet-crane", "Magnet crane"),
+      kit("kit-harbour-crane", "Harbour crane"),
+      kit("kit-cargo-conveyor", "Conveyor"),
+      kit("kit-tipping-dump", "Wagon tipper"),
+      kit("kit-coal-chute", "Coal chute"),
     ],
   },
   {

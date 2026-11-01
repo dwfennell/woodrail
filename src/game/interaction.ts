@@ -46,6 +46,7 @@ import { putAway, type PutAway } from "./put-away";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
+import { STORE_HELP, storeStock } from "./warehouse-text";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
 function whenIdle(f: () => void): void {
@@ -2064,7 +2065,7 @@ export class Interaction {
     } else if (m.kind === "drag-train") {
       this.game.scene.remove(m.ghost);
       disposeObject(m.ghost);
-      if (m.origin) this.placeTrain(m.cars, m.origin);
+      if (m.origin) this.placeTrain(m.cars, m.origin, false, true);
       else this.onTrayTrainDropped?.(false);
     } else if (m.kind === "drag-cargo") {
       this.game.scene.remove(m.ghost);
@@ -2150,7 +2151,8 @@ export class Interaction {
     if (p.kind === "piece") {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
-      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type);
+      // (A town's station upgraded to a big station's kit still opens its town's card.)
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId);
       const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
       else if (ruin !== -1 && this.onRuinTap) {
@@ -2483,6 +2485,11 @@ export class Interaction {
       .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
+    // A warehouse: only what it holds (not a row for every good), and how to use it.
+    if (d.role === "warehouse") {
+      this.hud.updateDepotCard([], d.auto, d.waitFull, storeStock(piles), false, STORE_HELP);
+      return;
+    }
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     const note = d.role === "town" ? `Delivered ${delivered}` : d.role === "harbour" && piles.length === 0 ? "Nothing on the quay: drop goods here for the boats" : "";
     this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note);
@@ -2959,6 +2966,15 @@ export class Interaction {
     }
     this.hintFor = { key, hint };
     return hint;
+  }
+
+  /**
+   * Why a piece of `type` can't go down at `pose` (as a drop would say it), with piece `ignoreId` not counted; null if
+   * it can (a town's station upgraded in place: src/game/station-upgrade.ts).
+   */
+  placeWhy(type: PieceTypeId, pose: Pose, y: number, ignoreId: number): string | null {
+    const r = this.placement(type, false, pose, y, ignoreId).reason;
+    return r ? this.blockMessage(r) : null;
   }
 
   /** What to say for a piece refused for `reason` (never nothing: a refusal always says something). */
@@ -4259,7 +4275,8 @@ export class Interaction {
       this.changed();
       return;
     }
-    if (m.origin) this.placeTrain(m.cars, m.origin);
+    // (Back where it was picked up; taken meanwhile, another train run in there, on the nearest free stretch: never lost.)
+    if (m.origin) this.placeTrain(m.cars, m.origin, false, true);
     if (fresh) this.onTrayTrainDropped?.(false);
     this.hud.toast(m.target ? "Not enough track there" : "Drop trains onto the track");
     this.changed();
@@ -4304,16 +4321,19 @@ export class Interaction {
     }
     sim.removeTrain(id);
     if (this.placeTrain(together, newLead)) return true;
-    this.placeTrain(theirs, lead);
+    this.placeTrain(theirs, lead, false, true);
     return false;
   }
 
-  /** Put a train down: exactly at `at` (back where it was picked up), or `around` it (a drop, centred on the point). */
-  private placeTrain(cars: HeldCar[], at: Cursor, around = false): boolean {
+  /**
+   * Put a train down: exactly at `at`, or `around` it (a drop, centred on the point); `back` where it was picked up,
+   * or the nearest free stretch if that's taken (`Sim.putBack`).
+   */
+  private placeTrain(cars: HeldCar[], at: Cursor, around = false, back = false): boolean {
     const sim = this.game.sim;
     const kinds = cars.map((c) => c.kind);
     const ids = cars.every((c) => c.id !== undefined) ? cars.map((c) => c.id!) : undefined;
-    const r = around ? sim.addTrainAround(kinds, at, ids) : sim.addTrain(kinds, at, ids);
+    const r = around ? sim.addTrainAround(kinds, at, ids) : back ? sim.putBack(kinds, at, ids) : sim.addTrain(kinds, at, ids);
     if (r.kind !== "placed") return false;
     const t = sim.getTrain(r.trainId)!;
     t.cars.forEach((car, i) => {

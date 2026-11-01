@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ENGINE_SPEED, Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, Layout } from "../track";
-import { attachEngines, CABOOSE_BONUS, quickness, tooHeavy, topSpeed } from "./engines";
+import { attachEngines, BOILERS_BONUS, CABOOSE_BONUS, quickness, tooHeavy, topSpeed } from "./engines";
 import type { World } from "./world";
 
 /** A long straight line and a train of `cars` on it (its engines given `looks`, in order). */
@@ -64,6 +64,23 @@ describe("the goods engine", () => {
     const t = line(["engine", "timber", "timber", "timber", "timber", "hopper", "hopper", "van", "van"], ["goods"]);
     expect(topSpeed(t.w, t.train())).toBeCloseTo(ENGINE_SPEED * 0.8);
     expect(quickness(t.w, t.train())).toBe(0.7);
+  });
+});
+
+describe("better boilers (tech-tree R1)", () => {
+  it("every engine a tenth faster once learned, on top of a caboose; Game mode's sim asks as it goes", () => {
+    expect(BOILERS_BONUS).toBe(1.1);
+    const t = line(["engine", "hopper"]);
+    expect(topSpeed(t.w, t.train(), true)).toBeCloseTo(ENGINE_SPEED * 1.1);
+    const d = line(["engine", "hopper"], ["diesel"]);
+    expect(topSpeed(d.w, d.train(), true)).toBeCloseTo(ENGINE_SPEED * 1.2 * 1.1);
+    const tail = line(["engine", "hopper", "caboose"]);
+    expect(topSpeed(tail.w, tail.train(), true)).toBeCloseTo(ENGINE_SPEED * 1.1 * 1.1);
+    let learned = false;
+    attachEngines(t.w, () => learned);
+    expect(t.w.sim.topSpeed!(t.train())).toBe(ENGINE_SPEED);
+    learned = true;
+    expect(t.w.sim.topSpeed!(t.train())).toBeCloseTo(ENGINE_SPEED * 1.1);
   });
 });
 
