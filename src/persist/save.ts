@@ -130,7 +130,7 @@ const saveSchema = z.object({
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
-      /** A workshop that takes all the planks trains bring (optional: absent, it shares with towns further on). */
+      /** A workshop that takes all the planks trains bring, or a school set to Research first (optional: absent, it shares with towns further on). */
       takesAll: z.literal(true).optional(),
       /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
       piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_KINDS.length),
@@ -449,7 +449,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId, d.townId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
-    state.takesAll = d.role === "workshop" && d.takesAll === true;
+    state.takesAll = (d.role === "workshop" || d.role === "school") && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);

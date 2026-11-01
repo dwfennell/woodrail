@@ -47,6 +47,7 @@ import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoS
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 import { STORE_HELP, storeStock } from "./warehouse-text";
+import { SHOP_HELP } from "./workshop-text";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
 function whenIdle(f: () => void): void {
@@ -2503,7 +2504,8 @@ export class Interaction {
     }
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     const note = d.role === "town" ? `Delivered ${delivered}` : d.role === "harbour" && piles.length === 0 ? "Nothing on the quay: drop goods here for the boats" : "";
-    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note);
+    // A workshop: how its planks get there (a train on a route drops them only at its stops).
+    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note, false, d.role === "workshop" ? SHOP_HELP : "");
   }
 
   toggleDepotAuto(): void {

@@ -42,7 +42,7 @@ import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
-import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
+import { schoolYardHtml, WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
@@ -53,6 +53,7 @@ import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { blockerOf, engineView, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
+import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
@@ -2232,9 +2233,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Warehouses a hand-run train has been told about (this session): each says why it trades nothing, once. */
   const storesTold = new Set<number>();
+  /** Workshops a routed train passing with planks (no stop there) has been told about (this session), once each. */
+  const shopsTold = new Set<number>();
   /**
    * A hand-run train with wagons beside a warehouse: it trades nothing there (only routed trains do), so a toast says
-   * why and what to do, once per warehouse. Once a second: a lookup per bogie of each train.
+   * why and what to do, once per warehouse; and a routed train passing a workshop that isn't one of its stops, with
+   * planks the workshop would take, once per workshop. Once a second: a lookup per bogie of each train.
    */
   function storeToasts(): void {
     for (const id of game.sim.trainIds()) {
@@ -2244,6 +2248,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (!t || game.economy.routeOfTrain(t)) continue;
       storesTold.add(d.id);
       hud.toast(STORE_NO_ROUTE, false, 4200);
+    }
+    // A routed train passing the workshop with planks, no stop there: it keeps them (once per workshop).
+    for (const id of game.sim.trainIds()) {
+      const kept = game.economy.keptAt(id);
+      if (!kept || kept.why !== "not-stop" || kept.depot.role !== "workshop" || shopsTold.has(kept.depot.id)) continue;
+      shopsTold.add(kept.depot.id);
+      hud.toast(keptText(kept.why, kept.kind, "workshop", "the workshop"), false, 4200);
     }
   }
 
@@ -2467,6 +2478,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(build);
   }
 
+  /** The school's card's choice as drawn (its depot and setting), or "" for none: drawn again only when it changes. */
+  let schoolYardShown = "";
+  /** The school's Shares with towns / Research first (Game mode), on its card while it's open. Cheap: a key per frame. */
+  function showSchoolYard(): void {
+    const d = mode === "game" && hud.depotCardOpen ? game.economy.depot(interaction.openDepotId) : undefined;
+    const key = d?.role === "school" ? `${d.id}:${d.takesAll}` : "";
+    // (The yard box is the workshop's too, and emptied when a card opens: drawn again if it's been emptied.)
+    if (key === schoolYardShown && (key === "" || hud.depotYard.querySelector("[data-school]"))) return;
+    schoolYardShown = key;
+    if (!d || key === "") return;
+    hud.depotYard.innerHTML = schoolYardHtml(d.takesAll);
+    hud.depotYard.hidden = false;
+  }
+  hud.depotYard.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-school]");
+    const d = game.economy.depot(interaction.openDepotId);
+    if (!b || d?.role !== "school") return;
+    e.stopPropagation();
+    if (b.classList.contains("active")) return;
+    game.economy.setTakesAll(d.id, b.dataset.school === "first");
+    showSchoolYard();
+    scheduleSave();
+  });
+
   let workshopShown = -1;
   /** Keep the workshop's card current while it's open (Game mode). */
   function showWorkshop(force = false): void {
@@ -2514,7 +2549,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       keeps: Math.min(keeps, capAt(yard)),
       keptFor: keptFor ? thingLabel(keptFor) : undefined,
       cap: capAt(yard),
-      school: game.economy.allDepots().some((d) => d.role === "school"),
+      school: game.economy.allDepots().some((d) => d.role === "school" && d.takesAll),
     });
   }
 
@@ -4237,6 +4272,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.onFrame = (dt) => {
     devChecks?.frame();
     interaction.refreshDepotCard();
+    showSchoolYard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
     hud.setTrayArrow(interaction.trayArrow(hud.propsTab && !interaction.holdingKit));
     hud.setHoldingKit(interaction.holdingKit);

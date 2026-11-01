@@ -2,6 +2,7 @@ import { RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import { kitOf, type Layout } from "../track";
 import { storeSkipText } from "./warehouse-text";
+import { keptText } from "./workshop-text";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -334,6 +335,12 @@ export function engineView(
   // its way, so no Show).
   if (s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || (s.kind === "turning-back" && s.cause !== "open-end")) {
     if (economy.storeItSkips(found.train.id)) return { status: storeSkipText(!!economy.routeOfTrain(found.train)), blocker: null };
+  }
+  // Passing (or standing at) a stop that takes goods it carries, and keeping them: why (not on its route, full, set to
+  // share, not needed now). Each stop takes what it takes in turn; nothing is held back for one further on.
+  if (s.kind === "running" || s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || s.kind === "starting") {
+    const kept = economy.keptAt(found.train.id);
+    if (kept) return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id)), blocker: null };
   }
   const blocker = blockerOf(sim, economy, s);
   // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
