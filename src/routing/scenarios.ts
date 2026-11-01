@@ -51,7 +51,7 @@ function ovalWithSiding(layout: Layout) {
  * A trunk ⊐ Y ══ ══ ══ (or `trunk` straights) into points of `type`, entered at its connector `at`; two ways on (`ways`, connectors), each
  * ══ ══ stop ⊏. Its pieces: the trunk's straights (t1 nearest the points), the points and the two stops.
  */
-function junction(layout: Layout, type: "switch" | "wye" | "crossover", at: number, ways: [number, number], trunk = 3) {
+export function junction(layout: Layout, type: "switch" | "wye" | "crossover", at: number, ways: [number, number], trunk = 3) {
   const ids = chain(layout, [STOP, ...Array<PieceTypeId>(trunk).fill(S)]);
   const [y, t2, t1] = [ids[0], ids[ids.length - 2], ids[ids.length - 1]];
   appendPiece(layout, BUFFER, false, connectorRef(y, 0));
@@ -678,11 +678,31 @@ export function rng(seed: number): () => number {
  * A random line from the loop fixtures: a shuttle between buffers with 0–2 passing loops (some with a stop on a road),
  * maybe a dead-end siding, 1–3 trains on one line or each its own, some switches set the other way, the odd lever tap.
  */
-export function fuzz(seed: number, seconds: number): Scenario {
+export function fuzz(seed: number, seconds: number, marks = false): Scenario {
   return {
-    name: `fuzz seed ${seed}`,
+    name: `fuzz seed ${seed}${marks ? " with signals" : ""}`,
     seconds,
     build: (layout) => {
+      const built = fuzzBuild(layout, seed, seconds);
+      // (Signals, signals spec §10.1: 0 to 6 marks on random joints, facing either way, dealt apart so the layout and
+      // trains are the seed's as without.)
+      if (marks) {
+        const r = rng(seed + 7919);
+        const joints = [...layout.joints()];
+        const n = Math.floor(r() * 7);
+        for (let i = 0; i < n && joints.length > 0; i++) {
+          const j = joints.splice(Math.floor(r() * joints.length), 1)[0];
+          layout.addSignal(r() < 0.5 ? j.a : j.b);
+        }
+      }
+      return built;
+    },
+  };
+}
+
+function fuzzBuild(layout: Layout, seed: number, seconds: number): { trains: TrainSpec[]; events: ScriptedEvent[] } {
+  {
+    {
       const r = rng(seed);
       const pick = <T>(xs: readonly T[]) => xs[Math.floor(r() * xs.length)];
       const [a, w1, w2] = chain(layout, [STOP, S, S]);
@@ -731,8 +751,8 @@ export function fuzz(seed: number, seconds: number): Scenario {
       const events: ScriptedEvent[] = [];
       for (const sw of switches) if (r() < 0.3) events.push({ at: Math.floor(r() * seconds), do: (run) => void run.lever(sw) });
       return { trains, events };
-    },
-  };
+    }
+  }
 }
 
 // ── Negative controls: the checks catch what they're for ────────────────────────────────────────────────────────────

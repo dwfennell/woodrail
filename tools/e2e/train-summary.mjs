@@ -57,17 +57,18 @@ const carOnScreen = (id) =>
     const r = w.canvas.getBoundingClientRect();
     return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
   }, id);
-const lookAt = async (id, dist = 520) => {
+/** Glide to car `id`; `inRoom`: framed where the map shows past an open card, as the game frames what a card is for. */
+const lookAt = async (id, dist = 520, inRoom = false) => {
   // (A car new on the map gets its model on the next frame drawn.)
   await p.waitForFunction((id) => (window.woodrail.invalidate(), !!window.woodrail.trainView.carObject(id)), id, { timeout: 60000, polling: 500 });
   await p.evaluate(
-    ({ id, dist }) => {
+    ({ id, dist, inRoom }) => {
       const w = window.woodrail;
       const o = w.trainView.carObject(id);
       const at = o.getWorldPosition(new w.camera.position.constructor());
-      w.director.glideTo(new w.camera.position.constructor(at.x, 0, at.z), dist, { duration: 0.1 });
+      w.director.glideTo(new w.camera.position.constructor(at.x, 0, at.z), dist, { duration: 0.1, inRoom });
     },
-    { id, dist },
+    { id, dist, inRoom },
   );
 };
 
@@ -206,8 +207,9 @@ if (!setup.error) {
   check("…its buttons 44 px or more", card.small.length === 0, JSON.stringify(card.small));
   await shot("1-engine-card-loaded");
 
-  // 7. A second tap, on the wagon: its own card, with its load.
-  await lookAt(wagon, 420);
+  // 7. A second tap, on the wagon: its own card, with its load. (The engine's card is open: the wagon's framed above
+  // it, where a player sees it, not in the middle of the screen, which the card covers.)
+  await lookAt(wagon, 420, true);
   await settle();
   await p.evaluate((e) => {
     const w = window.woodrail;
@@ -215,7 +217,7 @@ if (!setup.error) {
     w.sim.setLever(e, 0);
   }, engine);
   await p.waitForFunction((e) => Math.abs(window.woodrail.sim.findCar(e)?.train.speed ?? 1) < 1, engine, { timeout: 30000 }).catch(() => {});
-  await lookAt(wagon, 420);
+  await lookAt(wagon, 420, true);
   await settle();
   // (The first tap takes the train, its engine's card; the next, on the wagon, the wagon's own.)
   at = await carOnScreen(wagon);
