@@ -27,6 +27,9 @@
 **e2e:cloud** (`scripts/e2e/cloud.mjs`, about 25 min, 24 steps):
 - It starts a local Worker (wrangler dev) and runs two-device steps.
 - Run `npm --prefix cloud ci` first.
+- A running Game page sends its progress on its own every minute: a new game's forest cuts logs (`counts`, a progress edit every 15 s or so). A page that then finds the other device's later copy reloads onto it, by design. So "landed" means the cloud copy holds what was sent (the step 7a check decodes the bundle's coins), not just any new copy: the Worker turns an upload within 10 s of the last away (429), and the page keeps it for its next round. From 7b the test pauses both games and sends every upload itself (`quiesce`, `hideAndSettle`: a merge that takes the other's later copy reloads and sends its merged copy only on a second round).
+- A page's start-up check of the cloud is waited on for 3 s past loading, then cut off (`cutoff()`) and left for its next upload round. A page with nothing of its own to send has no such round, so it stays on its own copy until it next has an edit. Headless, the check is cut off now and then: the test's `restart` starts such a page again. Open question for the user/CoS: a clean Sandbox device whose check was late shows its older railway, and its next edit then outranks the newer one (kept as a backup, with a toast).
+- A take-reload starts the page again from storage, so progress made in the last 5 s before the page's own upload round (since the last 5 s save) isn't in the copy it merges and reloads onto. Not fixed (2026-11-01); an e2e that earns must wait for the save (`earnOn` does).
 
 **e2e:ramps** (`scripts/e2e/ramps.mjs`, 10–25 min):
 - Runs on Sandbox #seed-24.
