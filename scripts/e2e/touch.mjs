@@ -1210,7 +1210,8 @@ async function wyeLevers(ctx, p, tapOn) {
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
 // follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
 // lines' routes kept through track laid at a stop, undo and redo, the stop taken up), blocker (a card's Show and Put
-// it away for an engine left in a line train's way).)
+// it away for an engine left in a line train's way), place-facing (an engine dragged right or left along the track by
+// touch faces that way).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -2906,6 +2907,95 @@ async function putAwayButton(p) {
  * which flashes; the flash ends by itself and nothing is drawn after. Put it away puts the parked engine in the box, and
  * the line's train runs on and delivers logs to the sawmill (the payoff).
  */
+/**
+ * A train faces the way the finger brought it along the track: an engine dragged out of the Trains tab by touch,
+ * onto a straight running across the screen, moving right along it then let go, is put down facing right (as its ghost
+ * showed); the same moving left, facing left. (The straight is laid by the harness: setup, not what's tested.)
+ */
+async function placeFacing(ctx, p, tapSel) {
+  await p.keyboard.press("Escape");
+  const cdp = await ctx.newCDPSession(p);
+  let stamp = Date.now() / 1000;
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp += 0.016) });
+  // A long straight across the screen (at right angles to the way the view looks), on open ground; the view on it.
+  const spot = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const h = w.interaction.cameraHeading() + Math.PI / 2;
+    const pts = [-108, 0, 108].map((d) => [d * Math.cos(h), d * Math.sin(h)]);
+    const o = await window.__openGround(pts, { pieceGap: 400 });
+    if (!o) return null;
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const id = w.editor().place("straight-216", poseForCentre("straight-216", false, o.x, o.z, h), 0, false);
+    w.director.glideTo(w.controls.target.clone().set(o.x, 0, o.z), frameDistance(420, w.camera.fov, w.camera.aspect), { duration: 0.2 });
+    return { ...o, h, id };
+  });
+  if (!spot) throw new Error("place-facing: no open ground for a straight");
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await frames(p);
+  // The Trains tab, and the Engine in it (in a shelf, if not among the favourites).
+  await tapSel('.tray .tab[data-tab="trains"]');
+  const engineItem = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key^="train:Engine"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  for (let k = 0; k < 6 && !(await engineItem()); k++) {
+    if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await tapSel(".scroller .tray-back");
+    const n = await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length);
+    await tapSel(`.scroller .tray-group:nth-child(${k + 1 + n})`);
+  }
+  await frames(p);
+  const item = await engineItem();
+  if (!item) throw new Error("place-facing: no Engine in the Trains tab");
+  // The straight's middle and its way on screen (unit px). The finger goes TOUCH_LIFT_PX (56 px) below where the
+  // train's middle is to be, as a held train rides above the finger.
+  const screen = await p.evaluate(({ x, z, h }) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    // (A held train's middle, about 34 mm up on the track, is what rides over the finger.)
+    const a = new V(x, 34, z).project(w.camera);
+    const b = new V(x + 30 * Math.cos(h), 34, z + 30 * Math.sin(h)).project(w.camera);
+    const dx = ((b.x - a.x) * innerWidth) / 2;
+    const dy = (-(b.y - a.y) * innerHeight) / 2;
+    const l = Math.hypot(dx, dy);
+    return { mid: [((a.x + 1) / 2) * innerWidth, ((1 - a.y) / 2) * innerHeight + 56], along: [dx / l, dy / l] };
+  }, spot);
+  const { mid, along } = screen;
+  for (const [name, dir] of [["right", 1], ["left", -1]]) {
+    // (The straight's way on screen points right, or near it: "right" is along it, "left" back.)
+    const from = [mid[0] - dir * 90 * along[0], mid[1] - dir * 90 * along[1]];
+    const trains0 = await p.evaluate(() => [...window.woodrail.sim.trainIds()]);
+    await touch("touchStart", item[0], item[1]);
+    for (let k = 1; k <= 12; k++) await touch("touchMove", item[0] + ((from[0] - item[0]) * k) / 12, item[1] + ((from[1] - item[1]) * k) / 12);
+    for (let k = 1; k <= 10; k++) await touch("touchMove", from[0] + ((mid[0] - from[0]) * k) / 10, from[1] + ((mid[1] - from[1]) * k) / 10);
+    await frames(p);
+    const ghost = await p.evaluate(() => { const m = window.woodrail.interaction.mode; return m.kind === "drag-train" ? { lead: -m.ghost.rotation.y, onTrack: !!m.target, said: m.facing !== null, arrow: !!m.ghost.getObjectByName("facing-arrow") } : { kind: m.kind }; });
+    await touch("touchEnd", 0, 0);
+    await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 30000))]));
+    const placed = await p.evaluate(async (before) => {
+      const w = window.woodrail;
+      const { cursorWorld, createWorldSample } = await import("/src/sim/index.ts");
+      const id = [...w.sim.trainIds()].find((i) => !before.includes(i));
+      if (id === undefined) return null;
+      const t = w.sim.getTrain(id);
+      const e = t.cars.find((c) => c.kind === "engine");
+      const a = cursorWorld(w.layout, t.bogies[0], createWorldSample());
+      const b = cursorWorld(w.layout, t.bogies[t.bogies.length - 1], createWorldSample());
+      const V = w.camera.position.constructor;
+      const pa = new V(a.x, a.y, a.z).project(w.camera);
+      const pb = new V(b.x, b.y, b.z).project(w.camera);
+      const dx = ((pa.x - pb.x) * innerWidth) / 2;
+      const dy = (-(pa.y - pb.y) * innerHeight) / 2;
+      const l = Math.hypot(dx, dy);
+      return { id, facing: e.facing, x: (dx / l) * e.facing, y: (dy / l) * e.facing, lead: a.heading };
+    }, trains0);
+    const dot = placed ? placed.x * dir * along[0] + placed.y * dir * along[1] : 0;
+    const turn = placed && ghost.lead !== undefined ? Math.abs(Math.atan2(Math.sin(ghost.lead - placed.lead), Math.cos(ghost.lead - placed.lead))) : 9;
+    check(`place-facing: an engine dragged ${name} along the track by touch is put down facing ${name}, as its ghost (with its arrow) showed`, !!placed && ghost.onTrack && ghost.said && ghost.arrow && dot > 0.9 && turn < 0.1, JSON.stringify({ along, ghost, placed, dot, turn }));
+    // (Taken off again for the next: harness shortcut, between the two drags.)
+    if (placed) await p.evaluate((id) => { const w = window.woodrail; w.sim.removeTrain(id); w.economy.prune(); w.invalidate(); }, placed.id);
+  }
+  // (The Track tab back, as the checks before found the tray.)
+  await tapSel(".tray .tab[data-tab]");
+}
+
 async function showBlocker(ctx, p) {
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 360, height: 740 });
@@ -3690,7 +3780,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;
