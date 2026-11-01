@@ -3931,7 +3931,9 @@ export class Interaction {
       // (aiming into a gap, the piece held at an angle): it goes on that end.
       if (m.snap.kind !== "snapped" && getPieceDef(holdType, m.heldFlipped).connectors.length > 0) {
         for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY])) {
-          const finger = this.planeAt(x, sy, level);
+          // Where the held piece's middle is drawn (on touch it's held lifted, as `heldAt`): on a tilted view the
+          // ground under the finger is well behind it, off the end's line.
+          const finger = this.planeAt(x, sy, level + (touch ? HOLD_LIFT + geometryMiddle(shape).y : 0));
           const s = finger ? findSnapAhead(this.game.layout, holdType, m.heldFlipped, heldAt(level) ?? m.pose, level, finger, m.pieceId) : null;
           if (s?.kind !== "snapped") continue;
           if (isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
