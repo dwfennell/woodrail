@@ -2058,6 +2058,10 @@ export class Sim {
     for (let i = b.length - 1; i >= 0; i--) {
       const c = b[i];
       // On a switch, travelling from its trunk end out along a path; the axles behind it (higher indices) follow.
+      // (Only those not on it already: going from the back, the first axle found on a switch is the rearmost there. One
+      // counted that was on it already never came onto it, so the memory outlived the train's pass and sent its front
+      // that way the next time round, against the points: a split.)
+      if (i < b.length - 1 && b[i + 1].pieceId === c.pieceId) continue;
       if (c.reversed || train.memory.has(c.pieceId)) continue;
       const piece = this.layout.getPiece(c.pieceId);
       if (!piece || !getPieceDef(piece.type, piece.flipped).isSwitch) continue;

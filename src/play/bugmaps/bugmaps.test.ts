@@ -53,7 +53,13 @@ function shuttle(): { world: World; sw: number } {
 }
 
 /** The maps here: the file, how long it runs, and the least stops each routed train must come to (its payoff). */
-const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] = [{ file: "hand-made-shuttle.txt", seconds: 600, arrivals: 6, what: "hand-made: a timber train between the forest and a sawmill, past a siding" }];
+const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] = [
+  { file: "hand-made-shuttle.txt", seconds: 600, arrivals: 6, what: "hand-made: a timber train between the forest and a sawmill, past a siding" },
+  // (Play-test 2026-11-01: four hand-run trains round a ring, one then given a route, Mill ⇄ Farm yard. The line's
+  // sections took the hand-run trains in, three of them in the ring's one section, each waiting on the next: all four
+  // stuck from the first second, no stop in 600 s. Now a train follows one on no line going its way.)
+  { file: "route-stuck.txt", seconds: 600, arrivals: 4, what: "play-test: a routed train among hand-run trains following each other round a ring" },
+];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {
   for (const m of MAPS)

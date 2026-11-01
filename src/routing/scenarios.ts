@@ -470,7 +470,41 @@ export const linelessWithLine: Scenario = {
   },
 };
 
-export const SHARED: readonly Scenario[] = [twoLinesOneLoop, twoLinesNoLoop, threeLinesTwoLoops, twoLinesThreeTrains, linelessWithLine];
+/**
+ * A ring with one passing loop: `A ══ ══ ══ ══ (round) B ═ (loop) (round)` back to A. Its stops, the straights on A's
+ * side, and the loop. With a line on it, everything but the loop's two roads is one section.
+ */
+export function ringWithLoop(layout: Layout) {
+  const [a, n1, n2, n3, n4, , , , , b, s144] = chain(layout, [STOP, S, S, S, S, C, C, C, C, STOP, "straight-144"]);
+  const loop = loopOn(layout, connectorRef(s144, 1), [S, S], [S]);
+  const round = chain(layout, [C, C, C, C], connectorRef(loop.s2, 0));
+  if (layout.joinedConnector(connectorRef(a, 0)) !== connectorRef(round[3], 1)) throw new Error("the ring doesn't close");
+  return { a, b, north: [n1, n2, n3, n4], round, loop };
+}
+
+/**
+ * The 2026-11-01 play-test (src/play/bugmaps/route-stuck.txt), small: hand-run trains running one behind another round
+ * a ring, as they did fine, and then one of them given a route. The line's sections took in the hand-run trains, two
+ * of them in the ring's one section at once, each waiting on the next round the ring: all stood, stuck, from the start.
+ * Going the same way, a train follows one on no line (`Sections.follows`), as it did hand-run.
+ */
+export const ringRoutedAmongHandRun: Scenario = {
+  name: "a routed train among hand-run trains following each other round a ring with one loop",
+  seconds: KID_SECONDS,
+  maxStill: KID_STILL,
+  build: (layout) => {
+    const r = ringWithLoop(layout);
+    return {
+      trains: [
+        { pieceId: r.loop.main[0], stops: [r.a, r.b], next: 0, line: 1, cars: CARS },
+        { pieceId: r.north[1], cars: CARS },
+        { pieceId: r.round[2], cars: CARS },
+      ],
+    };
+  },
+};
+
+export const SHARED: readonly Scenario[] = [twoLinesOneLoop, twoLinesNoLoop, threeLinesTwoLoops, twoLinesThreeTrains, linelessWithLine, ringRoutedAmongHandRun];
 
 /** The branch delivery, with the player doing `what` once the wye is set for the siding and the train is coming to it. */
 function duringLock(name: string, what: (run: HarnessRun, o: ReturnType<typeof ovalWithSiding>) => void): Scenario {

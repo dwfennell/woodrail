@@ -797,7 +797,8 @@ export class Router {
           }
           return { stop: w, by: other };
         }
-        if (!moving || w.seen) continue;
+        // (Shared even with the train they're held for still on them: one following it the same way over them.)
+        if (!moving) continue;
         lock.holders.add(engine);
         this.locksVersion++;
       } else if (!moving || w.seen) continue;

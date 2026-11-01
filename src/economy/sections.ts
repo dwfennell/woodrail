@@ -146,6 +146,8 @@ interface Move {
  * (`Way.deadEnd`) can't be reached while the line is full (`unreachable`).
  */
 const DEAD_END = -2;
+/** How far on (pieces) a train whose front is off another's way is followed, to see if it comes onto it head on (`sameWayAhead`). */
+const FOLLOW_LOOK = 48;
 
 /** A way through a section (`Sections.wayOn`): its steps, the slot it ends at (or −1: full; `DEAD_END`), and why not. */
 interface Way {
@@ -935,13 +937,14 @@ export class Sections {
         if (!loose && roads.length === 2 && info.loose.length > 0 && this.restRoad(topo, loop, outBy) === roads[0]) roads = [roads[1], roads[0]];
         for (const r of roads) {
           if (r !== calls && !into.includes(r)) continue;
-          const u = this.slotUser(info, r, st.engine);
+          // (One it may follow, going out the same way, isn't in its way: see `follows`.)
+          const u = this.slotUser(info, r, st.engine, outBy);
           if (u !== -1) {
             blockedBy = u;
             continue;
           }
           const other = r === loop.roads[0] ? loop.roads[1] : loop.roads[0];
-          const o = this.slotUser(info, other, st.engine);
+          const o = this.slotUser(info, other, st.engine, outBy);
           if (o !== -1 && this.outByOf(o, other) === outBy) {
             blockedBy = o;
             continue;
@@ -1063,11 +1066,15 @@ export class Sections {
     return false;
   }
 
-  /** The train of the line (other than `engine`) on a slot, or on its way there; −1 if none. */
-  private slotUser(info: LineInfo, slot: number, engine: number): number {
+  /**
+   * The train of the line (other than `engine`) on a slot, or on its way there; −1 if none. `outBy` (a loop road's): one
+   * that `engine` may follow (`follows`) going out of the road by that same switch isn't in its way, and is passed over.
+   */
+  private slotUser(info: LineInfo, slot: number, engine: number, outBy = -1): number {
     const pieces = info.topo.slots[slot].pieces;
     for (const u of info.users) {
       if (u === engine) continue;
+      if (outBy !== -1 && this.follows(info, engine, u) && this.outByOf(u, slot) === outBy) continue;
       const m = this.states.get(u)?.move;
       if (m && (m.dest === slot || m.through.includes(slot))) return u;
       const t = this.sim.findCar(u)?.train;
@@ -1078,6 +1085,139 @@ export class Sections {
     return info.zone.slots.get(slot) ?? -1;
   }
 
+  /**
+   * May `engine`'s train follow `u`'s, going the same way, into a section or loop road it's in (or on its way to)? Only
+   * where one of them is a train on no line (`LineInfo.loose`): a hand-run train goes on as the points lie and never
+   * stops at a slot for good, so token working with it is only to keep the two from meeting head on. Trains going
+   * the same way don't; the sim keeps the one behind back from the one ahead (`followCap`). Without this, hand-run trains
+   * that ran round a ring one behind another, as they did before any route, stood in one section together the moment a
+   * line came to manage it, each waiting on the next, round the ring (a stall the token rule made, not their ways:
+   * play-test 2026-11-01, src/play/bugmaps/route-stuck.txt). Trains on lines alone keep one to a section, as ever.
+   */
+  private follows(info: LineInfo, engine: number, u: number): boolean {
+    if (!info.loose.includes(engine) && !info.loose.includes(u)) return false;
+    return this.hasRoom(info, engine) && this.hasRoom(info, u) && this.circling(u);
+  }
+
+  /**
+   * Does train `u` go on round a circuit from where it is, never coming to the end of the track (so never turning back
+   * into a train behind it)? Its way as the points lie (a train on no line), or as its route's plan takes it at points
+   * (a line's), followed till it comes back onto a piece the way it was before (a circuit: true) or to an end (false).
+   * Cached by its front, the layout, the points and its aim.
+   */
+  private circling(u: number): boolean {
+    const t = this.sim.findCar(u)?.train;
+    if (!t) return false;
+    const net = this.host.drive(t);
+    if (net === 0) return false;
+    const f = this.front(t, net < 0);
+    const target = this.host.lineOf(u) >= 0 ? this.host.target(u) : -1;
+    const key = `${f.pieceId}.${f.pathIndex}.${f.reversed ? 1 : 0}|${this.layout.revision}|${this.layout.switchesVersion}|${target}`;
+    const hit = this.circlingOf.get(u);
+    if (hit && hit.key === key) return hit.yes;
+    const yes = this.circuitFrom(f, target);
+    this.circlingOf.set(u, { key, yes });
+    return yes;
+  }
+  private readonly circlingOf = new Map<number, { key: string; yes: boolean }>();
+
+  private circuitFrom(f: Cursor, target: number): boolean {
+    const { layout } = this;
+    const piece = layout.getPiece(f.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
+    let at = f.pieceId;
+    let exit = f.reversed ? path.from : (path.to ?? -1);
+    const seen = new Set<number>([at * 8 + (f.reversed ? (path.to ?? 7) : path.from)]);
+    for (let k = 0; k < SEARCH; k++) {
+      const n = next(layout, at, exit);
+      if (!n) return false;
+      const ways = waysFrom(layout, n.pieceId, n.entry);
+      if (ways.length === 0) return false;
+      const key = n.pieceId * 8 + n.entry;
+      if (seen.has(key)) return true;
+      seen.add(key);
+      let w = ways[0];
+      if (ways.length > 1) {
+        const best = target < 0 ? -1 : planWay(layout, n.pieceId, n.entry, ways, target);
+        w = best === -1 ? (ways[pointsWayFrom(layout, n.pieceId, n.entry, ways.length)] ?? ways[0]) : ways[best];
+      }
+      if (w.exit < 0) return false;
+      at = n.pieceId;
+      exit = w.exit;
+    }
+    return false;
+  }
+
+  /**
+   * Is train `u` going the same way along `along` (piece → the end it's come onto by) ahead: its front on it, not heading
+   * out by the end `along` comes in by (the same way, or joining it at points), and any move it holds never along it
+   * the other way round? False if its front isn't on it (it may be coming onto it from elsewhere, or standing across it).
+   */
+  private sameWayAhead(u: number, along: ReadonlyMap<number, number>): boolean {
+    const t = this.sim.findCar(u)?.train;
+    if (!t) return false;
+    const net = this.host.drive(t);
+    if (net === 0) return false;
+    const f = this.front(t, net < 0);
+    const piece = this.layout.getPiece(f.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
+    let exit = f.reversed ? path.from : (path.to ?? -1);
+    const e = along.get(f.pieceId);
+    if (e !== undefined) {
+      if (exit === e) return false;
+    } else {
+      // (Its front off the way: where it runs on to as the points lie, till it comes onto the way (the same way round,
+      // or it's in the way) or runs out of look.)
+      let at = f.pieceId;
+      for (let k = 0; k < FOLLOW_LOOK; k++) {
+        const n = next(this.layout, at, exit);
+        if (!n) break;
+        const ways = waysFrom(this.layout, n.pieceId, n.entry);
+        if (ways.length === 0) break;
+        const w = ways[pointsWayFrom(this.layout, n.pieceId, n.entry, ways.length)] ?? ways[0];
+        const on = along.get(n.pieceId);
+        if (on !== undefined) {
+          if (w.exit === on) return false;
+          break;
+        }
+        at = n.pieceId;
+        exit = w.exit;
+      }
+    }
+    const m = this.states.get(u)?.move;
+    return !m || !m.steps.some((s) => along.get(s.pieceId) === this.exitOf(s));
+  }
+
+  /** The end a step leaves its piece by (−1: a buffer). */
+  private exitOf(s: Step): number {
+    const piece = this.layout.getPiece(s.pieceId);
+    if (!piece) return -1;
+    const path = getPieceDef(piece.type, piece.flipped).paths[s.path];
+    return path.from === s.entry ? (path.to ?? -1) : path.from;
+  }
+
+  /**
+   * A way's steps, and on through the slot it comes to (the one road the points send it onto), as piece → the end each
+   * is come onto by.
+   */
+  private alongOf(steps: readonly Step[], topo: Topology): Map<number, number> {
+    const out = new Map<number, number>();
+    for (const s of steps) if (!out.has(s.pieceId)) out.set(s.pieceId, s.entry);
+    const last = steps[steps.length - 1];
+    if (!last) return out;
+    let at = next(this.layout, last.pieceId, this.exitOf(last));
+    const slot = at ? topo.slotOf.get(at.pieceId) : undefined;
+    for (let k = 0; at && slot !== undefined && k < SEARCH && topo.slotOf.get(at.pieceId) === slot && !out.has(at.pieceId); k++) {
+      out.set(at.pieceId, at.entry);
+      const ways = waysFrom(this.layout, at.pieceId, at.entry);
+      if (ways.length !== 1) break;
+      at = next(this.layout, at.pieceId, ways[0].exit);
+    }
+    return out;
+  }
+
   /** The switch train `u` leaves loop road `slot` by. */
   private outByOf(u: number, slot: number): number {
     const st = this.states.get(u);
@@ -1085,10 +1225,15 @@ export class Sections {
     return st?.outBy ?? -1;
   }
 
-  /** The train of the line (other than `engine`) holding a move through a section, or standing in it; −1 if none. */
-  private sectionUser(info: LineInfo, section: number, engine: number): number {
+  /**
+   * The train of the line (other than `engine`) holding a move through a section, or standing in it; −1 if none.
+   * `along` (its way through the section, piece → the end it comes onto it by): one it may follow (`follows`) going the
+   * same way ahead of it there isn't in its way, and is passed over.
+   */
+  private sectionUser(info: LineInfo, section: number, engine: number, along?: ReadonlyMap<number, number>): number {
     for (const u of info.users) {
       if (u === engine) continue;
+      if (along && this.follows(info, engine, u) && this.sameWayAhead(u, along)) continue;
       const m = this.states.get(u)?.move;
       if (m && m.sections.includes(section)) return u;
       const t = this.sim.findCar(u)?.train;
@@ -1108,14 +1253,24 @@ export class Sections {
       this.hold(st, this.roomWait(st, info));
       return false;
     }
-    const u = this.sectionUser(info, section, st.engine);
+    let u = this.sectionUser(info, section, st.engine);
     // (Only trains the line has no room for standing in it: a dead end short of them; it waits here for them.)
     const short = u === -1 ? null : this.heldIn(info, section, st.engine);
+    // (Trains on no line about: those in it going its way ahead of it, it may follow (`follows`).)
+    let along: Map<number, number> | undefined;
+    let ahead: Way | null = null;
+    if (u !== -1 && !short && info.loose.length > 0) {
+      ahead = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
+      if (ahead && ahead.dest !== DEAD_END) {
+        along = this.alongOf(ahead.steps, topo);
+        u = this.sectionUser(info, section, st.engine, along);
+      }
+    }
     if (u !== -1 && !short) {
       this.hold(st, { kind: "section", engine: u });
       return false;
     }
-    const way = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry }, -1, short);
+    const way = ahead ?? this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry }, -1, short);
     if (short && way?.dest !== DEAD_END) {
       this.hold(st, { kind: "section", engine: u });
       return false;
@@ -1125,7 +1280,7 @@ export class Sections {
     // (Running through a loop that's no passing place: the sections beyond it must be free too.)
     if (way && way.dest !== -1)
       for (const x of way.sections) {
-        const v = x === section ? -1 : this.sectionUser(info, x, st.engine);
+        const v = x === section ? -1 : this.sectionUser(info, x, st.engine, along ?? (info.loose.length > 0 ? (along = this.alongOf(way.steps, topo)) : undefined));
         if (v !== -1) {
           this.hold(st, { kind: "section", engine: v });
           return false;
@@ -1158,15 +1313,22 @@ export class Sections {
     if (!way) return true;
     if (way.dest === DEAD_END) return this.deadEndWait(st, info, way);
     const ahead = new Set(way.steps.map((s) => s.pieceId));
+    const along = info.loose.length > 0 ? this.alongOf(way.steps, info.topo) : null;
     for (const u of info.users) {
       if (u === st.engine) continue;
       const t = this.sim.findCar(u)?.train;
       if (!t || (short && !this.hasRoom(info, u))) continue;
-      // On its way ahead.
-      if (t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, u, info);
+      // On its way ahead. (Unless it may follow it, going its way: see `follows`.)
+      if (t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) {
+        if (along && this.follows(info, st.engine, u) && this.sameWayAhead(u, along)) continue;
+        return this.recoverWait(st, u, info);
+      }
       // Coming the other way through it (its move's way runs over where this one stands, the other way round).
       const m = this.states.get(u)?.move;
-      if (m && m.sections.some((x) => way.sections.includes(x)) && m.steps.some((s) => mine.has(s.pieceId) && way.steps.some((w) => w.pieceId === s.pieceId && w.entry !== s.entry))) return this.recoverWait(st, u, info);
+      // (With one it may follow, only one heading out by the end it comes in by: two coming together at points the same
+      // way only follow.)
+      const exact = along !== null && this.follows(info, st.engine, u);
+      if (m && m.sections.some((x) => way.sections.includes(x)) && m.steps.some((s) => mine.has(s.pieceId) && way.steps.some((w) => w.pieceId === s.pieceId && (exact ? this.exitOf(s) === w.entry : w.entry !== s.entry)))) return this.recoverWait(st, u, info);
     }
     // (A train not on the line running on its way ahead: wait for it, as for one of the line's.)
     for (const t of info.foreign) if (t.speed >= 1 && t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, nameOf(t), info);
