@@ -168,6 +168,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-summary > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .planning .engine-card .engine-summary { display: none; }
 .car-load { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; margin-top: -4px; }
+/* Who's in the way (a waiting or stuck train): Show, and the fix for a train left there; a thumb tall, under the status. */
+.engine-blocker { display: flex; gap: 8px; justify-content: center; margin-top: -4px; }
+.engine-blocker[hidden], .engine-blocker > [hidden] { display: none; }
+.engine-blocker .chip { height: 44px; min-width: 76px; }
+.planning .engine-card .engine-blocker { display: none; }
 /* Go (as wide as the row under it) and the arrow; Continue, when it shows, under both; then Swap ends, Decouple, Remove. */
 .engine-controls { display: grid; grid-template-columns: minmax(150px, 1fr) auto; gap: 10px; align-items: stretch; }
 .engine-controls .chip.go { width: auto; }

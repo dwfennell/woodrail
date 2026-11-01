@@ -1209,7 +1209,8 @@ async function wyeLevers(ctx, p, tapOn) {
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
 // follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
-// lines' routes kept through track laid at a stop, undo and redo, the stop taken up).)
+// lines' routes kept through track laid at a stop, undo and redo, the stop taken up), blocker (a card's Show and Put
+// it away for an engine left in a line train's way).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -2258,7 +2259,10 @@ async function routeWait(ctx, p) {
     // train be by, before SwiftShader's slow frames have shown the card.)
     w.paused = true;
     w.invalidate();
-    return { stood: s.stood, held: s.held, near: s.near, far: s.far, by: s.by, onPoints: w.sim.piecesUnder(w.sim.findCar(setup.second).train.id).has(setup.points), way: w.layout.switchState(setup.points) };
+    // (Which wait holds it as its card is opened: the router's (short of the points) or sections' (at its slot's end).)
+    const routerWait = w.economy.router.waitOf(setup.second)?.kind ?? null;
+    const sectionsWait = w.economy.sections.waitOf(setup.second)?.kind ?? null;
+    return { stood: s.stood, held: s.held, routerWait, sectionsWait, near: s.near, far: s.far, by: s.by, onPoints: w.sim.piecesUnder(w.sim.findCar(setup.second).train.id).has(setup.points), way: w.layout.switchState(setup.points) };
   }, { setup, watch });
   // (Short of the points by the router (its nose 30–40 mm short), or held by sections at its slot's end, which is
   // where two lines' trains sharing the track now wait: the first holds the section with the points.)
@@ -2269,7 +2273,13 @@ async function routeWait(ctx, p) {
   await p.waitForFunction(() => !!document.querySelector(".engine-status")?.textContent, null, { timeout: 30000 }).catch(() => {});
   const said = await p.evaluate(() => document.querySelector(".engine-status")?.textContent ?? "");
   const lineName = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, setup.first);
-  check("wait: its card says it's waiting for the first train", said === `Waiting for the train on the ${lineName} to pass the points` || said === "Waiting: another train is in the way", JSON.stringify({ said, lineName }));
+  // (Which wait it is says which words: short of the points by the router's word, the points wording, as it says what
+  // it waits for. Held by sections at its slot's end (the two lines share the single track, and the first holds the
+  // junction's section; `trainState` reads the router's wait first, so a points wait would win), the sections wait,
+  // which names the first train by its line, as every wait card now names who's in the way.)
+  const sectionsHeld = waited.routerWait === null && waited.sectionsWait !== null;
+  const waitWords = sectionsHeld ? `Waiting: the train on the ${lineName} is in the way` : `Waiting for the train on the ${lineName} to pass the points`;
+  check("wait: its card says it's waiting for the first train", said === waitWords, JSON.stringify({ said, lineName, routerWait: waited.routerWait, sectionsWait: waited.sectionsWait }));
   await p.keyboard.press("Escape");
   // The first by, the points are set for the second (it goes on). Before it's on them, two taps on their lever (§16 Q1,
   // as changed at step 5): they stay set for it, a toast says so, and the second tap's way (their curve, as set for
@@ -2429,7 +2439,7 @@ async function handWait(ctx, p) {
     const routed = put(["engine", "timber", "timber", "timber"], at(trunk[6]), 200, false);
     const hand = put(["engine"], at(a[0]), 150, true);
     // (Paused while the route's planned and Go tapped: the game's own frames would run the sim on meanwhile, at
-    // SwiftShader's pace; both start together below.)
+    // SwiftShader's pace; both start below, the routed one first.)
     w.paused = true;
     w.invalidate();
     return { routed, hand, forest, mill, points: sw, trunk: trunk.map(at), def: w.economy.router.defaultOf(sw) };
@@ -2463,8 +2473,17 @@ async function handWait(ctx, p) {
       if (t.bogies.some((b) => b.pieceId === o.points) && way !== o.def) s.overSet++;
       if (s.wentAt < 0 && o.trunk.includes(t.bogies[0].pieceId)) s.wentAt = w.sim.ticks;
     };
+    // (The routed train first, the hand-run one close behind (its lever, set by Go on its card, back on 16 ticks later):
+    // started on the same tick, whichever the router looks at first takes the points, as its routed and hand-run looks
+    // each come round every 8 ticks on counters of their own, their phase left by whatever ran before. The hand-run one
+    // first, it takes them as they lie and runs up the trunk into the routed one, head on: stuck, rightly, and not what
+    // this checks (that a hand-run train keeps off points set for a routed one).)
+    const HAND_AFTER = 16;
+    const handLever = w.sim.findCar(o.hand).train.cars[0].lever;
+    w.sim.setLever(o.hand, 0);
     w.sim.setLever(o.routed, 1);
     for (let i = 0; i < 30 * 120 && s.stood < 120; i++) {
+      if (i === HAND_AFTER) w.sim.setLever(o.hand, handLever);
       w.sim.tick();
       w.economy.tick();
       window.__handWatch();
@@ -2851,6 +2870,167 @@ async function putAwayButton(p) {
 }
 
 /**
+ * Who's in the way, shown (the user's "I don't quite get why the train is stuck"). A line's train (forest to sawmill,
+ * timber) comes up behind an engine on no line left standing on its single track, its lever off: a train the player
+ * forgot about. Its card, opened by a tap on it, names the blocker plainly (parked, by where it is, never an id), in two
+ * lines at 360 px, with Show and Put it away (44 px or more). A tap on Show glides the camera to the parked engine,
+ * which flashes; the flash ends by itself and nothing is drawn after. Put it away puts the parked engine in the box, and
+ * the line's train runs on and delivers logs to the sawmill (the payoff).
+ */
+async function showBlocker(ctx, p) {
+  await p.keyboard.press("Escape");
+  await p.setViewportSize({ width: 360, height: 740 });
+  await frames(p);
+  const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
+    const { editLine } = await import("/src/game/lines.ts");
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const { checkPlacement } = await import("/src/landscape/clearance.ts");
+    // Harness shortcut (setup, not what's tested): a forest, eight straights and a sawmill, a turnback buffer at each
+    // end, worked out on a scratch layout and laid in one go on open ground, as the player's pieces would be.
+    const L = new Layout();
+    const a = L.addPiece("depot-forest", { x: 0, z: 0, heading: 0 });
+    appendPiece(L, "buffer-turnback", false, connectorRef(a, 0));
+    const run = [];
+    let from = connectorRef(a, 1);
+    for (let k = 0; k < 8; k++) {
+      run.push(appendPiece(L, "straight-216", false, from));
+      from = connectorRef(run[k], 1);
+    }
+    const b = appendPiece(L, "depot-sawmill", false, from);
+    appendPiece(L, "buffer-turnback", false, connectorRef(b, 1));
+    const ids = [...L.pieceIds()];
+    const pts = ids.flatMap((id) => { const q = L.getPiece(id).pose; return [0, 54, 108, 162, 216].map((d) => [q.x + d * Math.cos(q.heading), q.z + d * Math.sin(q.heading)]); });
+    const ok = (x, z) => ids.every((id) => { const q = L.getPiece(id); const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + q.pose.x, z: z + q.pose.z, heading: q.pose.heading }, 0); return c.kind === "clear" || c.reason === "off-mat"; });
+    const g = await window.__openGround(pts, { pieceGap: 450, propGap: 350, ok });
+    if (!g) throw new Error("no open ground for the line");
+    const placed = w.editor().placeRun(ids.map((id) => { const q = L.getPiece(id); return { type: q.type, pose: { x: g.x + q.pose.x, z: g.z + q.pose.z, heading: q.pose.heading }, y: 0, flipped: q.flipped }; }));
+    const real = (id) => placed[ids.indexOf(id)];
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const forest = depot(real(a), "forest");
+    const sawmill = depot(real(b), "sawmill");
+    // Harness shortcut (setup): the trains put down in code, as the tray would. The line's (Red, forest to sawmill) at
+    // the forest end; an engine on no line, its lever off, left on the single track ahead of it.
+    const put = (kinds, piece) => {
+      const r = w.sim.addTrain(kinds, { pieceId: real(piece), pathIndex: 0, reversed: false, s: 100 });
+      if (r.kind !== "placed") throw new Error("no room for a train");
+      return w.sim.getTrain(r.trainId).cars[0].id;
+    };
+    const red = put(["engine", "timber", "timber"], run[0]);
+    const parked = put(["engine"], run[5]);
+    editLine(w.economy, red, (st) => st.push({ depotId: forest.id, action: "auto" }, { depotId: sawmill.id, action: "auto" }));
+    w.sim.setLever(red, 1);
+    // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's few
+    // frames a second; the forest kept stocked (its logs aren't what's tested). Counts logs unloaded at the sawmill.
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    window.__blockRun = (secs) => {
+      let goods = 0;
+      for (let i = 0; i < secs * 120; i++) {
+        const f = w.economy.depot(forest.id);
+        if (f && i % 120 === 0) f.piles[CARGO.log.index] = PILE_CAP;
+        w.sim.tick();
+        w.economy.tick();
+        for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === sawmill.id) goods++;
+      }
+      w.invalidate();
+      return goods;
+    };
+    window.__blockRun(60);
+    // Framed on the line's train, close enough to tap it, the parked engine well off to the side of the view.
+    const r = w.sim.findCar(red).train.world[0];
+    w.director.glideTo(w.controls.target.clone().set(r.x, 0, r.z), frameDistance(260, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    return { red, parked, sawmill: sawmill.id, speed: Math.round(w.sim.findCar(red).train.speed) };
+  });
+  check("blocker: the line's train stands behind the engine left on its track", setup.speed === 0, JSON.stringify(setup));
+  await p.evaluate(() => {
+    window.woodrail.paused = true;
+    window.woodrail.invalidate();
+  });
+  await settled();
+  const { tapOn, tapButton } = mapHelpers(p);
+  await tapOn({ engine: setup.red });
+  await p.waitForFunction(() => !document.querySelector(".engine-card .engine-blocker")?.hidden && /in the way/.test(document.querySelector(".engine-card .engine-status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
+  // (Measured once the card has popped in: `card-in` scales it from 0.96, and under SwiftShader's slow frames a box
+  // read mid-way is 0.96 of its size, 42 px for a 44 px button.)
+  await p.waitForFunction(() => document.querySelector(".engine-card")?.getAnimations().every((a) => a.playState === "finished") ?? false, null, { timeout: 30000 }).catch(() => {});
+  const card = await p.evaluate(() => {
+    const s = document.querySelector(".engine-card .engine-status");
+    const one = s.cloneNode(false);
+    one.textContent = "Line";
+    one.style.visibility = "hidden";
+    s.after(one);
+    const lh = one.getBoundingClientRect().height;
+    one.remove();
+    const r = s.getBoundingClientRect();
+    const box = (sel) => { const e = document.querySelector(sel); if (!e || getComputedStyle(e).display === "none" || e.hidden) return null; const q = e.getBoundingClientRect(); return { w: Math.round(q.width), h: Math.round(q.height), right: q.right, laidW: e.offsetWidth, laidH: e.offsetHeight }; };
+    return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth, show: box(".engine-card .show-blocker"), fix: box(".engine-card .fix-blocker") };
+  });
+  check("blocker: the card names the engine left in the way, plainly (parked, by where it is; no id) and the fix, in two lines at 360 px", /^(Waiting|Stuck): (the train parked by [A-Za-z ]+( \d)?|a parked train) is in the way\. Move it$/.test(card.said) && !/\d\d/.test(card.said) && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
+  check("blocker: Show and Put it away on the card, each 44 px or more", !!card.show && !!card.fix && card.show.h >= 44 && card.fix.h >= 44 && card.show.w >= 44 && card.show.laidH >= 44 && card.fix.laidH >= 44 && card.fix.right <= card.vw, JSON.stringify(card));
+  // Show, tapped as a finger would once it's been drawn and stood still past the card tap guard's window.
+  const before = await p.evaluate(({ parked }) => {
+    const w = window.woodrail;
+    // (Where the camera is: Show aims the blocker into the room above the card (`inRoom`), not at the target.)
+    const c = w.camera.position;
+    return { cam: [Math.round(c.x), Math.round(c.y), Math.round(c.z)] };
+  }, setup);
+  await tapButton(".engine-card .show-blocker");
+  const flashing = await p.evaluate(({ parked }) => {
+    const w = window.woodrail;
+    const ids = w.sim.findCar(parked).train.cars.map((c) => c.id);
+    // (Its shells' look: 3, flashed; TS-private, read here as the frame loop sets it.)
+    return new Promise((done) => {
+      const t0 = performance.now();
+      const look = () => {
+        const shown = ids.map((id) => w.trainView.cars.get(id)?.shown ?? -1);
+        if (shown.every((v) => v === 3) || performance.now() - t0 > 20000) done({ shown, flourishes: w.flourishes.count });
+        else requestAnimationFrame(look);
+      };
+      look();
+    });
+  }, setup);
+  check("blocker: a tap on Show flashes the engine in the way", flashing.shown.every((v) => v === 3) && flashing.flourishes > 0, JSON.stringify(flashing));
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 }).catch(() => {});
+  const there = await p.evaluate(({ parked }) => {
+    const w = window.woodrail;
+    const q = w.sim.findCar(parked).train.world[0];
+    const v = new w.camera.position.constructor(q.x, q.y, q.z).project(w.camera);
+    const card = document.querySelector(".engine-card").getBoundingClientRect();
+    const sx = ((v.x + 1) / 2) * innerWidth;
+    const sy = ((1 - v.y) / 2) * innerHeight;
+    const c = w.camera.position;
+    return { cam: [Math.round(c.x), Math.round(c.y), Math.round(c.z)], sx: Math.round(sx), sy: Math.round(sy), cardTop: Math.round(card.top), vw: innerWidth, open: !document.querySelector(".engine-card").hidden };
+  }, setup);
+  check("blocker: the camera glides to the engine in the way: on screen, above the card (still open)", Math.hypot(...there.cam.map((v, i) => v - before.cam[i])) > 20 && Math.abs(there.sx - there.vw / 2) < there.vw / 4 && there.sy > 0 && there.sy < there.cardTop && there.open, JSON.stringify({ before, there }));
+  // The flash ends by itself: then nothing more is drawn.
+  await p.waitForFunction(() => window.woodrail.flourishes.count === 0, null, { timeout: 60000 }).catch(() => {});
+  await settled();
+  await p.waitForTimeout(1000);
+  await settled();
+  const idle = await p.evaluate(async ({ parked }) => {
+    const w = window.woodrail;
+    const f0 = w.framesDrawn;
+    await new Promise((r) => setTimeout(r, 5000));
+    const ids = w.sim.findCar(parked).train.cars.map((c) => c.id);
+    return { frames: w.framesDrawn - f0, shown: ids.map((id) => w.trainView.cars.get(id)?.shown ?? -1), flourishes: w.flourishes.count };
+  }, setup);
+  check("blocker: the flash ends by itself, and then 0 frames are drawn (paused, all still)", idle.frames === 0 && idle.shown.every((v) => v === 0) && idle.flourishes === 0, JSON.stringify(idle));
+  // The fix: Put it away (the parked engine back in the box); the line's train runs on and delivers.
+  await tapButton(".engine-card .fix-blocker");
+  const after = await p.evaluate(({ red, parked }) => {
+    const w = window.woodrail;
+    w.paused = false;
+    const gone = !w.sim.findCar(parked);
+    const goods = window.__blockRun(120);
+    return { gone, goods, redOn: !!w.sim.findCar(red) };
+  }, setup);
+  check("blocker: Put it away takes the engine off; the line's train runs on and delivers logs to the sawmill", after.gone && after.redOn && after.goods >= 2, JSON.stringify(after));
+}
+
+/**
  * Issue #6: a train following another on one line keeps a visible gap while that one moves, about a wagon's length
  * (70 mm), and once it stops pulls up close behind it (the stop-short margin, 10 mm: the user's call). A straight run
  * with a buffer at each end; two trains on it running the same way, the first at half speed, the second catching it up
@@ -3095,6 +3275,9 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
   const { tapOn } = mapHelpers(p);
   await tapOn({ engine: setup.E[0] });
   await p.waitForFunction(() => /^Stuck/.test(document.querySelector(".engine-card .engine-status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
+  // (Measured once the card has popped in: `card-in` scales it from 0.96, and under SwiftShader's slow frames a box
+  // read mid-way is 0.96 of its size, 42 px for a 44 px button.)
+  await p.waitForFunction(() => document.querySelector(".engine-card")?.getAnimations().every((a) => a.playState === "finished") ?? false, null, { timeout: 30000 }).catch(() => {});
   const card = await p.evaluate(() => {
     const s = document.querySelector(".engine-card .engine-status");
     const one = s.cloneNode(false);
@@ -3478,7 +3661,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "train-card": () => trainCardAll(p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

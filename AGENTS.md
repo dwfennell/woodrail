@@ -40,3 +40,7 @@ A feature works only if a player can reach it and it pays off. (A restored old f
 - **Assert the payoff, not just the UI.** An e2e or test for a feature checks what it is for: an industry produces and its goods are carried, a goal ticks, a train delivers. Not only that a card opened or a button went away.
 - **The harness uses the game's own rules.** Same footprints, prices and reach as `main.ts`. A harness-only shortcut must be named and commented, and never stands in for the player's path of the thing under test.
 - **Shortcuts in setup are fine** (learning research to get to a state quickly), but only for what isn't the thing being tested.
+
+## Design skill
+
+`.claude/skills/impeccable` (with helper agents in `.claude/agents/impeccable-*`) is the Impeccable design skill, vendored from github.com/pbakaus/impeccable. Use `/impeccable` (e.g. `critique`, `polish`, `clarify`, `adapt`) for HUD, card, menu and tray work. It is written for websites: keep the game's wooden-toy look and the phone limits above. Its launcher downloads a checksum-verified binary from the repo's GitHub releases on first run. Its hooks are not installed.

@@ -4,7 +4,7 @@ import { Sim, SIM_DT, type CarKind } from "../sim";
 import { chain as loopChain } from "../economy/loop-fixtures";
 import { startLine } from "./lines";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
-import { engineStatus, fullLineToast, headOnTip, trainState, trainsForReport } from "./engine-status";
+import { blockerName, engineStatus, engineView, fullLineToast, headOnTip, trainState, trainsForReport, type Blocker } from "./engine-status";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] };
 function chain(types: PieceTypeId[], layout: Layout): number[];
@@ -477,5 +477,100 @@ describe("a lever tap on points set for a train (routing §16 Q1)", () => {
     const text = pointsSetFor(economy, engine);
     expect(text).toBe("Set for the train on the Red line. They'll switch to your way after it passes");
     expect(text.length).toBeLessThanOrEqual(96);
+  });
+});
+
+describe("who's in the way (the card's Show: blockerOf, blockerName)", () => {
+  it("names a blocker by its line, else by where it is and how it stands; never by an id", () => {
+    const b = (how: Blocker["how"], line = "") => ({ car: 7, points: -1, how, line });
+    expect(blockerName(b("line", "Blue line"), "Elder")).toBe("the train on the Blue line");
+    expect(blockerName(b("line"), "")).toBe("another train");
+    expect(blockerName(b("running"), "Elder")).toBe("the train by Elder");
+    expect(blockerName(b("running"), "")).toBe("a train with no route");
+    expect(blockerName(b("stopped"), "the sawmill")).toBe("the train stopped by the sawmill");
+    expect(blockerName(b("stopped"), "")).toBe("a stopped train");
+    // (Left with its lever off: parked, whatever line it's on.)
+    expect(blockerName(b("parked", "Blue line"), "Elder")).toBe("the train parked by Elder");
+    expect(blockerName(b("parked"), "")).toBe("a parked train");
+    for (const how of ["line", "running", "stopped", "parked"] as const) expect(blockerName(b(how, "Blue line"), "Elder")).not.toMatch(/\d/);
+  });
+
+  // A line's train (Red, forest to sawmill) and an engine on no line on its single track ahead.
+  const world = (looseAway = false) => {
+    const layout = new Layout();
+    const ids = loopChain(layout, ["depot-forest", ...Array<PieceTypeId>(6).fill("straight-216"), "depot-sawmill"]);
+    appendPiece(layout, "buffer-turnback", false, connectorRef(ids[0], 0));
+    appendPiece(layout, "buffer-turnback", false, connectorRef(ids[ids.length - 1], 1));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const forest = economy.addDepot("forest", ids[0]);
+    const mill = economy.addDepot("sawmill", ids[ids.length - 1]);
+    const place = (kinds: CarKind[], pieceId: number, reversed: boolean) => {
+      const r = sim.addTrain(kinds, { pieceId, pathIndex: 0, reversed, s: 100 });
+      if (r.kind !== "placed") throw new Error("no room");
+      return sim.getTrain(r.trainId)!.cars[0].id;
+    };
+    const red = place(["engine", "timber"], ids[1], false);
+    const loose = place(["engine"], ids[looseAway ? 3 : 5], !looseAway);
+    startLine(economy, red, [{ depotId: mill.id, action: "both" }, { depotId: forest.id, action: "both" }]);
+    const tick = (s: number) => {
+      for (let k = Math.round(s / SIM_DT); k > 0; k--) {
+        sim.tick();
+        economy.tick();
+      }
+    };
+    return { sim, economy, red, loose, tick };
+  };
+  const view = (w: ReturnType<typeof world>, place = "Elder") => engineView(w.sim, w.economy, w.red, () => "the stop", null, () => place);
+
+  it("a line's train behind an engine on no line left standing: the card names it (parked, by where it is) and Show has it", () => {
+    const w = world();
+    w.sim.setLever(w.red, 1);
+    const said = new Set<string>();
+    for (let k = 0; k < 40; k++) {
+      w.tick(0.5);
+      said.add(view(w).status);
+    }
+    expect([...said]).toContain("Waiting: the train parked by Elder is in the way. Move it");
+    const v = view(w);
+    expect(w.sim.findCar(w.red)!.train.speed).toBeLessThan(1);
+    expect(v.blocker).toMatchObject({ car: w.loose, how: "parked", points: -1 });
+    expect(v.status).toMatch(/the train parked by Elder is in the way\. Move it$/);
+    // (Nowhere near anything: plainly a parked train.)
+    expect(view(w, "").status).toMatch(/a parked train is in the way\. Move it$/);
+    expect(v.status).not.toMatch(/\d/);
+  });
+
+  it("an engine on no line nose to nose with it, its lever on: said standing in the way (Move it), then stuck in a ring", () => {
+    const w = world();
+    w.sim.setLever(w.red, 1);
+    w.sim.setLever(w.loose, 1);
+    const said = new Set<string>();
+    for (let k = 0; k < 60; k++) {
+      w.tick(0.5);
+      const v = view(w);
+      if (v.blocker) expect(v.blocker.car).toBe(w.loose);
+      said.add(v.status);
+    }
+    expect(said).toContain("Waiting: the train stopped by Elder is in the way. Move it");
+    // (In a ring it waits on this one too: the fix is a loop, as for two lines' trains.)
+    expect(said).toContain("Stuck: the train by Elder is in the way. Add a passing loop here");
+  });
+
+  it("an engine on no line running ahead of it (lever on, under way): named by where it is, with no route", () => {
+    // (Facing the same way as Red, ahead of it: Red follows it up the single track.)
+    const w = world(true);
+    w.sim.setLever(w.loose, 1);
+    w.sim.setLever(w.red, 1);
+    const said = new Set<string>();
+    // (10 s: it runs to the end, turns back, and runs back to Red; then it waits on Red too, and is said stopped.)
+    for (let k = 0; k < 40; k++) {
+      w.tick(0.25);
+      const v = view(w);
+      if (v.blocker) expect(v.blocker).toMatchObject({ car: w.loose, how: "running" });
+      said.add(v.status);
+    }
+    // (Even as it turns back at the end of the track: under way, not "stopped".)
+    expect([...said].filter((x) => x.startsWith("Waiting"))).toEqual(["Waiting: the train by Elder is in the way. It has no route"]);
   });
 });
