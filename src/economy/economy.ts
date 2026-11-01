@@ -9,7 +9,7 @@ import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
-import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
+import { aimOf, passVias, ranOnto, resetVias, skipVias } from "../routing/via";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -443,10 +443,21 @@ export class Economy {
     const r = this.routes.get(engine);
     if (!r || r.stops.length === 0) return -1;
     let i = r.next % r.stops.length;
-    // (At its stop: the stop after, a different depot.)
+    // (At its stop: the stop after, a different depot; past any it has run onto already, between its front and this
+    // one: it comes to them as soon as it's off this one. Aimed at one behind its front, the router would ask for
+    // nothing, or for the way back round to it, and it would run over the points ahead as they lie.)
     if (r.at) {
       const here = r.stops[i].depotId;
-      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+      const hereAt = this.depots[here]?.pieceId ?? -1;
+      const train = this.sim.findCar(engine)?.train;
+      for (let k = 0; k < r.stops.length; k++) {
+        const id = r.stops[i].depotId;
+        if (id !== here) {
+          const d = this.depots[id];
+          if (!train || !d || !this.onMap(d) || !ranOnto(train.bogies, this.drive(train), hereAt, d.pieceId)) break;
+        }
+        i = (i + 1) % r.stops.length;
+      }
     }
     return this.aim(r, i, skip);
   }

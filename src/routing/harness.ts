@@ -18,7 +18,7 @@ import { connectorRef, type Layout, type SignalStyle } from "../track";
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
-import { aimOf, passVias, resetVias, skipVias, type ViaProgress } from "./via";
+import { aimOf, passVias, ranOnto, resetVias, skipVias, type ViaProgress } from "./via";
 import { INVARIANTS, Invariants, type Invariant, type InvariantWorld } from "../sim/invariants";
 
 export { INVARIANTS, type Invariant };
@@ -362,7 +362,13 @@ export class HarnessRun implements InvariantWorld {
     let i = r.next % r.stops.length;
     if (r.at) {
       const here = r.stops[i];
-      for (let k = 0; k < r.stops.length && r.stops[i] === here; k++) i = (i + 1) % r.stops.length;
+      const train = this.sim.findCar(engine)?.train;
+      // (And past any it has run onto already, between its front and this one, as the economy's.)
+      for (let k = 0; k < r.stops.length; k++) {
+        const p = r.stops[i];
+        if (p !== here && (!train || !this.layout.getPiece(p) || !ranOnto(train.bogies, drive(train), here, p))) break;
+        i = (i + 1) % r.stops.length;
+      }
     }
     return this.aim(r, i, skip);
   }

@@ -959,3 +959,30 @@ export function handFollower(): { scenario: Scenario; j: () => ReturnType<typeof
     },
   };
 }
+
+/**
+ * Two stops end to end with points just past the second (the goals play-through's line from minute 223, once the plot
+ * Show me frames was bought): `⊐ Y ══ ══ A B ⊐ points`, the straight road ══ ══ C ══ ══ ⊏, the curved one a short spur
+ * ⊏. The route Y → A → B → C. A train runs through its stops (the harness has no dwell, as the game's goods train runs
+ * through a stop with nothing to do), so it's still at A, its tail on it, while its front is past B and onto the points:
+ * heading for B then, it asked for nothing (its front on its goal), and took the points as they lay, toward the spur
+ * (`spur`) or toward C (the plan from there back to B is by the spur: a wrong road). It's already at B as its tail
+ * leaves A, so its heading is C: it asks for the points for C. The spur is watched: no train should go onto it.
+ */
+export function ranThroughStop(spur: boolean): Scenario {
+  return {
+    name: `two stops end to end, points just past them laid for the ${spur ? "spur" : "way on"}`,
+    seconds: 120,
+    build: (layout) => {
+      const [y, s1, , a, b] = chain(layout, [STOP, S, S, STOP, STOP]);
+      appendPiece(layout, BUFFER, false, connectorRef(y, 0));
+      const sw = appendPiece(layout, "switch", false, connectorRef(b, 1), 0);
+      const on = chain(layout, [S, S, STOP, S, S], connectorRef(sw, 1));
+      appendPiece(layout, BUFFER, false, connectorRef(on[on.length - 1], 1));
+      const off = chain(layout, [C, S], connectorRef(sw, 2), [true]);
+      appendPiece(layout, BUFFER, false, connectorRef(off[off.length - 1], 1));
+      layout.setSwitchState(sw, spur ? 1 : 0);
+      return { trains: [{ pieceId: s1, stops: [y, a, b, on[2]], cars: CARS, s: 40 }], watch: off };
+    },
+  };
+}

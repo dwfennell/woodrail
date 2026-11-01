@@ -53,7 +53,15 @@ function shuttle(): { world: World; sw: number } {
 }
 
 /** The maps here: the file, how long it runs, and the least stops each routed train must come to (its payoff). */
-const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] = [{ file: "hand-made-shuttle.txt", seconds: 600, arrivals: 6, what: "hand-made: a timber train between the forest and a sawmill, past a siding" }];
+const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] = [
+  { file: "hand-made-shuttle.txt", seconds: 600, arrivals: 6, what: "hand-made: a timber train between the forest and a sawmill, past a siding" },
+  // (The long goals play-through's map at 13305 s (minute 221.75), 109 s before its first wrongRoad, the plot Show me
+  // frames bought (claude/speed-words-land-goal). Its goods train runs through stops with nothing to do; at 87.7 s it's
+  // still at a stop (piece 1315), its tail on it, its front past the next stop (piece 2) and onto points 573980.
+  // Heading for piece 2, under it, it asked for nothing and took the points as they lay: a wrong road, every lap. Now it
+  // heads for the stop after (Economy.goalOf, `ranOnto`). Captured by a snapshot every 15 s in the play-through.)
+  { file: "goals-long-ran-through-stop.txt", seconds: 300, arrivals: 12, what: "the long goals play-through's line: a long train at a stop, its front past the next one, onto points" },
+];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {
   for (const m of MAPS)

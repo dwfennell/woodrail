@@ -79,3 +79,20 @@ export function skipVias(r: ViaProgress, n: number, viasOf: ViasOf, pieces: Read
   r.viaDone = done;
   return true;
 }
+
+/**
+ * Has a train standing at (or leaving) its stop on piece `here` already run onto piece `pieceId`: is it under the train
+ * between its front (the way it's driven, `net`) and its stop? A stop there is the next it comes to, as soon as its tail
+ * is off `here` (a long train runs through a stop with nothing to do, and its front can be past the stop after while its
+ * tail is still at this one). Cheap: a walk over its axles, only for a train at a stop.
+ */
+export function ranOnto(bogies: readonly { pieceId: number }[], net: number, here: number, pieceId: number): boolean {
+  if (net === 0) return false;
+  const n = bogies.length;
+  for (let k = 0; k < n; k++) {
+    const p = bogies[net > 0 ? k : n - 1 - k].pieceId;
+    if (p === here) return false;
+    if (p === pieceId) return true;
+  }
+  return false;
+}
