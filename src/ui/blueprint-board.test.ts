@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Progress } from "../game/progress";
 import { deliver, pick } from "../game/research";
 import { researchCard } from "../game/research-text";
-import { layoutWeb, researchFoot, TAG_W, tagTitle, type Station } from "./blueprint-board";
+import { HINT_W, layoutWeb, researchFoot, routeLinks, TAG_W, tagTitle, type Station } from "./blueprint-board";
 
 const st = (id: string, branch: string, needs: string[] = []): Station => ({ id, label: id, blurb: "", branch, makes: [], state: "locked", seen: "shown", needs, price: "free", cost: "nothing", unlocks: "", requires: [] });
 
@@ -27,6 +27,62 @@ describe("the blueprint web", () => {
     const spots = stations.map((s) => `${at(s.id).x},${at(s.id).y}`);
     expect(new Set(spots).size).toBe(stations.length);
     expect(web.width).toBeGreaterThanOrEqual(Math.max(...stations.map((s) => at(s.id).x)) + TAG_W);
+  });
+});
+
+describe("the web's arrows", () => {
+  const tops = (d: string) => [...d.matchAll(/[MHVQ]/g)].map((m) => m[0]).join("");
+  it("are laid like track: straight out, one turn in the gap between columns, straight in, never diagonal", () => {
+    const stations = [st("a", "track"), st("b", "track", ["a"]), st("c", "track", ["a"]), st("d", "track", ["a"])];
+    const web = layoutWeb(stations, ["track"]);
+    const paths = routeLinks(web, ["b", "c", "d"].map((to) => ({ from: "a", to, fromW: TAG_W })));
+    for (const [i, d] of paths.entries()) {
+      const to = web.at.get(["b", "c", "d"][i])!;
+      // Starts at a's right edge, ends at its card's left edge, both at the middle.
+      expect(d.startsWith(`M${web.at.get("a")!.x + TAG_W} ${web.at.get("a")!.y + 22}`)).toBe(true);
+      expect(d.endsWith(`H${to.x - 2}`)).toBe(true);
+      expect(/^M(H|HQVQH)$/.test(tops(d))).toBe(true);
+    }
+    // All three leave the same card: one lane (they branch like points, not three lines side by side).
+    const lanes = new Set(paths.filter((d) => d.includes("V")).map((d) => d.match(/Q([\d.]+) /)![1]));
+    expect(lanes.size).toBe(1);
+  });
+  it("from different cards into one gap take lanes of their own, and a \"?\" leaves from its own small edge", () => {
+    const stations = [st("a", "track"), st("b", "track"), st("c", "track", ["a", "b"]), st("e", "track", ["b"])];
+    const web = layoutWeb(stations, ["track"]);
+    const paths = routeLinks(web, [{ from: "a", to: "e", fromW: TAG_W }, { from: "b", to: "c", fromW: HINT_W }]);
+    const lane = (d: string) => d.match(/Q([\d.]+) /)?.[1];
+    const turned = paths.filter((d) => d.includes("V"));
+    expect(new Set(turned.map(lane)).size).toBe(turned.length);
+    expect(paths[1].startsWith(`M${web.at.get("b")!.x + HINT_W} `)).toBe(true);
+  });
+  it("one across several columns never runs through a card", () => {
+    // z needs a (column 1) and y (column 3: after x, after w), so it lands in column 4, on a's row, with x and y on
+    // that row too: its straight goes down the gutter under the row instead of through them.
+    const stations = [st("a", "track"), st("w", "track"), st("x", "track", ["w"]), st("y", "track", ["x"]), st("z", "track", ["a", "y"])];
+    const web = layoutWeb(stations, ["track"]);
+    const [d] = routeLinks(web, [{ from: "a", to: "z", fromW: TAG_W }]);
+    // Walk the path: each straight along (H) checked against every card but its two ends.
+    const nums = d.match(/[MHVQ]|-?[\d.]+/g)!;
+    let x = 0, y = 0, runs = 0;
+    for (let i = 0; i < nums.length; ) {
+      const c = nums[i++];
+      const n = () => Number(nums[i++]);
+      if (c === "M") (x = n(), y = n());
+      else if (c === "V") y = n();
+      else if (c === "Q") (n(), n(), (x = n()), (y = n()));
+      else if (c === "H") {
+        const to = n();
+        runs++;
+        for (const [id, p] of web.at) {
+          if (id === "a" || id === "z") continue;
+          const across = Math.max(x, to) > p.x && Math.min(x, to) < p.x + TAG_W;
+          expect(across && y > p.y - 2 && y < p.y + 48, `${d} crosses ${id}`).toBe(false);
+        }
+        x = to;
+      }
+    }
+    expect(runs).toBeGreaterThan(1);
   });
 });
 

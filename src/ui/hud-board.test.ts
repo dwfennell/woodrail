@@ -5,7 +5,7 @@ import { Progress } from "../game/progress";
 import { cardView, takeCard } from "../game/rewards";
 import { buildStarterWorld, syncIndustries } from "../game/world";
 import { GrowthSheet, growthSheetHtml, sheetTitle } from "./growth-sheet";
-import { deliver, pick } from "../game/research";
+import { costOf, deliver, pick } from "../game/research";
 import { pillView } from "../game/research-text";
 import { Hud } from "./hud";
 
@@ -200,7 +200,7 @@ function pillHud() {
   };
   const hud = Object.create(Hud.prototype) as Hud;
   Object.assign(hud, { researchPill: pill, pillShown: "" });
-  return { hud, pill, writes, idle: () => classes.has("idle") };
+  return { hud, pill, writes, classes, idle: () => classes.has("idle") };
 }
 
 describe("the research pill", () => {
@@ -215,11 +215,59 @@ describe("the research pill", () => {
     deliver(p, "planks", 6);
     hud.setResearchPill(pillView(p, true));
     expect(writes).toContain("name=Bridges");
-    expect(writes).toContain("count=6/10🪵");
+    expect(writes).toContain("count=🪵6/10");
     expect(writes).toContain("--fill=60%");
     expect(idle()).toBe(false);
     hud.setResearchPill(null);
     expect(pill.hidden).toBe(true);
+  });
+
+  it("a count too wide for its room drops the goods all in, then shows the most lacking and +N (3 goods)", () => {
+    const { hud, pill, classes } = pillHud();
+    // (A pretend layout: the count's room is `room` characters wide; each character one unit.)
+    let room = 99;
+    let count = "";
+    const name = { clientWidth: 50, scrollWidth: 50, clientHeight: 20, scrollHeight: 20, textContent: "" };
+    const c = {
+      get clientWidth() { return room; },
+      get scrollWidth() { return [...count].length; },
+      get textContent() { return count; },
+      set textContent(t: string) { count = t; },
+      classList: { toggle: () => {} },
+    };
+    pill.querySelector = ((sel: string) => (sel === ".rp-name" ? name : c)) as typeof pill.querySelector;
+    // (No blueprint needs three goods yet: Mills is given iron as well, for this test only.)
+      const goods = costOf("mills").goods as Record<string, number>;
+    goods.iron = 10;
+    try {
+      const p = Progress.fresh();
+      p.learned.add("farming");
+      p.coins = 40;
+      pick(p, "mills");
+      deliver(p, "planks", 6);
+      deliver(p, "grain", 1);
+      hud.setResearchPill(pillView(p, true));
+      expect(count).toBe("🪵✓ 🌾1/6 🔩0/10");
+      expect(pill.title).toBe("Mills: 6 of 6 🪵 planks, 1 of 6 🌾 grain, 0 of 10 🔩 iron. Tap for Research");
+      room = 11;
+      (hud as unknown as { fitPill(): void }).fitPill();
+      expect(count).toBe("🌾1/6 🔩0/10");
+      room = 8;
+      (hud as unknown as { fitPill(): void }).fitPill();
+      expect(count).toBe("🔩0/10 +1");
+      expect(classes.has("rp-goods")).toBe(false);
+      // Not even that beside the name: the name gives way, the count has both lines (wrapping there).
+      room = 5;
+      (hud as unknown as { fitPill(): void }).fitPill();
+      expect(classes.has("rp-goods")).toBe(true);
+      expect(count).toBe("🔩0/10 +1");
+      room = 99;
+      (hud as unknown as { fitPill(): void }).fitPill();
+      expect(count).toBe("🪵✓ 🌾1/6 🔩0/10");
+      expect(classes.has("rp-goods")).toBe(false);
+    } finally {
+      delete goods.iron;
+    }
   });
 
   it("isn't redrawn when what it shows hasn't changed", () => {
