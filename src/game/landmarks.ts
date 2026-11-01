@@ -1,3 +1,4 @@
+import { growthOf } from "./town-life";
 import type { DepotState } from "../economy/economy";
 import type { Landscape, Town } from "../landscape";
 import { CITY_SCHOOL_ID } from "./blueprints";
@@ -64,7 +65,7 @@ export function placedSchools(world: World): DepotState[] {
 /** The level of a school's town (0: not yet a village, or no town). */
 export function schoolTownLevel(world: World, d: DepotState): number {
   if (d.townId < 0 || !world.landscape.towns.some((t) => t.id === d.townId)) return 0;
-  return townStatus({ ...world.economy.deliveredGoods.get(d.townId), planks: world.economy.delivered.get(d.townId) ?? 0 }).level;
+  return townStatus(growthOf(world, d.townId)).level;
 }
 
 /**

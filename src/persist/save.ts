@@ -147,6 +147,8 @@ const saveSchema = z.object({
   delivered: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])),
   /** Everything delivered to each town, by kind (Game mode's town baskets). Older saves: planks only, in `delivered`. */
   deliveredGoods: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
+  /** What each town received while joined by road to another (roads spec D2), by kind. Absent: none. */
+  roadGot: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
   /** Lines: a colour, a name, and stops (depot indices in `depots`, what's done there, wait there to fill). */
   lines: z
     .array(
@@ -284,6 +286,7 @@ export function serializeWorld(world: World): SaveData {
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
+    ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
     ...(lines.length > 0 ? { lines } : {}),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
@@ -471,6 +474,12 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     const goods: Bag = {};
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.deliveredGoods.set(townId, goods);
+  }
+  for (const [townId, bag] of save.roadGot ?? []) {
+    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    const goods: Bag = {};
+    for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
+    economy.roadGot.set(townId, goods);
   }
   // Ids as saved (v14): the counters go on from the save's (and past every saved car's id); a train whose cars all
   // have ids, none taken, gets them back. Older saves: fresh ids, as before.

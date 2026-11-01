@@ -1,3 +1,4 @@
+import { growthOf } from "./town-life";
 import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { capOf, RECIPES } from "../economy/economy";
 import { kindsOf, total, type Bag } from "../economy/goods";
@@ -270,7 +271,7 @@ export function redrawOldOffers(p: Progress, world: World, random: () => number)
   if (p.oldOffers.length === 0) return false;
   for (const from of p.oldOffers.splice(0)) {
     const town = world.landscape.towns.find((t) => t.name === from);
-    const level = town ? townStatus({ ...world.economy.deliveredGoods.get(town.id), planks: world.economy.delivered.get(town.id) ?? 0 }).level : 0;
+    const level = town ? townStatus(growthOf(world, town.id)).level : 0;
     offerOnGrowth(p, world, from, Math.max(1, level), random);
   }
   return true;
