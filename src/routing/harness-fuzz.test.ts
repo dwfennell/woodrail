@@ -63,3 +63,34 @@ describe(`routing fuzz: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × 
     expect(run().filter((r) => !delivers(r) && r.stalls.begun === 0).map((r) => r.name)).toEqual([]);
   });
 });
+
+/**
+ * The same seeds with 0 to 6 signal marks on random joints (signals spec §10.1): every invariant holds (`redRun` and
+ * `blockOne` too), and a stall the seed doesn't have without them is a ring of signals (kind "signals").
+ */
+describe(`routing fuzz with signals: ${SEEDS} seeds × ${SECONDS} s`, () => {
+  let reports: { plain: Report; marked: Report }[] | undefined;
+  const run = () =>
+    (reports ??= Array.from({ length: SEEDS }, (_, k) => {
+      const marked = new HarnessRun(new Layout(), fuzz(k + 1, SECONDS, true)).run(SECONDS);
+      const plain = new HarnessRun(new Layout(), fuzz(k + 1, SECONDS)).run(SECONDS);
+      if (LONG) {
+        const broke = INVARIANTS.filter((i) => marked.broke[i].count > 0);
+        if (broke.length > 0) console.log(`seed ${k + 1} with signals: ${broke.map((i) => `${i} ×${marked.broke[i].count} (${marked.broke[i].first[0]})`).join("; ")}`);
+      }
+      return { plain, marked };
+    }));
+  const timeout = LONG ? 24 * 3600_000 : 120_000;
+  for (const inv of INVARIANTS)
+    it(inv, () => {
+      expect(
+        run()
+          .filter((r) => r.marked.broke[inv].count > 0)
+          .map((r) => `${r.marked.name}: ${r.marked.broke[inv].first[0]}`),
+      ).toEqual([]);
+    }, timeout);
+  it("a stall only with a signal ring (or where the seed stalls without signals)", () => {
+    const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals"));
+    expect(odd.map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
+  }, timeout);
+});
