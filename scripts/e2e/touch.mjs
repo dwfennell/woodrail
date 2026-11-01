@@ -1287,6 +1287,94 @@ for (const mode of ONLY ? ["sandbox"] : ["sandbox", "game"]) {
 }
 
 /**
+ * The engine card shows all its controls when a train is tapped (the user: "I would rather see all these controls by
+ * default"): Swap ends, Decouple and Remove, no ⋯ before them, a finger's size, on the card and on the screen, with no
+ * sideways scroll, on a 360×640 phone upright and on its side, the train tapped not left under the card. Then each
+ * does its job, tapped as a player would: the engine runs round to the other end, comes off its wagon, and is put away.
+ * (Setup only, not what's tested: the track and the train are put down in code.)
+ */
+async function trainCardAll(p) {
+  const { tapOn, tapButton, onScreen, still } = mapHelpers(p);
+  const size = p.viewportSize();
+  try {
+    const engine = await p.evaluate(async () => {
+      const w = window.woodrail;
+      const { poseForCentre } = await import("/src/editor/editor.ts");
+      const { nearestCursor } = await import("/src/sim/nearest.ts");
+      const g = w.controls.target.clone();
+      // Three straights end to end: room for the engine to run round its wagon.
+      for (const dx of [-216, 0, 216]) w.editor().place("straight-216", poseForCentre("straight-216", false, g.x + dx, g.z, 0), 0, false);
+      const near = nearestCursor(w.layout, g.x, g.z, 60, 0);
+      const r = near && w.sim.addTrainAround(["engine", "hopper"], near.cursor);
+      w.invalidate();
+      if (r?.kind !== "placed") return null;
+      const t = w.sim.getTrain(w.sim.trainIds().at(-1));
+      return t.cars[0].kind === "engine" ? t.cars[0].id : null;
+    });
+    check("train-card: an engine and a wagon go on the track", engine !== null);
+    if (engine === null) return;
+    const look = (W, H) => p.evaluate(([W, H]) => {
+      const c = document.querySelector(".engine-card");
+      const cr = c.getBoundingClientRect();
+      const tray = document.querySelector(".tray").getBoundingClientRect();
+      const btn = (sel) => {
+        const b = c.querySelector(sel);
+        if (!b || b.offsetParent === null) return null;
+        const r = b.getBoundingClientRect();
+        // In the card's visible part (not scrolled out of it) and on the screen.
+        const shown = r.top >= cr.top && r.bottom <= cr.bottom + 1 && r.left >= cr.left && r.right <= cr.right && r.left >= 0 && r.right <= W && r.top >= 0 && r.bottom <= H;
+        return { w: Math.round(r.width), h: Math.round(r.height), shown };
+      };
+      return {
+        open: !c.hidden,
+        more: !!c.querySelector(".corner.more"),
+        go: btn(".go"), swap: btn(".swap-ends"), decouple: btn(".decouple"), remove: btn(".remove"),
+        card: [cr.left, cr.top, cr.right, cr.bottom].map(Math.round),
+        sideways: document.documentElement.scrollWidth > innerWidth || c.scrollWidth > c.clientWidth,
+        scrolls: c.scrollHeight > c.clientHeight + 1,
+        overTray: cr.bottom > tray.top + 1,
+      };
+    }, [W, H]);
+    for (const [W, H] of [[360, 640], [640, 360]]) {
+      await p.keyboard.press("Escape");
+      await p.setViewportSize({ width: W, height: H });
+      await frames(p);
+      await tapOn({ engine });
+      await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
+      // (Once the card's settled and the view's moved the train clear of it.)
+      await p.waitForTimeout(600);
+      await still();
+      const v = await look(W, H);
+      const [ex, ey] = await onScreen({ engine });
+      const covered = ex > v.card[0] && ex < v.card[2] && ey > v.card[1] && ey < v.card[3];
+      const big = (b) => !!b && b.shown && b.w >= 44 && b.h >= 44;
+      check(`train-card ${W}×${H}: a tap on the train shows Swap ends, Decouple and Remove at once (no ⋯), a finger's size, on screen`, v.open && !v.more && big(v.go) && big(v.swap) && big(v.decouple) && big(v.remove), JSON.stringify(v));
+      check(`train-card ${W}×${H}: no sideways scroll, no scroll in the card, the train not under it`, !v.sideways && !v.scrolls && !covered, JSON.stringify({ ...v, engine: [Math.round(ex), Math.round(ey)] }));
+      // Upright, the card stays above the tray, as every card does.
+      if (H > W) check(`train-card ${W}×${H}: the card sits above the tray`, !v.overTray, JSON.stringify(v.card));
+    }
+    // What each is for, tapped as a player would (on its side, the card's room smallest).
+    const at = () => p.evaluate((e) => { const f = window.woodrail.sim.findCar(e); return f ? { index: f.index, cars: f.train.cars.length, trains: window.woodrail.sim.trainIds().length } : null; }, engine);
+    const a0 = await at();
+    await tapButton(".engine-card .swap-ends");
+    await p.waitForFunction((e) => window.woodrail.sim.findCar(e)?.index > 0, engine, { timeout: 10000 }).catch(() => {});
+    const a1 = await at();
+    check("train-card: Swap ends runs the engine round to the other end of its train", a0?.index === 0 && a1?.index === a0.cars - 1, JSON.stringify([a0, a1]));
+    await tapButton(".engine-card .decouple");
+    await p.waitForFunction((n) => window.woodrail.sim.trainIds().length > n, a1?.trains ?? 0, { timeout: 10000 }).catch(() => {});
+    const a2 = await at();
+    check("train-card: Decouple takes the engine off its wagon", a2?.cars === 1 && a2.trains === (a1?.trains ?? 0) + 1, JSON.stringify([a1, a2]));
+    if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine });
+    await tapButton(".engine-card .remove");
+    await p.waitForFunction((e) => !window.woodrail.sim.findCar(e), engine, { timeout: 10000 }).catch(() => {});
+    check("train-card: Remove puts the engine away", !(await at()));
+  } finally {
+    await p.setViewportSize(size);
+    await frames(p);
+  }
+}
+
+/**
  * Taps on things on the map, as a player makes them: where an engine or a place is on screen, the view panned to it
  * first (the steps before may have left it off screen), and a tap on a card's button once it's there and still.
  */
@@ -3390,7 +3478,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "train-card": () => trainCardAll(p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;
