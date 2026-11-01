@@ -32,13 +32,25 @@ const SECOND_SCHEME: Readonly<Record<string, string>> = { [ENGINE_BODY]: "#b8432
 const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { body: "#2f6db5" } };
 
 /** Car facing +x, centred on its two axles, y = 0 at the track base. The models must be loaded (loadBlenderModels). */
-export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic"): CarModel {
+export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic", loaded = false): CarModel {
   if (kind === "cleaner") return cleanerModel(mats);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
   const recolor = variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
   const model = blenderCar(kind, look, mats, lamp, recolor, CAR_SLOTS[kind]);
   model.root.traverse((o) => (o.userData.carKind = kind));
+  if (kind === "hopper" && !loaded) hideModelledLoad(model.root);
   return model;
+}
+
+/**
+ * A hopper is modelled heaped with coal (its `coal…` nodes). On the track it starts empty, its open bin showing: the
+ * load it carries is drawn by DepotView as a heap of its goods (`hopperLook`), so the coal is hidden once, here, and
+ * nothing toggles it per frame. Only a picture of the car (a tray icon: `loaded`) keeps it.
+ */
+function hideModelledLoad(root: Object3D): void {
+  root.traverse((o) => {
+    if (o !== root && o.name.startsWith("coal")) o.visible = false;
+  });
 }
 
 /**
