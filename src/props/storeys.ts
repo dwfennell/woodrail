@@ -36,22 +36,74 @@ export const storeyHeight = (asset: string): number => STACKS[asset]?.storey ?? 
 export const RING = 1.5 * CELL;
 /** The first ring's inner edge (mm from the centre): a town's middle squares are mostly its streets and greens. */
 export const INNER = 2.5 * CELL;
+/** By level (village, town, city, city ★ and on), the share of a town's buildings out from the centre (see `tallChance`). */
+const BANDS: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [0.05, 0.45],
+  [0.15, 0.6],
+  [0.25, 0.75],
+  [0.4, 0.8],
+];
 
 /**
- * How many storeys a town building gains: `level` of its town (0 a hamlet, 1 a village, 2 a town, 3 a city, 4 city ★
- * ...), less one for each ring (`RING`) it stands out past the first (`INNER` from the centre), as many as its model can take (none for one
- * without blocks). `jitter` (0–1, the building's own) shifts its ring a little, so the steps aren't perfect circles.
- * Never fewer at a higher level: a town only grows.
+ * Where in its town a house rises at `level`, as shares of the town's buildings counted out from the centre (0 the
+ * nearest, 1 the farthest): every house that can rises inside the first, none past the second, fewer and fewer between.
+ * About a quarter of a village's houses, three in eight of a town's, half a city's and three in five of a city ★'s; the
+ * outer fifth always stays single-storey.
  */
-export function storeysFor(asset: string, level: number, distance: number, jitter = 0): number {
+export function tallBand(level: number): readonly [number, number] {
+  return BANDS[Math.max(0, Math.min(BANDS.length - 1, Math.floor(level)))];
+}
+
+/** The chance (0–1) that a house at `share` of its town out from the centre (see `tallBand`) rises at `level`: soft, not a ring. */
+export function tallChance(level: number, share: number): number {
+  if (level <= 0) return 0;
+  const [a, b] = tallBand(level);
+  if (share <= a) return 1;
+  if (share >= b) return 0;
+  const x = (share - a) / (b - a);
+  return 1 - x * x * (3 - 2 * x);
+}
+
+/** Where a house stands in its town, and its own numbers (see `storeysFor`). */
+export interface StoreyPlace {
+  /** From the town's centre (mm). */
+  distance: number;
+  /** The share of its town's other buildings nearer the centre than it (0–1; none: 0, the middle). */
+  share?: number;
+  /** The house's own jitter (0–1, `jitterOf`): shifts its ring a little, so the steps aren't perfect circles. */
+  jitter?: number;
+  /** The house's own draw (0–1, `chanceOf`): it rises only where its town's chance there (`tallChance`) is above it. */
+  chance?: number;
+}
+
+/**
+ * How many storeys a town building gains at `level` (0 a hamlet, 1 a village, 2 a town, 3 a city, 4 city ★ ...: the
+ * levels its town has grown since the building went up). Only some rise: those near the centre, by a soft chance that
+ * falls off toward the town's edge (`tallChance`, against the house's own `chance`), so the edge stays single-storey.
+ * One that rises gains `level` less one for each ring (`RING`) it stands out past the first (`INNER`), at least one, as
+ * many as its model can take (none for one without blocks). Never fewer at a higher level: a town only grows.
+ */
+export function storeysFor(asset: string, level: number, at: StoreyPlace): number {
   const s = STACKS[asset];
   if (!s || level <= 0) return 0;
+  const { distance, share = 0, jitter = 0, chance = 0 } = at;
+  if (chance >= tallChance(level, share)) return 0;
   const ring = Math.floor(Math.max(0, distance - INNER) / RING + jitter * 0.5);
-  return Math.max(0, Math.min(s.most, level - ring));
+  return Math.max(1, Math.min(s.most, level - ring));
 }
 
 /** A building's own jitter (0–1) from its id, the same every time. */
 export const jitterOf = (building: number): number => (((Math.imul(building + 1, 2654435761) >>> 0) % 1000) / 1000);
+
+/** A building's own draw (0–1) from its id, the same every time, apart from its jitter (whether it rises at all). */
+export function chanceOf(building: number): number {
+  let h = Math.imul(building ^ 0x5bd1e995, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
 
 /** The storey blocks that make a house of `n` storeys more: ground, n − 1 floors, then the house on top; at heights. */
 export function stackOf(asset: string, n: number): { piece: string; y: number }[] {

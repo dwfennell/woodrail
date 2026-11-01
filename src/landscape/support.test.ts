@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BRIDGE_LENGTH, connectorRef, findOverlap, getPieceDef, Layout, LIFT_LENGTH, LIFT_RISE, RAMP_LENGTH, RISER_HEIGHT, transformPose } from "../track";
+import { ARCH_CENTRES, BRIDGE_LENGTH, connectorRef, findOverlap, getPieceDef, Layout, LIFT_LENGTH, LIFT_RISE, RAMP_LENGTH, RISER_HEIGHT, transformPose } from "../track";
 import { appendPiece } from "../track/snap";
 import { gridWithPlots } from "./grid";
 import type { Landscape } from "./generate";
@@ -223,6 +223,23 @@ describe("archFloors", () => {
     expect(archFloors(land, "bridge", false, P(0, Z), y, levels)).toEqual([2, 1]);
     // Turned round, the other arch is the one over the hill.
     expect(archFloors(land, "bridge", false, P(BRIDGE_LENGTH, Z, Math.PI), y, levels)).toEqual([1, 2]);
+  });
+
+  it("an arch over a one-square gap in a hill ridge opens down into the gap (the user's bridge over a gap)", () => {
+    // A one-level ridge along x, a square left low at x = 72..144.
+    const land = flat();
+    hill(land, -288, 72, 0, 72);
+    hill(land, 144, 504, 0, 72);
+    const y = 2 * RISER_HEIGHT;
+    // The second arch over the gap's middle: it reaches the felt; the first, over the hilltop, springs from it.
+    const second = 108 - ARCH_CENTRES[1] * BRIDGE_LENGTH;
+    expect(bridgeLevels(land, "bridge", false, P(second, Z), y)).toBe(2);
+    expect(archFloors(land, "bridge", false, P(second, Z), y, 2)).toEqual([1, 2]);
+    // Off the middle by a quarter square either way, still into the gap.
+    expect(archFloors(land, "bridge", false, P(second - 18, Z), y, 2)?.[1]).toBe(2);
+    expect(archFloors(land, "bridge", false, P(second + 18, Z), y, 2)?.[1]).toBe(2);
+    // The gap under the pier between the arches: each opening has only a sliver of it, so both spring from the hilltop.
+    expect(archFloors(land, "bridge", false, P(108 - BRIDGE_LENGTH / 2, Z), y, 2)).toEqual([1, 1]);
   });
 
   it("on level ground, or wholly over the hill, every arch reaches all the way down (null)", () => {

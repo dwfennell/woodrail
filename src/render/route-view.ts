@@ -42,6 +42,8 @@ export interface DiscSpec {
   state: "next" | "stop" | "unreachable";
   /** The stop it stands for (in its tag, for picking); else its place in the list given. */
   stop?: number;
+  /** A via point (passed, not stopped at): a small token with a white dot, tapped as its piece. */
+  via?: boolean;
 }
 
 /** The ribbon: its width (mm), how far over the track's top it lies, and how finely it follows curves. */
@@ -72,6 +74,8 @@ const RIBBON_OPACITY = 0.85;
 const DISC = 0.022;
 const DISC_NEXT = 0.028;
 const DISC_HEIGHT = 70;
+/** A via point's disc and post, against a stop's. */
+const VIA_SCALE = 0.62;
 const POST_RADIUS = 1.2;
 /** The next stop's disc pulses for this long (s) when it becomes the next, then rests; a new disc pops this long. */
 const PULSE_S = 4;
@@ -102,6 +106,9 @@ export class RouteView {
   /** The camera's view the discs were last fanned out for (its matrix, the view's height, its fov). */
   private fannedFor: number[] = [];
 
+  /** The ribbons drawn last (for the e2e: what the map shows). */
+  shown: readonly RibbonSpec[] = [];
+
   constructor(
     private readonly layout: Layout,
     private readonly mats: Materials,
@@ -112,6 +119,7 @@ export class RouteView {
   /** Draw these ribbons and discs (replacing what was drawn). Builds geometry once per call; nothing per frame. */
   show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = []): void {
     this.clear();
+    this.shown = ribbons;
     // One mesh per colour and kind: a handful of draw calls however long the route.
     const strips = new Map<string, { colour: string; dotted: boolean; pos: number[]; uv: number[] }>();
     const stripOf = (colour: string, dotted: boolean) => {
@@ -381,7 +389,7 @@ export class RouteView {
   }
 
   private discMaterial(d: DiscSpec): SpriteMaterial {
-    const key = `${d.label}|${d.colour}|${d.state}`;
+    const key = `${d.label}|${d.colour}|${d.state}|${d.via ? "v" : ""}`;
     let m = this.discMats.get(key);
     if (!m) {
       // Over everything, as the station roofs would hide it: a marker, like the plot badges.
@@ -402,11 +410,12 @@ export class RouteView {
     const x = piece.pose.x + sample.x * ch - sample.z * sh;
     const z = piece.pose.z + sample.x * sh + sample.z * ch;
     const top = piece.y + sample.y + TRACK_THICKNESS;
-    const size = d.state === "next" ? DISC_NEXT : DISC;
-    const tag = { kind: "route-stop", pieceId: d.pieceId, index: d.stop ?? index };
+    const size = (d.state === "next" ? DISC_NEXT : DISC) * (d.via ? VIA_SCALE : 1);
+    const tag = { kind: d.via ? "route-via" : "route-stop", pieceId: d.pieceId, index: d.stop ?? index };
 
     const token = new Sprite(this.discMaterial(d));
-    token.position.set(x, top + DISC_HEIGHT, z);
+    const height = d.via ? DISC_HEIGHT * VIA_SCALE : DISC_HEIGHT;
+    token.position.set(x, top + height, z);
     token.scale.set(size, size, 1);
     token.renderOrder = 4;
     token.name = "route-stop";
@@ -417,7 +426,7 @@ export class RouteView {
     // A thin wooden post from the track up to the disc, so it reads as standing over the stop.
     const post = new Mesh(this.postGeom, this.mats.naturalWood as Material);
     post.position.set(x, top, z);
-    post.scale.set(1, DISC_HEIGHT, 1);
+    post.scale.set(1, height, 1);
     post.userData = { ...tag };
     this.group.add(post);
   }
@@ -474,6 +483,13 @@ function discTexture(d: DiscSpec): CanvasTexture | null {
     g.beginPath();
     g.arc(cx, cy, r - 3.5, 0, Math.PI * 2);
     g.stroke();
+  }
+  if (d.via) {
+    // A via point: a white dot in the middle, no number (it's passed, not a stop).
+    g.fillStyle = "#ffffff";
+    g.beginPath();
+    g.arc(cx, cy, r * 0.38, 0, Math.PI * 2);
+    g.fill();
   }
   const fit = discLabel(d.label, r, (text, size) => {
     g.font = `bold ${Math.round(size)}px system-ui, sans-serif`;

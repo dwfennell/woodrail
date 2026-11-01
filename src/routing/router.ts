@@ -14,10 +14,10 @@
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
 import { connectorRef, getPieceDef, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, trainKey, type Cursor, type Sim, type Train } from "../sim";
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
-import { planWay } from "./plan";
+import { planWay, WayMemory } from "./plan";
 
 /** How often (sim ticks) routed trains ask for the points ahead. */
 const STEER_TICKS = 8;
@@ -50,8 +50,8 @@ export type RouteWait = { kind: "points"; pieceId: number; by: number } | { kind
 /** A train's wait (see `RouteWait`), and where it stands for it. */
 interface Waiting {
   wait: RouteWait;
-  /** The train (its id when it last looked) and which way it was driven. */
-  trainId: number;
+  /** The train (its key, `trainKey`: it lasts through a turn, a couple or a split) and which way it was driven. */
+  key: number;
   sign: number;
   /** Since when (sim tick of the look that refused it). */
   since: number;
@@ -84,8 +84,12 @@ export interface RouterHost {
   readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "ticks" | "trainCount" | "hasSignals" | "pathSignalAt">;
   /** The routed engines, in the order they're steered (the economy's routes). */
   readonly routed: { readonly size: number; keys(): Iterable<number>; has(engine: number): boolean };
-  /** The piece of a routed engine's next stop; −1 while it has none on the map. */
+  /** The piece of a routed engine's next stop (or the via point it's aimed at on the way, §3.5); −1 while none on the map. */
   goal(engine: number): number;
+  /** The piece it's aimed at after `goal` (a via's next aim; −1: none): its look ahead goes on past a via point to it. */
+  then?(engine: number): number;
+  /** Whose kept ways it keeps (stickiness, `WayMemory`): its line's (by default its own). */
+  owner?(engine: number): number;
   /** A train's net drive toward its front (sign only matters; 0: not driven). */
   drive(train: Train): number;
   /** Sections' hint for a train holding a move: its way (`follow`), aimed at a piece of the slot it goes to. */
@@ -138,6 +142,8 @@ interface Want {
  * per routed train every `STEER_TICKS`.
  */
 export class Router {
+  /** The way each line last took at points (stickiness, §3.1): written as its trains' points are set, read by all who plan. */
+  readonly ways = new WayMemory();
   /** Called when routing has set a switch, or put one back (its piece id: the game swings its lever, with a soft click). */
   onSwitch: ((pieceId: number) => void) | null = null;
   /** Time in the router's looks and locks (ms) and the looks made, when `timing` is on. */
@@ -154,8 +160,12 @@ export class Router {
   handLooks = 0;
   handMs = 0;
   handWaits = 0;
-  private steerTicks = 0;
-  private handTicks = 0;
+  /**
+   * Ticks counted for the looks: one count for routed and hand-run trains alike, so both look on the same tick, the
+   * routed first. (Counted apart, a hand-run train's look could come a few ticks before a routed one's just started:
+   * it locked the points as they lay, short of the route's road, and the two met head on beyond them.)
+   */
+  private ticks = 0;
   /** Hand-run trains' engines the router looks after (step 7): their locks as the points lie, and waits. */
   private readonly hand = new Set<number>();
   private readonly handSeen = new Set<number>();
@@ -188,18 +198,20 @@ export class Router {
 
   /** One sim tick: routed trains ask for the points ahead, a few times a second (a train covers a few mm a tick). */
   tick(): void {
-    this.tickRouted();
-    // (Hand-run trains, with another train about: the points just ahead, a few times a second. A lone train: nothing.)
-    if ((this.host.sim.trainCount >= 2 || this.hand.size > 0) && ++this.handTicks % STEER_TICKS === 0) this.steerHand();
+    const due = ++this.ticks % STEER_TICKS === 0;
+    this.tickRouted(due);
+    // (Hand-run trains, with another train about: the points just ahead, a few times a second, after the routed trains'
+    // look that tick. A lone train: nothing.)
+    if (due && (this.host.sim.trainCount >= 2 || this.hand.size > 0)) this.steerHand();
   }
 
-  private tickRouted(): void {
+  private tickRouted(due: boolean): void {
     const h = this.host;
     if (h.routed.size === 0) {
       if (this.routedHolding() || this.pending.size > 0) this.steerTrains();
       return;
     }
-    if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
+    if (due) this.steerTrains();
     // (And any just granted a move: the points on its way, now.)
     else if (h.soon.size > 0) this.steerTrains(h.soon);
     h.soon.clear();
@@ -218,6 +230,9 @@ export class Router {
    * the user changed it at step 5: routed trains keep their route): the tap is their new default at once, and they go
    * back to it once the train has passed. `corner`: which of a wye's levers (#15: one at each end, `cornerLevers`).
    */
+  /** The points a lever tap is throwing now (−1: none): the player's throw, which a pin doesn't stop (the invariants). */
+  tapping = -1;
+
   lever(pieceId: number, corner = 0): LeverResult {
     const { sim, layout } = this.host;
     this.laid();
@@ -245,7 +260,10 @@ export class Router {
       this.deferred.set(pieceId, lock);
       return { deferred: true, by: lock.holders.values().next().value! };
     }
-    if (!sim.toggleSwitch(pieceId, corner)) return { refused: "under-train" };
+    this.tapping = pieceId;
+    const thrown = sim.toggleSwitch(pieceId, corner);
+    this.tapping = -1;
+    if (!thrown) return { refused: "under-train" };
     // (The player's new default for these points.)
     this.defaults.set(pieceId, layout.switchState(pieceId));
     this.pending.delete(pieceId);
@@ -287,7 +305,8 @@ export class Router {
   /** The points a train waits short of (§3.3; the sim claims nothing there for it), or −1. One size check with no waits. */
   waitsAt(train: Train): number {
     if (this.waits.size === 0) return -1;
-    for (const w of this.waits.values()) if (w.trainId === train.id) return w.wait.pieceId;
+    const key = trainKey(train);
+    for (const w of this.waits.values()) if (w.key === key) return w.wait.pieceId;
     return -1;
   }
 
@@ -303,8 +322,9 @@ export class Router {
 
   /** How far (mm) a waiting train's nose is from the points it waits for; Infinity: it isn't waiting (or is past them). */
   gapTo(train: Train): number {
+    const key = trainKey(train);
     for (const w of this.waits.values()) {
-      if (w.trainId !== train.id) continue;
+      if (w.key !== key) continue;
       const net = this.host.drive(train);
       if (net === 0 || train.turnback >= 0 || Math.sign(net) !== w.sign) return Infinity;
       const layout = this.host.layout;
@@ -395,7 +415,7 @@ export class Router {
       h ??= this.holdingOf(engine);
       this.looks++;
       const target = grant?.aim ?? goal;
-      const want = this.walk(layout, train, net > 0, target, grant?.follow, h);
+      const want = this.walk(layout, train, net > 0, target, grant?.follow, h, this.host.owner?.(engine) ?? engine, grant ? -1 : (this.host.then?.(engine) ?? -1));
       // (Pinned points against its way end the walk: it asks for those before them, and waits at them.)
       const pin = want.length > 0 && want[want.length - 1].pinned ? want.pop()! : null;
       h.want.clear();
@@ -543,7 +563,7 @@ export class Router {
     if (!same) this.waitsBegun++;
     const rem = new Map<number, number>();
     for (let i = 0; i < this.alongIds.length && this.alongAt[i] <= at.d + 1e-6; i++) if (!rem.has(this.alongIds[i])) rem.set(this.alongIds[i], at.d - this.alongAt[i]);
-    this.waits.set(engine, { wait, trainId: train.id, sign, since: same ? was!.since : this.host.sim.ticks, rem });
+    this.waits.set(engine, { wait, key: trainKey(train), sign, since: same ? was!.since : this.host.sim.ticks, rem });
   }
 
   /**
@@ -876,7 +896,7 @@ export class Router {
    * None if no points are that near. Pinned points whose road leads nowhere toward its stop, where the other would, end
    * the walk: the last, marked `pinned` (§7: it stands short of them, its card saying to unpin). The pieces it follows are kept in `along` (for `wait`).
    */
-  private walk(layout: Layout, train: Train, forward: boolean, target: number, follow: AvoidTest | undefined, h: Holding): Want[] {
+  private walk(layout: Layout, train: Train, forward: boolean, target: number, follow: AvoidTest | undefined, h: Holding, owner: number, then = -1): Want[] {
     const want: Want[] = [];
     this.alongIds.length = 0;
     this.alongAt.length = 0;
@@ -885,6 +905,11 @@ export class Router {
     const c: Cursor = { ...b };
     if (!forward) flipCursor(layout, c);
     const piece = layout.getPiece(c.pieceId);
+    // (On a via point it's aimed at: on toward the aim after it.)
+    if (c.pieceId === target && then !== -1) {
+      target = then;
+      then = -1;
+    }
     if (!piece || c.pieceId === target) return want;
     const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
     let exit = c.reversed ? path.from : (path.to ?? -1);
@@ -912,6 +937,11 @@ export class Router {
       }
       if (want.length === 0 && d > set && !ahead) break;
       const n = next(layout, at, exit);
+      // (A via point it's aimed at: the walk goes on past it toward the aim after, so points just beyond are set in time.)
+      if (n && n.pieceId === target && then !== -1) {
+        target = then;
+        then = -1;
+      }
       if (!n || n.pieceId === target) break;
       const ways = waysFrom(layout, n.pieceId, n.entry);
       if (ways.length === 0) break;
@@ -925,9 +955,11 @@ export class Router {
       let w = ways[0];
       if (ways.length > 1) {
         const followed = follow ? ways.filter((x) => follow(n.pieceId, x.path)) : [];
-        const best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target);
+        // (Its line's way kept where two cost nearly the same: stickiness, remembered as it's set.)
+        const best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target));
         // (No way on leads there: nothing set, and nothing further asked for.)
         if (best === -1) break;
+        if (followed.length !== 1) this.ways.set(owner, n.pieceId, n.entry, target, best);
         want.push({ pieceId: n.pieceId, state: best, ways: ways.length, entry: n.entry, d });
         w = ways[best];
         clear = 0;

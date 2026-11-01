@@ -91,7 +91,7 @@ class Tour {
     this.syncLandmarks();
     this.counters.reset(w.economy);
     applyCranes(w.economy, this.progress);
-    if (this.engines) attachEngines(w);
+    if (this.engines) attachEngines(w, () => this.progress.learned.has("boilers"));
   }
 
   /** Where each train is and what it carries (every five minutes, for the report). */
@@ -512,7 +512,7 @@ describe("the grand tour", () => {
       }
       for (const id of ["tank", "goods-engine", "mines", "foundry", "carpentry", "college"]) T.learnAnyway(id);
       T.engines = true;
-      attachEngines(w());
+      attachEngines(w(), () => T.progress.learned.has("boilers"));
       const blocked = (id: number) => {
         const p = w().layout.getPiece(id)!;
         return rulesFor(w())(p.type, p.flipped, p.pose, p.y, id) ?? siteWhy(w().landscape, p.type, p.pose);

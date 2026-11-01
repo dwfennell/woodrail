@@ -127,6 +127,68 @@ describe("halts (Game mode)", () => {
   });
 });
 
+describe("big stations are halts (Game mode)", () => {
+  /**
+   * Town A's station, two straights, then a big station of town B's: a terminus at the line's end (its first road),
+   * or a two-platform station (its first road) with a straight and a turnback past it. A coach train heads for it.
+   */
+  function toBig(type: "kit-grand-terminus" | "kit-two-platform-station") {
+    const layout = new Layout();
+    const a = layout.addPiece("station", { x: 0, z: 0, heading: 0 });
+    endAt(layout, connectorRef(a, 0));
+    let last = lay(layout, connectorRef(a, 1), "straight-216");
+    last = lay(layout, otherEnd(layout, last), "straight-216");
+    const big = lay(layout, otherEnd(layout, last), type);
+    if (type === "kit-two-platform-station") endAt(layout, connectorRef(big, 1));
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", "passenger"], { pieceId: last, pathIndex: 0, reversed: false, s: 150 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const A = economy.addDepot("town", a, 0, STATION_CRANE_AT);
+    const B = economy.addDepot("town", big, 1);
+    const w = { layout, sim, economy, stations: new Map([[0, a]]) } as unknown as World;
+    const train = () => sim.getTrain(sim.trainIds()[0])!;
+    sim.setLever(train().cars.find((c) => c.kind === "engine")!.id, 1);
+    const run = (seconds: number) => {
+      for (let i = 0; i < seconds * SIM_HZ; i++) {
+        sim.tick();
+        economy.tick();
+      }
+    };
+    return { w, economy, A, B, coach: train().cars.find((c) => c.kind === "passenger")!.id, run };
+  }
+
+  it("the two-platform station and the terminus are halts", () => {
+    expect(HALT_KITS.has("kit-two-platform-station")).toBe(true);
+    expect(HALT_KITS.has("kit-grand-terminus")).toBe(true);
+  });
+
+  for (const type of ["kit-grand-terminus", "kit-two-platform-station"] as const) {
+    it(`${type}: people from another town get off there and pay; its own people get on`, () => {
+      const { w, economy, A, B, coach, run } = toBig(type);
+      const p = Progress.fresh();
+      attachPassengers(w, () => p);
+      economy.setRiders(coach, 2, A.id);
+      B.waiting = 3;
+      run(12);
+      expect(p.riders).toBe(2);
+      expect(p.coins).toBe(2 * fareFor(w, A, B, coach));
+      expect(B.waiting).toBe(0);
+      expect(economy.ridersOf(coach)).toEqual({ count: 3, from: B.id });
+    });
+  }
+
+  it("placed near a town in Game mode, it's a stop of that town, named for the kit", () => {
+    const w = buildStarterWorld();
+    const town = w.landscape.towns[0];
+    const piece = appendPiece(w.layout, "kit-grand-terminus", false, connectorRef(w.stations.get(town.id)!, 0));
+    syncIndustries(w, true);
+    const d = w.economy.depotAtPiece(piece)!;
+    expect([d.role, d.townId, w.economy.isHalt(d)]).toEqual(["town", town.id, true]);
+    expect(routeStops(w).find((s) => s.depotId === d.id)?.name).toBe(`${town.name} terminus`);
+  });
+});
+
 describe("placing a halt in Game mode", () => {
   /** The starter map with a country halt laid out of town A's station's far end. */
   function withHalt() {

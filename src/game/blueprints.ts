@@ -92,7 +92,10 @@ export interface Blueprint {
   readonly tier?: 1 | 2 | 3;
   /** Not built yet: shown as coming soon (see `Plan`). */
   readonly plan?: Plan;
-  /** Shown to a new player from the start (the rest are a "?" until something next to them is learned). */
+  /**
+   * Shown to a new player from the start (the rest are a "?" until something next to them is learned). Only on built
+   * rows, and the ending's (the goal to aim for): a key tag a child can never learn is a promise the board can't keep.
+   */
   readonly key?: boolean;
   /** What it lets you do that isn't a thing to make (train routes), with an icon for the board. */
   readonly feature?: { readonly label: string; readonly icon: string };
@@ -145,6 +148,10 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "tunnels", label: "Tunnels", branch: "track", tier: 2, plan: "soon", needs: ["bridges"], price: { planks: 16, coins: 40 }, blurb: "Through a hill instead of over it.", brings: "Tunnel portals in wood or stone" }),
   row({ id: "engine-shed", label: "Engine shed", branch: "track", tier: 2, needs: ["junctions"], price: { planks: 10, coins: 100 }, blurb: "A shed to park engines in, and water and coal by the line: steam engines stop at them for a moment as they pass.", brings: "Engine shed, water tower, coal stage, water crane, coaling crane" }),
   row({ id: "turntable", label: "Turntable and roundhouse", branch: "track", tier: 2, needs: ["engine-shed"], price: { planks: 12, coins: 160 }, requires: [TOWN], blurb: "Turn an engine round on the spot, stable it in a roundhouse, or slide it across to another road.", brings: "Turntable, roundhouse, transfer table" }),
+  row({ id: "landscaping", label: "Landscaping", branch: "track", tier: 2, needs: ["bridges"], price: { planks: 6, coins: 200 }, requires: [CITY], blurb: "Lower a hill a step at a time, from the Add land card. Dear: more for a higher hill.", brings: "Lower hills", feature: { label: "Lower hills (Add land card)", icon: "⛰️" } }),
+  // Kits that were Sandbox's only, in Game mode as looks (tech-tree spec T1, T2): no new pieces, nothing in the sim.
+  row({ id: "big-stations", label: "Big stations", branch: "track", tier: 2, needs: ["stations"], price: { planks: 6, coins: 120 }, requires: [TOWN], blurb: "Big stations with room for more trains.", brings: "Two-platform station, grand terminus" }),
+  row({ id: "fun-track", label: "Fun track", branch: "track", tier: 1, needs: ["bridges", "scenery"], price: { planks: 5 }, blurb: "A lift for trains, and a loop the loop!", brings: "Train lift, loop-the-loop, buffer stop with a lamp" }),
   row({ id: "viaduct", label: "Stone viaduct", branch: "track", tier: 3, plan: "later", needs: ["bridges", "quarries"], price: { planks: 20, coins: 100, goods: { stone: 40 } }, blurb: "A long stone bridge across a valley or a whole town.", brings: "Viaduct arches" }),
   row({ id: "lift-bridge", label: "Lift bridge", branch: "track", tier: 3, plan: "later", needs: ["bridges", "harbours"], price: { planks: 20, coins: 80, goods: { iron: 10 } }, blurb: "A bridge that lifts to let boats through.", brings: "Lift bridge" }),
   row({ id: "rack", label: "Mountain railway", branch: "track", tier: 3, plan: "later", needs: ["tunnels", "diesel"], price: { planks: 30, coins: 120, goods: { iron: 20 } }, blurb: "A rack line straight up the steepest hill.", brings: "Rack track, mountain engine" }),
@@ -160,6 +167,9 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "reefer", label: "Cold van", branch: "trains", tier: 2, plan: "later", needs: ["creamery"], price: { planks: 8, coins: 30 }, blurb: "Keeps ice cream, butter and fish cold on the way.", brings: "Refrigerated van" }),
   row({ id: "mail", label: "Mail vans", branch: "trains", tier: 2, plan: "soon", needs: ["post-office"], price: { planks: 6 }, blurb: "Letters and parcels between every pair of towns.", brings: "Mail van" }),
   row({ id: "electric", label: "Electric engine", branch: "trains", tier: 3, needs: ["diesel", "electricity"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Pulls 6 cars at 1.4×, quietly, while a power station has coal.", brings: "Electric engine", feature: { label: "Electric engine (Trains tab)", icon: "⚡" } }),
+  row({ id: "brake-vans", label: "Brake vans", branch: "trains", tier: 1, needs: ["tank"], price: { planks: 4 }, blurb: "A caboose at the end makes a train a bit faster.", brings: "Caboose" }),
+  row({ id: "fuel-stop", label: "Fuel stop", branch: "trains", tier: 2, needs: ["diesel"], price: { planks: 5, coins: 60 }, blurb: "A diesel fuel stop for the line: diesels stop there a moment, as steam engines do at water.", brings: "Fuel station" }),
+  row({ id: "boilers", label: "Better boilers", branch: "trains", tier: 2, needs: ["goods-engine"], price: { planks: 6, coins: 150 }, requires: [count("loadsMoved", 400)], blurb: "All your engines go a bit faster.", brings: "Faster engines", feature: { label: "Every engine 1.1× as fast", icon: "🔥" } }),
   row({ id: "car-carrier", label: "Car carrier", branch: "trains", tier: 3, plan: "later", needs: ["car-factory"], price: { planks: 10, goods: { iron: 4 } }, blurb: "Brings new cars from the factory to the towns' roads.", brings: "Car carrier wagon" }),
   row({ id: "circus-train", label: "Circus train", branch: "trains", tier: 3, plan: "later", needs: ["circus"], price: { planks: 20, coins: 80 }, blurb: "The circus tours your towns: crowds wherever it stops.", brings: "Circus train" }),
 
@@ -169,6 +179,9 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "cranes1", label: "Quicker cranes", branch: "logistics", tier: 1, key: true, needs: [], price: { planks: 4 }, blurb: "Every crane moves a load in 0.45 s instead of 0.6 s.", brings: "Faster cranes", feature: { label: "Cranes load in 0.45 s", icon: "🏗️" } }),
   row({ id: "cranes2", label: "Two-arm cranes", branch: "logistics", tier: 2, needs: ["cranes1"], price: { planks: 7, coins: 80 }, requires: [count("loadsMoved", 200)], blurb: "Cranes move a load in 0.3 s.", brings: "A second arm on every crane", feature: { label: "Cranes load in 0.3 s", icon: "🏗️" } }),
   row({ id: "cranes3", label: "Grab cranes", branch: "logistics", tier: 3, needs: ["cranes2", "smithy"], price: { planks: 12, coins: 200 }, requires: [CITY_STAR], blurb: "Cranes lift two loads at a time.", brings: "Grab cranes", feature: { label: "Cranes lift two at once", icon: "🏗️" } }),
+  // Sandbox's loaders, cranes and unloaders, in Game mode as looks only (no heaps, nothing taken: spec I1, I2).
+  row({ id: "loading-kits", label: "Loading kits", branch: "logistics", tier: 1, needs: ["cranes1"], price: { planks: 5 }, blurb: "Loaders to dress your yards.", brings: "Log loader, grain elevator, drop hopper, goods shed" }),
+  row({ id: "big-cranes", label: "Big cranes", branch: "logistics", tier: 3, needs: ["cranes2", "mines"], price: { planks: 10, coins: 200 }, blurb: "Giant cranes and chutes for big yards.", brings: "Gantry, magnet and harbour cranes, conveyor, wagon tipper, coal chute" }),
   row({ id: "lift-load", label: "Lift and load", branch: "logistics", tier: 3, plan: "later", needs: ["warehouses", "cranes2"], price: { planks: 20, coins: 80 }, blurb: "A tall warehouse with a lift: stacks goods three high and loads two wagons at once.", brings: "Lift-and-load warehouse" }),
 
   // Industry
@@ -210,6 +223,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
 
   // Learning
   // (The school is the building you place, not a blueprint; beside a city it grows a library wing, for tier 3.)
+  row({ id: "study-hall", label: "Study hall", branch: "learning", tier: 1, needs: ["farming"], price: { planks: 4 }, blurb: "Easy lessons go twice as fast.", brings: "Quicker easy lessons", feature: { label: "Tier-1 study 2× at any school", icon: "📚" } }),
   row({ id: "college", label: "College", branch: "learning", tier: 2, needs: ["routes"], price: { planks: 10, coins: 120 }, requires: [count("blueprints", 10)], blurb: "Schools by towns become colleges: research 2× as fast.", brings: "Colleges", feature: { label: "Research 2× at a town's school", icon: "🎓" } }),
   row({ id: "telegraph", label: "Telegraph", branch: "learning", tier: 2, plan: "soon", needs: ["signals"], price: { planks: 14, coins: 50 }, blurb: "Wires along the line: see every train on the map, and call one home.", brings: "Telegraph poles" }),
   row({ id: "electricity", label: "Electricity", branch: "learning", tier: 3, needs: ["mines", "college"], price: { planks: 24, coins: 120, goods: { iron: 10 } }, research: study({ iron: 10, coal: 10 }, 240), blurb: "A power station burns coal: electric engines run while it has some.", brings: "Power station, colour-light signal" }),
@@ -219,7 +233,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "observatory", label: "Observatory", branch: "learning", tier: 3, plan: "soon", needs: ["university", "foundry"], price: { planks: 30, coins: 150, goods: { iron: 20 } }, blurb: "A telescope on the hill: the first step toward the rocket.", brings: "Observatory" }),
 
   // Town life
-  row({ id: "town-hall", label: "Town hall", branch: "civic", tier: 2, key: true, plan: "soon", needs: [], price: { planks: 20, coins: 60 }, requires: [TOWN], blurb: "Name your towns, and nudge what each one grows toward.", brings: "Town hall" }),
+  row({ id: "town-hall", label: "Town hall", branch: "civic", tier: 2, plan: "soon", needs: [], price: { planks: 20, coins: 60 }, requires: [TOWN], blurb: "Name your towns, and nudge what each one grows toward.", brings: "Town hall" }),
   row({ id: "post-office", label: "Post office", branch: "civic", tier: 2, plan: "soon", needs: ["routes", "town-hall"], price: { planks: 16, coins: 40 }, blurb: "Mail between every pair of towns.", brings: "Post office" }),
   row({ id: "fire-station", label: "Fire station", branch: "civic", tier: 2, plan: "later", needs: ["town-hall"], price: { planks: 16, coins: 60 }, blurb: "A fire engine on the roads; towns with one grow a level bigger.", brings: "Fire station, fire engine" }),
   row({ id: "police", label: "Police station", branch: "civic", tier: 2, plan: "later", needs: ["town-hall"], price: { planks: 16, coins: 60 }, blurb: "A police car on the roads, and a lost-property office for stray wagons.", brings: "Police station, police car" }),
@@ -229,7 +243,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "clock-tower", label: "Clock tower", branch: "civic", tier: 3, plan: "later", needs: ["clockmaker", "town-hall"], price: { planks: 30, coins: 120, goods: { iron: 10 } }, blurb: "The town keeps time: every train leaves on the dot.", brings: "Clock tower" }),
 
   // Leisure and sports
-  row({ id: "park", label: "Park and bandstand", branch: "leisure", tier: 2, key: true, plan: "soon", needs: ["carpentry"], price: { planks: 12, coins: 30 }, blurb: "Towns with a park grow a little faster.", brings: "Park, bandstand" }),
+  row({ id: "park", label: "Park and bandstand", branch: "leisure", tier: 2, plan: "soon", needs: ["carpentry"], price: { planks: 12, coins: 30 }, blurb: "Towns with a park grow a little faster.", brings: "Park, bandstand" }),
   row({ id: "beach", label: "Beach and pier", branch: "leisure", tier: 2, plan: "later", needs: ["stations"], price: { planks: 16, coins: 60 }, requires: [place("a town by water")], blurb: "Day trippers by the trainload in summer.", brings: "Pier, beach huts" }),
   row({ id: "sports-field", label: "Sports field", branch: "leisure", tier: 2, plan: "later", needs: ["park"], price: { planks: 16, coins: 50 }, blurb: "Weekend matches: visitors from nearby towns.", brings: "Sports field" }),
   row({ id: "swimming", label: "Swimming baths", branch: "leisure", tier: 3, plan: "later", needs: ["park", "electricity"], price: { planks: 20, coins: 80 }, blurb: "Visitors all year round.", brings: "Swimming baths" }),
@@ -257,7 +271,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
 
   // Passengers: researched, each once you've carried enough people. Light on planks (the towns need them), and from
   // tier 2 paid mostly in coins, which the passenger line earns (P5).
-  row({ id: "passengers", label: "Passengers", branch: "passengers", tier: 1, key: true, needs: [], price: { planks: 6 }, blurb: "Coaches carry people between towns: they pay a fare by how far they ride.", brings: "Coach, caboose" }),
+  row({ id: "passengers", label: "Passengers", branch: "passengers", tier: 1, key: true, needs: [], price: { planks: 6 }, blurb: "Coaches carry people between towns: they pay a fare by how far they ride.", brings: "Coach" }),
   row({ id: "halts", label: "Halts", branch: "passengers", tier: 1, needs: ["passengers"], price: { planks: 6 }, blurb: "Halts and small stations on your lines near a town: more places for its people to get on and off.", brings: "Country halt, mountain station, harbour station, platform" }),
   row({ id: "dining", label: "Dining car", branch: "passengers", tier: 1, key: true, needs: ["passengers"], price: { planks: 4 }, requires: [count("riders", 20)], blurb: "Everyone on a train with a dining car pays half as much again.", brings: "Dining car", feature: { label: "Dining car (Trains tab)", icon: "🍽️" } }),
   row({ id: "first-class", label: "First class", branch: "passengers", tier: 2, needs: ["dining"], price: { planks: 6, coins: 120 }, requires: [count("riders", 60)], blurb: "A first-class coach: three seats, each paying double.", brings: "First-class coach", feature: { label: "First-class coach (Trains tab)", icon: "🥇" } }),

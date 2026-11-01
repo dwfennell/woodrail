@@ -1,6 +1,29 @@
 import { dateText } from "../game/calendar";
 import { GOALS, type Goal, type GoalProgress } from "../game/goals";
 import { type Journal, type JournalEntry, type JournalPlace } from "../game/journal";
+import { STICKERS, type Sticker, type StickerTheme } from "../game/stickers";
+
+/** The Stickers tab's headings, in order. */
+const THEMES: readonly [StickerTheme, string][] = [
+  ["building", "Building"],
+  ["trains", "Trains"],
+  ["towns", "Towns"],
+  ["economy", "Goods and coins"],
+];
+
+/** What the Stickers tab shows: those earned, those not yet seen there, and whether the core goals are done. */
+export interface StickersShown {
+  earned: readonly string[];
+  unseen: readonly string[];
+  /** The core goals done: the tab shows (before, a sticker earned is only a dot on the chip). */
+  open: boolean;
+}
+
+/** A sticker's ticket line: how to earn it (a hidden one not yet earned: its hint). */
+export function stickerTicket(s: Sticker, earned: boolean): string {
+  if (s.hidden && !earned) return `Hint: ${s.hint}`;
+  return earned ? `Earned! ${s.how}.` : `${s.how}.`;
+}
 
 /** A small screen (a phone, either way up): the card starts folded up. */
 const SMALL_SCREEN = "(max-width: 640px), (max-height: 520px)";
@@ -28,6 +51,8 @@ export interface GoalsPanelHandlers {
   showMe(): void;
   /** A news entry with a place was tapped: fly the camera there. */
   fly(place: JournalPlace): void;
+  /** The Stickers tab was looked at: its new ones are seen. */
+  stickersSeen(): void;
 }
 
 const escapeHtml = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -46,9 +71,17 @@ export class GoalsPanel {
   private readonly newsPane = document.createElement("div");
   private readonly tabGoals = document.createElement("button");
   private readonly tabNews = document.createElement("button");
+  private readonly tabStickers = document.createElement("button");
+  private readonly stickersPane = document.createElement("div");
+  /** A sticker earned and not yet seen in its tab: a dot on the chip. */
+  private readonly dot = document.createElement("span");
+  private stickers: StickersShown = { earned: [], unseen: [], open: false };
+  private stickersKey = "";
+  /** The sticker whose ticket is open. */
+  private picked: string | null = null;
   private readonly bell = document.createElement("span");
   private readonly newsBadge = document.createElement("span");
-  private tab: "goals" | "news" = "goals";
+  private tab: "goals" | "news" | "stickers" = "goals";
   /** The journal entry each News row shows, and the newest entry seq drawn, so a new entry adds to the list in place. */
   private readonly rowEntry = new WeakMap<HTMLElement, JournalEntry>();
   private drawnSeq = 0;
@@ -77,7 +110,10 @@ export class GoalsPanel {
     this.now.className = "goals-now";
     this.bell.className = "goals-bell";
     this.bell.hidden = true;
-    head.append(this.count, this.bell, this.now);
+    this.dot.className = "goals-dot";
+    this.dot.hidden = true;
+    this.dot.title = "A sticker earned! Finish the goals to see your stickers.";
+    head.append(this.count, this.bell, this.dot, this.now);
     head.addEventListener("click", (e) => {
       e.stopPropagation();
       this.setOpen(this.root.classList.contains("collapsed"));
@@ -108,9 +144,12 @@ export class GoalsPanel {
     this.newsBadge.className = "goals-tab-badge";
     this.newsBadge.hidden = true;
     this.tabNews.append("News", this.newsBadge);
+    this.tabStickers.textContent = "Stickers";
+    this.tabStickers.hidden = true;
     for (const [b, which] of [
       [this.tabGoals, "goals"],
       [this.tabNews, "news"],
+      [this.tabStickers, "stickers"],
     ] as const) {
       b.className = "goals-tab";
       b.setAttribute("role", "tab");
@@ -128,11 +167,21 @@ export class GoalsPanel {
       e.stopPropagation();
       this.setOpen(false);
     });
-    tabs.append(this.tabGoals, this.tabNews, close);
+    tabs.append(this.tabGoals, this.tabNews, this.tabStickers, close);
     this.pane.className = "goals-pane";
     this.newsPane.className = "news-pane";
     this.newsPane.hidden = true;
-    this.body.append(tabs, this.pane, this.newsPane);
+    this.stickersPane.className = "stickers-pane";
+    this.stickersPane.hidden = true;
+    this.stickersPane.addEventListener("click", (e) => {
+      const tile = (e.target as HTMLElement).closest<HTMLElement>(".sticker");
+      if (!tile) return;
+      e.stopPropagation();
+      this.picked = this.picked === tile.dataset.id ? null : tile.dataset.id!;
+      this.drawStickers(true);
+    });
+    this.handlers = handlers;
+    this.body.append(tabs, this.pane, this.newsPane, this.stickersPane);
     this.root.append(top, this.body);
     this.setTab("goals");
     // A new entry put in at the top mid-tap would move the row away from the finger: it waits for the press to end
@@ -192,6 +241,7 @@ export class GoalsPanel {
   private setOpen(open: boolean): void {
     this.root.classList.toggle("collapsed", !open);
     this.syncNews();
+    this.syncStickers();
     this.fitShow();
   }
 
@@ -209,18 +259,77 @@ export class GoalsPanel {
     if (cut()) this.root.classList.add("title-small");
   }
 
-  private setTab(tab: "goals" | "news"): void {
+  private setTab(tab: "goals" | "news" | "stickers"): void {
     this.tab = tab;
     this.pane.hidden = tab !== "goals";
     this.newsPane.hidden = tab !== "news";
+    this.stickersPane.hidden = tab !== "stickers";
     for (const [b, which] of [
       [this.tabGoals, "goals"],
       [this.tabNews, "news"],
+      [this.tabStickers, "stickers"],
     ] as const) {
       b.classList.toggle("on", tab === which);
       b.setAttribute("aria-selected", String(tab === which));
     }
     this.syncNews();
+    this.syncStickers();
+  }
+
+  private readonly handlers: GoalsPanelHandlers;
+
+  /** Open the Journal on its Stickers tab (a sticker's toast was tapped), on one sticker's ticket if given. */
+  openStickers(id?: string): void {
+    if (!this.stickers.open || this.root.hidden) return;
+    if (id) this.picked = id;
+    this.setTab("stickers");
+    this.setOpen(true);
+  }
+
+  /** The stickers earned and seen, and whether the tab shows yet (cheap when unchanged: called with every goals check). */
+  setStickers(shown: StickersShown): void {
+    const key = `${shown.open}|${shown.earned.join(",")}|${shown.unseen.join(",")}`;
+    if (key === this.stickersKey) return;
+    this.stickersKey = key;
+    this.stickers = shown;
+    this.tabStickers.hidden = !shown.open;
+    if (!shown.open && this.tab === "stickers") this.setTab("goals");
+    this.dot.hidden = shown.unseen.length === 0;
+    this.dot.title = shown.open ? "A new sticker! See it in the Stickers tab" : "A sticker earned! Finish the goals to see your stickers.";
+    this.tabStickers.classList.toggle("fresh", shown.open && shown.unseen.length > 0);
+    this.drawStickers(false);
+    this.syncStickers();
+  }
+
+  /** The tab looked at: its new stickers are seen (the dot goes once the next check says so). */
+  private syncStickers(): void {
+    const showing = !this.root.hidden && !this.root.classList.contains("collapsed") && this.tab === "stickers";
+    if (showing && this.stickers.unseen.length > 0) this.handlers.stickersSeen();
+  }
+
+  /** The tab: a count, then a grid of tiles under each theme's heading; a tapped tile's ticket under the grid. */
+  private drawStickers(force: boolean): void {
+    if (!this.stickers.open && !force) {
+      this.stickersPane.replaceChildren();
+      return;
+    }
+    const earned = new Set(this.stickers.earned);
+    const unseen = new Set(this.stickers.unseen);
+    const tile = (s: Sticker) => {
+      const got = earned.has(s.id);
+      const name = s.hidden && !got ? "???" : s.title;
+      const cls = `sticker${got ? " got" : ""}${unseen.has(s.id) ? " new" : ""}${this.picked === s.id ? " picked" : ""}`;
+      return `<button class="${cls}" data-id="${s.id}" title="${escapeHtml(`${name}: ${stickerTicket(s, got)}`)}" aria-label="${escapeHtml(name)}"><span class="sticker-icon">${s.hidden && !got ? "❔" : s.icon}</span><span class="sticker-name">${escapeHtml(name)}</span></button>`;
+    };
+    const groups = THEMES.flatMap(([theme, label]) => {
+      const of = STICKERS.filter((s) => s.theme === theme);
+      return of.length === 0 ? [] : [`<h4 class="stickers-theme">${label}</h4><div class="stickers-grid">${of.map(tile).join("")}</div>`];
+    });
+    const picked = STICKERS.find((s) => s.id === this.picked);
+    const ticket = picked
+      ? `<p class="sticker-ticket"><b>${escapeHtml(picked.hidden && !earned.has(picked.id) ? "???" : picked.title)}</b> ${escapeHtml(stickerTicket(picked, earned.has(picked.id)))}</p>`
+      : `<p class="sticker-ticket hint">Tap a sticker to see how to earn it.</p>`;
+    this.stickersPane.innerHTML = `<p class="stickers-count">🌟 ${earned.size} / ${STICKERS.length} stickers</p>${ticket}${groups.join("")}`;
   }
 
   /** The journal changed: the badge, and the list if it's showing. */
@@ -265,7 +374,7 @@ export class GoalsPanel {
     const entries = this.journal.entries;
     const pane = this.newsPane;
     if (entries.length === 0) {
-      pane.innerHTML = `<p class="news-empty">Nothing yet. Deliveries and boats show up here.</p>`;
+      pane.innerHTML = `<p class="news-empty">Nothing yet. Towns growing, things learned and new places show up here.</p>`;
       this.drawnSeq = 0;
       return;
     }
@@ -314,6 +423,8 @@ export class GoalsPanel {
     this.shownKey = "";
     this.drawnSeq = 0;
     this.newsPane.replaceChildren();
+    this.picked = null;
+    this.setStickers({ earned: [], unseen: [], open: false });
     this.syncNews();
   }
 
@@ -329,12 +440,12 @@ export class GoalsPanel {
    * wait for blueprints (`locked` says which to learn).
    */
   show(done: number, current: Goal | null, progress: GoalProgress | null, next: Goal | null, total = GOALS.length, locked: string | null = null, lockedCount = 0): void {
-    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${progress?.hint}|${next?.id}|${locked}`;
+    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${progress?.hint}|${next?.id}|${locked}|${this.stickers.open}|${this.stickers.earned.length}`;
     if (key === this.shownKey) return;
     const fresh = this.shownKey !== "" && !this.shownKey.startsWith(`${done}|`);
     this.shownKey = key;
     this.count.textContent = goalsCountText(done, total, lockedCount);
-    this.now.textContent = current?.title ?? locked ?? "All done!";
+    this.now.textContent = current?.title ?? locked ?? (this.stickers.open ? `Goals ✓ · 🌟 ${this.stickers.earned.length} / ${STICKERS.length}` : "All done!");
     this.showBtn.hidden = !current;
     this.fitShow();
     // A goal still to come waits for blueprints: said in a line of its own ("Research Signals to unlock a goal").
@@ -345,7 +456,7 @@ export class GoalsPanel {
     }
     if (!current) {
       this.pane.innerHTML = `
-        <div class="goal current all-done"><span class="goal-tick">✓</span><div><b>All goals done!</b><p>Every town is on the railway and the planks are flowing.</p></div></div>
+        <div class="goal current all-done"><span class="goal-tick">✓</span><div><b>All goals done!</b><p>Every town is on the railway and the planks are flowing.${this.stickers.open ? " Now collect the stickers!" : ""}</p></div></div>
         <button class="chip text primary goals-new">New game</button>`;
       return;
     }

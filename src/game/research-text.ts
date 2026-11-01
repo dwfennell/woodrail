@@ -106,7 +106,7 @@ export function researchFill(p: Progress, id: string): number {
     need += goods[k]!;
     have += Math.min(got[k] ?? 0, goods[k]!);
   }
-  if (p.research.current === id && studying(p)) return Math.min(1, p.research.study / studyTime(id));
+  if (p.research.current === id && studying(p)) return Math.min(1, p.research.study / studyTime(id, p.learned));
   return need > 0 ? have / need : 0;
 }
 
@@ -147,7 +147,7 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
   const state = cardState(p, id);
   if (state !== "ready" && state !== "researching" && state !== "next") return null;
   const r = p.research;
-  const base = { chips: researchChips(p, id), study: `${Math.ceil(studyTime(id) / p.research.speed)} s study` };
+  const base = { chips: researchChips(p, id), study: `${Math.ceil(studyTime(id, p.learned) / p.research.speed)} s study` };
   if (state === "researching") return { ...base, why: researchWants(p, school), fill: researchFill(p, id) };
   const q = queueOf(r);
   if (state === "next") {

@@ -42,7 +42,7 @@ export type Stuck =
    * In a ring of waits through signals (signals spec §6): each stands at a red signal with a train in the block (or on
    * the way) beyond. Too many trains for the signals placed: adding a signal, or putting a train away, helps.
    */
-  | { kind: "signals" };
+  | { kind: "signals"; by: number };
 
 /** What stalls read of the economy (or the harness). */
 export interface StallsHost {
@@ -82,7 +82,28 @@ export class Stalls {
   /** Why this engine's train is stuck (null: it isn't). */
   stuckOf(engine: number): Stuck | null {
     if (this.stuck.size === 0) return null;
-    return this.stuck.get(engine) ?? null;
+    const why = this.stuck.get(engine) ?? null;
+    // (The train in its way taken off the track since the last look (lifted into the hand, say): not stuck behind it.)
+    return why && "by" in why && !this.sim.findCar(why.by) ? null : why;
+  }
+
+  /**
+   * Trains taken off the track (put away, say) dropped at once, not at the next look: theirs, and any naming them as in
+   * the way (that wait is over; the train asks again). As `Sections.prune`, called by `Economy.prune`.
+   */
+  prune(): void {
+    const gone = (e: number, why: Stuck) => !this.sim.findCar(e) || ("by" in why && !this.sim.findCar(why.by));
+    if (this.stuck.size > 0) {
+      let changed = false;
+      const stuck = new Map(this.stuck);
+      for (const [e, why] of stuck)
+        if (gone(e, why)) {
+          stuck.delete(e);
+          changed = true;
+        }
+      if (changed) this.stuck = stuck;
+    }
+    for (const [e, s] of this.since) if (gone(e, s.why)) this.since.delete(e);
   }
 
   /** How many trains are stuck now. */
@@ -153,7 +174,7 @@ export class Stalls {
         const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
         if (engine < 0 || !by) continue;
-        found.set(engine, signals ? { kind: "signals" } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
+        found.set(engine, signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
     // (Said once it has held `STUCK_S`.)

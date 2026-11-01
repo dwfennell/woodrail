@@ -239,10 +239,10 @@ function spreadLots(land: Landscape, town: Town, editor: LandEditor, n: number, 
 /**
  * Lay each lot's new streets and put up its building: town squares from now on, recorded in the town (so they save
  * with the map, and the building is dressed with a catalogue model by `addTownProps`). A new building is a one-floor
- * house; as the town grows, its middle changes (the lots' `changes`: houses become shops and gain floors). Returns the
+ * house (`born`: the level its town has now, so it starts single-storey); as the town grows, its middle changes (the lots' `changes`: houses become shops and gain floors). Returns the
  * plot slots changed (a changed building's model must be dressed again: see `changedBuildings`).
  */
-export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[]): number[] {
+export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[], born = 0): number[] {
   const g = land.grid;
   const r = rng((Math.imul(land.seed, 97) + town.id * 389 + town.buildings.length * 31 + 7) >>> 0);
   const slots = new Set<number>();
@@ -267,6 +267,7 @@ export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[]): 
       ...(lot.front !== undefined ? { front: lot.front } : {}),
       ...(lot.corner ? { corner: true } : {}),
       ...(lot.landmark ? { landmark: lot.landmark } : {}),
+      ...(born > 0 ? { born } : {}),
     };
     for (const c of lot.cells) {
       if (g.surface[c] === SURF_GRASS) g.surface[c] = SURF_TOWN;

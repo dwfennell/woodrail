@@ -46,6 +46,8 @@ import { putAway, type PutAway } from "./put-away";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
+import { STORE_HELP, storeStock } from "./warehouse-text";
+import { SHOP_HELP } from "./workshop-text";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
 function whenIdle(f: () => void): void {
@@ -132,10 +134,10 @@ const GRAB_PIECE_MM = 144;
 /** A press on the ground let go within this (ms) is a tap (a long one counts: a slow phone delays the lift). */
 const FLOOR_TAP_MS = 1200;
 /** How far (mm) a picked group's free end reaches for a free end of other track to click onto, and how far off facing. */
-const GROUP_SNAP_REACH = 30;
+const GROUP_SNAP_REACH = SNAP_CAPTURE_RADIUS;
 const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
-/** A ready piece put down with a tap seats on a free track end this far (mm) from the finger (the end itself is track). */
-const TAP_REACH = 80;
+/** A ready piece put down with a tap seats on a free track end this far (mm) from the finger (the end itself is track; was 80). */
+const TAP_REACH = 27;
 /** A clearing sweep looks under the pointer this often along its way (px): a fast sweep doesn't jump a piece. */
 const ERASE_STEP_PX = 8;
 /** …but at most this many looks a move (a raycast each): a far flick on a phone is looked along more sparsely. */
@@ -174,6 +176,8 @@ type Press =
   | { kind: "lever"; pieceId: number; road?: number; corner?: number; slack?: number; at?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
+  /** A via point's disc of the route being planned (the piece it's on). */
+  | { kind: "route-via"; pieceId: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
   | { kind: "piece"; pieceId: number; deck?: boolean }
   /** A depot's yard, building or crane (economy depot id). */
@@ -391,6 +395,8 @@ export class Interaction {
   onLeavePlanning: (() => void) | null = null;
   /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
   onPickPlace: ((depotId: number) => boolean) | null = null;
+  /** Planning a route: plain track tapped (or a via point's disc), a via point (true: taken as one). */
+  onPickVia: ((pieceId: number) => boolean) | null = null;
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
   routeGroup: Object3D | null = null;
   onTapStopDisc: ((index: number) => void) | null = null;
@@ -1385,7 +1391,8 @@ export class Interaction {
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     // (While picking several, any track in view can be tapped.)
     // (Planning a route, a station or depot is tapped from any zoom.)
-    const place = !!this.onPickPlace && hit?.kind === "piece" && !!this.game.economy.depotAtPiece(hit.pieceId);
+    // (And any track, from any zoom: a via point.)
+    const place = !!this.onPickPlace && hit?.kind === "piece";
     // (Drawing, though, a line's body branches from any zoom: only taking hold of it needs to be close by. See `far`.)
     let far = false;
     if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) {
@@ -2064,7 +2071,7 @@ export class Interaction {
     } else if (m.kind === "drag-train") {
       this.game.scene.remove(m.ghost);
       disposeObject(m.ghost);
-      if (m.origin) this.placeTrain(m.cars, m.origin);
+      if (m.origin) this.placeTrain(m.cars, m.origin, false, true);
       else this.onTrayTrainDropped?.(false);
     } else if (m.kind === "drag-cargo") {
       this.game.scene.remove(m.ghost);
@@ -2117,6 +2124,10 @@ export class Interaction {
       this.onTapStopDisc?.(p.index);
       return;
     }
+    if (p.kind === "route-via") {
+      this.onPickVia?.(p.pieceId);
+      return;
+    }
     // Planning a train's route: a station or depot tapped is a stop (see `onPickPlace`).
     if (this.onPickPlace) {
       // A train tapped: the station or depot it stands at (its engine's own station, the first stop of many a route).
@@ -2133,6 +2144,8 @@ export class Interaction {
         this.onPickPlace(depot.id);
         return;
       }
+      // Plain track: a via point, passed on the way to the next stop (see `onPickVia`).
+      if (p.kind === "piece" && this.onPickVia?.(p.pieceId)) return;
       // Another train, out on the line: planning ends and its card opens, as a tap on it does (QA: it did nothing).
       const other = p.kind === "car" && g.sim.findCar(p.carId)?.train !== g.sim.findCar(this.selectedCar)?.train;
       if (!other) return;
@@ -2150,7 +2163,8 @@ export class Interaction {
     if (p.kind === "piece") {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
-      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type);
+      // (A town's station upgraded to a big station's kit still opens its town's card.)
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId);
       const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
       else if (ruin !== -1 && this.onRuinTap) {
@@ -2483,9 +2497,15 @@ export class Interaction {
       .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
+    // A warehouse: only what it holds (not a row for every good), and how to use it.
+    if (d.role === "warehouse") {
+      this.hud.updateDepotCard([], d.auto, d.waitFull, storeStock(piles), false, STORE_HELP);
+      return;
+    }
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     const note = d.role === "town" ? `Delivered ${delivered}` : d.role === "harbour" && piles.length === 0 ? "Nothing on the quay: drop goods here for the boats" : "";
-    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note);
+    // A workshop: how its planks get there (a train on a route drops them only at its stops).
+    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note, false, d.role === "workshop" ? SHOP_HELP : "");
   }
 
   toggleDepotAuto(): void {
@@ -2589,11 +2609,15 @@ export class Interaction {
 
   /**
    * "Put away" on the open engine's card: the train its line has no room for (this one, or the one held) back in the
-   * box, as one undo step (undo puts it back where it stood, on its line, held again).
+   * box, as one undo step (undo puts it back where it stood, on its line, held again). With `blocker` (a car), that
+   * train instead: the one in the open engine's way ("Put it away" beside Show).
    */
-  putAwayFromCard(): void {
+  putAwayFromCard(blocker = -1): void {
     const engine = this.openEngineCarId;
-    const target = engine === -1 ? -1 : this.game.economy.sections.putAwayFor(engine);
+    // (Or, from "Put it away" beside Show, the train in its way: a car of it, any train but its own.)
+    const own = engine === -1 ? undefined : this.game.sim.findCar(engine)?.train.id;
+    const other = blocker >= 0 && own !== undefined && this.game.sim.findCar(blocker)?.train.id !== own ? blocker : -1;
+    const target = engine === -1 ? -1 : blocker >= 0 ? other : this.game.economy.sections.putAwayFor(engine);
     if (target === -1) return;
     const { sim, economy } = this.game;
     let back: PutAway | null = null;
@@ -2955,6 +2979,15 @@ export class Interaction {
     }
     this.hintFor = { key, hint };
     return hint;
+  }
+
+  /**
+   * Why a piece of `type` can't go down at `pose` (as a drop would say it), with piece `ignoreId` not counted; null if
+   * it can (a town's station upgraded in place: src/game/station-upgrade.ts).
+   */
+  placeWhy(type: PieceTypeId, pose: Pose, y: number, ignoreId: number): string | null {
+    const r = this.placement(type, false, pose, y, ignoreId).reason;
+    return r ? this.blockMessage(r) : null;
   }
 
   /** What to say for a piece refused for `reason` (never nothing: a refusal always says something). */
@@ -3885,7 +3918,10 @@ export class Interaction {
         const held = heldAt(level) ?? m.pose;
         const finger = this.planeAt(x, sy, level);
         const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, Math.max(capture, m.tapReach ?? 0)) : null;
-        const s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture);
+        let s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture);
+        // Held loose, it's drawn on the quarter-square grid: up to 13 mm from where the finger holds it. Drawn with an
+        // end on a free end, it joins there (the tight capture alone would miss a ghost that looks seated).
+        if (s.kind !== "snapped") s = findSnap(this.game.layout, holdType, m.heldFlipped, loose({ ...held }), level, m.pieceId, capture);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
         if (s.kind === "snapped" && isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
@@ -3901,7 +3937,9 @@ export class Interaction {
       // (aiming into a gap, the piece held at an angle): it goes on that end.
       if (m.snap.kind !== "snapped" && getPieceDef(holdType, m.heldFlipped).connectors.length > 0) {
         for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY])) {
-          const finger = this.planeAt(x, sy, level);
+          // Where the held piece's middle is drawn (on touch it's held lifted, as `heldAt`): on a tilted view the
+          // ground under the finger is well behind it, off the end's line.
+          const finger = this.planeAt(x, sy, level + (touch ? HOLD_LIFT + geometryMiddle(shape).y : 0));
           const s = finger ? findSnapAhead(this.game.layout, holdType, m.heldFlipped, heldAt(level) ?? m.pose, level, finger, m.pieceId) : null;
           if (s?.kind !== "snapped") continue;
           if (isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
@@ -4255,7 +4293,8 @@ export class Interaction {
       this.changed();
       return;
     }
-    if (m.origin) this.placeTrain(m.cars, m.origin);
+    // (Back where it was picked up; taken meanwhile, another train run in there, on the nearest free stretch: never lost.)
+    if (m.origin) this.placeTrain(m.cars, m.origin, false, true);
     if (fresh) this.onTrayTrainDropped?.(false);
     this.hud.toast(m.target ? "Not enough track there" : "Drop trains onto the track");
     this.changed();
@@ -4300,16 +4339,19 @@ export class Interaction {
     }
     sim.removeTrain(id);
     if (this.placeTrain(together, newLead)) return true;
-    this.placeTrain(theirs, lead);
+    this.placeTrain(theirs, lead, false, true);
     return false;
   }
 
-  /** Put a train down: exactly at `at` (back where it was picked up), or `around` it (a drop, centred on the point). */
-  private placeTrain(cars: HeldCar[], at: Cursor, around = false): boolean {
+  /**
+   * Put a train down: exactly at `at`, or `around` it (a drop, centred on the point); `back` where it was picked up,
+   * or the nearest free stretch if that's taken (`Sim.putBack`).
+   */
+  private placeTrain(cars: HeldCar[], at: Cursor, around = false, back = false): boolean {
     const sim = this.game.sim;
     const kinds = cars.map((c) => c.kind);
     const ids = cars.every((c) => c.id !== undefined) ? cars.map((c) => c.id!) : undefined;
-    const r = around ? sim.addTrainAround(kinds, at, ids) : sim.addTrain(kinds, at, ids);
+    const r = around ? sim.addTrainAround(kinds, at, ids) : back ? sim.putBack(kinds, at, ids) : sim.addTrain(kinds, at, ids);
     if (r.kind !== "placed") return false;
     const t = sim.getTrain(r.trainId)!;
     t.cars.forEach((car, i) => {
@@ -5034,7 +5076,7 @@ export class Interaction {
   private pick(x: number, y: number, touch = false): Press | null {
     const exact = this.pickExact(x, y);
     // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
-    if (exact?.kind === "route-stop") return exact;
+    if (exact?.kind === "route-stop" || exact?.kind === "route-via") return exact;
     if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
     if (!touch) return this.deckOverTrain(exact, exact);
     const under: TapUnder = exact ? (exact.kind === "depot" && exact.footprint ? "station" : (exact.kind as TapUnder)) : null;
@@ -5141,7 +5183,10 @@ export class Interaction {
     const g = this.game;
     // Planning a route: its stop discs float over everything, and win.
     if (this.routeGroup?.visible && this.onTapStopDisc) {
-      for (const h of this.raycaster.intersectObject(this.routeGroup, true)) if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
+      for (const h of this.raycaster.intersectObject(this.routeGroup, true)) {
+        if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
+        if (h.object.userData.kind === "route-via") return { kind: "route-via", pieceId: h.object.userData.pieceId as number };
+      }
     }
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
@@ -5248,12 +5293,15 @@ export class Interaction {
     return Math.min(60, a.distanceTo(b));
   }
 
-  /** Snap capture in mm: about 28 screen pixels at the pointer, never less than the physical 30 mm. */
+  /**
+   * Snap capture in mm: about 10 screen pixels at the pointer (was 28), never less than the physical 10 mm (was 30),
+   * at most 40 mm zoomed far out (was 120). Tight, so a piece only jumps onto track dropped close to the joint.
+   */
   private captureRadius(x: number, y: number): number {
     const a = this.groundAt(x, y);
-    const b = this.groundAt(x + 28, y);
+    const b = this.groundAt(x + 10, y);
     if (!a || !b) return SNAP_CAPTURE_RADIUS;
-    return Math.min(120, Math.max(SNAP_CAPTURE_RADIUS, a.distanceTo(b)));
+    return Math.min(40, Math.max(SNAP_CAPTURE_RADIUS, a.distanceTo(b)));
   }
 
   /** Heading (plan) pointing away from the camera, used for new pieces and trains. */

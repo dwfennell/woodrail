@@ -40,6 +40,10 @@ export interface HudHandlers {
   removeTrain(): void;
   /** The engine card of a line with a train too many: that train (this one, or the one held) back in the box. */
   putAway(): void;
+  /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
+  showBlocker(): void;
+  /** "Put it away" beside Show: the train in the way, left standing or running with no route, back in the box. */
+  putAwayBlocker(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
@@ -64,8 +68,10 @@ export interface HudHandlers {
   toggleMap(): void;
   /** Game mode: open or close the Research picker (the blueprint board); `pill`: tapped on the research pill. */
   toggleBoard(pill?: boolean): void;
-  /** Add the plot chosen on the land card. */
+  /** Add the plot chosen on the land card (or, lowering hills, lower the square chosen). */
   buyLand(): void;
+  /** Game mode, Landscaping learned: switch the land card between adding land and lowering hills. */
+  lowerHills?(): void;
   /** "Clear the ruin" on an old industry's card. */
   clearRuin?(): void;
   /** "Restore" on an old industry's card (its blueprint learned). */
@@ -75,6 +81,8 @@ export interface HudHandlers {
   newGame(): void;
   /** Open the Lines view (every line: its colour, name and trains). */
   openLines(): void;
+  /** The menu: copy this mode's map (its save, compressed) to the clipboard, for a bug report. */
+  copyMap(): void;
   /** Back to the title screen. */
   titleScreen(): void;
   /** The brand tapped: back to the player's railway (the view frames their track). */
@@ -252,12 +260,16 @@ export class Hud {
   private ruinClearBtn!: HTMLButtonElement;
   private ruinRestoreBtn!: HTMLButtonElement;
   private landBuyBtn!: HTMLButtonElement;
+  private landLowerBtn!: HTMLButtonElement;
+  private readonly landTitle = el("div", "card-title", "Add land");
   private landBtn!: HTMLButtonElement;
   private soundItem!: HTMLButtonElement;
   private redoItem!: HTMLButtonElement;
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
   private readonly depotStock = el("div", "depot-stock");
+  /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
+  private readonly depotHelp = el("div", "card-hint depot-help");
   /** A school's card with nothing under way or up next: a button for the Research picker. */
   private readonly depotPickBtn: HTMLButtonElement;
   private depotAutoBtn!: HTMLButtonElement;
@@ -268,6 +280,10 @@ export class Hud {
   /** "Put away", on an engine card whose line has a train too many (see `setPutAway`). */
   private readonly putAwayBtn: HTMLButtonElement;
   private putAwayShown = false;
+  /** Who's in the way (see `setBlocker`): Show, and the fix for a train left in the way. */
+  private readonly blockerRow = el("div", "engine-blocker");
+  private readonly showBlockerBtn: HTMLButtonElement;
+  private readonly fixBlockerBtn: HTMLButtonElement;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
@@ -481,21 +497,20 @@ export class Hud {
     this.soundItem = narrow(opts.muted ? "Sound: off" : "Sound: on", "Sound on or off", h.toggleSound);
     this.redoItem = narrow("Redo", "Redo what was undone", h.redo);
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
-    this.menu.append(this.redoItem, this.landItem, this.soundItem);
+    this.menu.append(this.redoItem, this.landItem);
     this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
       this.menu.hidden = true;
       h.openLines();
     }, "menu-item");
     this.linesItem.hidden = true;
+    // In groups, a line between them: playing (Redo, Add land and Lines, when here), settings, help, leaving this map,
+    // and the bug report last. (A group never empties: Graphics, How to play, Title screen and Copy map always show.)
+    const sep = () => el("hr", "menu-sep");
     this.menu.append(
       this.linesItem,
-      button("Title screen", "Save and go back to the title screen", () => {
-        this.menu.hidden = true;
-        h.titleScreen();
-      }, "menu-item"),
-      ...this.sandboxItems,
-      ...this.gameItems,
+      this.soundItem,
       quality,
+      sep(),
       button("How to play", "Show help", () => {
         this.menu.hidden = true;
         // (Not both at once: the help card takes the camera tutorial's place, as on a first visit.)
@@ -507,7 +522,19 @@ export class Hud {
         this.help.hidden = true;
         this.coach.start();
       }, "menu-item"),
+      sep(),
+      button("Title screen", "Save and go back to the title screen", () => {
+        this.menu.hidden = true;
+        h.titleScreen();
+      }, "menu-item"),
+      ...this.sandboxItems,
+      ...this.gameItems,
+      sep(),
       this.reportItem,
+      button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
+        this.menu.hidden = true;
+        h.copyMap();
+      }, "menu-item"),
     );
     this.reportItem.hidden = true;
     this.buildReportCard();
@@ -529,6 +556,12 @@ export class Hud {
     this.putAwayBtn = button("Put away", "Put this line's extra train back in the box: then the others can run", h.putAway, "chip text put-away");
     this.putAwayBtn.hidden = true;
     this.engineCard.appendChild(this.putAwayBtn);
+    this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
+    this.fixBlockerBtn = button("Put it away", "Put the train in the way back in the box", h.putAwayBlocker, "chip text fix-blocker");
+    this.fixBlockerBtn.hidden = true;
+    this.blockerRow.append(this.showBlockerBtn, this.fixBlockerBtn);
+    this.blockerRow.hidden = true;
+    this.engineCard.appendChild(this.blockerRow);
     const controls = el("div", "engine-controls");
     // One big button: Go (the way the arrow shows) or Stop.
     // (Held at its stop for spacing: "Go now" sends it on with one tap, the lever as it is.)
@@ -604,15 +637,17 @@ export class Hud {
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
     this.depotYard.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotStock, this.depotHelp, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
     this.landCard.hidden = true;
     this.landBuyBtn = button("Add this land", "Add the chosen plot to your land", h.buyLand, "chip text attention");
     const landRow = el("div", "card-row");
-    landRow.append(this.landBuyBtn, button("Done", "Stop adding land", h.toggleExpand, "chip text"));
-    this.landCard.append(el("div", "card-title", "Add land"), this.landText, landRow);
+    this.landLowerBtn = button("⛰️ Lower hills", "Lower a hill a step, for coins (Landscaping)", () => h.lowerHills?.(), "chip text");
+    this.landLowerBtn.hidden = true;
+    landRow.append(this.landBuyBtn, this.landLowerBtn, button("Done", "Stop adding land", h.toggleExpand, "chip text"));
+    this.landCard.append(this.landTitle, this.landText, landRow);
     this.root.appendChild(this.landCard);
 
     // An old industry's ruin: what's around it, what opens it, and clearing it away.
@@ -1404,6 +1439,20 @@ export class Hud {
     this.putAwayBtn.setAttribute("aria-label", title);
   }
 
+  /**
+   * Something's in the open engine's way (`show`): Show takes the camera there. `fix`: it's a train left standing in
+   * the way, or one running with no route: "Put it away" too. `what`: what Show shows ("train", "points"), for its title.
+   */
+  setBlocker(show: boolean, fix: boolean, what: "train" | "points" = "train"): void {
+    if (this.blockerRow.hidden === !show && this.fixBlockerBtn.hidden === !fix && this.showBlockerBtn.dataset.what === what) return;
+    this.blockerRow.hidden = !show;
+    this.fixBlockerBtn.hidden = !fix;
+    this.showBlockerBtn.dataset.what = what;
+    const title = what === "points" ? "Show the points it's waiting at" : "Show the train in the way";
+    this.showBlockerBtn.title = title;
+    this.showBlockerBtn.setAttribute("aria-label", title);
+  }
+
   setGoNow(on: boolean): void {
     if (on === this.goNow) return;
     this.goNow = on;
@@ -1741,9 +1790,11 @@ export class Hud {
    * where it doesn't apply (a depot that gives nothing). `idle`: a school with nothing to research (its line in amber,
    * and a button for the picker).
    */
-  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = "", idle = false): void {
+  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = "", idle = false, help = ""): void {
     const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
     if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
+    if (this.depotHelp.textContent !== help) this.depotHelp.textContent = help;
+    this.depotHelp.hidden = !help;
     this.depotStock.classList.toggle("idle", idle);
     this.depotPickBtn.hidden = !idle;
     setToggle(this.depotAutoBtn, auto);
@@ -1752,13 +1803,20 @@ export class Hud {
     this.depotWaitBtn.disabled = !auto;
   }
 
-  /** Show the land card (null: none, while choosing), or hide it (`text` null). */
-  setLandCard(text: string | null, canBuy = false): void {
+  /**
+   * Show the land card (null: none, while choosing), or hide it (`text` null). `opts`: its title and its button's words
+   * (lowering hills: "Lower hills", "Lower it · 300🪙"), and a "Lower hills" / "Add land" switch (`swap`).
+   */
+  setLandCard(text: string | null, canBuy = false, opts: { title?: string; buy?: string; swap?: string } = {}): void {
     this.landBtn.classList.toggle("active", text !== null);
     this.landCard.hidden = text === null;
     if (text === null) return;
+    this.landTitle.textContent = opts.title ?? "Add land";
     this.landText.textContent = text;
+    this.landBuyBtn.textContent = opts.buy ?? "Add this land";
     this.landBuyBtn.hidden = !canBuy;
+    this.landLowerBtn.hidden = !opts.swap;
+    if (opts.swap) this.landLowerBtn.textContent = opts.swap;
   }
 
   /** Show an old industry's card (see `ruinCard` in map-sites.ts). */

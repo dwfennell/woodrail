@@ -642,3 +642,95 @@ describe("an auto stop picks up only what a later stop has room for now", () => 
     expect(w.economy.needsService(farm, hopper)).toBe(false);
   });
 });
+
+/**
+ * The route card's plan (`Economy.routePlan`, ⬆/⬇ per stop) against what trains on the line do: run each line with
+ * its goods stocked, note what the crane loads and unloads at each stop, visit by visit. What's done is what the plan
+ * says, both ways. And no ping-pong at a warehouse: never a good dropped and picked up again on one visit, or dropped
+ * on one visit and picked up on the next.
+ */
+describe("a line's plan, and no ping-pong at warehouses", () => {
+  const cases: { name: string; roles: DepotRole[]; plan: string[]; stock: (d: DepotState[], first: boolean) => void }[] = [
+    {
+      name: "Forest → Sawmill → Warehouse (the warehouse the only one to take planks)",
+      roles: ["forest", "sawmill", "warehouse"],
+      plan: ["⬆log", "⬆planks ⬇log", "⬇planks"],
+      stock: ([forest, saw]) => ((forest.piles[CARGO.log.index] = 12), (saw.piles[CARGO.planks.index] = 12)),
+    },
+    {
+      name: "Forest → Sawmill → Warehouse → Town (the town wants planks too)",
+      roles: ["forest", "sawmill", "warehouse", "town"],
+      plan: ["⬆log", "⬆planks ⬇log", "⬆planks", "⬇planks"],
+      // (The sawmill's planks only at the start: a train full of them has no room for the warehouse's.)
+      stock: ([forest, saw, store], first) => ((forest.piles[CARGO.log.index] = 12), first && (saw.piles[CARGO.planks.index] = 3), (store.piles[CARGO.planks.index] = 6)),
+    },
+    {
+      name: "Warehouse → Town",
+      roles: ["warehouse", "town"],
+      plan: ["⬆planks", "⬇planks"],
+      stock: ([store]) => (store.piles[CARGO.planks.index] = 12),
+    },
+  ];
+  const words = (p: { picks: string[]; drops: string[] }) => [p.picks.length ? `⬆${p.picks.join(",")}` : "", p.drops.length ? `⬇${p.drops.join(",")}` : ""].filter(Boolean).join(" ");
+  for (const c of cases)
+    it(c.name, () => {
+      const w = line(c.roles, ["engine", "timber", "timber"]);
+      c.stock(w.depots, true);
+      w.route(w.auto(...w.depots));
+      const plan = w.economy.routePlan(w.economy.routeOf(w.engine)!.stops);
+      expect(plan.map(words)).toEqual(c.plan);
+      // Run it, noting each depot's visits (a run of ticks with the train on its piece) and what's done on each.
+      const visits = new Map<number, { loaded: Set<string>; unloaded: Set<string> }[]>();
+      const on = new Map<number, boolean>();
+      w.sim.setLever(w.engine, 1);
+      for (let i = 0; i < 400 * SIM_HZ; i++) {
+        if (i % SIM_HZ === 0) c.stock(w.depots, false);
+        w.step();
+        const t = w.train();
+        for (const d of w.depots) {
+          const here = t.bogies.some((b) => b.pieceId === d.pieceId);
+          if (here && !on.get(d.id)) visits.set(d.id, [...(visits.get(d.id) ?? []), { loaded: new Set(), unloaded: new Set() }]);
+          on.set(d.id, here);
+        }
+        for (const ev of w.economy.drainEvents()) {
+          if (ev.kind !== "loaded" && ev.kind !== "unloaded") continue;
+          const v = visits.get(ev.depotId)?.at(-1);
+          if (v) v[ev.kind].add(ev.cargo);
+        }
+      }
+      w.depots.forEach((d, k) => {
+        const vs = visits.get(d.id) ?? [];
+        const loaded = new Set(vs.flatMap((v) => [...v.loaded]));
+        const unloaded = new Set(vs.flatMap((v) => [...v.unloaded]));
+        // What's done is what the plan says (and all it says is done, with the goods stocked).
+        expect([...loaded].sort(), `${d.role} loads`).toEqual([...plan[k].picks].sort());
+        expect([...unloaded].sort(), `${d.role} unloads`).toEqual([...plan[k].drops].sort());
+        if (d.role !== "warehouse") return;
+        expect(vs.length, "the warehouse visited several times").toBeGreaterThan(2);
+        vs.forEach((v, j) => {
+          for (const g of v.unloaded) {
+            expect(v.loaded.has(g), `${g} dropped and picked up on visit ${j}`).toBe(false);
+            expect(vs[j + 1]?.loaded.has(g) ?? false, `${g} dropped on visit ${j}, picked up on the next`).toBe(false);
+          }
+        });
+      });
+    });
+
+  it("Only drop and Only pick up: the plan follows the stop's setting", () => {
+    const w = line(["forest", "sawmill", "warehouse", "town"]);
+    const [forest, saw, store, town] = w.depots;
+    w.route([
+      { depotId: forest.id, action: "auto" },
+      { depotId: saw.id, action: "auto" },
+      { depotId: store.id, action: "drop" },
+      { depotId: town.id, action: "auto" },
+    ]);
+    expect(w.economy.routePlan(w.economy.routeOf(w.engine)!.stops).map(words)).toEqual(["⬆log", "⬆planks ⬇log", "⬇log,planks", "⬇planks"]);
+    store.piles[CARGO.planks.index] = 4;
+    w.route([
+      { depotId: store.id, action: "pick" },
+      { depotId: town.id, action: "auto" },
+    ]);
+    expect(w.economy.routePlan(w.economy.routeOf(w.engine)!.stops).map(words)).toEqual(["⬆planks", "⬇planks"]);
+  });
+});

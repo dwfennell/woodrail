@@ -13,26 +13,32 @@ import { fuzz } from "./scenarios";
  *   ROUTING_FUZZ=200 ROUTING_FUZZ_SECONDS=1800 npx vitest run --silent=false src/routing/harness-fuzz.test.ts
  *                                                                           (long: prints a line per seed that broke one,
  *                                                                           and one per seed where a stall began)
+ *   npm run fuzz:long                                                       (the long one, sharded over the cores:
+ *                                                                           scripts/fuzz-long.mjs; for release points)
+ *
+ * ROUTING_FUZZ_FIRST: the first seed (default 1), so a shard runs seeds FIRST .. FIRST + ROUTING_FUZZ − 1.
  */
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const SEEDS = Number(ENV.ROUTING_FUZZ ?? 8);
+const FIRST = Number(ENV.ROUTING_FUZZ_FIRST ?? 1);
 const SECONDS = Number(ENV.ROUTING_FUZZ_SECONDS ?? 300);
 const LONG = ENV.ROUTING_FUZZ !== undefined;
 
 /** Expected to fail today, and the step expected to fix each (spec §13). */
 const FAILS: Partial<Record<Invariant, string>> = {};
 
-describe(`routing fuzz: ${SEEDS} seeds × ${SECONDS} s`, () => {
+describe(`routing fuzz: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × ${SECONDS} s`, () => {
   let reports: Report[] | undefined;
   const run = () =>
     (reports ??= Array.from({ length: SEEDS }, (_, k) => {
-      const h = new HarnessRun(new Layout(), fuzz(k + 1, SECONDS));
+      const seed = FIRST + k;
+      const h = new HarnessRun(new Layout(), fuzz(seed, SECONDS));
       const r = h.run(SECONDS);
       const broke = INVARIANTS.filter((i) => r.broke[i].count > 0);
-      if (LONG && broke.length > 0) console.log(`seed ${k + 1}: ${broke.map((i) => `${i} ×${r.broke[i].count} (${r.broke[i].first[0]})`).join("; ")}`);
+      if (LONG && broke.length > 0) console.log(`seed ${seed}: ${broke.map((i) => `${i} ×${r.broke[i].count} (${r.broke[i].first[0]})`).join("; ")}`);
       // (Stalls: waits that can't end now nothing turns a train back (§16 Q3), each seed where one began.)
-      if (LONG && r.stalls.begun > 0) console.log(`seed ${k + 1} stalls: ${r.stalls.begun} begun, stuck ${r.stalls.stuck.map((s) => (s / 120).toFixed(0)).join("/")} s (${r.stalls.why.map((w) => w ?? "-").join("/")}); stops ${r.arrivals.join("/")}; waits ${r.waits}`);
+      if (LONG && r.stalls.begun > 0) console.log(`seed ${seed} stalls: ${r.stalls.begun} begun, stuck ${r.stalls.stuck.map((s) => (s / 120).toFixed(0)).join("/")} s (${r.stalls.why.map((w) => w ?? "-").join("/")}); stops ${r.arrivals.join("/")}; waits ${r.waits}`);
       return r;
     }));
   for (const inv of INVARIANTS) {

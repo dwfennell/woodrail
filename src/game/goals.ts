@@ -1,4 +1,4 @@
-import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
+import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, START_REGION, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { acrossRiver, type AcrossRiver } from "./across-river";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
@@ -8,7 +8,7 @@ import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
-import { schoolTown, type World, fixedPieces } from "./world";
+import { schoolTown, type World, fixedPieces, plotsForSale } from "./world";
 import { nearestRuin } from "./restore";
 import { restoredType } from "./map-sites";
 import type { SiteRole } from "../landscape";
@@ -343,6 +343,24 @@ function openIndustry(role: SiteRole, blueprint: string, title: string, hint: st
   return { id: `open-${role}`, title, hint, needs: [blueprint], check: (w) => ({ done: hasIndustry(w, role) }), guide: (w) => guideIndustry(w, role) };
 }
 
+/** Plots bought: those outside the start's 2 × 2 (`START_REGION`), so an old save's land counts as it loads. */
+export function plotsBought(w: World): number {
+  const r = START_REGION;
+  return w.landscape.grid.plots.filter((p) => p.px < r.px0 || p.px >= r.px0 + r.w || p.pz < r.pz0 || p.pz >= r.pz0 + r.h).length;
+}
+
+/** "Buy some land": the plot for sale nearest the line (or the towns), framed. */
+function guideLand(w: World): GoalGuide {
+  const centre = (p: { px: number; pz: number }): Point => ({ x: (p.px + 0.5) * PLOT_WIDTH, z: (p.pz + 0.5) * PLOT_DEPTH });
+  const plots = plotsForSale(w.landscape).map(centre);
+  const near = trackPoints(w);
+  const pair = closest(plots, near.length > 0 ? near : w.landscape.towns.map((t) => t.centre), (p) => p);
+  return pair ? { points: [pair[0], pair[1]], towns: [], marks: [] } : { points: [], towns: [], marks: [] };
+}
+
+/** "Buy some land"'s hint: where to tap (the Add land button, in the ☰ menu on a phone). */
+export const BUY_LAND_HINT = "Tap Add land (in the ☰ menu on a phone), tap a plot marked +, then Add this land.";
+
 /** The "Open a …" goals' ids (the balance harness passes over them: its industries come by its own rules). */
 export const OPEN_INDUSTRY_GOALS: readonly string[] = ["open-farm", "open-quarry", "open-mine", "open-harbour"];
 
@@ -550,6 +568,16 @@ export const GOALS: readonly Goal[] = [
     hint: "One railway that reaches every town on the map.",
     check: (w) => towns(w, w.landscape.towns.length),
     guide: (w) => guideTowns(w, nextTowns(w)),
+  },
+  {
+    // Last: every town joined, the way to more is more land (its towns and old sites). An open goal, so land bought
+    // earlier ticks it at once. (Not earlier in the list: a player who never buys land would have it as the current
+    // goal from then on, and the yard's spare follows the current goal to the industries: `shopSpare`.)
+    id: "buy-land",
+    title: "Buy some land",
+    hint: BUY_LAND_HINT,
+    check: (w) => ({ done: plotsBought(w) > 0 }),
+    guide: guideLand,
   },
 ];
 

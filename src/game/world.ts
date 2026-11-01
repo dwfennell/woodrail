@@ -151,8 +151,9 @@ export function syncIndustries(world: World, halts = false): boolean {
       }
       continue;
     }
-    // An industry's piece, or a kit piece that's a cargo stop (Sandbox's loaders and unloaders).
-    const role = INDUSTRY_ROLE[type] ?? kitOf(type)?.depot;
+    // An industry's piece, or a kit piece that's a cargo stop (Sandbox's loaders and unloaders: in Game mode, `halts`,
+    // they're looks only, with no endless heap).
+    const role = INDUSTRY_ROLE[type] ?? (halts ? undefined : kitOf(type)?.depot);
     if (!role) continue;
     // A school belongs to the town it's beside (kept as it moves: it's renamed with it).
     const school = role === "school" ? (schoolTown(world.landscape, piece.pose)?.town.id ?? -1) : -1;
@@ -172,7 +173,15 @@ export function syncIndustries(world: World, halts = false): boolean {
  * `HALT_REACH` of a town, become another stop of that town's (an economy depot of role "town"): people wait there,
  * get on, and get off from other towns, exactly as at its station (see `Economy.isHalt`). Goods trains run through.
  */
-export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["kit-country-halt", "kit-mountain-station", "kit-harbour-station", "kit-platform-furnished"]);
+export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
+  "kit-country-halt",
+  "kit-mountain-station",
+  "kit-harbour-station",
+  "kit-platform-furnished",
+  // Big stations (a research): a stop on each road, or each road of the terminus, for the same town.
+  "kit-two-platform-station",
+  "kit-grand-terminus",
+]);
 
 /** How far a halt may stand from a town's middle (mm): a plot's depth, about 23 squares. */
 export const HALT_REACH = PLOT_DEPTH;
@@ -238,7 +247,10 @@ function addSites(world: Omit<World, "landscape">, towns: Landscape["towns"], de
   for (const depot of depots) world.depots.set(depot.id, world.layout.addPiece(depotPieceType(depot.kind), depot.piece));
   for (const site of ruins) if (!site.cleared) world.ruins.set(site.id, world.layout.addPiece(RUIN_STUB, site.piece));
   for (const d of depots) world.economy.addDepot(d.kind, world.depots.get(d.id)!);
-  for (const t of towns) world.economy.addDepot("town", world.stations.get(t.id)!, t.id, STATION_CRANE_AT);
+  for (const t of towns) {
+    world.economy.addDepot("town", world.stations.get(t.id)!, t.id, STATION_CRANE_AT);
+    world.economy.stationPieces.add(world.stations.get(t.id)!);
+  }
 }
 
 export const STARTER_SEED = 7;

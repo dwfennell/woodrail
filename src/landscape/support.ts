@@ -29,6 +29,8 @@ interface Foot {
 }
 
 const bridgeSample = createSample();
+/** Samples along an arch opening this far apart (mm) for the ground under it. */
+const ARCH_STEP = 4;
 
 /** The lowest ground under a piece's track. */
 function groundUnder(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose): number {
@@ -81,9 +83,15 @@ export function levelsOver(land: Landscape, type: PieceTypeId, flipped: boolean,
 
 /**
  * How far down each of a bridge's arch openings reaches (`ARCH_CENTRES` order), in riser heights below its base:
- * down to the highest ground under that arch, so an arch over a hill springs from the hilltop rather than running
- * down into it. (The viaduct itself still stands on the lowest ground under the deck: its foot in the hill is hidden
- * by the hill.) Null when every opening reaches all `levels` down, as on level ground.
+ * down to the lowest ground a track-wide way under the opening reaches, so an arch over a hill springs from the
+ * hilltop rather than running down into it, while one over a gap in the hill (a square left low, track through it)
+ * opens down into the gap. A sliver of low ground at a hill's edge, narrower than a track, doesn't take the opening
+ * down: nothing passes there. (The viaduct itself still stands on the lowest ground under the deck: its foot in the
+ * hill is hidden by the hill, and so is the opening's, where it reaches past the gap into the hill.) Null when every
+ * opening reaches all `levels` down, as on level ground.
+ *
+ * (It used to take the highest ground anywhere near the opening: an opening over a one-square gap, wider than the
+ * gap, stopped at the hilltops, and the track under the bridge ran into a solid wall.)
  */
 export function archFloors(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, levels: number): number[] | null {
   if (levels <= 0) return null;
@@ -94,19 +102,35 @@ export function archFloors(land: Landscape, type: PieceTypeId, flipped: boolean,
   const ch = Math.cos(pose.heading);
   const sh = Math.sin(pose.heading);
   const hills = hillsOf(land.grid);
-  const reach = len * ARCH_RADIUS + 2;
+  // Half an opening's width along the deck (its widest: a lower arch is narrower), and samples along it this far apart.
+  const half = len * ARCH_RADIUS;
+  const n = Math.max(2, Math.ceil((2 * half) / ARCH_STEP));
+  const step = (2 * half) / n;
+  // How many samples a track's width spans.
+  const span = Math.min(n, Math.ceil(TRACK_WIDTH / step));
+  const ground: number[] = [];
   const floors = ARCH_CENTRES.map((at) => {
-    let high = 0;
-    for (let k = -2; k <= 2; k++) {
-      samplePath(path, Math.min(len, Math.max(0, len * at + (reach * k) / 2)), bridgeSample);
+    // The highest ground across the viaduct at each step along the opening.
+    ground.length = 0;
+    for (let k = 0; k <= n; k++) {
+      samplePath(path, Math.min(len, Math.max(0, len * at - half + k * step)), bridgeSample);
+      let high = -Infinity;
       for (const across of [-TRACK_WIDTH / 2, 0, TRACK_WIDTH / 2]) {
         const lx = bridgeSample.x - Math.sin(bridgeSample.heading) * across;
         const lz = bridgeSample.z + Math.cos(bridgeSample.heading) * across;
         high = Math.max(high, hills.groundAt(pose.x + lx * ch - lz * sh, pose.z + lx * sh + lz * ch));
       }
+      ground.push(high);
+    }
+    // The lowest a track's width of it (the highest ground in each such stretch) gets.
+    let low = Infinity;
+    for (let a = 0; a + span <= n; a++) {
+      let high = -Infinity;
+      for (let k = a; k <= a + span; k++) high = Math.max(high, ground[k]);
+      low = Math.min(low, high);
     }
     // Whole levels above that ground (never below it).
-    return Math.max(0, Math.min(levels, Math.floor((y - high) / RISER_HEIGHT + 0.02)));
+    return Math.max(0, Math.min(levels, Math.floor((y - low) / RISER_HEIGHT + 0.02)));
   });
   return floors.every((f) => f === levels) ? null : floors;
 }
