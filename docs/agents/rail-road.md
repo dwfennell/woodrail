@@ -260,6 +260,7 @@ A routed train never runs over points set against it: refused, it stands short o
 - One instanced draw; 0 idle frames.
 
 ## 4. Open items
+- **Flaky: e2e:draw `ghosts` "Fernhill W"** (seen on `claude/arrows-both-ways`, and on main 5d32dc8): the last ghosts before the lift sometimes lag one move behind what's laid (about 30 mm off, a straight-54 shown where a straight-108 goes down; what's laid is the same every run). `E2E_ONLY=ghosts`: branch 3/5, main 1/2. A timing race in the check or in the preview at lift, not the chevrons.
 - **GitHub issues, from the user's play-test:**
   - #2: trains merge at crossings (fixed on `claude/crossing-merge`, waiting to land);
   - #3: derailment when a switch is thrown for the train behind (fixed on `claude/switch-derail`, waiting to land);
