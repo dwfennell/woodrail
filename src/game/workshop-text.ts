@@ -13,9 +13,9 @@ export const SHOP_HELP = "Trains drop planks here as they pass. On a route, add 
 
 /**
  * Why a train passing `place` keeps its `kind` (its engine card). `role`: the depot's. `place`: what it's called
- * ("Foxley", "the workshop", "the school").
+ * ("Foxley", "the workshop", "the school"). `held`: how many it keeps for the school ("school"; 0: not said).
  */
-export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: CargoKind, role: string, place: string): string {
+export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: CargoKind, role: string, place: string, held = 0): string {
   const goods = CARGO[kind].label.toLowerCase();
   const head = `Not dropping ${goods}: `;
   switch (why) {
@@ -30,6 +30,7 @@ export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: Cargo
     case "unwanted":
       return role === "school" ? `${head}the research doesn't need any` : `${head}${place} doesn't need any now`;
     case "school":
-      return `Keeping ${goods} for the school: it's set to Research first`;
+      // How many (`Economy.heldForSchool`): a routed train holds at most one wagon's worth (issue #20).
+      return held > 0 ? `Keeping ${held} ${goods} for the school (Research first)` : `Keeping ${goods} for the school (Research first)`;
   }
 }
