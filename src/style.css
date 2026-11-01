@@ -884,14 +884,23 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill { position: relative; overflow: hidden; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
 .research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
-.research-pill .rp-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.research-pill .rp-line { display: flex; flex: 0 100 auto; align-items: center; gap: 4px; min-width: 0; }
 .research-pill .rp-icon { flex: none; font-size: 16px; line-height: 1; }
 .research-pill .rp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.research-pill .rp-count { font-variant-numeric: tabular-nums; color: #1f4f8a; }
+/* The count: every good the research needs ("🪵0/6 🌾0/6"). Where they don't all fit, `fitPill` shortens it to the
+   goods still lacking, then to the one most lacking and "+1" (it's measured against this room: the name gives way first). */
+.research-pill .rp-count { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; font-variant-numeric: tabular-nums; color: #1f4f8a; }
 .research-pill .rp-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; }
 /* (Fitted by `fitPill`: a name that's cut goes a little smaller, then over two lines.) */
 .research-pill.rp-small .rp-name { font-size: 0.875em; letter-spacing: -0.01em; }
 .research-pill.rp-wrap .rp-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; line-height: 1.05; }
+/* (Fitted by `fitPill` too: no room for even the good most lacking and "+1" beside the name, the name gives way and the
+   count has both lines.) */
+.research-pill.rp-goods .rp-line { display: none; }
+.research-pill.rp-goods .rp-text { display: flex; flex-direction: column; justify-content: center; }
+.research-pill.rp-goods .rp-count { white-space: normal; max-height: 2.4em; line-height: 1.15; }
+/* (Clear of the queue's "+1" in the corner.) */
+.research-pill.rp-goods:not([data-more=""])[data-more] .rp-text { padding-top: 9px; }
 .research-pill.idle { background: #fff1c2; box-shadow: 0 0 0 2px #e2a12b, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill.idle .rp-count { color: inherit; }
 /* Nothing to research (the school's idle): an amber dot. It pulses gently a few times (about 10 s) as the school goes

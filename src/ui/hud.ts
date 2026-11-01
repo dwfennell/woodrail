@@ -10,7 +10,7 @@ import { isKit } from "../track";
 import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
-import { pillText, type PillView } from "../game/research-text";
+import { pillCount, pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
 import { ControlsTutorial, type ViewState } from "./controls-tutorial";
@@ -315,6 +315,8 @@ export class Hud {
   private readonly researchPill = el("button", "research-pill") as HTMLButtonElement;
   /** What the pill shows now (its whole text and fill): it's redrawn only when this changes. */
   private pillShown = "";
+  /** What the research pill shows now (for fitting its count to its room). */
+  private pillView: PillView | null = null;
   /** The menu's Lines item (see `setLinesAvailable`). */
   private linesItem!: HTMLButtonElement;
   /** Menu items for each mode's maps. */
@@ -1193,7 +1195,7 @@ export class Hud {
   }
 
   /**
-   * The research pill: shown with what's being researched ("📘 Bridges 6/10🪵", a bar for how far), "Pick research"
+   * The research pill: shown with what's being researched ("📘 Mills 🪵0/6 🌾0/6", a bar for how far), "Pick research"
    * with nothing picked, or hidden (null). Called when the research changes (`pillKey`); the DOM is touched only when
    * what it shows does.
    */
@@ -1202,29 +1204,50 @@ export class Hud {
     const key = v ? `${text}|${Math.round(v.fill * 100)}` : "";
     if (key === this.pillShown) return;
     this.pillShown = key;
+    this.pillView = v;
     this.researchPill.hidden = !v;
     if (!v) return;
     this.researchPill.querySelector(".rp-name")!.textContent = v.name;
-    this.researchPill.querySelector(".rp-count")!.textContent = v.count;
     this.researchPill.style.setProperty("--fill", `${Math.round(v.fill * 100)}%`);
     this.researchPill.classList.toggle("idle", v.idle);
     // (How many more wait in the queue, #14: a small "+2" in its corner, drawn by CSS from this.)
     this.researchPill.setAttribute("data-more", v.more > 0 ? `+${v.more}` : "");
-    this.researchPill.title = v.idle ? "Pick research" : `${text.slice(3)}: tap for Research`;
-    this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${text.slice(3)}`);
+    const queue = v.more > 0 ? ` (${v.more} more in the queue)` : "";
+    this.researchPill.title = v.idle ? "Pick research" : `${v.name}: ${v.words}${queue}. Tap for Research`;
+    this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${v.name}, ${v.words}${queue}`);
     this.fitPill();
   }
 
   /**
-   * The pill's name whole where it can be (QA: "Train ro…" at 360 px): a little smaller if it's cut, and then over two
-   * lines if it's still cut (shortened with "…" only past that). Measured when the name or its room changes.
+   * The pill whole where it can be. The count first: every good the research needs; where they don't all fit, the
+   * ones all in go, then the good most lacking with "+1" (`pillCount`). Still too wide (360 px, a four-figure purse):
+   * the name gives way (it's in the tooltip, and the picker a tap opens) and the count has both lines (`rp-goods`). So
+   * no good is cut off unsaid. Then the name (QA: "Train ro…" at 360 px): a little smaller if it's cut, and then over
+   * two lines if it's still cut (shortened with "…" only past that). Measured when the pill's text or its room
+   * changes, never per frame.
    */
   private fitPill(): void {
     const p = this.researchPill;
-    p.classList.remove("rp-small", "rp-wrap");
+    p.classList.remove("rp-small", "rp-wrap", "rp-goods");
     const n = p.querySelector<HTMLElement>(".rp-name")!;
-    if (p.hidden || n.clientWidth === 0) return;
-    const cut = () => n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1;
+    const c = p.querySelector<HTMLElement>(".rp-count")!;
+    const v = this.pillView;
+    if (v) c.textContent = pillCount(v, 0);
+    if (p.hidden || n.clientWidth === 0 || !v) return;
+    const over = (e: HTMLElement) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1;
+    for (const fit of [1, 2] as const) {
+      if (!over(c)) break;
+      c.textContent = pillCount(v, fit);
+    }
+    if (over(c) && v.parts.length > 1) {
+      p.classList.add("rp-goods");
+      c.textContent = pillCount(v, 1);
+      // ("+2 more" on its own line where it fits: not to be read as the queue's "+1" in the corner.)
+      if (over(c)) c.textContent = `${pillCount(v, 2)} more`;
+      if (over(c)) c.textContent = pillCount(v, 2);
+      return;
+    }
+    const cut = () => over(n);
     if (cut()) p.classList.add("rp-small");
     if (cut()) p.classList.add("rp-wrap");
   }
