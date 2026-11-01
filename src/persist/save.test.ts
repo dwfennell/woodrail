@@ -261,6 +261,24 @@ describe("save format", () => {
     expect(r.value.economy.routeOf(loaded.id)!.next).toBe(1);
   });
 
+  it("keeps a line through a reload with one of its stops taken up: on its line, with the stops still on the map", () => {
+    const world = worldWithTrain();
+    const engine = world.sim.getTrain(world.sim.trainIds()[0])!.cars[0];
+    const end = appendPiece(world.layout, "depot-school", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    const school = world.economy.depotAtPiece(end)!;
+    const [town] = world.economy.allDepots().filter((d) => d.role === "town");
+    editLine(world.economy, engine.id, (s) => s.push({ depotId: town.id, action: "auto" }, { depotId: school.id, action: "auto" }));
+    world.layout.removePiece(end);
+    world.economy.prune();
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    if (!r.ok) throw new Error(r.error);
+    const loaded = r.value.sim.getTrain(r.value.sim.trainIds()[0])!.cars[0];
+    const back = lineOf(r.value.economy, loaded.id)!;
+    expect(back.stops.map((s) => r.value.economy.depot(s.depotId)!.pieceId)).toEqual([town.pieceId]);
+    expect(r.value.economy.routeOf(loaded.id)!.stops).toBe(back.stops);
+  });
+
   it("refuses version 7 saves (their landscape was only a seed)", () => {
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number; landscape: unknown };
     data.version = 7;
@@ -798,6 +816,25 @@ describe("kit pieces in saves", () => {
     expect([w.layout.switchState(sem), w.layout.switchState(light), w.layout.switchState(gantry)]).toEqual([1, 0, 3]);
     expect([w.sim.signalHeld(gantry, 0), w.sim.signalHeld(gantry, 1)]).toEqual([true, true]);
     expect(w.layout.joinedConnector(connectorRef(lamp, 0))).toBe(connectorRef(gantry, 1));
+  });
+
+  it("signal marks on joints round-trip with their style and hold; a save without any writes no signals", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const s1 = appendPiece(world.layout, "straight-216", false, connectorRef(station, 1));
+    const s2 = appendPiece(world.layout, "straight-216", false, connectorRef(s1, 1));
+    expect(serializeWorld(world).signals).toBeUndefined();
+    const m1 = world.layout.addSignal(connectorRef(s1, 1), "semaphore");
+    const m2 = world.layout.addSignal(connectorRef(s2, 0), "colour-light", true);
+    expect(m1).toBeGreaterThan(0);
+    expect(m2).toBeGreaterThan(0);
+    const w = roundTripOf(world);
+    const marks = [...w.layout.signals()].map((m) => ({ at: m.at, style: m.style, held: m.held }));
+    expect(marks).toEqual([
+      { at: connectorRef(s1, 1), style: "semaphore", held: false },
+      { at: connectorRef(s2, 0), style: "colour-light", held: true },
+    ]);
   });
 
   it("old saves load unchanged: a plain signal held at red, buffers, and the held-back signal and crossing models as props", () => {

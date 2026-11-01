@@ -1504,10 +1504,7 @@ describe("the goals guard", () => {
  * (claude/harden-1, 2026-10-31), and why: each a bug to fix (reported to the CoS). Off the list when fixed (the
  * check below fails on one that no longer breaks).
  */
-const GOALS_KNOWN_BREAKS: Partial<Record<Invariant, string>> = {
-  wrongRoad:
-    "the router steers for the stop a train stands at (`goal`: its route's `next`) until its last axle is off it: a long train pushed out of its stop (181487) has its front on the points beyond (164993) first, and takes their default road, not its way on to the next stop (181476), every lap from minute 104",
-};
+const GOALS_KNOWN_BREAKS: Partial<Record<Invariant, string>> = {};
 
 /** The invariants' breaks not in `known`, and the known ones that didn't break (both should be empty). */
 export function invariantsAgainst(checks: Invariants, known: Partial<Record<Invariant, string>>): { unknown: string[]; fixed: string[] } {

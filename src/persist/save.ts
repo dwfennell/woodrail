@@ -4,7 +4,7 @@ import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, I
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
-import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
+import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
 import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
 
@@ -14,7 +14,7 @@ const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?
 const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type Pose, type RelaxOptions } from "../track";
+import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type SignalStyle, type Pose, type RelaxOptions } from "../track";
 import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
@@ -95,6 +95,11 @@ const saveSchema = z.object({
   joints: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])).optional(),
   /** Pinned switches, by piece id: routed engines don't throw them (optional: older saves load with none). */
   pinned: z.array(z.number().int().positive()).optional(),
+  /**
+   * Signal marks on joints (signals spec §9), each as the joint end it guards from (piece id, connector index), its
+   * style and whether it's held at red (optional: older saves have none).
+   */
+  signals: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.enum(["plain", "semaphore", "colour-light"]), z.boolean()])).optional(),
   /**
    * Points' defaults (the way the player last set them by hand, which routes put them back to), only where one differs
    * from how the switch is set (optional: older saves, and points not named, default to how they're set).
@@ -249,6 +254,7 @@ export function serializeWorld(world: World): SaveData {
     switches,
     joints: [...layout.joints()].map((j) => [pieceOfRef(j.a), indexOfRef(j.a), pieceOfRef(j.b), indexOfRef(j.b)] as [number, number, number, number]),
     ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
+    ...(layout.signalCount > 0 ? { signals: [...layout.signals()].map((m) => [pieceOfRef(m.at), indexOfRef(m.at), m.style, m.held] as [number, number, SignalStyle, boolean]) } : {}),
     ...(defaults ? { switchDefaults: defaults } : {}),
     wyeLevers: 3,
     trains,
@@ -387,6 +393,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   }
   // An older save's joints past the tolerance (parted by seating afresh), joined again before the trains go on.
   const broughtBack = save.joints ? [] : layout.seatNearMisses();
+  // (Marks go on joints: after every joint is back. One whose joint didn't come back is dropped.)
+  for (const [pieceId, index, style, held] of save.signals ?? []) layout.addSignal(connectorRef(pieceId, index), style, held);
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);
@@ -450,7 +458,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     const path = getPieceDef(lead.type, lead.flipped).paths[t.lead.pathIndex];
     if (!path || t.lead.s < 0 || t.lead.s > pathLength(path.geom)) continue;
     const ids = t.cars.every((c) => c.id !== undefined && !used.has(c.id)) && new Set(t.cars.map((c) => c.id)).size === t.cars.length ? t.cars.map((c) => c.id!) : undefined;
-    const placed = putBack(sim, layout, t.cars.map((c) => c.kind), t.lead, ids);
+    const placed = sim.putBack(t.cars.map((c) => c.kind), t.lead, ids);
     if (placed.kind !== "placed") continue;
     if (ids) for (const id of ids) used.add(id);
     const train = sim.getTrain(placed.trainId)!;
@@ -497,37 +505,6 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     landscape.siteless = true;
   } else if (save.landscape.sites === undefined) addSitesToOldSave(world);
   return ok(world);
-}
-
-/** How far along the track a saved train may be moved to find room (a few train lengths). */
-const PUT_BACK_REACH = 1200;
-
-/**
- * Put a saved train back where it was; or, when that's taken (a derailed train lying across another after a crash),
- * on the nearest free stretch along the track either way, so a save never loses a train it can fit.
- */
-function putBack(sim: Sim, layout: Layout, kinds: readonly CarKind[], lead: Cursor, ids?: readonly number[]): AddTrainResult {
-  const placed = sim.addTrain(kinds, lead, ids);
-  if (placed.kind === "placed") return placed;
-  const adv = createAdvance();
-  const ways = [{ ...lead }, { ...lead }];
-  flipCursor(layout, ways[1]);
-  const open = [true, true];
-  for (let moved = 24; moved <= PUT_BACK_REACH; moved += 24) {
-    for (let k = 0; k < 2; k++) {
-      if (!open[k]) continue;
-      advanceCursor(layout, ways[k], 24, null, adv);
-      if (adv.status !== ADV_OK) {
-        open[k] = false;
-        continue;
-      }
-      const at = { ...ways[k] };
-      if (k === 1) flipCursor(layout, at);
-      const r = sim.addTrainAround(kinds, at, ids);
-      if (r.kind === "placed") return r;
-    }
-  }
-  return placed;
 }
 
 /**

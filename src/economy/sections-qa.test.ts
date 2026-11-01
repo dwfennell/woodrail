@@ -591,6 +591,31 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     }
     expect(bad).toEqual([]);
   });
+  // (Random put-downs, seed 16: two spares put down at 90 s, one standing in the section ahead of a line train. It
+  // waits short of it, a dead end, naming the spare: once it named no one (−1), for minutes.)
+  it("random put-downs, seed 16: a wait short of a spare standing ahead names the spare", () => {
+    let x = 16 * 7919;
+    const rnd = () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const { q, l0, l1, R3 } = two();
+    const spots = [l0.side[1], l0.main[0], l1.side[1], l1.main[0], q.middle[0][0], q.west[0], q.east[0]];
+    const extra: T[] = [0, 1].map(() => ({ p: spots[Math.floor(rnd() * spots.length)], next: rnd() < 0.5 ? 0 : 1, s: 100, at: 2 + Math.floor(rnd() * 120), spare: rnd() < 0.2 }));
+    const ghosts: string[] = [];
+    let named = 0;
+    const events = Array.from({ length: 298 }, (_, k) => ({
+      at: 2 + k,
+      fn: (E: readonly number[]) => {
+        for (const e of E) {
+          const w = q.economy.sections.waitOf(e);
+          if (!w || !("engine" in w)) continue;
+          if (q.sim.findCar(w.engine)) named++;
+          else ghosts.push(`${2 + k} s: ${e} waits (${w.kind}) for ${w.engine}`);
+        }
+      },
+    }));
+    scen(q, [...R3, ...extra], [q.a, q.b], 300, cars, events);
+    expect(ghosts.slice(0, 4)).toEqual([]);
+    expect(named).toBeGreaterThan(0);
+  });
   // B5, and the invariant again over a sequence of runs in one world (history mattered there: QA's sweep froze only
   // after earlier runs): a train put down on each loop road at many times, a spare (lever off, not on the line) or one
   // of the line's. The line never stands all still for a minute, unless it can't do better, and its cards then say why.
@@ -1314,9 +1339,6 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
  * guard below fails on an entry that no longer breaks).
  */
 const KNOWN_BREAKS: { test: string; invariant: Invariant; why: string }[] = [
-  { test: "random put-downs: no head-ons", invariant: "deadlock", why: "a sections slot wait names a train that isn't there (from 92 s), as the long fuzz's seeds 74, 127, 135, 183 did" },
-  { test: "B5: QA's spare sweep, in order in one world", invariant: "deadlock", why: "a sections slot wait names a train that isn't there (from 5718 s)" },
-  { test: "QA's N2: a train taken off its line", invariant: "split", why: "a train put down across a switch's toe: its last axle on the other road (piece 5: axles 1-3 on path 1, axle 4 on path 0 at 10.9 mm, the points at 0)" },
 ];
 
 describe("the train invariants (src/sim/invariants.ts)", () => {
