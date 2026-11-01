@@ -167,7 +167,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    the top corners. */
 .engine-card { padding-top: 14px; min-width: 290px; }
 /* The card's corner buttons are 44 px to tap (the icon's smaller). */
-.engine-card .corner, .engine-card > .close { position: absolute; top: 2px; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: #8a6a4a; cursor: pointer; border-radius: 12px; line-height: 0; }
+.engine-card .corner, .engine-card > .close { position: absolute; top: 2px; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: #74522f; cursor: pointer; border-radius: 12px; line-height: 0; }
 .engine-card .corner.follow { left: 2px; }
 .engine-card > .close { right: 2px; font-size: 18px; font-weight: 900; color: #6a4a2c; line-height: 1; }
 /* (As every card's ✕: a faint wood hover; the Follow camera too, unless it's on.) */
