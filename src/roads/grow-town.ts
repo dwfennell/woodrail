@@ -1,6 +1,6 @@
 import { hashInts } from "../landscape/edges";
 import { CELL, FEAT_BUILDING, FEAT_STATION, SURF_ROAD, type LandscapeGrid } from "../landscape/grid";
-import { pieceForEdges, type Edge } from "./pieces";
+import { edgesOf, pieceForEdges, type Edge } from "./pieces";
 
 /**
  * Towns that grow: one set of rules lays a town out on a new map and grows it in play, a building at a time (see the
@@ -127,12 +127,18 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
     return Math.hypot(a, b * 1.3);
   };
 
-  // Road bytes: each street square joins its street neighbours; a dead end stays open straight on, for a road laid on.
+  // Road bytes: each street square joins its street neighbours, and a road laid up to it (a lane, or one the player
+  // laid: its piece has an end pointing at the street, at its height), so growing never parts them; a dead end stays
+  // open straight on, for a road laid on.
   const roads = new Map<number, number>();
   for (const [i, s] of state) if (s === STREET) roads.set(i, grid.road[i]);
+  const laidTo = (i: number, e: number) => {
+    const j = nb[i * 4 + e];
+    return j !== -1 && grid.surface[j] !== SURF_ROAD && grid.road[j] !== 0 && grid.height[j] === grid.height[i] && (edgesOf(grid.road[j]) & (1 << ((e + 2) & 3))) !== 0;
+  };
   const pieceOf = (i: number) => {
     let mask = 0;
-    for (let e = 0; e < 4; e++) if (isStreet(nb[i * 4 + e]) || (nb[i * 4 + e] !== -1 && !state.has(nb[i * 4 + e]) && grid.surface[nb[i * 4 + e]] === SURF_ROAD)) mask |= 1 << e;
+    for (let e = 0; e < 4; e++) if (isStreet(nb[i * 4 + e]) || (nb[i * 4 + e] !== -1 && !state.has(nb[i * 4 + e]) && grid.surface[nb[i * 4 + e]] === SURF_ROAD) || laidTo(i, e)) mask |= 1 << e;
     if (mask === 1 || mask === 4) mask = 5;
     else if (mask === 2 || mask === 8) mask = 10;
     else if (mask === 0) mask = 5;
