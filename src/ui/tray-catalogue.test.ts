@@ -5,7 +5,9 @@ import { DEFAULT_FAVOURITES, favouriteItems, INDUSTRY_GROUPS, propGroups, shelfI
 
 describe("tray tabs", () => {
   it("Game mode shows the railway: track (bridges included), trains, industries and roads", () => {
-    expect(trayTabs("game").map((t) => t.id)).toEqual(["track", "trains", "industries"]);
+    expect(trayTabs("game").map((t) => t.id)).toEqual(["track", "trains", "industries", "roads"]);
+    // (Roads only once its blueprint is learned: the HUD shows a tab with `gameTech` in Game mode once it is.)
+    expect(trayTabs("game").filter((t) => t.gameTech).map((t) => [t.id, t.gameTech])).toEqual([["roads", "roads"]]);
     expect(trayTabs("game")[0].props).toBeUndefined();
     // Props only as Game mode's lineside furniture (hidden till learned), on the Industries tab.
     for (const tab of trayTabs("game")) for (const g of tab.groups) for (const item of g.items) if (item.kind === "prop") expect([tab.id, g.label, item.unlearned]).toEqual(["industries", "Lineside", "hide"]);

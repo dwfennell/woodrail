@@ -904,9 +904,11 @@ export class Hud {
     this.reopenTray = () => {
       if (openDef) openTab(openDef);
     };
-    this.showTabs = (mode) => {
+    this.showTabs = (mode, keep = false) => {
       tabs.innerHTML = "";
-      list = trayTabs(mode);
+      list = this.shownTabs(mode);
+      this.tabsKey = list.map((t) => t.id).join(" ");
+      const was = openId;
       for (const tab of list) {
         // Tapping a tab (even the open one) goes back to its groups. (Drawing on a phone on its side, the tray is only
         // its tabs, its shelves put away for the map's sake: a tab tapped there puts the pencil down, so they show.)
@@ -917,7 +919,8 @@ export class Hud {
         t.dataset.tab = tab.id;
         tabs.appendChild(t);
       }
-      openTab(list[0]);
+      // (Tabs shown again as one came or went (Roads, learned): the open one stays open. A new mode opens the first.)
+      openTab((keep ? list.find((t) => t.id === was) : undefined) ?? list[0]);
     };
     // Turn and flip, for track pieces: set how the next piece comes out, or turn the one in hand (with another finger).
     const orient = el("div", "tray-orient");
@@ -1119,7 +1122,7 @@ export class Hud {
 
   /** Label the mode by the logo and offer its own map items in the menu. */
   /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
-  private showTabs: (mode: GameMode) => void = () => {};
+  private showTabs: (mode: GameMode, keep?: boolean) => void = () => {};
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
   private reopenTray: () => void = () => {};
 
@@ -1129,9 +1132,29 @@ export class Hud {
    */
   trayKnown: ((item: TrayItem) => boolean) | null = null;
 
-  /** Something was learned: the open tab shows again, with what it brought (back at its shelves). */
+  /**
+   * Game mode: is a tab's blueprint learned (`TrayTab.gameTech`: the Roads tab)? Set by the game; null outside Game
+   * mode. `refreshTabs` shows the tabs again when it changes.
+   */
+  tabKnown: ((tech: string) => boolean) | null = null;
+  private tabsKey = "";
+
+  /** The tabs a mode shows now: in Game mode, those that need a blueprint only once it's learned. */
+  private shownTabs(mode: GameMode): TrayTab[] {
+    return trayTabs(mode).filter((t) => !t.gameTech || mode !== "game" || this.tabKnown?.(t.gameTech) === true);
+  }
+
+  /** Show the tray's tabs again if one has come or gone (a blueprint learned, another game loaded). Cheap if not. */
+  refreshTabs(): void {
+    if (this.trayMode === null) return;
+    if (this.shownTabs(this.trayMode).map((t) => t.id).join(" ") !== this.tabsKey) this.showTabs(this.trayMode, true);
+  }
+
+  /** Something was learned: the open tab shows again, with what it brought (back at its shelves), and any tab it opened. */
   trayLearned(): void {
-    this.reopenTray();
+    const key = this.tabsKey;
+    this.refreshTabs();
+    if (this.tabsKey === key) this.reopenTray();
   }
 
   /**
