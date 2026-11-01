@@ -26,3 +26,9 @@ A research learned: its ✓ is stamped on like a sticker, a glint runs over the 
 ## Cost
 
 The web is laid out and routed once per redraw (when a tag's name, state, price or the selection changes); nothing runs per frame, and no animation loops.
+
+## Round 2 (after the user's look)
+
+- **"?" centred in its slot.** Each 44 px token sits in the middle of the 148 × 48 slot of the tag it stands for (`slotInset`), so it lines up with the cards in its row; arrows meet the middle of its edge. Tags are 48 px tall (`TAG_H`, the arrows' height), the one under way included (its bar no longer adds padding).
+- **Room round the band names.** 10 px above each band's name and 10 px below it, in every band (`BAND_HEAD` 44; the line between bands is an inset shadow, so it adds nothing). On a phone, 10 px between a band's name and its tags and 20 px between bands.
+- Pictures: `round2-*-before.webp` (main at a0cd584) and `round2-*-after.webp`. Measured in the harness: tags 48 px (61 px only for a two-line name with a tag), band room [10, 10] in each band.

@@ -6,7 +6,7 @@ import { workshops, workshopStock } from "./crafting";
 import { THING_RULES, type ThingId } from "./things";
 import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
-import { receivedBy } from "./town-life";
+import { growthOf } from "./town-life";
 import { townStatus } from "./towns";
 import { schoolTown, type World, fixedPieces, plotsForSale } from "./world";
 import { nearestRuin } from "./restore";
@@ -71,6 +71,23 @@ export interface Goal {
   readonly blueprint?: string;
   /** The tray item it asks to place: ringed on the tray while it's the goal and none is on the map (see `trayRing`). */
   readonly ring?: PieceTypeId;
+  /** Coins paid when it's ticked off (`payGoal`), said on its toast; most goals pay none. */
+  readonly coins?: number;
+}
+
+/** Coins "Buy some land" pays back when it's ticked off (the first plot costs 60: `plotPrice`). */
+export const BUY_LAND_COINS = 40;
+
+/** A goal just ticked off pays its coins into `progress`; returns them (0 for most goals). */
+export function payGoal(progress: { coins: number }, goal: Goal): number {
+  const n = goal.coins ?? 0;
+  progress.coins += n;
+  return n;
+}
+
+/** A ticked goal as its toast names it: "Buy some land (+40 🪙)", or just its title. */
+export function goalTickTitle(goal: Goal): string {
+  return goal.coins ? `${goal.title} (+${goal.coins} 🪙)` : goal.title;
 }
 
 /** Above this speed (mm/s) a train counts as running. */
@@ -161,7 +178,7 @@ export function guideSchool(w: World): GoalGuide {
     return { points: [at, ...guideDepot(w, "sawmill").points.slice(0, 1)], towns: [], marks: [at] };
   }
   const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
-  const towns = [...w.landscape.towns].sort((a, b) => townStatus(receivedBy(w, b.id)).fill - townStatus(receivedBy(w, a.id)).fill);
+  const towns = [...w.landscape.towns].sort((a, b) => townStatus(growthOf(w, b.id)).fill - townStatus(growthOf(w, a.id)).fill);
   for (const town of towns) {
     const station = w.stations.get(town.id);
     if (station === undefined) continue;
@@ -434,12 +451,12 @@ export const GOALS: readonly Goal[] = [
     title: "Grow a town into a village",
     hint: "A town's sign shows what it wants. Fill its bar and it grows.",
     check: (w) => {
-      const best = Math.max(0, ...w.landscape.towns.map((t) => townStatus(receivedBy(w, t.id)).level));
+      const best = Math.max(0, ...w.landscape.towns.map((t) => townStatus(growthOf(w, t.id)).level));
       return { done: best >= 1 };
     },
     guide: (w) => {
       // The town nearest to growing.
-      const fills = w.landscape.towns.map((t) => ({ id: t.id, fill: townStatus(receivedBy(w, t.id)).fill }));
+      const fills = w.landscape.towns.map((t) => ({ id: t.id, fill: townStatus(growthOf(w, t.id)).fill }));
       const best = fills.sort((a, b) => b.fill - a.fill)[0];
       return best ? { ...guideTowns(w, [best.id]), marks: [] } : guideDepot(w, "sawmill");
     },
@@ -533,6 +550,18 @@ export const GOALS: readonly Goal[] = [
     guide: (w) => guideTowns(w, nextTowns(w)),
   },
   {
+    // After three towns are joined (on the starter map, every town of the start's land): the way to more is more
+    // land, its towns and old sites, and by now towns have paid for planks. Pays back part of the first plot. An open
+    // goal, so land bought earlier ticks it at once. (A player who doesn't buy land has it as the current goal on, so
+    // the yard's spare follows the waiting research to the industries rather than an "Open a …" goal: `shopSpare`.)
+    id: "buy-land",
+    title: "Buy some land",
+    hint: BUY_LAND_HINT,
+    coins: BUY_LAND_COINS,
+    check: (w) => ({ done: plotsBought(w) > 0 }),
+    guide: guideLand,
+  },
+  {
     id: "deliver-ten",
     title: "Deliver 10 bundles of planks",
     hint: "Keep the timber running: forest, sawmill, town.",
@@ -568,16 +597,6 @@ export const GOALS: readonly Goal[] = [
     hint: "One railway that reaches every town on the map.",
     check: (w) => towns(w, w.landscape.towns.length),
     guide: (w) => guideTowns(w, nextTowns(w)),
-  },
-  {
-    // Last: every town joined, the way to more is more land (its towns and old sites). An open goal, so land bought
-    // earlier ticks it at once. (Not earlier in the list: a player who never buys land would have it as the current
-    // goal from then on, and the yard's spare follows the current goal to the industries: `shopSpare`.)
-    id: "buy-land",
-    title: "Buy some land",
-    hint: BUY_LAND_HINT,
-    check: (w) => ({ done: plotsBought(w) > 0 }),
-    guide: guideLand,
   },
 ];
 

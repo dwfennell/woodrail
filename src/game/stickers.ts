@@ -1,5 +1,6 @@
+import { townLinks } from "../roads/graph";
 import { townStatus } from "./towns";
-import { receivedBy } from "./town-life";
+import { growthOf } from "./town-life";
 import { fixedPieces, type World } from "./world";
 
 /**
@@ -20,9 +21,9 @@ export interface StickerContext {
 /**
  * What a check depends on: it's run again only when one of these has changed since the last check (see
  * `depKeys`). "pieces": the track (`Layout.piecesVersion`); "towns": what the towns have received; "coins"; "counts";
- * "learned"; "goals" (how many are done).
+ * "learned"; "goals" (how many are done); "land": the squares, roads among them (the grid's revision).
  */
-export type StickerDep = "pieces" | "towns" | "coins" | "counts" | "learned" | "goals";
+export type StickerDep = "pieces" | "towns" | "coins" | "counts" | "learned" | "goals" | "land";
 
 export type StickerTheme = "building" | "trains" | "towns" | "economy";
 
@@ -51,7 +52,7 @@ export function ownTrack(w: World): number {
 
 /** Every town's level (0 a hamlet, 1 a village, 2 a town, 3 a city, 4 City ★…). */
 export function townLevels(w: World): number[] {
-  return w.landscape.towns.map((t) => townStatus(receivedBy(w, t.id)).level);
+  return w.landscape.towns.map((t) => townStatus(growthOf(w, t.id)).level);
 }
 
 const count = (ctx: StickerContext, key: string) => ctx.counts.get(key) ?? 0;
@@ -66,6 +67,7 @@ export const SAWDUST = 1000;
 export const STICKERS: readonly Sticker[] = [
   { id: "track-layer", title: "Track layer", how: `Lay ${TRACK_LAYER} pieces of track`, icon: "🛤️", theme: "building", deps: ["pieces"], check: (w) => ownTrack(w) >= TRACK_LAYER },
   { id: "all-towns", title: "Every town", how: "Join every town on the map by rail", icon: "🗺️", theme: "building", deps: ["goals"], check: (_w, c) => c.goalsDone("join-all") },
+  { id: "road-link", title: "On the road", how: "Join two towns by road", icon: "🛣️", theme: "building", deps: ["land"], check: (w) => [...townLinks(w.landscape).values()].some((l) => l.length > 0) },
   { id: "all-villages", title: "Villages everywhere", how: "Grow every town into a village or more", icon: "🏡", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).every((l) => l >= 1) },
   { id: "first-city", title: "A city", how: "Grow a town into a city", icon: "🏙️", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).some((l) => l >= 3) },
   { id: "city-star", title: "City ★", how: "Grow a city into a City ★", icon: "🌟", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).some((l) => l >= 4) },
@@ -109,6 +111,7 @@ export function depKeys(w: World, ctx: StickerContext, goalsDone: number): Recor
     counts: `${count(ctx, "loadsMoved")}:${count(ctx, "planksSawn")}`,
     learned: String(ctx.learned.size),
     goals: String(goalsDone),
+    land: String(w.landscape.grid.revision),
   };
 }
 

@@ -16,7 +16,7 @@ import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSe
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { reporter, startLog, type Reporter } from "./debug/report";
-import { GoalTracker, secondEngineTip, trayRing } from "./game/goals";
+import { GoalTracker, goalTickTitle, payGoal, secondEngineTip, trayRing } from "./game/goals";
 import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
@@ -65,7 +65,7 @@ import { attachResearch, detachResearch, lacking as researchLacking, queuePlace,
 import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
-import { carLoadWords, CLASSIC_KMH, trainSummary, type SummaryCar } from "./game/train-summary";
+import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
@@ -1520,13 +1520,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const ctx = { learned: progress.learned, owned: progress.owned, orders: progress.orders };
     const fresh = goals.update(game.world, ctx);
     if (fresh.length > 0) {
+      // (A goal that pays coins pays them as it's ticked: "Buy some land".)
+      if (fresh.reduce((n, g) => n + payGoal(progress, g), 0) > 0) {
+        hud.setCoins(progress.coins);
+        scheduleSave("progress");
+      }
       // (A goal done: its guide's markers no longer hold a piece, and the tray rings what the next one asks for.)
       interaction.guideSpots = [];
       hud.refreshTrayBadges();
       saveGoals(goals.ids());
       cloud?.edited(mode, "progress");
       if (announce) {
-        const titles = fresh.map((g) => g.title);
+        const titles = fresh.map(goalTickTitle);
         const tick = goalsDoneText(titles, TOAST_TITLES);
         if (growth && joins(growth, game.simSeconds, performance.now(), GROWTH_JOIN_S)) {
           // Right after a growth milestone: a toast of its own after the growth's. (Goals done aren't News: the Goals
@@ -2866,7 +2871,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRoute();
     showEngineView();
     showSummary();
+    showRefusals();
   };
+
+  /**
+   * Swap ends and Decouple greyed on the open card where they'd only be refused (moving, or nothing to uncouple), with
+   * why. Its key changes only as the train starts or stops, or its make-up changes: the buttons are touched only then.
+   */
+  let refusalsKey = "";
+  const REFUSED_WHY = { moving: "Stop the train first", alone: "Nothing coupled to uncouple", none: "" } as const;
+  function showRefusals(): void {
+    const engineId = interaction.openEngineCarId;
+    const carId = engineId !== -1 ? engineId : interaction.openCarCardId;
+    if (carId === -1) {
+      refusalsKey = "";
+      return;
+    }
+    const swap = engineId !== -1 ? game.sim.runAroundRefusal(engineId) : null;
+    const dec = game.sim.decoupleRefusal(carId);
+    const key = `${carId}:${swap}:${dec}`;
+    if (key === refusalsKey) return;
+    refusalsKey = key;
+    hud.setCardRefusals(swap ? REFUSED_WHY[swap] : "", dec ? REFUSED_WHY[dec] : "");
+  }
 
   /**
    * The engine card's train summary and the wagon card's load (#9): redrawn only when what they say could have changed
@@ -2893,10 +2920,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (key === summaryKey) return;
     summaryKey = key;
     if (engineId !== -1) {
-      // Its top speed by its engines (Sandbox's are all the classic's); too heavy to move, none said.
+      // Its top speed by its engines, against the classic's (Sandbox's are all the classic's); too heavy to move, none said.
       const l = engineLoad(game.world, found.train);
-      const kmh = mode !== "game" ? CLASSIC_KMH : l.cars > l.pulls || l.engines.length === 0 ? 0 : CLASSIC_KMH * Math.min(...l.engines.map((e) => e.speed));
-      const s = trainSummary(cars.map(summaryCar), kmh, line?.name ?? "");
+      const speed = mode !== "game" ? 1 : l.cars > l.pulls || l.engines.length === 0 ? 0 : Math.min(...l.engines.map((e) => e.speed));
+      const s = trainSummary(cars.map(summaryCar), speed, line?.name ?? "");
       hud.setEngineSummary(s.about, s.load);
     } else {
       const car = cars[found.index];
@@ -4440,6 +4467,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (game.economy.stalls.onStuck !== stuckTip) game.economy.stalls.onStuck = stuckTip;
     showEngineView();
     showSummary();
+    showRefusals();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);

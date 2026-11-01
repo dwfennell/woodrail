@@ -544,24 +544,43 @@ export class Sim {
    * train's stopped; refused where there's no room for the engine at the other end (a buffer, the end of the track,
    * another train). The train keeps its id (a depot working it carries on).
    */
-  runAround(engineCarId: number): "ran-round" | "turned" | "moving" | "no-room" | "none" {
+  /**
+   * Why Swap ends would be refused now, without trying it (the card greys the button): "moving" (or riding a turning
+   * deck), "none" (no such engine, or off the rails), or null. (Room at the other end is only known by trying.)
+   */
+  runAroundRefusal(engineCarId: number): "moving" | "none" | null {
     const found = this.findCar(engineCarId);
     if (!found || found.train.derailed) return "none";
     const t = found.train;
     // Riding a turning deck: it's moving.
     if (this.rides.size > 0 && this.riding(t)) return "moving";
+    // Only turning it (see `runAround`): fine moving or not.
+    if (this.runAroundOnlyTurns(t, found.index)) return null;
+    return t.speed > 0 ? "moving" : null;
+  }
+
+  /** Nothing to run round (an engine alone, mid-train, or with another engine at the far end): Swap ends turns it. */
+  private runAroundOnlyTurns(t: Train, i: number): boolean {
+    const n = t.cars.length;
+    const atFront = i === 0;
+    return n === 1 || !(atFront || i === n - 1) || t.cars[atFront ? n - 1 : 0].kind === "engine";
+  }
+
+  runAround(engineCarId: number): "ran-round" | "turned" | "moving" | "no-room" | "none" {
+    const refused = this.runAroundRefusal(engineCarId);
+    if (refused) return refused;
+    const found = this.findCar(engineCarId)!;
+    const t = found.train;
     const n = t.cars.length;
     const i = found.index;
     const engine = t.cars[i];
     const atFront = i === 0;
-    const atRear = i === n - 1;
-    if (n === 1 || !(atFront || atRear) || t.cars[atFront ? n - 1 : 0].kind === "engine") {
+    if (this.runAroundOnlyTurns(t, i)) {
       // Nothing to run round: turn it (moving or not, as ever), and the train goes the other way (led by its other
       // engine, if it has one).
       this.flipCar(engineCarId);
       return "turned";
     }
-    if (t.speed > 0) return "moving";
     const cars = atFront ? [...t.cars.slice(1), engine] : [engine, ...t.cars.slice(0, n - 1)];
     const offsets = bogieOffsets(cars.map((c) => c.kind));
     // The new front axle: the first wagon's (staying put) when the engine goes to the back; ahead of it by the
@@ -603,27 +622,40 @@ export class Sim {
    * new train, set back a few mm so the gap shows. Only while the train's stopped. Neither part is moving, so they
    * stay apart until an engine drives them together again.
    */
-  decouple(carId: number): { kind: "decoupled"; trainId: number } | { kind: "moving" } | { kind: "alone" } | { kind: "none" } {
+  /** Where `decouple` would split the car's train (the index of the first car of the rear part). */
+  private decoupleAt(t: Train, i: number): number {
+    const n = t.cars.length;
+    if (t.cars[i].kind === "engine") return i === 0 ? 1 : i === n - 1 ? n - 1 : i + 1;
+    // The nearest engine decides which side is "the engine's side" (the front, if there's none).
+    let e = -1;
+    for (let j = 0; j < n; j++) {
+      if (t.cars[j].kind === "engine" && (e < 0 || Math.abs(j - i) < Math.abs(e - i))) e = j;
+    }
+    return e > i ? i + 1 : i;
+  }
+
+  /**
+   * Why Decouple would be refused now, without trying it (the cards grey the button): "moving" (or riding a turning
+   * deck), "alone" (nothing coupled on that side), "none" (no such car, or off the rails), or null.
+   */
+  decoupleRefusal(carId: number): "moving" | "alone" | "none" | null {
     const found = this.findCar(carId);
-    if (!found || found.train.derailed) return { kind: "none" };
+    if (!found || found.train.derailed) return "none";
     const t = found.train;
     // Riding a turning deck: it's moving.
-    if (this.rides.size > 0 && this.riding(t)) return { kind: "moving" };
-    const n = t.cars.length;
+    if (this.rides.size > 0 && this.riding(t)) return "moving";
+    const k = this.decoupleAt(t, found.index);
+    if (k <= 0 || k >= t.cars.length) return "alone";
+    return t.speed > 0 ? "moving" : null;
+  }
+
+  decouple(carId: number): { kind: "decoupled"; trainId: number } | { kind: "moving" } | { kind: "alone" } | { kind: "none" } {
+    const refused = this.decoupleRefusal(carId);
+    if (refused) return { kind: refused };
+    const found = this.findCar(carId)!;
+    const t = found.train;
     const i = found.index;
-    let k: number;
-    if (t.cars[i].kind === "engine") {
-      k = i === 0 ? 1 : i === n - 1 ? n - 1 : i + 1;
-    } else {
-      // The nearest engine decides which side is "the engine's side" (the front, if there's none).
-      let e = -1;
-      for (let j = 0; j < n; j++) {
-        if (t.cars[j].kind === "engine" && (e < 0 || Math.abs(j - i) < Math.abs(e - i))) e = j;
-      }
-      k = e > i ? i + 1 : i;
-    }
-    if (k <= 0 || k >= n) return { kind: "alone" };
-    if (t.speed > 0) return { kind: "moving" };
+    const k = this.decoupleAt(t, i);
     const frontHas = t.cars.slice(0, k).some((c) => c.kind === "engine");
     const rearHas = t.cars.slice(k).some((c) => c.kind === "engine");
     const frontKeeps = frontHas || rearHas ? frontHas : i < k;

@@ -84,6 +84,17 @@ async function run(name, viewport, mobile) {
   await p.screenshot({ path: `${OUT}/${name}-learned-mid.png` });
   await p.waitForTimeout(1300);
   await p.screenshot({ path: `${OUT}/${name}-learned.png` });
+  // Tag heights on the web (the arrows meet them at 24 px), the "?"s' offsets in their slots, and each band name's room.
+  const fit = await p.evaluate(() => ({
+    heights: Object.entries(Object.groupBy([...document.querySelectorAll(".bp-web .bp-node:not(.hint)")], (n) => n.offsetHeight)).map(([h, ns]) => `${h}: ${ns.slice(0, 3).map((n) => n.className.split(" ")[1] + " " + n.querySelector(".bp-name").textContent).join(", ")}`),
+    hints: [...new Set([...document.querySelectorAll(".bp-web .bp-node.hint")].map((n) => `${n.offsetLeft % 176}/${n.offsetTop}`))].length,
+    bandRoom: [...document.querySelectorAll(".bp-band, .bp-list-band")].slice(0, 4).map((b) => {
+      const l = b.querySelector(".bp-band-label").getBoundingClientRect();
+      const first = [...b.parentElement.querySelectorAll(".bp-node")].map((n) => n.getBoundingClientRect()).filter((r) => r.top >= l.bottom - 1).sort((u, v) => u.top - v.top)[0];
+      return first ? [Math.round(l.top - b.getBoundingClientRect().top), Math.round(first.top - l.bottom)] : null;
+    }),
+  }));
+  console.log(name, "fit:", JSON.stringify(fit));
   const sizes = await p.evaluate(() => {
     const small = [...document.querySelectorAll(".board-panel button, .board-panel summary")].filter((e) => e.getBoundingClientRect().width > 0).map((e) => [e.textContent.trim().slice(0, 20), Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)]).filter(([, w, h]) => w < 44 || h < 44);
     return small;

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Progress } from "../game/progress";
 import { deliver, pick } from "../game/research";
 import { researchCard } from "../game/research-text";
-import { HINT_W, layoutWeb, researchFoot, routeLinks, TAG_W, tagTitle, type Station } from "./blueprint-board";
+import { HINT_W, layoutWeb, researchFoot, routeLinks, TAG_H, TAG_W, tagTitle, type Station } from "./blueprint-board";
 
 const st = (id: string, branch: string, needs: string[] = []): Station => ({ id, label: id, blurb: "", branch, makes: [], state: "locked", seen: "shown", needs, price: "free", cost: "nothing", unlocks: "", requires: [] });
 
@@ -39,7 +39,7 @@ describe("the web's arrows", () => {
     for (const [i, d] of paths.entries()) {
       const to = web.at.get(["b", "c", "d"][i])!;
       // Starts at a's right edge, ends at its card's left edge, both at the middle.
-      expect(d.startsWith(`M${web.at.get("a")!.x + TAG_W} ${web.at.get("a")!.y + 22}`)).toBe(true);
+      expect(d.startsWith(`M${web.at.get("a")!.x + TAG_W} ${web.at.get("a")!.y + TAG_H / 2}`)).toBe(true);
       expect(d.endsWith(`H${to.x - 2}`)).toBe(true);
       expect(/^M(H|HQVQH)$/.test(tops(d))).toBe(true);
     }
@@ -54,7 +54,16 @@ describe("the web's arrows", () => {
     const lane = (d: string) => d.match(/Q([\d.]+) /)?.[1];
     const turned = paths.filter((d) => d.includes("V"));
     expect(new Set(turned.map(lane)).size).toBe(turned.length);
-    expect(paths[1].startsWith(`M${web.at.get("b")!.x + HINT_W} `)).toBe(true);
+    expect(paths[1].startsWith(`M${web.at.get("b")!.x + (TAG_W + HINT_W) / 2} `)).toBe(true);
+  });
+  it("meet a \"?\" at the middle of its left edge: the token is centred in the slot of the tag it stands for", () => {
+    const stations = [st("a", "track"), st("b", "track", ["a"])];
+    const web = layoutWeb(stations, ["track"]);
+    const [d] = routeLinks(web, [{ from: "a", to: "b", fromW: TAG_W, toW: HINT_W }]);
+    const b = web.at.get("b")!;
+    // The token: HINT_W square, its slot TAG_W × TAG_H; the arrow stops 2 px short of its edge, at its centre's height.
+    expect(d.endsWith(`H${b.x + (TAG_W - HINT_W) / 2 - 2}`)).toBe(true);
+    expect(web.at.get("a")!.y + TAG_H / 2).toBe(b.y + (TAG_H - HINT_W) / 2 + HINT_W / 2);
   });
   it("one across several columns never runs through a card", () => {
     // z needs a (column 1) and y (column 3: after x, after w), so it lands in column 4, on a's row, with x and y on

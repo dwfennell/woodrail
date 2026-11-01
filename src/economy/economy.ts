@@ -9,7 +9,7 @@ import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
-import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
+import { aimOf, passVias, ranOnto, resetVias, skipVias } from "../routing/via";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -325,6 +325,14 @@ export class Economy {
   readonly delivered = new Map<number, number>();
   /** Town id → everything delivered there, by kind (planks are counted in `delivered` too). */
   readonly deliveredGoods = new Map<number, Bag>();
+  /**
+   * Town id → what was delivered there while it was joined by road to another town (roads spec D2), by kind: a part
+   * of it counts again toward the town's growth (`roadBonus`, town-life.ts). Only ever goes up, so a road taken up
+   * later never takes a level away.
+   */
+  readonly roadGot = new Map<number, Bag>();
+  /** Is this town joined by road to another now (Game mode's towns: `TownLife`; null: never)? Asked per delivery. */
+  joinedByRoad: ((townId: number) => boolean) | null = null;
   private readonly services = new Map<number, Service>();
   /** Each stop list's `Later`s (see `laterOf`), and the counters they're keyed on. */
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
@@ -435,10 +443,21 @@ export class Economy {
     const r = this.routes.get(engine);
     if (!r || r.stops.length === 0) return -1;
     let i = r.next % r.stops.length;
-    // (At its stop: the stop after, a different depot.)
+    // (At its stop: the stop after, a different depot; past any it has run onto already, between its front and this
+    // one: it comes to them as soon as it's off this one. Aimed at one behind its front, the router would ask for
+    // nothing, or for the way back round to it, and it would run over the points ahead as they lie.)
     if (r.at) {
       const here = r.stops[i].depotId;
-      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+      const hereAt = this.depots[here]?.pieceId ?? -1;
+      const train = this.sim.findCar(engine)?.train;
+      for (let k = 0; k < r.stops.length; k++) {
+        const id = r.stops[i].depotId;
+        if (id !== here) {
+          const d = this.depots[id];
+          if (!train || !d || !this.onMap(d) || !ranOnto(train.bogies, this.drive(train), hereAt, d.pieceId)) break;
+        }
+        i = (i + 1) % r.stops.length;
+      }
     }
     return this.aim(r, i, skip);
   }
@@ -916,6 +935,11 @@ export class Economy {
         const got = this.deliveredGoods.get(d.townId) ?? {};
         got[kind] = (got[kind] ?? 0) + 1;
         this.deliveredGoods.set(d.townId, got);
+        if (this.joinedByRoad?.(d.townId)) {
+          const road = this.roadGot.get(d.townId) ?? {};
+          road[kind] = (road[kind] ?? 0) + 1;
+          this.roadGot.set(d.townId, road);
+        }
       }
     } else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count + 1);
   }

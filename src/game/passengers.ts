@@ -2,7 +2,7 @@ import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
 import type { Progress } from "./progress";
 import { townStatus } from "./towns";
-import { receivedBy } from "./town-life";
+import { growthOf } from "./town-life";
 import type { World } from "./world";
 
 /**
@@ -64,7 +64,7 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
       clock.set(townId, 0);
       continue;
     }
-    const every = riderSeconds(townStatus(receivedBy(world, townId)).level, busy);
+    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy);
     let t = (clock.get(townId) ?? 0) + seconds;
     while (t >= every && waiting < cap) {
       t -= every;

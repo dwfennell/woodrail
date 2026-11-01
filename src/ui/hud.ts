@@ -147,9 +147,27 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
   b.setAttribute("aria-label", title);
   b.addEventListener("click", (e) => {
     e.stopPropagation();
+    // Greyed for now (see `setRefused`): it would only be refused.
+    if (b.getAttribute("aria-disabled") === "true") return;
     onClick();
   });
   return b;
+}
+
+const SWAP_TITLE = "Move the engine to the other end of its train";
+const ENGINE_DECOUPLE_TITLE = "Uncouple the engine from its cars";
+const CAR_DECOUPLE_TITLE = "Uncouple this wagon (and those behind it) from the cars on the engine's side";
+
+/**
+ * Grey a button that would only be refused now (`why` says why, as its tooltip), or bring it back (`why` ""). It stays
+ * in the tab order and keeps its place; a tap does nothing. Set only when it changes.
+ */
+function setRefused(b: HTMLButtonElement, why: string, title: string): void {
+  const off = why !== "";
+  if ((b.getAttribute("aria-disabled") === "true") === off && (!off || b.title === why)) return;
+  if (off) b.setAttribute("aria-disabled", "true");
+  else b.removeAttribute("aria-disabled");
+  b.title = off ? why : title;
 }
 
 /** A switch: a label and a pill with a knob, on or off (role="switch"). Its name is its label; `title` is the tooltip. */
@@ -287,6 +305,10 @@ export class Hud {
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
+  /** Swap ends and Decouple (the engine card's), and the wagon card's Decouple: greyed where they'd be refused. */
+  private readonly swapBtn: HTMLButtonElement;
+  private readonly engineDecoupleBtn: HTMLButtonElement;
+  private readonly carDecoupleBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
   private readonly followBtn: HTMLButtonElement;
   /** The engine's lever as last shown, and the way Go will send it (+1: its own front first). */
@@ -577,10 +599,12 @@ export class Hud {
     this.continueBtn.hidden = true;
     // Swap ends, Decouple and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): under Go and
     // the arrow, or beside them on a phone on its side (style.css).
+    this.swapBtn = button("Swap ends", SWAP_TITLE, h.swapEnds, "chip text swap-ends");
+    this.engineDecoupleBtn = button("Decouple", ENGINE_DECOUPLE_TITLE, h.decouple, "chip text decouple");
     const engineActions = el("div", "engine-actions");
     engineActions.append(
-      button("Swap ends", "Move the engine to the other end of its train", h.swapEnds, "chip text swap-ends"),
-      button("Decouple", "Uncouple the engine from its cars", h.decouple, "chip text decouple"),
+      this.swapBtn,
+      this.engineDecoupleBtn,
       button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove"),
     );
     controls.append(this.goBtn, this.wayBtn, this.continueBtn, engineActions);
@@ -595,10 +619,11 @@ export class Hud {
     this.carCard.appendChild(el("div", "card-title", "Wagon"));
     this.carLoad.hidden = true;
     this.carCard.appendChild(this.carLoad);
+    this.carDecoupleBtn = button("Decouple", CAR_DECOUPLE_TITLE, h.decouple, "chip text decouple");
     const carRow = el("div", "card-row");
     carRow.append(
       button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"),
-      button("Decouple", "Uncouple this wagon (and those behind it) from the cars on the engine's side", h.decouple, "chip text"),
+      this.carDecoupleBtn,
       button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
     );
     this.carCard.appendChild(carRow);
@@ -1500,6 +1525,16 @@ export class Hud {
   setContinue(on: boolean): void {
     if (on === !this.continueBtn.hidden) return;
     this.continueBtn.hidden = !on;
+  }
+
+  /**
+   * Why the open card's Swap ends and Decouple would be refused now ("" for neither): greyed with that as the tooltip.
+   * Main sets it as the train starts and stops (set only on change). `swap` is the engine card's alone.
+   */
+  setCardRefusals(swap: string, decouple: string): void {
+    setRefused(this.swapBtn, swap, SWAP_TITLE);
+    setRefused(this.engineDecoupleBtn, decouple, ENGINE_DECOUPLE_TITLE);
+    setRefused(this.carDecoupleBtn, decouple, CAR_DECOUPLE_TITLE);
   }
 
   private drawEngine(): void {

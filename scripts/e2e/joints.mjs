@@ -149,7 +149,15 @@ const QA_LINE = [
   ["straight-216", false, -865.0107362523145, 99.29026086462507, 0.03952016712254344],
 ];
 const old = createWorld(7, true);
-QA_LINE.forEach(([type, flipped, x, z, heading], i) => old.layout.restorePiece(8 + i, type, { x, z, heading }, 0, flipped));
+// (At the next free ids, as that build numbered them after the map's own pieces: a fresh world's own pieces now go up
+// to 8, so the old fixed ids 8–13 lost the first piece, and the joints' names moved.)
+const base = Math.max(...old.layout.pieceIds()) + 1;
+const placed = QA_LINE.map(([type, flipped, x, z, heading], i) => old.layout.restorePiece(base + i, type, { x, z, heading }, 0, flipped));
+if (!placed.every(Boolean)) throw new Error(`the old line's pieces weren't all restored: ${placed}`);
+const sawmill = (() => {
+  for (const id of old.layout.pieceIds()) if (old.layout.getPiece(id).type === "depot-sawmill") return id;
+  return -1;
+})();
 const oldSave = serializeWorld(old);
 delete oldSave.joints;
 const ctx2 = await b.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
@@ -170,7 +178,7 @@ const back = await joints();
 const oldLine = await laid();
 check(
   "an older build's save of QA's line comes back joined from the sawmill to Larkfield",
-  oldLine.length === 6 && oldLine.every((x) => x.joined) && back.some((j) => j.pieces === "6-8") && back.some((j) => j.pieces === "10-11"),
+  oldLine.length === 6 && oldLine.every((x) => x.joined) && back.some((j) => j.pieces === `${sawmill}-${base}`) && back.some((j) => j.pieces === `${base + 2}-${base + 3}`),
   `${oldLine.map((x) => `${x.id} ${x.type}${x.joined ? "" : " (open)"}`).join(", ")}; ${say(back)}`,
 );
 check("…every joint within the joint tolerance", back.every((j) => !j.over), say(back));

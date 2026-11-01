@@ -48,6 +48,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    was lost against the grass. */
 .actions .chip:disabled { opacity: 1; color: rgba(58, 42, 28, 0.3); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
 .chip.text { font-size: 15px; }
+/* A card's button that would only be refused now (Swap ends and Decouple while the train moves): the top bar's
+   disabled look, solid wood with its words faded, not see-through; no hover or press. */
+.card .chip[aria-disabled="true"] { opacity: 1; cursor: default; filter: none; transform: none; color: rgba(58, 42, 28, 0.36); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
 .chip.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
 /* A switch: label, then a pill with a knob. Off = outline and knob left; on = filled green and knob right. */
 .chip.toggle { display: inline-flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; background: transparent; box-shadow: inset 0 0 0 2px #b58f62; }
@@ -730,10 +733,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-web { position: relative; }
 .bp-band { position: absolute; left: 0; right: 0; }
 .bp-band.alt { background: rgba(160, 106, 54, 0.06); }
-.bp-band + .bp-band { border-top: 1.5px solid rgba(167, 138, 102, 0.22); }
+.bp-band + .bp-band { box-shadow: inset 0 1.5px 0 rgba(167, 138, 102, 0.22); }
 /* A band's name: a painted tab in a strip of its own above its tags, kept in view as the web
    scrolls sideways (never over a tag: the board opens scrolled to the top of the picked tag's band). */
-.bp-band-label { position: sticky; left: 0; display: inline-flex; align-items: center; height: 24px; margin: 3px 0 0 8px; padding: 0 10px 0 8px; border-left: 4px solid var(--c, #b8a68c); border-radius: 0 8px 8px 0; background: #fff8ea; font-size: 12px; font-weight: 900; line-height: 1; color: #3a2a1c; white-space: nowrap; z-index: 3; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.18), 0 2px 6px rgba(60, 40, 20, 0.08); }
+.bp-band-label { position: sticky; left: 0; display: inline-flex; align-items: center; height: 24px; margin: 10px 0 0 8px; padding: 0 10px 0 8px; border-left: 4px solid var(--c, #b8a68c); border-radius: 0 8px 8px 0; background: #fff8ea; font-size: 12px; font-weight: 900; line-height: 1; color: #3a2a1c; white-space: nowrap; z-index: 3; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.18), 0 2px 6px rgba(60, 40, 20, 0.08); }
 .bp-links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 /* Links, quiet to loud: future (dotted, no arrow), laid (learned to learned: solid, soft), open (learned into one you can
    research: solid, an arrow), lit (the selected tag's path: blue). */
@@ -742,7 +745,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-link.laid { stroke-width: 3; opacity: 0.45; }
 .bp-link.open { stroke-width: 2.5; opacity: 0.9; }
 .bp-link.lit { stroke: #2f6db5 !important; stroke-dasharray: none; stroke-width: 3; opacity: 1; }
-.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 46px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 7px; align-items: center; padding: 5px 8px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: transform 0.15s; }
+.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 48px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 7px; align-items: center; padding: 5px 8px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: transform 0.15s; }
 .bp-node:focus-visible, .bp-hints:focus-visible { outline: 3px solid #2f6fb5; outline-offset: 2px; }
 .bp-node .bp-dot { grid-row: 1 / span 2; width: 20px; height: 20px; font-size: 12px; }
 .bp-node .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
@@ -768,7 +771,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-node.ready { background: #fffdf6; border-color: #e0c48c; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.2), 0 3px 8px rgba(60, 40, 20, 0.1); }
 /* Under way: a blue tag, a blue ring round the card, and its progress along the bottom (as the top bar's pill). */
 .researching .bp-dot { background: #2f6db5; box-shadow: 0 0 0 2px #1f4f8a; }
-.bp-node.researching { background: #f1f6fd; border-color: #2f6db5; box-shadow: 0 0 0 1.5px #2f6db5, 0 3px 8px rgba(47, 109, 181, 0.18); padding-bottom: 8px; }
+.bp-node.researching { background: #f1f6fd; border-color: #2f6db5; box-shadow: 0 0 0 1.5px #2f6db5, 0 3px 8px rgba(47, 109, 181, 0.18); }
 .bp-node-gauge { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: #d6e3f4; }
 .bp-node-gauge::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; transition: width 0.4s ease-out; }
 .next .bp-dot { background: #fffaf0; box-shadow: 0 0 0 2px #2f6db5; }
@@ -786,7 +789,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-legend-box summary::-webkit-details-marker { display: none; }
 .bp-legend-box .bp-legend { position: absolute; right: 0; top: 44px; z-index: 5; width: 240px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 6px 18px rgba(60, 40, 20, 0.25); }
 /* Phones: each branch a list of tags in two columns (see BlueprintBoard.narrow); the panel is the one thing that scrolls. */
-.bp-list-band { display: flex; flex-direction: column; gap: 6px; }
+.bp-list-band { display: flex; flex-direction: column; gap: 10px; }
+/* (The same room above a band's name as below it, plus the panel's gap between bands.) */
+.bp-list-band + .bp-list-band { margin-top: 10px; }
 .bp-list-band .bp-band-label { position: static; align-self: flex-start; margin: 0; }
 .bp-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bp-list .bp-node { position: relative; width: auto; }

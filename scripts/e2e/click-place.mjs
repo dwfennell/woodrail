@@ -343,8 +343,125 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await frames(p);
   const n1 = await trains();
   check("over track its ghost sits on it, and a click puts the train down there, still carried", g?.visible && g.target === true && n1 === n0 + 1 && (await thing())?.kind === "drag-train", `ghost ${JSON.stringify(g)}; trains ${n0} → ${n1}; said ${await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "))}`);
+  // Which way it faces: the way the mouse came along the track. The station's track's way on screen (unit, px), and
+  // the newest train's engine: the way it faces on screen, and as world headings the ghost's and the train's.
+  const along = await p.evaluate(() => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece([...w.stations.values()][0]);
+    const V = w.camera.position.constructor;
+    const a = new V(q.pose.x, q.y, q.pose.z).project(w.camera);
+    const b = new V(q.pose.x + 30 * Math.cos(q.pose.heading), q.y, q.pose.z + 30 * Math.sin(q.pose.heading)).project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    const dx = ((b.x - a.x) * r.width) / 2;
+    const dy = (-(b.y - a.y) * r.height) / 2;
+    const l = Math.hypot(dx, dy);
+    return [dx / l, dy / l];
+  });
+  const engineWay = () =>
+    p.evaluate(async () => {
+      const w = window.woodrail;
+      const { cursorWorld, createWorldSample } = await import("/src/sim/index.ts");
+      const t = w.sim.getTrain(Math.max(...w.sim.trainIds()));
+      const e = t.cars.find((c) => c.kind === "engine");
+      const a = cursorWorld(w.layout, t.bogies[0], createWorldSample());
+      const b = cursorWorld(w.layout, t.bogies[t.bogies.length - 1], createWorldSample());
+      const V = w.camera.position.constructor;
+      const pa = new V(a.x, a.y, a.z).project(w.camera);
+      const pb = new V(b.x, b.y, b.z).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      const dx = ((pa.x - pb.x) * r.width) / 2;
+      const dy = (-(pa.y - pb.y) * r.height) / 2;
+      const l = Math.hypot(dx, dy);
+      return { id: t.id, carId: e.id, facing: e.facing, x: (dx / l) * e.facing, y: (dy / l) * e.facing, lead: a.heading };
+    });
+  const ghostWay = () => p.evaluate(() => { const c = window.woodrail.interaction.carriedThing; return c ? { lead: -c.m.ghost.rotation.y, target: !!c.m.target, said: c.m.facing !== null } : null; });
+  const turn = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  // (Taken off between the drags: harness shortcut, setup only. A train put down has no undo of its own.)
+  const takeOff = () => p.evaluate(() => { const w = window.woodrail; w.sim.removeTrain(Math.max(...w.sim.trainIds())); w.economy.prune(); w.invalidate(); });
+  await takeOff();
+  for (const [name, dir] of [["right", 1], ["left", -1]]) {
+    // (Along the track's way on screen, `dir`: "right" is whichever way the station's track runs, drawn first.)
+    const from = [onTrack[0] - dir * 110 * along[0], onTrack[1] - dir * 110 * along[1]];
+    await p.mouse.move(from[0], from[1], { steps: 3 });
+    await p.mouse.move(onTrack[0], onTrack[1], { steps: 10 });
+    const gw = await ghostWay();
+    await p.mouse.click(onTrack[0], onTrack[1]);
+    await frames(p);
+    const e = await engineWay();
+    const dot = e.x * dir * along[0] + e.y * dir * along[1];
+    check(`moved ${name} along the track, the train put down faces that way, as its ghost did`, gw?.target && gw.said && dot > 0.9 && turn(gw.lead, e.lead) < 0.1, JSON.stringify({ along, gw, e, dot }));
+    // (The first taken up again; the second, facing left, stays for the pickup below.)
+    if (dir === 1) await takeOff();
+  }
+  // The one put down facing left, picked up and dragged right along the track: re-placed facing right.
+  const e0 = await engineWay();
+  const dot0 = e0.x * along[0] + e0.y * along[1];
   await p.mouse.click(onTrack[0], onTrack[1], { button: "right" });
   check("a right-click puts it away", !(await thing()) && !(await marked(p, train.key)));
+  // (The train put down last: where it is on screen.)
+  const engineAt = () =>
+    p.evaluate(async (id) => {
+      const w = window.woodrail;
+      const { cursorWorld, createWorldSample } = await import("/src/sim/index.ts");
+      const t = w.sim.findCar(id).train;
+      const a = cursorWorld(w.layout, t.bogies[0], createWorldSample());
+      const b = cursorWorld(w.layout, t.bogies[t.bogies.length - 1], createWorldSample());
+      const v = new w.camera.position.constructor((a.x + b.x) / 2, (a.y + b.y) / 2 + 20, (a.z + b.z) / 2).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    }, e0.carId);
+  /** Pick the train up (selected by a click first) and drag it `dir` along the track by `px`, letting go there. */
+  const pickUpAndDrag = async (dir, px) => {
+    const at = await engineAt();
+    await p.mouse.click(at[0], at[1]);
+    await frames(p);
+    await p.mouse.move(at[0], at[1]);
+    await p.mouse.down();
+    await new Promise((r) => setTimeout(r, 450));
+    const steps = 14;
+    let lifted = null;
+    for (let k = 1; k <= steps; k++) {
+      await p.mouse.move(at[0] + (dir * px * along[0] * k) / steps, at[1] + (dir * px * along[1] * k) / steps);
+      if (k === 4) lifted = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+    }
+    await p.mouse.up();
+    await frames(p);
+    await p.keyboard.press("Escape");
+    return lifted;
+  };
+  const back = -Math.sign(dot0) || -1;
+  const lifted = await pickUpAndDrag(back, 60);
+  const e1 = await engineWay();
+  const dot1 = e1.x * back * along[0] + e1.y * back * along[1];
+  check("a train picked up and dragged along the track the other way is put down facing that way", lifted === "drag-train" && dot1 > 0.9, JSON.stringify({ lifted, dot0, back, e1, dot1 }));
+  // Swap ends (the engine card) still turns it; picked up again and dragged the way it now faces, it keeps facing it.
+  const at1 = await engineAt();
+  await p.mouse.click(at1[0], at1[1]);
+  await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 30000 });
+  await p.evaluate(() => [...document.querySelectorAll(".engine-card button")].find((b) => b.textContent.trim() === "Swap ends").click());
+  await frames(p);
+  await p.keyboard.press("Escape");
+  const e2 = await engineWay();
+  const dot2 = e2.x * back * along[0] + e2.y * back * along[1];
+  check("Swap ends turns the engine put down by the drag", e2.facing === -1 && dot2 < -0.9, JSON.stringify({ e2, dot2 }));
+  const lifted2 = await pickUpAndDrag(-back, 60);
+  const e3 = await engineWay();
+  const dot3 = e3.x * -back * along[0] + e3.y * -back * along[1];
+  check("…and picked up again (turned) and dragged the way it faces, it's put down still facing the way it was dragged", lifted2 === "drag-train" && dot3 > 0.9, JSON.stringify({ lifted2, e3, dot3 }));
+  // Put away: picked up and let go over the tray, it's back in the box.
+  const n2 = await trains();
+  const at3 = await engineAt();
+  await p.mouse.click(at3[0], at3[1]);
+  await frames(p);
+  await p.keyboard.press("Escape");
+  const trayAt = await p.evaluate(() => { const r = document.querySelector(".tray").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  await p.mouse.move(at3[0], at3[1]);
+  await p.mouse.down();
+  await new Promise((r) => setTimeout(r, 450));
+  for (let k = 1; k <= 14; k++) await p.mouse.move(at3[0] + ((trayAt[0] - at3[0]) * k) / 14, at3[1] + ((trayAt[1] - at3[1]) * k) / 14);
+  await p.mouse.up();
+  await frames(p);
+  check("…and put away over the tray, it's back in the box", (await trains()) === n2 - 1, `trains ${n2} → ${await trains()}`);
   await ctx.close();
 }
 

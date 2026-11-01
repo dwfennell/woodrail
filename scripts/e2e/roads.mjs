@@ -603,6 +603,106 @@ check("K7 Crossing gates learned: the zebra on the Roads tab, both crossing styl
 const saved = await p.evaluate(() => window.woodrail.progress().toJSON().roads);
 check("K8 the road squares owned are saved with the game", saved >= 1, `roads ${saved}`);
 
+// ---- N: two towns joined by road (roads spec D2) ----------------------------------------------------------------------
+// The player's path: auto roads dragged from the tray, square by square, from one town's street to another's, coins
+// paid. Setup shortcuts (named): coins given as towns would pay them; the card opened by its handler, as a tap on the
+// station does; nine planks put on the town's station pile as a crane does (the delivery isn't what's under test).
+const route = await p.evaluate(async () => {
+  const { RoadPlacer } = await import("/src/roads/place.ts");
+  const { edgesOf, encodeRoad } = await import("/src/roads/pieces.ts");
+  const { propsInRect } = await import("/src/props/placement.ts");
+  const w = window.woodrail;
+  const land = w.landscape;
+  const G = land.grid;
+  const nb = G.neighbours();
+  const placer = new RoadPlacer(land, w.layout, { inRect: (x0, z0, x1, z1) => propsInRect(w.props, w.propLibrary.footprint, x0, z0, x1, z1) });
+  const inner = (i) => [[3, 3], [-3, -3], [3, -3], [-3, 3]].every(([dc, dr]) => G.index(G.colOf(i) + dc, G.rowOf(i) + dr) !== -1);
+  // A square an auto road can go on whatever shape it takes (a bend too: so no track under it, no station's way in).
+  const open = (i) => i !== -1 && inner(i) && G.road[i] === 0 && placer.check(i, encodeRoad("curve", 0)) === null && placer.check(i, encodeRoad("straight", 0)) === null;
+  // Where each town's streets end open onto a square a road can go on: town id → [square, height].
+  const ends = new Map();
+  for (const t of land.towns) {
+    const list = [];
+    for (const s of t.cells) {
+      if (G.surface[s] !== 2 || G.road[s] === 0) continue;
+      for (let e = 0; e < 4; e++) if (edgesOf(G.road[s]) & (1 << e)) { const j = nb[s * 4 + e]; if (open(j) && G.height[j] === G.height[s]) list.push(j); }
+    }
+    ends.set(t.id, list);
+  }
+  let best = null;
+  for (const t of land.towns) {
+    const start = ends.get(t.id);
+    if (start.length === 0) continue;
+    const targets = new Map();
+    for (const u of land.towns) if (u.id !== t.id) for (const j of ends.get(u.id)) targets.set(j, u.id);
+    const from = new Map(start.map((i) => [i, -1]));
+    const queue = [...start];
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q];
+      if (targets.has(i)) {
+        const path = [];
+        for (let k = i; k !== -1; k = from.get(k)) path.unshift(k);
+        if (!best || path.length < best.path.length) best = { a: t.id, b: targets.get(i), path };
+        break;
+      }
+      for (let e = 0; e < 4; e++) {
+        const j = nb[i * 4 + e];
+        if (from.has(j) || !open(j) || G.height[j] !== G.height[i]) continue;
+        from.set(j, i);
+        queue.push(j);
+      }
+    }
+  }
+  if (!best) return null;
+  const name = (id) => land.towns.find((t) => t.id === id).name;
+  const station = w.world.economy.allDepots().find((d) => d.role === "town" && d.townId === best.a);
+  return { ...best, aName: name(best.a), bName: name(best.b), station: station?.id };
+});
+check("N found a way to lay a road between two towns", !!route && route.path.length <= 60, route ? `${route.aName} to ${route.bName}, ${route.path.length} squares` : "none");
+if (route && route.path.length <= 60) {
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.progress().coins = 500;
+    w.hud.setCoins(500);
+    T.toasts();
+  });
+  const box = await p.evaluate(async () => {
+    const { roadsOnMap, roadsSpare } = await import("/src/game/road-box.ts");
+    return roadsSpare(window.woodrail.progress().roads, roadsOnMap(window.woodrail.landscape.grid));
+  });
+  for (const i of route.path) {
+    await focusOn(i);
+    await trayDrag("Road", i);
+  }
+  const after = await p.evaluate(async ({ path, a }) => {
+    const { townLinks } = await import("/src/roads/graph.ts");
+    const w = window.woodrail;
+    return { laid: path.filter((i) => T.g().road[i] !== 0).length, coins: w.progress().coins, links: townLinks(w.landscape).get(a) ?? [] };
+  }, route);
+  const paid = 2 * Math.max(0, route.path.length - box);
+  check("N1 every square laid from the tray, each beyond the box for 2🪙", after.laid === route.path.length && after.coins === 500 - paid, `${after.laid}/${route.path.length} laid, coins ${after.coins} (expected ${500 - paid})`);
+  check(`N2 ${route.aName} and ${route.bName} are joined by road`, after.links.includes(route.b), JSON.stringify(after.links));
+  await shot("N-joined");
+  await p.evaluate((id) => window.woodrail.interaction.openDepotCard(id), route.station);
+  await until((n) => [...document.querySelectorAll(".ledger-rows")].some((r) => r.textContent.includes(`Joined by road to ${n}`)), route.bName);
+  const card = await p.evaluate(() => [...document.querySelectorAll(".ledger-rows")].map((r) => r.textContent).join(" | "));
+  check("N3 the town's card says \"Joined by road to …: grows faster\"", card.includes(`Joined by road to ${route.bName}`) && card.includes("grows faster"), card);
+  await shot("N-card");
+  await until(() => window.woodrail.stickers().has("road-link"));
+  const sticker = await p.evaluate(() => window.woodrail.stickers().has("road-link"));
+  check("N4 the \"On the road\" sticker is earned", sticker);
+  // The payoff: what the joined town receives counts a ninth more toward growing.
+  const growth = await p.evaluate(async ({ a, station }) => {
+    const { growthOf, receivedBy } = await import("/src/game/town-life.ts");
+    const w = window.woodrail;
+    const e = w.world.economy;
+    const before = { got: receivedBy(w.world, a).planks ?? 0, growth: growthOf(w.world, a).planks ?? 0 };
+    for (let k = 0; k < 9; k++) e.put({ kind: "pile", depotId: station, cargo: "planks" }, "planks");
+    return { before, after: { got: receivedBy(w.world, a).planks ?? 0, growth: growthOf(w.world, a).planks ?? 0 }, roadGot: e.roadGot.get(a) };
+  }, route);
+  check("N5 nine planks delivered to the joined town count as ten toward its growth", growth.after.got - growth.before.got === 9 && growth.after.growth - growth.before.growth === 10, JSON.stringify(growth));
+}
+
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
