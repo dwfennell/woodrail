@@ -96,6 +96,8 @@ import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { CloudCard } from "./ui/cloud-card";
+import { StatsCard } from "./ui/stats-card";
+import { pageStats } from "./stats/stats";
 import "./style.css";
 
 /** A blueprint's requirement in words, a count of goods with its icon: "20🪨 stone delivered". */
@@ -215,6 +217,13 @@ const cloud = ((): CloudSync | null => {
     return null;
   }
 })();
+/**
+ * "Help improve Woodrail": anonymous play stats, opt-in (see stats/stats.ts and docs/stats.md). They go to the cloud
+ * Worker: `VITE_STATS_URL`, else `VITE_CLOUD_URL` (the itch build has stats without cloud saves). Neither: no stats.
+ */
+const stats = pageStats(((import.meta.env.VITE_STATS_URL ?? import.meta.env.VITE_CLOUD_URL ?? "") as string).trim(), __BUILD_ID__ || "dev");
+addEventListener("error", (e) => stats.record({ e: "error", msg: String(e.message || e.error || "error").slice(0, 200) }));
+addEventListener("unhandledrejection", (e) => stats.record({ e: "error", msg: String((e.reason as Error | undefined)?.message ?? e.reason).slice(0, 200) }));
 /** The cloud's copies checked against this device's while the game loads, so a newer one is the one loaded. */
 const cloudStarted = cloud ? cloud.start().catch(() => ({})) : Promise.resolve({});
 /** How long the game waits on that check, past its own loading (ms): a slow cloud never holds it up. */
@@ -1195,6 +1204,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   /** False while the title is up. */
   let playing = false;
+  /** When this stretch of play began (in view, a mode open), for the stats' "end" (ms), or null: not playing. */
+  let stretchFrom: number | null = null;
+  /** A stretch of play over (left for the title, or the page hidden): how long it was, in the stats. */
+  function endStretch(): void {
+    if (stretchFrom === null) return;
+    const minutes = Math.round((performance.now() - stretchFrom) / 6000) / 10;
+    stretchFrom = null;
+    if (minutes > 0) stats.record({ e: "end", mode, minutes });
+  }
+  /** Asked once (see `askStats`); in Sandbox, which has no goals, after a while of play. */
+  let statsAskTimer = 0;
+  const SANDBOX_ASK_MS = 10 * 60_000;
 
   // Save train positions periodically and when the page is hidden.
   setInterval(save, 5000);
@@ -1206,10 +1227,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     savedOnLeaving = true;
     save();
     void cloud?.flush(true);
+    endStretch();
+    stats.flush(true);
   };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") saveOnLeaving();
-    else savedOnLeaving = false;
+    else {
+      savedOnLeaving = false;
+      if (playing) stretchFrom = performance.now();
+    }
   });
   addEventListener("pagehide", saveOnLeaving);
   addEventListener("pageshow", () => (savedOnLeaving = false));
@@ -1328,6 +1354,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Save, then show the title over a still, wide view of the map. */
   function showTitle(): void {
+    endStretch();
+    clearTimeout(statsAskTimer);
     closeMap(false);
     setBoardOpen(false);
     sheet.show(null);
@@ -1526,6 +1554,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       saveGoals(goals.ids());
       cloud?.edited(mode, "progress");
       if (announce) {
+        for (const g of fresh) stats.record({ e: "goal", id: g.id, n: goals.doneCount });
+        // The first goal ticked: a moment later (after its toast), the one-time "Help improve" question.
+        if (stats.shouldAsk) statsAskTimer = window.setTimeout(askStats, 3600);
         const titles = fresh.map((g) => g.title);
         const tick = goalsDoneText(titles, TOAST_TITLES);
         if (growth && joins(growth, game.simSeconds, performance.now(), GROWTH_JOIN_S)) {
@@ -3968,7 +3999,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       setWorld(saved?.ok ? saved.value : buildStarterWorld(next === "game"));
       restoreSession(next, !!saved?.ok);
     }
-    enter(next);
+    enter(next, fresh);
     openingView();
   }
 
@@ -3996,7 +4027,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** Start playing a mode on the world now loaded. */
-  function enter(next: GameMode): void {
+  function enter(next: GameMode, fresh = false): void {
     closeLines();
     mode = next;
     progressSig = null;
@@ -4027,6 +4058,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.townCard = mode === "game" ? townCard : null;
     hud.setVisible(true);
     playing = true;
+    stats.record({ e: "start", mode, fresh });
+    stretchFrom = performance.now();
+    clearTimeout(statsAskTimer);
+    if (mode === "sandbox" && stats.shouldAsk) statsAskTimer = window.setTimeout(askStats, SANDBOX_ASK_MS);
     save();
     goalsPanel.setVisible(mode === "game");
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
@@ -4455,6 +4490,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   hud.setHistory(false, false);
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [] });
+  const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
+  if (statsCard) hud.addStatsItem(() => statsCard.show());
+  /** The one-time "Help improve Woodrail?" question: put off while something else is being done. */
+  function askStats(): void {
+    if (!statsCard || !stats.shouldAsk || !playing) return;
+    if (interaction.busy || document.querySelector(".card:not([hidden])")) {
+      statsAskTimer = window.setTimeout(askStats, 5000);
+      return;
+    }
+    statsCard.ask();
+  }
   if (cloud) {
     const card = new CloudCard(hud.root, cloud, {
       mode: () => mode,

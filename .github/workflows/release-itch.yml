@@ -45,6 +45,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:itch
+        env:
+          # Play stats go to the cloud Worker (docs/stats.md); unset till it's deployed: no stats.
+          VITE_STATS_URL: ${{ vars.WOODRAIL_CLOUD_URL }}
       - name: Install butler
         run: |
           curl -sSfL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default

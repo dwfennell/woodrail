@@ -3,6 +3,7 @@
 // itch serves an HTML game from a hashed path in an iframe on html-classic.itch.zone, so the build uses relative paths.
 // A new itch build only goes up when a release is published, so there's no update check and no version.json.
 // Cloud saves are off: the Worker's CORS check would have to let in itch.zone, an origin every itch game shares.
+// Play stats (docs/stats.md) go to VITE_STATS_URL if it's set (the release workflow sets it).
 // Models stay .glb (itch serves any file type), so unlike the artifact build nothing is renamed.
 import { execFileSync } from "node:child_process";
 import { readdirSync, rmSync, statSync } from "node:fs";

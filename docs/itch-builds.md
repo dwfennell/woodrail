@@ -32,6 +32,7 @@ ref.
 - **No update check**: no `version.json`, and the "New version" chip is stripped. A player gets the new build on reload.
 - **No cloud saves**: the Worker's CORS list would have to include `html-classic.itch.zone`, which every HTML game on
   itch shares. Saves are local to the browser, and separate from saves on GitHub Pages.
+- **Play stats** go to the cloud Worker, if `WOODRAIL_CLOUD_URL` is set (`VITE_STATS_URL`; see `docs/stats.md`).
 - **Models stay `.glb`**: itch serves any file type, so nothing is renamed as in the artifact build.
 
 To check a build locally: `npx vite preview --outDir dist-itch`.
