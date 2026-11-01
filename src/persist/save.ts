@@ -21,15 +21,22 @@ import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./lan
 import { FEAT_NONE, FEAT_RUIN } from "../landscape";
 
 /**
- * Save format, version 14 (car ids and the sim's id counters, so ids last across a load: older saves load with fresh
- * ids, as before; 13: the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
+ * Save format, version 15 (town buildings record the level they went up at, `Building.born`, and only some houses rise:
+ * an older save's town storeys are dropped as it loads and given again by the new rule, `TOWN_STOREYS_FROM`; 14: car
+ * ids and the sim's id counters, so ids last across a load: older saves load with fresh ids, as before; 13: the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
  * 12: research, the school a depot beside a town, saved with its town's id; 11: town
  * buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes with a colour and a name). Plain JSON validated with Zod; only this module
  * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
  * never regenerates it. No backward compatibility until the game reaches v1: a save older than `MIGRATES_FROM` is
  * turned away (`OLDER_SAVE`), and the game starts afresh.
  */
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
+
+/**
+ * Saves from before this version stacked nearly every house of a grown town: their town houses' storeys are dropped as
+ * they load, and `TownLife.reset` gives them again (only some rise: `props/storeys.ts`).
+ */
+export const TOWN_STOREYS_FROM = 15;
 
 /**
  * The oldest save that still loads. A v12 map is a v13 map (v13 changed only the progress's offers, beside the save:
@@ -123,7 +130,7 @@ const saveSchema = z.object({
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
-      /** A workshop that takes all the planks trains bring (optional: absent, it shares with towns further on). */
+      /** A workshop that takes all the planks trains bring, or a school set to Research first (optional: absent, it shares with towns further on). */
       takesAll: z.literal(true).optional(),
       /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
       piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_KINDS.length),
@@ -345,6 +352,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   // An older save: turned away (not migrated); a v12 one is read as it is (the same shape).
   const version = (data as { version?: unknown } | null)?.version;
   if (typeof version === "number" && version < MIGRATES_FROM) return err(OLDER_SAVE);
+  const oldStoreys = typeof version === "number" && version < TOWN_STOREYS_FROM;
   if (typeof version === "number" && version < SAVE_VERSION) data = { ...(data as object), version: SAVE_VERSION };
   const parsed = saveSchema.safeParse(data);
   if (!parsed.success) {
@@ -441,7 +449,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId, d.townId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
-    state.takesAll = d.role === "workshop" && d.takesAll === true;
+    state.takesAll = (d.role === "workshop" || d.role === "school") && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);
@@ -511,7 +519,11 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     if (relaxBroughtBack(layout, broughtBack, pinned)) sim.trackChanged();
   }
   const props = new PropStore();
-  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) });
+  for (const p of save.props ?? []) {
+    // (A save from before v15: a town house's storeys are given again by the new rule, `TOWN_STOREYS_FROM`.)
+    const storeys = oldStoreys && p.building !== undefined ? 0 : (p.storeys ?? 0);
+    props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(storeys ? { storeys } : {}) });
+  }
   // Saves from before towns were built from catalogue models: their buildings get their models now.
   addTownProps(landscape, props);
   const world: World = { layout, sim, landscape, stations, depots, economy, props, ruins };

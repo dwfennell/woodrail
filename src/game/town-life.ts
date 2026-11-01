@@ -154,7 +154,7 @@ export class TownLife {
       if (lot) lot.landmark = mark.id;
     }
     if (lots.length > 0) {
-      const slots = buildOnLots(g.landscape, town, lots);
+      const slots = buildOnLots(g.landscape, town, lots, status.level);
       // A building that changed (a house that's now a shop, or has a second floor) is dressed again.
       const changed = new Set(changedBuildings(lots));
       for (const p of [...g.props.all()]) if (p.building !== undefined && changed.has(p.building)) g.props.remove(p.id);
@@ -162,7 +162,8 @@ export class TownLife {
       addTownProps(g.landscape, g.props, (id) => this.levels.get(id) ?? 0);
       g.editLand(slots);
     }
-    // Its houses grow upward, the centre most (issue #17): only this town's props whose storeys change are redrawn.
+    // Some of its houses grow upward, the middle most, the edge and the new ones staying single-storey (issue #17):
+    // only this town's props whose storeys change are redrawn.
     const taller = setTownStoreys(g.landscape, town, g.props, status.level);
     if (lots.length > 0 || taller > 0) g.propsChanged();
     this.events.grew(

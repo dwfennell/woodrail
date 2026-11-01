@@ -42,7 +42,7 @@ import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
-import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
+import { schoolYardHtml, WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
@@ -53,6 +53,7 @@ import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { blockerOf, engineView, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
+import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
@@ -1415,8 +1416,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
       if (firstFlour && progress.firstFlour) note({ kind: "milestone", text: `First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus`, place: { x: town.station.x, z: town.station.z } }, 3600);
-      // Logged quietly, one entry per town and kind for a burst of deliveries.
-      note({ kind: "event", key: `deliver:${town.id}:${kind}`, qty: n, text: "", format: (q) => `Delivered ${describeGoods({ [kind]: q })} to ${town.name}`, place: { x: town.station.x, z: town.station.z } });
+      // (A routine delivery isn't news: the coins and the town's card show it. The News keeps what changes things.)
     },
     grew: (town, status, built) => {
       const here = { x: town.station.x, z: town.station.z };
@@ -1484,7 +1484,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let goalsCheckedAt = 0;
   /** The latest goals ticked, a moment apart at most: their News entry and toast take the next one in (see `GoalTicks`). */
   let ticks = new GoalTicks();
-  let ticksEntry: JournalEntry | null = null;
+  let ticksToasted = false;
   /** Stickers earned now (in `checkGoals`, so about once a second; each is checked only when what it reads changed). */
   function checkStickers(announce: boolean, ticked: boolean): void {
     // Shown once the core goals are all done: till then earned quietly (a dot on the chip), then one toast a check.
@@ -1526,23 +1526,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const titles = fresh.map((g) => g.title);
         const tick = goalsDoneText(titles, TOAST_TITLES);
         if (growth && joins(growth, game.simSeconds, performance.now(), GROWTH_JOIN_S)) {
-          // Right after a growth milestone: part of the same entry, and a toast of its own after the growth's.
-          journal.amend(growth.entry, `${growth.entry.text} · ${tick}`);
-          goalsPanel.newsChanged();
+          // Right after a growth milestone: a toast of its own after the growth's. (Goals done aren't News: the Goals
+          // tab ticks them.)
           hud.toast(tick, true, 3200);
         } else {
           // Goals ticked together (one a check, a moment apart): one line in the News and one toast.
           const say = ticks.tick(titles, game.simSeconds, performance.now(), (t) => hud.hasToast(t));
-          if (say.kind === "merge" && ticksEntry) {
-            journal.amend(ticksEntry, say.news);
-            goalsPanel.newsChanged();
-            hud.retoast(say.oldToast, say.toast, true, 3200);
-          } else {
-            const where = fresh[0].guide(game.world).points[0];
-            ticksEntry = note({ kind: "milestone", text: say.news, place: where && { x: where.x, z: where.z } }, 3200, true);
-            if (ticksEntry) hud.toast(say.toast, true, 3200);
-            else ticks.drop();
-          }
+          // (Only toasted: the Goals tab ticks them, so the News doesn't say them again.)
+          if (say.kind === "merge" && ticksToasted) hud.retoast(say.oldToast, say.toast, true, 3200);
+          else if (mode === "game") {
+            ticksToasted = true;
+            hud.toast(say.toast, true, 3200);
+          } else ticks.drop();
         }
         audio.chime();
         goalsPanel.celebrate();
@@ -1868,8 +1863,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // second engine is, or that one's to be made.
     const opened = goals.openedBy(id, progress.learned);
     const tip = opened.some((g) => g.id === "two-trains") ? secondEngineTip(progress.available(game.world, "car:engine"), progress.owned.get("car:engine") ?? 0) : "";
-    const goalLine = opened.length > 0 ? ` · New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
-    note({ kind: "milestone", text: (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present + goalLine }, opened.length > 0 ? 5200 : 3800);
+    const learnedLine = (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present;
+    const goalLine = opened.length > 0 ? `New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
+    // Two News lines (what was learned, then the goal it opens), one toast saying both.
+    note({ kind: "milestone", text: learnedLine }, 3800, true);
+    if (goalLine) note({ kind: "milestone", text: goalLine }, 0, true);
+    if (mode === "game") hud.toast(goalLine ? `${learnedLine} · ${goalLine}` : learnedLine, true, goalLine ? 5200 : 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -2206,11 +2205,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const got = `A boat brought ${describeGoods(e.goods)}: −${e.coins} coins`;
         // An order that all went back is a refusal (a plain toast); a delivery is logged quietly.
         if (total(e.goods) === 0) hud.toast(`Your order went back: ${why}`, false, 3200);
-        else note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats brought goods: −${c} coins` : e.short ? `${got} (the rest went back: ${why})` : got) });
+        // (A full order is routine, not news: only one cut short is, as a problem to see to.)
+        else if (e.short) note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: () => `${got} (the rest went back: ${why})` });
         scheduleSave("progress");
       } else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
-        note({ kind: "event", key: `sold:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats took goods: +${c} coins` : `A boat took ${describeGoods(e.goods)}: +${c} coins`) });
+        // (Goods sold to a boat are routine, as deliveries are: the coins show it, the News doesn't.)
         scheduleSave("progress");
       }
     }
@@ -2232,9 +2232,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Warehouses a hand-run train has been told about (this session): each says why it trades nothing, once. */
   const storesTold = new Set<number>();
+  /** Workshops a routed train passing with planks (no stop there) has been told about (this session), once each. */
+  const shopsTold = new Set<number>();
   /**
    * A hand-run train with wagons beside a warehouse: it trades nothing there (only routed trains do), so a toast says
-   * why and what to do, once per warehouse. Once a second: a lookup per bogie of each train.
+   * why and what to do, once per warehouse; and a routed train passing a workshop that isn't one of its stops, with
+   * planks the workshop would take, once per workshop. Once a second: a lookup per bogie of each train.
    */
   function storeToasts(): void {
     for (const id of game.sim.trainIds()) {
@@ -2244,6 +2247,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (!t || game.economy.routeOfTrain(t)) continue;
       storesTold.add(d.id);
       hud.toast(STORE_NO_ROUTE, false, 4200);
+    }
+    // A routed train passing the workshop with planks, no stop there: it keeps them (once per workshop).
+    for (const id of game.sim.trainIds()) {
+      const kept = game.economy.keptAt(id);
+      if (!kept || kept.why !== "not-stop" || kept.depot.role !== "workshop" || shopsTold.has(kept.depot.id)) continue;
+      shopsTold.add(kept.depot.id);
+      hud.toast(keptText(kept.why, kept.kind, "workshop", "the workshop"), false, 4200);
     }
   }
 
@@ -2467,6 +2477,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(build);
   }
 
+  /** The school's card's choice as drawn (its depot and setting), or "" for none: drawn again only when it changes. */
+  let schoolYardShown = "";
+  /** The school's Shares with towns / Research first (Game mode), on its card while it's open. Cheap: a key per frame. */
+  function showSchoolYard(): void {
+    const d = mode === "game" && hud.depotCardOpen ? game.economy.depot(interaction.openDepotId) : undefined;
+    const key = d?.role === "school" ? `${d.id}:${d.takesAll}` : "";
+    // (The yard box is the workshop's too, and emptied when a card opens: drawn again if it's been emptied.)
+    if (key === schoolYardShown && (key === "" || hud.depotYard.querySelector("[data-school]"))) return;
+    schoolYardShown = key;
+    if (!d || key === "") return;
+    hud.depotYard.innerHTML = schoolYardHtml(d.takesAll);
+    hud.depotYard.hidden = false;
+  }
+  hud.depotYard.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-school]");
+    const d = game.economy.depot(interaction.openDepotId);
+    if (!b || d?.role !== "school") return;
+    e.stopPropagation();
+    if (b.classList.contains("active")) return;
+    game.economy.setTakesAll(d.id, b.dataset.school === "first");
+    showSchoolYard();
+    scheduleSave();
+  });
+
   let workshopShown = -1;
   /** Keep the workshop's card current while it's open (Game mode). */
   function showWorkshop(force = false): void {
@@ -2514,7 +2548,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       keeps: Math.min(keeps, capAt(yard)),
       keptFor: keptFor ? thingLabel(keptFor) : undefined,
       cap: capAt(yard),
-      school: game.economy.allDepots().some((d) => d.role === "school"),
+      school: game.economy.allDepots().some((d) => d.role === "school" && d.takesAll),
     });
   }
 
@@ -3854,7 +3888,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     journal.clear();
     growth = null;
     ticks = new GoalTicks();
-    ticksEntry = null;
+    ticksToasted = false;
     goalsPanel.reset();
   }
 
@@ -4237,6 +4271,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.onFrame = (dt) => {
     devChecks?.frame();
     interaction.refreshDepotCard();
+    showSchoolYard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
     hud.setTrayArrow(interaction.trayArrow(hud.propsTab && !interaction.holdingKit));
     hud.setHoldingKit(interaction.holdingKit);

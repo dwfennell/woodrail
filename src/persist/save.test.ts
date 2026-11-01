@@ -121,8 +121,8 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 14 (car ids and the id counters), loads a v12 or v13 map as it is, and turns older saves away, saying so", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("is at version 15 (town buildings born at a level), loads a v12 or v13 map as it is, and turns older saves away, saying so", () => {
+    expect(SAVE_VERSION).toBe(15);
     expect(MIGRATES_FROM).toBe(12);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
     data.version = 13;
@@ -711,6 +711,26 @@ describe("props in saves", () => {
     delete data.props;
     const old = deserializeWorld(data);
     expect(old.ok && [...old.value.props.all()].filter((p) => p.building === undefined).length).toBe(0);
+  });
+
+  it("keep a town house's storeys and a building's level (v15); a v14 save's town storeys are dropped, to be given again", () => {
+    const world = buildStarterWorld();
+    const town = world.landscape.towns[0];
+    town.buildings[0].born = 3;
+    const house = [...world.props.all()].find((p) => p.town === town.id && p.building !== undefined)!;
+    world.props.setStoreys(house.id, 2);
+    const barn = world.props.add("bldg-red-barn", { x: 100, z: 50, heading: 0.5, y: 0 });
+    world.props.setStoreys(barn.id, 1);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok && r.value.props.get(house.id)!.storeys).toBe(2);
+    expect(r.ok && r.value.landscape.towns[0].buildings[0].born).toBe(3);
+    // A v14 save (every house of a grown town stacked): its town houses load as modelled (TownLife.reset gives their
+    // storeys again by the new rule); anything else keeps its own.
+    (data as unknown as { version: number }).version = 14;
+    const old = deserializeWorld(data);
+    expect(old.ok && old.value.props.get(house.id)!.storeys).toBeUndefined();
+    expect(old.ok && old.value.props.get(barn.id)!.storeys).toBe(1);
   });
 });
 

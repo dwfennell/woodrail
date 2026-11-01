@@ -118,8 +118,8 @@ const UI_PATHS = {
   // A grass block with an arrow up or down (the Land tab's tools).
   raise: `<path d="M4 14h16v6H4z" fill="#e2bd85" stroke="none"/><path d="M4 12.5h16v2H4z" fill="#5aa35a" stroke="none"/><path d="M4 12.5h16v7.5H4z"/><path d="M12 9.5V2.5M8.5 6 12 2.5 15.5 6"/>`,
   lower: `<path d="M4 14h16v6H4z" fill="#e2bd85" stroke="none"/><path d="M4 12.5h16v2H4z" fill="#5aa35a" stroke="none"/><path d="M4 12.5h16v7.5H4z"/><path d="M12 2.5v7M8.5 6 12 9.5 15.5 6"/>`,
-  // A rolled blueprint sheet with a pencil line.
-  blueprint: `<path d="M5 4.5h11.5l2.5 2.5v12.5H5z"/><path d="M8.5 15.5l3-6 3 6M9.5 13.5h4"/>`,
+  // Research: an open book (the research pill's 📘). (A blueprint sheet before, which read as an "A" in a box.)
+  blueprint: `<path d="M12 6.8C10 5.2 7 4.6 3.5 5v13.2c3.5-.4 6.5.2 8.5 1.8 2-1.6 5-2.2 8.5-1.8V5C17 4.6 14 5.2 12 6.8z"/><path d="M12 6.8V20"/><path d="M6 8.6c1.4 0 2.7.3 3.7.8M6 11.6c1.4 0 2.7.3 3.7.8M14.3 9.4c1-.5 2.3-.8 3.7-.8M14.3 12.4c1-.5 2.3-.8 3.7-.8"/>`,
   // A folded paper map with a pin.
   map: `<path d="M3.5 6.5 9 4.5l6 2 5.5-2v13l-5.5 2-6-2-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>`,
   land: `<path d="M3.5 8.5h7v7h-7z" fill="currentColor" stroke="none" opacity="0.35"/><path d="M3.5 8.5h7v7h-7zM10.5 8.5h7"/><path d="M17.5 8.5v4"/><path d="M14 18h7M17.5 14.5v7"/>`,

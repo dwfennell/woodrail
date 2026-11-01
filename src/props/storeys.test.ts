@@ -3,33 +3,69 @@ import { describe, expect, it } from "vitest";
 import { createWorld } from "../game/world";
 import type { Materials } from "../render/materials";
 import { modelKey, PropLibrary } from "../render/props/library";
-import { extraStyles, INNER, jitterOf, RING, stackOf, stacks, storeyHeight, storeysFor } from "./storeys";
+import { chanceOf, extraStyles, INNER, jitterOf, RING, stackOf, stacks, storeyHeight, storeysFor, tallBand, tallChance } from "./storeys";
 import { distanceFromCentre, fitsLot, pickOf, setTownStoreys, townModels, townProps } from "./towns";
 
-describe("storeys: towns grow upward (issue #17)", () => {
+describe("storeys: towns grow upward (issue #17), the middle only", () => {
+  const at = (distance: number, share = 0, chance = 0, jitter = 0) => ({ distance, share, chance, jitter });
+
   it("a hamlet's houses stay as modelled; each size step adds a storey at the centre", () => {
-    expect(storeysFor("bldg-townhouse", 0, 0)).toBe(0);
-    expect([1, 2, 3, 4].map((l) => storeysFor("bldg-townhouse", l, 0))).toEqual([1, 2, 3, 4]);
+    expect(storeysFor("bldg-townhouse", 0, at(0))).toBe(0);
+    expect([1, 2, 3, 4].map((l) => storeysFor("bldg-townhouse", l, at(0)))).toEqual([1, 2, 3, 4]);
   });
 
-  it("one storey fewer for each ring out from the centre, never below none", () => {
-    expect([0, 1, 2, 3, 4].map((r) => storeysFor("bldg-townhouse", 4, INNER + r * RING + 1))).toEqual([4, 3, 2, 1, 0]);
-    expect(storeysFor("bldg-townhouse", 1, INNER + 2 * RING)).toBe(0);
+  it("one storey fewer for each ring out from the centre, but a house that rises gains one at least", () => {
+    expect([0, 1, 2, 3, 4].map((r) => storeysFor("bldg-townhouse", 4, at(INNER + r * RING + 1)))).toEqual([4, 3, 2, 1, 1]);
   });
 
-  it("never fewer at a higher level, wherever it stands and whatever its jitter", () => {
+  it("the chance of rising falls off softly toward the edge: all of the middle, none of the outer fifth", () => {
+    for (let level = 1; level <= 8; level++) {
+      const [a, b] = tallBand(level);
+      expect(tallChance(level, 0)).toBe(1);
+      expect(tallChance(level, a)).toBe(1);
+      expect(tallChance(level, b)).toBe(0);
+      expect(b).toBeLessThanOrEqual(0.8);
+      expect(tallChance(level, 0.8)).toBe(0);
+      expect(tallChance(level, 1)).toBe(0);
+      // Soft: strictly between 0 and 1 inside the band, falling all the way.
+      const mid = tallChance(level, (a + b) / 2);
+      expect(mid).toBeGreaterThan(0.3);
+      expect(mid).toBeLessThan(0.7);
+      for (let s = 0; s < 1; s += 0.02) expect(tallChance(level, s + 0.02)).toBeLessThanOrEqual(tallChance(level, s));
+    }
+    expect(tallChance(0, 0)).toBe(0);
+  });
+
+  it("whether a house rises is its own draw against that chance: the edge stays single-storey", () => {
+    expect(storeysFor("bldg-townhouse", 3, at(INNER, 0.5, 0.2))).toBeGreaterThan(0);
+    expect(storeysFor("bldg-townhouse", 3, at(INNER, 0.5, 0.9))).toBe(0);
+    for (const chance of [0, 0.5, 0.999]) expect(storeysFor("bldg-townhouse", 8, at(0, 0.85, chance))).toBe(0);
+    // Each building's draw is its own, the same every time, and spread over 0–1.
+    expect(chanceOf(7)).toBe(chanceOf(7));
+    const draws = Array.from({ length: 400 }, (_, id) => chanceOf(id));
+    for (const d of draws) expect(d >= 0 && d < 1).toBe(true);
+    const low = draws.filter((d) => d < 0.5).length;
+    expect(low).toBeGreaterThan(160);
+    expect(low).toBeLessThan(240);
+    // ...and apart from its jitter.
+    expect(draws.filter((d, id) => Math.abs(d - jitterOf(id)) < 0.05).length).toBeLessThan(60);
+  });
+
+  it("never fewer at a higher level, wherever it stands and whatever its draws", () => {
     for (const asset of ["bldg-townhouse", "bldg-villa", "bldg-bungalow", "bldg-apartment-block"])
       for (let d = 0; d < 8 * RING; d += 13)
-        for (const j of [0, 0.3, 0.99])
-          for (let l = 0; l < 8; l++) expect(storeysFor(asset, l + 1, d, j)).toBeGreaterThanOrEqual(storeysFor(asset, l, d, j));
+        for (const share of [0, 0.2, 0.45, 0.7, 0.9])
+          for (const j of [0, 0.3, 0.99])
+            for (const c of [0, 0.4, 0.95])
+              for (let l = 0; l < 8; l++) expect(storeysFor(asset, l + 1, at(d, share, c, j))).toBeGreaterThanOrEqual(storeysFor(asset, l, at(d, share, c, j)));
   });
 
   it("cottages and bungalows gain one storey at most; buildings without blocks none", () => {
-    expect(storeysFor("bldg-bungalow", 6, 0)).toBe(1);
-    expect(storeysFor("bldg-thatched-cottage", 6, 0)).toBe(1);
-    expect(storeysFor("bldg-villa", 6, 0)).toBe(2);
-    expect(storeysFor("bldg-church", 6, 0)).toBe(0);
-    expect(storeysFor("bldg-fire-station", 6, 0)).toBe(0);
+    expect(storeysFor("bldg-bungalow", 6, at(0))).toBe(1);
+    expect(storeysFor("bldg-thatched-cottage", 6, at(0))).toBe(1);
+    expect(storeysFor("bldg-villa", 6, at(0))).toBe(2);
+    expect(storeysFor("bldg-church", 6, at(0))).toBe(0);
+    expect(storeysFor("bldg-fire-station", 6, at(0))).toBe(0);
     expect(stacks("bldg-church")).toBe(false);
   });
 
@@ -122,7 +158,7 @@ describe("storeys on a map's towns", () => {
     let far = -1;
     for (let i = 0; i < g.cellCount && far === -1; i++) if (Math.hypot(g.centreX(g.colOf(i)) - t.centre.x, g.centreZ(g.rowOf(i)) - t.centre.z) > INNER + 4 * RING) far = i;
     b.cells = [far];
-    expect(storeysFor(tall.asset, 3, distanceFromCentre(land, t, b), jitterOf(b.id))).toBeLessThan(had);
+    expect(storeysFor(tall.asset, 3, { distance: distanceFromCentre(land, t, b), share: 1, jitter: jitterOf(b.id), chance: chanceOf(b.id) })).toBeLessThan(had);
     setTownStoreys(land, t, w.props, 3);
     setTownStoreys(land, t, w.props, 4);
     expect(tall.storeys).toBe(had);
