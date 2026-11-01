@@ -1167,3 +1167,26 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* After the tutorial, Show me lights up a moment: where the goals start. */
 .goals-show-icon.nudge { animation: coach-nudge 0.9s ease-in-out 4; }
 @keyframes coach-nudge { 50% { box-shadow: 0 0 0 4px #ffc21f, 0 0 14px 4px rgba(255, 170, 0, 0.55); transform: scale(1.08); } }
+
+/* ---- delight: small moments, each a one-off CSS animation (no loop, nothing per frame or on a pointer move) ---- */
+/* Every win clicks into place like a wooden toy. Coins arriving: the coin flips over as the count pops. */
+.coins.pop i { animation: coin-flip 0.55s cubic-bezier(0.3, 1.3, 0.5, 1); }
+@keyframes coin-flip { from { transform: rotateY(0); } to { transform: rotateY(360deg); } }
+/* A goal done: the Journal's chip rocks on its base, a block knocked and settling, as its count pops. */
+.goals.ticked .goals-head { animation: block-rock 0.55s ease-out; transform-origin: 50% 100%; }
+@keyframes block-rock { 25% { rotate: -1.6deg; } 55% { rotate: 1deg; } 80% { rotate: -0.4deg; } }
+/* A celebrating toast lands like a luggage tag stamped down (scale, so it never fights the transform that places it). */
+.toast.celebrate.show { animation: tag-stamp 0.42s cubic-bezier(0.3, 1.5, 0.5, 1); }
+@keyframes tag-stamp { from { scale: 1.12; } 60% { scale: 0.97; } }
+/* A sticker not looked at yet is pressed on when its tab opens: a little turn and a squash. */
+.sticker.got.new { animation: sticker-press 0.5s cubic-bezier(0.3, 1.5, 0.5, 1) backwards; }
+.sticker.got.new:nth-child(2) { animation-delay: 0.08s; }
+.sticker.got.new:nth-child(3) { animation-delay: 0.16s; }
+@keyframes sticker-press { from { opacity: 0; scale: 1.35; rotate: -8deg; } 60% { opacity: 1; scale: 0.94; rotate: 2deg; } }
+/* Tabs (the tray's, the Journal's) give a little under a finger, as a drawer pulled. */
+.tab:active, .goals-tab:active { translate: 0 1px; }
+@media (prefers-reduced-motion: reduce) {
+  .coins.pop i, .goals.ticked .goals-head, .toast.celebrate.show, .sticker.got.new { animation: none; }
+  /* (Loops shown for a while: the Re-rail nudge and Show me's ring stand still, coloured as they are.) */
+  .chip.attention, .goals-show-icon.nudge { animation: none; }
+}
