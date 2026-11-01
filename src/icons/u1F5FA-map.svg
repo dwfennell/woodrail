@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Map</title>
+<polygon points="0.8,4.2 8,1.8 16,4 23.2,1.6 23.2,19.8 16,22.2 8,20 0.8,22.4" fill="#3a2a1c"/>
+<polygon points="2.2,5.2 7.4,3.4 7.4,18.8 2.2,20.6" fill="#fbf3e4"/>
+<polygon points="8.6,3.4 15.4,5.3 15.4,20.6 8.6,18.8" fill="#efdcb9"/>
+<polygon points="16.6,5.2 21.8,3.4 21.8,18.8 16.6,20.6" fill="#fbf3e4"/>
+<ellipse cx="12" cy="10.6" rx="3.6" ry="3" fill="#8fd08a"/>
+<ellipse cx="5" cy="14.2" rx="2" ry="2.4" fill="#8fd08a"/>
+<ellipse cx="19" cy="9.2" rx="2" ry="2.6" fill="#9cc6e8"/>
+<rect x="4.2" y="8" width="2" height="1.4" rx="0.5" fill="#c8442f"/>
+<rect x="8.4" y="12.6" width="2" height="1.4" rx="0.5" fill="#c8442f"/>
+<rect x="12.8" y="15.4" width="2" height="1.4" rx="0.5" fill="#c8442f"/>
+<rect x="17" y="13.4" width="2" height="1.4" rx="0.5" fill="#c8442f"/>
+</svg>

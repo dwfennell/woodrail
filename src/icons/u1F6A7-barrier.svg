@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Barrier</title>
+<rect x="4" y="10" width="3" height="12" rx="0.8" fill="#3a2a1c"/>
+<rect x="17" y="10" width="3" height="12" rx="0.8" fill="#3a2a1c"/>
+<rect x="4.8" y="10.8" width="1.4" height="10.4" fill="#e3bf8c"/>
+<rect x="17.8" y="10.8" width="1.4" height="10.4" fill="#e3bf8c"/>
+<rect x="0.8" y="4.6" width="22.4" height="8" rx="1.4" fill="#3a2a1c"/>
+<rect x="2" y="5.8" width="20" height="5.6" rx="0.6" fill="#fbf3e4"/>
+<g><polygon points="1.4,11.4 4.4,5.8 6.8,5.8 3.8,11.4" fill="#c8442f"/><polygon points="7.2,11.4 10.2,5.8 12.6,5.8 9.6,11.4" fill="#c8442f"/><polygon points="13,11.4 16,5.8 18.4,5.8 15.4,11.4" fill="#c8442f"/><polygon points="18.8,11.4 21.8,5.8 24.2,5.8 21.2,11.4" fill="#c8442f"/></g>
+<rect x="0.8" y="4.6" width="1.2" height="8" fill="#3a2a1c"/>
+<rect x="22" y="4.6" width="1.2" height="8" fill="#3a2a1c"/>
+</svg>

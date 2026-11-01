@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Hill</title>
+<path d="M0.8 21.6 L8.6 6 L12.6 12.2 L16 7.4 L23.2 21.6 Z" fill="#1f4d26"/>
+<path d="M3 20.2 L8.6 8.8 L11.6 13.6 L12.4 13.6 L16 9.8 L21 20.2 Z" fill="#3f8f4a"/>
+<path d="M8.6 8.8 L11.6 13.6 L9.4 13 L8.2 15 L6.8 12.6 Z" fill="#8fd08a"/>
+<path d="M16 9.8 L18.4 14.6 L16.6 14 L15.6 15.4 L14.2 12 Z" fill="#8fd08a"/>
+<rect x="0.6" y="20.2" width="22.8" height="1.6" rx="0.8" fill="#1f4d26"/>
+</svg>
