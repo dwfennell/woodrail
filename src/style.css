@@ -499,7 +499,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals-tab-badge { font-size: 12px; font-weight: 800; background: #e2a12b; color: #fff; border-radius: 999px; min-width: 20px; padding: 1px 6px; text-align: center; }
 .goals-close { display: none; flex: none; width: 44px; height: 44px; border: 0; background: transparent; font: inherit; font-size: 18px; color: #8a6440; cursor: pointer; }
 .news-pane { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }
-.news-item { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 10px; background: #fffaf0; font: inherit; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #3a2a1c; text-align: left; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); }
+/* flex: none: a capped, scrolling list keeps each row its own height (shrunk to 44 px, a long one ran into the next). */
+.news-item { flex: none; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 10px; background: #fffaf0; font: inherit; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #3a2a1c; text-align: left; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); }
 .news-item.go { cursor: pointer; }
 .news-item.milestone { background: #fff1cf; }
 .news-item i { font-style: normal; color: #d9a441; }
