@@ -361,7 +361,8 @@ export function buildWaiting(town: Town, count: number | null, mats: Materials, 
   for (let k = 0; k < n; k++) {
     const pool = spots.length > 0 ? spots : more;
     const t = pool.splice(Math.floor(r() * pool.length), 1)[0];
-    const lateral = side + 10 + r() * 8;
+    // (An upgraded station's people wait on its kit's first platform, on the other side of the line.)
+    const lateral = (side + 10 + r() * 8) * (town.upgraded ? -1 : 1);
     pegDoll(b, mats, (g) => place(g, t, lateral, 14), r);
     after?.(k + 1);
   }

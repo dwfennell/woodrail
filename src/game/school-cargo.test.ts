@@ -77,23 +77,25 @@ describe("goods into a school", () => {
     expect(w.economy.delivered.get(0)).toBe(6);
   });
 
-  it("a school past a station gets what the research lacks: the town before it leaves those for it (QA)", () => {
+  // Each stop takes in the order the train comes to it, by its own setting: nothing is held back for a school further
+  // on (the 2026-11-01 report: a workshop on Takes all planks and the towns before a school got none while research
+  // lacked planks). Before, a town or workshop left a later school what its research lacked.
+  it("a school past a station gets what the town before it leaves: the town takes what it wants first", () => {
     const p = researching("switches");
     const w = line(["station", "depot-school"], p);
     w.run(90);
-    expect(p.research.got).toEqual({ planks: 3 });
-    // The town took the rest, and only the rest (before, it took all 9 and the school none).
-    expect(w.economy.delivered.get(0)).toBe(6);
+    expect(w.economy.delivered.get(0)).toBe(9);
+    expect(p.research.got).toEqual({});
   });
 
-  it("a routed train's Automatic stop at a town leaves for a later school what its research lacks", () => {
+  it("a routed train's Automatic stop at a town the same: nothing kept for a later school", () => {
     const p = researching("switches");
     const w = line(["station", "depot-school"], p);
     const engine = w.train().cars[0].id;
     w.economy.setRoute(engine, { stops: [{ depotId: w.depots[0].id, action: "auto" }, { depotId: w.depots[1].id, action: "auto" }], next: 0 });
     w.run(90);
-    expect(p.research.got).toEqual({ planks: 3 });
-    expect(w.economy.delivered.get(0)).toBe(6);
+    expect(w.economy.delivered.get(0)).toBe(9);
+    expect(p.research.got).toEqual({});
   });
 
   it("a school on other track (not joined to the train's) keeps nothing from the town", () => {
@@ -104,24 +106,24 @@ describe("goods into a school", () => {
     expect(w.economy.delivered.get(0)).toBe(9);
   });
 
-  it("a routed line that comes to a town and the workshop before the school: both leave the research's planks for it (P5)", () => {
+  it("a routed line that comes to a town and the workshop before the school: the town takes what it wants first", () => {
     const p = researching("switches");
     const w = line(["station", "depot-workshop", "depot-school"], p);
     const engine = w.train().cars[0].id;
     w.economy.setRoute(engine, { stops: w.depots.map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
     w.run(90);
     const shop = w.depots[1];
-    expect(p.research.got).toEqual({ planks: 3 });
-    expect(w.economy.delivered.get(0)).toBe(6);
+    expect(w.economy.delivered.get(0)).toBe(9);
     expect(shop.piles[CARGO.planks.index]).toBe(0);
+    expect(p.research.got).toEqual({});
   });
 
-  it("an unrouted train passing the workshop before a school leaves it the research's planks; the yard takes the rest (P5)", () => {
+  it("an unrouted train passing the workshop before a school, no town ahead: the yard takes them all", () => {
     const p = researching("switches");
     const w = line(["depot-workshop", "depot-school"], p);
     w.run(90);
-    expect(p.research.got).toEqual({ planks: 3 });
-    expect(w.depots[0].piles[CARGO.planks.index] + w.onTrain()).toBe(6);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(p.research.got).toEqual({});
   });
 
   it("the workshop still gets the planks it keeps for its waiting tray order, before a school past it", () => {
@@ -193,12 +195,21 @@ describe("the school and the towns share a pass's planks (QA P4: the school took
     expect(w.economy.delivered.get(0)).toBe(9 - Math.ceil(9 * SCHOOL_SHARE));
   });
 
-  it("a town, then the school: the town leaves the school only its share", () => {
+  it("a town, then the school: the town takes what it wants first (here all of it)", () => {
     const p = researching("bridges");
     const w = line(["station", "depot-school"], p);
     w.run(90);
-    expect(p.research.got).toEqual({ planks: Math.ceil(9 * SCHOOL_SHARE) });
-    expect(w.economy.delivered.get(0)).toBe(9 - Math.ceil(9 * SCHOOL_SHARE));
+    expect(w.economy.delivered.get(0)).toBe(9);
+    expect(p.research.got).toEqual({});
+  });
+
+  it("the school set to Research first, then a town: all its research lacks, the town the rest", () => {
+    const p = researching("bridges");
+    const w = line(["depot-school", "station"], p);
+    w.economy.setTakesAll(w.depots[0].id, true);
+    w.run(90);
+    expect(p.research.got).toEqual({ planks: 9 });
+    expect(w.economy.delivered.get(0) ?? 0).toBe(0);
   });
 
   it("a routed line the same way: a later town that wants planks caps the school's take", () => {
@@ -220,7 +231,7 @@ describe("the school and the towns share a pass's planks (QA P4: the school took
 
   it("a research short of less than the share still gets all it lacks (Switches, 3 of 9)", () => {
     const p = researching("switches");
-    const w = line(["station", "depot-school"], p);
+    const w = line(["depot-school", "station"], p);
     w.run(90);
     expect(p.research.got).toEqual({ planks: 3 });
   });
@@ -387,14 +398,14 @@ describe("the yard's spare covers the next industry (`shopSpare`; QA: one plank 
     expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
   });
 
-  it("a school further on still gets what its research lacks (`keptForSchool`), the spare raised or not", () => {
+  it("nothing rides past the yard for a school further on: its spare raised to 10, it takes the train's 9", () => {
     const p = researching("switches");
     p.learned.add("mines");
     const w = line(["depot-workshop", "depot-school", "station"], p);
     expect(shopSpare(p, spares(w, p, "open-mine"), "open-mine").planks).toBe(10);
     w.run(90);
-    expect(p.research.got).toEqual({ planks: 3 });
-    expect(w.depots[0].piles[CARGO.planks.index]).toBe(6);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(p.research.got).toEqual({});
   });
 });
 
@@ -450,16 +461,17 @@ describe("a workshop set to Takes all planks (`takesAll`): it fills its yard, a 
     expect(a.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
   });
 
-  it("an Only drop stop at a workshop still leaves a school further on what its research lacks", () => {
+  it("an Only drop stop at a workshop drops them all there, a school further on or not", () => {
     const p = researching("bridges");
     const w = line(["depot-workshop", "depot-school"], p);
     keeps(w, p);
     w.economy.setRoute(w.train().cars[0].id, { stops: [{ depotId: w.depots[0].id, action: "drop" as const }, { depotId: w.depots[1].id, action: "auto" as const }], next: 0 });
     w.run(90);
-    expect(p.research.got.planks ?? 0).toBeGreaterThan(0);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(p.research.got).toEqual({});
   });
 
-  it("the school's hold-back stays: what a school further on lacks rides past it", () => {
+  it("no hold-back for a school further on: shares or takes all, with no town ahead the yard takes them all", () => {
     const p = researching("bridges");
     const shares = line(["depot-workshop", "depot-school"], p);
     keeps(shares, p);
@@ -469,8 +481,10 @@ describe("a workshop set to Takes all planks (`takesAll`): it fills its yard, a 
     keeps(all, p2);
     all.economy.setTakesAll(all.depots[0].id, true);
     all.run(90);
-    expect(p2.research.got).toEqual(p.research.got);
-    expect(p2.research.got.planks ?? 0).toBeGreaterThan(0);
+    expect(p2.research.got).toEqual({});
+    expect(p.research.got).toEqual({});
+    expect(shares.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(all.depots[0].piles[CARGO.planks.index]).toBe(9);
   });
 });
 

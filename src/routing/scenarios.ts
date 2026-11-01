@@ -17,7 +17,7 @@ const BUFFER: PieceTypeId = "buffer-turnback";
 const CARS: CarKind[] = ["engine", "timber", "timber"];
 
 /** `stop ══ ══ … ══ stop` between buffers: the pieces (first and last are the stops). */
-function shuttleLine(layout: Layout, straights: number): number[] {
+export function shuttleLine(layout: Layout, straights: number): number[] {
   const ids = chain(layout, [STOP, ...Array<PieceTypeId>(straights).fill(S), STOP]);
   appendPiece(layout, BUFFER, false, connectorRef(ids[0], 0));
   appendPiece(layout, BUFFER, false, connectorRef(ids[ids.length - 1], 1));
@@ -25,7 +25,7 @@ function shuttleLine(layout: Layout, straights: number): number[] {
 }
 
 /** An oval: A ══ ══ (half round) B ══ ══ (half round) back to A. Its pieces, and the stops A and B. */
-function oval(layout: Layout) {
+export function oval(layout: Layout) {
   const ids = chain(layout, [STOP, S, S, C, C, C, C, STOP, S, S, C, C, C, C]);
   if (layout.joinedConnector(connectorRef(ids[0], 0)) === -1) throw new Error("the oval doesn't close");
   return { ids, a: ids[0], b: ids[7] };
@@ -568,6 +568,77 @@ export const pushingShuttle: Scenario = {
 
 export const FORWARD: readonly Scenario[] = [balloonOverSpur, wyeOverSpur, loopOverSpur, pushingShuttle];
 
+// ── The drawn line round a loop (the user's Mill and Farm yard, 2026-10-31) ─────────────────────────────────────────────
+
+/**
+ * A teardrop off `from`: a Y's two curves joined round by `[108, C, stop, C × 4, S, C, 108]` (symmetric, so it closes),
+ * a stop on its far side. The Y is left as laid (state 0: its first curve).
+ */
+export function teardrop(layout: Layout, from: number) {
+  const y = appendPiece(layout, "switch-y", false, from);
+  const ids = chain(layout, ["straight-108", C, STOP, C, C, C, C, S, C, "straight-108"], connectorRef(y, 1));
+  if (layout.joinedConnector(connectorRef(y, 2)) === -1) throw new Error("the teardrop doesn't close");
+  return { y, stop: ids[2], ids };
+}
+
+/** How a loop-line train starts: on the line facing the farm or the mill, or at the farm in the loop either way round. */
+export type LoopStart = "to-farm" | "to-mill" | "to-mill-next-farm" | "at-farm" | "at-farm-back";
+
+function loopTrain(start: LoopStart, line: { b: number; farm: number; mill: number }): TrainSpec {
+  const stops = [line.mill, line.farm];
+  if (start === "to-farm") return { pieceId: line.b, stops, next: 1, cars: CARS };
+  if (start === "to-mill") return { pieceId: line.b, reversed: true, stops, next: 0, cars: CARS };
+  if (start === "to-mill-next-farm") return { pieceId: line.b, reversed: true, stops, next: 1, cars: CARS };
+  return { pieceId: line.farm, reversed: start === "at-farm-back", stops, next: 0, cars: CARS };
+}
+
+/**
+ * `⊐ Mill ══ ══ ══ (teardrop, Farm yard on it)`, route Mill, Farm yard: from the farm the train runs on round the loop
+ * and back down the line (it never turns at a stop). `throat`: the Y set the other way (1), or pinned as laid.
+ */
+export function millToTeardrop(start: LoopStart, throat: "laid" | "other" | "pinned" = "laid"): Scenario {
+  return {
+    name: `the line round a teardrop: Mill, Farm yard on the loop (${start}, throat ${throat})`,
+    seconds: 300,
+    build: (layout) => {
+      const [mill, , b, c] = chain(layout, [STOP, S, S, S]);
+      appendPiece(layout, BUFFER, false, connectorRef(mill, 0));
+      const t = teardrop(layout, connectorRef(c, 1));
+      if (throat === "other") layout.setSwitchState(t.y, 1);
+      if (throat === "pinned") layout.setPinned(t.y, true);
+      return { trains: [loopTrain(start, { b, farm: t.stop, mill })] };
+    },
+  };
+}
+
+/** `⊐ Mill ══ ══ ══ ══ Farm ══ (balloon piece)`: the farm on the line just short of a balloon loop. */
+export function millToBalloon(start: LoopStart): Scenario {
+  return {
+    name: `the line round a balloon: Mill, Farm yard before it (${start})`,
+    seconds: 300,
+    build: (layout) => {
+      const [mill, , b, , , farm, st] = chain(layout, [STOP, S, S, S, S, STOP, S]);
+      appendPiece(layout, BUFFER, false, connectorRef(mill, 0));
+      appendPiece(layout, "balloon-loop", false, connectorRef(st, 1));
+      return { trains: [loopTrain(start, { b, farm, mill })] };
+    },
+  };
+}
+
+/** A dog-bone: a teardrop at each end of a line, the Mill on one and the Farm yard on the other. */
+export function dogbone(start: LoopStart): Scenario {
+  return {
+    name: `the line round a dog-bone: Mill and Farm yard each on a loop (${start})`,
+    seconds: 300,
+    build: (layout) => {
+      const [a, b, , d] = chain(layout, [S, S, S, S]);
+      const farm = teardrop(layout, connectorRef(d, 1));
+      const mill = teardrop(layout, connectorRef(a, 0));
+      return { trains: [loopTrain(start, { b, farm: farm.stop, mill: mill.stop })] };
+    },
+  };
+}
+
 export const OTHERS: readonly Scenario[] = [
   followerSameRoad,
   twoRoadsOneSwitch,
@@ -734,6 +805,136 @@ export function noRoomToTurn(): { scenario: Scenario; ids: () => number[] } {
       build: (layout) => {
         ids = shuttleLine(layout, 4);
         return { trains: [{ pieceId: ids[4], cars: CARS }] };
+      },
+    },
+  };
+}
+
+// ── Via points (§3.5): two ways between the stops ─────────────────────────────────────────────────────────────────
+
+/** Times each train ran onto each road of the loop (top: the side road, bottom: the main road), counted at its front. */
+export interface RoadLog {
+  top: number[];
+  bottom: number[];
+}
+
+/**
+ * Two lines, Red and Blue, each one train, on `⊐ A ══ ══ (two ways) ══ E ══ B ⊏`: the loop's two roads are the two
+ * ways between the stops (top: round by the curves; bottom: the straight road, shorter). Red runs A ⇄ B; Blue, a
+ * shorter train, A ⇄ E, so their laps differ and they meet in different places. `via`: Red passes the top
+ * road (its middle straight) and Blue the bottom, both ways. `alone`: Red's train only (the router's plan alone, no
+ * sections). The log counts which road each train takes.
+ */
+export function twoWays(via: boolean, alone = false): { scenario: Scenario; log: RoadLog } {
+  const log: RoadLog = { top: [0, 0], bottom: [0, 0] };
+  const was = [-1, -1];
+  let roads: { top: Set<number>; bottom: Set<number> } | null = null;
+  const watchRoads = (run: HarnessRun): boolean => {
+    run.engines.forEach((engine, k) => {
+      const t = run.sim.findCar(engine)?.train;
+      if (!t || !roads) return;
+      const net = t.cars.reduce((n, c) => n + (c.kind === "engine" ? c.lever * c.facing : 0), 0);
+      if (net === 0) return;
+      const front = (net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]).pieceId;
+      if (front === was[k]) return;
+      for (const [name, road] of [["top", roads.top], ["bottom", roads.bottom]] as const) if (road.has(front) && !road.has(was[k])) log[name][k]++;
+      was[k] = front;
+    });
+    return false;
+  };
+  const scenario: Scenario = {
+    name: `two ways between the stops, ${alone ? "one train" : "two lines"}${via ? ", a via point on each line's own way" : ", no via points"}`,
+    seconds: KID_SECONDS,
+    maxStill: KID_STILL,
+    build: (layout) => {
+      const l = lineWithLoop(layout);
+      roads = { top: new Set(l.loop.side), bottom: new Set(l.loop.main) };
+      const top = l.loop.side[1];
+      const bottom = l.loop.main[0];
+      return {
+        trains: [
+          { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS, ...(via ? { vias: [[top], [top]] } : {}) },
+          ...(alone ? [] : [{ pieceId: l.e1, reversed: true, stops: [l.a, l.e2], next: 0, line: 2, cars: ["engine", "timber"] as CarKind[], ...(via ? { vias: [[bottom], [bottom]] } : {}) }]),
+        ],
+        events: [{ when: watchRoads, do: () => {} }],
+      };
+    },
+  };
+  return { scenario, log };
+}
+
+// ── A stop right before points (route-keep: the user's loop added at the end of a line) ─────────────────────────────
+
+/**
+ * A trunk ⊐ Y ══ ══ ══ M into a switch, M (a stop) right up against its points; on, X's road and P's (as `junction`),
+ * the points left set for P. A routed train calls at M and goes on to X: leaving M, it must have the points set for X
+ * (they're right in front of it). `leader`: another routed train for P just ahead of it, past M, so the points are
+ * locked for P as the one for X leaves M: it must wait for them, never follow the leader onto P's road.
+ */
+export function stopBeforePoints(leader: boolean, hand = false): Scenario {
+  return {
+    name: `a stop right before points${leader ? `, a ${hand ? "hand-run " : ""}train for the other road just ahead` : ""}`,
+    seconds: 40,
+    ownLines: true,
+    build: (layout) => {
+      const ids = chain(layout, [STOP, S, S, S, STOP]);
+      const [y, m] = [ids[0], ids[4]];
+      appendPiece(layout, BUFFER, false, connectorRef(y, 0));
+      const sw = appendPiece(layout, "switch", false, connectorRef(m, 1), 0);
+      const roads = [1, 2].map((c, k) => {
+        const r = chain(layout, k === 1 ? [C, S, STOP, S, S] : [S, STOP, S, S], connectorRef(sw, c), [k === 1]);
+        appendPiece(layout, BUFFER, false, connectorRef(r[r.length - 1], 1));
+        return r[r.length - 3];
+      });
+      const [x, p] = roads;
+      layout.setSwitchState(sw, 1);
+      const trains: TrainSpec[] = [];
+      if (leader) trains.push(hand ? { pieceId: m, cars: CARS, s: 150, lever: 1 } : { pieceId: m, stops: [p, y], cars: CARS, s: 150 });
+      trains.push({ pieceId: leader ? ids[2] : ids[3], stops: [m, x], cars: CARS, s: 40 });
+      return { trains, watch: [sw] };
+    },
+  };
+}
+
+/**
+ * A routed train for P on the trunk heading in (the points left set for X, the player's way), a hand-run train close
+ * behind it the same way. The points are set for P for the routed one; the hand-run one must not follow it onto P's
+ * road through points set for the train ahead (§16 Q6: nothing is set for a hand-run train, not even by the train
+ * ahead): it waits, and goes the player's way, to X, once they're back.
+ */
+export function handFollower(): { scenario: Scenario; j: () => ReturnType<typeof junction> } {
+  let j: ReturnType<typeof junction> | null = null;
+  let stoodAt = -1;
+  return {
+    j: () => j!,
+    scenario: {
+      name: "a hand-run train close behind a routed one, at points set for the routed one",
+      seconds: 40,
+      build: (layout) => {
+        j = junction(layout, "switch", 0, [1, 2], 4);
+        const sw = j.sw;
+        const lead = (run: HarnessRun) => run.sim.findCar(run.engines[0])!.train;
+        return {
+          trains: [
+            { pieceId: j.t1, stops: [j.p, j.y], cars: CARS, s: 150 },
+            { pieceId: j.trunk[1], cars: CARS, s: 100, lever: 1 },
+          ],
+          events: [
+            // (The routed one stands with its tail on the points for 8 s, as at a stop just past them, or held: the one
+            // behind closes up meanwhile.)
+            once(
+              (run) => lead(run).bogies[lead(run).bogies.length - 1].pieceId === sw,
+              (run) => {
+                run.sim.setLever(run.engines[0], 0);
+                stoodAt = run.tick;
+              },
+            ),
+            once(
+              (run) => stoodAt >= 0 && run.tick - stoodAt > 8 * 120,
+              (run) => run.sim.setLever(run.engines[0], 1),
+            ),
+          ],
+        };
       },
     },
   };

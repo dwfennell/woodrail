@@ -9,10 +9,15 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run typecheck`
 - `npm run build`
 - `npm run build:artifact`: a build to publish as a claude.ai Artifact (see `docs/artifact-builds.md`)
+- `npm run fuzz:long [-- --seeds 200 --seconds 1800]`: the long routing fuzz with every train invariant, sharded over the cores; for release points (about 30 game minutes a seed)
+- `npm run replay -- <file>`: replay a "Copy map for a bug report" text headless with the train invariants on, and print the first break (`src/play/bugmap.ts`)
 - `npm run e2e:roads`: end-to-end road tests in a headless browser
 - `npm run e2e:kits [-- <out> [groups]]`: end-to-end track props (kits, lineside furniture) in Sandbox, headless (about 12 min)
 - `npm run e2e:research [-- <out>]`: end-to-end Research picker and pill on a 390×844 phone, headless (about 3 min)
+- `npm run e2e:copy-map [-- <out>]`: ☰ "Copy map for a bug report" and the dev-only `#load=` back in, on a phone, headless (about 2 min)
 - `npm run e2e:train-summary [-- <out>]`: end-to-end train summary and wagon loads on the cards, Game mode on a 360×740 phone, headless (about 8 min)
+- `npm run e2e:stickers [-- <out>]`: end-to-end stickers: one earned quietly by laying track, the dot, the last core goal, the toast and the Stickers tab, on a 390×844 phone, headless
+- `npm run e2e:warehouse [-- <out>]`: end-to-end warehouses in Game mode on a 390×844 phone: the hand-run explanation, a route dropping planks there and one taking them to a town, by taps, headless (about 3.5 min)
 
 Designs and plans are in `docs/superpowers/specs` and `docs/superpowers/plans`.
 
@@ -35,3 +40,7 @@ A feature works only if a player can reach it and it pays off. (A restored old f
 - **Assert the payoff, not just the UI.** An e2e or test for a feature checks what it is for: an industry produces and its goods are carried, a goal ticks, a train delivers. Not only that a card opened or a button went away.
 - **The harness uses the game's own rules.** Same footprints, prices and reach as `main.ts`. A harness-only shortcut must be named and commented, and never stands in for the player's path of the thing under test.
 - **Shortcuts in setup are fine** (learning research to get to a state quickly), but only for what isn't the thing being tested.
+
+## Design skill
+
+`.claude/skills/impeccable` (with helper agents in `.claude/agents/impeccable-*`) is the Impeccable design skill, vendored from github.com/pbakaus/impeccable. Use `/impeccable` (e.g. `critique`, `polish`, `clarify`, `adapt`) for HUD, card, menu and tray work. It is written for websites: keep the game's wooden-toy look and the phone limits above. Its launcher downloads a checksum-verified binary from the repo's GitHub releases on first run. Its hooks are not installed.

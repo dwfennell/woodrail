@@ -5,7 +5,7 @@
 A design, being built step by step (§13): steps 0 to 5 are done (step 2: the §12 harness and defaults; step 3: shadow
 plans; step 4: locks, setting and restore; step 5: waits), step 5b (no turn-backs: §16 Q3, stalls said on the cards), step 5c
 (single-line working across lines: two lines' trains pass at a loop), step 6 (forward costs, #7) and step 7 (hand-run
-trains respect locks). It covers four play-test
+trains respect locks). Via points and stickiness (§3.5) came after. It covers four play-test
 issues:
 
 - **#3 follow-up:** a train behind waits for points held by a train ahead.
@@ -122,6 +122,39 @@ are the lever (through the router), the editor (laying and undoing) and loading 
 - Written by a lever tap the router allowed, and when a switch is laid.
 - Never written by routing.
 - No entry means the current state is the default.
+
+### 3.5 Via points and stickiness (the user, 2026-10-31)
+"I wanted the quarry train to mainly stay on the top and the plank/wood train to mainly stay on the bottom but they
+would get mixed up a lot." A route was only its stops, so where two ways ran between them, trains took whichever the plan
+or sections' free road gave: both the same one, or each by turns.
+
+- **Via points.** A stop's `via?: number[]` (`RouteStopDef`): pieces passed on the way out of it to the next stop, in
+  order, not stopped at. Plain track, or a station's or halt's piece.
+  - **Aim** (`src/routing/via.ts`, shared by the economy and the harness): a routed train is aimed at the first via on
+    its way into its next stop not yet passed (`Route.viaFor`, `viaDone`), then the stop (`aimOf`). That aim is the
+    router's `goal` and sections' `target`, so everything that plans goes there: the router's walk, sections' `wayOn`
+    and a loop's `calls` (a via on one road of a loop: that road, or wait for it), the drawn line.
+  - **Passing:** a via is passed when the train's leading axle comes onto its piece (`passVias`, in `advanceRoutes`);
+    leaving a stop starts the next leg's afresh (`resetVias`). One taken up is passed over. Sections sending a train
+    by the other road of a loop pass the via there too (`skipVias`, with `skipStops`), so it never goes back for one.
+  - **The router's look** goes on past a via to the aim after it (`RouterHost.then`), so the points just beyond a via
+    are set in time.
+  - **Saved** as a stop's 4th item (piece ids, which saves keep), and the vias passed as the car's `line.via`. Older
+    saves' 3-item stops load with none.
+  - **Player's path:** planning a route, a tap on plain track adds a via on the way from the last stop (a "via ●" chip
+    after it; a small disc with a white dot on the map). A via chip tapped: "Goes this way, no stop", ✕, and for a
+    station's piece "Stop here". A stop's action button goes Automatic → Only drop → Only pick up → (three stops or more)
+    pass by: the stop becomes a via. A stop taken off keeps its vias on the way from the stop before.
+- **Stickiness.** Where two ways cost nearly the same (`sticks`: within `STICK` 15% of the best plus `STICK_MM` 300 mm),
+  a line keeps the way it last took. `Router.ways` (`WayMemory`) holds, per owner (a line, or a lineless train), the
+  option taken at points toward a target; the router writes it as it asks for its points (sim-driven, deterministic,
+  nothing per frame), and `planWay(…, keep)` reads it: the router, sections' `wayOn` and the drawn line (`walkTo`'s
+  `keep`), so the map, the card and the train agree. `planWay` caches each choice's costs by option (not just the best)
+  per layout, so a kept way costs a lookup. Not saved: after a load the first choice is the plan's, and sticks from there.
+- **Harness:** `twoWays` (scenarios.ts; via.test.ts): two lines A ⇄ B and A ⇄ E over a loop's two roads, 30 min. With
+  no vias each train ran both roads (Red top 6 / bottom 88, Blue 88 / 6); with a via on each line's road, Red 96 / 0 and
+  Blue 0 / 96, no invariant broken (0 wrong roads), never stuck. One train alone: the shorter road every lap without a
+  via, the via's every lap with one.
 
 ## 4. API
 

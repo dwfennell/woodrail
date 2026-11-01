@@ -46,6 +46,11 @@ export interface Building {
   corner?: boolean;
   /** A town landmark (Game mode: a school, a market, a library; see game/landmarks.ts). */
   landmark?: string;
+  /**
+   * The level its town had reached when it went up (Game mode: growth; none: 0, the map's own). It gains storeys only
+   * for the levels since (`setTownStoreys`), so a new building starts single-storey.
+   */
+  born?: number;
 }
 
 export interface Town {
@@ -62,6 +67,11 @@ export interface Town {
    * grass, so a house taken to the edge and back leaves the town as it was.
    */
   claimed?: number[];
+  /**
+   * Its station upgraded in place to a big station's kit (Game mode, src/game/station-upgrade.ts): the kit's model is
+   * drawn instead of the station house and its sign.
+   */
+  upgraded?: "kit-two-platform-station" | "kit-grand-terminus";
 }
 
 export type DepotKind = "forest" | "sawmill";

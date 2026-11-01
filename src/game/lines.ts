@@ -73,7 +73,9 @@ export function editLine(economy: Economy, engineCarId: number, edit: (stops: Ro
   for (const t of trains) {
     const kept = t.heading ? line.stops.indexOf(t.heading) : -1;
     const next = kept !== -1 ? kept : Math.min(t.at, line.stops.length - 1);
-    economy.setRoute(t.engine, { stops: line.stops, next, at: kept !== -1 ? t.route?.at : false });
+    // (Via points passed on its way to the stop it was heading for stay passed.)
+    const via = kept !== -1 && t.route?.viaFor === t.at ? { viaFor: next, viaDone: t.route.viaDone } : {};
+    economy.setRoute(t.engine, { stops: line.stops, next, at: kept !== -1 ? t.route?.at : false, ...via });
   }
   return line;
 }
@@ -127,28 +129,34 @@ export function moveStop(stops: RouteStopDef[], from: number, to: number): void 
   stops.splice(Math.max(0, Math.min(stops.length, to)), 0, s);
 }
 
-/** A saved line, as the save format keeps it: stops as [depot id, action, wait to fill]. */
+/** The most via points a stop keeps (on the way to the next stop). */
+export const MAX_VIAS = 8;
+
+/** A saved line, as the save format keeps it: stops as [depot id, action, wait to fill, via points (if any)]. */
 export interface SavedLine {
   id: number;
   colour: string;
   name: string;
-  stops: [number, RouteStopDef["action"], boolean][];
+  stops: ([number, RouteStopDef["action"], boolean] | [number, RouteStopDef["action"], boolean, number[]])[];
 }
 
 /**
  * Loading a save: put this engine on its saved line (made the first time one of its trains is loaded), heading for
  * stop `next`. Stops at depots no longer on the map are left out; a line left with none isn't run.
  */
-export function joinSavedLine(economy: Economy, saved: readonly SavedLine[], engineCarId: number, id: number, next: number): void {
+export function joinSavedLine(economy: Economy, saved: readonly SavedLine[], engineCarId: number, id: number, next: number, via = 0): void {
   let line = economy.lines.get(id);
   if (!line) {
     const spec = saved.find((l) => l.id === id);
     if (!spec) return;
-    const stops = spec.stops.filter(([d]) => economy.depot(d)).map(([depotId, action, waitFill]) => ({ depotId, action, ...(waitFill ? { waitFill } : {}) }));
+    const stops = spec.stops
+      .filter(([d]) => economy.depot(d))
+      .map(([depotId, action, waitFill, vias]): RouteStopDef => ({ depotId, action, ...(waitFill ? { waitFill } : {}), ...(vias && vias.length > 0 ? { via: [...vias] } : {}) }));
     if (stops.length === 0) return;
     line = { id, colour: spec.colour, name: spec.name, stops };
     economy.lines.set(id, line);
   }
   economy.lineIdOf.set(engineCarId, id);
-  economy.setRoute(engineCarId, { stops: line.stops, next: Math.min(next, line.stops.length - 1) });
+  const at = Math.min(next, line.stops.length - 1);
+  economy.setRoute(engineCarId, { stops: line.stops, next: at, ...(via > 0 ? { viaFor: at, viaDone: via } : {}) });
 }

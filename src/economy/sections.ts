@@ -1,7 +1,7 @@
 import { getPieceDef, pathLength, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, waysFrom } from "../routing/graph";
-import { plan, planWay } from "../routing/plan";
+import { plan, planWay, type KeepTest } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
 
 /**
@@ -112,6 +112,8 @@ export interface SectionsHost {
   skipStops(engine: number, pieces: ReadonlySet<number>): void;
   /** The way points lie once trains have passed (the router's default; as they lie now if not given). */
   restsAt?(pieceId: number): number;
+  /** The ways a routed engine's line keeps (stickiness: the router's `ways`), so a move is granted the way it'll take. */
+  keep?(engine: number): KeepTest | undefined;
 }
 
 /** One step of a move's way: a piece, the path along it, and the end it comes in by. */
@@ -296,7 +298,8 @@ function branches(layout: Layout, pieceId: number): boolean {
 /** Is a piece a stop (a depot or a station)? */
 function isStopPiece(layout: Layout, pieceId: number): boolean {
   const t = layout.getPiece(pieceId)?.type ?? "";
-  return t.startsWith("depot") || t.startsWith("station");
+  // (A town's station upgraded in place is a big station's kit: still a stop.)
+  return t.startsWith("depot") || t.startsWith("station") || t === "kit-two-platform-station" || t === "kit-grand-terminus";
 }
 
 function buildTopology(layout: Layout, minRoad: number): Topology {
@@ -845,6 +848,7 @@ export class Sections {
     const { layout } = this;
     const topo = info.topo;
     const target = this.host.target(st.engine);
+    const keep = this.host.keep?.(st.engine);
     const loose = this.host.lineOf(st.engine) < 0;
     const steps: Step[] = [];
     const sections: number[] = [];
@@ -855,14 +859,17 @@ export class Sections {
     if (own) for (const b of own.bogies) under.set(b.pieceId, b.pathIndex);
     let at: { pieceId: number; entry: number } | null = start;
     // A dead end short of `at`: its way cut back clear of switches; what's past where it stands, passed over.
-    const deadEnd = (blockedBy: number): Way => {
+    // (Named: the train given, else one standing on `on` (a train on no line there is the end of the line too), else
+    // the first the line has no room for.)
+    const deadEnd = (blockedBy: number, on: ReadonlySet<number>): Way => {
       const kept = this.shortOfSwitch(steps, own ? trainLength(own) : 0);
+      if (blockedBy === -1) blockedBy = this.standingOn(on, own);
       return { steps: kept, sections, through, dest: DEAD_END, outBy: -1, blockedBy: blockedBy !== -1 ? blockedBy : this.heldOf(info, st.engine), deadEnd: this.beyondOf(at!, steps.slice(kept.length).map((x) => x.pieceId)) };
     };
     for (let k = 0; at && k < SEARCH; k++) {
       // A train with no room standing ahead: a dead end short of it (the rest of the way on, and its stops, passed over).
       if (short?.has(at.pieceId)) {
-        return deadEnd(-1);
+        return deadEnd(-1, new Set([at.pieceId]));
       }
       const slot = topo.slotOf.get(at.pieceId);
       if (slot !== undefined) {
@@ -871,7 +878,7 @@ export class Sections {
           const u = this.slotUser(info, slot, st.engine);
           // (Held there for want of room on the line: it won't move, so the section before it is a dead end, turned
           // back in.)
-          if (u !== -1 && !this.hasRoom(info, u)) return deadEnd(u);
+          if (u !== -1 && !this.hasRoom(info, u)) return deadEnd(u, s.pieces);
           return { steps, sections, through, dest: u === -1 ? slot : -1, outBy: -1, blockedBy: u };
         }
         const loop = topo.loops[s.loop];
@@ -883,7 +890,7 @@ export class Sections {
         if (info.blocked.has(s.loop)) {
           const free = loop.roads.find((r) => !this.heldOnRoad(info, r));
           // (Both roads held: the loop is the end of the line from here, a dead end short of it.)
-          if (free === undefined) return deadEnd(-1);
+          if (free === undefined) return deadEnd(-1, new Set(loop.roads.flatMap((r) => [...topo.slots[r].pieces])));
           const u = this.slotUser(info, free, st.engine);
           if (u !== -1 || !prev) return { steps, sections, through, dest: -1, outBy, blockedBy: u };
           // (A train on no line can't be sent onto the free road: the points lie for the held one's.)
@@ -964,7 +971,7 @@ export class Sections {
       }
       else if (ways.length > 1) {
         // (The router's choice: the plan's way to its stop.)
-        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target);
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
       }
       steps.push({ pieceId: at.pieceId, path: w.path, entry: at.entry });
@@ -1194,6 +1201,15 @@ export class Sections {
     return false;
   }
 
+  /** The first train standing (not running) with an axle on `pieces`, other than `own`, by its name; −1: none. */
+  private standingOn(pieces: ReadonlySet<number>, own: Train | undefined): number {
+    for (const id of this.sim.trainIds()) {
+      const t = this.sim.getTrain(id);
+      if (t && t !== own && t.speed < 1 && t.bogies.some((b) => pieces.has(b.pieceId))) return nameOf(t);
+    }
+    return -1;
+  }
+
   /** The first train of the line it has no room for (other than `engine`), standing on the track; −1: none. */
   private heldOf(info: LineInfo, engine: number): number {
     for (const u of info.users) if (u !== engine && !this.hasRoom(info, u) && this.sim.findCar(u)) return u;
@@ -1259,6 +1275,32 @@ export class Sections {
     if (lineId < 0) return null;
     const info = this.line(lineId);
     return info.managed && info.more > 0 ? { more: info.more, trains: info.engines.length, spare: info.spareCut, parked: info.parked, other: info.other, pinned: this.loopCount.get(lineId)?.pinnedLoop ?? false } : null;
+  }
+
+  /**
+   * A train not on the engine's line standing on a road of one of its line's passing loops: the one to move (its name in
+   * waits, a parked one before one with its lever on); −1 for none. For cards (who's in the way), not per tick.
+   */
+  spareOn(engine: number): number {
+    if (!this.enabled) return -1;
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0) return -1;
+    const info = this.line(lineId);
+    const loops = this.loopCount.get(lineId);
+    if (!info.managed || !loops) return -1;
+    const { topo, set } = loops;
+    let found = -1;
+    for (const t of info.foreign) {
+      if (t.speed >= 1) continue;
+      const onRoad = t.bogies.some((x) => {
+        const sl = topo.slotOf.get(x.pieceId);
+        return sl !== undefined && topo.slots[sl].kind === "road" && set.has(topo.slots[sl].loop);
+      });
+      if (!onRoad) continue;
+      if (this.host.drive(t) === 0) return nameOf(t);
+      if (found === -1) found = nameOf(t);
+    }
+    return found;
   }
 
   /** Is the stop it's heading for beyond a train its line has no room for (it will wait short of it)? */

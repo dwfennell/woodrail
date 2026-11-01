@@ -10,9 +10,12 @@ interface CarEntry {
   lastZ: number;
   spin: number;
   tip: number;
-  /** Its selection shells (made the first time it's selected), and how strongly they show: 0 off, 1 its train, 2 it. */
+  /**
+   * Its selection shells (made the first time it's selected), and how strongly they show: 0 off, 1 its train, 2 it, 3
+   * its train flashed (in another train's way, shown from that one's card: see `setFlash`).
+   */
   shells: Mesh[] | null;
-  shown: 0 | 1 | 2;
+  shown: 0 | 1 | 2 | 3;
 }
 
 /** How far a selection shell stands proud of a car's parts (mm). */
@@ -53,7 +56,24 @@ export class TrainView {
   private readonly ringTrain = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 0.18, depthWrite: false });
   private readonly ringCar = new MeshBasicMaterial({ color: new Color("#3a2410"), side: BackSide, transparent: true, opacity: 0.85, depthWrite: false });
 
+  /** The car whose train flashes (in the way of the open card's train: Show), or −1; see `setFlash`. */
+  private flashed = -1;
+  // Its rim: the selected car's shell, in a warm coral, its strength eased by `setFlash` (no shell is touched for that,
+  // only this material's opacity).
+  private readonly shellFlash = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.blocked), side: BackSide, transparent: true, opacity: 0, depthWrite: false });
+  private readonly ringFlash = new MeshBasicMaterial({ color: new Color("#5a1a08"), side: BackSide, transparent: true, opacity: 0, depthWrite: false });
+
   constructor(private readonly mats: Materials) {}
+
+  /**
+   * Flash the train of this car (−1: none) at this strength (0 to 1). Its shells show from the next `update`; the
+   * caller (a flourish, for a moment) keeps frames coming while it pulses, and ends it with −1.
+   */
+  setFlash(carId: number, strength: number): void {
+    this.flashed = carId;
+    this.shellFlash.opacity = 0.95 * strength;
+    this.ringFlash.opacity = 0.8 * strength;
+  }
 
   /** Outline the train of this car, and it a little more (−1: none). Draws at the next frame (the caller invalidates). */
   setSelected(carId: number): void {
@@ -132,26 +152,33 @@ export class TrainView {
   /** Each car's shells as its selection asks (only those that change are touched; trains coupling or parting follow). */
   private syncSelection(snap: SimSnapshot): void {
     let train = -1;
-    if (this.selected !== -1) {
-      for (let i = 0; i < snap.count; i++) if (snap.ids[i] === this.selected) train = snap.trainIds[i];
+    let flashed = -1;
+    if (this.selected !== -1 || this.flashed !== -1) {
+      for (let i = 0; i < snap.count; i++) {
+        if (snap.ids[i] === this.selected) train = snap.trainIds[i];
+        if (snap.ids[i] === this.flashed) flashed = snap.trainIds[i];
+      }
     }
     for (let i = 0; i < snap.count; i++) {
       const entry = this.cars.get(snap.ids[i]);
       if (!entry) continue;
-      const want = train === -1 ? 0 : snap.ids[i] === this.selected ? 2 : snap.trainIds[i] === train ? 1 : 0;
+      const tid = snap.trainIds[i];
+      const want = tid === flashed && tid !== train ? 3 : train === -1 ? 0 : snap.ids[i] === this.selected ? 2 : tid === train ? 1 : 0;
       if (want !== entry.shown) this.showShells(entry, want);
     }
   }
 
-  private showShells(entry: CarEntry, level: 0 | 1 | 2): void {
+  private showShells(entry: CarEntry, level: 0 | 1 | 2 | 3): void {
     entry.shown = level;
     if (level === 0 && !entry.shells) return;
     entry.shells ??= this.makeShells(entry.model.root);
     for (const shell of entry.shells) {
       shell.visible = level !== 0;
-      shell.material = shell.userData.ring ? (level === 2 ? this.ringCar : this.ringTrain) : level === 2 ? this.shellCar : this.shellTrain;
-      // (Its size for the level: the selected car's stands a little prouder. Set only when the selection changes.)
-      const m = (level === 2 ? shell.userData.carMatrix : shell.userData.trainMatrix) as Matrix4;
+      const ring = shell.userData.ring as boolean;
+      shell.material = level === 3 ? (ring ? this.ringFlash : this.shellFlash) : ring ? (level === 2 ? this.ringCar : this.ringTrain) : level === 2 ? this.shellCar : this.shellTrain;
+      // (Its size for the level: the selected car's stands a little prouder (and a flashed train's). Set only when the
+      // selection changes.)
+      const m = (level >= 2 ? shell.userData.carMatrix : shell.userData.trainMatrix) as Matrix4;
       if (!shell.matrix.equals(m)) {
         shell.matrix.copy(m);
         shell.matrixWorldNeedsUpdate = true;
