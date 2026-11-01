@@ -171,7 +171,6 @@ async function run(vw, vh, mode, landscape = false) {
     await p.touchscreen.tap(Math.round((await p.evaluate(() => innerWidth)) / 2), Math.round((await p.evaluate(() => innerHeight)) * 0.4));
     await new Promise((r) => setTimeout(r, 800));
     await shot(p, `${tag}-07-engine-card`);
-    if (await tapSel(p, ".engine-card .corner.more")) await shot(p, `${tag}-08-engine-more`);
     await p.keyboard.press("Escape");
   }
   await ctx.close();

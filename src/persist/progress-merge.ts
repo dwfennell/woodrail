@@ -14,7 +14,8 @@ import type { Merger } from "./cloud";
  *   next (or keeps its goods aside);
  * - the reward offers waiting: one per town and level; one taken on either side (in the base, gone from that side)
  *   stays taken; one taken on both pays once (`bothTook`: the remote's take is undone before the sums);
- * - the player's own queue (`orders`, `making`) and `fieldsPlanted` (fields are land) go with the world kept: the
+ * - the player's own queue (`orders`, `making`), `fieldsPlanted` (fields are land) and `roads` (road squares owned, as
+ *   the roads on the map are land) go with the world kept: the
  *   later copy's (`later`).
  *
  * `base` is the progress as both last had it (undefined: not known, so the remote's).
@@ -33,6 +34,7 @@ export function mergeProgress(base: ProgressData | undefined, local: ProgressDat
     orders: [...(latest.orders ?? [])],
     making: !!latest.making,
     fieldsPlanted: latest.fieldsPlanted ?? 0,
+    ...(latest.roads ? { roads: latest.roads } : {}),
     riders: sum(b.riders, local.riders, remote.riders),
     bestLevel: Math.max(local.bestLevel ?? 0, remote.bestLevel ?? 0),
     firstFlour: !!local.firstFlour || !!remote.firstFlour,

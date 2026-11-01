@@ -8,7 +8,8 @@
 // card saying Idle with a Research button, and no frames in 30 s with the dot pulsing (a few pulses, then it rests).
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
-// A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11).
+// A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
+// the pill lists each, or the one most lacking and "+N", at 360, 390 and 1440 px.
 // Starts its own dev server (on 5381, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
 // if present, else Playwright's own.
 import { existsSync, mkdirSync } from "node:fs";
@@ -172,7 +173,7 @@ await shot("03-ready-card");
 await tap(".board-sheet button[data-act=pick]", "Research");
 t = await ticket();
 check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /🪵 0\/3/.test(t.foot) && /bring 3🪵 to/.test(t.foot), JSON.stringify(t));
-check("the pill shows it", (await pill()) === "📘 Switches 0/3🪵", String(await pill()));
+check("the pill shows it", (await pill()) === "📘 Switches 🪵0/3", String(await pill()));
 await shot("04-picked-research");
 await select("Bridges and ramps");
 t = await ticket();
@@ -221,17 +222,17 @@ await shot("06-pill-before-delivery");
 await deliver(2);
 await p.waitForTimeout(300);
 const after = await pill();
-check("a delivery moves the pill", before === "📘 Switches 0/3🪵" && after === "📘 Switches 2/3🪵", `${before} → ${after}`);
+check("a delivery moves the pill", before === "📘 Switches 🪵0/3" && after === "📘 Switches 🪵2/3", `${before} → ${after}`);
 await shot("07-pill-after-delivery");
 await deliver(1);
 await p.waitForTimeout(1300);
 const study = await pill();
-check("goods all in: the pill counts the study down", /^📘 Switches \d+ s$/.test(study ?? ""), String(study));
+check("goods all in: the pill counts the study down", /^📘 Switches ⏱ \d+ s$/.test(study ?? ""), String(study));
 await shot("08-pill-studying");
 // Learned (20 s), and Bridges starts from the queue by itself; Farming moves up to Next up.
 await p.waitForFunction(() => window.woodrail.progress().learned.has("switches"), null, { timeout: 60000 });
 await p.waitForTimeout(600);
-check("Switches learned, Bridges started by itself from the queue", (await pill()) === "📘 Bridges 0/10🪵", String(await pill()));
+check("Switches learned, Bridges started by itself from the queue", (await pill()) === "📘 Bridges 🪵0/10", String(await pill()));
 check("…Farming moved up to Next up, the pill +1", JSON.stringify(await queued()) === JSON.stringify(["bridges", "farming"]) && (await pillMore()) === "+1", JSON.stringify([await queued(), await pillMore()]));
 // …and the school now takes Bridges' planks (the payoff: goods go to the one that started).
 const taken = await p.evaluate(() => {
@@ -368,7 +369,7 @@ await p.evaluate(() => {
   w.hud.setCoins(10);
 });
 await p.waitForTimeout(700);
-check("nothing under way, Train routes waiting for coins: the pill shows them", (await pill()) === "📘 Train routes 10/40🪙", String(await pill()));
+check("nothing under way, Train routes waiting for coins: the pill shows them", (await pill()) === "📘 Train routes 🪙10/40", String(await pill()));
 await tap(".research-pill");
 await select("Signals");
 await tap(".board-head .close");
@@ -427,6 +428,45 @@ for (const [width, height, whole] of [[360, 740, false], [414, 896, true], [844,
   check(`at ${width}×${height} the date and the pill both read`, ok, JSON.stringify({ ...d, ...m }));
   await shot(`11b-date-pill-${width}x${height}`);
 }
+// 7c. A research needing three goods (none does yet: Bridges is given grain and iron too, in the page): the pill lists
+// every good it lacks, or, short of room, the one most lacking and "+N" for the rest. Never a good cut off unsaid, at
+// 360 and 390 (phones held upright) and 1440 (a desktop, where all three show); its tooltip names all three.
+await p.evaluate(async () => {
+  const { techOf } = await import("/src/game/tech.ts");
+  const goods = techOf("bridges").research.goods;
+  goods.grain = 6;
+  goods.iron = 10;
+  window.woodrail.progress().research.version++;
+});
+for (const [width, height, all] of [[360, 740, false], [390, 844, false], [1440, 900, true]]) {
+  await p.setViewportSize({ width, height });
+  await p.waitForTimeout(1800);
+  const c = await p.evaluate(async () => {
+    const { costOf } = await import("/src/game/research.ts");
+    const { GOODS_ICON } = await import("/src/economy/cargo.ts");
+    const r = window.woodrail.progress().research;
+    const goods = costOf(r.current).goods;
+    const lacking = Object.keys(goods).filter((k) => (r.got[k] ?? 0) < goods[k]).map((k) => GOODS_ICON[k]);
+    const el = document.querySelector(".research-pill");
+    const count = el.querySelector(".rp-count");
+    const text = count.textContent;
+    const shown = lacking.filter((i) => text.includes(i));
+    const plus = Number(/\+(\d+)( more)?$/.exec(text)?.[1] ?? 0);
+    const pr = el.getBoundingClientRect();
+    return { text, title: el.title, lacking, shown, plus, cut: count.scrollWidth > count.clientWidth + 1 || count.scrollHeight > count.clientHeight + 1 || count.getBoundingClientRect().right > pr.right + 0.5 || count.getBoundingClientRect().bottom > pr.bottom + 0.5, nameGave: el.classList.contains("rp-goods") };
+  });
+  m = await bar();
+  const ok = c.lacking.length === 3 && !c.cut && c.shown.length + c.plus === c.lacking.length && (!all || c.shown.length === 3) && ["planks", "grain", "iron"].every((g) => c.title.includes(g)) && fits(m);
+  check(`at ${width}×${height} a research needing 3 goods: every one shown or counted (+N), none cut`, ok, JSON.stringify({ ...c, ...m }));
+  await shot(`11c-pill-three-goods-${width}`);
+}
+await p.evaluate(async () => {
+  const { techOf } = await import("/src/game/tech.ts");
+  const goods = techOf("bridges").research.goods;
+  delete goods.grain;
+  delete goods.iron;
+  window.woodrail.progress().research.version++;
+});
 await p.setViewportSize({ width: 390, height: 844 });
 await p.waitForTimeout(800);
 

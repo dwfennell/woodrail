@@ -46,7 +46,11 @@ async function ready() {
 async function boot() {
   await p.goto(URL);
   await ready();
-  // Helpers in the page: squares, projection to the screen, toasts collected.
+  await helpers();
+}
+
+/** Helpers in the page: squares, projection to the screen, toasts collected. */
+async function helpers() {
   await p.evaluate(() => {
     const w = window.woodrail;
     window.__toasts = [];
@@ -517,12 +521,87 @@ const frames = await p.evaluate(async () => {
 });
 check("J1 an idle scene with the player's roads, a bridge, ramps and a level crossing draws (next to) no frames", frames <= 1, `${frames} frames drawn in 5 s`);
 
-// ---- K: only Sandbox has the Roads tab ----------------------------------------------------------------------------------
-const tabs = await p.evaluate(async () => {
-  const { trayTabs } = await import("/src/ui/tray-catalogue.ts");
-  return { game: trayTabs("game").map((t) => t.id), sandbox: trayTabs("sandbox").map((t) => t.id) };
+// ---- K: Game mode's Roads, once learned (roads spec D1, D3, D4) ------------------------------------------------------
+// Setup shortcuts (named, not what's under test): the blueprints learned through the game's own `learn` (the study
+// skipped); coins given as towns would pay them. The road squares are laid by the player's path: dragged from the tray.
+const tabsOf = () => p.evaluate(() => [...document.querySelectorAll(".tab")].map((t) => t.dataset.tab));
+const badgeOf = (label) => p.evaluate((label) => [...document.querySelectorAll(".tray-item")].find((b) => b.textContent.includes(label))?.querySelector(".have")?.textContent ?? null, label);
+const roadItems = () => p.evaluate(() => [...document.querySelectorAll(".tray-item")].filter((b) => b.offsetParent).map((b) => b.textContent.trim()));
+const sandboxTabs = await tabsOf();
+await p.goto(URL.replace(/#.*$/, ""));
+await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+await settle();
+await p.keyboard.press("Escape");
+await helpers();
+const gameTabs = await tabsOf();
+check("K1 Game mode's tray has no Roads tab until Roads is learned; Sandbox's does", sandboxTabs.includes("roads") && !gameTabs.includes("roads"), `game: ${gameTabs.join(", ")}; sandbox: ${sandboxTabs.join(", ")}`);
+// A free level square on the Game map, well inside the land, with no road beside it.
+const spot = await p.evaluate(() => {
+  const w = window.woodrail;
+  const G = T.g();
+  const nb = G.neighbours();
+  const corr = new Set(w.landscape.corridors);
+  const inner = (i) => [[4, 4], [-4, -4], [4, -4], [-4, 4]].every(([dc, dr]) => G.index(G.colOf(i) + dc, G.rowOf(i) + dr) !== -1);
+  const free = (i) => i !== -1 && inner(i) && G.surface[i] === 0 && G.feature[i] === 0 && !corr.has(i) && G.road[i] === 0 && G.height[i] === 0;
+  const clear = (i) => [0, 1, 2, 3].every((e) => { const j = nb[i * 4 + e]; return j === -1 || (G.road[j] === 0 && G.surface[j] !== 2); });
+  const props = (i) => w.props && [...w.props.all()].some((q) => Math.abs(q.x - G.centreX(G.colOf(i))) < 80 && Math.abs(q.z - G.centreZ(G.rowOf(i))) < 80);
+  for (let i = 0; i < G.cellCount; i++) {
+    const j = nb[i * 4];
+    if (free(i) && free(j) && clear(i) && clear(j) && !props(i) && !props(j) && w.layout.pieceIds().every((id) => { const q = w.layout.getPiece(id).pose; return Math.hypot(q.x - G.centreX(G.colOf(i)), q.z - G.centreZ(G.rowOf(i))) > 400; })) return { a: i, b: j };
+  }
+  return null;
 });
-check("K1 Game mode's tray has no Roads tab, Sandbox's does", !tabs.game.includes("roads") && tabs.sandbox.includes("roads"), `game: ${tabs.game.join(", ")}; sandbox: ${tabs.sandbox.join(", ")}`);
+check("K found two free squares on the Game map", !!spot, JSON.stringify(spot));
+await p.evaluate(() => {
+  const w = window.woodrail;
+  w.learn("passengers");
+  w.learn("roads");
+  w.progress().coins = 5;
+  w.hud.setCoins(5);
+});
+await until(() => !!document.querySelector('.tab[data-tab="roads"]'));
+const learnedTabs = await tabsOf();
+await p.evaluate(() => document.querySelector('.tab[data-tab="roads"]')?.click());
+await p.locator(".tray-item", { hasText: "Straight" }).first().waitFor({ state: "visible", timeout: 20000 });
+const shown = await roadItems();
+const firstBadge = await badgeOf("Straight");
+check("K2 learned, the Roads tab shows its plain roads (no zebra, bridge or ramp yet), each 2🪙", learnedTabs.includes("roads") && shown.some((t) => t.includes("Straight")) && !shown.some((t) => /Zebra|Road bridge|Ramp/.test(t)) && firstBadge === "2🪙", `${learnedTabs.join(", ")}; ${shown.join(", ")}; badge ${firstBadge}`);
+await shot("K-game-roads-tab");
+if (spot) {
+  await focusOn(spot.a);
+  const coins0 = await p.evaluate(() => window.woodrail.progress().coins);
+  await trayDrag("Straight", spot.a);
+  const after = await p.evaluate((i) => ({ road: T.g().road[i], coins: window.woodrail.progress().coins, toasts: T.toasts() }), spot.a);
+  check("K3 a straight dragged onto grass is laid and costs 2🪙", after.road !== 0 && after.coins === coins0 - 2 && after.toasts.some((t) => t.includes("2🪙")), JSON.stringify(after));
+  await shot("K-game-road-laid");
+  // Undone: back in the box (coins kept, as a track piece goes back in the toy box); laid again, free.
+  await p.evaluate(() => window.woodrail.editor().undo());
+  await frame();
+  const undone = await p.evaluate((i) => ({ road: T.g().road[i], coins: window.woodrail.progress().coins }), spot.a);
+  const boxBadge = await badgeOf("Straight");
+  check("K4 undone, the square goes back in the box: the badge says 1, coins as they were after paying", undone.road === 0 && undone.coins === coins0 - 2 && boxBadge === "1", `${JSON.stringify(undone)}, badge ${boxBadge}`);
+  await trayDrag("Straight", spot.b);
+  const again = await p.evaluate((i) => ({ road: T.g().road[i], coins: window.woodrail.progress().coins }), spot.b);
+  check("K5 laid again from the box: no coins", again.road !== 0 && again.coins === coins0 - 2, JSON.stringify(again));
+  // Short of coins, the box empty: refused, said, nothing laid.
+  await p.evaluate(() => {
+    window.woodrail.progress().coins = 1;
+    window.woodrail.hud.setCoins(1);
+    T.toasts();
+  });
+  await trayDrag("Straight", spot.a);
+  const refused = await p.evaluate((i) => ({ road: T.g().road[i], coins: window.woodrail.progress().coins, toasts: T.toasts() }), spot.a);
+  check("K6 short of coins with the box empty: refused, \"Road: needs 1🪙 more\"", refused.road === 0 && refused.coins === 1 && refused.toasts.includes("Road: needs 1🪙 more"), JSON.stringify(refused));
+}
+// Crossing gates: the zebra on the tray, and the crossing styles (out of Scenery kit) known.
+await p.evaluate(() => window.woodrail.learn("road-crossings"));
+await p.locator(".tray-item", { hasText: "Zebra crossing" }).first().waitFor({ state: "visible", timeout: 20000 }).catch(() => {});
+const gates = await p.evaluate(() => ({ zebra: [...document.querySelectorAll(".tray-item")].some((b) => b.offsetParent && b.textContent.includes("Zebra")), styles: ["prop:mech-level-crossing", "prop:mech-gated-crossing"].every((id) => window.woodrail.progress().knows(id)) }));
+check("K7 Crossing gates learned: the zebra on the Roads tab, both crossing styles known", gates.zebra && gates.styles, JSON.stringify(gates));
+const saved = await p.evaluate(() => window.woodrail.progress().toJSON().roads);
+check("K8 the road squares owned are saved with the game", saved >= 1, `roads ${saved}`);
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok).length;

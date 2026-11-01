@@ -10,7 +10,7 @@ import { isKit } from "../track";
 import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
-import { pillText, type PillView } from "../game/research-text";
+import { pillCount, pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
 import { ControlsTutorial, type ViewState } from "./controls-tutorial";
@@ -288,7 +288,6 @@ export class Hud {
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
-  private readonly engineMore = el("div", "engine-more");
   private readonly followBtn: HTMLButtonElement;
   /** The engine's lever as last shown, and the way Go will send it (+1: its own front first). */
   private engineLever = 0;
@@ -315,6 +314,8 @@ export class Hud {
   private readonly researchPill = el("button", "research-pill") as HTMLButtonElement;
   /** What the pill shows now (its whole text and fill): it's redrawn only when this changes. */
   private pillShown = "";
+  /** What the research pill shows now (for fitting its count to its room). */
+  private pillView: PillView | null = null;
   /** The menu's Lines item (see `setLinesAvailable`). */
   private linesItem!: HTMLButtonElement;
   /** Menu items for each mode's maps. */
@@ -543,11 +544,10 @@ export class Hud {
     // Engine card
     this.engineCard.hidden = true;
     this.engineCard.appendChild(el("div", "card-title", "Engine"));
-    // Follow (the camera rides along) in the top corner, and a ⋯ for swapping ends or putting the train away.
+    // Follow (the camera rides along) in the top corner.
     this.followBtn = button("", "Follow this train with the camera", h.follow, "corner follow");
     this.followBtn.innerHTML = CAMERA_ICON;
-    const more = button("⋯", "More", () => (this.engineMore.hidden = !this.engineMore.hidden), "corner more");
-    this.engineCard.append(this.followBtn, more);
+    this.engineCard.append(this.followBtn);
     this.engineStatus.setAttribute("aria-live", "polite");
     this.engineCard.appendChild(this.engineStatus);
     this.engineSummary.append(this.summaryAbout, this.summaryLoad);
@@ -573,24 +573,18 @@ export class Hud {
       else this.drawEngine();
     }, "chip way");
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
-    controls.append(this.goBtn, this.wayBtn);
-    this.engineCard.appendChild(controls);
     this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
     this.continueBtn.hidden = true;
-    this.engineCard.appendChild(this.continueBtn);
-    this.engineMore.hidden = true;
-    this.engineMore.append(
-      button("Swap ends", "Move the engine to the other end of its train", () => {
-        this.engineMore.hidden = true;
-        h.swapEnds();
-      }, "chip text"),
-      button("Decouple", "Uncouple the engine from its cars", () => {
-        this.engineMore.hidden = true;
-        h.decouple();
-      }, "chip text"),
-      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
+    // Swap ends, Decouple and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): under Go and
+    // the arrow, or beside them on a phone on its side (style.css).
+    const engineActions = el("div", "engine-actions");
+    engineActions.append(
+      button("Swap ends", "Move the engine to the other end of its train", h.swapEnds, "chip text swap-ends"),
+      button("Decouple", "Uncouple the engine from its cars", h.decouple, "chip text decouple"),
+      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove"),
     );
-    this.engineCard.appendChild(this.engineMore);
+    controls.append(this.goBtn, this.wayBtn, this.continueBtn, engineActions);
+    this.engineCard.appendChild(controls);
     this.engineExtra.hidden = true;
     this.engineCard.appendChild(this.engineExtra);
     this.engineCard.appendChild(button("✕", "Close", h.closeCards, "close"));
@@ -904,9 +898,11 @@ export class Hud {
     this.reopenTray = () => {
       if (openDef) openTab(openDef);
     };
-    this.showTabs = (mode) => {
+    this.showTabs = (mode, keep = false) => {
       tabs.innerHTML = "";
-      list = trayTabs(mode);
+      list = this.shownTabs(mode);
+      this.tabsKey = list.map((t) => t.id).join(" ");
+      const was = openId;
       for (const tab of list) {
         // Tapping a tab (even the open one) goes back to its groups. (Drawing on a phone on its side, the tray is only
         // its tabs, its shelves put away for the map's sake: a tab tapped there puts the pencil down, so they show.)
@@ -917,7 +913,8 @@ export class Hud {
         t.dataset.tab = tab.id;
         tabs.appendChild(t);
       }
-      openTab(list[0]);
+      // (Tabs shown again as one came or went (Roads, learned): the open one stays open. A new mode opens the first.)
+      openTab((keep ? list.find((t) => t.id === was) : undefined) ?? list[0]);
     };
     // Turn and flip, for track pieces: set how the next piece comes out, or turn the one in hand (with another finger).
     const orient = el("div", "tray-orient");
@@ -1119,7 +1116,7 @@ export class Hud {
 
   /** Label the mode by the logo and offer its own map items in the menu. */
   /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
-  private showTabs: (mode: GameMode) => void = () => {};
+  private showTabs: (mode: GameMode, keep?: boolean) => void = () => {};
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
   private reopenTray: () => void = () => {};
 
@@ -1129,9 +1126,29 @@ export class Hud {
    */
   trayKnown: ((item: TrayItem) => boolean) | null = null;
 
-  /** Something was learned: the open tab shows again, with what it brought (back at its shelves). */
+  /**
+   * Game mode: is a tab's blueprint learned (`TrayTab.gameTech`: the Roads tab)? Set by the game; null outside Game
+   * mode. `refreshTabs` shows the tabs again when it changes.
+   */
+  tabKnown: ((tech: string) => boolean) | null = null;
+  private tabsKey = "";
+
+  /** The tabs a mode shows now: in Game mode, those that need a blueprint only once it's learned. */
+  private shownTabs(mode: GameMode): TrayTab[] {
+    return trayTabs(mode).filter((t) => !t.gameTech || mode !== "game" || this.tabKnown?.(t.gameTech) === true);
+  }
+
+  /** Show the tray's tabs again if one has come or gone (a blueprint learned, another game loaded). Cheap if not. */
+  refreshTabs(): void {
+    if (this.trayMode === null) return;
+    if (this.shownTabs(this.trayMode).map((t) => t.id).join(" ") !== this.tabsKey) this.showTabs(this.trayMode, true);
+  }
+
+  /** Something was learned: the open tab shows again, with what it brought (back at its shelves), and any tab it opened. */
   trayLearned(): void {
-    this.reopenTray();
+    const key = this.tabsKey;
+    this.refreshTabs();
+    if (this.tabsKey === key) this.reopenTray();
   }
 
   /**
@@ -1193,7 +1210,7 @@ export class Hud {
   }
 
   /**
-   * The research pill: shown with what's being researched ("📘 Bridges 6/10🪵", a bar for how far), "Pick research"
+   * The research pill: shown with what's being researched ("📘 Mills 🪵0/6 🌾0/6", a bar for how far), "Pick research"
    * with nothing picked, or hidden (null). Called when the research changes (`pillKey`); the DOM is touched only when
    * what it shows does.
    */
@@ -1202,29 +1219,50 @@ export class Hud {
     const key = v ? `${text}|${Math.round(v.fill * 100)}` : "";
     if (key === this.pillShown) return;
     this.pillShown = key;
+    this.pillView = v;
     this.researchPill.hidden = !v;
     if (!v) return;
     this.researchPill.querySelector(".rp-name")!.textContent = v.name;
-    this.researchPill.querySelector(".rp-count")!.textContent = v.count;
     this.researchPill.style.setProperty("--fill", `${Math.round(v.fill * 100)}%`);
     this.researchPill.classList.toggle("idle", v.idle);
     // (How many more wait in the queue, #14: a small "+2" in its corner, drawn by CSS from this.)
     this.researchPill.setAttribute("data-more", v.more > 0 ? `+${v.more}` : "");
-    this.researchPill.title = v.idle ? "Pick research" : `${text.slice(3)}: tap for Research`;
-    this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${text.slice(3)}`);
+    const queue = v.more > 0 ? ` (${v.more} more in the queue)` : "";
+    this.researchPill.title = v.idle ? "Pick research" : `${v.name}: ${v.words}${queue}. Tap for Research`;
+    this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${v.name}, ${v.words}${queue}`);
     this.fitPill();
   }
 
   /**
-   * The pill's name whole where it can be (QA: "Train ro…" at 360 px): a little smaller if it's cut, and then over two
-   * lines if it's still cut (shortened with "…" only past that). Measured when the name or its room changes.
+   * The pill whole where it can be. The count first: every good the research needs; where they don't all fit, the
+   * ones all in go, then the good most lacking with "+1" (`pillCount`). Still too wide (360 px, a four-figure purse):
+   * the name gives way (it's in the tooltip, and the picker a tap opens) and the count has both lines (`rp-goods`). So
+   * no good is cut off unsaid. Then the name (QA: "Train ro…" at 360 px): a little smaller if it's cut, and then over
+   * two lines if it's still cut (shortened with "…" only past that). Measured when the pill's text or its room
+   * changes, never per frame.
    */
   private fitPill(): void {
     const p = this.researchPill;
-    p.classList.remove("rp-small", "rp-wrap");
+    p.classList.remove("rp-small", "rp-wrap", "rp-goods");
     const n = p.querySelector<HTMLElement>(".rp-name")!;
-    if (p.hidden || n.clientWidth === 0) return;
-    const cut = () => n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1;
+    const c = p.querySelector<HTMLElement>(".rp-count")!;
+    const v = this.pillView;
+    if (v) c.textContent = pillCount(v, 0);
+    if (p.hidden || n.clientWidth === 0 || !v) return;
+    const over = (e: HTMLElement) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1;
+    for (const fit of [1, 2] as const) {
+      if (!over(c)) break;
+      c.textContent = pillCount(v, fit);
+    }
+    if (over(c) && v.parts.length > 1) {
+      p.classList.add("rp-goods");
+      c.textContent = pillCount(v, 1);
+      // ("+2 more" on its own line where it fits: not to be read as the queue's "+1" in the corner.)
+      if (over(c)) c.textContent = `${pillCount(v, 2)} more`;
+      if (over(c)) c.textContent = pillCount(v, 2);
+      return;
+    }
+    const cut = () => over(n);
     if (cut()) p.classList.add("rp-small");
     if (cut()) p.classList.add("rp-wrap");
   }
@@ -1354,7 +1392,6 @@ export class Hud {
   showEngineCard(lever: number, following: boolean): void {
     this.hideCards();
     this.engineCard.hidden = false;
-    this.engineMore.hidden = true;
     this.root.classList.add("card-open");
     this.shownStatus = "";
     this.shownAngle = NaN;

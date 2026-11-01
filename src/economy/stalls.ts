@@ -15,7 +15,8 @@ import { CHECK_TICKS, type Sections } from "./sections";
  * A wait is who a standing train with its lever on waits for: sections' wait (a train of its line, or one in its way),
  * the router's (points held for another train), or the sim's (`Sim.heldBy`: short of a crossing or switch another is on,
  * close behind it, nose to nose or against its side), or a lineless train's short of one ahead (`Sections.clearWait`).
- * A chain that ends anywhere else (a train under way, one at a stop, a red signal) isn't a stall: it ends on its own.
+ * A chain that ends anywhere else (a train under way, one at a stop, a signal held by hand) isn't a stall: it ends on
+ * its own, or is the player's. One through a red signal goes on to the train in its block (`heldBy` "signal").
  *
  * Cost: nothing per frame. Every `CHECK_TICKS`, with two or more trains, each standing train's chain is followed (each
  * waits on at most one, so O(trains)). A stall must hold `STUCK_S` before it's said, so ordinary meets never are.
@@ -36,7 +37,12 @@ export type Stuck =
   /** Its line has more trains than room, and the one held for it is in the way (`lineId`: that line). */
   | { kind: "too-many"; lineId: number }
   /** A train standing with its lever off (`by`) is in the way, of it or of the train it waits for. */
-  | { kind: "parked"; by: number };
+  | { kind: "parked"; by: number }
+  /**
+   * In a ring of waits through signals (signals spec §6): each stands at a red signal with a train in the block (or on
+   * the way) beyond. Too many trains for the signals placed: adding a signal, or putting a train away, helps.
+   */
+  | { kind: "signals"; by: number };
 
 /** What stalls read of the economy (or the harness). */
 export interface StallsHost {
@@ -159,6 +165,8 @@ export class Stalls {
         x = y;
       }
       if (why === null) continue;
+      // (A ring with a red signal in it: too many trains for the signals.)
+      const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
       for (const id of chain) {
         const t = sim.getTrain(id)!;
         // (The held train itself is waiting by rule: its card already says the line is full.)
@@ -166,7 +174,7 @@ export class Stalls {
         const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
         if (engine < 0 || !by) continue;
-        found.set(engine, why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
+        found.set(engine, signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
     // (Said once it has held `STUCK_S`.)

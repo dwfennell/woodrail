@@ -48,6 +48,7 @@ export type TrainState =
   | { kind: "stuck"; why: "in-way"; line: string; loop: boolean; by: number }
   | { kind: "stuck"; why: "too-many" }
   | { kind: "stuck"; why: "parked"; by?: number }
+  | { kind: "stuck"; why: "signals"; by: number }
   /** Standing with its lever on, for want of anything better known: `by`, the train the sim or sections say it's behind. */
   | { kind: "held-up"; by?: number }
   | { kind: "starting" }
@@ -119,6 +120,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
         return { kind: "stuck", why: "too-many" };
       }
       if (s.kind === "parked") return { kind: "stuck", why: "parked", by: s.by };
+      if (s.kind === "signals") return { kind: "stuck", why: "signals", by: s.by };
       return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop, by: s.by };
     }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
@@ -394,6 +396,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       return who && who.car >= 0 ? `Waiting for ${blockerName(who, place)} to pass the points` : "Waiting for another train to pass the points";
     case "stuck":
       if (s.why === "too-many") return "Stuck: too many trains for this line. Put one away or add a loop";
+      if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal or put one away";
       if (s.why === "parked") return `Stuck: ${who && who.car >= 0 ? inTheWay(who, place) : SPARE_CUT}`;
       // (Left standing, named by where it is: moving it is the fix. Two lines' trains with no passing loop where they
       // meet: one lets them pass. Else moving one is.)

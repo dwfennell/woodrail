@@ -132,9 +132,9 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:kit-cargo-conveyor": { label: "Conveyor", cost: { planks: 6 }, tech: "big-cranes" },
   "piece:kit-tipping-dump": { label: "Wagon tipper", cost: { planks: 6 }, tech: "big-cranes" },
   "piece:kit-coal-chute": { label: "Coal chute", cost: { planks: 5 }, tech: "big-cranes" },
-  // Crossing styles: only a look, so free once learned.
-  "prop:mech-level-crossing": { label: "Level crossing", cost: {}, tech: "scenery", free: true },
-  "prop:mech-gated-crossing": { label: "Gated crossing", cost: {}, tech: "scenery", free: true },
+  // Crossing styles: only a look, so free once learned (Crossing gates, the Roads branch; Scenery kit's before).
+  "prop:mech-level-crossing": { label: "Level crossing", cost: {}, tech: "road-crossings", free: true },
+  "prop:mech-gated-crossing": { label: "Gated crossing", cost: {}, tech: "road-crossings", free: true },
 };
 
 /**
