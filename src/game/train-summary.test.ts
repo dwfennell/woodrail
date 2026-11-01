@@ -1,24 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { badgeEms } from "../ui/cost-tag";
-import { carLoadWords, loadWords, trainSummary, type SummaryCar } from "./train-summary";
+import { ENGINES } from "./engines";
+import { carLoadWords, loadWords, speedWord, trainSummary, type SummaryCar } from "./train-summary";
 
 const engine: SummaryCar = { kind: "engine" };
 const wagon = (cargo: SummaryCar["cargo"], count = 0): SummaryCar => ({ kind: "wagon", cargo, count });
 
 describe("train summary (#9)", () => {
   it("cars, speed and line; the load by good in cargo order, riders last", () => {
-    const s = trainSummary([engine, wagon("planks", 4), wagon("log", 6), wagon("log", 6), { kind: "coach", count: 3 }], 40, "Red line");
-    expect(s.about).toBe("4 cars · 40 km/h · Red line");
+    const s = trainSummary([engine, wagon("planks", 4), wagon("log", 6), wagon("log", 6), { kind: "coach", count: 3 }], 1, "Red line");
+    expect(s.about).toBe("4 cars · steady · Red line");
     expect(s.load).toBe("🌲 12 · 🪵 4 · 🧑 3");
   });
 
   it("one car, no line; empty", () => {
-    expect(trainSummary([engine, wagon(null)], 60, "")).toEqual({ about: "1 car · 60 km/h", load: "Empty" });
+    expect(trainSummary([engine, wagon(null)], 1.5, "")).toEqual({ about: "1 car · fast", load: "Empty" });
   });
 
   it("an engine alone says no load; a train that can't move says no speed; a long line name is left out", () => {
-    expect(trainSummary([engine], 40, "Red line")).toEqual({ about: "0 cars · 40 km/h · Red line", load: "" });
+    expect(trainSummary([engine], 1, "Red line")).toEqual({ about: "0 cars · steady · Red line", load: "" });
     expect(trainSummary([engine, wagon("stone", 2)], 0, "The long way round")).toEqual({ about: "1 car", load: "🪨 2" });
+  });
+
+  it("speed in words, by the engine's speed against the classic engine's", () => {
+    const said = Object.fromEntries(Object.entries(ENGINES).map(([k, e]) => [k, speedWord(e.speed)]));
+    expect(said).toEqual({ classic: "steady", tank: "steady", goods: "slow", diesel: "quick", electric: "quick", express: "fast" });
+    expect(speedWord(0)).toBe("");
   });
 
   it("more than four kinds: three and \"+n more\"", () => {
@@ -31,7 +38,7 @@ describe("train summary (#9)", () => {
     const room = (328 - 2 * 16) / 13;
     const long = trainSummary(
       [engine, ...["log", "planks", "grain", "stone", "coal", "ore", "iron", "tools"].map((k) => wagon(k as SummaryCar["cargo"], 16)), { kind: "coach", count: 12 }],
-      60,
+      1.4,
       "Purple line",
     );
     expect(badgeEms(long.about)).toBeLessThan(room);

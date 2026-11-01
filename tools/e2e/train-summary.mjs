@@ -1,7 +1,7 @@
 // End-to-end: what a train carries, on its cards (#9), in Game mode on a 360×740 phone with touch. A new game; track
 // from the first town's station to the forest yard; an engine and a flatbed on it, sent off with the engine card's Go.
 // Once the forest's crane has loaded logs onto the flatbed, a tap on the train opens its engine card: the summary says
-// "1 car · 40 km/h" and the logs on board, in two lines that fit the card at 360 px, its buttons 44 px or more; it
+// "1 car · steady" and the logs on board, in two lines that fit the card at 360 px, its buttons 44 px or more; it
 // follows the load as it changes, and is set only then (not per frame). A second tap, on the wagon, opens its card with
 // its load ("🌲 Logs: 3 of 3").
 //
@@ -120,7 +120,7 @@ if (!setup.error) {
   await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
   check("a tap on the train opens its engine card", await p.evaluate(() => window.woodrail.hud.engineCardOpen));
   const before = await p.evaluate(() => ({ about: document.querySelector(".summary-about")?.textContent, load: document.querySelector(".summary-load")?.textContent }));
-  check("…its summary: one car, its speed, empty", before.about === "1 car · 40 km/h" && before.load === "Empty", JSON.stringify(before));
+  check("…its summary: one car, its speed, empty", before.about === "1 car · steady" && before.load === "Empty", JSON.stringify(before));
   await tapButton(".engine-card .chip.go");
   await p.waitForFunction((e) => window.woodrail.sim.findCar(e)?.train.speed > 0, engine, { timeout: 30000 }).catch(() => {});
   check("Go sends it off", await p.evaluate((e) => window.woodrail.sim.findCar(e)?.train.speed > 0, engine));
@@ -200,7 +200,7 @@ if (!setup.error) {
     { wagon },
   );
   check("the engine card opens on the loaded train", card.open);
-  check("the summary says the logs on board", card.about === "1 car · 40 km/h" && card.load === `🌲 ${card.count}`, JSON.stringify({ about: card.about, load: card.load, count: card.count }));
+  check("the summary says the logs on board", card.about === "1 car · steady" && card.load === `🌲 ${card.count}`, JSON.stringify({ about: card.about, load: card.load, count: card.count }));
   check("…in two lines at 360 px, neither cut short", card.lines === 2 && card.height <= 2 * card.lineHeight + 1 && !card.clipped, JSON.stringify(card));
   check("…the card inside the screen", card.card.left >= 0 && card.card.right <= 360, JSON.stringify(card.card));
   check("…its buttons 44 px or more", card.small.length === 0, JSON.stringify(card.small));
