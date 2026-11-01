@@ -64,8 +64,10 @@ export interface HudHandlers {
   toggleMap(): void;
   /** Game mode: open or close the Research picker (the blueprint board); `pill`: tapped on the research pill. */
   toggleBoard(pill?: boolean): void;
-  /** Add the plot chosen on the land card. */
+  /** Add the plot chosen on the land card (or, lowering hills, lower the square chosen). */
   buyLand(): void;
+  /** Game mode, Landscaping learned: switch the land card between adding land and lowering hills. */
+  lowerHills?(): void;
   /** "Clear the ruin" on an old industry's card. */
   clearRuin?(): void;
   /** "Restore" on an old industry's card (its blueprint learned). */
@@ -254,6 +256,8 @@ export class Hud {
   private ruinClearBtn!: HTMLButtonElement;
   private ruinRestoreBtn!: HTMLButtonElement;
   private landBuyBtn!: HTMLButtonElement;
+  private landLowerBtn!: HTMLButtonElement;
+  private readonly landTitle = el("div", "card-title", "Add land");
   private landBtn!: HTMLButtonElement;
   private soundItem!: HTMLButtonElement;
   private redoItem!: HTMLButtonElement;
@@ -619,8 +623,10 @@ export class Hud {
     this.landCard.hidden = true;
     this.landBuyBtn = button("Add this land", "Add the chosen plot to your land", h.buyLand, "chip text attention");
     const landRow = el("div", "card-row");
-    landRow.append(this.landBuyBtn, button("Done", "Stop adding land", h.toggleExpand, "chip text"));
-    this.landCard.append(el("div", "card-title", "Add land"), this.landText, landRow);
+    this.landLowerBtn = button("⛰️ Lower hills", "Lower a hill a step, for coins (Landscaping)", () => h.lowerHills?.(), "chip text");
+    this.landLowerBtn.hidden = true;
+    landRow.append(this.landBuyBtn, this.landLowerBtn, button("Done", "Stop adding land", h.toggleExpand, "chip text"));
+    this.landCard.append(this.landTitle, this.landText, landRow);
     this.root.appendChild(this.landCard);
 
     // An old industry's ruin: what's around it, what opens it, and clearing it away.
@@ -1762,13 +1768,20 @@ export class Hud {
     this.depotWaitBtn.disabled = !auto;
   }
 
-  /** Show the land card (null: none, while choosing), or hide it (`text` null). */
-  setLandCard(text: string | null, canBuy = false): void {
+  /**
+   * Show the land card (null: none, while choosing), or hide it (`text` null). `opts`: its title and its button's words
+   * (lowering hills: "Lower hills", "Lower it · 300🪙"), and a "Lower hills" / "Add land" switch (`swap`).
+   */
+  setLandCard(text: string | null, canBuy = false, opts: { title?: string; buy?: string; swap?: string } = {}): void {
     this.landBtn.classList.toggle("active", text !== null);
     this.landCard.hidden = text === null;
     if (text === null) return;
+    this.landTitle.textContent = opts.title ?? "Add land";
     this.landText.textContent = text;
+    this.landBuyBtn.textContent = opts.buy ?? "Add this land";
     this.landBuyBtn.hidden = !canBuy;
+    this.landLowerBtn.hidden = !opts.swap;
+    if (opts.swap) this.landLowerBtn.textContent = opts.swap;
   }
 
   /** Show an old industry's card (see `ruinCard` in map-sites.ts). */

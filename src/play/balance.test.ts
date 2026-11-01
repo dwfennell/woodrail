@@ -446,7 +446,7 @@ class Player {
     // BALANCE_SECTIONS=off: trains of a line don't wait for each other (main as it was, for comparison).
     w.economy.sections.enabled = ENV.BALANCE_SECTIONS !== "off";
     w.economy.sections.timing = !!ENV.BALANCE_TIMING;
-    attachEngines(w);
+    attachEngines(w, () => this.progress.learned.has("boilers"));
     attachPassengers(w, () => this.progress, () => {});
     w.economy.reserved = (kind) => kind === "planks" && this.planksKept;
     w.economy.shopKeeps = YARD_SPARE < 0 ? null : (kind) => (kind === "planks" ? yardKeeps(this.progress, this.yardSpare) : null);

@@ -33,7 +33,7 @@ export interface KitRect {
 }
 
 /** Which trains stop at a kit: those with passenger cars, those with a steam engine, or any powered train. */
-export type KitStopWho = "passengers" | "steam" | "any";
+export type KitStopWho = "passengers" | "steam" | "diesel" | "any";
 
 export interface KitDef {
   /** The catalogue model drawn for it (its own track slabs left out: real track is drawn under it). */
@@ -360,7 +360,7 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     ],
   },
   // Engine services: 108 straights with the service beside them (left), splicing onto a line. A steam engine stops
-  // for 3 s while the spout or chute swings over it (the fuel station: any engine); not again for a minute.
+  // for 3 s while the spout or chute swings over it (the fuel station: diesels); not again for a minute.
   "kit-water-tower": {
     asset: "bldg-water-tower",
     name: "water tower",
@@ -418,7 +418,7 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     place: { t: 54, l: 36, turn: Math.PI },
     footprint: [{ t: 54, l: 55, w: 108, d: 62 }],
     splices: true,
-    stop: { ...STEAM_SERVICE, who: "any" },
+    stop: { ...STEAM_SERVICE, who: "diesel" },
     moves: "stopped",
   },
   // Cargo machines: straights that splice, each an economy depot (Sandbox's loaders and unloaders), so trains stop
