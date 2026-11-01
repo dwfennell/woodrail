@@ -166,10 +166,25 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
   return { ...base, action };
 }
 
-/** The pill on the HUD: a name and a count (shown as "📘 Bridges 6/10🪵"), how far along, and whether to pick one. */
+/**
+ * One part of the pill's count: a good the research needs (or the coins the one up next waits for), got of needed.
+ * Shown "🪵2/6", or "🪵✓" once it's all in.
+ */
+export interface PillPart {
+  icon: string;
+  got: number;
+  need: number;
+}
+
+/** The pill on the HUD: a name and a count (shown as "📘 Mills 🪵0/6 🌾0/6"), how far along, and whether to pick one. */
 export interface PillView {
   name: string;
+  /** The count in full: every part ("🪵✓ 🌾2/6"), the study time left ("⏱ 12 s"), or "research" (Pick research). */
   count: string;
+  /** Every good the research needs (or the coins it waits for), in cargo order; empty while studying or idle. */
+  parts: PillPart[];
+  /** The cost in words, for the pill's tooltip and its name for a screen reader ("0 of 6 🪵 planks, 0 of 6 🌾 grain"). */
+  words: string;
   fill: number;
   /** Nothing picked: "Pick research". */
   idle: boolean;
@@ -177,27 +192,51 @@ export interface PillView {
   more: number;
 }
 
+const partText = (x: PillPart): string => (x.got >= x.need ? `${x.icon}✓` : `${x.icon}${x.got}/${x.need}`);
+
 /**
- * The HUD's research pill: the research under way and its first good still lacking ("Bridges", "6/10🪵"), its study
- * time left once the goods are in ("12 s"), the one waiting for coins ("Routes", "5/20🪙"), or "Pick research" with
- * nothing picked. Hidden (null) with nothing picked and no school placed.
+ * The pill's count, as much as fits: `fit` 0 is every part, a ticked one for a good all in ("🪵✓ 🌾2/6 🔩0/10"); 1
+ * leaves the ticked ones out ("🌾2/6 🔩0/10"); 2 is the good most lacking (the most of it still to come, as a share)
+ * and how many more ("🔩0/10 +1"). Never a good cut off unsaid: what's left out is all in, or counted in the "+N".
+ * Only parts with a count; the study time and "research" are the count as is.
+ */
+export function pillCount(v: PillView, fit: 0 | 1 | 2 = 0): string {
+  if (v.parts.length === 0) return v.count;
+  if (fit === 0) return v.parts.map(partText).join(" ");
+  const left = v.parts.filter((x) => x.got < x.need);
+  if (left.length === 0) return v.count;
+  if (fit === 1 || left.length === 1) return left.map(partText).join(" ");
+  const most = [...left].sort((a, b) => (b.need - b.got) / b.need - (a.need - a.got) / a.need || b.need - b.got - (a.need - a.got))[0];
+  return `${partText(most)} +${left.length - 1}`;
+}
+
+/**
+ * The HUD's research pill: the research under way and every good it needs, each got of needed ("Mills", "🪵0/6 🌾0/6";
+ * a good all in ticked), its study time left once the goods are in ("⏱ 12 s"), the one waiting for coins ("Routes",
+ * "🪙5/20"), or "Pick research" with nothing picked. Coins paid (as a research starts) aren't shown. Hidden (null) with
+ * nothing picked and no school placed.
  */
 export function pillView(p: Progress, hasSchool: boolean): PillView | null {
   const r = p.research;
   const queued = queueOf(r).length;
+  const view = (id: string, count: string, parts: PillPart[], words: string, fill: number, more: number): PillView => ({ name: shortLabel(id), count, parts, words, fill, idle: false, more });
   if (r.current) {
     const id = r.current;
-    if (studying(p)) return { name: shortLabel(id), count: `${Math.ceil(studyLeft(p))} s`, fill: researchFill(p, id), idle: false, more: queued };
+    if (studying(p)) return view(id, `⏱ ${Math.ceil(studyLeft(p))} s`, [], `studying, ${Math.ceil(studyLeft(p))} s left`, researchFill(p, id), queued);
     const goods = costOf(id).goods;
-    const k = (Object.keys(goods) as CargoKind[]).find((x) => (r.got[x] ?? 0) < goods[x]!)!;
-    return { name: shortLabel(id), count: `${r.got[k] ?? 0}/${goods[k]}${GOODS_ICON[k]}`, fill: researchFill(p, id), idle: false, more: queued };
+    const parts = (Object.keys(goods) as CargoKind[]).map((k) => ({ icon: GOODS_ICON[k], got: Math.min(r.got[k] ?? 0, goods[k]!), need: goods[k]! }));
+    const words = (Object.keys(goods) as CargoKind[]).map((k, i) => `${parts[i].got} of ${goods[k]} ${GOODS_ICON[k]} ${goodName(k, goods[k]!)}`).join(", ");
+    return view(id, parts.map(partText).join(" "), parts, words, researchFill(p, id), queued);
   }
   if (r.next) {
     const need = costOf(r.next).coins ?? 0;
     const short = coinsShort(p);
-    if (short > 0) return { name: shortLabel(r.next), count: `${need - short}/${coins(need)}`, fill: (need - short) / need, idle: false, more: queued - 1 };
+    if (short > 0) {
+      const part = { icon: COIN_ICON, got: need - short, need };
+      return view(r.next, partText(part), [part], `waiting for coins, ${need - short} of ${need} ${COIN_ICON}; then ${costWords(p, r.next)}`, (need - short) / need, queued - 1);
+    }
   }
-  return hasSchool || r.next ? { name: "Pick", count: "research", fill: 0, idle: true, more: 0 } : null;
+  return hasSchool || r.next ? { name: "Pick", count: "research", parts: [], words: "", fill: 0, idle: true, more: 0 } : null;
 }
 
 /**
@@ -211,7 +250,7 @@ export function pillResearch(p: Progress): string | null {
   return r.next && coinsShort(p) > 0 ? r.next : null;
 }
 
-/** The pill in one line: "📘 Bridges 6/10🪵", "📘 Pick research" ("" when it's hidden). */
+/** The pill in one line, in full: "📘 Mills 🪵0/6 🌾0/6", "📘 Pick research" ("" when it's hidden). */
 export const pillText = (v: PillView | null): string => (v ? `📘 ${v.name} ${v.count}${v.more > 0 ? ` +${v.more}` : ""}` : "");
 
 /**

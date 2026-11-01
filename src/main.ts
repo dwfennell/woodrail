@@ -2028,9 +2028,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const stations: Station[] = TECHS.map((t) => {
       const makes = makesOf(t);
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
-      // Its price is its research: goods brought to a school, and from tier 2 coins.
+      // Its price is its research: every good brought to a school, and from tier 2 coins (left out once paid: one
+      // started and set aside keeps them).
       const cost = t.research;
-      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: costTag(cost.goods as Bag, cost.coins) || "free", cost: costWords(progress, t.id), unlocks: unlocksWords(t.id), requires };
+      const price = costTag(cost.goods as Bag, progress.research.held.has(t.id) ? 0 : cost.coins) || "free";
+      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price, cost: costWords(progress, t.id), unlocks: unlocksWords(t.id), requires };
       const state = cardState(progress, t.id);
       if (state === "learned") return { ...base, state };
       if (state === "soon") return { ...base, state, waits: PLAN_WORDS[t.plan!] };
