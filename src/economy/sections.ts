@@ -296,7 +296,8 @@ function branches(layout: Layout, pieceId: number): boolean {
 /** Is a piece a stop (a depot or a station)? */
 function isStopPiece(layout: Layout, pieceId: number): boolean {
   const t = layout.getPiece(pieceId)?.type ?? "";
-  return t.startsWith("depot") || t.startsWith("station");
+  // (A town's station upgraded in place is a big station's kit: still a stop.)
+  return t.startsWith("depot") || t.startsWith("station") || t === "kit-two-platform-station" || t === "kit-grand-terminus";
 }
 
 function buildTopology(layout: Layout, minRoad: number): Topology {

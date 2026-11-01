@@ -642,10 +642,16 @@ export class Economy {
    * its station? People get on and off there as at the station, but it takes no goods.
    */
   isHalt(d: DepotState): boolean {
-    if (d.role !== "town") return false;
+    if (d.role !== "town" || this.stationPieces.has(d.pieceId)) return false;
     const p = this.layout.getPiece(d.pieceId);
     return !!p && isKit(p.type);
   }
+
+  /**
+   * The pieces that are towns' own stations (the map's: `World.stations`): never a halt, even upgraded to a big
+   * station's kit (src/game/station-upgrade.ts). Filled as the stations' depots are added.
+   */
+  readonly stationPieces = new Set<number>();
 
   setAuto(depotId: number, on: boolean): void {
     const d = this.depots[depotId];

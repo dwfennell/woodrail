@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { techOf, TECHS, built } from "./tech";
 import { Progress } from "./progress";
-import { canResearch, coinsShort, costOf, deliver, lacking, lacks, pick, QUEUE_MAX, queueOf, queuePlace, simElapsed, startNow, type StudyClock, STUDY_SECONDS, studyLeft, studying, studyTime, tick, toggleQueue } from "./research";
+import { canResearch, coinsShort, costOf, deliver, lacking, lacks, pick, QUEUE_MAX, queueOf, queuePlace, simElapsed, startNow, type StudyClock, STUDY_HALL, STUDY_SECONDS, studyLeft, studying, studyTime, tick, toggleQueue } from "./research";
 
 /** A player who knows switches (so tier-2 Routes, with its coins, can be researched too). */
 function player(coins = 0): Progress {
@@ -30,6 +30,21 @@ describe("research costs", () => {
     expect(studyTime("switches")).toBe(20);
     expect(studyTime("routes")).toBe(45);
     expect(studyTime("quarries")).toBe(90);
+  });
+
+  it("study hall (tech-tree Q1): tier-1 lessons take half the time, the rest as before", () => {
+    expect(STUDY_HALL).toBe(2);
+    const hall = new Set(["farming", "study-hall"]);
+    expect([studyTime("switches", hall), studyTime("routes", hall), studyTime("quarries", hall)]).toEqual([10, 45, 90]);
+    // At a school: bridges is learned after 10 s of study with the hall, 20 s without.
+    for (const [with_, secs] of [[true, 10], [false, 20]] as const) {
+      const p = player(100);
+      if (with_) p.learned.add("study-hall");
+      pick(p, "bridges");
+      deliver(p, "planks", 10);
+      expect(tick(p, secs - 0.5), `hall ${with_}`).toBeNull();
+      expect(tick(p, 1), `hall ${with_}`).toBe("bridges");
+    }
   });
 });
 

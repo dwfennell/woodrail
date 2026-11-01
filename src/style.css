@@ -502,6 +502,23 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .news-time { flex: none; font-size: 11.5px; font-weight: 700; color: #8a7660; white-space: nowrap; }
 .news-go { flex: none; font-size: 20px; line-height: 1; color: #b88a54; }
 .news-empty { margin: 8px 4px; font-size: 13px; color: #6a5340; }
+/* Stickers (after the core goals): a dot on the chip for a new one, a tab of tiles, 4 across at 360 px. */
+.goals-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #e2a12b; box-shadow: 0 0 0 2px #fffaf0; }
+.goals-dot[hidden], .stickers-pane[hidden], .goals-tab[hidden] { display: none; }
+.goals-tab.fresh::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #e2a12b; }
+.stickers-pane { display: flex; flex-direction: column; gap: 4px; }
+.stickers-count { margin: 2px 2px 0; font-size: 14px; font-weight: 800; color: #3a2a1c; }
+.stickers-theme { margin: 6px 2px 0; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; }
+.stickers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+.sticker { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; min-height: 72px; padding: 6px 2px; border: 0; border-radius: 12px; background: rgba(255, 250, 240, 0.55); box-shadow: inset 0 0 0 2px #e2d3b8; font: inherit; font-size: 11.5px; font-weight: 800; line-height: 1.15; color: #8a7660; cursor: pointer; text-align: center; position: relative; }
+.sticker-icon { font-size: 28px; line-height: 34px; filter: grayscale(1); opacity: 0.45; }
+.sticker.got { background: #fff1cf; box-shadow: inset 0 0 0 2px #e2b860, 0 1px 0 rgba(120, 80, 40, 0.2); color: #3a2a1c; }
+.sticker.got .sticker-icon { filter: none; opacity: 1; }
+.sticker.picked { box-shadow: inset 0 0 0 3px #c9862b; }
+.sticker.new::after { content: "New"; position: absolute; top: -4px; right: -2px; font-size: 10px; padding: 1px 5px; border-radius: 999px; background: #e2a12b; color: #fff; }
+.sticker-name { overflow-wrap: anywhere; }
+.sticker-ticket { margin: 0 2px; min-height: 2.6em; font-size: 13px; line-height: 1.3; color: #6a5340; }
+.sticker-ticket b { color: #3a2a1c; }
 /* Phones: the open Journal is a bottom sheet, like the Blueprints ticket (the chip stays at the top). */
 @media (max-width: 560px), (max-height: 520px) {
   .goals:not(.collapsed) .goals-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: min(62dvh, 520px); overflow-y: auto; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 -8px 26px rgba(60, 40, 20, 0.28); }
