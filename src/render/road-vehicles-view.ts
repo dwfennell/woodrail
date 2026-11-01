@@ -3,7 +3,7 @@ import { VEHICLE_CAP, type RoadVehicles, type VehicleKind } from "../roads/vehic
 import { modelKey, type PropLibrary } from "./props/library";
 
 /** The catalogue models (they face +x and stand on y = 0, about 70–85 mm long: drawn at `SCALE`). */
-export const VEHICLE_ASSET: Record<VehicleKind, string> = { van: "veh-delivery-van", bus: "veh-double-decker" };
+export const VEHICLE_ASSET: Record<VehicleKind, string> = { van: "veh-delivery-van", bus: "veh-town-bus" };
 /** Drawn at about half the catalogue's size: a van fits its side of a road (felt 56 mm wide). */
 const SCALE = 0.5;
 /** Room round a vehicle's middle for the whole of it, asking if it's in view. */

@@ -28,6 +28,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { DeliveryVans } from "./game/delivery-vans";
+import { Buses } from "./game/buses";
 import { plotPrice } from "./game/towns";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
@@ -1412,6 +1413,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // Delivery vans (roads spec D5): a station on the line serves a town off it by road (src/game/delivery-vans.ts).
   const deliveryVans = new DeliveryVans({ world: game, vans: game.vans, knows: () => mode === "game" && progress.learned.has("vans"), lacks: (t, k) => townLife.lacks(t, k) });
+  // Buses (roads spec D6): a bus stop beside a station brings people from a town off the line (src/game/buses.ts).
+  const buses = new Buses({ world: game, vans: game.vans, knows: () => mode === "game" && progress.learned.has("buses"), room: () => waitingCap(progress) });
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
     knows: (tech) => progress.learned.has(tech),
@@ -1892,6 +1895,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function learned(id: string): void {
     // Delivery vans: each station serving a town off the line by road gets its van now.
     if (id === "vans") deliveryVans.sync();
+    if (id === "buses") buses.sync();
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
     // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
@@ -2266,6 +2270,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else warnedHeavy.delete(id);
     }
     peopleArrive(game.world, progress, 1, peopleClock);
+    // A bus at a station's stop goes for the people waiting in its town off the line.
+    if (mode === "game" && !game.paused) buses.update();
     // (Nothing else may be drawing: new arrivals redraw their platform themselves.)
     showWaiting();
   }, 1000);
@@ -2306,7 +2312,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // A town's card (Game mode): its ledger (src/game/town-ledger.ts), drawn again only when its key changes. Its station
   // row says who is waiting for a coach.
-  const ledgerContext: LedgerContext = { learned: progress.learned, room: null, carried: 0, van: { line: (d) => deliveryVans.cardLine(d), key: (d) => deliveryVans.cardKey(d) } };
+  const ledgerContext: LedgerContext = { learned: progress.learned, room: null, carried: 0, van: { line: (d) => deliveryVans.cardLine(d), key: (d) => deliveryVans.cardKey(d) }, bus: { line: (d) => buses.cardLine(d), key: (d) => buses.cardKey(d) } };
   const ledgerOf = (): LedgerContext => {
     ledgerContext.learned = progress.learned;
     ledgerContext.carried = progress.riders;

@@ -23,9 +23,9 @@ describe("the Roads branch (roads spec D1, D3, D4)", () => {
   it("Crossing gates (after Roads, 2 planks and 40 coins) and Road bridges (after Roads and Bridges)", () => {
     expect([techOf("road-crossings")!.needs, techOf("road-crossings")!.research]).toEqual([["roads"], { goods: { planks: 2 }, coins: 40 }]);
     expect([techOf("road-bridges")!.needs, techOf("road-bridges")!.research]).toEqual([["roads", "bridges"], { goods: { planks: 3 }, coins: 80 }]);
-    // Delivery vans are built (D5: after Roads and Warehouses, 4 planks and 150 coins); buses are on the board, coming soon.
+    // Delivery vans are built (D5: after Roads and Warehouses, 4 planks and 150 coins); buses too (D6: buses.test.ts).
     expect([techOf("vans")!.plan, techOf("vans")!.needs, techOf("vans")!.research]).toEqual([undefined, ["roads", "warehouses"], { goods: { planks: 4 }, coins: 150 }]);
-    expect(techOf("buses")!.plan).toBe("soon");
+    expect(techOf("buses")!.plan).toBeUndefined();
   });
 
   it("the crossing styles come with Crossing gates now, not Scenery kit", () => {

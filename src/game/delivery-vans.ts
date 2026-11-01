@@ -61,6 +61,30 @@ export function joinedToTrack(layout: Layout, pieceId: number): boolean {
   return false;
 }
 
+/**
+ * The town a feeder from station `d` (a van or a bus parked on square `home`) serves: the nearest by road of the towns
+ * off the line (their station joined to no track), within `VAN_REACH` road squares, `d`'s own station being on the line.
+ * Null: none. Never one with a station on the line: feeders never compete with rail.
+ */
+export function feederTown(w: World, vans: Vans, d: DepotState, home: number): number | null {
+  if (!joinedToTrack(w.layout, d.pieceId)) return null;
+  const g = w.landscape.grid;
+  let best: number | null = null;
+  let length = Infinity;
+  for (const t of w.landscape.towns) {
+    if (t.id === d.townId) continue;
+    const station = w.stations.get(t.id);
+    if (station !== undefined && joinedToTrack(w.layout, station)) continue;
+    const cells = new Set(t.cells);
+    const path = vans.way([home], (i) => cells.has(i) && g.surface[i] === SURF_ROAD, `town${t.id}`, VAN_REACH);
+    if (path && path.length < length) {
+      length = path.length;
+      best = t.id;
+    }
+  }
+  return best;
+}
+
 export class DeliveryVans {
   /** Station depot id → its van run. */
   private runs = new Map<number, VanRun>();
@@ -149,31 +173,14 @@ export class DeliveryVans {
 
   private findRuns(): Map<number, VanRun> {
     const w = this.host.world;
-    const g = w.landscape.grid;
     const out = new Map<number, VanRun>();
-    // Towns off the line: their station joined to no track (or gone).
-    const off = w.landscape.towns.filter((t) => {
-      const id = w.stations.get(t.id);
-      return id === undefined || !joinedToTrack(w.layout, id);
-    });
-    if (off.length === 0) return out;
     for (const d of w.economy.allDepots()) {
-      // A town's own station, on the line (not a halt: that's for people).
-      if (d.role !== "town" || w.stations.get(d.townId) !== d.pieceId || !joinedToTrack(w.layout, d.pieceId)) continue;
+      // A town's own station (not a halt: that's for people).
+      if (d.role !== "town" || w.stations.get(d.townId) !== d.pieceId) continue;
       const home = this.host.vans.homeOf(d.townId);
       if (home === -1) continue;
-      let best: VanRun | null = null;
-      let length = Infinity;
-      for (const t of off) {
-        if (t.id === d.townId) continue;
-        const cells = new Set(t.cells);
-        const path = this.host.vans.way([home], (i) => cells.has(i) && g.surface[i] === SURF_ROAD, `town${t.id}`, VAN_REACH);
-        if (path && path.length < length) {
-          length = path.length;
-          best = { depotId: d.id, home, townId: t.id };
-        }
-      }
-      if (best) out.set(d.id, best);
+      const to = feederTown(w, this.host.vans, d, home);
+      if (to !== null) out.set(d.id, { depotId: d.id, home, townId: to });
     }
     return out;
   }

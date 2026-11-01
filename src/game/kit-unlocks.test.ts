@@ -30,6 +30,7 @@ const UNLOCKS: Record<string, ThingId[]> = {
   ],
   // The crossing styles moved from Scenery kit to the Roads branch's Crossing gates (roads spec, decision 3).
   "road-crossings": ["prop:mech-level-crossing", "prop:mech-gated-crossing"],
+  buses: ["prop:scene-bus-stop"],
   // Sandbox's kits brought into Game mode behind research (tech-tree spec step 2), looks only at first.
   "big-stations": ["piece:kit-two-platform-station", "piece:kit-grand-terminus"],
   "fun-track": ["piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"],

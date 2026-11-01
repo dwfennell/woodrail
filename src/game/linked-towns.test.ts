@@ -8,6 +8,9 @@ import { roadLine } from "./town-ledger";
 import { growthOf, receivedBy, roadBonus, ROAD_BONUS_EVERY } from "./town-life";
 import { townStatus } from "./towns";
 import { buildStarterWorld, type World } from "./world";
+import { roadBetween } from "./feeders-testing";
+import { TownLife } from "./town-life";
+import { loadFootprints } from "../props/footprints-testing";
 
 /** Two towns of one street square each, in row 2: A at column 1, B at column 7, with grass between. */
 function twoTowns(): Landscape {
@@ -134,5 +137,27 @@ describe("the town card's road line, and the sticker", () => {
     expect(tracker.update(w, ctx, 0).map((s) => s.id)).not.toContain("road-link");
     lay(w.landscape, 2, 6);
     expect(tracker.update(w, ctx, 0).map((s) => s.id)).toContain("road-link");
+  });
+});
+
+describe("a town growing keeps its streets joined to roads laid to them", () => {
+  it("Larkfield grows a level (a new street off the one the road joins): it's still joined to Elderwick", async () => {
+    const w = buildStarterWorld();
+    const a = w.landscape.towns.find((t) => t.name === "Larkfield")!;
+    const b = w.landscape.towns.find((t) => t.name === "Elderwick")!;
+    roadBetween(w, a, b).lay();
+    const host = Object.assign(w, { footprintOf: await loadFootprints(["bldg"]), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+    const life = new TownLife(host, { received: () => {}, grew: () => {} });
+    life.reset();
+    expect(townLinks(w.landscape).get(a.id)).toEqual([b.id]);
+    const streets = () => a.cells.filter((i) => w.landscape.grid.surface[i] === SURF_ROAD).length;
+    const before = streets();
+    // (Planks reach Larkfield as from a train: the crane's own count.)
+    for (let k = 0; k < 9; k++) w.economy.receive(a.id, "planks");
+    life.update();
+    expect(life.status(a.id).level).toBe(1);
+    // (It grew new streets, one of them off the square the road joins: that square was reshaped.)
+    expect(streets()).toBeGreaterThan(before);
+    expect(townLinks(w.landscape).get(a.id)).toEqual([b.id]);
   });
 });

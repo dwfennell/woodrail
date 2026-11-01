@@ -135,6 +135,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // Crossing styles: only a look, so free once learned (Crossing gates, the Roads branch; Scenery kit's before).
   "prop:mech-level-crossing": { label: "Level crossing", cost: {}, tech: "road-crossings", free: true },
   "prop:mech-gated-crossing": { label: "Gated crossing", cost: {}, tech: "road-crossings", free: true },
+  // Buses (roads spec D6): a bus stop beside a station brings a bus.
+  "prop:scene-bus-stop": { label: "Bus stop", cost: {}, tech: "buses", free: true },
 };
 
 /**
