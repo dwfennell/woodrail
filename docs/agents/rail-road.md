@@ -10,6 +10,9 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - **Routing** (`src/routing/`): which way a routed train goes, and the points set for it (the routing spec).
 
 ### Landed recently
+- **Signals, step 5: how they look** (on `claude/signals-5`; signals spec §5).
+  - **Now:** marks drawn instanced by look (`SignalMarksView`): plain (the toy semaphore), semaphore and colour light (the kits' models without their slabs, from `PropLibrary`), and a gantry drawn by itself over two marks side by side on double track. Arms glide 0.3 s (`animate`, frames only while gliding) and cast no shadow; colour lights swap lenses between two batches.
+  - **Gotchas:** `drawCalls` counts batches in use; a look's batch grows (made again, doubled) only when its marks outgrow it. The model frame is a signal piece's (far end at x = 144 on the mark's joint).
 - **Signals, step 4: placing on a phone** (on `claude/signals-4`; signals spec §4; e2e `npm run e2e:signals`).
   - **Now:** the Signal on the Switch shelf: dragged onto track it snaps to the nearer joint of the piece under the finger, facing the way the finger goes along it, its blocks tinted (`BlockTint`); let go, a toast offers to turn it round. Tapped in the tray, the Signal tool: a tap on track puts one on the nearest joint (facing away from the camera), a drag along the track one every train's length. A tap on a post holds it at red; a long press opens its card (Turn round, Hold at red / Let go, Style, Delete; "Too short for a train to wait here" when sections make no waiting point of it); with the card open a drag moves it. Undo covers each.
   - **Gotchas:** marks are picked by screen distance to their posts (`SignalMarksView.pick`), only over track or nothing (a car or a model wins). `Editor.onSignalsChange` saves and refreshes an open card. The kit skins' tests exempt `SIGNAL_SKIN_ASSETS`.
