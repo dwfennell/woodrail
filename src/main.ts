@@ -1416,8 +1416,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
       if (firstFlour && progress.firstFlour) note({ kind: "milestone", text: `First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus`, place: { x: town.station.x, z: town.station.z } }, 3600);
-      // Logged quietly, one entry per town and kind for a burst of deliveries.
-      note({ kind: "event", key: `deliver:${town.id}:${kind}`, qty: n, text: "", format: (q) => `Delivered ${describeGoods({ [kind]: q })} to ${town.name}`, place: { x: town.station.x, z: town.station.z } });
+      // (A routine delivery isn't news: the coins and the town's card show it. The News keeps what changes things.)
     },
     grew: (town, status, built) => {
       const here = { x: town.station.x, z: town.station.z };
@@ -1485,7 +1484,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let goalsCheckedAt = 0;
   /** The latest goals ticked, a moment apart at most: their News entry and toast take the next one in (see `GoalTicks`). */
   let ticks = new GoalTicks();
-  let ticksEntry: JournalEntry | null = null;
+  let ticksToasted = false;
   /** Stickers earned now (in `checkGoals`, so about once a second; each is checked only when what it reads changed). */
   function checkStickers(announce: boolean, ticked: boolean): void {
     // Shown once the core goals are all done: till then earned quietly (a dot on the chip), then one toast a check.
@@ -1527,23 +1526,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const titles = fresh.map((g) => g.title);
         const tick = goalsDoneText(titles, TOAST_TITLES);
         if (growth && joins(growth, game.simSeconds, performance.now(), GROWTH_JOIN_S)) {
-          // Right after a growth milestone: part of the same entry, and a toast of its own after the growth's.
-          journal.amend(growth.entry, `${growth.entry.text} · ${tick}`);
-          goalsPanel.newsChanged();
+          // Right after a growth milestone: a toast of its own after the growth's. (Goals done aren't News: the Goals
+          // tab ticks them.)
           hud.toast(tick, true, 3200);
         } else {
           // Goals ticked together (one a check, a moment apart): one line in the News and one toast.
           const say = ticks.tick(titles, game.simSeconds, performance.now(), (t) => hud.hasToast(t));
-          if (say.kind === "merge" && ticksEntry) {
-            journal.amend(ticksEntry, say.news);
-            goalsPanel.newsChanged();
-            hud.retoast(say.oldToast, say.toast, true, 3200);
-          } else {
-            const where = fresh[0].guide(game.world).points[0];
-            ticksEntry = note({ kind: "milestone", text: say.news, place: where && { x: where.x, z: where.z } }, 3200, true);
-            if (ticksEntry) hud.toast(say.toast, true, 3200);
-            else ticks.drop();
-          }
+          // (Only toasted: the Goals tab ticks them, so the News doesn't say them again.)
+          if (say.kind === "merge" && ticksToasted) hud.retoast(say.oldToast, say.toast, true, 3200);
+          else if (mode === "game") {
+            ticksToasted = true;
+            hud.toast(say.toast, true, 3200);
+          } else ticks.drop();
         }
         audio.chime();
         goalsPanel.celebrate();
@@ -1869,8 +1863,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // second engine is, or that one's to be made.
     const opened = goals.openedBy(id, progress.learned);
     const tip = opened.some((g) => g.id === "two-trains") ? secondEngineTip(progress.available(game.world, "car:engine"), progress.owned.get("car:engine") ?? 0) : "";
-    const goalLine = opened.length > 0 ? ` · New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
-    note({ kind: "milestone", text: (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present + goalLine }, opened.length > 0 ? 5200 : 3800);
+    const learnedLine = (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present;
+    const goalLine = opened.length > 0 ? `New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
+    // Two News lines (what was learned, then the goal it opens), one toast saying both.
+    note({ kind: "milestone", text: learnedLine }, 3800, true);
+    if (goalLine) note({ kind: "milestone", text: goalLine }, 0, true);
+    if (mode === "game") hud.toast(goalLine ? `${learnedLine} · ${goalLine}` : learnedLine, true, goalLine ? 5200 : 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -2207,11 +2205,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const got = `A boat brought ${describeGoods(e.goods)}: −${e.coins} coins`;
         // An order that all went back is a refusal (a plain toast); a delivery is logged quietly.
         if (total(e.goods) === 0) hud.toast(`Your order went back: ${why}`, false, 3200);
-        else note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats brought goods: −${c} coins` : e.short ? `${got} (the rest went back: ${why})` : got) });
+        // (A full order is routine, not news: only one cut short is, as a problem to see to.)
+        else if (e.short) note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: () => `${got} (the rest went back: ${why})` });
         scheduleSave("progress");
       } else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
-        note({ kind: "event", key: `sold:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats took goods: +${c} coins` : `A boat took ${describeGoods(e.goods)}: +${c} coins`) });
+        // (Goods sold to a boat are routine, as deliveries are: the coins show it, the News doesn't.)
         scheduleSave("progress");
       }
     }
@@ -3889,7 +3888,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     journal.clear();
     growth = null;
     ticks = new GoalTicks();
-    ticksEntry = null;
+    ticksToasted = false;
     goalsPanel.reset();
   }
 
