@@ -1,4 +1,6 @@
 import type { Economy, Line, RouteStopDef } from "../economy";
+import { flipCursor, type Cursor } from "../sim";
+import { legFromCursor, runsLength } from "./route-path";
 
 /**
  * Lines: a train's route with a colour and a name (see docs/superpowers/specs/2026-10-17-routes-design.md). The
@@ -61,6 +63,7 @@ export function trainsOn(economy: Economy, id: number): number[] {
 export function editLine(economy: Economy, engineCarId: number, edit: (stops: RouteStopDef[]) => void): Line | null {
   let line = lineOf(economy, engineCarId);
   if (!line) line = startLine(economy, engineCarId, []);
+  const had = line.stops.length;
   const trains = trainsOn(economy, line.id).map((engine) => {
     const route = economy.routeOf(engine);
     return { engine, route, heading: route ? line!.stops[route.next % Math.max(1, line!.stops.length)] : undefined, at: route?.next ?? 0 };
@@ -71,6 +74,16 @@ export function editLine(economy: Economy, engineCarId: number, edit: (stops: Ro
     return null;
   }
   for (const t of trains) {
+    // (The line just got its second stop: a way to run. Each train heads for the stop it comes to first along its way,
+    // not the first tapped: it never turns round mid-line, so one just past that stop went the whole way round to it,
+    // play-test 2026-11-01. Its ▶ on the card moves there.)
+    if (had < 2 && line.stops.length >= 2) {
+      const first = firstStopAhead(economy, t.engine, line.stops);
+      if (first !== -1) {
+        economy.setRoute(t.engine, { stops: line.stops, next: first, at: false });
+        continue;
+      }
+    }
     const kept = t.heading ? line.stops.indexOf(t.heading) : -1;
     const next = kept !== -1 ? kept : Math.min(t.at, line.stops.length - 1);
     // (Via points passed on its way to the stop it was heading for stay passed.)
@@ -81,8 +94,8 @@ export function editLine(economy: Economy, engineCarId: number, edit: (stops: Ro
 }
 
 /**
- * This engine runs line `id` from now on (leaving any it ran), heading for the line's stop nearest along it (the first
- * the train would come to is not known here: the first stop).
+ * This engine runs line `id` from now on (leaving any it ran), heading for the line's stop it comes to first along its
+ * way (`firstStopAhead`; the first stop if none can be reached).
  */
 export function joinLine(economy: Economy, engineCarId: number, id: number): Line | null {
   const line = economy.lines.get(id);
@@ -90,8 +103,40 @@ export function joinLine(economy: Economy, engineCarId: number, id: number): Lin
   if (economy.lineIdOf.get(engineCarId) === id) return line;
   stopLine(economy, engineCarId);
   economy.lineIdOf.set(engineCarId, id);
-  economy.setRoute(engineCarId, { stops: line.stops, next: 0 });
+  const first = line.stops.length >= 2 ? firstStopAhead(economy, engineCarId, line.stops) : -1;
+  economy.setRoute(engineCarId, { stops: line.stops, next: first === -1 ? 0 : first });
   return line;
+}
+
+/**
+ * The stop (an index into `stops`) the train with this engine comes to first along its way: the shortest of the ways a
+ * routed train would take from its front (as the drawn line and the router choose at points; it turns round only where
+ * the track ends) to each stop on the map, the earlier stop on a tie. −1: it's not on the track, or reaches none.
+ */
+export function firstStopAhead(economy: Economy, engineCarId: number, stops: readonly RouteStopDef[]): number {
+  const found = economy.sim.findCar(engineCarId);
+  if (!found || found.train.derailed) return -1;
+  const t = found.train;
+  const engine = t.cars[found.index];
+  // (The way it's going, or standing, the way its front faces: as the map's ribbon reads it.)
+  const way = (engine.lever || 1) * engine.facing;
+  const front: Cursor = { ...(way > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
+  if (way < 0) flipCursor(economy.layout, front);
+  let best = -1;
+  let bestLen = Infinity;
+  const seen = new Map<number, number>();
+  stops.forEach((st, k) => {
+    const d = economy.depot(st.depotId);
+    if (!d || !economy.layout.getPiece(d.pieceId)) return;
+    let len = seen.get(d.pieceId);
+    if (len === undefined) {
+      const leg = legFromCursor(economy.layout, front, d.pieceId);
+      len = leg ? runsLength(leg) : Infinity;
+      seen.set(d.pieceId, len);
+    }
+    if (len < bestLen) [best, bestLen] = [k, len];
+  });
+  return best;
 }
 
 /** A line's new name (trimmed, kept short; empty keeps the old one). */

@@ -2898,12 +2898,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.setCarLoad(car.kind === "passenger" && room === 0 ? "" : carries || car.kind === "passenger" ? carLoadWords(summaryCar(car), room, carries) : "");
     }
   }
+  /** The stop the open card's ▶ was last drawn on (its engine): a ▶ that moves pops, so the player sees it go. */
+  let nextDrawn = { carId: -1, next: -1 };
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
     if (carId === -1 || !allowed) {
       if (routeShown !== "") hud.engineExtra.hidden = true;
       routeShown = "";
+      nextDrawn = { carId: -1, next: -1 };
       setPlanning(false);
       return;
     }
@@ -3058,6 +3061,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           showRoute();
         });
         chip.classList.toggle("next", r?.next === k);
+        // (The ▶ moved on this card: to the stop the train comes to first, once the line has two, or on as it runs.)
+        chip.classList.toggle("moved", r?.next === k && nextDrawn.carId === carId && nextDrawn.next !== -1 && nextDrawn.next !== k);
         chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
         chip.classList.toggle("picked", stopPicked === k);
         if (st.action === "drop" || st.action === "pick") chip.dataset.intent = st.action;
@@ -3086,6 +3091,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         });
       });
       box.append(strip);
+      nextDrawn = { carId, next: r?.next ?? -1 };
       // Stops beyond the edge (scrolled sideways): the edge fades, as the tray's does.
       const edges = () => {
         strip.classList.toggle("more-right", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2);

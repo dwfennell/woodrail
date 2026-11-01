@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildStarterWorld, type World } from "../../game/world";
-import { editLine } from "../../game/lines";
+import { editLine, stopLine } from "../../game/lines";
+import { legFromCursor } from "../../game/route-path";
 import { readMapText } from "../../persist/bug-map";
 import { appendPiece, connectorRef } from "../../track";
 import { bugMapText, describeBreak, loadBugMap, replayBugMap } from "../bugmap";
@@ -71,6 +72,21 @@ describe("bug maps: copied maps replayed with the invariants on", () => {
       expect(r.arrivals.size).toBeGreaterThan(0);
       for (const [engine, n] of r.arrivals) expect(n, `engine ${engine}`).toBeGreaterThanOrEqual(m.arrivals);
     }, 60_000);
+
+  it("route-stuck.txt: the route planned again as the player did (Mill, then Farm yard): it heads for the farm yard, ahead of it, and its way there keeps off the middle line", async () => {
+    const { world } = await loadBugMap(FILES["route-stuck.txt"] ?? "");
+    const eco = world.economy;
+    // (Engine 9, just past the mill on the viaduct road, heading away from it; the mill depot on piece 160, the farm
+    // yard's on 91. Before, it headed for the mill: the whole way round, by the middle line through Foxley and
+    // Buttercombe, piece 109 by the school.)
+    const [mill, farm] = eco.routeOf(9)!.stops.map((st) => st.depotId);
+    stopLine(eco, 9);
+    editLine(eco, 9, (st) => st.push({ depotId: mill, action: "auto" }));
+    editLine(eco, 9, (st) => st.push({ depotId: farm, action: "auto" }));
+    expect(eco.routeOf(9)!.next).toBe(1);
+    const leg = legFromCursor(world.layout, { ...world.sim.findCar(9)!.train.bogies[0] }, eco.depot(farm)!.pieceId);
+    expect(leg && leg.some((r) => r.pieceId === 109)).toBe(false);
+  });
 
   it("the hand-made map is its builder's (BUGMAP_WRITE=1 writes it again)", async () => {
     const text = await bugMapText(shuttle().world, "game");
