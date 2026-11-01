@@ -318,9 +318,9 @@ describe("headOnTip", () => {
 
 describe("the full line's toast", () => {
   it("says what the line has room for, and what would run them all, short", () => {
-    expect(fullLineToast(2, 3, 1)).toBe("This line has room for 2 trains. Lay another passing loop, or put one away (on its card).");
-    expect(fullLineToast(1, 2, 1)).toBe("This line has room for 1 train. Lay a passing loop, or put one away (on its card).");
-    expect(fullLineToast(2, 4, 2)).toBe("This line has room for 2 trains. Lay 2 more passing loops, or put one away (on its card).");
+    expect(fullLineToast(2, 3, 1)).toBe("This line has room for 2 trains. Lay another passing loop, or take one off the track.");
+    expect(fullLineToast(1, 2, 1)).toBe("This line has room for 1 train. Lay a passing loop, or take one off the track.");
+    expect(fullLineToast(2, 4, 2)).toBe("This line has room for 2 trains. Lay 2 more passing loops, or take one off the track.");
     // (Three lines at most on a 360 px phone: the toast wraps at 328 px, some 33 characters a line.)
     for (const t of [fullLineToast(2, 3, 1), fullLineToast(9, 12, 3)]) expect(t.length).toBeLessThanOrEqual(96);
   });
@@ -425,7 +425,7 @@ describe("stuck for good (stalls.ts; routing §16 Q3: nothing turns a train back
       economy.tick();
     }
     const said = [red, blue].map((e) => engineStatus(sim, economy, e, () => "the stop"));
-    expect(said).toEqual(["Stuck: the train on the Blue line is in the way. Put one away", "Stuck: the train on the Red line is in the way. Put one away"]);
+    expect(said).toEqual(["Stuck: the train on the Blue line is in the way. Move one of them", "Stuck: the train on the Red line is in the way. Move one of them"]);
     for (const e of [red, blue]) expect(sim.findCar(e)!.train.lastTurn).toBeUndefined();
     // (Told once, for both.)
     expect(told).toEqual([[red, blue].sort((a, b) => a - b)]);

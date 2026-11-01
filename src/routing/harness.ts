@@ -377,7 +377,7 @@ export class HarnessRun implements InvariantWorld {
     return !("refused" in r);
   }
 
-  /** Train `k` put away (the card's Put away): off the track and its line. */
+  /** Train `k` put away (its card's Remove, or picked up): off the track and its line. */
   putAway(k: number): void {
     const engine = this.engines[k];
     const t = engine === undefined ? undefined : this.sim.findCar(engine)?.train;
@@ -385,7 +385,7 @@ export class HarnessRun implements InvariantWorld {
     this.sim.removeTrain(t.id);
     this.routes.delete(engine);
     this.lineOf.delete(engine);
-    // (As the game's Put away: `economy.prune()`.)
+    // (As the game's Remove: `economy.prune()`.)
     this.sections.prune(new Set(this.lineOf.keys()));
     this.stalls.prune();
   }

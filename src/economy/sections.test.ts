@@ -273,13 +273,13 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
       for (const e of running) {
         const t = l.sim.findCar(e)!.train;
         expect(t.lastTurn?.cause ?? "buffer", `running train ${e}`).toBe("buffer");
-        if (l.economy.stalls.stuckOf(e)) expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toBe("Stuck: too many trains for this line. Put one away or add a loop");
+        if (l.economy.stalls.stuckOf(e)) expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toBe("Stuck: this line has a train too many. Add a passing loop");
       }
       expect(running.some((e) => l.economy.stalls.stuckOf(e)?.kind === "too-many")).toBe(true);
       for (const e of held) expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toMatch(/^Waiting: lay \d+ more passing loops? for \d+ trains$/);
       expect(r.meetings).toEqual([]);
       expect(l.economy.sections.released).toBe(0);
-      // The player's fix: the held ones put away (their cards' Put away). The rest run on, none stuck.
+      // The player's fix: the held ones taken off the track (put away). The rest run on, none stuck.
       for (const e of held) expect(putAway(l.sim, l.economy, e)).not.toBeNull();
       const before = running.map((e) => r.arrivals.get(e)!);
       r.run(5 * 60);
@@ -299,7 +299,7 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     const [b, c] = es.slice(-2);
     for (const e of [b, c]) {
       expect(l.economy.stalls.stuckOf(e)?.kind, `train ${e}`).toBe("in-way");
-      expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toBe("Stuck: the train on the Red line is in the way. Put one away");
+      expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toBe("Stuck: the train on the Red line is in the way. Move one of them");
       expect(l.sim.findCar(e)!.train.lastTurn?.cause ?? "buffer").toBe("buffer");
     }
     expect(r.meetings).toEqual([]);
@@ -321,7 +321,7 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     const seen3 = texts(three, trains(three, [{ piece: three.east[1], back: true, next: 1 }]), 60);
     expect(seen3).toContain("Waiting: lay 1 more passing loop for 3 trains");
     // (The held one in the others' way: they're stuck, and say so.)
-    expect(seen3).toContain("Stuck: too many trains for this line. Put one away or add a loop");
+    expect(seen3).toContain("Stuck: this line has a train too many. Add a passing loop");
     const plain = line(0);
     const seen = texts(plain, trains(plain, [{ piece: plain.east[1], back: true, next: 1 }]), 60);
     expect(seen).toContain("Waiting: lay 2 more passing loops for 3 trains");

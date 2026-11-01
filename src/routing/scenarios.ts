@@ -323,7 +323,7 @@ export const threeTrainsOneLoop: Scenario = {
 
 /**
  * The same three trains, and the player's fix once they're stuck (stalls.ts: too many trains for the line): the held
- * one put away (its card's Put away), at 2 minutes. The other two then pass at the loop and deliver.
+ * one put away (its card's Remove), at 2 minutes. The other two then pass at the loop and deliver.
  */
 export const threeTrainsPutAway: Scenario = {
   ...threeTrainsOneLoop,
@@ -787,6 +787,35 @@ function fuzzBuild(layout: Layout, seed: number, seconds: number): { trains: Tra
       return { trains, events };
     }
   }
+}
+
+/**
+ * A ring for the fuzz's "a route never makes it worse" (harness-fuzz.test.ts): `ringWithLoop`, 2 to 4 trains on no
+ * line on its plain track and the loop's main road, all running the same way round (as hand-run trains on a ring do,
+ * one behind another), the loop's points left either way. Stops A and B for the one given a route.
+ */
+export function ringFuzz(seed: number, seconds: number): Scenario {
+  return {
+    name: `ring fuzz seed ${seed}`,
+    seconds,
+    build: (layout) => {
+      const r = rng(seed * 31 + 5);
+      const ring = ringWithLoop(layout);
+      if (r() < 0.5) layout.setSwitchState(ring.loop.s1, 1);
+      const places = [...ring.north, ...ring.round, ...ring.loop.main];
+      const n = 2 + Math.floor(r() * 3);
+      const used = new Set<number>();
+      const trains: TrainSpec[] = [];
+      for (let k = 0; k < n; k++) {
+        const free = places.map((_, i) => i).filter((i) => !used.has(i));
+        if (free.length === 0) break;
+        const i = free[Math.floor(r() * free.length)];
+        used.add(i - 1).add(i).add(i + 1);
+        trains.push({ pieceId: places[i], cars: CARS, optional: true });
+      }
+      return { trains, events: [] };
+    },
+  };
 }
 
 // ── Negative controls: the checks catch what they're for ────────────────────────────────────────────────────────────

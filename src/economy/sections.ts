@@ -1638,7 +1638,7 @@ export class Sections {
           return sec ? 0 : end ? 1 : road ? 2 : 3;
         };
         // (The newest last: the one held when room runs out is the one just put on the line. The player put it there,
-        // and can take it off again: "Put away" on its card.)
+        // and can take it off again (its card's Remove, or picked up).)
         const newest = (a: number, b: number) => (this.joinedAt.get(a) ?? 0) - (this.joinedAt.get(b) ?? 0);
         // (Those whose holding would block most first, as `where` says; of those alike, the newest last.)
         const byWhere = (a: number, b: number) => where(a) - where(b) || newest(a, b);

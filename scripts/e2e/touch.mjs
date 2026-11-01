@@ -2658,8 +2658,9 @@ async function deadEndContinue(p) {
 
 /**
  * The third-train trap, by the player's path: a line with one passing loop and three trains. The third is held (the
- * newest), the player's told once (the real toast, at 360 px), and its card offers "Put away": a touch tap puts it back
- * in the box, and the other two deliver. Undo puts it back. A reload keeps the same train held, and says nothing again.
+ * newest), the player's told once (the real toast, at 360 px), and its card says what to do (no "Put away" button: the
+ * user, 2026-11-01): a touch tap on its own Remove takes it off, and the other two deliver. A reload keeps the same
+ * train held, and says nothing again.
  */
 async function putAwayButton(p) {
   await p.keyboard.press("Escape");
@@ -2756,7 +2757,7 @@ async function putAwayButton(p) {
     one.remove();
     return { said: window.__trapSaid.filter((m) => /^This line has room/.test(m)), shown: t.textContent, left: r.left, right: r.right, lines: Math.round((t.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), lh, font: document.fonts.check(`${cs.fontWeight} ${cs.fontSize} Nunito`), vw: innerWidth };
   });
-  check("trap: a third train on a 1-loop line: the player's told once, how to fix it", toast.said.length === 1 && toast.said[0] === "This line has room for 2 trains. Lay another passing loop, or put one away (on its card).", JSON.stringify(toast.said));
+  check("trap: a third train on a 1-loop line: the player's told once, how to fix it", toast.said.length === 1 && toast.said[0] === "This line has room for 2 trains. Lay another passing loop, or take one off the track.", JSON.stringify(toast.said));
   check("trap: the line's toast fits a 360 px phone (three lines at most)", toast.left >= 0 && toast.right <= toast.vw && toast.lines <= 3, JSON.stringify(toast));
   // The newest is held; the line delivers nothing while it is (the trap).
   const trapped = await p.evaluate(({ E }) => {
@@ -2824,47 +2825,31 @@ async function putAwayButton(p) {
       return goods;
     };
   }, setup);
-  // The held train's card: "Put away" (opened in code: opening a card is tested above; the button is what's tested here).
+  // The held train's card (opened in code: opening a card is tested above): no "Put away" of its own any more (beside
+  // Remove it read as the other train's, the user, 2026-11-01); its status says what to do, in two lines at 360 px.
   await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), E[2]);
-  const shown = await p.waitForFunction(() => { const b = document.querySelector(".engine-card .put-away"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 60000 }).then(() => true, () => false);
+  await p.waitForFunction(() => { const c = document.querySelector(".engine-card"); return !!c && !c.hidden && document.querySelector(".engine-card .engine-status")?.textContent; }, null, { timeout: 60000 });
   const fit = await p.evaluate(() => {
-    const el = document.querySelector(".engine-card .put-away");
-    const b = el.getBoundingClientRect();
-    const c = document.querySelector(".engine-card").getBoundingClientRect();
     const s = document.querySelector(".engine-card .engine-status");
-    return { left: b.left, right: b.right, h: b.height, card: [c.left, c.right], vw: innerWidth, status: s.textContent, statusLines: Math.round(s.getBoundingClientRect().height / (1.25 * parseFloat(getComputedStyle(s).fontSize))) };
+    const putAway = [...document.querySelectorAll(".engine-card button")].filter((b) => /put( it)? away/i.test(b.textContent) && b.offsetParent !== null).length;
+    return { putAway, status: s.textContent, statusLines: Math.round(s.getBoundingClientRect().height / (1.25 * parseFloat(getComputedStyle(s).fontSize))) };
   });
-  check("trap: the held train's card offers Put away, and it fits at 360 px", shown && fit.left >= 0 && fit.right <= fit.vw && fit.right <= fit.card[1] && fit.h >= 40 && fit.statusLines <= 2, JSON.stringify(fit));
-  if (!shown) return;
-  const n0 = await p.evaluate(() => window.woodrail.sim.trainIds().length);
-  const putAway = async () => {
-    // (Once the card has settled: its line's part comes in a frame or two after it opens, and the card, held at the
-    // bottom, grows up, moving the button. Still over four frames, SwiftShader's slow ones.)
-    await p.waitForFunction(() => new Promise((r) => {
-      const at = () => JSON.stringify(document.querySelector(".engine-card .put-away").getBoundingClientRect());
-      const route = document.querySelector(".engine-card .engine-extra");
-      const a = at();
-      let n = 0;
-      const step = () => (++n < 4 ? requestAnimationFrame(step) : r(at() === a && !!route && !route.hidden));
-      requestAnimationFrame(step);
-    }), null, { timeout: 60000, polling: 100 });
-    const box = await (await p.$(".engine-card .put-away")).boundingBox();
-    await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
-  };
-  await putAway();
+  check("trap: the held train's card says what to do in two lines at 360 px, with no Put away button", fit.putAway === 0 && fit.statusLines <= 2 && /loop/.test(fit.status), JSON.stringify(fit));
+  // The player's fix: the held train off the track, by its own card's Remove (a touch tap); the other two deliver.
+  await p.waitForFunction(() => new Promise((r) => {
+    const at = () => JSON.stringify(document.querySelector(".engine-card .remove")?.getBoundingClientRect());
+    const a = at();
+    let n = 0;
+    const step = () => (++n < 4 ? requestAnimationFrame(step) : r(at() === a && !!document.querySelector(".engine-card .remove")?.offsetParent));
+    requestAnimationFrame(step);
+  }), null, { timeout: 60000, polling: 100 });
+  const box = await (await p.$(".engine-card .remove")).boundingBox();
+  await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
   const gone = await p.evaluate((E) => ({ on: E.map((e) => !!window.woodrail.sim.findCar(e)), card: !document.querySelector(".engine-card").hidden }), E);
-  check("trap: a tap on Put away puts the held train in the box", JSON.stringify(gone.on) === "[true,true,false]" && !gone.card, JSON.stringify(gone));
-  // Undo at once (its spot still free): back where it stood.
-  await p.keyboard.press("Control+z");
-  await frames(p);
-  const back = await p.evaluate((e) => ({ n: window.woodrail.sim.trainIds().length, on: !!window.woodrail.sim.findCar(e) }), E[2]);
-  check("trap: undo puts it back", back.n === n0 && back.on, JSON.stringify({ n0, ...back }));
-  // Away again, from its card: the payoff, the other two deliver (QA's plain 2-train run: 24 goods in 150 s).
-  await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), E[2]);
-  await p.waitForFunction(() => { const b = document.querySelector(".engine-card .put-away"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 60000 });
-  await putAway();
+  check("trap: a tap on the held train's Remove takes it off the track", JSON.stringify(gone.on) === "[true,true,false]" && !gone.card, JSON.stringify(gone));
+  // The payoff: the other two deliver (QA's plain 2-train run: 24 goods in 150 s).
   const goods = await p.evaluate(() => window.__run(150));
-  check("trap: put away, the other two deliver", goods >= 12, `${goods} goods in 150 s`);
+  check("trap: taken off, the other two deliver", goods >= 12, `${goods} goods in 150 s`);
   await p.setViewportSize({ width: 390, height: 844 });
   await frames(p);
 }
@@ -2873,9 +2858,10 @@ async function putAwayButton(p) {
  * Who's in the way, shown (the user's "I don't quite get why the train is stuck"). A line's train (forest to sawmill,
  * timber) comes up behind an engine on no line left standing on its single track, its lever off: a train the player
  * forgot about. Its card, opened by a tap on it, names the blocker plainly (parked, by where it is, never an id), in two
- * lines at 360 px, with Show and Put it away (44 px or more). A tap on Show glides the camera to the parked engine,
- * which flashes; the flash ends by itself and nothing is drawn after. Put it away puts the parked engine in the box, and
- * the line's train runs on and delivers logs to the sawmill (the payoff).
+ * lines at 360 px, with Show (44 px or more) and no "Put it away" (beside Remove it read as this train's: the user,
+ * 2026-11-01). A tap on Show glides the camera to the parked engine, which flashes; the flash ends by itself and nothing
+ * is drawn after. The player taps the parked engine and its own card's Remove, and the line's train runs on and
+ * delivers logs to the sawmill (the payoff).
  */
 async function showBlocker(ctx, p) {
   await p.keyboard.press("Escape");
@@ -2966,10 +2952,10 @@ async function showBlocker(ctx, p) {
     one.remove();
     const r = s.getBoundingClientRect();
     const box = (sel) => { const e = document.querySelector(sel); if (!e || getComputedStyle(e).display === "none" || e.hidden) return null; const q = e.getBoundingClientRect(); return { w: Math.round(q.width), h: Math.round(q.height), right: q.right, laidW: e.offsetWidth, laidH: e.offsetHeight }; };
-    return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth, show: box(".engine-card .show-blocker"), fix: box(".engine-card .fix-blocker") };
+    return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth, show: box(".engine-card .show-blocker"), putAway: [...document.querySelectorAll(".engine-card button")].filter((b) => /put( it)? away/i.test(b.textContent) && b.offsetParent !== null).length };
   });
   check("blocker: the card names the engine left in the way, plainly (parked, by where it is; no id) and the fix, in two lines at 360 px", /^(Waiting|Stuck): (the train parked by [A-Za-z ]+( \d)?|a parked train) is in the way\. Move it$/.test(card.said) && !/\d\d/.test(card.said) && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
-  check("blocker: Show and Put it away on the card, each 44 px or more", !!card.show && !!card.fix && card.show.h >= 44 && card.fix.h >= 44 && card.show.w >= 44 && card.show.laidH >= 44 && card.fix.laidH >= 44 && card.fix.right <= card.vw, JSON.stringify(card));
+  check("blocker: Show on the card, 44 px or more, and no Put it away", !!card.show && card.show.h >= 44 && card.show.w >= 44 && card.show.laidH >= 44 && card.show.right <= card.vw && card.putAway === 0, JSON.stringify(card));
   // Show, tapped as a finger would once it's been drawn and stood still past the card tap guard's window.
   const before = await p.evaluate(({ parked }) => {
     const w = window.woodrail;
@@ -3018,8 +3004,12 @@ async function showBlocker(ctx, p) {
     return { frames: w.framesDrawn - f0, shown: ids.map((id) => w.trainView.cars.get(id)?.shown ?? -1), flourishes: w.flourishes.count };
   }, setup);
   check("blocker: the flash ends by itself, and then 0 frames are drawn (paused, all still)", idle.frames === 0 && idle.shown.every((v) => v === 0) && idle.flourishes === 0, JSON.stringify(idle));
-  // The fix: Put it away (the parked engine back in the box); the line's train runs on and delivers.
-  await tapButton(".engine-card .fix-blocker");
+  // The fix, as the card says: the player taps the parked engine (shown above the card now) and its own Remove; the
+  // line's train runs on and delivers.
+  await tapOn({ engine: setup.parked });
+  await p.waitForFunction((parked) => window.woodrail.interaction.openEngineCarId === parked && !document.querySelector(".engine-card").hidden, setup.parked, { timeout: 30000 }).catch(() => {});
+  await p.waitForFunction(() => document.querySelector(".engine-card")?.getAnimations().every((a) => a.playState === "finished") ?? false, null, { timeout: 30000 }).catch(() => {});
+  await tapButton(".engine-card .remove");
   const after = await p.evaluate(({ red, parked }) => {
     const w = window.woodrail;
     w.paused = false;
@@ -3027,7 +3017,7 @@ async function showBlocker(ctx, p) {
     const goods = window.__blockRun(120);
     return { gone, goods, redOn: !!w.sim.findCar(red) };
   }, setup);
-  check("blocker: Put it away takes the engine off; the line's train runs on and delivers logs to the sawmill", after.gone && after.redOn && after.goods >= 2, JSON.stringify(after));
+  check("blocker: the parked engine's own Remove takes it off; the line's train runs on and delivers logs to the sawmill", after.gone && after.redOn && after.goods >= 2, JSON.stringify(after));
 }
 
 /**
@@ -3138,7 +3128,7 @@ async function followGap(ctx, p, tapSel) {
  * Stuck, and the player's fix (routing §16 Q3: nothing turns a train back short of the end of the track). Two trains on
  * one line head on along single track: a passing loop laid in the middle but for one straight of its side road, so no
  * loop yet. The line has room for one: the second is held at its end, the first comes up to it and stands. Neither
- * turns back: both stand, and the first's card says it's stuck and what to do ("… Put one away or add a loop"), in two
+ * turns back: both stand, and the first's card says it's stuck and what to do ("… Add a passing loop"), in two
  * lines on a 360 px phone. The player drags the missing straight out of the tray into the gap: the loop is whole, both
  * are let run, they pass at the loop and deliver logs to the sawmill.
  *
@@ -3289,7 +3279,7 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     const r = s.getBoundingClientRect();
     return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth };
   });
-  const fixSaid = lines ? /^Stuck: (the train on the [A-Za-z]+ line|another train) is in the way\. Add a passing loop here$/.test(card.said) : card.said === "Stuck: too many trains for this line. Put one away or add a loop";
+  const fixSaid = lines ? /^Stuck: (the train on the [A-Za-z]+ line|another train) is in the way\. Add a passing loop here$/.test(card.said) : card.said === "Stuck: this line has a train too many. Add a passing loop";
   check(`${tag}: the first's card says it's stuck and the fix, in two lines at 360 px`, fixSaid && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
   // (The once-ever head-on tip, if it came with this stall: what works, a passing loop; no signals needed.)
   if (lines) {

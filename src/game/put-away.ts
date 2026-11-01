@@ -11,8 +11,9 @@ export interface PutAway {
 }
 
 /**
- * "Put away" (a line with a train too many): the train with this engine back in the box, off its line at once (its
- * cars free for the tray again). Null if there's no such train.
+ * A train taken off the track (a line with a train too many, say; the player's Remove or a pick-up do the same): the
+ * train with this engine back in the box, off its line at once (its cars free for the tray again), undoably. Null if
+ * there's no such train. (The engine card's own "Put away" buttons are gone: the user, 2026-11-01.)
  */
 export function putAway(sim: Sim, economy: Economy, engine: number): PutAway | null {
   const found = sim.findCar(engine);
