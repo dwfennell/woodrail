@@ -1,0 +1,289 @@
+From f93ee9e1be0d3e4583a88ca22df0236d63db48ee Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 1 Nov 2026 11:35:06 +0000
+Subject: [PATCH] Research first: holding never blocks loading
+
+QA release point (balance seed 5): planks a Research-first school lacked rode on
+past a city in the timber wagons and round the line through the forest, so the
+wagons took no logs, nothing was sawn ('no planks sawn for 5 minutes') and the
+city sat at 0/22 planks for 70 minutes.
+
+Now goods aren't held for that school in a wagon the train loads on the way
+there: a routed train's pickup stops before the school (Later.loads; not a Drop
+stop, not a warehouse), a hand-run train's depots before it, the points as they
+lie (reachOf, in the order it comes to them). They're dropped where they're
+wanted instead, and the engine card says 'Dropping planks here: the wagons are
+needed for logs before the school'. The school card's Research first line adds
+'unless they need the wagons to load on the way'.
+
+Tests: workshop-unload.test.ts (hand-run and routed fail before; the school
+before the forest still keeps them).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0121cKbkxEMNNjMib9wx9seW
+---
+ src/economy/economy.ts           | 73 +++++++++++++++++++++++++++++++-
+ src/game/engine-status.ts        |  5 ++-
+ src/game/workshop-text.ts        |  8 ++++
+ src/game/workshop-unload.test.ts | 46 ++++++++++++++++++--
+ src/ui/workshop-panel.ts         |  2 +-
+ tools/e2e/workshop-modes.mjs     |  2 +-
+ 6 files changed, 127 insertions(+), 9 deletions(-)
+
+diff --git a/src/economy/economy.ts b/src/economy/economy.ts
+index cfa23e17..6357d2b5 100644
+--- a/src/economy/economy.ts
++++ b/src/economy/economy.ts
+@@ -292,6 +292,12 @@ interface Later {
+   town: boolean;
+   /** Goods some later town takes (it wants them): a school takes only its share of them (`SCHOOL_SHARE`). */
+   towns: number;
++  /**
++   * Goods given at a later stop where the train may pick up (not a Drop stop; not a warehouse, whose pickups are
++   * optional), before the first school set to Research first: wagons the train loads on the way there. What's held for
++   * that school isn't held in a wagon one of these goods would go in (`loadsFirst`: holding never blocks loading).
++   */
++  loads: number;
+ }
+ 
+ /** `Later` for each stop of one stop list, and what it was worked out from (see `Economy.laterOf`). */
+@@ -553,7 +559,62 @@ export class Economy {
+       const reach = this.reachOf(found.train);
+       if (!this.schools.some((d) => first(d) && reach.has(d.pieceId))) return false;
+     }
+-    return this.onBoard(found.train, kind) <= want;
++    if (this.onBoard(found.train, kind) > want) return false;
++    return this.loadsFirst(carId, kind, route) === null;
++  }
++
++  /**
++   * Holding never blocks loading: what this car's train loads into it on the way to the school set to Research first,
++   * if anything, so the `kind` it carries isn't held for that school (it's dropped here, where it's wanted, instead).
++   * The 2026-11-01 release QA: planks held for the school rode round the line in the timber wagons, so at the forest
++   * they took no logs, nothing was sawn and a city went 70 minutes without planks (balance seed 5). Null: nothing
++   * loads into it first. A routed train: the pickup stops before the school (`Later.loads`); a hand-run one: the
++   * depots it comes to before the school, the points as they lie (`reachOf`, in the order it comes to them).
++   */
++  private loadsFirst(carId: number, kind: CargoKind, route: Route | null): CargoKind | null {
++    const found = this.sim.findCar(carId);
++    if (!found) return null;
++    const car = found.train.cars[found.index].kind;
++    let fits = 0;
++    for (const k of CARGO_KINDS) if (k !== kind && canCarry(car, k)) fits |= 1 << CARGO[k].index;
++    if (fits === 0) return null;
++    let loads = 0;
++    if (route) loads = this.laterOf(route.stops, route.next % route.stops.length).loads & fits;
++    else {
++      for (const pieceId of this.reachOf(found.train)) {
++        const d = this.byPiece.get(pieceId);
++        if (!d || !d.auto) continue;
++        if (d.role === "school" && d.takesAll && (!this.accepts || this.accepts(d, kind))) break;
++        if (RECIPES[d.role].routedOnly) continue;
++        for (const k of RECIPES[d.role].gives) loads |= (1 << CARGO[k].index) & fits;
++        if (loads) break;
++      }
++    }
++    if (loads === 0) return null;
++    return CARGO_KINDS.find((k) => loads & (1 << CARGO[k].index)) ?? null;
++  }
++
++  /**
++   * A train beside a town or a workshop dropping goods a school set to Research first lacks, because it loads the wagon
++   * they're in on the way there (`loadsFirst`): the goods, the load and the depot, for its engine card. Null: none.
++   * Asked only while its card is open.
++   */
++  droppedForLoading(trainId: number): { depot: DepotState; kind: CargoKind; load: CargoKind } | null {
++    const train = this.sim.getTrain(trainId);
++    if (!train) return null;
++    const route = this.routeOfTrain(train);
++    for (const b of train.bogies) {
++      const d = this.byPiece.get(b.pieceId);
++      if (!d || !d.auto || (d.role !== "town" && d.role !== "workshop")) continue;
++      for (const car of train.cars) {
++        const c = this.cargo.get(car.id);
++        if (!c?.kind || c.count <= 0 || (this.sinkWants?.(c.kind) ?? 0) <= 0 || this.keepWhy(d, car.id) !== null) continue;
++        if (route ? !(this.laterOf(route.stops, route.next % route.stops.length).school & (1 << CARGO[c.kind].index)) : !this.schools.some((s) => s.takesAll)) continue;
++        const load = this.loadsFirst(car.id, c.kind, route);
++        if (load) return { depot: d, kind: c.kind, load };
++      }
++    }
++    return null;
+   }
+   private schools: DepotState[] = [];
+   private schoolsOf: readonly DepotState[] | null = null;
+@@ -1329,6 +1390,7 @@ export class Economy {
+     const n = stops.length;
+     const takes: number[] = [];
+     const town: boolean[] = [];
++    const gives: number[] = [];
+     for (const s of stops) {
+       const d = this.depots[s.depotId];
+       let mask = 0;
+@@ -1337,16 +1399,23 @@ export class Economy {
+       if (on && RECIPES[d.role].owed) for (const k of RECIPES[d.role].owed!) if (this.takesNow(d, k)) mask |= 1 << CARGO[k].index;
+       takes.push(mask);
+       town.push(on && d.role === "town");
++      let g = 0;
++      if (!!d && d.auto && s.action !== "drop" && !RECIPES[d.role].routedOnly && !!this.layout.getPiece(d.pieceId)) for (const k of RECIPES[d.role].gives) g |= 1 << CARGO[k].index;
++      gives.push(g);
+     }
+     const at: Later[] = [];
+     for (let i = 0; i < n; i++) {
+-      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false, towns: 0 };
++      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false, towns: 0, loads: 0 };
+       /** Goods some later stop other than a town's or a workshop's takes, so far round the line. */
+       let taken = 0;
++      /** A school set to Research first has come round the line (the loads past it don't count). */
++      let schooled = false;
+       for (let k = 1; k < n; k++) {
+         const j = (i + k) % n;
+         if (stops[j].depotId === stops[i].depotId) continue;
+         const role = this.depots[stops[j].depotId]?.role;
++        if (role === "school" && this.depots[stops[j].depotId].takesAll) schooled = true;
++        if (!schooled) later.loads |= gives[j];
+         later.takes |= takes[j];
+         if (role && !RECIPES[role].routedOnly) later.uses |= takes[j];
+         if (role === "workshop") later.shop |= takes[j];
+diff --git a/src/game/engine-status.ts b/src/game/engine-status.ts
+index 88771ed7..38273911 100644
+--- a/src/game/engine-status.ts
++++ b/src/game/engine-status.ts
+@@ -2,7 +2,7 @@ import { RECIPES, type Economy } from "../economy";
+ import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
+ import { kitOf, type Layout } from "../track";
+ import { storeSkipText } from "./warehouse-text";
+-import { keptText } from "./workshop-text";
++import { keptText, loadsFirstText } from "./workshop-text";
+ 
+ /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
+ export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
+@@ -341,6 +341,9 @@ export function engineView(
+   if (s.kind === "running" || s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || s.kind === "starting") {
+     const kept = economy.keptAt(found.train.id);
+     if (kept) return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id)), blocker: null };
++    // Dropping here what a Research-first school lacks, as the wagons load on the way there: holding never blocks loading.
++    const dropped = economy.droppedForLoading(found.train.id);
++    if (dropped) return { status: loadsFirstText(dropped.kind, dropped.load), blocker: null };
+   }
+   const blocker = blockerOf(sim, economy, s);
+   // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
+diff --git a/src/game/workshop-text.ts b/src/game/workshop-text.ts
+index 2a0af06e..a5260756 100644
+--- a/src/game/workshop-text.ts
++++ b/src/game/workshop-text.ts
+@@ -33,3 +33,11 @@ export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: Cargo
+       return `Keeping ${goods} for the school: it's set to Research first`;
+   }
+ }
++
++/**
++ * A train dropping goods a school set to Research first lacks, at a town or the workshop, because it loads the wagons
++ * they're in on the way to the school (`Economy.droppedForLoading`: holding never blocks loading). Its engine card.
++ */
++export function loadsFirstText(kind: CargoKind, load: CargoKind): string {
++  return `Dropping ${CARGO[kind].label.toLowerCase()} here: the wagons are needed for ${CARGO[load].label.toLowerCase()} before the school`;
++}
+diff --git a/src/game/workshop-unload.test.ts b/src/game/workshop-unload.test.ts
+index 83f10aec..7825528a 100644
+--- a/src/game/workshop-unload.test.ts
++++ b/src/game/workshop-unload.test.ts
+@@ -22,8 +22,8 @@ import { attachResearch, lacking, pick } from "./research";
+ import { keptText } from "./workshop-text";
+ import { engineView } from "./engine-status";
+ 
+-type Stop = "workshop" | "school" | "town";
+-const PIECE: Record<Stop, PieceTypeId> = { workshop: "depot-workshop", school: "depot-school", town: "straight-216" };
++type Stop = "workshop" | "school" | "town" | "forest";
++const PIECE: Record<Stop, PieceTypeId> = { workshop: "depot-workshop", school: "depot-school", town: "straight-216", forest: "depot-forest" };
+ 
+ /**
+  * Along +x: two straights (the train: an engine and three timber wagons of 3 planks each, heading +x), then the stops
+@@ -57,12 +57,12 @@ function line(p: Progress, stops: readonly Stop[], opts: { branchSchool?: boolea
+   sim.setLever(train().cars[0].id, 1);
+   /** What its engine card said while passing a stop that takes planks and keeping them (`keptAt`). */
+   const told = new Set<string>();
+-  const names: Record<string, string> = { workshop: "the workshop", school: "the school", town: "Ashby" };
++  const names: Record<string, string> = { workshop: "the workshop", school: "the school", town: "Ashby", forest: "the forest" };
+   const run = (seconds: number) => {
+     for (let i = 0; i < seconds * SIM_HZ; i++) {
+       sim.tick();
+       economy.tick();
+-      if (economy.keptAt(train().id)) told.add(engineView(sim, economy, train().cars[0].id, (id) => names[economy.depot(id)!.role]).status);
++      if (economy.keptAt(train().id) || economy.droppedForLoading(train().id)) told.add(engineView(sim, economy, train().cars[0].id, (id) => names[economy.depot(id)!.role]).status);
+     }
+   };
+   const at = (s: Stop) => depots[stops.indexOf(s)];
+@@ -192,6 +192,44 @@ describe("a school set to Research first (its card's choice): trains keep what i
+   });
+ });
+ 
++describe("holding never blocks loading: nothing is kept for the school in wagons the train loads on the way there", () => {
++  // (The 2026-11-01 release QA, balance seed 5: planks kept for a Research-first school rode round the line in the
++  // timber wagons, so at the forest they took no logs, nothing was sawn and a city went 70 minutes without planks.)
++  it("a hand-run train coming to the forest before the school drops its planks at the town, and its card says why", () => {
++    const p = lackingPlanks();
++    const w = line(p, ["town", "forest", "school"]);
++    w.economy.setTakesAll(w.at("school").id, true);
++    w.run(20);
++    expect(w.delivered()).toBe(9);
++    expect(w.told.has("Dropping planks here: the wagons are needed for logs before the school")).toBe(true);
++    expect(w.told.has("Keeping planks for the school: it's set to Research first")).toBe(false);
++  });
++
++  it("a routed line the same", () => {
++    const p = lackingPlanks();
++    const w = line(p, ["town", "forest", "school"]);
++    w.economy.setTakesAll(w.at("school").id, true);
++    w.route([{ stop: w.at("town") }, { stop: w.at("forest") }, { stop: w.at("school") }]);
++    w.run(20);
++    expect(w.delivered()).toBe(9);
++  });
++
++  it("the school before the forest: kept for the school as before", () => {
++    const p = lackingPlanks();
++    const w = line(p, ["town", "school", "forest"]);
++    w.economy.setTakesAll(w.at("school").id, true);
++    w.run(90);
++    expect(w.delivered()).toBe(0);
++    expect(p.research.got).toEqual({ planks: 9 });
++    const q = lackingPlanks();
++    const v = line(q, ["town", "school", "forest"]);
++    v.economy.setTakesAll(v.at("school").id, true);
++    v.route([{ stop: v.at("town") }, { stop: v.at("school") }, { stop: v.at("forest") }]);
++    v.run(90);
++    expect(q.research.got).toEqual({ planks: 9 });
++  });
++});
++
+ describe("a routed train and the workshop", () => {
+   it("drops all its planks where its route has a stop at the workshop", () => {
+     const w = line(Progress.fresh(), ["workshop", "town"]);
+diff --git a/src/ui/workshop-panel.ts b/src/ui/workshop-panel.ts
+index 69d7220d..8fefd727 100644
+--- a/src/ui/workshop-panel.ts
++++ b/src/ui/workshop-panel.ts
+@@ -66,7 +66,7 @@ export function schoolYardHtml(first: boolean): string {
+ 
+ /** The line under the school's choice. */
+ export function schoolHint(first: boolean): string {
+-  return first ? "Trains keep what its research needs for it, past towns and the workshop" : "Trains drop goods at each stop in turn; here, a share when a town further on wants them too";
++  return first ? "Trains keep what its research needs for it, past towns and the workshop, unless they need the wagons to load on the way" : "Trains drop goods at each stop in turn; here, a share when a town further on wants them too";
+ }
+ 
+ /** The workshop's two-way choice, Shares with towns / Takes all planks, and its hint. */
+diff --git a/tools/e2e/workshop-modes.mjs b/tools/e2e/workshop-modes.mjs
+index 9323294e..0c8347d2 100644
+--- a/tools/e2e/workshop-modes.mjs
++++ b/tools/e2e/workshop-modes.mjs
+@@ -201,7 +201,7 @@ check("the school's card: Shares with towns (on) / Research first", sc.on === "S
+ check("…its line", sc.hint === "Trains drop goods at each stop in turn; here, a share when a town further on wants them too", String(sc.hint));
+ await tap('.depot-card [data-school="first"]');
+ sc = await schoolCard();
+-check("a tap on Research first switches it", sc.on === "Research first" && sc.takesAll === true && sc.hint === "Trains keep what its research needs for it, past towns and the workshop", JSON.stringify(sc));
++check("a tap on Research first switches it", sc.on === "Research first" && sc.takesAll === true && sc.hint === "Trains keep what its research needs for it, past towns and the workshop, unless they need the wagons to load on the way", JSON.stringify(sc));
+ await shot("school-research-first");
+ await openCard();
+ await tap('.yard-mode [data-yard="all"]');
+-- 
+2.43.0
+
