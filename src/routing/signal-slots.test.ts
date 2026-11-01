@@ -16,6 +16,7 @@ const STOP: PieceTypeId = "depot-forest";
 const BUFFER: PieceTypeId = "buffer-turnback";
 const CARS: CarKind[] = ["engine", "timber", "timber"];
 
+const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const noBreaks = (r: Report) => INVARIANTS.forEach((k) => expect(r.broke[k].first, k).toEqual([]));
 
 /**
@@ -94,7 +95,7 @@ describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () 
     expect(bothBase).toBe(0);
     expect(both).toBeGreaterThan(10 * SIM_HZ);
     const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
-    if (process.env.SHOW) console.log(`lineFollowers: arrivals ${r.arrivals} with the signal (both in the stretch ${(both / SIM_HZ).toFixed(1)} s), ${without.arrivals} without`);
+    if (ENV.SHOW) console.log(`lineFollowers: arrivals ${r.arrivals} with the signal (both in the stretch ${(both / SIM_HZ).toFixed(1)} s), ${without.arrivals} without`);
     expect(sum(r.arrivals)).toBeGreaterThan(sum(without.arrivals));
   });
 
