@@ -46,6 +46,11 @@ export interface Building {
   corner?: boolean;
   /** A town landmark (Game mode: a school, a market, a library; see game/landmarks.ts). */
   landmark?: string;
+  /**
+   * The level its town had reached when it went up (Game mode: growth; none: 0, the map's own). It gains storeys only
+   * for the levels since (`setTownStoreys`), so a new building starts single-storey.
+   */
+  born?: number;
 }
 
 export interface Town {
