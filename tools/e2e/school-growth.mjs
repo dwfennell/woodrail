@@ -143,8 +143,9 @@ const shown = await p.evaluate(() => {
 });
 check("Show me opens the Industries tab with the school in it", /Industries/i.test(shown.tab ?? "") && shown.school, JSON.stringify(shown));
 // The tray rings the school, the goal's piece, not the workshop (QA P4: the Workshop was ringed).
-const rung = await p.evaluate(() => [...document.querySelectorAll(".tray-item.attention")].map((e) => e.title || e.textContent));
-check("…the tray rings the School, not the Workshop", rung.length === 1 && /School/.test(rung[0]) && !/Workshop/.test(rung[0]), JSON.stringify(rung));
+// (By its key and label: an item's title is the tray's how-to tooltip, the same on every item.)
+const rung = await p.evaluate(() => [...document.querySelectorAll(".tray-item.attention")].map((e) => `${e.dataset.key ?? ""} ${e.textContent.trim()}`));
+check("…the tray rings the School, not the Workshop", rung.length === 1 && /School|depot-school/.test(rung[0]) && !/Workshop|depot-workshop/.test(rung[0]), JSON.stringify(rung));
 await shot("02-show-me-school-spot");
 
 // 4. Placed where Show me points: the goal is Research switches (before the workshop).

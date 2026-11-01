@@ -53,8 +53,14 @@ describe(`routing fuzz: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × 
   }
   // (A layout the fuzz deals that jams from the start (a train too many for the line, two lines head on) delivers
   // nothing now nothing turns a train back (§16 Q3): its trains must then be said to be stuck, on their cards.)
-  it("trains deliver: at least one stop come to in each run, or its trains are said to be stuck", () => {
-    expect(run().filter((r) => r.arrivals.every((a) => a === 0) && r.stalls.begun === 0).map((r) => r.name)).toEqual([]);
+  // A hand-run train (no stops: the fuzz deals one a fifth of the time when lines aren't shared) comes to no stop by
+  // design; a run of only such trains delivers by running end to end, so it counts once one has turned at an end. (Seeds 9, 41,
+  // 106 and 140 are a lone hand-run train shuttling 57–150 times in 30 min: they failed this check for want of a stop.)
+  it("trains deliver: at least one stop come to (or end run to, hand-run) in each run, or its trains are said to be stuck", () => {
+    // (With any routed train in the run, as before: a stop come to. Only hand-run trains: an end run to.)
+    const delivers = (r: Report) =>
+      r.routed.some(Boolean) ? r.arrivals.some((a, k) => r.routed[k] && a > 0) : r.turns.some((t) => t.buffer + t["open-end"] > 0);
+    expect(run().filter((r) => !delivers(r) && r.stalls.begun === 0).map((r) => r.name)).toEqual([]);
   });
 });
 
