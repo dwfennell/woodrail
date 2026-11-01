@@ -27,9 +27,9 @@ const UNLOCKS: Record<string, ThingId[]> = {
     "prop:mech-whistle-post",
     "prop:bldg-signal-box",
     "prop:mech-lever-frame",
-    "prop:mech-level-crossing",
-    "prop:mech-gated-crossing",
   ],
+  // The crossing styles moved from Scenery kit to the Roads branch's Crossing gates (roads spec, decision 3).
+  "road-crossings": ["prop:mech-level-crossing", "prop:mech-gated-crossing"],
   // Sandbox's kits brought into Game mode behind research (tech-tree spec step 2), looks only at first.
   "big-stations": ["piece:kit-two-platform-station", "piece:kit-grand-terminus"],
   "fun-track": ["piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"],
@@ -109,7 +109,7 @@ describe("railway kits in Game mode", () => {
     crafting.order("piece:kit-water-tower");
     expect(p.orders).toEqual([]);
     p.learned.add("engine-shed");
-    p.learned.add("scenery");
+    p.learned.add("road-crossings");
     expect(p.knows("piece:kit-water-tower")).toBe(true);
     crafting.order("piece:kit-water-tower");
     expect(p.orders).toEqual(["piece:kit-water-tower"]);
@@ -155,6 +155,7 @@ describe("railway kits in Game mode", () => {
     const p = Progress.fresh();
     p.learned.add("carpentry");
     p.learned.add("scenery");
+    p.learned.add("road-crossings");
     for (let k = 0; k < 50; k++) for (const [id] of crateFor(p, 3, Math.random)) expect(isFree(id), id).toBe(false);
   });
 

@@ -17,7 +17,7 @@ export type TrayItem =
   /** A catalogue model, placed as a decorative prop. */
   | { kind: "prop"; asset: string; label: string; unlearned?: "hide" }
   /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
-  | { kind: "road"; piece: RoadPieceId; label: string; auto?: boolean }
+  | { kind: "road"; piece: RoadPieceId; label: string; auto?: boolean; unlearned?: "hide" }
   /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
   | { kind: "tool"; tool: LandTool; label: string }
   /**
@@ -123,7 +123,10 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
-/** Road pieces, on the Roads tab (Sandbox only: in Game mode towns lay their own streets). */
+/**
+ * Road pieces, on the Roads tab (in Game mode once Roads is learned; a piece whose own blueprint isn't learned yet, the
+ * zebra's or the bridge's and ramps', stays off the tray: `unlearned`, by `ROAD_TECH`).
+ */
 export const ROAD_GROUPS: TrayGroup[] = [
   {
     label: "Roads",
@@ -135,10 +138,10 @@ export const ROAD_GROUPS: TrayGroup[] = [
       { kind: "road", piece: "tee", label: "T-junction" },
       { kind: "road", piece: "cross", label: "Crossroads" },
       { kind: "road", piece: "end", label: "Dead end" },
-      { kind: "road", piece: "zebra", label: "Zebra crossing" },
-      { kind: "road", piece: "bridge", label: "Road bridge" },
+      { kind: "road", piece: "zebra", label: "Zebra crossing", unlearned: "hide" },
+      { kind: "road", piece: "bridge", label: "Road bridge", unlearned: "hide" },
       // Either half: the one that fits where it's dropped (see RoadPlacer.fit).
-      { kind: "road", piece: "ramp-low", label: "Ramp" },
+      { kind: "road", piece: "ramp-low", label: "Ramp", unlearned: "hide" },
     ],
   },
 ];
@@ -267,6 +270,8 @@ export interface TrayTab {
   land?: boolean;
   /** The player's favourites (★) come first, ahead of the shelves, on this tab. */
   favourites?: boolean;
+  /** In Game mode, shown only once this blueprint is learned (the Roads tab: Roads). */
+  gameTech?: string;
 }
 
 const BOTH: readonly GameMode[] = ["sandbox", "game"];
@@ -278,7 +283,8 @@ export const TRAY_TABS: TrayTab[] = [
   { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
   { id: "industries", label: "Industries", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
-  { id: "roads", label: "Roads", modes: SANDBOX, groups: ROAD_GROUPS, orient: "turn" },
+  // (Game mode's once Roads is learned: spec 2026-10-31-roads.md. Its zebra, bridge and ramps wait for their blueprints.)
+  { id: "roads", label: "Roads", modes: BOTH, groups: ROAD_GROUPS, orient: "turn", gameTech: "roads" },
   // Opening the Land tab switches land editing on; the tools act on the land itself.
   {
     id: "land",
