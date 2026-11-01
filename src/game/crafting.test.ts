@@ -108,8 +108,8 @@ describe("the workshop's plank choice: Shares with towns / Takes all planks", ()
     expect(yardHint({ takesAll: false, keeps: 12, keptFor: "Engine shed", cap: 30 })).toBe("Leaves planks for towns further on, keeping 12 for you, enough for an Engine shed");
     expect(yardHint({ takesAll: true, keeps: 8, keptFor: "Mill", cap: 30 })).toBe("Fills its yard first, up to 30");
     expect(yardHint({ takesAll: true, keeps: 7, cap: 30 })).toBe("Fills its yard first, up to 30");
-    // With a school on the map, it says the school still gets what it needs (QA N3).
-    expect(yardHint({ takesAll: true, keeps: 7, cap: 30, school: true })).toBe("Fills its yard first, up to 30 (your school still gets what it needs)");
+    // A school set to Research first (its card) is said: trains keep its research's planks past the workshop.
+    expect(yardHint({ takesAll: true, keeps: 7, cap: 30, school: true })).toBe("Fills its yard first, up to 30, after your school's research (it's set to Research first)");
     expect(yardHint({ takesAll: false, keeps: 7, cap: 30, school: true })).toBe("Leaves planks for towns further on, keeping 7 for you");
     expect(yardModeHtml({ takesAll: true, keeps: 7, cap: 30 })).toMatch(/class="chip text active" data-yard="all"/);
   });

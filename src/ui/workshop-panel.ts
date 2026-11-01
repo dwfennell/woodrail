@@ -37,7 +37,7 @@ export interface YardMode {
   keptFor?: string;
   /** Its yard's cap. */
   cap: number;
-  /** A school is on the map (Takes all still leaves it what its research needs: the hint says so). */
+  /** A school is set to Research first (trains keep what its research lacks for it, past the workshop): said. */
   school?: boolean;
 }
 
@@ -47,7 +47,26 @@ export const TAKES_ALL_LABEL = "Takes all planks";
 /** The line under the choice: what the workshop does with the planks trains bring. */
 export function yardHint(m: YardMode): string {
   if (!m.takesAll) return `Leaves planks for towns further on, keeping ${m.keeps} for you${m.keptFor ? `, enough for ${/^[aeiou]/i.test(m.keptFor) ? "an" : "a"} ${m.keptFor}` : ""}`;
-  return `Fills its yard first, up to ${m.cap}${m.school ? " (your school still gets what it needs)" : ""}`;
+  return `Fills its yard first, up to ${m.cap}${m.school ? ", after your school's research (it's set to Research first)" : ""}`;
+}
+
+export const RESEARCH_FIRST_LABEL = "Research first";
+
+/**
+ * The school's two-way choice (its card, Game mode), beside the workshop's: Shares with towns (its default: trains drop
+ * goods at each stop in turn, and here it takes its share of a load while a town the train goes on to wants it too:
+ * `SCHOOL_SHARE`), or Research first (`takesAll` on its depot: trains keep what its research lacks for it, past towns
+ * and the workshop, and it takes all of it). `data-school`.
+ */
+export function schoolYardHtml(first: boolean): string {
+  const chip = (on: boolean, label: string) =>
+    `<button class="chip text${first === on ? " active" : ""}" data-school="${on ? "first" : "share"}" aria-pressed="${first === on}">${label}</button>`;
+  return `<div class="yard-mode" role="group" aria-label="Goods">${chip(false, SHARES_LABEL)}${chip(true, RESEARCH_FIRST_LABEL)}</div><div class="yard-hint">${schoolHint(first)}</div>`;
+}
+
+/** The line under the school's choice. */
+export function schoolHint(first: boolean): string {
+  return first ? "Trains keep what its research needs for it, past towns and the workshop" : "Trains drop goods at each stop in turn; here, a share when a town further on wants them too";
 }
 
 /** The workshop's two-way choice, Shares with towns / Takes all planks, and its hint. */
