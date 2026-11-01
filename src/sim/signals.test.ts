@@ -91,16 +91,23 @@ describe("signals: block working", () => {
     expect(front && front.pieceId !== ids[2] && front.pieceId !== ids[3]).toBe(true);
   });
 
-  it("the block ends at a switch: a train beyond the switch doesn't hold the signal", () => {
+  it("its block runs on through a switch (a path signal): a train on the way beyond holds one coming to it; points set the other way, it goes", () => {
     const { layout, ids } = chain(["straight-216", "signal", "straight-216", "switch", "straight-216", "straight-216", "buffer"]);
     const sim = new Sim(layout);
-    const beyond = sim.addTrain(["engine"], { pieceId: ids[5], pathIndex: 0, reversed: false, s: 100 });
+    const beyond = sim.addTrain(["engine"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 150 });
     if (beyond.kind !== "placed") throw new Error();
-    run(sim, 0.1);
-    expect(sim.signalClear(ids[1])).toBe(true);
-    // One standing on the stretch before the switch does.
-    sim.addTrain(["engine"], { pieceId: ids[2], pathIndex: 0, reversed: false, s: 150 });
-    run(sim, 0.1);
+    const t = driving(sim, ids[0], 200, ["engine"]);
+    run(sim, 5);
+    expect(sim.getTrain(t)!.bogies[0].pieceId).toBe(ids[1]);
+    expect(sim.getTrain(t)!.speed).toBe(0);
     expect(sim.signalClear(ids[1])).toBe(false);
+    expect(sim.heldBy(t)).toBe(beyond.trainId);
+    expect(sim.heldHow(t)).toBe("signal");
+    // (The switch's other road: its way is free.)
+    expect(sim.toggleSwitch(ids[3])).toBe(true);
+    run(sim, 0.2);
+    expect(sim.signalClear(ids[1])).toBe(true);
+    run(sim, 3);
+    expect(sim.getTrain(t)!.bogies[0].pieceId).not.toBe(ids[1]);
   });
 });

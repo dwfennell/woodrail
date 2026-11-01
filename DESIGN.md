@@ -144,6 +144,11 @@ Cream, 18px corners, 12–14px padding, a bold `✕` (18px/900, `#6a4a2c`) in a 
 
 ### Research board
 A web of wooden tickets on squared paper, banded by subject, with a lacquer rail on each node's left. The picked node is lifted with a wood ring; its ticket sits under the web (upright) or beside it (a phone on its side).
+- **Bands:** each subject's name is a painted tab in a strip of its own above its tags (sticky sideways), never over a tag.
+- **Tags by state, one slot each:** learned, a green dot with a ✓; researching, a blue card ring, a blue "📘 Researching" tag and its progress as a 4px bar along the bottom (as the top bar's pill); next up, a blue-ringed dot and "Next up" / "In line: N"; can research, a yellow dot and its price on a gold pill; later, a flat card and its price outlined; soon, a dashed card and a dashed "Soon". A "?" (not found yet) is a 44px dashed circle; on a phone a band's "?"s are one "N more to find" chip.
+- **Links, quiet to loud:** laid like track (straight, one rounded turn in the gap between columns, each card's links in a lane of their own, never through a card). Future: a faint dotted line, no arrow, and none across more than a column or between two "?"s. Learned to learned: soft solid. Learned into one you can research: solid with an arrow. The picked tag's path: blue.
+- **Ticket:** the name (18px/900), its line under it, then a label column (Unlocks, Needs, Opens, Costs), and the foot (goods, study, button) torn off along a dashed perforation.
+- **A research learned:** its ✓ is stamped on, a glint runs over the card, the track to what it opens is laid and those cards click up; once, on the open board or the next time it opens.
 
 ## Do's and Don'ts
 

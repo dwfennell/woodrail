@@ -328,6 +328,8 @@ export class Invariants {
         if (late) this.redLate++;
         else this.break("redRun", `${nameOf(id)} ran past signal ${g.key} at red (piece ${g.pieceId} end ${g.exit})`, n?.engine, g.pieceId);
       }
+      // (A path signal's block may hold two trains on ways that don't meet: `blockOne` is for plain blocks.)
+      if (g.junction) continue;
       let inBlock = this.entered.get(g.key);
       if (!inBlock) this.entered.set(g.key, (inBlock = new Set()));
       if (inBlock.size > 0 && !late) this.break("blockOne", `${nameOf(id)} came into signal ${g.key}'s block with ${[...inBlock].map(nameOf).join(",")} in it`, n?.engine, g.pieceId);
@@ -339,7 +341,7 @@ export class Invariants {
    * Signals that turned red since `before`: trains on their approach, heading for their joint, past braking for them
    * (not braking for them) are let off (`excused`). Signals that turned clear let their trains' excuses go.
    */
-  private excuse(list: readonly { key: number; pieceId: number; exit: number; clear: boolean }[], before: ReadonlyMap<number, boolean>): void {
+  private excuse(list: readonly { key: number; pieceId: number; exit: number; clear: boolean; junction: boolean }[], before: ReadonlyMap<number, boolean>): void {
     const { sim, layout } = this.world;
     for (const g of list) {
       const was = before.get(g.key) ?? true;
