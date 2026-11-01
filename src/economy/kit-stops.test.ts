@@ -259,6 +259,11 @@ describe("engine services (water, coal, fuel)", () => {
     expect(w.runPast(2, 30)).toEqual([w.ids[2]]);
   });
 
+  it("a steam engine runs through the fuel station: it's for diesels (tech-tree R3)", () => {
+    const w = line(["kit-water-tower", "straight-216", "kit-fuel-station"], ["engine", "hopper"]);
+    expect(w.runPast(2, 30)).toEqual([w.ids[0]]);
+  });
+
   it("an engine that took a service in the last minute runs through the next; after a minute it stops again", () => {
     const w = line(["kit-water-tower", "straight-216", "kit-coal-stage"], ["engine", "passenger"]);
     // Water, then straight on through the coal stage (served under a minute ago).
@@ -319,8 +324,9 @@ describe("kit stops work both ways through a kit", () => {
     const who = KITS[type as keyof typeof KITS].stop!.who;
     const cars: CarKind[] = who === "passengers" ? ["engine", "passenger"] : ["engine", "hopper"];
     for (const backward of [false, true]) {
-      it(`${type}: a ${who === "passengers" ? "passenger" : "steam"} train coming in ${backward ? "by its far end" : "by its first end"} stops`, () => {
+      it(`${type}: a ${who === "passengers" ? "passenger" : who === "diesel" ? "diesel" : "steam"} train coming in ${backward ? "by its far end" : "by its first end"} stops`, () => {
         const w = ovalWith(type, cars, backward);
+        if (who === "diesel") w.sim.setLook(w.train().cars.find((x) => x.kind === "engine")!.id, "diesel");
         let halted = false;
         let haltedS = -1;
         for (let i = 0; i < 6 * SIM_HZ && !halted; i++) {

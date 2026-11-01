@@ -95,16 +95,15 @@ describe("Game mode's railway kits on the tray", () => {
   const keys = (g: TrayGroup) => g.items.map(trayKey);
 
   it("track kits on the Track tab, buildings and services on the Industries tab's railway shelves", () => {
-    expect(keys(tab("track").groups.find((g) => g.label === "Railway kit")!)).toEqual(["piece:kit-semaphore-signal", "piece:kit-colour-light-signal", "piece:kit-signal-gantry", "piece:kit-turntable", "piece:kit-transfer-table"]);
-    expect(tab("industries").groups.map((g) => g.label)).toEqual(["Industries", "Railway", "Halts", "Lineside"]);
+    expect(keys(tab("track").groups.find((g) => g.label === "Railway kit")!)).toEqual(["piece:kit-semaphore-signal", "piece:kit-colour-light-signal", "piece:kit-signal-gantry", "piece:kit-turntable", "piece:kit-transfer-table", "piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"]);
+    expect(tab("industries").groups.map((g) => g.label)).toEqual(["Industries", "Railway", "Stations", "Yard", "Halts", "Lineside"]);
     expect(keys(tab("industries").groups.find((g) => g.label === "Halts")!)).toEqual(["piece:kit-country-halt", "piece:kit-mountain-station", "piece:kit-harbour-station", "piece:kit-platform-furnished"]);
   });
 
-  it("no cargo loaders or unloaders (the goods shed among them) in Game mode", () => {
-    const all = game.flatMap((t) => t.groups.flatMap((g) => g.items));
-    for (const item of all) if (item.kind === "piece") expect(kitOf(item.type)?.depot, item.type).toBeUndefined();
-    expect(all.some((i) => i.kind === "piece" && i.type === "kit-goods-shed")).toBe(false);
-    for (const id of Object.keys(THING_RULES)) if (id.startsWith("piece:kit-")) expect(kitOf(id.slice(6) as PieceTypeId)?.depot, id).toBeUndefined();
+  it("Sandbox's cargo loaders and unloaders (the goods shed among them) are on the Yard shelf, as looks (no depot in Game mode: kit-unlocks.test.ts)", () => {
+    const yard = keys(tab("industries").groups.find((g) => g.label === "Yard")!);
+    for (const id of Object.keys(THING_RULES)) if (id.startsWith("piece:kit-") && kitOf(id.slice(6) as PieceTypeId)?.depot) expect(yard, id).toContain(id);
+    expect(yard).toContain("piece:kit-goods-shed");
   });
 
   it("a new player's tray: kits not learned stay off it, and an empty shelf with them", () => {

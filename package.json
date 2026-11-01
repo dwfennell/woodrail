@@ -27,6 +27,9 @@
     "e2e:decks": "node tools/e2e/deck-taps.mjs",
     "e2e:kits": "node tools/e2e/track-props.mjs",
     "e2e:kits-game": "node tools/e2e/kits-game.mjs",
+    "e2e:big-stations": "node tools/e2e/big-stations.mjs",
+    "e2e:landscaping": "node tools/e2e/landscaping.mjs",
+    "e2e:station-upgrade": "node tools/e2e/station-upgrade.mjs",
     "e2e:lift": "node tools/e2e/lift.mjs",
     "e2e:loop": "node tools/e2e/kit-loop.mjs",
     "e2e:research": "node tools/e2e/research-picker.mjs",
@@ -38,6 +41,7 @@
     "e2e:train-parts": "node tools/e2e/train-parts.mjs",
     "e2e:train-summary": "node tools/e2e/train-summary.mjs",
     "e2e:workshop": "node tools/e2e/workshop-modes.mjs",
+    "e2e:warehouse": "node tools/e2e/warehouse.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "blueprints:page": "node scripts/blueprint-page.mjs"
   },

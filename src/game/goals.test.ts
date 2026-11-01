@@ -3,7 +3,7 @@ import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
 import { siteWhy } from "./industries";
-import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, OPEN_INDUSTRY_GOALS, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
+import { BRIDGE_KNOWN_HINT, BUY_LAND_HINT, GOALS, plotsBought, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, OPEN_INDUSTRY_GOALS, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
 import mainSrc from "../main.ts?raw";
 import panelSrc from "../ui/workshop-panel.ts?raw";
 import { Crafting, keepsForOrder } from "./crafting";
@@ -16,6 +16,7 @@ import { CARGO } from "../economy/cargo";
 import { Progress } from "./progress";
 import { pick } from "./research";
 import { goalPick, showMePick } from "./research-text";
+import { deserializeWorld, serializeWorld } from "../persist/save";
 
 const goal = (id: string) => GOALS.find((g) => g.id === id)!;
 
@@ -655,8 +656,8 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
 
   it("come after the passing loop, before Connect every town; each needs its blueprint; Open a farm is where it was", () => {
     const ids = GOALS.map((g) => g.id);
-    expect(GOALS).toHaveLength(22);
-    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "open-quarry", "open-mine", "open-harbour", "join-all"]);
+    expect(GOALS).toHaveLength(23);
+    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "open-quarry", "open-mine", "open-harbour", "join-all", "buy-land"]);
     for (const r of ROLES) expect(goal(r.id)).toMatchObject({ title: r.title, hint: r.hint, needs: [r.bp] });
     expect(goal("open-farm")).toMatchObject({ title: "Open a farm", hint: "Restore an old farm, or build a farm yard by some fields.", needs: ["farming"] });
     expect(OPEN_INDUSTRY_GOALS).toEqual(["open-farm", "open-quarry", "open-mine", "open-harbour"]);
@@ -718,5 +719,48 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
       expect(guide.ruin).toBeUndefined();
       expect(guide).toMatchObject({ tab: "industries", shelf: "Industries" });
     }
+  });
+});
+
+describe("Buy some land", () => {
+  it("is the last goal, an open one: ticked when a plot is bought (as the land card's Add this land does), and stays", () => {
+    expect(GOALS[GOALS.length - 1].id).toBe("buy-land");
+    expect(goal("buy-land").title).toBe("Buy some land");
+    expect(goal("buy-land").hint).toBe(BUY_LAND_HINT);
+    const w = buildStarterWorld();
+    const tracker = new GoalTracker();
+    expect(plotsBought(w)).toBe(0);
+    expect(goal("buy-land").check(w).done).toBe(false);
+    for (let k = 0; k < 3; k++) expect(tracker.update(w).map((g) => g.id)).not.toContain("buy-land");
+    // Show me: a plot for sale, framed.
+    expect(goal("buy-land").guide(w).points.length).toBeGreaterThan(0);
+    // main.ts's buyLand: Game.unlockPlot, which is world's unlockPlot (and draws it).
+    const [plot] = plotsForSale(w.landscape);
+    expect(unlockPlot(w, plot.px, plot.pz)).not.toBeNull();
+    expect(plotsBought(w)).toBe(1);
+    // Open (past the tutorial), so ticked though it's not the current goal.
+    expect(tracker.current()?.id).not.toBe("buy-land");
+    expect(tracker.update(w).map((g) => g.id)).toEqual(["buy-land"]);
+    expect(tracker.isDone("buy-land")).toBe(true);
+    // Stays met: kept in the saved goals.
+    expect(new GoalTracker(tracker.ids()).isDone("buy-land")).toBe(true);
+  });
+
+  it("an old save with land bought ticks it on load", () => {
+    const w = buildStarterWorld();
+    const [plot] = plotsForSale(w.landscape);
+    expect(unlockPlot(w, plot.px, plot.pz)).not.toBeNull();
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // Its goals saved before this goal was: some done, not this one.
+    const tracker = new GoalTracker(["join-two", "place-train"]);
+    expect(tracker.update(r.value).map((g) => g.id)).toContain("buy-land");
+    // An old save with no land bought: not ticked.
+    const plain = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(buildStarterWorld()))));
+    if (!plain.ok) throw new Error(plain.error);
+    const t2 = new GoalTracker(["join-two", "place-train"]);
+    for (let k = 0; k < 3; k++) t2.update(plain.value);
+    expect(t2.isDone("buy-land")).toBe(false);
   });
 });

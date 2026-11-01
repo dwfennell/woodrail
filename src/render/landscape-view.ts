@@ -454,9 +454,10 @@ export class LandscapeView {
     for (const town of land.towns) {
       if (!here(town.centre.x, town.centre.z)) continue;
       for (const h of buildTown(land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
-      buildStation(town, this.mats, b);
+      // (A station upgraded to a big station's kit: the kit's model is its house, sign and all.)
+      if (!town.upgraded) buildStation(town, this.mats, b);
       this.buildWaitingDolls(town);
-      this.buildSign(town, b, things);
+      if (!town.upgraded) this.buildSign(town, b, things);
     }
     for (const field of land.fields) {
       const first = field.cells[0];

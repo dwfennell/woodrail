@@ -316,7 +316,7 @@ if (want("shed")) {
 if (want("service")) {
   await fresh("service");
   // Engine services: a steam engine stops at the water tower (its spout swings out over it), then runs through the
-  // fuel station just after (it took a service under a minute ago).
+  // fuel station just after (a fuel station is for diesels).
   const built = await p.evaluate(() => window.woodrail.__build(["buffer-turnback", "straight-216", "kit-water-tower", "straight-216", "kit-fuel-station", "straight-216", "buffer-turnback"], { "buffer-turnback": 0 }));
   check("built a line with the water tower and fuel station", !!built, built ? JSON.stringify(built) : await p.evaluate(() => window.woodrail.__lastWhy));
   if (built) {
@@ -345,7 +345,7 @@ if (want("service")) {
       return { halts: halts.map((h) => (h === tower ? "water tower" : h === fuel ? "fuel station" : h)), spout: Math.round(spout * 100) / 100, passedFuel, live: w.kitView.group.children.filter((c) => c.name === "movers").length };
     }, built);
     check("service: the steam engine stops at the water tower, its spout swung out over it", r.halts.length >= 1 && r.halts[0] === "water tower" && r.spout > 1.5, JSON.stringify(r));
-    check("service: and runs through the fuel station just after (cool-down)", r.passedFuel && !r.halts.includes("fuel station"));
+    check("service: and runs through the fuel station just after (it is for diesels)", r.passedFuel && !r.halts.includes("fuel station"));
     check("service: the spout went back, no live parts left", r.live === 0);
     await p.evaluate((id) => window.woodrail.__look(id, 300), built.ids[2]);
     await p.waitForTimeout(2500);

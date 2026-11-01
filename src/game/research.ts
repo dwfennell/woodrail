@@ -61,9 +61,13 @@ export function setSpeed(p: Progress, speed: number): void {
 }
 
 /** Seconds of study a blueprint takes (at speed 1). */
-export function studyTime(id: string): number {
-  return STUDY_SECONDS[techOf(id)?.tier ?? 1];
+export function studyTime(id: string, learned?: ReadonlySet<string>): number {
+  const tier = techOf(id)?.tier ?? 1;
+  return STUDY_SECONDS[tier] / (tier === 1 && learned?.has("study-hall") ? STUDY_HALL : 1);
 }
+
+/** Study hall (research, tech-tree Q1): tier-1 lessons go this much faster at any school. */
+export const STUDY_HALL = 2;
 
 /** Can it be researched now: built, not learned, what it needs learned and what it requires done? */
 export function canResearch(p: Progress, id: string): boolean {
@@ -239,7 +243,7 @@ export function coinsShort(p: Progress): number {
 /** Seconds of study left for the current research (its whole study time until its goods are in), at the schools' speed. */
 export function studyLeft(p: Progress, speed = p.research.speed): number {
   const r = p.research;
-  return r.current === null ? 0 : Math.max(0, (studyTime(r.current) - r.study) / speed);
+  return r.current === null ? 0 : Math.max(0, (studyTime(r.current, p.learned) - r.study) / speed);
 }
 
 /** The study's clock on game time: where the world's clock (`Game.simSeconds`) stood when it was last read. */
@@ -280,7 +284,7 @@ export function tick(p: Progress, seconds: number, speed = p.research.speed): st
   const id = r.current;
   const before = Math.ceil(studyLeft(p, speed));
   r.study += seconds * speed;
-  if (r.study < studyTime(id)) {
+  if (r.study < studyTime(id, p.learned)) {
     if (Math.ceil(studyLeft(p, speed)) !== before) r.version++;
     return null;
   }

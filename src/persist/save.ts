@@ -14,7 +14,7 @@ const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?
 const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type Pose, type RelaxOptions } from "../track";
+import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type SignalStyle, type Pose, type RelaxOptions } from "../track";
 import { joinSavedLine, LINE_COLOURS, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
@@ -93,6 +93,11 @@ const saveSchema = z.object({
   joints: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])).optional(),
   /** Pinned switches, by piece id: routed engines don't throw them (optional: older saves load with none). */
   pinned: z.array(z.number().int().positive()).optional(),
+  /**
+   * Signal marks on joints (signals spec §9), each as the joint end it guards from (piece id, connector index), its
+   * style and whether it's held at red (optional: older saves have none).
+   */
+  signals: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.enum(["plain", "semaphore", "colour-light"]), z.boolean()])).optional(),
   /**
    * Points' defaults (the way the player last set them by hand, which routes put them back to), only where one differs
    * from how the switch is set (optional: older saves, and points not named, default to how they're set).
@@ -258,6 +263,7 @@ export function serializeWorld(world: World): SaveData {
     switches,
     joints: [...layout.joints()].map((j) => [pieceOfRef(j.a), indexOfRef(j.a), pieceOfRef(j.b), indexOfRef(j.b)] as [number, number, number, number]),
     ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
+    ...(layout.signalCount > 0 ? { signals: [...layout.signals()].map((m) => [pieceOfRef(m.at), indexOfRef(m.at), m.style, m.held] as [number, number, SignalStyle, boolean]) } : {}),
     ...(defaults ? { switchDefaults: defaults } : {}),
     wyeLevers: 3,
     trains,
@@ -362,7 +368,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   for (const town of landscape.towns) {
     const saved = save.towns.find((t) => t.id === town.id);
     const piece = saved ? layout.getPiece(saved.stationPieceId) : undefined;
-    if (!piece || piece.type !== "station") return err(`invalid save: station for town ${town.id} is missing`);
+    // (Or a big station's kit it was upgraded to, in place: src/game/station-upgrade.ts.)
+    if (!piece || (piece.type !== "station" && piece.type !== town.upgraded)) return err(`invalid save: station for town ${town.id} is missing`);
     if (Math.hypot(piece.pose.x - town.station.x, piece.pose.z - town.station.z) > 0.5) return err(`invalid save: station for town ${town.id} is not at its town`);
     stations.set(town.id, piece.id);
   }
@@ -395,6 +402,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   }
   // An older save's joints past the tolerance (parted by seating afresh), joined again before the trains go on.
   const broughtBack = save.joints ? [] : layout.seatNearMisses();
+  // (Marks go on joints: after every joint is back. One whose joint didn't come back is dropped.)
+  for (const [pieceId, index, style, held] of save.signals ?? []) layout.addSignal(connectorRef(pieceId, index), style, held);
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);
@@ -414,12 +423,14 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     if (!expected.has(d.pieceId) && piece && HALT_KITS.has(piece.type) && d.role === "town" && landscape.towns.some((t) => t.id === d.townId)) expected.set(d.pieceId, { role: "town", townId: d.townId });
   }
   if (save.depots.length !== expected.size) return err("invalid save: wrong number of economy depots");
+  const stationIds = new Set(stations.values());
+  for (const id of stationIds) economy.stationPieces.add(id);
   for (const [i, d] of save.depots.entries()) {
     const want = expected.get(d.pieceId);
     if (d.id !== i || !want || want.role !== d.role || want.townId !== d.townId) return err(`invalid save: economy depot ${d.id} doesn't match the landscape`);
     expected.delete(d.pieceId);
     // A town's station stops wagons by its crane; a halt's coaches stop along its platform (its middle).
-    const halt = d.role === "town" && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
+    const halt = d.role === "town" && !stationIds.has(d.pieceId) && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
     const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId, d.townId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;

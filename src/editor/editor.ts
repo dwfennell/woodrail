@@ -10,6 +10,7 @@ import {
   type Layout,
   type PieceTypeId,
   type Pose,
+  type SignalStyle,
   type WorldConnector,
 } from "../track";
 
@@ -37,6 +38,8 @@ interface Command {
   fitted?: boolean;
   /** Changes only props (not the track): undo and redo skip the track's work and tell `onPropsChange`. */
   props?: boolean;
+  /** Changes only signal marks on joints (no track): undo and redo skip the track's work and tell `onSignalsChange`. */
+  signals?: boolean;
   /** Changes the land (squares' heights): undo and redo tell `onLandChange` the plots to redraw. */
   land?: () => number[];
   /** Changes only road pieces: done, undone and redone, it tells `onRoadsChange` the plots (and whether trees went). */
@@ -217,6 +220,35 @@ export class Editor {
     this.run({ ...c, props: true });
   }
 
+  /**
+   * Change a piece's type in place (`Layout.retype`: a town's station upgraded) as one undo step, with `land` (houses
+   * moved out of its way, the squares it now stands on: done already, as `recordLand`'s) done before it and undone
+   * after. Trains on it stay where they are (its first road is the old piece's track). Undo is refused while track is
+   * joined to a road the old type hadn't (`refuseUndo`'s words). False if the layout can't retype it.
+   */
+  retype(id: number, type: PieceTypeId, land: { do(): void; undo(): void; slots: () => number[] } | null, refuseUndo: string): boolean {
+    const from = this.layout.getPiece(id)?.type;
+    if (from === undefined || from === type || !this.layout.canRetype(id, type)) return false;
+    const track: Command = { do: () => void this.layout.retype(id, type), undo: () => void this.layout.retype(id, from) };
+    const landPart: Command | null = land && { do: land.do, undo: land.undo, land: land.slots };
+    // (The land part is done already, by the caller: only the track part is done here.)
+    track.do();
+    const parts = landPart ? [landPart, track] : [track];
+    const c: Command = {
+      do: () => {
+        for (const p of parts) p.do();
+      },
+      undo: () => {
+        for (let i = parts.length - 1; i >= 0; i--) parts[i].undo();
+      },
+      parts,
+      refuse: (way) => (way === "undo" && !this.layout.canRetype(id, from) ? refuseUndo : null),
+    };
+    this.push(c);
+    this.changed(c);
+    return true;
+  }
+
   get canUndo(): boolean {
     return this.undoStack.length > 0;
   }
@@ -303,6 +335,43 @@ export class Editor {
       fitted,
     });
     return ids;
+  }
+
+  /** Called after a signal-mark edit is done, undone or redone (instead of `onChange`: no track changed). */
+  onSignalsChange: (() => void) | null = null;
+
+  /**
+   * Put a signal mark on a joint (signals spec §3), guarding trains that cross it from `at`'s piece, as one undo step.
+   * Its id, or −1 if it can't go there (not a joint, or one faces that way there already).
+   */
+  addSignal(at: number, style: SignalStyle = "plain"): number {
+    if (this.layout.joinedConnector(at) === -1 || this.layout.signalAt(at)) return -1;
+    let id = -1;
+    this.run({
+      do: () => void (id = this.layout.addSignal(at, style, false, id === -1 ? undefined : id)),
+      undo: () => void this.layout.removeSignal(id),
+      signals: true,
+    });
+    return id;
+  }
+
+  /** Take a signal mark away, as one undo step (undone, it's back as it was, held or not). */
+  removeSignal(id: number): boolean {
+    const m = this.layout.getSignal(id);
+    if (!m) return false;
+    return this.run({
+      do: () => void this.layout.removeSignal(id),
+      undo: () => void this.layout.addSignal(m.at, m.style, m.held, id),
+      signals: true,
+    });
+  }
+
+  /** Turn a signal mark round on its joint, as one undo step. False if one faces the other way there already. */
+  turnSignal(id: number): boolean {
+    const m = this.layout.getSignal(id);
+    const other = m ? this.layout.joinedConnector(m.at) : -1;
+    if (other === -1 || this.layout.signalAt(other)) return false;
+    return this.run({ do: () => void this.layout.turnSignal(id), undo: () => void this.layout.turnSignal(id), signals: true });
   }
 
   /** Take up a piece. False if there's none, or it may not be taken up now (see `run`). */
@@ -551,7 +620,7 @@ export class Editor {
    * train is on (QA: undoing a line a train had rolled onto derailed it, cargo spilt).
    */
   private step(c: Command, go: () => void, back: () => void): boolean {
-    const track = c.parts ? c.parts.some((p) => !(p.props || p.land || p.roads)) : !(c.props || c.land || c.roads);
+    const track = c.parts ? c.parts.some((p) => !(p.props || p.land || p.roads || p.signals)) : !(c.props || c.land || c.roads || c.signals);
     const held = track ? this.held() : null;
     const under = track ? this.underTrains() : null;
     go();
@@ -591,7 +660,7 @@ export class Editor {
    * so no edit, however it's asked for (Delete, Rotate, Flip, a group's), takes track from under a train.
    */
   private run(c: Command): boolean {
-    const track = !(c.props || c.land || c.roads);
+    const track = !(c.props || c.land || c.roads || c.signals);
     const held = track ? this.held() : null;
     const under = track ? this.underTrains() : null;
     c.do();
@@ -631,6 +700,10 @@ export class Editor {
     }
     if (c.props) {
       this.onPropsChange?.();
+      return;
+    }
+    if (c.signals) {
+      this.onSignalsChange?.();
       return;
     }
     this.sim.trackChanged(c.moves ?? []);

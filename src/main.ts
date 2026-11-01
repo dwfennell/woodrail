@@ -34,7 +34,7 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
-import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
+import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
@@ -50,6 +50,8 @@ import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./rende
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { engineStatus, fullLineToast, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
+import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
+import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import type { Stuck } from "./economy/stalls";
@@ -61,7 +63,7 @@ import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillRes
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, CLASSIC_KMH, trainSummary, type SummaryCar } from "./game/train-summary";
-import { CARRIES } from "./economy/cargo";
+import { CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan } from "./game/blueprints";
@@ -82,6 +84,8 @@ import { Hud } from "./ui/hud";
 import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
+import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
+import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
@@ -423,6 +427,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // The pill opens the picker on the research it shows (QA P5: "Routes 10/40🪙", up next, opened on another).
       toggleBoard: (pill) => setBoardOpen(!board.open, (pill && pillResearch(progress)) || undefined),
       buyLand: () => buyLand(),
+      lowerHills: () => setLowering(!lowering),
       clearRuin: () => clearShownRuin(),
       restoreRuin: () => restoreShownRuin(),
       newGame: () => newGame(),
@@ -669,6 +674,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   function setExpanding(on: boolean): void {
     expanding = on;
+    if (lowering) {
+      lowering = false;
+      lowerAt = -1;
+      interaction.landCursor = null;
+      interaction.showSquare(-1);
+    }
     if (on) hud.chooseLandTool(null);
     chosen = null;
     if (!on) {
@@ -680,7 +691,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.hideCards();
     interaction.clearSelection();
     game.landscapeView.showForSale(plotsForSale(game.landscape));
-    hud.setLandCard("Tap a plot marked + to see what it brings.");
+    addLandCard();
     // Pull back to see the land and the plots round it, the land a little above the middle of the screen (clear of the
     // card and the tray).
     const e = game.landscape.grid.extent();
@@ -692,6 +703,85 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const distance = Math.min(frameDistance(radius, game.camera.fov, game.camera.aspect) * 0.8, game.controls.maxDistance);
     if (game.camera.position.distanceTo(game.controls.target) < distance) game.director.glideTo(centre, distance, { phi: 0.75, duration: 0.8 });
     game.invalidate();
+  }
+
+  // ---- lowering hills (Landscaping, Game mode): on the land card, in place of adding land ------------------------
+
+  let lowering = false;
+  /** The square chosen to lower (−1: none yet). */
+  let lowerAt = -1;
+  const canLandscape = () => mode === "game" && progress.learned.has(LANDSCAPING);
+  const ADD_LAND_TEXT = "Tap a plot marked + to see what it brings.";
+  const LOWER_TEXT = "Tap a hill square to lower it a step. It costs coins: more for a higher hill.";
+  /** The land card for adding land, with the switch to lowering hills once Landscaping is learned. */
+  function addLandCard(text = ADD_LAND_TEXT, canBuy = false): void {
+    hud.setLandCard(text, canBuy, canLandscape() ? { swap: "⛰️ Lower hills" } : {});
+  }
+  function lowerCard(text: string, price = 0): void {
+    hud.setLandCard(text, price > 0, { title: "Lower hills", buy: `Lower it · ${price}${COIN_ICON}`, swap: "➕ Add land" });
+  }
+  function setLowering(on: boolean): void {
+    if (on && !canLandscape()) return;
+    lowering = on;
+    lowerAt = -1;
+    chosen = null;
+    interaction.landCursor = on ? "#ffd27a" : null;
+    interaction.showSquare(-1);
+    game.landscapeView.showForSale(on ? [] : plotsForSale(game.landscape));
+    if (on) lowerCard(LOWER_TEXT);
+    else addLandCard();
+    game.invalidate();
+  }
+
+  /** A tap while lowering hills: choose the square, and ask (its price), or say why not. */
+  function chooseLower(x: number, y: number): void {
+    const i = interaction.squareAt(x, y);
+    lowerAt = -1;
+    if (i === -1) {
+      interaction.showSquare(-1);
+      lowerCard("That's not your land. Tap a hill square on it.");
+      return;
+    }
+    interaction.showSquare(i);
+    const g = game.landscape.grid;
+    const why = lowerRefusal(game.landscape, interaction.landEditor(), i, progress.coins);
+    if (why) {
+      lowerCard(why);
+      audio.refuse();
+      hud.haptic("refuse");
+    } else {
+      lowerAt = i;
+      lowerCard(lowerQuestion(g.height[i], progress.coins), lowerPrice(g.height[i]));
+      audio.tap();
+    }
+    game.invalidate();
+  }
+
+  /** "Lower it": pay, lower the square a step, and redraw its plot (not undoable: the coins are spent). */
+  function lowerChosen(): void {
+    const i = lowerAt;
+    if (i === -1) return;
+    const editor = interaction.landEditor();
+    const why = lowerRefusal(game.landscape, editor, i, progress.coins);
+    if (why) {
+      lowerAt = -1;
+      lowerCard(why);
+      return;
+    }
+    const price = lowerPrice(game.landscape.grid.height[i]);
+    if (editor.apply(i, -1)) return;
+    progress.coins -= price;
+    hud.setCoins(progress.coins);
+    const t0 = performance.now();
+    game.editLand([plotSlotOf(i)]);
+    console.info(`Woodrail: hill lowered, redrawn in ${Math.round(performance.now() - t0)} ms`);
+    audio.putdown(true);
+    lowerAt = -1;
+    const h = game.landscape.grid.height[i];
+    lowerCard(h > 0 ? `Lowered a step. ${lowerQuestion(h, progress.coins)}` : "Lowered: it's flat now. Tap another hill square.", h > 0 && progress.coins >= lowerPrice(h) ? lowerPrice(h) : 0);
+    if (h > 0 && progress.coins >= lowerPrice(h)) lowerAt = i;
+    interaction.showSquare(i);
+    scheduleSave();
   }
 
   /** The plot whose + badge is drawn at this screen point (they float above the ground), if any. */
@@ -758,6 +848,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       editSquare(x, y);
       return true;
     }
+    if (expanding && lowering) {
+      chooseLower(x, y);
+      return true;
+    }
     if (!expanding) {
       // An old industry's ruin (seen from too far to take hold of its stub): its card.
       const ruin = interaction.ruinAtScreen(x, y);
@@ -770,7 +864,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!forSale.some((q) => q.px === p.px && q.pz === p.pz)) {
       chosen = null;
       game.landscapeView.showForSale(forSale);
-      hud.setLandCard(game.landscape.grid.hasPlot(p.px, p.pz) ? "That's your land already. Tap a plot marked +." : "Only plots beside your land can be added.");
+      addLandCard(game.landscape.grid.hasPlot(p.px, p.pz) ? "That's your land already. Tap a plot marked +." : "Only plots beside your land can be added.");
       game.invalidate();
       return true;
     }
@@ -778,7 +872,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.landscapeView.showForSale(forSale, chosen);
     const price = plotPrice(game.landscape.grid.plots.length);
     const priced = mode === "game" ? ` · ${price} coins (you have ${progress.coins})` : "";
-    hud.setLandCard(describeLand(landForSale(game.landscape, p.px, p.pz)) + priced, mode !== "game" || progress.coins >= price);
+    addLandCard(describeLand(landForSale(game.landscape, p.px, p.pz)) + priced, mode !== "game" || progress.coins >= price);
     game.invalidate();
     return true;
   };
@@ -933,6 +1027,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function buyLand(): void {
+    if (lowering) {
+      lowerChosen();
+      return;
+    }
     if (!chosen) return;
     // Game mode: land costs coins.
     const price = plotPrice(game.landscape.grid.plots.length);
@@ -954,7 +1052,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     audio.chime();
     chosen = null;
     game.landscapeView.showForSale(plotsForSale(game.landscape));
-    hud.setLandCard("Tap a plot marked + to see what it brings.");
+    addLandCard();
     updateConnections(false);
     scheduleSave();
   }
@@ -2005,7 +2103,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     harbourTrade.reset();
     counters.reset(game.economy);
     applyCranes(game.economy, progress);
-    attachEngines(game.world);
+    attachEngines(game.world, () => progress.learned.has("boilers"));
     // Goods brought to a school go into the research (saved soon after: a train brings them in a burst).
     attachResearch(game.economy, () => progress, () => {
       refreshPill();
@@ -2047,6 +2145,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   setInterval(() => {
     updatePlanksKept();
+    if (playing && !game.paused) storeToasts();
     const sailed = simElapsed(harbourClock, game.simSeconds);
     if (mode !== "game" || !playing || game.paused || sailed <= 0) return;
     for (const e of harbourTrade.update(game.world, progress, sailed)) {
@@ -2083,6 +2182,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showWaiting();
   }, 1000);
 
+  /** Warehouses a hand-run train has been told about (this session): each says why it trades nothing, once. */
+  const storesTold = new Set<number>();
+  /**
+   * A hand-run train with wagons beside a warehouse: it trades nothing there (only routed trains do), so a toast says
+   * why and what to do, once per warehouse. Once a second: a lookup per bogie of each train.
+   */
+  function storeToasts(): void {
+    for (const id of game.sim.trainIds()) {
+      const d = game.economy.storeItSkips(id);
+      if (!d || storesTold.has(d.id)) continue;
+      const t = game.sim.getTrain(id);
+      if (!t || game.economy.routeOfTrain(t)) continue;
+      storesTold.add(d.id);
+      hud.toast(STORE_NO_ROUTE, false, 4200);
+    }
+  }
+
   /** The peg dolls on each platform are the people waiting (Game mode, once coaches are known; else the usual few). */
   function showWaiting(): void {
     const live = mode === "game" && progress.learned.has("passengers");
@@ -2100,14 +2216,100 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return ledgerContext;
   };
   const townCard = {
-    key: (d: DepotState) => ledgerKey(game.world, d, ledgerOf()),
+    // (Its station's upgrade row follows the track, the land and what's learned: drawn again when they change.)
+    key: (d: DepotState) => (Math.imul(ledgerKey(game.world, d, ledgerOf()), 31) + (canUpgrade(d) ? game.layout.revision * 7919 + game.landscape.grid.revision : 0)) | 0,
     show: (d: DepotState) => {
       const v = townLedger(game.world, d, ledgerOf());
       if (!v) return;
       hud.depotExtra.hidden = false;
       drawLedger(hud.depotExtra, v, { school: (id) => interaction.openDepotCard(id), lines: () => openLines() });
+      if (canUpgrade(d)) drawUpgrades(d);
     },
   };
+
+  // ---- a town's station upgraded in place (Big stations learned): src/game/station-upgrade.ts ------------------
+
+  /** Does this town card's station offer upgrades: Game mode, Big stations learned, its station still the plain one? */
+  function canUpgrade(d: DepotState): boolean {
+    return mode === "game" && progress.learned.has("big-stations") && game.economy.stationPieces.has(d.pieceId) && game.layout.getPiece(d.pieceId)?.type === "station";
+  }
+
+  /** A town station's upgrade row on its card: a button per big station that fits (its price, the houses it moves), or why not. */
+  function drawUpgrades(d: DepotState): void {
+    const box = document.createElement("div");
+    box.className = "station-upgrade";
+    const title = document.createElement("div");
+    title.className = "station-waiting";
+    title.textContent = "Upgrade the station";
+    box.append(title);
+    for (const type of STATION_UPGRADES) {
+      const plan = planUpgrade(game.world, d.townId, type, interaction.landEditor(), (t, pose, y, ignore) => interaction.placeWhy(t, pose, y, ignore));
+      const name = UPGRADE_NAMES[type];
+      if (typeof plan === "string") {
+        const why = document.createElement("div");
+        why.className = "station-waiting";
+        why.textContent = `${name}: ${plan}`;
+        box.append(why);
+        continue;
+      }
+      const rule = ruleOf(pieceThing(type))!;
+      const moves = plan.moves.length;
+      const b = document.createElement("button");
+      b.className = "chip text station-upgrade-btn";
+      b.dataset.upgrade = type;
+      b.textContent = `⬆ ${name} · ${costText(rule)}${moves ? ` (moves ${moves} house${moves === 1 ? "" : "s"})` : ""}`;
+      b.title = `Upgrade to a ${name.toLowerCase()} on the same spot: its trains, routes and lines stay`;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        upgradeStation(d, type);
+      });
+      box.append(b);
+    }
+    hud.depotExtra.append(box);
+  }
+
+  /** Upgrade town depot `d`'s station to `type`: the kit from the toy box (or made at the workshop), houses moved, one undo step. */
+  function upgradeStation(d: DepotState, type: StationUpgrade): void {
+    const plan = planUpgrade(game.world, d.townId, type, interaction.landEditor(), (t, pose, y, ignore) => interaction.placeWhy(t, pose, y, ignore));
+    const name = UPGRADE_NAMES[type];
+    if (typeof plan === "string") {
+      hud.toast(plan, false, 3600);
+      audio.refuse();
+      return;
+    }
+    // The kit, as any piece put down: one from the toy box, or made now from the workshop's planks.
+    const lack = lacking(game.world, progress, new Map([[pieceThing(type), 1]]));
+    if (lack.size > 0) {
+      const why = craftNow(game.world, progress, lack);
+      if (why === "no-workshop") {
+        hud.toast(`${name}: place your workshop (Industries tab) to make one`, false, 3600);
+        audio.refuse();
+        return;
+      }
+      if (why) {
+        hud.toast(`${name}: needs ${costTag(why.goods, why.coins)} more at the workshop`, false, 3600);
+        audio.refuse();
+        return;
+      }
+      afterCraft();
+    }
+    const land = upgradeLand(game.world, plan);
+    land.do();
+    if (!editor.retype(plan.stationId, type, land, UPGRADE_UNDO_REFUSED)) {
+      land.undo();
+      hud.toast("The station can't be upgraded just now", false, 3600);
+      audio.refuse();
+      return;
+    }
+    game.editLand(land.slots());
+    void game.kitView.load(type).then(() => game.syncKits(true));
+    industriesChanged();
+    const town = game.landscape.towns.find((t) => t.id === d.townId)?.name ?? "The town";
+    hud.toast(`${town} has a ${name.toLowerCase()} now${plan.moves.length ? `: ${plan.moves.length} house${plan.moves.length === 1 ? "" : "s"} moved along` : ""}`, false, 3600);
+    audio.chime();
+    interaction.openDepotCard(d.id);
+    scheduleSave();
+  }
 
   // A sawmill's card (Game mode): a hint at the faster-sawmills blueprint until it's learned.
   let sawmillShown = "";
@@ -2296,6 +2498,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** "Tap a stop for options" is shown until a stop's chip is first tapped (remembered). */
   const STOP_HINT_KEY = "woodrail.hint.stopOptions";
   let stopHintSeen = loadFlag(STOP_HINT_KEY);
+  /** "Tap the warehouse stop…" is shown on a line with a warehouse until a warehouse stop's chip is first tapped (remembered). */
+  const STORE_HINT_KEY = "woodrail.hint.storeStop";
+  let storeHintSeen = loadFlag(STORE_HINT_KEY);
   const INTENTS: Record<StopAction, { label: string; tip: string }> = {
     auto: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
     both: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
@@ -2303,6 +2508,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     pick: { label: "Only pick up", tip: "Only picks goods up here" },
   };
   const NEXT_INTENT: Record<StopAction, StopAction> = { auto: "drop", both: "drop", drop: "pick", pick: "auto" };
+  /** Is this depot a warehouse (it trades only with trains on a route: see warehouse-text.ts)? */
+  const isStore = (depotId: number) => game.economy.depot(depotId)?.role === "warehouse";
   /**
    * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
    * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
@@ -2520,7 +2727,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     const riders = line ? trainsOn(game.economy, line.id).length : 0;
     const others = line ? "" : [...game.economy.lines.values()].map((l) => `${l.id}${l.colour}${l.name}`).join(",");
-    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}`;
+    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -2646,6 +2853,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       box.append(hint);
     }
     if (line) {
+      // What a train on the line picks up and drops at each stop (the economy's own rules), under each chip as icons.
+      const plan = game.economy.routePlan(line.stops);
       const strip = document.createElement("div");
       strip.className = "route-stops";
       line.stops.forEach((st, k) => {
@@ -2656,12 +2865,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             stopHintSeen = true;
             saveFlag(STOP_HINT_KEY);
           }
+          if (!storeHintSeen && isStore(st.depotId)) {
+            storeHintSeen = true;
+            saveFlag(STORE_HINT_KEY);
+          }
           showRoute();
         });
         chip.classList.toggle("next", r?.next === k);
         chip.classList.toggle("picked", stopPicked === k);
         if (st.action === "drop" || st.action === "pick") chip.dataset.intent = st.action;
         if (st.waitFill) chip.dataset.wait = "1";
+        const icons = plan[k] ? planIcons(plan[k]) : "";
+        if (icons) {
+          chip.classList.add("has-goods");
+          chip.append(Object.assign(document.createElement("span"), { className: "route-goods", textContent: icons }));
+        }
         chip.style.setProperty("--line", line.colour);
         strip.append(chip);
         // Its via points: "via ●" chips after it (passed on the way to the next stop, in order). A tap picks one.
@@ -2699,11 +2917,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }
         edges();
       });
-      // The first time, a word on what a chip does (till one is tapped).
-      if (!stopHintSeen && stopPicked === -1 && !viaPicked) {
+      // The first time, a word on what a chip does (till one is tapped); on a line with a warehouse, till its chip is.
+      const storeHint = !storeHintSeen && line.stops.some((st) => isStore(st.depotId));
+      if ((!stopHintSeen || storeHint) && stopPicked === -1 && !viaPicked) {
         const hint = document.createElement("div");
         hint.className = "route-hint";
-        hint.textContent = "Tap a stop for options";
+        hint.textContent = storeHint ? "Tap the warehouse stop to set Only drop or Only pick up" : "Tap a stop for options";
         box.append(hint);
       }
       // A via point picked: what it is, and its tools (a station's or halt's: stop there after all; ✕ takes it off).
@@ -2795,6 +3014,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
         box.append(tools);
+        // What it picks up and drops here, in words.
+        if (plan[k]) box.append(Object.assign(document.createElement("div"), { className: "route-hint route-plan-words", textContent: planWords(plan[k]) }));
+        // At a warehouse, what this stop's action does there.
+        if (isStore(st.depotId)) {
+          const what = document.createElement("div");
+          what.className = "route-hint route-store";
+          what.textContent = storeStopText(st.action);
+          box.append(what);
+        }
       }
       const why = cantReach();
       if (why) {
