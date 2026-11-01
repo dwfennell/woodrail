@@ -2,7 +2,7 @@ import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matr
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
-import type { Layout, Pose } from "../track";
+import type { Layout, PieceTypeId, Pose } from "../track";
 import { kitOf, TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
 import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
@@ -38,7 +38,7 @@ interface CraneSpec {
   height: number;
 }
 
-interface DepotLayout {
+export interface DepotLayout {
   pad: { t: number; l: number; w: number; d: number } | null;
   crane: CraneSpec;
   piles: Partial<Record<CargoKind, PileSpot>>;
@@ -214,6 +214,37 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   unloader: KIT_DEPOT,
 };
 
+/** A layout turned across its track (l → −l): its crane and piles on the other side of the line. */
+function acrossTheLine(layout: DepotLayout): DepotLayout {
+  const piles: Partial<Record<CargoKind, PileSpot>> = {};
+  for (const kind of CARGO_KINDS) {
+    const spot = layout.piles[kind];
+    if (spot) piles[kind] = { ...spot, l: -spot.l };
+  }
+  return { ...layout, pad: layout.pad && { ...layout.pad, l: -layout.pad.l }, crane: { ...layout.crane, l: -layout.crane.l }, piles };
+}
+
+/**
+ * A town's station upgraded in place to a big station's kit (`Town.upgraded`, `Layout.retype`): still the town's goods
+ * station, so it keeps the plain station's goods corner (the jib crane and the plank, flour and stone piles), at the
+ * same place along the track (wagons still stop at `STATION_CRANE_AT`), but on the kit's first platform: across the
+ * line, where its people wait too (`buildWaiting`). Its kit's model draws the rest. A big station built as one is a
+ * halt (passengers only): it has no goods corner.
+ */
+const UPGRADED_STATION: Readonly<Record<string, DepotLayout>> = {
+  "kit-two-platform-station": acrossTheLine(DEPOT_LAYOUT.town),
+  "kit-grand-terminus": acrossTheLine(DEPOT_LAYOUT.town),
+};
+
+/**
+ * How a depot on a piece of `type` is drawn here: its role's yard, an upgraded town station's goods corner, or null for
+ * one this view doesn't draw (a kit piece's own: a Sandbox loader, or a halt; its kit's model does the drawing).
+ */
+export function siteLayout(role: DepotRole, type: PieceTypeId, station: boolean): DepotLayout | null {
+  if (!kitOf(type)) return DEPOT_LAYOUT[role];
+  return role === "town" && station ? (UPGRADED_STATION[type] ?? null) : null;
+}
+
 /** Each industry's buildings as a Blender part (tools/blender/dressing.py), with its colours. */
 /**
  * Where an upgrade's machine stands in its yard (depot frame: t along the track, l out from it), for Game mode's
@@ -320,6 +351,11 @@ interface Site {
   depot: DepotState;
   pose: SitePose;
   layout: DepotLayout;
+  /** The piece's type it was drawn for (a town's station is drawn again when it changes: `syncStations`). */
+  drawn: PieceTypeId;
+  /** Its tile (`tileAt`, at its track's crane stop), whose static parts hold its own, and that stop's ground point. */
+  tile: number;
+  at: { x: number; z: number };
   crane: CraneParts;
   /** What turns while it works: a sawmill's saw, a mill's sails. */
   blade: Object3D | null;
@@ -484,6 +520,9 @@ export class DepotView {
    */
   building: ((role: DepotRole, depot?: DepotState) => { parts: readonly { geometry: BufferGeometry; material: Material }[]; scale?: number } | null | undefined) | null = null;
 
+  /** Each tile's static parts (yards, sheds, crane masts: batched), by `tileAt` key. */
+  private readonly tiles = new Map<number, Group>();
+
   /** Rebuild for a world: one site per economy depot. */
   setWorld(economy: Economy, layout: Layout): void {
     for (const child of [...this.group.children]) {
@@ -494,55 +533,130 @@ export class DepotView {
       });
     }
     this.sites = [];
+    this.tiles.clear();
     this.carOwners.clear();
-    // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped.
-    const tiles = new Map<number, { b: Batcher; at: { x: number; z: number }[] }>();
     for (const depot of economy.allDepots()) {
+      const site = this.makeSite(depot, economy, layout);
+      if (site) this.sites.push(site);
+    }
+    for (const key of new Set(this.sites.map((s) => s.tile))) this.buildTile(key);
+  }
+
+  /**
+   * Draw again only the town stations whose piece changed type since they were drawn (`Layout.retype`: upgraded in
+   * place to a big station's kit, or back by undo): each one's crane and piles, and the static parts of its tile. No
+   * other site is touched. Cheap when nothing changed (a look at each depot's piece). True if any was drawn again.
+   */
+  syncStations(economy: Economy, layout: Layout): boolean {
+    let changed = false;
+    for (const depot of economy.allDepots()) {
+      if (depot.role !== "town" || !economy.stationPieces.has(depot.pieceId)) continue;
       const piece = layout.getPiece(depot.pieceId);
-      // A depot piece being carried shows its buildings in the hand instead (see `model`). A kit piece's depot (a
-      // Sandbox loader or unloader) is drawn by its kit's model, its own crane working (KitView).
-      if (!piece || layout.isLifted(depot.pieceId) || kitOf(piece.type)) continue;
-      const spec = DEPOT_LAYOUT[depot.role];
-      const pose: SitePose = { ...piece.pose, y: piece.y };
-      const site: Site = {
-        depot,
-        pose: pose,
-        layout: spec,
-        crane: this.buildCrane(pose, spec.crane),
-        blade: null,
-        move: { kind: "log", toPile: false, carId: -1, phase: 0 },
-        moving: false,
-        piles: -1,
-        pileOwners: Object.fromEntries(CARGO_KINDS.map((k) => [k, { kind: "pile", depotId: depot.id, cargo: k }])) as Record<CargoKind, CargoSlot>,
-      };
-      const at = toWorld(pose, spec.trackT, 0, 0, new Vector3());
-      const key = tileAt(at.x, at.z);
-      let tile = tiles.get(key);
-      if (!tile) tiles.set(key, (tile = { b: new Batcher(this.mats.paint), at: [] }));
-      tile.at.push({ x: at.x, z: at.z });
-      this.buildStatic(site, tile.b);
-      if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
-      if (depot.role === "mill") site.blade = this.buildSails(pose);
-      if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
-      if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
-      // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
-      for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
-        if (!o) continue;
-        setCullBox(o, [{ x: at.x, z: at.z }], 160);
-        o.userData.maxDistance = CRANE_REACH;
+      const k = this.sites.findIndex((s) => s.depot === depot);
+      const was = k === -1 ? null : this.sites[k];
+      if ((was?.drawn ?? null) === (piece && !layout.isLifted(depot.pieceId) ? piece.type : null)) continue;
+      // (A station never drawn and still not drawable: nothing to do.)
+      if (!was && (!piece || !siteLayout("town", piece.type, true))) continue;
+      const tiles = new Set<number>();
+      if (was) {
+        tiles.add(was.tile);
+        this.dropSite(was);
+        this.sites.splice(k, 1);
       }
-      // Park the hook over the track.
-      toWorld(pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
-      this.sites.push(site);
+      const site = this.makeSite(depot, economy, layout);
+      if (site) {
+        tiles.add(site.tile);
+        this.sites.push(site);
+      }
+      for (const key of tiles) this.buildTile(key);
+      changed = true;
     }
-    for (const { b, at } of tiles.values()) {
-      const statics = new Group();
-      statics.userData.depotStatic = true;
-      b.build(statics);
-      // Yards reach about 250 mm from their track's middle.
-      setCullBox(statics, at.flatMap((p) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
-      this.group.add(statics);
+    return changed;
+  }
+
+  /**
+   * Depot `depotId`'s crane as drawn (for checks): the piece type it was drawn for, its mast or beam in the depot's
+   * frame (t along the track, l across), and its trolley (the same object until that site is drawn again). Null if
+   * this view doesn't draw that depot.
+   */
+  craneOf(depotId: number): { drawn: PieceTypeId; t: number; l: number; trolley: Object3D } | null {
+    const site = this.sites.find((s) => s.depot.id === depotId);
+    return site ? { drawn: site.drawn, t: site.layout.crane.t, l: site.layout.crane.l, trolley: site.crane.trolley } : null;
+  }
+
+  /** A site for `depot` (its crane's moving parts added to the group), or null if this view doesn't draw it. */
+  private makeSite(depot: DepotState, economy: Economy, layout: Layout): Site | null {
+    const piece = layout.getPiece(depot.pieceId);
+    // A depot piece being carried shows its buildings in the hand instead (see `model`). A kit piece's depot (a
+    // Sandbox loader or unloader, a halt) is drawn by its kit's model, its own crane working (KitView); a town's station
+    // upgraded to a kit keeps its goods corner (`siteLayout`).
+    if (!piece || layout.isLifted(depot.pieceId)) return null;
+    const spec = siteLayout(depot.role, piece.type, economy.stationPieces.has(depot.pieceId));
+    if (!spec) return null;
+    const pose: SitePose = { ...piece.pose, y: piece.y };
+    const at = toWorld(pose, spec.trackT, 0, 0, new Vector3());
+    const site: Site = {
+      depot,
+      pose: pose,
+      layout: spec,
+      drawn: piece.type,
+      tile: tileAt(at.x, at.z),
+      at: { x: at.x, z: at.z },
+      crane: this.buildCrane(pose, spec.crane),
+      blade: null,
+      move: { kind: "log", toPile: false, carId: -1, phase: 0 },
+      moving: false,
+      piles: -1,
+      pileOwners: Object.fromEntries(CARGO_KINDS.map((k) => [k, { kind: "pile", depotId: depot.id, cargo: k }])) as Record<CargoKind, CargoSlot>,
+    };
+    if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
+    if (depot.role === "mill") site.blade = this.buildSails(pose);
+    if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
+    if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
+    // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
+    for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
+      if (!o) continue;
+      setCullBox(o, [site.at], 160);
+      o.userData.maxDistance = CRANE_REACH;
     }
+    // Park the hook over the track.
+    toWorld(pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
+    return site;
+  }
+
+  /** Take a site's moving parts out of the group (its statics go with its tile's rebuild). */
+  private dropSite(site: Site): void {
+    for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
+      if (!o) continue;
+      this.group.remove(o);
+      o.traverse((m) => {
+        if (m instanceof Mesh) m.geometry.dispose();
+      });
+    }
+  }
+
+  /** (Re)build one tile's static parts, batched, from the sites standing in it. */
+  private buildTile(key: number): void {
+    const old = this.tiles.get(key);
+    if (old) {
+      this.group.remove(old);
+      old.traverse((o) => {
+        if (o instanceof Mesh) o.geometry.dispose();
+      });
+      this.tiles.delete(key);
+    }
+    const sites = this.sites.filter((s) => s.tile === key);
+    if (sites.length === 0) return;
+    // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped.
+    const b = new Batcher(this.mats.paint);
+    for (const site of sites) this.buildStatic(site, b);
+    const statics = new Group();
+    statics.userData.depotStatic = true;
+    b.build(statics);
+    // Yards reach about 250 mm from their track's middle.
+    setCullBox(statics, sites.flatMap(({ at: p }) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
+    this.group.add(statics);
+    this.tiles.set(key, statics);
   }
 
   /**
