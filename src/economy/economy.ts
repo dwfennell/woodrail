@@ -530,8 +530,8 @@ export class Economy {
 
   /**
    * Does this car's train keep its `kind` on board for a school set to Research first (`takesAll` on a school), at a
-   * town or a workshop? While the research lacks some (`sinkWants`), a train keeps as many as it lacks and a town or
-   * workshop takes only the rest. A routed train keeps them while its line comes to such a school that takes them before
+   * town or a workshop? While the research lacks some (`sinkWants`), a train keeps as many as it lacks (a routed one at
+   * most one wagon's worth: `schoolHold`, issue #20), and a town or workshop takes the rest. A routed train keeps them while its line comes to such a school that takes them before
    * anywhere else but a town or workshop that does (`Later.school`); an unrouted one while it comes to one, the points
    * as they lie (`reachOf`: one on joined track it never comes to kept a workshop's planks on the train for good). Only
    * by the school's own visible setting: a school left sharing (its default) holds nothing back (the 2026-11-01 report).
@@ -556,7 +556,60 @@ export class Economy {
       const reach = this.reachOf(found.train);
       if (!this.schools.some((d) => first(d) && reach.has(d.pieceId))) return false;
     }
-    return this.onBoard(found.train, kind) <= want;
+    // A hand-run train keeps all the research lacks; a routed one at most one wagon's worth (`schoolHold`). (Issue #20:
+    // capping hand-run trains too failed 6 of the 9 balance seeds, not 3, and the goals play-through: holding all
+    // carried planks past the first town to the towns beyond the school while the line was still hand-run.)
+    if (!route) return this.onBoard(found.train, kind) <= want;
+    return this.schoolHold(found.train, kind, want, carId).keeps;
+  }
+
+  /**
+   * What a train on a route holds of `kind` for a school set to Research first, at most `want` (what the research
+   * lacks) and at most `schoolHoldCap`, so the other wagons stay free to drop at towns and the workshop and to load other goods (issue
+   * #20: planks held for the school filled both timber wagons, so at the forest they took no logs and a city starved).
+   * Its cars of `kind` front to back: the first is held (trimmed to the limit as it drops the rest), later ones only
+   * while they fit whole in what's left. `keeps`: `carId` is one held. `held`: how many are held. Cheap: the train's cars.
+   */
+  private schoolHold(train: Train, kind: CargoKind, want: number, carId: number): { keeps: boolean; held: number } {
+    const limit = Math.min(want, this.schoolHoldCap);
+    let room = limit;
+    let held = 0;
+    let first = true;
+    let keeps = false;
+    for (const car of train.cars) {
+      const c = this.cargo.get(car.id);
+      if (c?.kind !== kind || c.count <= 0) continue;
+      const fits = first ? limit > 0 : c.count <= room;
+      if (car.id === carId) keeps = fits && c.count <= room;
+      if (fits) {
+        const h = Math.min(c.count, room);
+        held += h;
+        room -= h;
+      }
+      first = false;
+    }
+    return { keeps, held };
+  }
+
+  /**
+   * The most a train on a route holds for a school set to Research first: one wagon's worth (`wagonCapacity`: more with heavy
+   * wagons). (Issue #20's balance runs also tried a third of the train's capacity for the good: the same on the nine
+   * seeds, and harder to say.)
+   */
+  get schoolHoldCap(): number {
+    return this.wagonCapacity;
+  }
+
+  /**
+   * How many of `kind` a train holds for a school set to Research first, for its engine card: a routed one's
+   * `schoolHold`, a hand-run one's all the research lacks. 0: none.
+   */
+  heldForSchool(trainId: number, kind: CargoKind): number {
+    const train = this.sim.getTrain(trainId);
+    const want = this.sinkWants?.(kind) ?? 0;
+    if (!train || want <= 0) return 0;
+    if (!this.routeOfTrain(train)) return Math.min(want, this.onBoard(train, kind));
+    return this.schoolHold(train, kind, want, -1).held;
   }
   private schools: DepotState[] = [];
   private schoolsOf: readonly DepotState[] | null = null;

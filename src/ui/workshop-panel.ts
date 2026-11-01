@@ -55,8 +55,8 @@ export const RESEARCH_FIRST_LABEL = "Research first";
 /**
  * The school's two-way choice (its card, Game mode), beside the workshop's: Shares with towns (its default: trains drop
  * goods at each stop in turn, and here it takes its share of a load while a town the train goes on to wants it too:
- * `SCHOOL_SHARE`), or Research first (`takesAll` on its depot: trains keep what its research lacks for it, past towns
- * and the workshop, and it takes all of it). `data-school`.
+ * `SCHOOL_SHARE`), or Research first (`takesAll` on its depot: trains keep what its research lacks for it (on a route
+ * up to one wagon's worth: `Economy.schoolHold`), past towns and the workshop, and it takes all of it). `data-school`.
  */
 export function schoolYardHtml(first: boolean): string {
   const chip = (on: boolean, label: string) =>
@@ -66,7 +66,7 @@ export function schoolYardHtml(first: boolean): string {
 
 /** The line under the school's choice. */
 export function schoolHint(first: boolean): string {
-  return first ? "Trains keep what its research needs for it, past towns and the workshop" : "Trains drop goods at each stop in turn; here, a share when a town further on wants them too";
+  return first ? "Trains keep what its research needs for it, past towns and the workshop. On a route, up to one wagon" : "Trains drop goods at each stop in turn; here, a share when a town further on wants them too";
 }
 
 /** The workshop's two-way choice, Shares with towns / Takes all planks, and its hint. */

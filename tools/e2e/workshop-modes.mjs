@@ -197,7 +197,7 @@ check("the school's card: Shares with towns (on) / Research first", sc.on === "S
 check("…its line", sc.hint === "Trains drop goods at each stop in turn; here, a share when a town further on wants them too", String(sc.hint));
 await tap('.depot-card [data-school="first"]');
 sc = await schoolCard();
-check("a tap on Research first switches it", sc.on === "Research first" && sc.takesAll === true && sc.hint === "Trains keep what its research needs for it, past towns and the workshop", JSON.stringify(sc));
+check("a tap on Research first switches it", sc.on === "Research first" && sc.takesAll === true && sc.hint === "Trains keep what its research needs for it, past towns and the workshop. On a route, up to one wagon", JSON.stringify(sc));
 await shot("school-research-first");
 await openCard();
 await tap('.yard-mode [data-yard="all"]');

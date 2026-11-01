@@ -342,7 +342,10 @@ export function engineView(
   // share, not needed now). Each stop takes what it takes in turn; nothing is held back for one further on.
   if (s.kind === "running" || s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || s.kind === "starting") {
     const kept = economy.keptAt(found.train.id);
-    if (kept) return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id)), blocker: null };
+    if (kept) {
+      const held = kept.why === "school" ? economy.heldForSchool(found.train.id, kept.kind) : 0;
+      return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id), held), blocker: null };
+    }
   }
   const blocker = blockerOf(sim, economy, s);
   // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
