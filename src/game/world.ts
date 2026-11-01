@@ -151,8 +151,9 @@ export function syncIndustries(world: World, halts = false): boolean {
       }
       continue;
     }
-    // An industry's piece, or a kit piece that's a cargo stop (Sandbox's loaders and unloaders).
-    const role = INDUSTRY_ROLE[type] ?? kitOf(type)?.depot;
+    // An industry's piece, or a kit piece that's a cargo stop (Sandbox's loaders and unloaders: in Game mode, `halts`,
+    // they're looks only, with no endless heap).
+    const role = INDUSTRY_ROLE[type] ?? (halts ? undefined : kitOf(type)?.depot);
     if (!role) continue;
     // A school belongs to the town it's beside (kept as it moves: it's renamed with it).
     const school = role === "school" ? (schoolTown(world.landscape, piece.pose)?.town.id ?? -1) : -1;
