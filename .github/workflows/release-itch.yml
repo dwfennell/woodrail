@@ -1,0 +1,57 @@
+name: Release to itch.io
+
+# itch gets releases only, not every push to main (that's GitHub Pages). Publish a GitHub Release (tag v1.2.0, say)
+# to push that commit to itch. See docs/itch-builds.md.
+#
+# Needs, once: a BUTLER_API_KEY secret (an itch.io API key) and an ITCH_GAME variable ("user/game", the project's
+# itch.io URL parts).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or commit to push to itch"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: itch
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    env:
+      REF: ${{ github.event.release.tag_name || inputs.ref }}
+    steps:
+      - name: Check settings
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_GAME: ${{ vars.ITCH_GAME }}
+        run: |
+          [ -n "$BUTLER_API_KEY" ] || { echo "::error::Set the BUTLER_API_KEY secret (an itch.io API key)"; exit 1; }
+          [ -n "$ITCH_GAME" ] || { echo "::error::Set the ITCH_GAME variable, e.g. dwfennell/woodrail"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:itch
+      - name: Install butler
+        run: |
+          curl -sSfL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler && chmod +x butler/butler
+          ./butler/butler -V
+      - name: Push to itch
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_GAME: ${{ vars.ITCH_GAME }}
+        run: ./butler/butler push dist-itch "$ITCH_GAME:html5" --userversion "$REF"
