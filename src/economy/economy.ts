@@ -325,6 +325,14 @@ export class Economy {
   readonly delivered = new Map<number, number>();
   /** Town id → everything delivered there, by kind (planks are counted in `delivered` too). */
   readonly deliveredGoods = new Map<number, Bag>();
+  /**
+   * Town id → what was delivered there while it was joined by road to another town (roads spec D2), by kind: a part
+   * of it counts again toward the town's growth (`roadBonus`, town-life.ts). Only ever goes up, so a road taken up
+   * later never takes a level away.
+   */
+  readonly roadGot = new Map<number, Bag>();
+  /** Is this town joined by road to another now (Game mode's towns: `TownLife`; null: never)? Asked per delivery. */
+  joinedByRoad: ((townId: number) => boolean) | null = null;
   private readonly services = new Map<number, Service>();
   /** Each stop list's `Later`s (see `laterOf`), and the counters they're keyed on. */
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
@@ -913,6 +921,11 @@ export class Economy {
         const got = this.deliveredGoods.get(d.townId) ?? {};
         got[kind] = (got[kind] ?? 0) + 1;
         this.deliveredGoods.set(d.townId, got);
+        if (this.joinedByRoad?.(d.townId)) {
+          const road = this.roadGot.get(d.townId) ?? {};
+          road[kind] = (road[kind] ?? 0) + 1;
+          this.roadGot.set(d.townId, road);
+        }
       }
     } else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count + 1);
   }

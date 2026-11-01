@@ -1,9 +1,10 @@
 import type { Bag } from "../economy/goods";
-import { kindsOf, minus, total } from "../economy/goods";
+import { kindsOf, minus, plus, total } from "../economy/goods";
 import type { CargoKind } from "../economy/cargo";
 import { LandEditor } from "../landscape/edit";
 import type { Town } from "../landscape";
 import { propsInRect } from "../props/placement";
+import { joinedByRoad } from "../roads/graph";
 import { addTownProps, setTownStoreys } from "../props/towns";
 import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
@@ -17,6 +18,29 @@ import type { World } from "./world";
 export function receivedBy(world: World, townId: number): Bag {
   // Planks from `delivered` (saves from before goods were counted by kind have only that).
   return { ...world.economy.deliveredGoods.get(townId), planks: world.economy.delivered.get(townId) ?? 0 };
+}
+
+/**
+ * Linked towns (roads spec D2): of what a town receives while it's joined by road to another town (`Economy.roadGot`),
+ * one in this many counts twice toward its growth, so it wants about a tenth less to grow. Credited as the goods
+ * arrive and never taken back: a road taken up later doesn't shrink a town.
+ */
+export const ROAD_BONUS_EVERY = 9;
+
+/** What a town's road has added toward its growth, by kind (see `ROAD_BONUS_EVERY`). */
+export function roadBonus(world: World, townId: number): Bag {
+  const got = world.economy.roadGot.get(townId);
+  const out: Bag = {};
+  if (got) for (const k of kindsOf(got)) if (got[k]! >= ROAD_BONUS_EVERY) out[k] = Math.floor(got[k]! / ROAD_BONUS_EVERY);
+  return out;
+}
+
+/** What counts toward a town's growth: everything it received, and its road's bonus. Its level is `townStatus` of it. */
+export function growthOf(world: World, townId: number): Bag {
+  const received = receivedBy(world, townId);
+  const bonus = roadBonus(world, townId);
+  for (const k of kindsOf(bonus)) received[k] = (received[k] ?? 0) + bonus[k]!;
+  return received;
 }
 
 /** The badge a town's sign shows in Game mode: the first thing it still wants, and how far along it is. */
@@ -79,10 +103,11 @@ export class TownLife {
     // (Made goods, furniture and tools, are always welcome: towns pay for them, wanted or not.)
     // A school takes only what its research still lacks (`TownLifeEvents.school`; none: nothing).
     this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind) : d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind));
+    // A town joined by road to another counts some of what it receives twice toward growing (roads spec D2).
+    this.game.economy.joinedByRoad = (townId) => joinedByRoad(this.game.landscape, townId);
     for (const t of this.game.landscape.towns) {
-      const received = receivedBy(this.game, t.id);
-      this.levels.set(t.id, townStatus(received).level);
-      this.had.set(t.id, received);
+      this.levels.set(t.id, townStatus(growthOf(this.game, t.id)).level);
+      this.had.set(t.id, receivedBy(this.game, t.id));
     }
     // Its houses as tall as its size (a save from before towns grew upward: they rise now; else nothing changes).
     let taller = 0;
@@ -96,14 +121,16 @@ export class TownLife {
     for (const t of this.game.landscape.towns) this.game.setSignBadge(t.id, null);
     this.shown.clear();
     this.game.economy.accepts = null;
+    this.game.economy.joinedByRoad = null;
   }
 
   /** Does a town still want some of `kind` for its next level? (Cached per town until something more arrives.) */
   wants(townId: number, kind: CargoKind): boolean {
     const goods = this.game.economy.deliveredGoods.get(townId);
-    const key = (this.game.economy.delivered.get(townId) ?? 0) + (goods ? total(goods) : 0);
+    const road = this.game.economy.roadGot.get(townId);
+    const key = (this.game.economy.delivered.get(townId) ?? 0) + (goods ? total(goods) : 0) + (road ? total(road) : 0);
     let s = this.statuses.get(townId);
-    if (!s || s.key !== key) this.statuses.set(townId, (s = { key, status: townStatus(receivedBy(this.game, townId)) }));
+    if (!s || s.key !== key) this.statuses.set(townId, (s = { key, status: townStatus(growthOf(this.game, townId)) }));
     return (s.status.got[kind] ?? 0) < (s.status.wants[kind] ?? 0);
   }
   private readonly statuses = new Map<number, { key: number; status: TownStatus }>();
@@ -116,10 +143,12 @@ export class TownLife {
       const key = `${total(received)}`;
       if (this.shown.get(town.id) === key) continue;
       this.shown.set(town.id, key);
-      const status = townStatus(received);
+      // (Its level from what it received and its road's bonus; what's said to have arrived is only what did.)
+      const bonus = roadBonus(this.game, town.id);
+      const status = townStatus(growthOf(this.game, town.id));
       const had = this.had.get(town.id);
       if (had) {
-        const before = townStatus(had);
+        const before = townStatus(plus(had, bonus));
         for (const k of kindsOf(minus(received, had))) this.events.received(town, k, received[k]! - (had[k] ?? 0), before);
       }
       this.had.set(town.id, received);
@@ -132,7 +161,7 @@ export class TownLife {
 
   /** What a town is now (for the map view and cards). */
   status(townId: number): TownStatus {
-    return townStatus(receivedBy(this.game, townId));
+    return townStatus(growthOf(this.game, townId));
   }
 
   private grow(town: Town, from: number, status: TownStatus): void {
