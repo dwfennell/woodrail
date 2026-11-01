@@ -98,6 +98,7 @@ const dragSignal = async (joint) => {
     if (document.querySelector('.scroller .tray-item[data-key="signal"]')) return null;
     const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Switch");
     if (!g) return null;
+    g.scrollIntoView({ inline: "center" });
     const r = g.getBoundingClientRect();
     return [r.left + r.width / 2, r.top + r.height / 2];
   });
