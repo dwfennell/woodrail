@@ -12,6 +12,8 @@ import { loopOn } from "./loop-fixtures";
 import { next, waysFrom } from "../routing/graph";
 import { planStats } from "../routing/plan";
 import type { Router } from "../routing/router";
+import { economyChecks } from "../game/dev-checks";
+import { INVARIANTS, type Invariant } from "../sim/invariants";
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const TRACE = !!ENV.TRACE;
@@ -29,6 +31,16 @@ if (ROUTERS)
       `QA routing: ${ROUTERS.length} worlds, ${looks} looks, ${((sum((r) => r.ms) * 1000) / Math.max(1, looks)).toFixed(2)} µs a look (locks included); ${sum((r) => r.granted)} locks, ${sum((r) => r.refused)} asks refused, ${sum((r) => r.waitsBegun)} waits at points begun, ${sum((r) => r.restored)} points put back; plan choices ${planStats.choices} worked out, ${planStats.hits} cached, ${planStats.searches} searches`,
     );
   });
+
+/**
+ * The train invariants (src/sim/invariants.ts) on every QA world, as a dev build checks them: each world's breaks, by
+ * the test that made it. INVARIANTS=0 leaves them off.
+ */
+const CHECKED: { test: string; checks: ReturnType<typeof economyChecks> }[] = [];
+function checked(economy: Economy): void {
+  if (ENV.INVARIANTS === "0") return;
+  CHECKED.push({ test: expect.getState().currentTestName ?? "?", checks: economyChecks(economy) });
+}
 
 /** QA's layout builder (scratchpad/qa/ss/lib.js `H.line0`), on a plain Layout. */
 function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTypeId[] | null; branch?: PieceTypeId[]; branchFlips?: boolean[]; eastT?: PieceTypeId[]; sideAt?: boolean }) {
@@ -78,6 +90,7 @@ function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTy
   put("buffer-turnback", false, connectorRef(east[east.length - 1], 1));
   const sim = new Sim(L);
   const economy = new Economy(L, sim);
+  checked(economy);
   if (ROUTERS) {
     economy.router.timing = true;
     ROUTERS.push(economy.router);
@@ -577,6 +590,31 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       if (meets > 0 || (r.longestRing > STUCK_S + 3 && unsaid.length > 0)) bad.push(`seed ${seed}: ring ${r.longestRing.toFixed(1)} s, meets ${meets}; unsaid ${unsaid.join("; ")}`);
     }
     expect(bad).toEqual([]);
+  });
+  // (Random put-downs, seed 16: two spares put down at 90 s, one standing in the section ahead of a line train. It
+  // waits short of it, a dead end, naming the spare: once it named no one (−1), for minutes.)
+  it("random put-downs, seed 16: a wait short of a spare standing ahead names the spare", () => {
+    let x = 16 * 7919;
+    const rnd = () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const { q, l0, l1, R3 } = two();
+    const spots = [l0.side[1], l0.main[0], l1.side[1], l1.main[0], q.middle[0][0], q.west[0], q.east[0]];
+    const extra: T[] = [0, 1].map(() => ({ p: spots[Math.floor(rnd() * spots.length)], next: rnd() < 0.5 ? 0 : 1, s: 100, at: 2 + Math.floor(rnd() * 120), spare: rnd() < 0.2 }));
+    const ghosts: string[] = [];
+    let named = 0;
+    const events = Array.from({ length: 298 }, (_, k) => ({
+      at: 2 + k,
+      fn: (E: readonly number[]) => {
+        for (const e of E) {
+          const w = q.economy.sections.waitOf(e);
+          if (!w || !("engine" in w)) continue;
+          if (q.sim.findCar(w.engine)) named++;
+          else ghosts.push(`${2 + k} s: ${e} waits (${w.kind}) for ${w.engine}`);
+        }
+      },
+    }));
+    scen(q, [...R3, ...extra], [q.a, q.b], 300, cars, events);
+    expect(ghosts.slice(0, 4)).toEqual([]);
+    expect(named).toBeGreaterThan(0);
   });
   // B5, and the invariant again over a sequence of runs in one world (history mattered there: QA's sweep froze only
   // after earlier runs): a train put down on each loop road at many times, a spare (lever off, not on the line) or one
@@ -1159,6 +1197,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const reload = (keep: boolean, heldIs = 2) => {
         const sim = new Sim(q.L);
         const economy = new Economy(q.L, sim);
+        checked(economy);
         const depots = [...q.economy.allDepots()].map((d) => economy.addDepot(d.role, d.pieceId, d.townId));
         const told2: string[] = [];
         economy.sections.onFull = (lineId, room, trains, more) => told2.push(`${lineId}:${room}/${trains}/${more}`);
@@ -1292,4 +1331,26 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       // (Before it's put away, the cards say what to do: unpin, or for the one put down, the same.)
       expect([...r.cards].some((c) => c.endsWith("unpin the passing loop's switches so trains can pass"))).toBe(true);
     });
+});
+
+/**
+ * Breaks the invariants found on main when they were first run here (claude/harden-1, 2026-10-31), by the test whose
+ * world broke them, and why. Each is a bug to fix (reported to the CoS); when a fix lands, take its entry off (the
+ * guard below fails on an entry that no longer breaks).
+ */
+const KNOWN_BREAKS: { test: string; invariant: Invariant; why: string }[] = [
+];
+
+describe("the train invariants (src/sim/invariants.ts)", () => {
+  it.skipIf(ENV.INVARIANTS === "0")("hold in every QA world, but the breaks known on main (KNOWN_BREAKS)", () => {
+    const known = (test: string, k: Invariant) => KNOWN_BREAKS.some((b) => b.invariant === k && test.includes(b.test));
+    const broke: string[] = [];
+    for (const c of CHECKED) for (const k of INVARIANTS) if (c.checks.broke[k].count > 0 && !known(c.test, k)) broke.push(`${c.test}: ${k} ×${c.checks.broke[k].count}: ${c.checks.broke[k].first.join(" | ")}`);
+    if (ENV.SHOW || broke.length > 0) console.log(`QA invariants:\n${CHECKED.filter((c) => c.checks.count > 0).map((c) => `${c.test}: ${c.checks.summary()}`).join("\n")}`);
+    expect(broke, "broken, and not known").toEqual([]);
+    // (Known, its test run, and no longer broken: fixed, so off the list.)
+    const ran = KNOWN_BREAKS.filter((b) => CHECKED.some((c) => c.test.includes(b.test)));
+    const fixed = ran.filter((b) => !CHECKED.some((c) => c.test.includes(b.test) && c.checks.broke[b.invariant].count > 0));
+    expect(fixed.map((b) => `${b.test}: ${b.invariant}`), "known breaks that no longer break (take them off)").toEqual([]);
+  });
 });

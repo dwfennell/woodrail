@@ -13,13 +13,14 @@
  *   gives), and new `Sections` and `Router` with the lines' places restored (`savedPlace`/`restorePlace`), as
  *   `deserializeWorld` does.
  */
-import { Sim, SIM_HZ, type CarKind, type Cursor, type Train } from "../sim";
-import { getPieceDef, type Layout } from "../track";
+import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
+import type { Layout } from "../track";
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
-import { next, waysFrom } from "./graph";
-import { planChoice, ROUTE_COSTS } from "./plan";
+import { INVARIANTS, Invariants, type Invariant, type InvariantWorld } from "../sim/invariants";
+
+export { INVARIANTS, type Invariant };
 
 /** A train in a scenario. No `stops`: hand-run (its lever on, no route). */
 export interface TrainSpec {
@@ -60,10 +61,6 @@ export interface Scenario {
    */
   ownLines?: boolean;
 }
-
-/** The invariants checked every tick (§12). */
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun"] as const;
-export type Invariant = (typeof INVARIANTS)[number];
 
 /** Turn-backs by cause (`Train.lastTurn`). */
 export type Turns = { buffer: number; "open-end": number };
@@ -126,11 +123,6 @@ export interface Report {
   trajectory: string;
 }
 
-/** The first few breaks of an invariant are kept in words (the rest only counted). */
-const KEEP = 4;
-/** A switch nobody holds or stands on this long is at its default (§12). */
-const RESTORE_TICKS = SIM_HZ;
-
 interface RouteState {
   stops: number[];
   next: number;
@@ -151,7 +143,7 @@ function drive(train: Train): number {
 }
 
 /** A running scenario: the world, the stand-ins for the economy, and the invariants' state. */
-export class HarnessRun {
+export class HarnessRun implements InvariantWorld {
   sim: Sim;
   sections!: Sections;
   router!: Router;
@@ -162,6 +154,8 @@ export class HarnessRun {
   routes = new Map<number, RouteState>();
   lineOf = new Map<number, number>();
   tick = 0;
+  /** The invariants (src/sim/invariants.ts), checked every tick: the same checks the game's dev builds run. */
+  readonly checks: Invariants;
 
   private readonly report: Report;
   private readonly specs: TrainSpec[];
@@ -169,14 +163,8 @@ export class HarnessRun {
   private readonly events: ScriptedEvent[];
   private polled: ScriptedEvent[];
   private readonly watch: ReadonlySet<number>;
-  private switches: number[] = [];
-  private readonly pinnedAt = new Map<number, number>();
-  private readonly freeSince = new Map<number, number>();
-  private readonly restoreBroken = new Set<number>();
   private readonly still: number[];
-  private readonly front: { train: number; sign: number; pieceId: number }[];
   private readonly lastTurn: number[];
-  private readonly lockFront: number[];
   private traj = 0x811c9dc5;
   private readonly ownLines: boolean;
   private routerMs = 0;
@@ -207,10 +195,16 @@ export class HarnessRun {
     this.watch = new Set(built.watch ?? []);
     this.maxStill = scenario.maxStill ?? 60;
     this.ownLines = !!scenario.ownLines;
-    const none = () => ({ count: 0, first: [] as string[] });
+    this.checks = new Invariants(this, {
+      restore: true,
+      maxStill: this.maxStill,
+      trains: () => this.engines.map((engine, key) => ({ key, engine })),
+      name: (k) => `train ${k}`,
+      now: () => this.tick,
+    });
     this.report = {
       name: scenario.name,
-      broke: Object.fromEntries(INVARIANTS.map((k) => [k, none()])) as Report["broke"],
+      broke: this.checks.broke,
       arrivals: this.specs.map(() => 0),
       pushed: this.specs.map(() => 0),
       turns: this.specs.map(() => ({ buffer: 0, "open-end": 0 })),
@@ -238,9 +232,7 @@ export class HarnessRun {
       stalls: { begun: 0, stuck: this.specs.map(() => 0), why: this.specs.map(() => null) },
     };
     this.still = this.specs.map(() => 0);
-    this.front = this.specs.map(() => ({ train: -1, sign: 0, pieceId: -1 }));
     this.lastTurn = this.specs.map(() => -1);
-    this.lockFront = this.specs.map(() => -1);
     this.specs.forEach((t, k) => {
       if (!t.stops) return;
       this.routes.set(this.engines[k], { stops: t.stops, next: t.next ?? 0, at: false });
@@ -249,8 +241,7 @@ export class HarnessRun {
     this.wire();
     // (Points as laid are the defaults, as the game's track edit tells the router: `Economy.prune`.)
     this.router.laid();
-    this.switchesChanged();
-    this.spy();
+    this.checks.watchThrows(() => this.report.throws++);
   }
 
   /** Sections and the router on this sim, with the harness's routes and lines as their host (as the economy wires them). */
@@ -299,11 +290,8 @@ export class HarnessRun {
       layout,
       sim,
       routed: this.routes,
-      goal: (engine) => {
-        const r = this.routes.get(engine)!;
-        const p = r.stops[r.next % r.stops.length];
-        return this.layout.getPiece(p) ? p : -1;
-      },
+      // (As the economy's: the stop it's heading for, the one after once at one.)
+      goal: (engine) => this.target(engine),
       drive,
       granted: (engine) => this.sections.steerHint(engine),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
@@ -314,6 +302,14 @@ export class HarnessRun {
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
       routeWait: (engine) => this.router.waitingOn(engine),
     });
+  }
+
+  routed(engine: number): boolean {
+    return this.routes.has(engine);
+  }
+
+  drive(train: Train): number {
+    return drive(train);
   }
 
   /** The player's switch positions (the default each is restored to): as laid, then each lever tap's (the router's). */
@@ -331,35 +327,6 @@ export class HarnessRun {
       for (let k = 0; k < r.stops.length && r.stops[i] === here; k++) i = (i + 1) % r.stops.length;
     }
     return this.layout.getPiece(r.stops[i]) ? r.stops[i] : -1;
-  }
-
-  /** Every switch throw is watched: never under a train, never a pinned one (§12). */
-  private spy(): void {
-    const layout = this.layout;
-    const set = layout.setSwitchState.bind(layout);
-    layout.setSwitchState = (pieceId: number, state: number) => {
-      if (state !== layout.switchState(pieceId)) {
-        this.report.throws++;
-        if (this.sim.pointsHeld(pieceId)) this.broke("underTrain", `points ${pieceId} thrown to ${state} under a train`);
-        if (layout.isPinned(pieceId)) this.broke("pinned", `pinned points ${pieceId} thrown to ${state}`);
-      }
-      set(pieceId, state);
-    };
-  }
-
-  private broke(k: Invariant, what: string): void {
-    const b = this.report.broke[k];
-    if (b.count++ < KEEP) b.first.push(`${(this.tick / SIM_HZ).toFixed(1)} s: ${what}`);
-  }
-
-  /** The points on the map (worked out again when track is taken up). */
-  private switchesChanged(): void {
-    this.switches = [];
-    for (const id of this.layout.pieceIds()) {
-      const p = this.layout.getPiece(id)!;
-      const def = getPieceDef(p.type, p.flipped);
-      if (def.isSwitch && !def.gated && !def.signal) this.switches.push(id);
-    }
   }
 
   // ── What the player does ──────────────────────────────────────────────────────────────────────────────────────────
@@ -385,20 +352,18 @@ export class HarnessRun {
     this.lineOf.delete(engine);
     // (As the game's Put away: `economy.prune()`.)
     this.sections.prune(new Set(this.lineOf.keys()));
+    this.stalls.prune();
   }
 
   pin(pieceId: number, on: boolean): void {
     this.layout.setPinned(pieceId, on);
-    if (on) this.pinnedAt.set(pieceId, this.layout.switchState(pieceId));
-    else this.pinnedAt.delete(pieceId);
+    this.checks.pinned(pieceId, on);
   }
 
   /** A piece taken up (a train on it comes off the rails, as in the editor). */
   takeUp(pieceId: number): void {
     this.layout.removePiece(pieceId);
     this.sim.trackChanged();
-    this.pinnedAt.delete(pieceId);
-    this.switchesChanged();
   }
 
   /** Saved and loaded: every train put back where it stood on a new sim (new car ids), routing and sections afresh. */
@@ -427,7 +392,7 @@ export class HarnessRun {
       const engine = t.cars[0].id;
       renamed.set(this.engines[k], engine);
       this.engines[k] = engine;
-      this.front[k].train = -1;
+      this.checks.forget(k);
       this.lastTurn[k] = -1;
     });
     for (const [engine, r] of this.routes) if (renamed.has(engine)) routes.set(renamed.get(engine)!, r);
@@ -467,13 +432,15 @@ export class HarnessRun {
     const r = this.router;
     this.report.looks = r.looks;
     this.report.lookUs = (r.ms * 1000) / Math.max(1, r.looks);
-    this.report.pieceUs = (this.routerMs * 1000) / Math.max(1, this.report.pieces);
+    this.report.pieceUs = (this.routerMs * 1000) / Math.max(1, this.checks.pieces);
     this.report.locks = r.granted;
     this.report.refused = r.refused;
     this.report.restored = r.restored;
     this.report.waits = r.waitsBegun;
     this.report.stalls.begun += this.stalls.begun;
     this.stalls.begun = 0;
+    this.report.pieces = this.checks.pieces;
+    this.report.facing = this.checks.facing;
     this.report.trajectory = this.traj.toString(16).padStart(8, "0");
     return this.report;
   }
@@ -522,8 +489,9 @@ export class HarnessRun {
     });
   }
 
+  /** The report's counts, then the invariants (src/sim/invariants.ts). */
   private check(): void {
-    const { sim, layout } = this;
+    const { sim } = this;
     this.engines.forEach((engine, k) => {
       const found = sim.findCar(engine);
       if (!found) return;
@@ -533,17 +501,10 @@ export class HarnessRun {
         this.lastTurn[k] = t.lastTurn.tick;
         this.report.turns[k][t.lastTurn.cause]++;
       }
-      this.checkSplit(t, k);
-      // (Step 7: a train never runs onto points locked for others only: a routed train's road, or a hand-run train's
-      // way as they lie, that another may not share. On them already when they were locked, it's let be: none is
-      // granted with a car on them that must move, and one coming the same way shares.)
-      this.checkLockRun(t, k, engine);
       if (this.watch.size > 0 && t.bogies.some((b) => this.watch.has(b.pieceId))) this.report.onWatched++;
       const net = drive(t);
-      if (this.routes.has(engine)) this.checkRoad(t, k, engine, net);
-      // Stuck: a lever-on train standing (not one sections hold for want of room, nor one stood at a red switch pinned
-      // against its way: those are the player's to fix, and its card says so).
-      // A stall (stalls.ts) is said on its card, so it counts apart (`stalls`), not as stuck unexplained.
+      // (A stall (stalls.ts) is said on its card, so it counts apart (`stalls`); the longest stand-still counts the
+      // stands the invariants' deadlock check would: not one sections hold for want of room, nor one at a red switch.)
       const stuck = this.stalls.stuckOf(engine);
       if (stuck) {
         this.report.stalls.stuck[k]++;
@@ -552,11 +513,9 @@ export class HarnessRun {
       if (net !== 0 && t.speed === 0 && !stuck && !this.sections.heldForRoom(engine) && this.router.waitOf(engine)?.kind !== "pinned") {
         const s = ++this.still[k];
         if (s > this.report.longestStill[k]) this.report.longestStill[k] = s;
-        if (s === Math.round(this.maxStill * SIM_HZ)) this.broke("deadlock", `train ${k} still for ${this.maxStill} s on piece ${t.bogies[0].pieceId}`);
       } else this.still[k] = 0;
       const wait = this.sections.waitOf(engine);
       if (wait && t.speed === 0 && net !== 0) this.report.held[k]++;
-      if (wait && "engine" in wait && !sim.findCar(wait.engine)) this.broke("deadlock", `train ${k} waits (${wait.kind}) for a train that isn't there`);
       const rw = this.router.waitOf(engine);
       if (rw?.kind === "points" && t.speed === 0 && net !== 0) {
         this.report.waited[k]++;
@@ -567,113 +526,8 @@ export class HarnessRun {
           f.far = Math.max(f.far, gap);
         }
       }
-      if (rw?.kind === "points" && !sim.findCar(rw.by)) this.broke("deadlock", `train ${k} waits at points ${rw.pieceId} for a train that isn't there`);
     });
-    if (this.sections.released > this.report.net) {
-      this.report.net = this.sections.released;
-      this.broke("deadlock", `sections' safety net let a wait go (${this.sections.released})`);
-    }
-    for (const [id, state] of this.pinnedAt) if (layout.switchState(id) !== state) this.broke("pinned", `pinned points ${id} moved to ${layout.switchState(id)}`);
-    this.checkRestore();
-  }
-
-  /**
-   * Restore: a switch nobody holds or stands on for `RESTORE_TICKS` is at its default. Held: a car on or over it
-   * (`pointsHeld`), or a route lock (a train it's set for).
-   */
-  private checkRestore(): void {
-    for (const id of this.switches) {
-      if (this.sim.pointsHeld(id) || this.router.locked(id)) {
-        this.freeSince.delete(id);
-        continue;
-      }
-      const state = this.layout.switchState(id);
-      if (state === this.router.defaultOf(id)) {
-        this.freeSince.delete(id);
-        this.restoreBroken.delete(id);
-        continue;
-      }
-      const since = this.freeSince.get(id);
-      if (since === undefined) this.freeSince.set(id, this.tick);
-      else if (this.tick - since >= RESTORE_TICKS && !this.restoreBroken.has(id)) {
-        this.restoreBroken.add(id);
-        this.broke("restore", `points ${id} left at ${state} (default ${this.router.defaultOf(id)}), no train on them`);
-      }
-    }
-  }
-
-  /**
-   * No wrong road: when a routed train's front comes onto facing points with a choice, the way it takes is its way to
-   * its stop: the way sections granted it (`steerHint`'s follow), else one whose plan costs no more than the best (the
-   * plan search, as the router chooses).
-   */
-  private checkRoad(t: Train, k: number, engine: number, net: number): void {
-    const f = this.front[k];
-    const sign = Math.sign(net);
-    if (sign === 0) return;
-    const b = sign > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
-    // (A turned train, or one just set going the other way: its front is somewhere else; start afresh.)
-    if (f.train !== t.id || f.sign !== sign) {
-      Object.assign(f, { train: t.id, sign, pieceId: b.pieceId });
-      return;
-    }
-    if (b.pieceId === f.pieceId) return;
-    f.pieceId = b.pieceId;
-    this.report.pieces++;
-    const piece = this.layout.getPiece(b.pieceId);
-    if (!piece) return;
-    const path = getPieceDef(piece.type, piece.flipped).paths[b.pathIndex];
-    // (The end it came in by: behind it, the way it's going.)
-    const back = sign > 0 ? b.reversed : !b.reversed;
-    const entry = back ? path.to : path.from;
-    if (entry === null || entry === undefined) return;
-    const ways = waysFrom(this.layout, b.pieceId, entry);
-    const target = this.target(engine);
-    if (ways.length < 2 || target === -1 || b.pieceId === target) return;
-    this.report.facing++;
-    const taken = ways.find((w) => w.path === b.pathIndex);
-    if (!taken) return;
-    const held = this.sections.steerHint(engine);
-    const followed = held ? ways.filter((w) => held.follow(b.pieceId, w.path)) : [];
-    let wrong: boolean;
-    if (followed.length === 1) wrong = followed[0].option !== taken.option;
-    else {
-      const costs: number[] = [];
-      const best = planChoice(this.layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
-      if (best === -1 || best === taken.option) return;
-      wrong = !(costs[taken.option] <= costs[best]);
-    }
-    if (wrong) this.broke("wrongRoad", `train ${k} took road ${taken.option} at points ${b.pieceId} (${followed.length === 1 ? "not the way granted" : `not its way to ${target}`})`);
-  }
-
-  /** Train `k`'s front came onto points locked for other trains only (once per points, while it's on them). */
-  private checkLockRun(t: Train, k: number, engine: number): void {
-    const net = drive(t);
-    if (net === 0) return;
-    const b = net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
-    const was = this.lockFront[k];
-    if (b.pieceId === was) return;
-    this.lockFront[k] = b.pieceId;
-    const holders = this.router.holdersOf(b.pieceId);
-    if (holders.size === 0 || holders.has(engine)) return;
-    // (The other end of the train on them already: it came onto them before they were locked.)
-    if (t.bogies.some((x) => x !== b && x.pieceId === b.pieceId)) return;
-    // (A crossover's other straight, a road that doesn't meet theirs: both may use them.)
-    if (this.router.apartFrom(b.pieceId, engine)) return;
-    this.broke("lockRun", `train ${k} ran onto points ${b.pieceId} locked for ${[...holders].join(",")}`);
-  }
-
-  /**
-   * No split, by the bogies' pieces and paths (not by axle distance: loose joints open a few mm): each axle's place
-   * joins the next one's along the track, behind it, with each on a path through the piece it's on.
-   */
-  private checkSplit(t: Train, k: number): void {
-    for (let i = 0; i + 1 < t.bogies.length; i++) {
-      if (!joinedBehind(this.layout, t.bogies[i], t.bogies[i + 1])) {
-        this.broke("split", `train ${k} split between axles ${i} and ${i + 1} (pieces ${t.bogies[i].pieceId}/${t.bogies[i].pathIndex}, ${t.bogies[i + 1].pieceId}/${t.bogies[i + 1].pathIndex})`);
-        return;
-      }
-    }
+    this.checks.check();
   }
 
   private record(): void {
@@ -685,31 +539,6 @@ export class HarnessRun {
     }
     this.traj = fnv(s, this.traj);
   }
-}
-
-/** How far (pieces) behind an axle the next one may be. */
-const SPLIT_DEPTH = 6;
-
-/** Is axle `b` on track that joins axle `a`'s, behind it (each pointing toward the train's front), within a few pieces? */
-function joinedBehind(layout: Layout, a: Cursor, b: Cursor): boolean {
-  if (a.pieceId === b.pieceId) return a.pathIndex === b.pathIndex && a.reversed === b.reversed;
-  const pa = layout.getPiece(a.pieceId);
-  const pb = layout.getPiece(b.pieceId);
-  if (!pa || !pb) return false;
-  const pathA = getPieceDef(pa.type, pa.flipped).paths[a.pathIndex];
-  const pathB = getPieceDef(pb.type, pb.flipped).paths[b.pathIndex];
-  // (b's front end: where it points; it must be where the way from a comes in.)
-  const bFront = b.reversed ? pathB.from : pathB.to;
-  const search = (pieceId: number, exit: number | null, depth: number): boolean => {
-    if (exit === null || exit < 0) return false;
-    const n = next(layout, pieceId, exit);
-    if (!n) return false;
-    if (n.pieceId === b.pieceId) return n.entry === bFront;
-    if (depth >= SPLIT_DEPTH) return false;
-    const p = layout.getPiece(n.pieceId)!;
-    return getPieceDef(p.type, p.flipped).paths.some((q) => (q.from === n.entry ? search(n.pieceId, q.to, depth + 1) : q.to === n.entry && search(n.pieceId, q.from, depth + 1)));
-  };
-  return search(a.pieceId, a.reversed ? pathA.to : pathA.from, 1);
 }
 
 /** Run a scenario on a new layout from start to end. */

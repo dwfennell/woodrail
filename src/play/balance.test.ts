@@ -12,6 +12,8 @@ import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { engineStatus } from "../game/engine-status";
+import { economyChecks } from "../game/dev-checks";
+import { INVARIANTS, type Invariant, type Invariants } from "../sim/invariants";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, learnGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { built, techOf, TECHS, unlocksOf } from "../game/tech";
@@ -413,8 +415,13 @@ class Player {
     this.attach(w);
   }
 
+  /** The train invariants (src/sim/invariants.ts), on the world's economy, as a dev build checks them. */
+  checks: ReturnType<typeof economyChecks> | null = null;
+
   attach(w: World): void {
     this.w = w;
+    this.checks?.off();
+    this.checks = economyChecks(w.economy);
     this.fixed = fixedPieces(w);
     this.editor = new Editor(w.layout, w.sim, () => {}, (id) => this.fixed.has(id));
     const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
@@ -1492,6 +1499,21 @@ describe("the goals guard", () => {
  * end reaches it; past Quarries, the player picks research in the goals' order: `GOALS_WISH`), its goals checked
  * against `allowed`, and what both parts check. The play-through, for the part's own checks.
  */
+/**
+ * Invariants (src/sim/invariants.ts) the goals play-through breaks on main, found when they were first run here
+ * (claude/harden-1, 2026-10-31), and why: each a bug to fix (reported to the CoS). Off the list when fixed (the
+ * check below fails on one that no longer breaks).
+ */
+const GOALS_KNOWN_BREAKS: Partial<Record<Invariant, string>> = {};
+
+/** The invariants' breaks not in `known`, and the known ones that didn't break (both should be empty). */
+export function invariantsAgainst(checks: Invariants, known: Partial<Record<Invariant, string>>): { unknown: string[]; fixed: string[] } {
+  return {
+    unknown: INVARIANTS.filter((k) => checks.broke[k].count > 0 && !known[k]).map((k) => `${k} ×${checks.broke[k].count}: ${checks.broke[k].first.join(" | ")}`),
+    fixed: INVARIANTS.filter((k) => known[k] && checks.broke[k].count === 0),
+  };
+}
+
 function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, part: string): Playthrough {
   const P = new Playthrough(true, true);
   const t0 = performance.now();
@@ -1502,10 +1524,14 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
     throw e;
   }
   const seconds = (performance.now() - t0) / 1000;
-  console.log(`${part} goals play-through: ${minutes} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}`);
+  console.log(`${part} goals play-through: ${minutes} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}; invariants ${P.p.checks!.summary() || "held"}`);
   const { missed, stale } = goalsMissed((id) => P.p.goals.isDone(id), allowed);
   if (missed.length > 0 || stale.length > 0 || ENV.BALANCE_GOALS_LOG) P.report();
   expect(missed, "goals neither met nor allowed").toEqual([]);
+  // The train invariants held, but those known on main.
+  const inv = invariantsAgainst(P.p.checks!, GOALS_KNOWN_BREAKS);
+  expect(inv.unknown, "invariants broken, and not known (GOALS_KNOWN_BREAKS)").toEqual([]);
+  expect(inv.fixed, "known breaks that no longer break (take them off GOALS_KNOWN_BREAKS)").toEqual([]);
   expect(stale, "allowed but met (take them off the part's list), or not goals").toEqual([]);
   // The old farm, restored (its Restore, paid for), not a new farm yard; its grain made, and carried to the mill.
   const w = P.p.w;
@@ -1578,6 +1604,7 @@ describe.skipIf(!RUN)("balance play-through", () => {
       P.play();
     } finally {
       P.report();
+      console.log(`invariants: ${P.p.checks!.summary() || "held"}`);
     }
     expect(P.p.rows.length).toBeGreaterThan(0);
     if (MAX_MINUTES === 180 && PER_LINE === 1) P.checkBands();

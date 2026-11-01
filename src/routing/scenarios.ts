@@ -809,3 +809,80 @@ export function noRoomToTurn(): { scenario: Scenario; ids: () => number[] } {
     },
   };
 }
+
+// ── A stop right before points (route-keep: the user's loop added at the end of a line) ─────────────────────────────
+
+/**
+ * A trunk ⊐ Y ══ ══ ══ M into a switch, M (a stop) right up against its points; on, X's road and P's (as `junction`),
+ * the points left set for P. A routed train calls at M and goes on to X: leaving M, it must have the points set for X
+ * (they're right in front of it). `leader`: another routed train for P just ahead of it, past M, so the points are
+ * locked for P as the one for X leaves M: it must wait for them, never follow the leader onto P's road.
+ */
+export function stopBeforePoints(leader: boolean, hand = false): Scenario {
+  return {
+    name: `a stop right before points${leader ? `, a ${hand ? "hand-run " : ""}train for the other road just ahead` : ""}`,
+    seconds: 40,
+    ownLines: true,
+    build: (layout) => {
+      const ids = chain(layout, [STOP, S, S, S, STOP]);
+      const [y, m] = [ids[0], ids[4]];
+      appendPiece(layout, BUFFER, false, connectorRef(y, 0));
+      const sw = appendPiece(layout, "switch", false, connectorRef(m, 1), 0);
+      const roads = [1, 2].map((c, k) => {
+        const r = chain(layout, k === 1 ? [C, S, STOP, S, S] : [S, STOP, S, S], connectorRef(sw, c), [k === 1]);
+        appendPiece(layout, BUFFER, false, connectorRef(r[r.length - 1], 1));
+        return r[r.length - 3];
+      });
+      const [x, p] = roads;
+      layout.setSwitchState(sw, 1);
+      const trains: TrainSpec[] = [];
+      if (leader) trains.push(hand ? { pieceId: m, cars: CARS, s: 150, lever: 1 } : { pieceId: m, stops: [p, y], cars: CARS, s: 150 });
+      trains.push({ pieceId: leader ? ids[2] : ids[3], stops: [m, x], cars: CARS, s: 40 });
+      return { trains, watch: [sw] };
+    },
+  };
+}
+
+/**
+ * A routed train for P on the trunk heading in (the points left set for X, the player's way), a hand-run train close
+ * behind it the same way. The points are set for P for the routed one; the hand-run one must not follow it onto P's
+ * road through points set for the train ahead (§16 Q6: nothing is set for a hand-run train, not even by the train
+ * ahead): it waits, and goes the player's way, to X, once they're back.
+ */
+export function handFollower(): { scenario: Scenario; j: () => ReturnType<typeof junction> } {
+  let j: ReturnType<typeof junction> | null = null;
+  let stoodAt = -1;
+  return {
+    j: () => j!,
+    scenario: {
+      name: "a hand-run train close behind a routed one, at points set for the routed one",
+      seconds: 40,
+      build: (layout) => {
+        j = junction(layout, "switch", 0, [1, 2], 4);
+        const sw = j.sw;
+        const lead = (run: HarnessRun) => run.sim.findCar(run.engines[0])!.train;
+        return {
+          trains: [
+            { pieceId: j.t1, stops: [j.p, j.y], cars: CARS, s: 150 },
+            { pieceId: j.trunk[1], cars: CARS, s: 100, lever: 1 },
+          ],
+          events: [
+            // (The routed one stands with its tail on the points for 8 s, as at a stop just past them, or held: the one
+            // behind closes up meanwhile.)
+            once(
+              (run) => lead(run).bogies[lead(run).bogies.length - 1].pieceId === sw,
+              (run) => {
+                run.sim.setLever(run.engines[0], 0);
+                stoodAt = run.tick;
+              },
+            ),
+            once(
+              (run) => stoodAt >= 0 && run.tick - stoodAt > 8 * 120,
+              (run) => run.sim.setLever(run.engines[0], 1),
+            ),
+          ],
+        };
+      },
+    },
+  };
+}

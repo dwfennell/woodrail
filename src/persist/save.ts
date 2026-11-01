@@ -4,7 +4,7 @@ import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, I
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
-import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
+import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
 import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
 
@@ -436,7 +436,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     if (!lead) continue;
     const path = getPieceDef(lead.type, lead.flipped).paths[t.lead.pathIndex];
     if (!path || t.lead.s < 0 || t.lead.s > pathLength(path.geom)) continue;
-    const placed = putBack(sim, layout, t.cars.map((c) => c.kind), t.lead);
+    const placed = sim.putBack(t.cars.map((c) => c.kind), t.lead);
     if (placed.kind !== "placed") continue;
     const train = sim.getTrain(placed.trainId)!;
     // Running on as it was (only where it was saved: a train put back elsewhere starts at rest).
@@ -482,37 +482,6 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     landscape.siteless = true;
   } else if (save.landscape.sites === undefined) addSitesToOldSave(world);
   return ok(world);
-}
-
-/** How far along the track a saved train may be moved to find room (a few train lengths). */
-const PUT_BACK_REACH = 1200;
-
-/**
- * Put a saved train back where it was; or, when that's taken (a derailed train lying across another after a crash),
- * on the nearest free stretch along the track either way, so a save never loses a train it can fit.
- */
-function putBack(sim: Sim, layout: Layout, kinds: readonly CarKind[], lead: Cursor): AddTrainResult {
-  const placed = sim.addTrain(kinds, lead);
-  if (placed.kind === "placed") return placed;
-  const adv = createAdvance();
-  const ways = [{ ...lead }, { ...lead }];
-  flipCursor(layout, ways[1]);
-  const open = [true, true];
-  for (let moved = 24; moved <= PUT_BACK_REACH; moved += 24) {
-    for (let k = 0; k < 2; k++) {
-      if (!open[k]) continue;
-      advanceCursor(layout, ways[k], 24, null, adv);
-      if (adv.status !== ADV_OK) {
-        open[k] = false;
-        continue;
-      }
-      const at = { ...ways[k] };
-      if (k === 1) flipCursor(layout, at);
-      const r = sim.addTrainAround(kinds, at);
-      if (r.kind === "placed") return r;
-    }
-  }
-  return placed;
 }
 
 /**
