@@ -488,7 +488,11 @@ if (line) {
         w.economy.tick();
         const c = w.economy.cargoOf(coldVan);
         if (c.kind === "icecream") ice = c.count;
-        if (k % (120 * 30) === 0 && k > 0 && w.sim.getTrain(placed.trainId).speed === 0) w.sim.setLever(t.cars[0].id, -w.sim.getTrain(placed.trainId).cars[0].lever || 1);
+        // (Found by its cold van: a train's id can change on the way.)
+        const now = w.sim.trainIds().map((id) => w.sim.getTrain(id)).find((x) => x?.cars.some((c) => c.id === coldVan));
+        if (!now) break;
+        const engine = now.cars.find((c) => c.kind === "engine");
+        if (k % (120 * 30) === 0 && k > 0 && now.speed === 0 && engine) w.sim.setLever(engine.id, engine.lever === 1 ? -1 : 1);
       }
       w.paused = false;
       w.invalidate();
