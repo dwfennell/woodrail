@@ -331,7 +331,7 @@ export function sticks(kept: number, best: number): boolean {
  * it (its trail): at points it has no way kept for (points laid since, as a shortcut's), the option back onto its trail.
  */
 export class WayMemory {
-  private readonly kept = new Map<number, Map<number, { at: Map<number, KeptWay>; trail: Set<number>; pieces: Set<number> }>>();
+  private readonly kept = new Map<number, Map<number, { at: Map<number, KeptWay>; trail: Set<number>; pieces: Set<number>; note?: { ran(pieceId: number, entry: number): void } }>>();
   get(owner: number, pieceId: number, entry: number, target: number): Keep | undefined {
     const t = this.kept.get(owner)?.get(target);
     return t ? { way: t.at.get(pieceId * MAX_CONNECTORS + entry), trail: t.trail, pieces: t.pieces } : undefined;
@@ -349,9 +349,12 @@ export class WayMemory {
   }
   /** Its walk toward `target` ran onto this piece by `entry` (its trail). */
   ran(owner: number, pieceId: number, entry: number, target: number): void {
+    this.trailOf(owner, target).ran(pieceId, entry);
+  }
+  /** The owner's trail toward `target`, to note a walk's pieces on (the router: once a walk, not once a piece). */
+  trailOf(owner: number, target: number): { ran(pieceId: number, entry: number): void } {
     const t = this.of_(owner, target);
-    t.trail.add(pieceId * MAX_CONNECTORS + entry);
-    t.pieces.add(pieceId);
+    return (t.note ??= { ran: (pieceId: number, entry: number) => void (t.trail.add(pieceId * MAX_CONNECTORS + entry), t.pieces.add(pieceId)) });
   }
   /** A line gone (or its train): what it kept goes. */
   forget(owner: number): void {

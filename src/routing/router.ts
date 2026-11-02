@@ -928,6 +928,8 @@ export class Router {
     // (Points it holds not reached yet, such as the far ones of the last ask: still asked for, however far.)
     let ahead = false;
     for (const l of h.held.values()) if (!l.entered) ahead = true;
+    // (Its line's trail toward the target, noted as it goes: what keeps its way at points laid since, §3.5.)
+    let trail = this.ways.trailOf(owner, target);
     const signals = sim.hasSignals;
     for (let k = 0; k < WALK && clear < length; k++) {
       // (A signal on its way (signals spec §3.3): one that holds it for something else (held, its block taken), it asks
@@ -943,6 +945,7 @@ export class Router {
       if (n && n.pieceId === target && then !== -1) {
         target = then;
         then = -1;
+        trail = this.ways.trailOf(owner, target);
       }
       if (!n || n.pieceId === target) break;
       const ways = waysFrom(layout, n.pieceId, n.entry);
@@ -967,8 +970,8 @@ export class Router {
         w = ways[best];
         clear = 0;
       }
-      // (Its line's trail toward the target, once it has chosen here: what keeps its way at points laid since, §3.5.)
-      this.ways.ran(owner, n.pieceId, n.entry, target);
+      // (On its trail, once it has chosen here.)
+      trail.ran(n.pieceId, n.entry);
       const p = layout.getPiece(n.pieceId)!;
       const len = pathLength(getPieceDef(p.type, p.flipped).paths[w.path].geom);
       if (clear >= 0 && ways.length === 1) clear += len;
