@@ -43,6 +43,7 @@
     "e2e:sites": "node tools/e2e/map-sites.mjs",
     "e2e:train-parts": "node tools/e2e/train-parts.mjs",
     "e2e:train-summary": "node tools/e2e/train-summary.mjs",
+    "e2e:engine-names": "node tools/e2e/engine-names.mjs",
     "e2e:stickers": "node tools/e2e/stickers.mjs",
     "e2e:stats": "node tools/e2e/stats.mjs",
     "e2e:workshop": "node tools/e2e/workshop-modes.mjs",

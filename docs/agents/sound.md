@@ -23,6 +23,7 @@ Out of scope: music, and any per-frame audio work while idle.
   - A whistle within 0.6 s plays only if it's ≥1.4× louder, and the earlier one fades out.
   - `hearCranes()` allows at most one goods sound per depot per frame.
   - `MAX_VOICES` 24 (mixer branch). Tunes are exempt.
+- **Level crossing bell:** `crossingBell(volume, pan)`, a soft two-strike "ding ding" (988 Hz, lower and quieter than the departure `bell`). `CrossingsView.closing` lists crossings whose barriers began to come down that update; `CrossingBells` (`src/audio/crossing-bell.ts`) rings only the loudest on screen with `listen` volume ≥ 0.3, at most once per `CROSSING_BELL_GAP_MS` 2500. Not rung for a crossing laid under a standing train.
 - **Tunes:** `cue(kind)` with the `CUES` table, all in C:
   - chime, rank 1: towns connected, rewards, things made, fields, dock sheds;
   - goal, rank 1;

@@ -7,6 +7,7 @@ import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
+import { MAX_ENGINE_NAME } from "../sim/engine-names";
 import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
@@ -38,6 +39,8 @@ export interface HudHandlers {
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
+  /** The open engine card's engine renamed (as typed: the sim tidies it). Returns the name it now has. */
+  renameEngine(name: string): string;
   /** The engine card of a line with a train too many: that train (this one, or the one held) back in the box. */
   putAway(): void;
   /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
@@ -217,6 +220,9 @@ export class Hud {
   private readonly rerailBtn: HTMLButtonElement;
   private readonly soundBtn: HTMLButtonElement;
   private readonly engineCard = el("div", "card engine-card");
+  /** The engine card's title: the engine's name, a tap to rename it (`engineNameInput` in its place meanwhile). */
+  private readonly engineTitle = el("button", "card-title engine-name");
+  private readonly engineNameInput = el("input", "card-title engine-name-input");
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
   private tips!: Tooltips;
@@ -543,7 +549,7 @@ export class Hud {
 
     // Engine card
     this.engineCard.hidden = true;
-    this.engineCard.appendChild(el("div", "card-title", "Engine"));
+    this.buildEngineTitle(h);
     // Follow (the camera rides along) in the top corner.
     this.followBtn = button("", "Follow this train with the camera", h.follow, "corner follow");
     this.followBtn.innerHTML = CAMERA_ICON;
@@ -1389,7 +1395,58 @@ export class Hud {
     }
   }
 
-  showEngineCard(lever: number, following: boolean): void {
+  /** The engine card's title, the engine's name: tapped, a little text box to rename it (Enter or tapping away keeps it). */
+  private buildEngineTitle(h: HudHandlers): void {
+    const title = this.engineTitle;
+    const input = this.engineNameInput;
+    title.type = "button";
+    title.title = "Rename this engine";
+    input.type = "text";
+    input.maxLength = MAX_ENGINE_NAME;
+    input.hidden = true;
+    input.setAttribute("aria-label", "Engine's name");
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.enterKeyHint = "done";
+    let editing = false;
+    const finish = (keep: boolean) => {
+      if (!editing) return;
+      editing = false;
+      if (keep && input.value.trim() !== "" && input.value !== title.textContent) this.setEngineName(h.renameEngine(input.value));
+      input.hidden = true;
+      title.hidden = false;
+    };
+    title.addEventListener("click", (e) => {
+      e.stopPropagation();
+      editing = true;
+      input.value = title.textContent ?? "";
+      title.hidden = true;
+      input.hidden = false;
+      input.focus();
+      input.select();
+    });
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") {
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+    for (const type of ["pointerdown", "click"]) input.addEventListener(type, (e) => e.stopPropagation());
+    this.engineCard.append(title, input);
+  }
+
+  /** The name the engine card's title shows. */
+  setEngineName(name: string): void {
+    this.engineTitle.textContent = name || "Engine";
+    this.engineTitle.setAttribute("aria-label", `${name || "Engine"}: tap to rename`);
+  }
+
+  showEngineCard(lever: number, following: boolean, name = ""): void {
+    // (A rename still being typed on the card before is kept.)
+    if (!this.engineNameInput.hidden) this.engineNameInput.blur();
+    this.setEngineName(name);
     this.hideCards();
     this.engineCard.hidden = false;
     this.root.classList.add("card-open");

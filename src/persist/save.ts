@@ -67,6 +67,8 @@ const trainSchema = z.object({
         facing: z.union([z.literal(1), z.literal(-1)]),
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
         look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
+        /** An engine's name (its plate and card title; optional: older saves' engines are given one as they load). */
+        name: z.string().min(1).max(64).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(MAX_WAGON_CAPACITY) }).optional(),
         /** The harbour (economy depot id) its cargo was bought at: not unloaded back there. */
         landedFrom: z.number().int().min(0).optional(),
@@ -258,6 +260,7 @@ export function serializeWorld(world: World): SaveData {
           facing: c.facing,
           lever: c.lever,
           ...(look !== "classic" ? { look } : {}),
+          ...(c.kind === "engine" && sim.nameOf(c.id) ? { name: sim.nameOf(c.id) } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
@@ -495,6 +498,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       const look = t.cars[i].look;
       if (look && CAR_LOOKS[car.kind].includes(look)) sim.setLook(car.id, look);
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
+      const name = t.cars[i].name;
+      if (car.kind === "engine" && name) sim.setName(car.id, name);
       const on = t.cars[i].line;
       if (car.kind === "engine" && on) {
         joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next, on.via);

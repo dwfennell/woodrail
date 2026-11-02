@@ -173,6 +173,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (As every card's ✕: a faint wood hover; the Follow camera too, unless it's on.) */
 .engine-card > .close:hover, .engine-card .corner:not(.active):hover { background: rgba(150, 100, 50, 0.1); }
 .engine-card .corner.follow.active { background: #6cbf5c; color: #fff; }
+/* Its title is the engine's name, painted on its cab too: a tap renames it (a little text box in its place, 14 letters). */
+.engine-card .engine-name { border: none; background: transparent; padding: 4px 8px; margin: -6px auto 0; min-height: 32px; max-width: calc(100% - 96px); border-radius: 10px; cursor: text; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.engine-card .engine-name::after { content: "✎"; font-size: 12px; font-weight: 700; color: #a8865e; margin-left: 5px; }
+.engine-card .engine-name:hover, .engine-card .engine-name:focus-visible { background: rgba(150, 100, 50, 0.1); }
+.engine-card .engine-name-input { margin: -6px auto 0; width: 11em; min-height: 32px; box-sizing: border-box; padding: 4px 8px; border: 2px solid #c9a274; border-radius: 10px; background: #fffaf0; text-align: center; font-family: inherit; font-size: 16px; }
+.engine-card .engine-name-input:focus { outline: none; border-color: #8a5a2c; }
 .engine-status { min-height: 18px; font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; max-width: 260px; margin-top: -4px; }
 /* The train summary: two lines at most (each one line, cut with "…"), so the card's height stays put (#9). */
 .engine-summary { font-size: 13px; font-weight: 700; color: #7a5a3a; text-align: center; max-width: 100%; min-width: 0; align-self: stretch; line-height: 18px; margin-top: -6px; }

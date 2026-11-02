@@ -2240,7 +2240,7 @@ export class Interaction {
     this.selectedCar = car.id;
     g.trainView.setSelected(car.id);
     g.invalidate();
-    if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id);
+    if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id, g.sim.nameOf(car.id));
     else this.hud.showCarCard();
     // (The car tapped, kept in view: its engine's card may be what opens.)
     const tapped = found.train.cars[found.index].id;
@@ -2345,7 +2345,7 @@ export class Interaction {
     this.selectedCar = car.id;
     this.game.trainView.setSelected(car.id);
     this.game.invalidate();
-    this.hud.showEngineCard(car.lever, this.game.following === car.id);
+    this.hud.showEngineCard(car.lever, this.game.following === car.id, this.game.sim.nameOf(car.id));
   }
 
   /** The engine whose card is open, or −1. */
@@ -2598,6 +2598,14 @@ export class Interaction {
     const found = this.game.sim.findCar(this.selectedCar);
     if (found) this.hud.updateEngineCard(found.train.cars[found.index].lever, this.game.following === this.selectedCar);
     this.changed();
+  }
+
+  /** Rename the engine whose card is open (as typed: `Sim.setName` tidies it). Returns the name it has now. */
+  renameSelectedEngine(raw: string): string {
+    const sim = this.game.sim;
+    if (this.selectedCar === -1) return "";
+    if (sim.setName(this.selectedCar, raw)) this.changed();
+    return sim.nameOf(this.selectedCar);
   }
 
   removeSelectedTrain(): void {
