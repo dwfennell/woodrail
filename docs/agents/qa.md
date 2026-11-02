@@ -147,7 +147,7 @@ Wrap `w.audio` methods to log `[time, name, args, return, framesDrawn]`. A trust
 - **Editor:** a lever tap throws a switch even under a train (by design; see issue #3 for route steering).
 - **Trains:**
   - a lone engine stops at an open end;
-  - with 3 trains on a 1-loop line, the newest is held; if it's held at a stop end, the line delivers 0 until Put away (by design).
+  - with 3 trains on a 1-loop line, the newest is held; if it's held at a stop end, the line delivers 0 until one is taken off the track (its card's Remove, or picked up; by design).
 - **ruin-payoff:** "Open a farm" can be met but waiting while the tutorial is earlier.
 - **Sound:** waiting on the user's call between recorded and synthesised. Timbre needs a human ear.
 

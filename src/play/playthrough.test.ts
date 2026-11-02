@@ -23,7 +23,6 @@ import { connectorRef, getPieceDef, type PieceTypeId } from "../track";
 import { play, type Blocked } from "./player";
 import { endOn, layOn, rulesFor, schoolOn } from "./rules";
 import { engineStatus } from "../game/engine-status";
-import { putAway } from "../game/put-away";
 
 /**
  * A whole Game-mode playthrough, headless, using the game's own pieces: a simulated player lays the starter line
@@ -401,11 +400,12 @@ describe("a Game-mode playthrough", () => {
         }
       }
       // The two meet head on on the single line and stand there (nothing turns a train back short of the end of the
-      // track, routing §16 Q3): their cards say they're stuck, the other in the way, "Put one away". The player does:
-      // the second back in the box (`putAway`, the card's button).
+      // track, routing §16 Q3): their cards say they're stuck, the other in the way, "Move one of them". The player
+      // does: the second off the track (its own card's Remove: the train gone, off its line at once).
       if (secondEngine >= 0 && w().sim.findCar(secondEngine) && w().economy.stalls.stuckOf(secondEngine)) {
         P.note(`the trains are stuck head on: "${engineStatus(w().sim, w().economy, secondEngine, () => "")}"; the second put away`);
-        putAway(w().sim, w().economy, secondEngine);
+        w().sim.removeTrain(w().sim.findCar(secondEngine)!.train.id);
+        w().economy.prune();
       }
       // Two trains on one line: do deliveries carry on?
       if (secondAt > 0 && minute === secondAt + 10) {

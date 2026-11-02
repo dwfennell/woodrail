@@ -398,14 +398,15 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.line) return `Waiting for the train on the ${s.line} to pass the points`;
       return who && who.car >= 0 ? `Waiting for ${blockerName(who, place)} to pass the points` : "Waiting for another train to pass the points";
     case "stuck":
-      if (s.why === "too-many") return "Stuck: too many trains for this line. Put one away or add a loop";
-      if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal or put one away";
+      if (s.why === "too-many") return "Stuck: this line has a train too many. Add a passing loop";
+      if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal";
       if (s.why === "parked") return `Stuck: ${who && who.car >= 0 ? inTheWay(who, place) : SPARE_CUT}`;
       // (Left standing, named by where it is: moving it is the fix. Two lines' trains with no passing loop where they
       // meet: one lets them pass. Else moving one is.)
       // (One with its lever on in a ring waits on this one too: named as running, not as "stopped".)
       if (who?.how === "parked") return `Stuck: ${inTheWay(who, place)}`;
-      return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : "Put one away"}`;
+      // (The fix, not a button: a train with no route can be given one, or moved; two with routes, one moved.)
+      return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : who?.how === "line" ? "Move one of them" : "Move it or give it a route"}`;
     case "red-switch":
       return "A red switch is in the way. Tap and hold it to unpin";
     case "needs-loop":
@@ -469,10 +470,10 @@ export function headOnTip(learned: ReadonlySet<string> | null): string {
 
 /**
  * Said once a line, when a train is put on it with no room for it: what the line has room for, and what would run
- * them all ("Put away" on the card is the other way out).
+ * them all (or one fewer: taken off the track).
  */
 export function fullLineToast(room: number, trains: number, more: number): string {
   const loops = room <= 1 && trains === 2 ? "a passing loop" : more === 1 ? "another passing loop" : `${more} more passing loops`;
-  // (Or the one just put on it back in the box: "Put away" on its card.)
-  return `This line has room for ${room} train${room === 1 ? "" : "s"}. Lay ${loops}, or put one away (on its card).`;
+  // (Or one taken off the track: its own card's Remove, or picked up.)
+  return `This line has room for ${room} train${room === 1 ? "" : "s"}. Lay ${loops}, or take one off the track.`;
 }

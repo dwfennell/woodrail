@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
-import { HarnessRun, INVARIANTS, type Invariant, type Report } from "./harness";
-import { fuzz } from "./scenarios";
+import { HarnessRun, INVARIANTS, type Invariant, type Report, type Scenario, type TrainSpec } from "./harness";
+import { fuzz, ringFuzz } from "./scenarios";
 
 /**
  * Seeded fuzz over the loop fixtures (spec §12): random lines (0–2 passing loops, stops on loop roads, a dead-end
@@ -94,3 +94,83 @@ describe(`routing fuzz with signals: ${SEEDS} seeds × ${SECONDS} s`, () => {
     expect(odd.map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
   }, timeout);
 });
+
+/**
+ * A route never makes it worse (the user, 2026-11-01: "The game shouldn't feel broken as soon as you add a route"): each
+ * seed's layout and trains run twice, every train hand-run, and train 0 given a route (its own, else the first stop to
+ * the last), the rest hand-run. With the route there must be no stall where all hand-run had none, and the stops come
+ * to (every train's, a depot piece coming under it) must not drop by half or more. Over the fuzz's lines and over rings
+ * (`ringFuzz`: hand-run trains one behind another round a ring with a passing loop, as on the user's map).
+ * `ROUTE_WORSE=1` prints each seed's numbers.
+ */
+describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines and rings`, () => {
+  type Run = { stalls: number; visits: number; why: string };
+  type Pair = { name: string; hand: Run; routed: Run };
+  const handRun = (t: TrainSpec): TrainSpec => ({ ...t, stops: undefined, line: undefined, next: undefined, vias: undefined });
+  const variant = (sc: Scenario, routed: boolean): Scenario => ({
+    ...sc,
+    name: `${sc.name} (${routed ? "train 0 routed" : "all hand-run"})`,
+    build: (layout) => {
+      const b = sc.build(layout);
+      const depots = [...layout.pieceIds()].filter((id) => layout.getPiece(id)!.type.startsWith("depot"));
+      const trains = b.trains.map((t, k) => (routed && k === 0 ? { ...t, stops: t.stops ?? [depots[0], depots[depots.length - 1]], line: t.stops ? t.line : undefined, next: t.next ?? 0 } : handRun(t)));
+      // (Stops come to: a depot piece newly under a train, counted every tick for every train.)
+      const under = new Map<number, Set<number>>();
+      let visits = 0;
+      const count = (run: HarnessRun) => {
+        for (const id of run.sim.trainIds()) {
+          const t = run.sim.getTrain(id)!;
+          const key = t.cars[0].id;
+          const was = under.get(key) ?? new Set<number>();
+          const now = new Set<number>();
+          for (const q of t.bogies) if (layout.getPiece(q.pieceId)?.type.startsWith("depot")) now.add(q.pieceId);
+          for (const p of now) if (!was.has(p)) visits++;
+          under.set(key, now);
+        }
+        (count as unknown as { visits: number }).visits = visits;
+        return false;
+      };
+      counters.set(layout, count as unknown as { visits: number });
+      return { ...b, trains, events: [...(b.events ?? []), { when: count, do: () => {} }] };
+    },
+  });
+  const counters = new WeakMap<Layout, { visits: number }>();
+  const once = (sc: Scenario): Run => {
+    const layout = new Layout();
+    const r = new HarnessRun(layout, sc).run(SECONDS);
+    return { stalls: r.stalls.begun, visits: counters.get(layout)?.visits ?? 0, why: r.stalls.why.map((w) => w ?? "-").join("/") };
+  };
+  let pairs: Pair[] | undefined;
+  const run = () =>
+    (pairs ??= [...Array.from({ length: SEEDS }, (_, k) => fuzz(FIRST + k, SECONDS)), ...Array.from({ length: SEEDS }, (_, k) => ringFuzz(FIRST + k, SECONDS))].map((sc) => {
+      const pair = { name: sc.name, hand: once(variant(sc, false)), routed: once(variant(sc, true)) };
+      if (ENV.ROUTE_WORSE || (LONG && worse(pair))) console.log(`${pair.name}: all hand-run ${pair.hand.visits} stops, ${pair.hand.stalls} stalls (${pair.hand.why}); train 0 routed ${pair.routed.visits} stops, ${pair.routed.stalls} stalls (${pair.routed.why})${worse(pair) ? `  WORSE: ${worse(pair)}` : ""}`);
+      return pair;
+    }));
+  const worse = (p: Pair): string => {
+    const out: string[] = [];
+    if (p.routed.stalls > 0 && p.hand.stalls === 0) out.push("a new stall");
+    if (p.routed.visits * 2 <= p.hand.visits && p.hand.visits >= 4) out.push(`stops ${p.hand.visits} → ${p.routed.visits}`);
+    return out.join(", ");
+  };
+  const timeout = LONG ? 24 * 3600_000 : 120_000;
+  it("no stall the all-hand-run run doesn't have, and no drop by half in stops come to (but the known ones)", () => {
+    expect(run().filter((p) => worse(p) && !(p.name in KNOWN_WORSE)).map((p) => `${p.name}: ${worse(p)}`)).toEqual([]);
+  }, timeout);
+  it("the known ones still are (a fix takes its entry off)", () => {
+    expect(run().filter((p) => p.name in KNOWN_WORSE && !worse(p)).map((p) => p.name)).toEqual([]);
+  }, timeout);
+});
+
+/**
+ * Seeds a route still makes worse (100 + 100 seeds × 1800 s, 2026-11-01), each with why: a decision for the user, see
+ * rail-road.md's open items. All are hand-run trains running as a convoy into a dead end: the one behind pulls up behind
+ * the one standing at the end and turns there too (routing spec §16 Q9), and they go back together. With a route, the
+ * line's single-line working lets one train into a stretch of single track at a time (or one into a line end), so the
+ * two stand, said stuck, the card's fix a passing loop.
+ */
+const KNOWN_WORSE: Record<string, string> = {
+  "fuzz seed 74": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
+  "fuzz seed 77": "two trains put down in one line end, a third hand-run: hand-run they convoy into the end",
+  "fuzz seed 79": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
+};

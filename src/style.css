@@ -1080,6 +1080,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops::-webkit-scrollbar { display: none; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
+/* The ▶ come to this stop while the card is open (the train heads here now): a short pop, so the move is seen. */
+.route-chip.next.moved { animation: next-moved 0.7s ease-out; }
+@keyframes next-moved { 0% { transform: scale(1); box-shadow: 0 0 0 0 var(--line, #888); } 35% { transform: scale(1.12); box-shadow: 0 0 0 4px var(--line, #888); } 100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .route-chip.next.moved { animation: none; outline: 2px solid var(--line, #888); outline-offset: 1px; } }
 /* A stop's plan under its name: what it picks up (⬆) and drops (⬇), icons only (a tap on the stop says it in words). */
 .route-chip.has-goods { display: inline-block; text-align: left; white-space: nowrap; height: auto; min-height: 44px; line-height: 1.2; padding-block: 4px; }
 .route-goods { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; }

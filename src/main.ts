@@ -427,11 +427,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lever: (v) => interaction.setLever(v),
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
-      putAway: () => interaction.putAwayFromCard(),
       showBlocker: () => showBlocker(),
-      putAwayBlocker: () => {
-        if (viewBlocker.shown && viewBlocker.shown.car >= 0) interaction.putAwayFromCard(viewBlocker.shown.car);
-      },
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
@@ -2824,9 +2820,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
     // Held at its stop for spacing: one tap ("Go now") sends it on.
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
-    // Its line has a train too many: "Put away" (this one, if it's the one held; else the one held).
-    const away = game.economy.sections.putAwayFor(carId);
-    hud.setPutAway(away !== -1, away === carId);
     // Waiting to turn back where the track ends: Continue sends it on now.
     hud.setContinue(canContinue(game.sim, game.economy, carId));
     const opened = carId !== viewCar;
@@ -2858,7 +2851,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (Show and the fix go with the status they belong to: the blocker of the status shown.)
     if (status === latest) viewBlocker.shown = view.blocker;
     const b = viewBlocker.shown;
-    hud.setBlocker(!!b, !!b && b.car >= 0 && b.how !== "line", b && b.car < 0 ? "points" : "train");
+    hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
     let angle = 0;
@@ -3013,12 +3006,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.setCarLoad(car.kind === "passenger" && room === 0 ? "" : carries || car.kind === "passenger" ? carLoadWords(summaryCar(car), room, carries) : "");
     }
   }
+  /** The stop the open card's ▶ was last drawn on (its engine): a ▶ that moves pops, so the player sees it go. */
+  let nextDrawn = { carId: -1, next: -1 };
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
     if (carId === -1 || !allowed) {
       if (routeShown !== "") hud.engineExtra.hidden = true;
       routeShown = "";
+      nextDrawn = { carId: -1, next: -1 };
       setPlanning(false);
       return;
     }
@@ -3173,6 +3169,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           showRoute();
         });
         chip.classList.toggle("next", r?.next === k);
+        // (The ▶ moved on this card: to the stop the train comes to first, once the line has two, or on as it runs.)
+        chip.classList.toggle("moved", r?.next === k && nextDrawn.carId === carId && nextDrawn.next !== -1 && nextDrawn.next !== k);
         chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
         chip.classList.toggle("picked", stopPicked === k);
         if (st.action === "drop" || st.action === "pick") chip.dataset.intent = st.action;
@@ -3201,6 +3199,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         });
       });
       box.append(strip);
+      nextDrawn = { carId, next: r?.next ?? -1 };
       // Stops beyond the edge (scrolled sideways): the edge fades, as the tray's does.
       const edges = () => {
         strip.classList.toggle("more-right", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2);

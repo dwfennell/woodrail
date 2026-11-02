@@ -1855,11 +1855,11 @@ class Playthrough {
     // (Where the longest stall began, for the summary.)
     if (sawn === this.sawn && Math.round(P.minute - this.sawnAt) > this.stall) this.stallFrom = `${this.sawnAt.toFixed(0)}, ${this.trains.size} train(s), ${Math.max(0, 2 * lineOrder(P).length - 2)} stops`;
     // A train of the player's stuck (stalls.ts: nothing turns a train back now, routing §16 Q3), its card saying so and
-    // "Put one away": looked at once a minute, the player does, the newest first (as for a jam, below).
+    // "Move one of them": looked at once a minute, the player does, the newest first (as for a jam, below).
     const stuck = [...this.trains.keys()].find((e) => w.economy.stalls.stuckOf(e));
     // (The card says "Add a passing loop here" (two lines' trains, or one on no line, with no loop to meet at): the
     // player lays one on the line, as for a second train (`spliceLoop`), once the switches can be made, rather than
-    // picking a train up. Still stuck with a loop there, the card says "Put one away", and the player does, below.)
+    // picking a train up. Still stuck with a loop there, the card says "Move one of them", and the player does, below.)
     const fix = stuck === undefined ? null : w.economy.stalls.stuckOf(stuck);
     let laidFor = false;
     const owed = this.loopOwed && P.minute - this.stuckLoopTry >= 3;

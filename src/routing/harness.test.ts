@@ -243,6 +243,15 @@ const SHARED: Case[] = [
     },
   },
   {
+    // (Play-test 2026-11-01: all three stood, stuck, from the start, till a train could follow one on no line.)
+    scenario: S.ringRoutedAmongHandRun,
+    checks: {
+      "payoff: the routed train 60+ stops in 30 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(60),
+      "they follow each other round: never stuck": noStall,
+      "nobody turns back (a ring has no end)": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
+    },
+  },
+  {
     scenario: S.twoLinesNoLoop,
     // (No passing place: each stands where it is, waiting for the other's end of the line, stuck in its way; the card
     // says to add a passing loop, engine-status.ts.)
