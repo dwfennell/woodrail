@@ -1577,19 +1577,13 @@ export class Hud {
 
   /**
    * Empty (the wagon card) and Empty all (the engine card): shown while there are goods to tip out, greyed with `why`
-   * ("Stop the train first") while they'd be refused, "" for not. `room`: the car or train carries goods at all; its
-   * place is kept while it's empty (unseen), so the card doesn't grow as a crane loads it, under a camera glide that
-   * framed what's above it. Main sets it only when that changes.
+   * ("Stop the train first") while they'd be refused, "" for not. Main sets it only when that changes.
    */
-  setEmpty(car: { room: boolean; shown: boolean; why: string }, train: { room: boolean; shown: boolean; why: string }): void {
-    for (const [b, s, title] of [
-      [this.emptyCarBtn, car, EMPTY_CAR_TITLE],
-      [this.emptyTrainBtn, train, EMPTY_TRAIN_TITLE],
-    ] as const) {
-      if (b.hidden === s.room) b.hidden = !s.room;
-      b.classList.toggle("unseen", !s.shown);
-      setRefused(b, s.why, title);
-    }
+  setEmpty(car: { shown: boolean; why: string }, train: { shown: boolean; why: string }): void {
+    if (this.emptyCarBtn.hidden === car.shown) this.emptyCarBtn.hidden = !car.shown;
+    if (this.emptyTrainBtn.hidden === train.shown) this.emptyTrainBtn.hidden = !train.shown;
+    setRefused(this.emptyCarBtn, car.why, EMPTY_CAR_TITLE);
+    setRefused(this.emptyTrainBtn, train.why, EMPTY_TRAIN_TITLE);
   }
 
   /** What the open wagon carries ("" hides it). */
