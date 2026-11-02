@@ -154,6 +154,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
 /* A school with nothing to research: its line in amber, and a button for the picker. */
 .depot-stock.idle { color: #a35a00; }
+/* Sandbox's chain hints on an industry's card: how it's doing (a pill), then a row per good in and out, each with a
+   Show chip for the place it names. */
+.depot-chain { display: flex; flex-direction: column; gap: 6px; align-self: stretch; max-width: 360px; margin: 0 auto; }
+.depot-chain[hidden] { display: none; }
+.chain-status { align-self: center; padding: 3px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 800; color: #3a2a1c; background: #f3dcb6; box-shadow: inset 0 1px 0 #fff8, inset 0 -2px 0 rgba(120, 80, 40, 0.2); }
+.chain-status.working { background: #8fd08a; color: #13310f; }
+.chain-status.waiting { background: #f0ae3c; color: #2b2118; }
+.chain-status.full { background: #b9d3ee; color: #1d3f66; }
+.chain-row { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #5e4128; }
+.chain-row .chain-text { flex: 1; min-width: 0; }
+.chain-row .chain-show { flex: none; font-size: 15px; }
 .depot-card .depot-pick { flex: none; align-self: center; }
 .depot-card .depot-pick[hidden] { display: none; }
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }

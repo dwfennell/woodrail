@@ -136,10 +136,10 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
 
 /**
  * Set every placed industry's rate from what is around it now (the map's own depots keep their recipe's speed), times
- * `boost` for its kind (upgrades). Cheap:
+ * `boost` for its kind (upgrades); `anywhere` (Sandbox): every one at its recipe's speed. Cheap:
  * a few hundred squares per industry; call when industries or the land change. Returns true if any rate changed.
  */
-export function updateRates(world: World, boost: (role: DepotRole) => number = () => 1): boolean {
+export function updateRates(world: World, boost: (role: DepotRole) => number = () => 1, anywhere = false): boolean {
   const own = new Set(world.depots.values());
   let changed = false;
   for (const d of world.economy.allDepots()) {
@@ -147,7 +147,8 @@ export function updateRates(world: World, boost: (role: DepotRole) => number = (
     if (!piece) continue;
     // Upgrades (Game mode's Harvesters II and the like) speed up every industry of their kind, the map's own too.
     // (A school makes nothing: its town is a place to stand, not a speed.)
-    const r = own.has(d.pieceId) || d.role === "school" ? null : resourceAt(world.landscape, d.role, piece.pose);
+    // (`anywhere`: Sandbox, whose industries work wherever they stand.)
+    const r = anywhere || own.has(d.pieceId) || d.role === "school" ? null : resourceAt(world.landscape, d.role, piece.pose);
     const rate = (r ? rateFor(r.count, r.need) : 1) * boost(d.role);
     if (rate !== d.rate) {
       d.rate = rate;

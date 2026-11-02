@@ -96,7 +96,9 @@ import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/e
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
-import { loadMuted, saveMuted } from "./ui/prefs";
+import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, saveMuted } from "./ui/prefs";
+import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game/chains";
+import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
@@ -438,6 +440,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
       showBlocker: () => showBlocker(),
+      showPlace: (id) => showPlace(id),
+      toggleChainHints: () => setChainHints(!chainHintsOn),
+      tabOpened: (id) => {
+        // Sandbox's Industries tab: the industries' models (Game mode's set) come in the first time it opens.
+        if (id !== "industries" || mode !== "sandbox") return;
+        ensureGameModels();
+        chainTip("chains-tab", "Industries make goods, some from other goods. Pick one up: gold rings show where its goods come from, green rings where they go");
+      },
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
@@ -701,12 +711,111 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // A halt held (Game mode): each town's reach shows as a ring on the ground, built once, shown and hidden after.
   const haltReach = new HaltReachView(game.scene, HALT_REACH);
   interaction.onHeld = (type) => {
+    heldChains(type);
     const show = mode === "game" && type !== null && HALT_KITS.has(type);
     if (show === haltReach.showing) return;
     if (show) haltReach.show(game.landscape);
     else haltReach.hide();
     game.invalidate();
   };
+
+  // ---- Sandbox's chain hints -------------------------------------------------------------------------------
+  // What an industry makes and from what, where its goods come from and go (its card, with Show buttons, and chevrons
+  // on the map while the card is open), rings round its suppliers (gold) and customers (green) while one is held, and a
+  // train's card saying why it won't load somewhere. Sandbox only, switched off in ☰. Worked out when a card opens or
+  // its piles change, or a piece is picked up or put down: never per frame or per pointer move.
+  let chainHintsOn = loadChainHints();
+  const chainHints = new ChainHintsView(game.scene);
+  const chainsShown = () => mode === "sandbox" && chainHintsOn;
+  const placeOfDepot: PlaceOf = (d) => {
+    const p = game.layout.getPiece(d.pieceId);
+    if (!p) return null;
+    // (The middle of its track: a yard's 216 mm straight, a station's.)
+    return { x: p.pose.x + Math.cos(p.pose.heading) * 108, z: p.pose.z + Math.sin(p.pose.heading) * 108 };
+  };
+  const groundAt = (x: number, z: number): number => {
+    const g = game.landscape.grid;
+    const i = g.cellAtWorld(x, z);
+    return i === -1 ? 0 : g.groundY(i);
+  };
+  const showChainHints = (lines: HintLine[], rings: HintRing[]) => {
+    if (chainHints.show(lines, rings, groundAt)) game.invalidate();
+  };
+  const hideChainHints = () => {
+    if (chainHints.hide()) game.invalidate();
+  };
+  /** The open card's chain (its block, and chevrons from its suppliers and to its customers on the map). */
+  function showDepotChain(d: DepotState): void {
+    const view = chainOf(d, game.economy.allDepots(), placeOfDepot);
+    hud.setDepotChain({ status: stateWords(view), tone: view.state, rows: chainRows(view, (o) => depotName(game.world, o), (k) => GOODS_ICON[k]) });
+    const at = placeOfDepot(d);
+    const lines: HintLine[] = [];
+    const rings: HintRing[] = [];
+    if (at) {
+      for (const [list, tone] of [[view.inputs, "in"], [view.outputs, "out"]] as const)
+        for (const l of list) {
+          const p = l.place && placeOfDepot(l.place);
+          if (!p) continue;
+          lines.push(tone === "in" ? { from: p, to: at, tone } : { from: at, to: p, tone });
+          rings.push({ ...p, tone });
+        }
+    }
+    showChainHints(lines, rings);
+  }
+  hud.onDepotCardClosed = () => hideChainHints();
+  /** An industry picked up (from the tray, or moved): rings round where its goods would come from and go. */
+  let heldIndustry: { depots: number } | null = null;
+  function heldChains(type: PieceTypeId | null): void {
+    const role = type ? INDUSTRY_ROLE[type] : undefined;
+    if (!chainsShown() || !role) {
+      if (!type && heldIndustry && chainsShown()) {
+        // Put down: once, the first time one is placed, say what to do next.
+        const before = heldIndustry.depots;
+        window.setTimeout(() => {
+          if (game.economy.allDepots().length > before) chainTip("chains-placed", "Tap it to see what it needs and where that comes from. Join them by track, then run a train with the right wagons");
+        }, 300);
+      }
+      heldIndustry = null;
+      if (!hud.depotCardOpen) hideChainHints();
+      return;
+    }
+    heldIndustry = { depots: game.economy.allDepots().length };
+    const moving = interaction.openDepotId;
+    const { from, to } = partnersOf(role, game.economy.allDepots(), (d) => game.economy.onMap(d), moving);
+    const ring = (d: DepotState, tone: "in" | "out"): HintRing[] => {
+      const p = placeOfDepot(d);
+      return p ? [{ ...p, tone }] : [];
+    };
+    showChainHints([], [...from.flatMap((d) => ring(d, "in")), ...to.flatMap((d) => ring(d, "out"))]);
+  }
+  /** A first-time Sandbox tip (at most a few, each once on this device, none with the hints off). */
+  function chainTip(id: string, text: string): void {
+    if (!chainsShown() || hintSeen(id)) return;
+    markHintSeen(id);
+    hud.toast(text, false, 6500);
+  }
+  /** Frame a place named on the open card (its Show button); the card stays open. */
+  function showPlace(depotId: number): void {
+    const d = game.economy.depot(depotId);
+    const p = d && placeOfDepot(d);
+    const piece = d && game.layout.getPiece(d.pieceId);
+    if (!p || !piece) return;
+    if (game.following !== -1) interaction.toggleFollow();
+    const distance = Math.min(frameDistance(260, game.camera.fov, game.camera.aspect), game.controls.maxDistance);
+    game.director.glideTo(new Vector3(p.x, piece.y, p.z), distance, { duration: 0.7, inRoom: true });
+  }
+  function setChainHints(on: boolean): void {
+    chainHintsOn = on;
+    saveChainHints(on);
+    hud.setChainHints(on);
+    interaction.depotChain = chainsShown() ? showDepotChain : null;
+    if (!chainsShown()) {
+      hud.setDepotChain(null);
+      hideChainHints();
+    }
+    interaction.redrawDepotCard();
+    hud.toast(on ? "Chain hints on: cards and the map show where goods come from and go" : "Chain hints off");
+  }
 
   // ---- adding land -----------------------------------------------------------------------------------------
 
@@ -1872,7 +1981,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     game.depotView.building = schoolHouse;
     game.depotView.catalogueModel = yardModel;
-    if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
+    if (added || key !== industryKey) {
+      game.depotView.setWorld(game.economy, game.layout);
+      // (An open card's chain names the nearest places: one placed or taken up may change them.)
+      if (key !== industryKey) interaction.redrawDepotCard();
+    }
     // A town's station upgraded in place (or back, by undo): only its goods corner drawn again.
     else if (game.depotView.syncStations(game.economy, game.layout)) game.invalidate();
     industryKey = key;
@@ -1880,7 +1993,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const rateKey = `${key}#${game.landscape.grid.revision}#${mode === "game" ? upgradeKey(progress) : ""}`;
     if (rateKey !== rateKeyShown) {
       rateKeyShown = rateKey;
-      if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
+      // (Sandbox's industries work at their recipe's speed wherever they stand: it's free play.)
+      if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined, mode === "sandbox")) game.invalidate();
     }
     hud.refreshTrayBadges();
     // A school placed (or taken up), or grown with its town: tier 3 may open, study may go faster, and the pill shows
@@ -2930,7 +3044,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
     const now = performance.now();
-    const view = engineView(game.sim, game.economy, carId, nameOf, whyCantMove(), trainPlace);
+    const view = engineView(game.sim, game.economy, carId, nameOf, whyCantMove(), trainPlace, chainsShown());
     const latest = view.status;
     viewBlocker.next = view.blocker;
     if (latest !== viewStatus.next) {
@@ -4223,6 +4337,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshPill();
     // Town houses and placed models can be moved in Sandbox only.
     interaction.propsEditable = mode === "sandbox";
+    // Sandbox's chain hints (see `showDepotChain`); its own industries' models, if the map has any of Game mode's kinds.
+    interaction.depotChain = chainsShown() ? showDepotChain : null;
+    hud.setChainHints(chainHintsOn);
+    hideChainHints();
+    if (mode === "sandbox" && game.economy.allDepots().some((d) => INDUSTRY_ROLE[game.layout.getPiece(d.pieceId)?.type ?? "straight-216"] && d.role !== "forest" && d.role !== "sawmill")) ensureGameModels();
     // (A town's card: its ledger in Game mode, its goods in Sandbox.)
     interaction.townCard = mode === "game" ? townCard : null;
     hud.setVisible(true);
@@ -4694,7 +4813,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [] });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], chainHints });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   /** The one-time "Help improve Woodrail?" question: put off while something else is being done. */

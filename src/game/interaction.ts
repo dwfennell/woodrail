@@ -2911,6 +2911,18 @@ export class Interaction {
    */
   townCard: { key(d: DepotState): number; show(d: DepotState): void } | null = null;
 
+  /**
+   * Sandbox's chain hints (null: off, or Game mode): called with the open depot whenever its card is drawn again (it
+   * opened, its piles changed, or `redrawDepotCard`), to fill its chain block and the map's hints.
+   */
+  depotChain: ((d: DepotState) => void) | null = null;
+
+  /** Draw the open depot card again (what's around it changed: an industry placed or taken up, hints switched). */
+  redrawDepotCard(): void {
+    this.shownDepot.id = -1;
+    this.refreshDepotCard();
+  }
+
   /** Keep the open depot card's pile counts current (call every frame). */
   refreshDepotCard(): void {
     if (this.selectedDepot === -1 || !this.hud.depotCardOpen) return;
@@ -2943,6 +2955,7 @@ export class Interaction {
     shown.auto = d.auto;
     shown.wait = d.waitFull;
     shown.delivered = delivered0;
+    this.depotChain?.(d);
     if (d.role === "school") {
       const r = this.schoolCard?.show() ?? { piles: [], note: "" };
       this.hud.updateDepotCard(r.piles, d.auto, null, r.note, !!r.idle);
@@ -2954,8 +2967,9 @@ export class Interaction {
     let piles = pilesOf(d.role)
       .filter((kind) => !owed?.includes(kind) || d.piles[CARGO[kind].index] > 0 || (economy.owes?.(kind) ?? 0) > 0)
       .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
-    // A harbour's quay takes any good: it lists only what's there.
-    if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
+    // A harbour's quay takes any good: it lists only what's there. (So does a town's card in Sandbox, which has no
+    // ledger: a row for each of the nine goods a town takes was a wall of "0/12". Its chain rows say what can come.)
+    if (d.role === "harbour" || d.role === "town") piles = piles.filter((p) => p.count > 0);
     // A warehouse: only what it holds (not a row for every good), and how to use it.
     if (d.role === "warehouse") {
       this.hud.updateDepotCard([], d.auto, d.waitFull, storeStock(piles), false, STORE_HELP);

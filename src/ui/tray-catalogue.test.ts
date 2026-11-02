@@ -80,9 +80,9 @@ describe("kit pieces on the catalogue shelves (Sandbox)", () => {
     }
   });
 
-  it("Sandbox's trays are as they were: no Game shelves, every kit on its catalogue shelf", () => {
+  it("Sandbox's trays: no Game shelves (its Industries tab has only industries), every kit on its catalogue shelf", () => {
     const sandbox = trayTabs("sandbox");
-    expect(sandbox.map((t) => t.id)).toEqual(["track", "trains", "buildings", "nature", "town", "vehicles", "life", "machines", "roads", "land"]);
+    expect(sandbox.map((t) => t.id)).toEqual(["track", "trains", "industries", "buildings", "nature", "town", "vehicles", "life", "machines", "roads", "land"]);
     const track = sandbox.find((t) => t.id === "track")!;
     expect(track.groups.map((g) => g.label)).toEqual(["Straight", "Curve", "Switch", "Ups & downs", "Ends", "Bridges"]);
     for (const tab of sandbox) for (const g of tab.groups) for (const item of g.items) expect(item.kind === "piece" && isKit(item.type), `${tab.id}/${g.label}`).toBe(false);
@@ -136,7 +136,8 @@ describe("the track cleaner on the Trains tab", () => {
     expect(cleanerIn("sandbox")).toBe(true);
     expect(cleanerIn("game")).toBe(true);
     expect(ruleOf("car:cleaner")?.tech).toBe("scenery");
-    expect(trayTabs("sandbox").some((t) => t.id === "industries")).toBe(false);
+    // (Sandbox's Industries tab has the industries alone: no cleaner, no kits.)
+    expect(trayTabs("sandbox").find((t) => t.id === "industries")!.groups.flatMap((g) => g.items).every((i) => i.kind === "piece" && i.type.startsWith("depot-"))).toBe(true);
     expect(trayTabs("game").some((t) => t.id === "industries")).toBe(true);
   });
 });
