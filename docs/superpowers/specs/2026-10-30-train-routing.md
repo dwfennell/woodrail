@@ -151,6 +151,14 @@ or sections' free road gave: both the same one, or each by turns.
   nothing per frame), and `planWay(…, keep)` reads it: the router, sections' `wayOn` and the drawn line (`walkTo`'s
   `keep`), so the map, the card and the train agree. `planWay` caches each choice's costs by option (not just the best)
   per layout, so a kept way costs a lookup. Not saved: after a load the first choice is the plan's, and sticks from there.
+- **Across track edits** (the user, 2026-11-02: "more predictable if it tries to follow the route … it should also try to
+  stay predictable across those kinds of changes (as much as possible)"). A kept way carries what it cost when taken
+  (`KeptWay.cost`): it's kept while it costs no more than that, however much shorter a way laid since is, so a new
+  shortcut doesn't move a route. A way an edit made dearer (a road on it cut) is planned again, so only the legs the edit
+  broke change. Per target, the router's walk notes the pieces it ran (the trail, `WayMemory.ran`); at points nowhere on
+  the trail (laid since: a shortcut's points put in where a straight was), the cheapest option back onto the trail.
+  Without an edit nothing changes: costs move only with the track, the pins and the decks. A via on the new track, or
+  the old way cut, is what takes a route onto it ("unless a stop needs it"). Tests: `src/routing/route-edit.test.ts`.
 - **Harness:** `twoWays` (scenarios.ts; via.test.ts): two lines A ⇄ B and A ⇄ E over a loop's two roads, 30 min. With
   no vias each train ran both roads (Red top 6 / bottom 88, Blue 88 / 6); with a via on each line's road, Red 96 / 0 and
   Blue 0 / 96, no invariant broken (0 wrong roads), never stuck. One train alone: the shorter road every lap without a
@@ -195,7 +203,10 @@ no line there, asks for its moves among them all, so they meet only at passing l
    Trains of one line never contend for points, so a line's own rules are untouched.
 3. **Every wait names its blocker.** Stalls (`stalls.ts`, step 5b) follow a points wait like any other, with sections'
    waits and the sim's (`Sim.heldBy`). A blocker not on the line is a foreign occupant, as today.
-4. **First asked, first served,** but a later request that needs none of the head's locks may go first.
+4. **First asked, first served,** but a later request that needs none of the head's locks may go first. For sections'
+   loops too (2026-11-02, `Sections.firstCome`): a train that has waited 10 s at a loop road's end keeps the loop it
+   waits for from a later ask from another loop road, unless it waits on the asker by way of others or needs the
+   asker's road. A wait that lasts 120 s on a train under way is said stuck (`STARVED_S`).
 5. **No early release:** a lock holds until the last axle clears.
 6. **Nothing breaks a wait** (§16 Q3, step 5b): no train turns back short of the end of the track. A wait that can't end
    (a ring, a line's held train in the way, a parked train) is a stall: the trains stand, and their cards say what to do.
@@ -829,4 +840,12 @@ These override anything earlier in this spec that disagrees.
    the end of the line: pull up close behind it, do the automatic end-of-line flip there and head back engine first,
    just as at buffers. Only at the end of a line, where the train would have turned anyway. Mid-line, a train blocked by
    another still waits or shows the stuck card, and never turns back (Q3).
+10. **Following and room on circuits** (the user, 2026-11-02, on `claude/route-stuck`'s proposals):
+    - **Yes:** routed trains on a line going the same way round a circuit follow each other (as a routed train already
+      followed hand-run ones), with the follow gaps (the gap only while the leader moves, close up behind a stopped one),
+      and the room rule (loops + 1) isn't applied on a circuit. Single-line working stays wherever trains could meet head
+      on (one going round the other way, or one turning back at a line end).
+    - **Keep:** convoys into a dead end stay one train to a section, with the "add a passing loop" card.
+    - **Deferred:** re-planning by another road when its way is held. "More predictable if it tries to follow the
+      route" (§3.5's edits: routes keep their way across track edits).
 

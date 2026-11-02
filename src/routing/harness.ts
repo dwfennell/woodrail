@@ -18,7 +18,7 @@ import { connectorRef, type Layout, type SignalStyle } from "../track";
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
-import { aimOf, passVias, ranOnto, resetVias, skipVias, type ViaProgress } from "./via";
+import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone, type ViaProgress } from "./via";
 import { INVARIANTS, Invariants, type Invariant, type InvariantWorld } from "../sim/invariants";
 
 export { INVARIANTS, type Invariant };
@@ -274,6 +274,7 @@ export class HarnessRun implements InvariantWorld {
         return live;
       },
       target: (engine) => this.target(engine),
+      lap: (engine) => this.lap(engine),
       stopPieces: (lineId) => {
         const engine = [...this.lineOf].find(([, id]) => id === lineId)?.[0];
         const stops = engine === undefined ? [] : (this.routes.get(engine)?.stops ?? []);
@@ -345,6 +346,19 @@ export class HarnessRun implements InvariantWorld {
   /** Where a routed engine is going: its next stop, or (standing at it) the next different one, or a via point on the way; −1: none on the map. */
   target(engine: number): number {
     return this.goal(engine, 0);
+  }
+
+  /** Its aims round one lap from the one it has now (as `Economy`'s, sections' `circling`). */
+  lap(engine: number): number[] {
+    const r = this.routes.get(engine);
+    if (!r || r.stops.length === 0) return [];
+    let i = r.next % r.stops.length;
+    if (r.at) {
+      const here = r.stops[i];
+      for (let k = 0; k < r.stops.length && r.stops[i] === here; k++) i = (i + 1) % r.stops.length;
+    }
+    const onMap = (p: number) => !!this.layout.getPiece(p);
+    return lapAims(r.stops.length, i, viaDone(r, i), (k) => r.vias?.[k], onMap, (k) => (onMap(r.stops[k]) ? r.stops[k] : -1));
   }
 
   /** Whose kept ways (stickiness) a routed engine's plan keeps: its line's. */
@@ -426,6 +440,16 @@ export class HarnessRun implements InvariantWorld {
   takeUp(pieceId: number): void {
     this.layout.removePiece(pieceId);
     this.sim.trackChanged();
+  }
+
+  /**
+   * A track edit (the player laying or taking up pieces with the train running): `edit` changes the layout, then the sim
+   * and the router hear of it, as the game's track edit tells them (`Sim.trackChanged`, `Economy.prune`'s `laid`).
+   */
+  edit(edit: (layout: Layout) => void): void {
+    edit(this.layout);
+    this.sim.trackChanged();
+    this.router.laid();
   }
 
   /** Saved and loaded: every train put back where it stood on a new sim (ids kept), routing and sections afresh. */
