@@ -426,7 +426,7 @@ if (want("goods")) {
 if (want("lineside")) {
   await fresh("lineside");
   // Lineside furniture: a whistle post (an engine passing whistles), a lever frame by a switch and a signal (its card
-  // throws them), a station clock (its hands show the game's time).
+  // throws them), a station clock (its hands show the real time).
   const built = await p.evaluate(() => window.woodrail.__build(["buffer-turnback", "straight-216", "straight-216", "straight-216", "switch", "straight-216", "signal", "straight-216", "buffer-turnback"], { "buffer-turnback": 0 }));
   check("built a line with a switch and a signal", !!built, built ? JSON.stringify(built) : await p.evaluate(() => window.woodrail.__lastWhy));
   if (built) {

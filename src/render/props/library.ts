@@ -206,7 +206,7 @@ function stackedModel(floors: ReadonlyMap<string, Object3D>, asset: string, stor
 }
 
 /**
- * Props drawn with parts of their own, live (`ClockView`): the station clock's hands, which show the game's time. The
+ * Props drawn with parts of their own, live (`ClockView`): the station clock's hands, which show the real time. The
  * prop itself is drawn bare of them (`drawnKey`).
  */
 export const PROP_LIVE_PARTS: Readonly<Record<string, ReadonlySet<string>>> = {

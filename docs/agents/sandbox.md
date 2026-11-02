@@ -38,12 +38,14 @@
 - **e2e:kits and e2e:joints** don't touch ramps.
 - **e2e:draw and e2e:roads** use only the straight ramp.
 - **When `main.ts` or the cards change,** run touch, click and workshop.
+- **e2e:station-clock** (about 4 min): the station clock prop's hands show the real local time, in Game and Sandbox, under Playwright's mocked clock (`page.clock`). It waits for the tray's background carving to finish first: its batches each ask for a frame, which would read as a clock frame between minutes.
 
 **Known flakes under load:**
 - A card button tapped as soon as it's in the DOM is dropped by the card tap guard (mobile-ux.md §5). Wait `frames()` then 250 ms. To check, record `performance.now() - hud.buttonMovedAt.get(button)` on pointerdown: under 150 means dropped.
 - The sim runs slower than the wall clock. Bound waits by `w.simSeconds`, not wall time.
 - Reading straight after `reload()` can beat the device's start-up take. Wait for the expected value, or for the copy to be in.
 - A device's own 60 s timer can fire mid-step. Hold a device offline with `setOffline` while the other works.
+- Station clocks (`ClockView`) run on their own minute timer, not the frame loop: under `page.clock`, `pauseAt` past a minute's start leaves its frame to be drawn on the next `runFor`. Read the hands a moment after the minute (the timer fires 20 ms past it).
 - A direct `coins += n` is lost if an adopt happens before the 5 s autosave. Earn offline, wait for the local save, then go online.
 
 ## 3. Design rules
