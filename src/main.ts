@@ -3461,11 +3461,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const points: Vector3[] = [];
     const train = trainSpot(carId);
     if (train) points.push(train);
+    // (Each piece by its middle, where its disc stands: a piece's pose is its start, 108 mm or more off. QA: the route
+    // was framed by the starts, and its discs were left under the card.)
+    const middle = (pieceId: number): Vector3 | null => {
+      const p = game.layout.getPiece(pieceId) ? pointOnPath(game.layout, pieceId, 0, pathLengthOf(pieceId) / 2) : null;
+      return p ? new Vector3(p.x, p.y, p.z) : null;
+    };
     for (const st of lineOf(game.economy, carId)?.stops ?? []) {
-      const spot = pieceSpot(game.economy.depot(st.depotId)?.pieceId ?? -1);
+      const spot = middle(game.economy.depot(st.depotId)?.pieceId ?? -1);
       if (spot) points.push(spot, spot.clone().setY(spot.y + 70));
       for (const v of st.via ?? []) {
-        const at = pieceSpot(v);
+        const at = middle(v);
         if (at) points.push(at);
       }
     }
