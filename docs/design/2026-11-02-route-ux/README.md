@@ -354,7 +354,7 @@ Sizes: every button, chip and field in the route UI, the place cards and the Lin
 
 | Dimension | Before | After | Why |
 |---|---|---|---|
-| Accessibility | 2 | 3 | Done 3.5 → 9:1 (dark ink on go-green); a lost stop's chip at 0.7 and struck through; ribbon edges ≥ 3:1 on beech for all eight colours (unit test); `aria-pressed` on modes, toggles and "+ via"; `aria-current` on the next stop. Left: the filled number on a yellow line relies on a text shadow |
+| Accessibility | 2 | 3 | Done 3.5:1 → 4.6–7.8:1 (dark ink on the go-green gradient, each end measured); a lost stop's chip at 0.7 and struck through; ribbon edges ≥ 3:1 on beech for all eight colours (unit test); `aria-pressed` on modes, toggles and "+ via"; `aria-current` on the next stop. Left: the filled number on a yellow line relies on a text shadow |
 | Performance | 4 | 4 | Built on change: ribbons, edges and arrows in one show; ribbon width in √2 steps; the flash and pops are a few frames, then 0 |
 | Theming | 2 | 4 | Route colours are tokens (`--go-green*`, `--ink-soft`, `--ink-muted`, `--warn-ink`); DESIGN.md has the line colours and the warn ink |
 | Responsive | 3 | 4 | No scroll for stop tools on a phone on its side; the tools fit at 360 px |
