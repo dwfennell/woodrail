@@ -3876,13 +3876,15 @@ async function routeUxMore(ctx, p) {
   await tapButton(".depot-routes .route-new-here");
   await p.waitForFunction(() => !!document.querySelector(".engine-extra .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
   const started = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".engine-extra .route-plan.on") }));
-  check("route-ux-more (C1): a forest's card, New route from here: the nearest free train plans, the forest its first stop", started.planning && started.open === setup.engines[0] && JSON.stringify(await stopsOf(setup.engines[0])) === JSON.stringify([setup.places[0]]), JSON.stringify({ started, stops: await stopsOf(setup.engines[0]) }));
+  // (The free train nearest the forest, of the three.)
+  const first = started.open;
+  check("route-ux-more (C1): a forest's card, New route from here: the nearest free train plans, the forest its first stop", started.planning && setup.engines.includes(first) && JSON.stringify(await stopsOf(first)) === JSON.stringify([setup.places[0]]), JSON.stringify({ started, stops: await stopsOf(first) }));
   // B8: the sawmill, then the first stop's chip picked and the second forest tapped: it goes in after the first.
   await tapOn({ depot: setup.places[1] });
   await tapButton('.engine-extra .route-chip[data-stop="0"]');
   const hint = await p.evaluate(() => document.querySelector(".engine-extra .route-insert-hint")?.textContent);
   await tapOn({ depot: setup.places[2] });
-  const order = await stopsOf(setup.engines[0]);
+  const order = await stopsOf(first);
   check("route-ux-more (B8): planning with stop 1 picked, a place tapped goes in after it (said)", JSON.stringify(order) === JSON.stringify([setup.places[0], setup.places[2], setup.places[1]]) && /^Places you tap now go after /.test(hint ?? ""), JSON.stringify({ order, hint }));
   await tapButton(".engine-extra .route-plan.on");
   await still();
@@ -3925,11 +3927,11 @@ async function routeUxMore(ctx, p) {
   await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
   const joined = await p.evaluate((es) => {
     const w = window.woodrail;
-    const on = es.filter((e) => w.economy.lineIdOf.get(e) === w.economy.lineIdOf.get(es[0]));
+    const on = es.engines.filter((e) => w.economy.lineIdOf.get(e) === w.economy.lineIdOf.get(es.first));
     return { on, open: w.interaction.openEngineCarId };
-  }, setup.engines);
+  }, { engines: setup.engines, first });
   // (Of the two free trains, the one nearer the line's places.)
-  const added = joined.on.find((e) => e !== setup.engines[0]);
+  const added = joined.on.find((e) => e !== first);
   check("route-ux-more (C2): + Train puts a free train on the line, and opens its card", joined.on.length === 2 && joined.open === added, JSON.stringify(joined));
   await p.keyboard.press("Escape");
   // C2: + New line: the last free train's card, planning.
@@ -3937,7 +3939,7 @@ async function routeUxMore(ctx, p) {
   await tapButton(".lines-head .lines-new");
   await p.waitForFunction(() => !!document.querySelector(".engine-extra .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
   const fresh = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".engine-extra .route-plan.on") }));
-  check("route-ux-more (C2): + New line opens the last free train's card, planning", fresh.planning && fresh.open !== -1 && fresh.open !== added && fresh.open !== setup.engines[0], JSON.stringify({ fresh, added }));
+  check("route-ux-more (C2): + New line opens the last free train's card, planning", fresh.planning && fresh.open !== -1 && fresh.open !== added && fresh.open !== first, JSON.stringify({ fresh, added }));
   await tapButton(".engine-extra .route-plan.on");
   await p.keyboard.press("Escape");
   // B6: a line on two ways (the harness's `twoWays`), the top road taken up: the card says it goes another way now,
