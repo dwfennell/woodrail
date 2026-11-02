@@ -359,6 +359,116 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await ctx.close();
 }
 
+// ---- desktop: a route planned by clicks; Ctrl+Z undoes a stop while planning; a stop's mode; Leave asks; Ctrl+Z ----
+// (The route card's UX fixes, docs/design/2026-11-02-route-ux F1–F3, with a mouse. Setup only, not what's tested: an
+// oval of track with a forest and a sawmill on it, and a train, put down in code past the land's edge on the flat
+// table, where the view can go.)
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const o = S.oval(scratch);
+    const xs = o.ids.map((i) => scratch.getPiece(i).pose.x);
+    const zs = o.ids.map((i) => scratch.getPiece(i).pose.z);
+    const b = w.director.bounds;
+    // (The first spot, from the bounds' edge inward, with no piece within 1.6 m and no model within 1 m.)
+    let g = null;
+    for (let x = b.x1 - 1600; !g && x > b.x0 + 1600; x -= 200)
+      for (let z = b.z0 + 1600; !g && z < b.z1 - 1600; z += 200) {
+        const free = [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 1600; }) && [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 1000);
+        if (free) g = { x: x - (Math.min(...xs) + Math.max(...xs)) / 2, z: z - (Math.min(...zs) + Math.max(...zs)) / 2 };
+      }
+    if (!g) throw new Error("no room for the oval");
+    const types = { 0: "depot-forest", 7: "depot-sawmill" };
+    const placed = w.editor().placeRun(o.ids.map((i, k) => {
+      const q = scratch.getPiece(i);
+      return { type: types[k] ?? q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = [depot(placed[0], "forest").id, depot(placed[7], "sawmill").id];
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: placed[2], pathIndex: 0, s: 150, reversed: false });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(engine, 0);
+    w.director.glideTo(new w.controls.target.constructor(g.x + (Math.min(...xs) + Math.max(...xs)) / 2, 0, g.z + (Math.min(...zs) + Math.max(...zs)) / 2), 2600, { duration: 0.2 });
+    w.invalidate();
+    return { engine, places, pieces: [placed[0], placed[7]] };
+  });
+  const still = async () => {
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+    await frames(p);
+  };
+  await still();
+  const at = (what) => p.evaluate((what) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    let v;
+    if (what.engine !== undefined) {
+      const t = w.sim.findCar(what.engine).train;
+      v = new V((t.world[0].x + t.world[1].x) / 2, t.world[0].y, (t.world[0].z + t.world[1].z) / 2);
+    } else {
+      const q = w.layout.getPiece(what.piece);
+      v = new V(q.pose.x + Math.cos(q.pose.heading) * 108, q.y, q.pose.z + Math.sin(q.pose.heading) * 108);
+    }
+    const c = v.project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
+  }, what);
+  const clickOn = async (what) => {
+    const [x, y] = await at(what);
+    await p.mouse.click(x, y);
+    await frames(p);
+  };
+  const clickButton = async (sel) => {
+    await p.waitForFunction((sel) => { const e = document.querySelector(sel); return !!e && e.offsetParent !== null; }, sel, { timeout: 30000 });
+    await frames(p);
+    await p.waitForTimeout(250);
+    const [x, y] = await p.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
+    await p.mouse.click(x, y);
+    await frames(p);
+  };
+  const route = () => p.evaluate((e) => {
+    const w = window.woodrail;
+    const r = w.economy.routeOf(e);
+    return { stops: r?.stops.map((s) => ({ d: s.depotId, a: s.action, via: s.via ?? [] })) ?? [], next: r?.next ?? -1, lines: w.economy.lines.size };
+  }, setup.engine);
+  await clickOn({ engine: setup.engine });
+  await clickButton(".engine-extra .route-plan");
+  await clickOn({ piece: setup.pieces[0] });
+  const one = await route();
+  await still();
+  await clickOn({ piece: setup.pieces[1] });
+  const two = await route();
+  check("desktop: a route planned by clicks (the engine, Plan a route, the forest, the sawmill)", one.stops.length === 1 && two.stops.length === 2 && two.stops[1].d === setup.places[1], JSON.stringify({ one, two }));
+  await p.keyboard.press("Control+z");
+  await frames(p);
+  const undone = await route();
+  check("desktop (F1): Ctrl+Z while planning takes the stop just added off, the train heading where it did", JSON.stringify(undone) === JSON.stringify(one) && (await p.evaluate(() => document.querySelector(".engine-extra .route-plan.on") !== null)), JSON.stringify({ undone, one }));
+  await still();
+  await clickOn({ piece: setup.pieces[1] });
+  await clickButton(".engine-extra .route-plan.on");
+  await clickButton('.engine-extra .route-chip[data-stop="1"]');
+  const opts = await p.evaluate(() => ({ modes: [...document.querySelectorAll(".engine-extra .route-mode")].map((b) => b.textContent), pass: !!document.querySelector(".engine-extra .route-pass") }));
+  await clickButton('.engine-extra .route-mode[data-mode="drop"]');
+  const dropped = await route();
+  check("desktop (F2): the stop's three modes, Only drop clicked; no Pass by with two stops", opts.modes.length === 3 && !opts.pass && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
+  await clickButton(".engine-extra .route-leave");
+  const asked = await route();
+  const text = await p.evaluate(() => document.querySelector(".engine-extra .route-leave")?.textContent);
+  await clickButton(".engine-extra .route-leave.asking");
+  const gone = await route();
+  check("desktop (F3): Leave asks first (\"Forget …?\"), the second click forgets the line", asked.lines === 1 && /^Forget/.test(text ?? "") && gone.lines === 0 && gone.stops.length === 0, JSON.stringify({ asked, text, gone }));
+  await p.keyboard.press("Control+z");
+  await frames(p);
+  const back = await route();
+  check("desktop (F1): Ctrl+Z brings the line back, Only drop and all", back.lines === 1 && back.stops.length === 2 && back.stops[1].a === "drop", JSON.stringify(back));
+  await ctx.close();
+}
+
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 await b.close();
 await server.close();

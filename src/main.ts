@@ -3146,6 +3146,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // Its number always (the order), filled in the line's colour on the stop the train's heading for: the ▶ that
         // marked it took the number's place, and ▶ also meant "visit later" in the tools under it (audit F7).
         chip.append(Object.assign(document.createElement("span"), { className: "route-num", textContent: `${k + 1}` }), nameOf(st.depotId));
+        chip.dataset.stop = String(k);
         chip.classList.toggle("next", r?.next === k);
         if (r?.next === k) {
           chip.setAttribute("aria-current", "step");
