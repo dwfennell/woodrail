@@ -42,11 +42,11 @@ describe("RouteView", () => {
     );
     const meshes = view.group.children.filter((o) => (o as Mesh).isMesh && o.name.startsWith("route-"));
     // The dotted way: soft dashes, one mesh for its colour.
-    expect(meshes.map((m) => m.name).sort()).toEqual(["route-dots", "route-edge", "route-ribbon"]);
+    expect(meshes.map((m) => m.name).sort()).toEqual(["route-chevrons", "route-dots", "route-edge", "route-ribbon"]);
     const discs = view.group.children.filter((o) => (o as Sprite).isSprite);
     expect(discs.map((d) => d.userData)).toMatchObject(stops.map((pieceId, index) => ({ kind: "route-stop", pieceId, index })));
-    // (The ribbon, its dark edge, the dots, and a disc and post a stop.)
-    expect(view.group.children).toHaveLength(3 + 3 * 2);
+    // (The ribbon, its dark edge, its arrows, the dots, and a disc and post a stop.)
+    expect(view.group.children).toHaveLength(4 + 3 * 2);
     // The ribbon lies just over the track's top (all flat here).
     const ribbon = meshes.find((m) => m.name === "route-ribbon") as Mesh;
     ribbon.geometry.computeBoundingBox();
@@ -60,8 +60,8 @@ describe("RouteView", () => {
     ribbon.geometry.addEventListener("dispose", () => (disposed = true));
     view.show([{ runs: legs[0]!, colour: "#3a7bd5" }], []);
     expect(disposed).toBe(true);
-    // (The ribbon and its edge.)
-    expect(view.group.children).toHaveLength(2);
+    // (The ribbon, its edge and its arrows.)
+    expect(view.group.children).toHaveLength(3);
     view.clear();
     expect(view.group.children).toHaveLength(0);
     view.dispose();
@@ -169,5 +169,37 @@ describe("ribbon edges against the track (audit F10)", () => {
   it("every line colour's edge, drawn at the ribbon's opacity over beech, holds 3:1 against beech", () => {
     const BEECH = "#e7c89a";
     for (const { name, colour } of LINE_COLOURS) expect(contrast(over(ribbonEdge(colour), BEECH, RIBBON_OPACITY), BEECH), name).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("which way a ribbon runs (audit F8)", () => {
+  it("arrowheads along it, spaced, each pointing the way its run goes", () => {
+    // (A straight run, so "ahead" is one way all along it.)
+    const layout = new Layout();
+    const ids: number[] = [];
+    for (const t of ["depot-farm", "straight-216", "straight-216", "straight-216", "depot-mill"] as PieceTypeId[]) ids.push(ids.length ? appendPiece(layout, t, false, connectorRef(ids[ids.length - 1], 1)) : layout.addPiece(t, { x: 0, z: 0, heading: 0 }));
+    const view = new RouteView(layout, stubMaterials());
+    const legs = lineLegs(layout, [ids[0], ids[4]]);
+    view.show([{ runs: legs[0]!, colour: "#3a7bd5" }], []);
+    const arrows = view.group.children.find((o) => o.name === "route-chevrons") as Mesh;
+    const p = arrows.geometry.getAttribute("position");
+    const n = p.count / 3;
+    expect(n).toBeGreaterThanOrEqual(2);
+    // Each: its tip (the first point) ahead of its two back corners, the way the train goes from stop 1 to stop 2.
+    const from = layout.getPiece(ids[0])!.pose;
+    const to = layout.getPiece(ids[4])!.pose;
+    const way = { x: to.x - from.x, z: to.z - from.z };
+    // (The leg first runs back to the end of the farm's piece, where the train turns, and its arrows there point back:
+    // those on the straights between the stops are checked.)
+    let between = 0;
+    for (let i = 0; i < n; i++) {
+      const tip = { x: p.getX(3 * i), z: p.getZ(3 * i) };
+      if (tip.x < 216 || tip.x > 864) continue;
+      between++;
+      const back = { x: (p.getX(3 * i + 1) + p.getX(3 * i + 2)) / 2, z: (p.getZ(3 * i + 1) + p.getZ(3 * i + 2)) / 2 };
+      expect((tip.x - back.x) * way.x + (tip.z - back.z) * way.z).toBeGreaterThan(0);
+    }
+    expect(between).toBeGreaterThanOrEqual(4);
+    view.dispose();
   });
 });

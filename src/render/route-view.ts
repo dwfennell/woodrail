@@ -52,6 +52,11 @@ const RIBBON_LIFT = 0.4;
 /** The dark edge under a ribbon: how far it shows past each side (mm), and its lift (under the ribbon's). */
 const EDGE_WIDTH = 4;
 const EDGE_LIFT = 0.3;
+/** The arrowheads showing which way a ribbon runs: every this far along it (mm), this long and wide, over it. */
+const CHEVRON_GAP = 120;
+const CHEVRON_LENGTH = 9;
+const CHEVRON_WIDTH = 9;
+const CHEVRON_LIFT = 0.6;
 /** How dark a ribbon's edge is: its colour (in linear light) times this. */
 const EDGE_SHADE = 0.15;
 
@@ -108,6 +113,7 @@ export class RouteView {
   private readonly discMats = new Map<string, SpriteMaterial>();
   private readonly postGeom = new CylinderGeometry(POST_RADIUS, POST_RADIUS, 1, 6).translate(0, 0.5, 0);
   private edgeAlpha: DataTexture | null = null;
+  private arrowMat: MeshBasicMaterial | null = null;
   /** The discs drawn (sprites), each with its place over its stop (`userData.base`) and size (`userData.size`). */
   private discs: Sprite[] = [];
   /** Animation: the next stop's pulse until this time, and a disc (by stop) popping in since `popAt` (seconds). */
@@ -154,6 +160,19 @@ export class RouteView {
         const e = stripOf(ribbonEdge(r.colour), false);
         for (const run of r.runs) if (this.layout.getPiece(run.pieceId)) this.span(run, run.s0, run.s1, EDGE_LIFT, e.pos, e.uv, RIBBON_WIDTH + 2 * EDGE_WIDTH);
       }
+    }
+    // Which way the train runs: small arrowheads along each solid ribbon, spaced by distance along it (audit F8: a
+    // shuttle and a ring looked the same). One mesh for them all, built with the ribbons.
+    const arrows: number[] = [];
+    for (const r of ribbons) if (!r.dotted) this.chevrons(r.runs, arrows);
+    if (arrows.length > 0) {
+      const g = new BufferGeometry();
+      g.setAttribute("position", new Float32BufferAttribute(arrows, 3));
+      g.computeBoundingSphere();
+      const mesh = new Mesh(g, this.chevronMaterial());
+      mesh.renderOrder = 4;
+      mesh.name = "route-chevrons";
+      this.group.add(mesh);
     }
     if (gaps.length > 0) {
       const red = stripOf(GAP_COLOUR, true);
@@ -283,6 +302,8 @@ export class RouteView {
     this.discMats.clear();
     this.edgeAlpha?.dispose();
     this.edgeAlpha = null;
+    this.arrowMat?.dispose();
+    this.arrowMat = null;
   }
 
   /** World point `side` mm to the left of a path's centre line at `s`, `lift` mm over the track's top. */
@@ -327,6 +348,37 @@ export class RouteView {
   private strip(run: PathRun, pos: number[], uv: number[]): void {
     if (!this.layout.getPiece(run.pieceId)) return;
     this.span(run, run.s0, run.s1, RIBBON_LIFT, pos, uv);
+  }
+
+  /**
+   * Arrowheads along a ribbon's runs, the way each run goes (s0 to s1, the way the train runs), every `CHEVRON_GAP`
+   * of the whole way (so they run on evenly from piece to piece): a flat triangle each, over the ribbon.
+   */
+  private chevrons(runs: readonly PathRun[], pos: number[]): void {
+    let along = 0;
+    const a: number[] = [];
+    for (const run of runs) {
+      if (!this.layout.getPiece(run.pieceId)) continue;
+      const dir = run.s1 >= run.s0 ? 1 : -1;
+      const n = Math.abs(run.s1 - run.s0);
+      for (let k = Math.ceil((along - CHEVRON_GAP / 2) / CHEVRON_GAP); ; k++) {
+        const d = k * CHEVRON_GAP + CHEVRON_GAP / 2 - along;
+        if (d > n) break;
+        // (Whole on this run: an arrow straddling a joint is left for the next.)
+        if (d - CHEVRON_LENGTH / 2 < 0 || d + CHEVRON_LENGTH / 2 > n) continue;
+        const s = run.s0 + dir * d;
+        a.length = 0;
+        this.point(run, s + (dir * CHEVRON_LENGTH) / 2, 0, CHEVRON_LIFT, a);
+        this.point(run, s - (dir * CHEVRON_LENGTH) / 2, CHEVRON_WIDTH / 2, CHEVRON_LIFT, a);
+        this.point(run, s - (dir * CHEVRON_LENGTH) / 2, -CHEVRON_WIDTH / 2, CHEVRON_LIFT, a);
+        pos.push(...a);
+      }
+      along += n;
+    }
+  }
+
+  private chevronMaterial(): MeshBasicMaterial {
+    return (this.arrowMat ??= new MeshBasicMaterial({ color: new Color("#fff6e6"), transparent: true, opacity: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6, side: DoubleSide, fog: false }));
   }
 
   /** Dashes along the runs, spaced by distance along the whole way (so they run on evenly from piece to piece). */
