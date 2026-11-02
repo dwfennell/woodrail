@@ -94,20 +94,28 @@ describe(`routing fuzz with signals: ${SEEDS} seeds × ${SECONDS} s`, () => {
  * seed's layout and trains run twice, every train hand-run, and train 0 given a route (its own, else the first stop to
  * the last), the rest hand-run. With the route there must be no stall where all hand-run had none, and the stops come
  * to (every train's, a depot piece coming under it) must not drop by half or more. Over the fuzz's lines and over rings
- * (`ringFuzz`: hand-run trains one behind another round a ring with a passing loop, as on the user's map).
- * `ROUTE_WORSE=1` prints each seed's numbers.
+ * (`ringFuzz`: hand-run trains one behind another round a ring with a passing loop, as on the user's map). On the rings
+ * a third run, a line: 2 or 3 of the trains (by the seed) routed on one line A ⇄ B, the rest hand-run (the user,
+ * 2026-11-02: line trains on a circuit follow each other, no room rule there). `ROUTE_WORSE=1` prints each seed's numbers.
  */
 describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines and rings`, () => {
   type Run = { stalls: number; visits: number; why: string };
-  type Pair = { name: string; hand: Run; routed: Run };
+  type Pair = { name: string; hand: Run; routed: Run; line?: Run; lineOf?: number };
   const handRun = (t: TrainSpec): TrainSpec => ({ ...t, stops: undefined, line: undefined, next: undefined, vias: undefined });
-  const variant = (sc: Scenario, routed: boolean): Scenario => ({
+  /** `routed`: how many trains get a route (0: all hand-run; 1: train 0; more: the first that many, on one line). */
+  const variant = (sc: Scenario, routed: number): Scenario => ({
     ...sc,
-    name: `${sc.name} (${routed ? "train 0 routed" : "all hand-run"})`,
+    name: `${sc.name} (${routed === 0 ? "all hand-run" : routed === 1 ? "train 0 routed" : `a line of ${routed}`})`,
     build: (layout) => {
       const b = sc.build(layout);
       const depots = [...layout.pieceIds()].filter((id) => layout.getPiece(id)!.type.startsWith("depot"));
-      const trains = b.trains.map((t, k) => (routed && k === 0 ? { ...t, stops: t.stops ?? [depots[0], depots[depots.length - 1]], line: t.stops ? t.line : undefined, next: t.next ?? 0 } : handRun(t)));
+      const trains = b.trains.map((t, k) =>
+        routed === 1 && k === 0
+          ? { ...t, stops: t.stops ?? [depots[0], depots[depots.length - 1]], line: t.stops ? t.line : undefined, next: t.next ?? 0 }
+          : routed > 1 && k < routed
+            ? { ...t, stops: [depots[0], depots[depots.length - 1]], line: 1, next: k % 2, vias: undefined }
+            : handRun(t),
+      );
       // (Stops come to: a depot piece newly under a train, counted every tick for every train.)
       const under = new Map<number, Set<number>>();
       let visits = 0;
@@ -134,25 +142,44 @@ describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines an
     const r = new HarnessRun(layout, sc).run(SECONDS);
     return { stalls: r.stalls.begun, visits: counters.get(layout)?.visits ?? 0, why: r.stalls.why.map((w) => w ?? "-").join("/") };
   };
+  /** The trains a ring seed puts down (its line takes 2 or 3 of them, never more than there are). */
+  const trainsOf = (sc: Scenario): number => sc.build(new Layout()).trains.length;
+  const show = (r: Run) => `${r.visits} stops, ${r.stalls} stalls (${r.why})`;
   let pairs: Pair[] | undefined;
   const run = () =>
-    (pairs ??= [...Array.from({ length: SEEDS }, (_, k) => fuzz(FIRST + k, SECONDS)), ...Array.from({ length: SEEDS }, (_, k) => ringFuzz(FIRST + k, SECONDS))].map((sc) => {
-      const pair = { name: sc.name, hand: once(variant(sc, false)), routed: once(variant(sc, true)) };
-      if (ENV.ROUTE_WORSE || (LONG && worse(pair))) console.log(`${pair.name}: all hand-run ${pair.hand.visits} stops, ${pair.hand.stalls} stalls (${pair.hand.why}); train 0 routed ${pair.routed.visits} stops, ${pair.routed.stalls} stalls (${pair.routed.why})${worse(pair) ? `  WORSE: ${worse(pair)}` : ""}`);
+    (pairs ??= [
+      ...Array.from({ length: SEEDS }, (_, k) => ({ sc: fuzz(FIRST + k, SECONDS), lineOf: 0 })),
+      ...Array.from({ length: SEEDS }, (_, k) => {
+        const sc = ringFuzz(FIRST + k, SECONDS);
+        return { sc, lineOf: Math.min(trainsOf(sc), 2 + ((FIRST + k) % 2)) };
+      }),
+    ].map(({ sc, lineOf }) => {
+      const pair: Pair = { name: sc.name, hand: once(variant(sc, 0)), routed: once(variant(sc, 1)) };
+      if (lineOf >= 2) {
+        pair.line = once(variant(sc, lineOf));
+        pair.lineOf = lineOf;
+      }
+      if (ENV.ROUTE_WORSE || (LONG && worse(pair))) console.log(`${pair.name}: all hand-run ${show(pair.hand)}; train 0 routed ${show(pair.routed)}${pair.line ? `; a line of ${pair.lineOf} ${show(pair.line)}` : ""}${worse(pair) ? `  WORSE: ${worse(pair)}` : ""}`);
       return pair;
     }));
-  const worse = (p: Pair): string => {
+  const worseThan = (hand: Run, r: Run, what: string): string[] => {
     const out: string[] = [];
-    if (p.routed.stalls > 0 && p.hand.stalls === 0) out.push("a new stall");
-    if (p.routed.visits * 2 <= p.hand.visits && p.hand.visits >= 4) out.push(`stops ${p.hand.visits} → ${p.routed.visits}`);
-    return out.join(", ");
+    if (r.stalls > 0 && hand.stalls === 0) out.push(`${what}: a new stall`);
+    if (r.visits * 2 <= hand.visits && hand.visits >= 4) out.push(`${what}: stops ${hand.visits} → ${r.visits}`);
+    return out;
   };
-  const timeout = LONG ? 24 * 3600_000 : 120_000;
+  const worse = (p: Pair): string => [...worseThan(p.hand, p.routed, "routed"), ...(p.line ? worseThan(p.hand, p.line, `line of ${p.lineOf}`) : [])].join(", ");
+  const timeout = LONG ? 24 * 3600_000 : 180_000;
   it("no stall the all-hand-run run doesn't have, and no drop by half in stops come to (but the known ones)", () => {
     expect(run().filter((p) => worse(p) && !(p.name in KNOWN_WORSE)).map((p) => `${p.name}: ${worse(p)}`)).toEqual([]);
   }, timeout);
   it("the known ones still are (a fix takes its entry off)", () => {
     expect(run().filter((p) => p.name in KNOWN_WORSE && !worse(p)).map((p) => p.name)).toEqual([]);
+  }, timeout);
+  it("the rings' lines run: every ring seed's line of 2 or 3 comes to its stops", () => {
+    const lines = run().filter((p) => p.line);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.filter((p) => p.line!.visits < 4).map((p) => `${p.name}: ${show(p.line!)}`)).toEqual([]);
   }, timeout);
 });
 

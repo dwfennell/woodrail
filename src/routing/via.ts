@@ -79,3 +79,23 @@ export function skipVias(r: ViaProgress, n: number, viasOf: ViasOf, pieces: Read
   r.viaDone = done;
   return true;
 }
+
+/**
+ * A route's aims round one lap from where it's aimed now (stop `i`, `done` of the vias into it passed): the vias into
+ * each stop not passed (those on the map), then the stop (`stopPiece`, −1: off the map, left out), stop by stop from `i`
+ * round, and last the vias into `i` already passed (they come again next lap). For sections' `circling`: where a train
+ * goes from here on, leg by leg, without stopping at the first stop.
+ */
+export function lapAims(n: number, i: number, done: number, viasOf: ViasOf, onMap: (pieceId: number) => boolean, stopPiece: (k: number) => number): number[] {
+  const out: number[] = [];
+  for (let s = 0; s < n; s++) {
+    const k = (i + s) % n;
+    const vias = into(n, k, viasOf);
+    for (let v = s === 0 ? done : 0; v < vias.length; v++) if (onMap(vias[v])) out.push(vias[v]);
+    const p = stopPiece(k);
+    if (p >= 0) out.push(p);
+  }
+  const first = into(n, i, viasOf);
+  for (let v = 0; v < Math.min(done, first.length); v++) if (onMap(first[v])) out.push(first[v]);
+  return out;
+}

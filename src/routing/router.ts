@@ -144,6 +144,7 @@ interface Want {
 export class Router {
   /** The way each line last took at points (stickiness, §3.1): written as its trains' points are set, read by all who plan. */
   readonly ways = new WayMemory();
+  private readonly costOut = { cost: 0 };
   /** Called when routing has set a switch, or put one back (its piece id: the game swings its lever, with a soft click). */
   onSwitch: ((pieceId: number) => void) | null = null;
   /** Time in the router's looks and locks (ms) and the looks made, when `timing` is on. */
@@ -957,14 +958,17 @@ export class Router {
       if (ways.length > 1) {
         const followed = follow ? ways.filter((x) => follow(n.pieceId, x.path)) : [];
         // (Its line's way kept where two cost nearly the same: stickiness, remembered as it's set.)
-        const best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target));
+        const cost = this.costOut;
+        const best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost);
         // (No way on leads there: nothing set, and nothing further asked for.)
         if (best === -1) break;
-        if (followed.length !== 1) this.ways.set(owner, n.pieceId, n.entry, target, best);
+        if (followed.length !== 1) this.ways.set(owner, n.pieceId, n.entry, target, best, cost.cost);
         want.push({ pieceId: n.pieceId, state: best, ways: ways.length, entry: n.entry, d });
         w = ways[best];
         clear = 0;
       }
+      // (Its line's trail toward the target, once it has chosen here: what keeps its way at points laid since, §3.5.)
+      this.ways.ran(owner, n.pieceId, n.entry, target);
       const p = layout.getPiece(n.pieceId)!;
       const len = pathLength(getPieceDef(p.type, p.flipped).paths[w.path].geom);
       if (clear >= 0 && ways.length === 1) clear += len;

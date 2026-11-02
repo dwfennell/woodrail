@@ -80,7 +80,7 @@ describe("stickiness", () => {
     expect(planWay(l, loop.s1, 0, ways, b, undefined, other)).toBe(sticks(costs[other], costs[best]) ? other : best);
     const m = new WayMemory();
     m.set(1, loop.s1, 0, b, other);
-    expect(m.of(1)(loop.s1, 0, b)).toBe(other);
+    expect(m.of(1)(loop.s1, 0, b)?.way?.option).toBe(other);
     expect(m.of(2)(loop.s1, 0, b)).toBeUndefined();
     m.forget(1);
     expect(m.get(1, loop.s1, 0, b)).toBeUndefined();

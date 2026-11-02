@@ -504,7 +504,52 @@ export const ringRoutedAmongHandRun: Scenario = {
   },
 };
 
-export const SHARED: readonly Scenario[] = [twoLinesOneLoop, twoLinesNoLoop, threeLinesTwoLoops, twoLinesThreeTrains, linelessWithLine, ringRoutedAmongHandRun];
+/**
+ * A line of three routed trains on `ringWithLoop` (one passing loop), all going the same way round, A ⇄ B (the user,
+ * 2026-11-02: "a line of 3 on a ring with 1 loop is held too many, though they could just follow round"). They follow
+ * one another round the ring (`Sections.follows`), and the room rule (loops + 1) isn't applied: every train goes round.
+ */
+export const ringLineOfThree: Scenario = {
+  name: "a line of three routed trains following each other round a ring with one loop",
+  seconds: KID_SECONDS,
+  maxStill: KID_STILL,
+  build: (layout) => {
+    const r = ringWithLoop(layout);
+    return {
+      trains: [
+        { pieceId: r.loop.main[0], stops: [r.a, r.b], next: 0, line: 1, cars: CARS },
+        { pieceId: r.north[1], stops: [r.a, r.b], next: 1, line: 1, cars: CARS },
+        { pieceId: r.round[2], stops: [r.a, r.b], next: 1, line: 1, cars: CARS },
+      ],
+    };
+  },
+};
+
+/**
+ * The same ring and line, but one train put down facing the other way: it goes round the other way (a ring has no end to
+ * turn at), so it could meet the others head on. Single-line working stays: `three` false, two trains pass at the loop;
+ * `three`, the line has a train too many for its one loop (said stuck, "Add a passing loop"), as before.
+ */
+export function ringLineBothWays(three: boolean): Scenario {
+  return {
+    name: `a line of ${three ? "three" : "two"} routed trains round a ring with one loop, one going the other way`,
+    seconds: three ? 300 : KID_SECONDS,
+    // (Each waits at the loop while the other comes round the ring to pass: about 25 s.)
+    maxStill: 60,
+    build: (layout) => {
+      const r = ringWithLoop(layout);
+      return {
+        trains: [
+          { pieceId: r.loop.main[0], stops: [r.a, r.b], next: 0, line: 1, cars: CARS },
+          { pieceId: r.north[1], reversed: true, stops: [r.a, r.b], next: 1, line: 1, cars: CARS },
+          ...(three ? [{ pieceId: r.round[2], stops: [r.a, r.b], next: 1, line: 1, cars: CARS }] : []),
+        ],
+      };
+    },
+  };
+}
+
+export const SHARED: readonly Scenario[] = [twoLinesOneLoop, twoLinesNoLoop, threeLinesTwoLoops, twoLinesThreeTrains, linelessWithLine, ringRoutedAmongHandRun, ringLineOfThree];
 
 /** The branch delivery, with the player doing `what` once the wye is set for the siding and the train is coming to it. */
 function duringLock(name: string, what: (run: HarnessRun, o: ReturnType<typeof ovalWithSiding>) => void): Scenario {
@@ -1021,4 +1066,44 @@ export function handFollower(): { scenario: Scenario; j: () => ReturnType<typeof
       },
     },
   };
+}
+
+// ── Track edits with a route running: it keeps its way (the user, 2026-11-02) ──────────────────────────────────────
+
+/**
+ * A racetrack, A ══ X1 ══ ══ ══ (round) ══ ══ ══ X2 B (round) back to A, X1 and X2 short straights opposite each other.
+ * A train going A to B goes the long way round by the far end. `shortcut` lays the shortcut a player might: X1 and X2
+ * taken up and points put in their place, joined by two curves across (the chord): A to B by it is far shorter.
+ */
+export function racetrack(layout: Layout) {
+  const ids = chain(layout, [STOP, "straight-144", S, S, S, C, C, C, C, S, S, S, "straight-144", STOP, C, C, C, C]);
+  if (layout.joinedConnector(connectorRef(ids[0], 0)) === -1) throw new Error("the racetrack doesn't close");
+  const [a, x1] = ids;
+  const x2 = ids[12];
+  const b = ids[13];
+  const top = ids.slice(9, 12);
+  const shortcut = () => {
+    layout.removePiece(x1);
+    const s1 = appendPiece(layout, "switch", false, connectorRef(a, 1), 0);
+    const chord = chain(layout, [C, C], connectorRef(s1, 2));
+    layout.removePiece(x2);
+    const s2 = appendPiece(layout, "switch", true, connectorRef(chord[1], 1), 2);
+    if (layout.joinedConnector(connectorRef(s2, 0)) !== connectorRef(b, 0)) throw new Error("the shortcut doesn't join");
+    return { s1, s2, chord };
+  };
+  return { a, b, x1, x2, top, far: ids.slice(5, 9), near: ids.slice(14, 18), shortcut };
+}
+
+/**
+ * A ring with two passing loops: A, the north loop, ══ (round) B, the south loop, (round) back to A. A train A ⇄ B
+ * goes by the north loop to B and the south loop back: each leg has its own loop, a choice of two roads.
+ */
+export function ringTwoLoops(layout: Layout) {
+  const [a] = chain(layout, [STOP]);
+  const north = loopOn(layout, connectorRef(a, 1), [S, S], [S]);
+  const rest = chain(layout, ["straight-144", C, C, C, C, STOP, "straight-144"], connectorRef(north.s2, 0));
+  const south = loopOn(layout, connectorRef(rest[6], 1), [S, S], [S]);
+  const round = chain(layout, [C, C, C, C], connectorRef(south.s2, 0));
+  if (layout.joinedConnector(connectorRef(a, 0)) !== connectorRef(round[3], 1)) throw new Error("the ring doesn't close");
+  return { a, b: rest[5], north, south };
 }

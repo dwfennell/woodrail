@@ -242,6 +242,27 @@ const SHARED: Case[] = [
     },
   },
   {
+    // (The user, 2026-11-02: held "too many" before, though they could just follow round.)
+    scenario: S.ringLineOfThree,
+    checks: {
+      "payoff: each train 40+ stops in 30 min": arrivals(40),
+      "they follow each other round, none held for room: never stuck": noStall,
+      "nobody turns back (a ring has no end)": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
+    },
+  },
+  {
+    // (One going the other way could meet the others head on: single-line working stays, they pass at the loop.)
+    scenario: S.ringLineBothWays(false),
+    checks: { "payoff: each train 40+ stops in 30 min": arrivals(40), "they pass at the loop: never stuck": noStall },
+  },
+  {
+    // (Three, one going the other way, one loop: a train too many, as before; said stuck, the fix a loop.)
+    scenario: S.ringLineBothWays(true),
+    checks: {
+      "the room rule stays: one held, said stuck too-many": (r) => expect(r.stalls.why.filter((w) => w === "too-many").length).toBeGreaterThan(0),
+    },
+  },
+  {
     scenario: S.twoLinesNoLoop,
     // (No passing place: each stands where it is, waiting for the other's end of the line, stuck in its way; the card
     // says to add a passing loop, engine-status.ts.)

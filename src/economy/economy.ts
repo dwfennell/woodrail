@@ -9,7 +9,7 @@ import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
-import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
+import { aimOf, lapAims, passVias, resetVias, skipVias, viaDone } from "../routing/via";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -362,6 +362,7 @@ export class Economy {
         return live;
       },
       target: (engine) => this.headingFor(engine),
+      lap: (engine) => this.lapOf(engine),
       stopPieces: (lineId) => {
         const line = this.lines.get(lineId);
         const out: number[] = [];
@@ -441,6 +442,23 @@ export class Economy {
       for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
     }
     return this.aim(r, i, skip);
+  }
+
+  /** Its aims round one lap from the one it has now (`lapAims`: sections' `circling`). */
+  private lapOf(engine: number): number[] {
+    const r = this.routes.get(engine);
+    if (!r || r.stops.length === 0) return [];
+    let i = r.next % r.stops.length;
+    if (r.at) {
+      const here = r.stops[i].depotId;
+      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+    }
+    const onMap = (p: number) => !!this.layout.getPiece(p);
+    const stop = (k: number) => {
+      const d = this.depots[r.stops[k].depotId];
+      return d && this.onMap(d) ? d.pieceId : -1;
+    };
+    return lapAims(r.stops.length, i, viaDone(r, i), (k) => r.stops[k].via, onMap, stop);
   }
 
   /** Where a routed engine is aimed now, for the map: its next stop's piece (at it, that stop), or a via point on the way; −1: none. */
