@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { techOf, TECHS, built } from "./tech";
 import { Progress } from "./progress";
-import { canResearch, coinsShort, costOf, deliver, lacking, lacks, pick, QUEUE_MAX, queueOf, queuePlace, simElapsed, startNow, type StudyClock, STUDY_HALL, STUDY_SECONDS, studyLeft, studying, studyTime, tick, toggleQueue } from "./research";
+import { canResearch, chainBlock, chainOf, coinsShort, costOf, deliver, dequeue, lacking, lacks, missingNeeds, nowTarget, pick, QUEUE_MAX, queueOf, queuePlace, repairQueue, simElapsed, startNow, type StudyClock, STUDY_HALL, STUDY_SECONDS, studyLeft, studying, studyTime, tick, toggleQueue } from "./research";
 
 /** A player who knows switches (so tier-2 Routes, with its coins, can be researched too). */
 function player(coins = 0): Progress {
@@ -371,5 +371,170 @@ describe("the research queue (#14)", () => {
     const old = Progress.fromJSON({ owned: [], learned: [], research: { current: "bridges", next: "signals", got: [], study: 0 } });
     expect(old.research.later).toEqual([]);
     expect("later" in old.toJSON().research!).toBe(false);
+  });
+});
+
+/** Under way, then the queue in order. */
+const line = (p: Progress) => [p.research.current, ...queueOf(p.research)];
+
+describe("chains in the queue: what a research needs queued ahead of it", () => {
+  it("missingNeeds lists the blueprints not learned yet, through the ones they need, prerequisites first", () => {
+    const p = Progress.fresh();
+    expect(missingNeeds(p, "engine-shed")).toEqual(["switches", "junctions"]);
+    expect(missingNeeds(p, "mills")).toEqual(["farming"]);
+    expect(missingNeeds(p, "switches")).toEqual([]);
+    p.learned.add("switches");
+    expect(missingNeeds(p, "engine-shed")).toEqual(["junctions"]);
+  });
+
+  it("one whose prerequisite is under way or queued ahead of it joins the end of the queue", () => {
+    const p = Progress.fresh();
+    p.coins = 100;
+    expect(toggleQueue(p, "farming")).toBe("current");
+    // Farming is under way: Mills can wait behind it.
+    expect(chainOf(p, "mills")).toEqual(["mills"]);
+    expect(toggleQueue(p, "mills")).toBe("queued");
+    expect(line(p)).toEqual(["farming", "mills"]);
+    // Switches queued: Junctions can go behind it.
+    toggleQueue(p, "switches");
+    expect(toggleQueue(p, "junctions")).toBe("queued");
+    expect(line(p)).toEqual(["farming", "mills", "switches", "junctions"]);
+  });
+
+  it("a tap on one whose prerequisites aren't queued queues them first, in order, then it", () => {
+    const p = Progress.fresh();
+    p.coins = 500;
+    toggleQueue(p, "bridges");
+    expect(chainOf(p, "engine-shed")).toEqual(["switches", "junctions", "engine-shed"]);
+    expect(toggleQueue(p, "engine-shed")).toBe("queued");
+    expect(line(p)).toEqual(["bridges", "switches", "junctions", "engine-shed"]);
+    // With nothing under way the first of them starts.
+    const q = Progress.fresh();
+    expect(toggleQueue(q, "mills")).toBe("queued");
+    expect(line(q)).toEqual(["farming", "mills"]);
+  });
+
+  it("a chain held back by a requirement besides blueprints, a blueprint not in the game, or no room isn't queued", () => {
+    const p = Progress.fresh();
+    p.coins = 1000;
+    // Turntable needs a town: it can't be queued (nor what it needs, for it).
+    expect(chainBlock(p, "turntable")).toEqual({ stuck: "turntable" });
+    expect(toggleQueue(p, "turntable")).toBeNull();
+    expect(line(p)).toEqual([null]);
+    // Mills II needs flour ground: held back, though Farming and Mills could be queued.
+    expect(chainBlock(p, "mills2")).toEqual({ stuck: "mills2" });
+    expect(chainBlock(p, "mills")).toBeNull();
+    p.learned.add("farming");
+    // Room: four waiting leaves one place, Engine shed's chain takes three.
+    // The carpenter's bench needs 50 planks delivered: the Scenery kit after it is held back by it.
+    expect(chainBlock(p, "scenery")).toEqual({ stuck: "carpentry" });
+    expect(toggleQueue(p, "scenery")).toBeNull();
+    // Room: four waiting leaves one place; Engine shed's chain (after Switches, queued) takes two.
+    for (const id of ["bridges", "tank", "mills", "signals"]) toggleQueue(p, id);
+    expect(line(p)).toEqual(["bridges", "tank", "mills", "switches", "signals"]);
+    expect(chainBlock(p, "engine-shed")).toEqual({ full: 2 });
+    expect(toggleQueue(p, "engine-shed")).toBeNull();
+    expect(queueOf(p.research)).toHaveLength(4);
+    expect(chainBlock(p, "junctions")).toBeNull();
+  });
+
+  it("taking one out takes every queued one that needs it, directly or through another; the rest keep their order", () => {
+    const p = Progress.fresh();
+    p.coins = 500;
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "engine-shed"); // switches, junctions, engine-shed
+    toggleQueue(p, "mills"); // farming, mills
+    expect(line(p)).toEqual(["bridges", "switches", "junctions", "engine-shed", "farming", "mills"]);
+    expect(dequeue(p, "switches")).toEqual(["junctions", "engine-shed"]);
+    expect(line(p)).toEqual(["bridges", "farming", "mills"]);
+    // The tap does it too.
+    expect(toggleQueue(p, "farming")).toBe("removed");
+    expect(line(p)).toEqual(["bridges"]);
+    // One nothing needs: only it.
+    toggleQueue(p, "scenery");
+    toggleQueue(p, "tank");
+    expect(dequeue(p, "scenery")).toEqual([]);
+    expect(line(p)).toEqual(["bridges", "tank"]);
+  });
+
+  it("Research Farming now: one that needs blueprints starts the first of them, and the rest and it wait behind in order", () => {
+    const p = Progress.fresh();
+    p.coins = 500;
+    toggleQueue(p, "bridges");
+    deliver(p, "planks", 3);
+    toggleQueue(p, "tank");
+    toggleQueue(p, "engine-shed");
+    expect(line(p)).toEqual(["bridges", "tank", "switches", "junctions", "engine-shed"]);
+    // Never itself while it needs blueprints: the first of them that can start.
+    expect(nowTarget(p, "engine-shed")).toBe("switches");
+    expect(startNow(p, "engine-shed")).toBe("current");
+    expect(line(p)).toEqual(["switches", "bridges", "junctions", "engine-shed", "tank"]);
+    expect(p.research.held.get("bridges")).toEqual({ got: { planks: 3 }, study: 0 });
+    // What it needs under way: nothing to start (it waits for it).
+    expect(nowTarget(p, "junctions")).toBeNull();
+    expect(startNow(p, "junctions")).toBeNull();
+    expect(line(p)).toEqual(["switches", "bridges", "junctions", "engine-shed", "tank"]);
+    // Once learned, plain Research now.
+    deliver(p, "planks", 3);
+    expect(tick(p, 20)).toBe("switches");
+    expect(nowTarget(p, "junctions")).toBe("junctions");
+  });
+
+  it("Research X now with X's coins short changes nothing", () => {
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    p.learned.add("junctions");
+    p.bestLevel = 2; // (a town: Turntable's requirement)
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "turntable"); // engine-shed (100 coins), turntable
+    expect(line(p)).toEqual(["bridges", "engine-shed", "turntable"]);
+    expect(nowTarget(p, "turntable")).toBe("engine-shed");
+    expect(startNow(p, "turntable")).toBe("next");
+    expect(line(p)).toEqual(["bridges", "engine-shed", "turntable"]);
+    p.coins = 100;
+    expect(startNow(p, "turntable")).toBe("current");
+    expect([...line(p), p.coins]).toEqual(["engine-shed", "bridges", "turntable", 0]);
+  });
+
+  it("a whole chain runs through in order, each starting as the one ahead is learned", () => {
+    const p = Progress.fresh();
+    p.coins = 500;
+    toggleQueue(p, "engine-shed");
+    for (const id of ["switches", "junctions", "engine-shed"]) {
+      expect(p.research.current).toBe(id);
+      for (const [k, n] of Object.entries(costOf(id).goods)) deliver(p, k as "planks", n!);
+      expect(tick(p, 100)).toBe(id);
+    }
+    expect(p.learned.has("engine-shed")).toBe(true);
+    expect(line(p)).toEqual([null]);
+  });
+
+  it("a prerequisite left the queue some other way (the balance player's pick): what needs it goes too", () => {
+    const p = Progress.fresh();
+    p.coins = 100;
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "mills"); // farming, mills
+    expect(pick(p, "signals")).toBeNull(); // (needs switches)
+    pick(p, "switches"); // replaces Farming up next
+    expect(line(p)).toEqual(["bridges", "switches"]);
+  });
+
+  it("is saved and loaded; on load one out of order moves behind what it needs, one without it is dropped", () => {
+    const p = Progress.fresh();
+    p.coins = 500;
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "engine-shed");
+    const back = Progress.fromJSON(JSON.parse(JSON.stringify(p.toJSON())));
+    expect(line(back)).toEqual(["bridges", "switches", "junctions", "engine-shed"]);
+    // Out of order: repaired.
+    const swapped = Progress.fromJSON({ owned: [], learned: [], research: { current: "bridges", next: "junctions", later: ["engine-shed", "switches", "tank"], got: [], study: 0 } });
+    expect(line(swapped)).toEqual(["bridges", "switches", "junctions", "engine-shed", "tank"]);
+    // Its prerequisite missing (and one not in the game): dropped, with what needs them.
+    const broken = Progress.fromJSON({ owned: [], learned: [], research: { current: "bridges", next: "mills", later: ["tank", "mills2", "tunnels"], got: [], study: 0 } });
+    expect(line(broken)).toEqual(["bridges", "tank"]);
+    // Its prerequisite under way: fine as it is.
+    const fine = Progress.fromJSON({ owned: [], learned: [], research: { current: "farming", next: "mills", got: [], study: 0 } });
+    expect(line(fine)).toEqual(["farming", "mills"]);
+    expect(repairQueue(fine)).toEqual([]);
   });
 });

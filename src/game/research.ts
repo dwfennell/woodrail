@@ -3,7 +3,7 @@ import type { Economy } from "../economy/economy";
 import type { Bag } from "../economy/goods";
 import type { ResearchCost } from "./blueprints";
 import type { Progress } from "./progress";
-import { built, ready, techOf } from "./tech";
+import { built, needMet, ready, techOf } from "./tech";
 
 /**
  * Research (Game mode): every blueprint is learned at a school, a depot beside a town that trains bring goods to (spec:
@@ -89,12 +89,15 @@ export function pick(p: Progress, id: string): "current" | "next" | null {
   if (r.current === null) {
     r.later = r.later.filter((x) => x !== id);
     r.next = id;
+    repairQueue(p);
     return promote(p) ? "current" : "next";
   }
   if (r.next !== id) {
     // (The one up next is replaced; the rest of the queue stays behind it. The player's taps use `toggleQueue`.)
     r.later = r.later.filter((x) => x !== id);
     r.next = id;
+    // (The one replaced may have been needed by one behind it.)
+    repairQueue(p);
     return "next";
   }
   // The swap: only once it can start (its coins in hand, or started before), so nothing is left with neither slot.
@@ -132,22 +135,130 @@ function setQueue(r: Research, q: string[]): void {
 }
 
 /**
+ * The blueprints a research needs that aren't learned yet, through the ones they need in turn: prerequisites first,
+ * each once (the order they'd be researched in). Empty when it can start (as far as blueprints go).
+ */
+export function missingNeeds(p: Progress, id: string): string[] {
+  const out: string[] = [];
+  const visit = (x: string): void => {
+    for (const n of techOf(x)?.needs ?? []) {
+      if (p.learned.has(n) || out.includes(n)) continue;
+      visit(n);
+      out.push(n);
+    }
+  };
+  visit(id);
+  return out;
+}
+
+/**
+ * Could it be researched once the blueprints it needs are learned: built, not learned, and what it requires (a town, a
+ * count) done? Those requirements aren't brought about by the queue, so they block queueing as they do starting.
+ */
+const queueable = (p: Progress, id: string): boolean => {
+  const t = techOf(id);
+  return !!t && built(t) && !p.learned.has(id) && t.requires.every((n) => needMet(p, n));
+};
+
+/** Its unlearned needs are under way or ahead of it (`ahead`): it can wait in the queue there. */
+const inOrder = (p: Progress, id: string, ahead: readonly string[]): boolean => (techOf(id)?.needs ?? []).every((n) => p.learned.has(n) || n === p.research.current || ahead.includes(n));
+
+/**
+ * What a tap on a research adds to the end of the queue: the blueprints it needs that aren't learned, under way or
+ * queued yet (prerequisites first), then it. ["mills"] once Farming is learned, under way or queued; else
+ * ["farming", "mills"].
+ */
+export function chainOf(p: Progress, id: string): string[] {
+  const r = p.research;
+  const q = queueOf(r);
+  return [...missingNeeds(p, id), id].filter((x) => x !== r.current && !q.includes(x));
+}
+
+/**
+ * Why its chain (`chainOf`) can't be queued, or null if it can: a blueprint in it that can't be researched (not in the
+ * game yet, or its requirements not met: `{ stuck }`), or too few places left in the queue (`{ full }`: how many it
+ * takes).
+ */
+export function chainBlock(p: Progress, id: string): { stuck: string } | { full: number } | null {
+  const r = p.research;
+  if (r.current === id || queuePlace(r, id) > 0) return null;
+  const chain = chainOf(p, id);
+  const stuck = chain.find((x) => !queueable(p, x));
+  if (stuck) return { stuck };
+  return queueOf(r).length + chain.length > QUEUE_MAX ? { full: chain.length } : null;
+}
+
+/**
+ * The research "Research now" starts for it: itself once every blueprint it needs is learned, else the first one it
+ * needs that can start now ("Research Farming now"), or null (what it needs is under way already, or can't start).
+ */
+export function nowTarget(p: Progress, id: string): string | null {
+  if (canResearch(p, id)) return id;
+  return missingNeeds(p, id).find((x) => x !== p.research.current && canResearch(p, x)) ?? null;
+}
+
+/**
+ * Keep the queue in order (prerequisites before what needs them): each research waits behind the blueprints it needs
+ * (or with them under way or learned). One out of order is moved back behind them; one whose prerequisite isn't
+ * queued at all (or that isn't in the game) is dropped. For a save loaded, or after a research left the queue some
+ * other way. Returns what was dropped.
+ */
+export function repairQueue(p: Progress): string[] {
+  const r = p.research;
+  const rest = queueOf(r).filter((x) => {
+    const t = techOf(x);
+    return !!t && built(t) && !p.learned.has(x) && x !== r.current;
+  });
+  const dropped = queueOf(r).filter((x) => !rest.includes(x));
+  const ok: string[] = [];
+  for (;;) {
+    const i = rest.findIndex((x) => inOrder(p, x, ok));
+    if (i < 0) break;
+    ok.push(...rest.splice(i, 1));
+  }
+  dropped.push(...rest);
+  const q = queueOf(r);
+  if (ok.length !== q.length || ok.some((x, i) => x !== q[i])) setQueue(r, ok);
+  for (const x of dropped) if (!ok.includes(x)) r.held.delete(x);
+  return dropped;
+}
+
+/**
+ * Take a research out of the queue, and every one queued that needs it (directly, or through another taken out): they
+ * can't be researched without it. It keeps what it had got, if it was started before. Returns the others taken out,
+ * in queue order (for the toast: "Removed Mills and Bakery too").
+ */
+export function dequeue(p: Progress, id: string): string[] {
+  const r = p.research;
+  const q = queueOf(r);
+  if (!q.includes(id)) return [];
+  const gone = new Set([id]);
+  // (Prerequisites are always ahead of what needs them, so one pass in order finds them all.)
+  for (const x of q) if (!gone.has(x) && (techOf(x)?.needs ?? []).some((n) => gone.has(n))) gone.add(x);
+  setQueue(r, q.filter((x) => !gone.has(x)));
+  promote(p);
+  return q.filter((x) => gone.has(x) && x !== id);
+}
+
+/**
  * A player's tap on a research's button (#14): with nothing under way or waiting it starts (as `pick`); one in the
- * queue is taken out (it keeps what it had got, if it was started before); else it joins the end of the queue (unless
- * that's full). The one under way: nothing. Returns what happened, or null if nothing could.
+ * queue is taken out, with every queued one that needs it (`dequeue`); else it joins the end of the queue, after the
+ * blueprints it needs that aren't learned or queued yet (`chainOf`: "Queue Farming, then Mills"), unless one of them
+ * can't be researched or the queue hasn't room (`chainBlock`). The one under way: nothing. Returns what happened, or
+ * null if nothing could.
  */
 export function toggleQueue(p: Progress, id: string): "current" | "queued" | "removed" | null {
   const r = p.research;
   if (r.current === id) return "current";
   const q = queueOf(r);
   if (q.includes(id)) {
-    setQueue(r, q.filter((x) => x !== id));
-    promote(p);
+    dequeue(p, id);
     return "removed";
   }
-  if (!canResearch(p, id) || q.length >= QUEUE_MAX) return null;
-  if (r.current === null && q.length === 0) return pick(p, id) === "current" ? "current" : "queued";
-  setQueue(r, [...q, id]);
+  if (chainBlock(p, id)) return null;
+  const chain = chainOf(p, id);
+  if (r.current === null && q.length === 0 && chain.length === 1) return pick(p, id) === "current" ? "current" : "queued";
+  setQueue(r, [...q, ...chain]);
   promote(p);
   return r.current === id ? "current" : "queued";
 }
@@ -155,16 +266,24 @@ export function toggleQueue(p: Progress, id: string): "current" | "queued" | "re
 /**
  * "Research now" on a queued research: it goes to the front of the queue and swaps in for the one under way (which
  * waits up next, keeping what it had got), as `pick` on the one up next does. Held back while its coins are short.
+ * One that needs blueprints not learned yet never starts itself: "Research Farming now" starts the first of them that
+ * can (`nowTarget`) the same way, and the rest of them and it move up behind it, in order.
  */
 export function startNow(p: Progress, id: string): "current" | "next" | null {
   const r = p.research;
   if (r.current === id) return "current";
   const q = queueOf(r);
   if (!q.includes(id)) return null;
-  if (r.current !== null && !r.held.has(id) && p.coins < (costOf(id).coins ?? 0)) return "next";
-  setQueue(r, [id, ...q.filter((x) => x !== id)]);
+  const first = nowTarget(p, id);
+  if (first === null) return null;
+  if (r.current !== null && !r.held.has(first) && p.coins < (costOf(first).coins ?? 0)) return "next";
+  // It and the blueprints it needs, in order, the one to start first; then the rest of the queue as it was.
+  const front = [first, ...[...missingNeeds(p, id), id].filter((x) => x !== first && x !== r.current)];
+  const rest = q.filter((x) => !front.includes(x));
+  // (Only blueprints already queued move: `id` is queued, so what it needs is ahead of it or under way.)
+  setQueue(r, [...front, ...rest]);
   if (r.current === null) return promote(p) ? "current" : "next";
-  return pick(p, id) === "current" ? "current" : "next";
+  return pick(p, first) === "current" ? "current" : "next";
 }
 
 /** Start `next` if nothing is current and it can be: coins paid (none if it was started before). The queue moves up. */
@@ -174,6 +293,8 @@ function promote(p: Progress): boolean {
   while (r.current === null && r.next !== null && !canResearch(p, r.next)) {
     r.held.delete(r.next);
     setQueue(r, r.later);
+    // (The ones that needed it go too.)
+    repairQueue(p);
   }
   if (r.current !== null || r.next === null) return false;
   const id = r.next;

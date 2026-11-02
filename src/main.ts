@@ -61,8 +61,8 @@ import type { Stuck } from "./economy/stalls";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
-import { attachResearch, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlocksWords } from "./game/research-text";
+import { attachResearch, dequeue, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
+import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, removedText, researchCard, schoolCard, schoolCardKey, showMePick, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, CLASSIC_KMH, trainSummary, type SummaryCar } from "./game/train-summary";
@@ -1957,10 +1957,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /**
    * A research's button in the picker (#14): `toggleQueue` (it starts, joins the queue, or is taken out of it) or
-   * `startNow` (one in the queue swaps in for the one under way). The card and the pill show it; no toast.
+   * `startNow` (one in the queue swaps in for the one under way). The card and the pill show it; a toast only when
+   * taking one out took others that need it too ("Removed Mills and Bakery too").
    */
   function picked(id: string, how: (p: Progress, id: string) => unknown): void {
-    if (!hasSchool() || !how(progress, id)) return;
+    if (!hasSchool()) return;
+    if (how === toggleQueue && queuePlace(progress.research, id) > 0) {
+      // Taken out of the queue, with every queued one that needs it: say which went too.
+      const also = dequeue(progress, id);
+      if (also.length > 0) hud.toast(removedText(also), false, 3500);
+    } else if (!how(progress, id)) return;
     // What schools take has changed: routed trains plan again.
     game.economy.acceptsChanged();
     hud.setCoins(progress.coins);

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Progress } from "./progress";
-import { costOf, deliver, pick, tick, toggleQueue } from "./research";
+import { costOf, deliver, pick, startNow, tick, toggleQueue } from "./research";
 import * as text from "./research-text";
-import { cardState, chipsText, costWords, unlocksWords, goalPick, IdleNotice, idleText, pickerKey, pillCount, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
+import { cardState, chipsText, removedText, costWords, unlocksWords, goalPick, IdleNotice, idleText, pickerKey, pillCount, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
 import { TECHS } from "./tech";
 
 const SCHOOL = "Larkfield school";
@@ -63,7 +63,8 @@ describe("a card's chips", () => {
     deliver(p, "planks", 4);
     tick(p, 5);
     expect(researchCard(p, "bridges", SCHOOL)).toMatchObject({ why: "studying: 15 s", fill: 0.25 });
-    expect(researchCard(p, "junctions", SCHOOL)).toBeNull();
+    // Locked by something besides blueprints (Turntable needs a town): no card. Not in the game: none.
+    expect(researchCard(p, "turntable", SCHOOL)).toBeNull();
     expect(researchCard(p, "tunnels", SCHOOL)).toBeNull();
     p.learned.add("switches");
     expect(researchCard(p, "switches", SCHOOL)).toBeNull();
@@ -452,5 +453,58 @@ describe("the research queue in words (#14)", () => {
     toggleQueue(p, "signals");
     expect(cardState(p, "signals")).toBe("ready");
     expect(researchCard(p, "routes", SCHOOL)?.why).toBe("Next up, after Bridges · 30🪙 short");
+  });
+});
+
+describe("cards for chains in the queue", () => {
+  it("a locked card that needs blueprints: Research Farming now when idle, Queue Farming, then Mills otherwise", () => {
+    const p = Progress.fresh();
+    p.coins = 500;
+    expect(researchCard(p, "mills", SCHOOL)).toMatchObject({ action: "Research Farming now", why: "Then Mills" });
+    expect(researchCard(p, "engine-shed", SCHOOL)).toMatchObject({ action: "Research Switches now", why: "Then Junctions, then Engine shed" });
+    toggleQueue(p, "bridges");
+    expect(researchCard(p, "mills", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/6", title: "Planks: 0 of 6 brought" }, { text: "🌾 0/6", title: "Grain: 0 of 6 brought" }, { text: "🪙 40", title: "Coins: 40, paid when it starts" }], study: "45 s study", action: "Queue Farming, then Mills" });
+    expect(researchCard(p, "engine-shed", SCHOOL)).toMatchObject({ action: "Queue Switches and 2 more", why: "Switches, then Junctions, then Engine shed" });
+    expect(researchCard(p, "engine-shed", SCHOOL)?.blocked).toBeUndefined();
+    // Farming queued: Mills simply joins after it.
+    toggleQueue(p, "farming");
+    expect(researchCard(p, "mills", SCHOOL)).toMatchObject({ action: "Add to queue", why: "After Farming" });
+    // No school: held back.
+    expect(researchCard(p, "engine-shed", null)).toMatchObject({ why: "Needs a school", blocked: true });
+  });
+
+  it("held back saying why: a blueprint in the chain that can't be researched, or no room in the queue", () => {
+    const p = Progress.fresh();
+    expect(researchCard(p, "scenery", SCHOOL)).toMatchObject({ action: "Research Carpenter's bench now", why: "Carpenter's bench needs 50 planks delivered first", blocked: true });
+    for (const id of ["bridges", "tank", "farming", "switches", "signals"]) toggleQueue(p, id);
+    expect(researchCard(p, "engine-shed", SCHOOL)).toMatchObject({ action: "Queue Junctions, then Engine shed", why: "Needs 2 places in the queue (1 left)", blocked: true });
+    toggleQueue(p, "junctions");
+    expect(researchCard(p, "mills", SCHOOL)).toMatchObject({ why: "The queue is full (5)", blocked: true });
+  });
+
+  it("queued, needing blueprints: never Research now; Research X now, or only Remove while X is under way", () => {
+    const p = Progress.fresh();
+    p.coins = 500;
+    toggleQueue(p, "bridges");
+    toggleQueue(p, "engine-shed");
+    expect(researchCard(p, "engine-shed", SCHOOL)).toMatchObject({ action: "Research Switches now", why: "3rd in line, after Junctions", remove: true });
+    expect(researchCard(p, "junctions", SCHOOL)).toMatchObject({ action: "Research Switches now", remove: true });
+    expect(researchCard(p, "switches", SCHOOL)).toMatchObject({ action: "Research now", why: "Next up, after Bridges", remove: true });
+    startNow(p, "engine-shed");
+    expect(p.research.current).toBe("switches");
+    const v = researchCard(p, "junctions", SCHOOL);
+    expect(v).toMatchObject({ why: "2nd in line, after Bridges", remove: true });
+    expect(v?.action).toBeUndefined();
+    // Learned: the plain Research now.
+    deliver(p, "planks", 3);
+    tick(p, 20);
+    expect(researchCard(p, "junctions", SCHOOL)).toMatchObject({ action: "Research now" });
+  });
+
+  it("the toast names what else left the queue", () => {
+    expect(removedText(["mills"])).toBe("Removed Mills too");
+    // (Short names: "Junctions", not "Junctions and loops and …".)
+    expect(removedText(["junctions", "engine-shed"])).toBe("Removed Junctions and Engine shed too");
+    expect(removedText(["switches", "junctions", "engine-shed"])).toBe("Removed Switches, Junctions and Engine shed too");
   });
 });
