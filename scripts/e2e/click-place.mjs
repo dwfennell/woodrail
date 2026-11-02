@@ -452,10 +452,17 @@ try {
   // (The card is rebuilt as it changes: the button found, a moment's settle, then found again where it is now.)
   const clickButton = async (sel) => {
     const where = () => p.waitForFunction((sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel, { timeout: 30000 }).then((h) => h.jsonValue());
-    await where();
-    await frames(p);
-    await p.waitForTimeout(250);
-    const [x, y] = await where();
+    // (Clicked once it holds still: the card's tap guard drops a click on a button that moved within 150 ms, and a
+    // change before, such as Only drop, resizes the card.)
+    let [x, y] = await where();
+    for (let k = 0; k < 20; k++) {
+      await frames(p);
+      await p.waitForTimeout(250);
+      const [x2, y2] = await where();
+      const held = Math.abs(x2 - x) < 1 && Math.abs(y2 - y) < 1;
+      [x, y] = [x2, y2];
+      if (held) break;
+    }
     await p.mouse.click(x, y);
     await frames(p);
   };
