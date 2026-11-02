@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { SURF_ROAD } from "../landscape";
+import { roadAt } from "../roads/graph";
+import { pieceForEdges } from "../roads/pieces";
 import { appendPiece, connectorRef } from "../track";
 import { BUS_SEATS, BUS_STOP, Buses } from "./buses";
 import { onTheLine, roadBetween } from "./feeders-testing";
@@ -57,6 +60,45 @@ describe("buses (roads spec D6)", () => {
     s.buses.sync();
     expect(s.buses.runOf(s.depot(s.a.id).id)?.townId).toBe(s.b.id);
     expect(s.vans.vehicles.list.map((v) => [v.kind, v.leg])).toEqual([["bus", "home"]]);
+  });
+
+  it("a street by the stop that isn't joined to the road out: the bus parks on the next nearest that is", () => {
+    const s = setup();
+    s.road.lay();
+    const g = s.w.landscape.grid;
+    const stop = s.stop();
+    // (A town that grew can have one: a lone street square of Larkfield's, nearer the stop than any other.)
+    const roads = new Set(s.a.cells.filter((i) => g.surface[i] === SURF_ROAD && roadAt(s.w.landscape, i) !== 0));
+    const dist = (i: number) => Math.hypot(g.centreX(g.colOf(i)) - stop.x, g.centreZ(g.rowOf(i)) - stop.z);
+    const near = Math.min(...[...roads].map(dist));
+    // (Laid facing away from the streets: no way from it to Elderwick.)
+    const elder = new Set(s.b.cells);
+    const toElder = (i: number) => s.vans.way([i], (j) => elder.has(j) && g.surface[j] === SURF_ROAD, `lone${i}`, 64);
+    let lone = -1;
+    for (const i of s.a.cells.filter((i) => g.surface[i] !== SURF_ROAD && g.road[i] === 0 && dist(i) < near).sort((x, y) => dist(x) - dist(y))) {
+      for (const edges of [1 | 4, 2 | 8]) {
+        const was = g.surface[i];
+        // (A town's own street: its piece on street ground, as growTown lays it.)
+        g.setRoad(i, pieceForEdges(edges));
+        g.surface[i] = SURF_ROAD;
+        g.touch();
+        if (toElder(i) === null) lone = i;
+        else {
+          g.setRoad(i, 0);
+          g.surface[i] = was;
+          g.touch();
+        }
+        if (lone !== -1) break;
+      }
+      if (lone !== -1) break;
+    }
+    expect(lone).not.toBe(-1);
+    s.buses.sync();
+    const run = s.buses.runOf(s.depot(s.a.id).id);
+    expect(run?.townId).toBe(s.b.id);
+    expect(run?.home).not.toBe(lone);
+    expect(roads.has(run!.home)).toBe(true);
+    expect(s.vans.vehicles.list.map((v) => v.kind)).toEqual(["bus"]);
   });
 
   it("no stop, no bus; and none to a town whose station is on the line", () => {

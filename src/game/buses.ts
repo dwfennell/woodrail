@@ -24,6 +24,8 @@ export const BUS_STOP = "scene-bus-stop";
 export const BUS_SEATS = 4;
 /** A bus stop serves the station whose piece is nearest it, within this (mm). */
 export const BUS_STOP_REACH = 260;
+/** Street squares (nearest the stop first) tried for where a bus parks: each a search of at most `VAN_REACH`. */
+const BUS_HOMES_TRIED = 8;
 /** Seconds a bus waits at its stop before leaving. */
 export const BUS_LOADING = 1.5;
 
@@ -114,22 +116,22 @@ export class Buses {
         }
       }
       if (!best || out.has(best.id)) continue;
-      // The bus parks on its town's street square nearest the stop.
+      // The bus parks on its town's street square nearest the stop that has a way to a town off the line (a town that
+      // grew can have a street by the stop that isn't joined to the road out: the next nearest is tried).
       const town = w.landscape.towns.find((t) => t.id === best!.townId);
       if (!town) continue;
-      let home = -1;
-      let close = Infinity;
+      const streets: [number, number][] = [];
       for (const i of town.cells) {
         if (g.surface[i] !== SURF_ROAD || roadAt(w.landscape, i) === 0) continue;
-        const dd = Math.hypot(g.centreX(g.colOf(i)) - p.x, g.centreZ(g.rowOf(i)) - p.z);
-        if (dd < close) {
-          close = dd;
-          home = i;
-        }
+        streets.push([Math.hypot(g.centreX(g.colOf(i)) - p.x, g.centreZ(g.rowOf(i)) - p.z), i]);
       }
-      if (home === -1) continue;
-      const to = feederTown(w, this.host.vans, best, home);
-      if (to !== null) out.set(best.id, { depotId: best.id, stop: p.id, home, townId: to });
+      streets.sort((x, y) => x[0] - y[0]);
+      for (const [, home] of streets.slice(0, BUS_HOMES_TRIED)) {
+        const to = feederTown(w, this.host.vans, best, home);
+        if (to === null) continue;
+        out.set(best.id, { depotId: best.id, stop: p.id, home, townId: to });
+        break;
+      }
     }
     return out;
   }
