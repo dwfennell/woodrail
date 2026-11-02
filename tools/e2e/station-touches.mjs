@@ -201,15 +201,6 @@ const runUntilHalted = (limit, visit = 1) =>
 const halted = await runUntilHalted(900, 2);
 check("the train comes to the upgraded station and halts", halted.halted, JSON.stringify(halted));
 
-if (process.env.PROBE) {
-  console.log("log", JSON.stringify(await p.evaluate(() => window.woodrail.world.economy.stationLog.map((e) => `${e.kind}:${e.pieceId}:${e.trainId}:${e.carId}`))));
-  await p.evaluate(() => (window.woodrail.paused = false));
-  for (let k = 0; k < 6; k++) {
-    await p.waitForTimeout(700);
-    console.log("state", JSON.stringify(await state()), await p.evaluate(() => window.woodrail.world.economy.stationLog.length));
-  }
-  process.exit(0);
-}
 // 4. The stop, in real time: the guard's whistle counted as it's asked for.
 await p.evaluate((townId) => {
   const w = window.woodrail;

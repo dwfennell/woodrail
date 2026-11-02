@@ -321,6 +321,7 @@ export class StationTouchesView {
       v.dolls.push(this.makeDoll(s.look, k, { x: p.x, y: PLATFORM_Y, z: p.z }, -town.station.heading));
     }
     this.host.holdWaiting(town.id, from);
+    this.visits.set(town.id, v);
     return v;
   }
 
