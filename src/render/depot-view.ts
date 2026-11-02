@@ -1,7 +1,7 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Plane, Quaternion, Vector3, type Ray, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
+import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
 import type { Layout, Pose } from "../track";
 import { kitOf, TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
@@ -13,6 +13,7 @@ import type { Materials } from "./materials";
 import { TIMBER_DECK } from "./train-models";
 import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
 import { nonIndexed } from "./non-indexed";
+import { HEAP_COLORS, HEAP_KINDS, HEAP_PROFILE, HOPPER_HEAP, hopperLook, type HeapKind } from "./hopper-load";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
 interface PileSpot {
@@ -219,11 +220,6 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
  * Where an upgrade's machine stands in its yard (depot frame: t along the track, l out from it), for Game mode's
  * upgrades (Harvesters II and the like; models in dressing.glb, from Asset Gen).
  */
-/** Goods a hopper carries as a heap in its bin. */
-const HEAP_KINDS = ["grain", "stone", "coal", "ore"] as const;
-type HeapKind = (typeof HEAP_KINDS)[number];
-const isHeap = (k: CargoKind | null): k is HeapKind => (HEAP_KINDS as readonly string[]).includes(k ?? "");
-
 const UPGRADE_SPOTS: Record<string, { t: number; l: number; turn?: number }> = {
   // Forest yard: the free end beyond the hut's far side, booms reaching away from the track (turned so the model's +x
   // runs out across the yard), clear of the log pile and the jib.
@@ -257,8 +253,6 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   foundry: { part: "industry-foundry", slots: {} },
 };
 
-/** Where a hopper's grain heap sits (car-local y): the top of its bin (Asset Gen: hopper-classic). */
-const HOPPER_HEAP = 43;
 /** A unit of grain lifted to or from a hopper is held about here (car-local y). */
 const HOPPER_LOAD = HOPPER_HEAP + 2;
 
@@ -431,19 +425,25 @@ export class DepotView {
     looks.stone = hasPart("load-stone-block")
       ? partPieces(mats, "load-stone-block").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m])
       : [[new RoundedBoxGeometry(SACK_LENGTH, STONE_HEIGHT, SACK_WIDTH, 2, 1.6), mats.lacquer("#b9b4aa")]];
-    // A hopper's load: one heap filling its bin, raised by how full it is (in place of the coal it's modelled with).
-    const heapOf = (part: string, color: string): [BufferGeometry, Material][] =>
-      hasPart(part) ? partPieces(mats, part) : [[new RoundedBoxGeometry(59, 8, 25, 2, 3).translate(0, 4, 0), mats.lacquer(color)]];
+    // A hopper's load: one heap of its goods in its bin, sunk by how empty it is (`hopperLook`; its modelled coal is
+    // hidden when the car is built, so an empty hopper shows its open bin).
+    // (Sandbox never loads Game mode's parts: a plain mound of the goods' colour stands in, the modelled heap's shape.)
+    const mound = new LatheGeometry(HEAP_PROFILE.map(([r, y]) => new Vector2(r, y)), 20).scale(29.5, 7, 12.5);
+    const heapOf = (part: string, kind: HeapKind): [BufferGeometry, Material][] => {
+      if (!hasPart(part)) return [[mound, mats.lacquer(HEAP_COLORS[kind])]];
+      const pieces = partPieces(mats, part);
+      return kind === "grain" ? pieces.map(([g]) => [g, mats.lacquer(HEAP_COLORS.grain)]) : pieces;
+    };
     const heapUnit = (looksOf: [BufferGeometry, Material][]): UnitMeshes => {
       const parts = looksOf.map(([g, m]) => this.instanced(g, m));
       this.group.add(...parts);
       return { parts, owners: [], carried: new Group(), n: 0 };
     };
     this.heaps = {
-      grain: heapUnit(heapOf("load-grain-heap", "#d9a441")),
-      stone: heapUnit(heapOf("load-stone-heap", "#a9a49a")),
-      coal: heapUnit(heapOf("load-coal-heap", "#2a2b2e")),
-      ore: heapUnit(heapOf("load-ore-heap", "#9a4f2c")),
+      grain: heapUnit(heapOf("load-grain-heap", "grain")),
+      stone: heapUnit(heapOf("load-stone-heap", "stone")),
+      coal: heapUnit(heapOf("load-coal-heap", "coal")),
+      ore: heapUnit(heapOf("load-ore-heap", "ore")),
     };
     const units = {} as Record<CargoKind, UnitMeshes>;
     for (const kind of CARGO_KINDS) {
@@ -853,28 +853,12 @@ export class DepotView {
     u.n++;
   }
 
-  /** Show or hide a hopper model's coal (its `coal…` nodes, found once per model). */
-  private showCoal(car: Object3D, on: boolean): void {
-    let coal = this.coalOf.get(car);
-    if (!coal) {
-      coal = [];
-      car.traverse((o) => {
-        if (o.name.startsWith("coal")) coal!.push(o);
-      });
-      this.coalOf.set(car, coal);
-    }
-    for (const o of coal) o.visible = on;
-  }
-  private readonly coalOf = new WeakMap<Object3D, Object3D[]>();
-
-  /** A hopper's heap (grain or stone), in the top of its bin, as high as it is full. */
-  private putHeap(kind: HeapKind, car: Object3D, count: number, owner: CargoSlot): void {
+  /** A hopper's heap (its goods' colour), in its bin, its base at `y` (car-local): one instance, no draw call of its own. */
+  private putHeap(kind: HeapKind, car: Object3D, y: number, owner: CargoSlot): void {
     const u = this.heaps[kind];
     if (u.n >= DepotView.MAX_UNITS) return;
     car.updateWorldMatrix(true, false);
-    _s.set(1, Math.min(1, Math.max(0.25, count / WAGON_CAPACITY)), 1);
-    _m.compose(_v.set(0, HOPPER_HEAP, 0), _q.identity(), _s).premultiply(car.matrixWorld);
-    _s.set(1, 1, 1);
+    _m.makeTranslation(0, y, 0).premultiply(car.matrixWorld);
     u.owners[u.n] = owner;
     for (const part of u.parts) part.setMatrixAt(u.n, _m);
     u.n++;
@@ -955,15 +939,14 @@ export class DepotView {
       const cargo = economy.cargoOf(id);
       const car = carObject(id);
       wagons = (Math.imul(wagons, 31) + id * 977 + (cargo.kind ? CARGO[cargo.kind].index + 1 : 0) * 61 + cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0)) | 0;
-      // A hopper is modelled with coal in it: hidden while it carries a load (its heap fills the bin instead).
-      if (car && car.userData.carKind === "hopper") this.showCoal(car, !cargo.kind || cargo.count === 0);
       if (!cargo.kind || cargo.count === 0) continue;
       if (!car) continue;
       const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
       const owner = this.carOwner(id);
-      if (isHeap(cargo.kind) && car.userData.carKind === "hopper") {
-        if (count > 0) this.putHeap(cargo.kind, car, count, owner);
-        continue;
+      if (car.userData.carKind === "hopper") {
+        const look = hopperLook(cargo.kind, count, economy.wagonCapacity);
+        if (look) this.putHeap(look.heap, car, look.y, owner);
+        if (look || count <= 0) continue;
       }
       for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
     }
