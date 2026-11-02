@@ -302,8 +302,9 @@ check("idle: the touches ask for no frames (a stop standing still included)", !i
 await p.evaluate((pieceId) => {
   const w = window.woodrail;
   const pose = w.world.layout.getPiece(pieceId).pose;
-  const c = { x: pose.x + 150 * Math.cos(pose.heading) - 106 * Math.sin(pose.heading), z: pose.z + 150 * Math.sin(pose.heading) + 106 * Math.cos(pose.heading) };
-  w.director.glideTo(new w.camera.position.constructor(c.x, 20, c.z), 450, { duration: 0.1, phi: 1.1 });
+  // From across the line (the board faces the second road), looking at it from its front.
+  const c = { x: pose.x + 22 * Math.cos(pose.heading) - 110 * Math.sin(pose.heading), z: pose.z + 22 * Math.sin(pose.heading) + 110 * Math.cos(pose.heading) };
+  w.director.glideTo(new w.camera.position.constructor(c.x, 20, c.z), 420, { duration: 0.1, phi: 1.15, theta: Math.atan2(Math.sin(pose.heading), -Math.cos(pose.heading)) });
 }, station.id);
 await p.waitForTimeout(1500);
 await settle();

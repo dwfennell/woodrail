@@ -27,10 +27,11 @@ export const BIG_STATIONS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["kit
 
 /** Where on a big station (its piece's frame: `t` along, `l` across, `y` up from the rails) the guard and board stand. */
 const BIG_SPOTS: Readonly<Record<string, { guard: [number, number, number]; board: [number, number, number, number] }>> = {
-  // The guard on the near platform by the building's end, the board on the far platform facing the line.
-  "kit-two-platform-station": { guard: [34, -27, 10], board: [150, 106, 10, -Math.PI / 2] },
-  // The guard on the first island platform, the board on the concourse facing down the roads.
-  "kit-grand-terminus": { guard: [150, 36, 10], board: [238, 72, 10, Math.PI] },
+  // The guard on the near platform by the building's end, the board near the end of the far platform, facing the line
+  // (its face's normal is the board's +z: turned π, it looks back across to the second road).
+  "kit-two-platform-station": { guard: [34, -27, 10], board: [22, 110, 10, Math.PI] },
+  // The guard on the first island platform, the board on the concourse facing down the roads (−t: turned −π/2).
+  "kit-grand-terminus": { guard: [150, 36, 10], board: [238, 72, 10, -Math.PI / 2] },
 };
 
 /** Most people turning to a train at once (the top of the queue: they get on first). */
