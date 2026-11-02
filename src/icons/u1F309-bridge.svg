@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Bridge</title>
+<rect x="0.8" y="15" width="22.4" height="7.6" rx="1.6" fill="#173a63"/>
+<rect x="2" y="16.2" width="20" height="5.2" rx="1" fill="#2f6fb5"/>
+<rect x="4" y="18.4" width="4" height="1" rx="0.5" fill="#5b93cf"/>
+<rect x="14" y="19.6" width="5" height="1" rx="0.5" fill="#5b93cf"/>
+<path d="M0.8 7 L23.2 7 L23.2 20 L19.6 20 C19.6 13.4 4.4 13.4 4.4 20 L0.8 20 Z" fill="#5a3a20"/>
+<path d="M2 8.2 L22 8.2 L22 18.8 L20.8 18.8 C20.2 12 3.8 12 3.2 18.8 L2 18.8 Z" fill="#e3bf8c"/>
+<rect x="2" y="8.2" width="20" height="1.4" fill="#f6dfb4"/>
+<rect x="5.8" y="9.6" width="1" height="2.6" fill="#c9965a"/>
+<rect x="17.2" y="9.6" width="1" height="2.6" fill="#c9965a"/>
+<rect x="11.5" y="9.6" width="1" height="1.8" fill="#c9965a"/>
+</svg>

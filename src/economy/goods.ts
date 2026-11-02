@@ -45,14 +45,14 @@ export function total(bag: Bag): number {
   return kindsOf(bag).reduce((n, k) => n + bag[k]!, 0);
 }
 
-/** "12🪵 planks + 1🌲 log" (empty: "nothing"): each count with its goods' icon, as on the tray's costs. */
+/** "12\uE000 planks + 1🪵 log" (empty: "nothing"): each count with its goods' icon, as on the tray's costs. */
 export function describe(bag: Bag): string {
-  // "1🪵 plank", "3🪵 planks" (the labels are plural).
+  // "1\uE000 plank", "3\uE000 planks" (the labels are plural).
   const parts = kindsOf(bag).map((k) => `${bag[k]}${GOODS_ICON[k]} ${bag[k] === 1 ? CARGO[k].label.toLowerCase().replace(/s$/, "") : CARGO[k].label.toLowerCase()}`);
   return parts.length > 0 ? parts.join(" + ") : "nothing";
 }
 
-/** "30🪵 10🪨" (empty: ""): counts and icons only, no words, for where room is short. */
+/** "30\uE000 10🪨" (empty: ""): counts and icons only, no words, for where room is short. */
 export function iconCounts(bag: Bag): string {
   return kindsOf(bag)
     .map((k) => `${bag[k]}${GOODS_ICON[k]}`)

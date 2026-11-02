@@ -139,15 +139,15 @@ describe("the research boost", () => {
     expect(boostGoods(p, 0.25)).toEqual({ planks: 3 });
     expect(boostGoods(p, 0.4)).toEqual({ planks: 4 });
     p.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }] });
-    expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+3🪵" });
-    // The toast says where the goods went (QA: "+3🪵" alone didn't).
-    expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+3🪵", taken: "+3🪵 to Bridges and ramps" });
+    expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+3\uE000" });
+    // The toast says where the goods went (QA: "+3\uE000" alone didn't).
+    expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+3\uE000", taken: "+3\uE000 to Bridges and ramps" });
     expect(p.research.got).toEqual({ planks: 3 });
     expect(p.offers).toEqual([]);
     // Mills: 6 planks and 6 grain: a town's 40% is 3 planks and 3 grain (rounded up).
     const q = researching();
     q.offers.push({ from: "Elderwick", level: 2, cards: [{ kind: "boost", share: 0.4 }] });
-    expect(takeCard(q, w, 0, 0)).toMatchObject({ taken: "+3🪵 3🌾 to Mills" });
+    expect(takeCard(q, w, 0, 0)).toMatchObject({ taken: "+3\uE000 3🌾 to Mills" });
     expect(q.research.got).toEqual({ planks: 3, grain: 3 });
     expect(q.research.current).toBe("mills");
   });
@@ -176,7 +176,7 @@ describe("the research boost", () => {
     expect(takeCard(p, w, 0, 0)).toBeNull();
   });
 
-  it("every good a boost card shows is at least 3, across researches and what's in (QA N2: \"+1🪵 2🌾\")", () => {
+  it("every good a boost card shows is at least 3, across researches and what's in (QA N2: \"+1\uE000 2🌾\")", () => {
     const w = world({ school: true });
     // Mills with 11 of 12 planks in and 4 of 6 grain: 1 plank and 2 grain left, under the floor each: no card.
     const m = researching();

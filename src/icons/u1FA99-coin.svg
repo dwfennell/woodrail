@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Coin</title>
+<circle cx="12" cy="12.4" r="10.4" fill="#7a4f12"/>
+<circle cx="12" cy="12.4" r="9" fill="#f0b847"/>
+<circle cx="12" cy="12.4" r="6.6" fill="#d38f1f"/>
+<circle cx="12" cy="12.4" r="5.4" fill="#f3c766"/>
+<rect x="10.9" y="8.6" width="2.2" height="7.6" rx="1.1" fill="#d38f1f"/>
+<ellipse cx="7.6" cy="8" rx="1.2" ry="2" transform="rotate(40 7.6 8)" fill="#fff3cf"/></svg>

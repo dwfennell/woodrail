@@ -100,6 +100,8 @@ import { CloudCard } from "./ui/cloud-card";
 import { StatsCard } from "./ui/stats-card";
 import { pageStats } from "./stats/stats";
 import "./style.css";
+// The icon font (style.css) loads with the game, not on the first card that shows an icon.
+void document.fonts?.load('16px "Woodrail Icons"', GOODS_ICON.planks).catch(() => undefined);
 
 installFocusRing(window, document.documentElement);
 
@@ -1662,7 +1664,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** What was made for the piece in hand (taken from the tray), until it's put down. */
   let pieceMade: Map<ThingId, number> | null = null;
   let pieceSaid = "";
-  /** ...and what's said if it's given back ("Switch back in the box, 3🪵 returned"). */
+  /** ...and what's said if it's given back ("Switch back in the box, 3\uE000 returned"). */
   let pieceRefund = "";
   interaction.onTrayPieceDropped = (placed) => {
     const made = pieceMade;

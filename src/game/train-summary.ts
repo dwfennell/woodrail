@@ -40,7 +40,7 @@ export interface SummaryCar {
  * The engine card's train summary, two short lines:
  * - `about`: "4 cars · steady · Red line" (cars past the engines; the speed as a word (`speedWord`), left out while it can't move; the line
  *   left out when there's none, or its name is too long);
- * - `load`: what's on board, by good in cargo order then riders: "🌲 12 · 🪵 4 · 🧑 3", or "Empty" (no cars: "").
+ * - `load`: what's on board, by good in cargo order then riders: "🪵 12 · \uE000 4 · 🧑 3", or "Empty" (no cars: "").
  */
 export function trainSummary(cars: readonly SummaryCar[], speed: number, line: string): { about: string; load: string } {
   const n = cars.filter((c) => c.kind !== "engine").length;
@@ -50,7 +50,7 @@ export function trainSummary(cars: readonly SummaryCar[], speed: number, line: s
   return { about: about.join(" · "), load: n === 0 ? "" : loadWords(cars) };
 }
 
-/** What a train carries: "🌲 12 · 🪵 4 · 🧑 3", at most `LOAD_KINDS_SHOWN` kinds then "+n more"; "Empty". */
+/** What a train carries: "🪵 12 · \uE000 4 · 🧑 3", at most `LOAD_KINDS_SHOWN` kinds then "+n more"; "Empty". */
 export function loadWords(cars: readonly SummaryCar[]): string {
   const goods = new Map<CargoKind, number>();
   let riders = 0;
@@ -65,7 +65,7 @@ export function loadWords(cars: readonly SummaryCar[]): string {
   return `${parts.slice(0, LOAD_KINDS_SHOWN - 1).join(" · ")} · +${parts.length - LOAD_KINDS_SHOWN + 1} more`;
 }
 
-/** A wagon's card: "🌲 Logs: 6 of 8", "Empty (carries logs, planks, iron)"; a coach: "🧑 3 of 6 seats". */
+/** A wagon's card: "🪵 Logs: 6 of 8", "Empty (carries logs, planks, iron)"; a coach: "🧑 3 of 6 seats". */
 export function carLoadWords(car: SummaryCar, room: number, carries: readonly CargoKind[] = []): string {
   if (car.kind === "coach") return `${RIDER_ICON} ${car.count ?? 0} of ${room} seats`;
   if (!car.cargo || !car.count) {

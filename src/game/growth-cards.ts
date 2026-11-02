@@ -49,8 +49,8 @@ export const CARD_AMOUNTS = {
 
 /**
  * A research boost's floor: at least this many of each good the research lacks; a good it lacks fewer of is left off
- * the card (QA N2: "+1🪵 2🌾"), and it's offered (or can be taken) only while one good comes to this many (QA P5:
- * "+1🪵" beside +80 coins).
+ * the card (QA N2: "+1\uE000 2🌾"), and it's offered (or can be taken) only while one good comes to this many (QA P5:
+ * "+1\uE000" beside +80 coins).
  */
 export const BOOST_FLOOR = 3;
 

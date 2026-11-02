@@ -2487,7 +2487,7 @@ class Playthrough {
           this.extraAt = P.minute;
           P.note(`another train (engine, 2 flatbeds) on the line: ${trainsOn(w.economy, this.lineId).length} now`);
         }
-      } else this.why ||= `another train for the line (engine 6🪵 + 2 flatbeds 6🪵; have ${P.planks()} planks)`;
+      } else this.why ||= `another train for the line (engine 6\uE000 + 2 flatbeds 6\uE000; have ${P.planks()} planks)`;
     }
     // A second goods train on a long line (P5 (h), only with BALANCE_SECOND_GOODS: see `SECOND_GOODS_STOPS`): one
     // train hauls only so much a pass round 15 stops or more, and the research and the towns wait on it. As the game

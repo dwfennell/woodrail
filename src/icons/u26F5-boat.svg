@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Boat</title>
+<polygon points="12,1.4 12.4,1.4 12.4,16 11.4,16" fill="#3a2a1c"/>
+<rect x="11.2" y="1.6" width="1.6" height="14.6" fill="#5a3a20"/>
+<polygon points="10.6,3 10.6,14.6 2.4,14.6" fill="#3a2a1c"/>
+<polygon points="9.6,6 9.6,13.6 4.4,13.6" fill="#fbf3e4"/>
+<polygon points="13.6,2.6 21.6,14.6 13.6,14.6" fill="#3a2a1c"/>
+<polygon points="14.6,5.8 19.6,13.6 14.6,13.6" fill="#fbf3e4"/>
+<path d="M0.8 15.4 L23.2 15.4 C22 19.6 19.4 21.8 15.8 21.8 L8.2 21.8 C4.6 21.8 2 19.6 0.8 15.4 Z" fill="#6b2216"/>
+<path d="M2.6 16.6 L21.4 16.6 C20.2 19.2 18.4 20.6 15.6 20.6 L8.4 20.6 C5.6 20.6 3.8 19.2 2.6 16.6 Z" fill="#c8442f"/>
+<rect x="2.8" y="16.6" width="18.4" height="1" fill="#fbf3e4"/>
+</svg>

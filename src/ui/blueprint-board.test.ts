@@ -102,7 +102,7 @@ describe("a research card's foot in the picker", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
     const html = researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false);
-    expect(html).toContain(`<span class="bp-chip" title="Planks: 0 of 6 brought">🪵 0/6</span><span class="bp-chip" title="Grain: 0 of 6 brought">🌾 0/6</span><span class="bp-chip short" title="Coins: 40, not enough yet">🪙 40</span>`);
+    expect(html).toContain(`<span class="bp-chip" title="Planks: 0 of 6 brought">\uE000 0/6</span><span class="bp-chip" title="Grain: 0 of 6 brought">🌾 0/6</span><span class="bp-chip short" title="Coins: 40, not enough yet">🪙 40</span>`);
     expect(html).toContain("⏱ 45 s study");
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(html).toContain(`data-act="pick" data-id="mills">Research</button>`);
@@ -117,7 +117,7 @@ describe("a research card's foot in the picker", () => {
     const now = researchFoot("bridges", researchCard(p, "bridges", SCHOOL)!, false);
     expect(now).not.toContain("<button");
     expect(now).toContain(`style="width:60%"`);
-    expect(now).toContain("bring 4🪵 to Larkfield school");
+    expect(now).toContain("bring 4\uE000 to Larkfield school");
     pick(p, "switches");
     const next = researchFoot("switches", researchCard(p, "switches", SCHOOL)!, true);
     expect(next).toContain("Next up, after Bridges");
@@ -146,7 +146,7 @@ describe("the P1 stopgap is gone", () => {
 describe("tooltips and the full cost (#11)", () => {
   const SCHOOL = "Larkfield school";
   it("a tag's tooltip names what it unlocks and everything it costs, in words", () => {
-    expect(tagTitle({ label: "Mills", unlocks: "Mill, Van", cost: "6 🪵 planks, 6 🌾 grain, 40 🪙 coins" })).toBe("Mills. Unlocks: Mill, Van. Costs: 6 🪵 planks, 6 🌾 grain, 40 🪙 coins");
+    expect(tagTitle({ label: "Mills", unlocks: "Mill, Van", cost: "6 \uE000 planks, 6 🌾 grain, 40 🪙 coins" })).toBe("Mills. Unlocks: Mill, Van. Costs: 6 \uE000 planks, 6 🌾 grain, 40 🪙 coins");
     expect(tagTitle({ label: "X", unlocks: "", cost: "nothing" })).toBe("X. Costs: nothing");
   });
 

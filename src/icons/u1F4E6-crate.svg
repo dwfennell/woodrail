@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Crate</title>
+<rect x="2" y="3.6" width="20" height="18" rx="1.6" fill="#5a3a20"/>
+<rect x="3.2" y="4.8" width="17.6" height="15.6" fill="#e3bf8c"/>
+<rect x="3.2" y="9.6" width="17.6" height="0.8" fill="#c9965a"/>
+<rect x="3.2" y="14.6" width="17.6" height="0.8" fill="#c9965a"/>
+<polygon points="3.2,18.2 18.6,4.8 20.8,4.8 20.8,6.4 5.4,20.4 3.2,20.4" fill="#5a3a20"/>
+<rect x="2" y="3.6" width="3.4" height="18" rx="1.2" fill="#5a3a20"/>
+<rect x="18.6" y="3.6" width="3.4" height="18" rx="1.2" fill="#5a3a20"/>
+<rect x="3" y="4.6" width="1.4" height="16" fill="#c9965a"/>
+<rect x="19.6" y="4.6" width="1.4" height="16" fill="#c9965a"/>
+</svg>

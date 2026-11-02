@@ -3,9 +3,9 @@ import { badgeEms, costTag, costTagSize, refundText, trayCostTag } from "./cost-
 
 describe("tray cost badges", () => {
   it("are counts and icons only, goods in cargo order, then coins", () => {
-    expect(costTag({ planks: 3 })).toBe("3🪵");
-    expect(costTag({ planks: 30, stone: 10 }, 100)).toBe("30🪵 10🪨 100🪙");
-    expect(costTag({ iron: 4, planks: 16 }, 60)).toBe("16🪵 4🔩 60🪙");
+    expect(costTag({ planks: 3 })).toBe("3\uE000");
+    expect(costTag({ planks: 30, stone: 10 }, 100)).toBe("30\uE000 10🪨 100🪙");
+    expect(costTag({ iron: 4, planks: 16 }, 60)).toBe("16\uE000 4🔩 60🪙");
     expect(costTag({}, 50)).toBe("50🪙");
     expect(costTag({ planks: 0 }, 0)).toBe("");
   });
@@ -18,19 +18,19 @@ describe("tray cost badges", () => {
     // The corner pill, at its own 12 px.
     expect(costTagSize("3")).toBeNull();
     expect(costTagSize("Locked")).toBeNull();
-    expect(costTagSize("12🪵")).toBeNull();
+    expect(costTagSize("12\uE000")).toBeNull();
     // Across the item, as large as fits.
-    expect(costTagSize("12🪵 30🪙")).toBe(11);
-    expect(costTagSize("30🪵 100🪙")).toBe(10);
+    expect(costTagSize("12\uE000 30🪙")).toBe(11);
+    expect(costTagSize("30\uE000 100🪙")).toBe(10);
     // Never under 9 px.
-    expect(costTagSize("16🪵 4🔩 60🪙")).toBe(9);
+    expect(costTagSize("16\uE000 4🔩 60🪙")).toBe(9);
   });
 
   it("drop the coins, then all but the first goods, rather than go under 9 px (the card shows the full price)", () => {
-    expect(trayCostTag({ planks: 3 })).toBe("3🪵");
-    expect(trayCostTag({ planks: 30 }, 100)).toBe("30🪵 100🪙");
-    expect(trayCostTag({ planks: 30, stone: 10 }, 100)).toBe("30🪵 10🪨");
-    expect(trayCostTag({ planks: 30, stone: 10, iron: 4, coal: 6 }, 100)).toBe("30🪵 …");
+    expect(trayCostTag({ planks: 3 })).toBe("3\uE000");
+    expect(trayCostTag({ planks: 30 }, 100)).toBe("30\uE000 100🪙");
+    expect(trayCostTag({ planks: 30, stone: 10 }, 100)).toBe("30\uE000 10🪨");
+    expect(trayCostTag({ planks: 30, stone: 10, iron: 4, coal: 6 }, 100)).toBe("30\uE000 …");
     // Whatever's shown fits its 60 px at the size it's set.
     for (const [c, k] of [[{ planks: 12 }, 30], [{ planks: 30 }, 100], [{ planks: 16, iron: 4 }, 60], [{ planks: 30, stone: 10 }, 100]] as const) {
       const t = trayCostTag(c, k);
@@ -43,8 +43,8 @@ describe("tray cost badges", () => {
 
 describe("a refund", () => {
   it("names the piece and what's given back", () => {
-    expect(refundText("Switch", { planks: 3 })).toBe("Switch back in the box, 3🪵 returned");
-    expect(refundText("crossing", { planks: 4, iron: 1 }, 20)).toBe("Crossing back in the box, 4🪵 1🔩 20🪙 returned");
+    expect(refundText("Switch", { planks: 3 })).toBe("Switch back in the box, 3\uE000 returned");
+    expect(refundText("crossing", { planks: 4, iron: 1 }, 20)).toBe("Crossing back in the box, 4\uE000 1🔩 20🪙 returned");
     expect(refundText("Switch", {})).toBe("Switch back in the box");
   });
 });

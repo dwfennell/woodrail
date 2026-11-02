@@ -124,6 +124,19 @@ Wood has a thickness: depth is an inset highlight on top (`inset 0 1px 0 #fff8`)
 
 Generous rounding: chips 13px, tiles 14px, cards 18px, panels 20px, pills for badges and counts. A toast is a paper luggage tag: 6px corners, a coloured left edge, a slight tilt.
 
+## Icons
+
+The game's icons are its own drawings, not the phone's emoji: one small SVG per icon in `src/icons/`, the source of truth, compiled into one colour font, `src/assets/woodrail-icons.woff2` ("Woodrail Icons", about 15 kB for every icon). Each drawing is named for the character it stands for (`u1FA99-coin.svg` draws 🪙), so the game's text keeps its emoji ("40🪙", "📘 Mills") and screen readers their words, and the font draws them on screen at the text's size, on its baseline, in any text: labels, costs, chips, cards, toasts, tooltips. No DOM per icon, no per-frame work. Planks have no emoji, so they're U+E000 (`GOODS_ICON.planks`, written `"\uE000"`).
+
+**Style:** a 24×24 viewBox; flat fills in the palette above (beech `#e3bf8c`/`#f6dfb4`/`#c9965a`, lacquer red, blue, yellow and green, ink `#3a2a1c` or a dark of the shape's own colour for outlines); an outline is a darker shape drawn under the shape, about 1.2 units wide; a light strip or two for the lit side; chunky shapes that still read at 14 px. `fill="currentColor"` takes the text's colour (the ✓ tick, ➕). No strokes, gradients, text or images: the compiler takes paths, rects (`rx`), circles, ellipses, polygons and `<g>` with `translate`/`rotate`/`scale`. A hole is an inner subpath wound the other way.
+
+**To add or change an icon:**
+1. Draw `src/icons/u<HEX>-<name>.svg` for the character it replaces (copy a neighbour for the palette and outline).
+2. Run `npm run icons` (`python3 scripts/icon-font.py`; needs `pip install fonttools brotli`). It rebuilds the font and writes the face's `unicode-range` in `src/style.css`.
+3. Check it at 14, 16 and 20 px on light and dark, beside its neighbours, and commit the SVG, the font and style.css together. `src/ui/icon-font.test.ts` fails if the range and the drawings differ.
+
+**Loading:** index.html preloads the font, its face is `font-display: block`, and main.ts asks for it at start, so an icon is never an empty box; were the font to fail, the phone's own emoji would show instead (planks alone would be a box). Where colour fonts aren't drawn, each icon is its silhouette in the text's colour.
+
 ## Components
 
 ### Buttons
@@ -157,6 +170,7 @@ A web of wooden tickets on squared paper, banded by subject, with a lacquer rail
 - Use one-off CSS animations for wins (a coin flips, the goal chip rocks, a toast is stamped down), all off under `prefers-reduced-motion`.
 - Rebuild and animate only on change: the HUD costs nothing when nothing happens.
 - Write as you'd say it to a child: "Join two towns", "Show me", "Pick a reward".
+- Draw a new icon in `src/icons/` (see Icons) rather than reach for an emoji.
 
 ### Don't:
 - Don't use backdrop-filter, big blur filters, or animations that loop while the player isn't looking at them.

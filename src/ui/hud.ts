@@ -332,7 +332,7 @@ export class Hud {
   private readonly coinTag = el("span", "coins");
   /** Game mode: the railway's date ("Mar 2001", see game/calendar.ts). */
   private readonly dateTag = el("span", "game-date");
-  /** Game mode: the research under way and how far ("📘 Bridges 6/10🪵"), or "Pick research"; tap: the picker. */
+  /** Game mode: the research under way and how far ("📘 Bridges 6/10\uE000"), or "Pick research"; tap: the picker. */
   private readonly researchPill = el("button", "research-pill") as HTMLButtonElement;
   /** What the pill shows now (its whole text and fill): it's redrawn only when this changes. */
   private pillShown = "";
@@ -1203,7 +1203,7 @@ export class Hud {
     if (!tag) b.appendChild((tag = el("span", "have")));
     if (tag.textContent !== badge.text) {
       tag.textContent = badge.text;
-      // One line always: a long cost ("30🪵 10🪨 100🪙") in smaller type.
+      // One line always: a long cost ("30\uE000 10🪨 100🪙") in smaller type.
       const size = costTagSize(badge.text);
       tag.classList.toggle("long", size !== null);
       tag.style.fontSize = size === null ? "" : `${size}px`;
@@ -1235,7 +1235,7 @@ export class Hud {
   }
 
   /**
-   * The research pill: shown with what's being researched ("📘 Mills 🪵0/6 🌾0/6", a bar for how far), "Pick research"
+   * The research pill: shown with what's being researched ("📘 Mills \uE0000/6 🌾0/6", a bar for how far), "Pick research"
    * with nothing picked, or hidden (null). Called when the research changes (`pillKey`); the DOM is touched only when
    * what it shows does.
    */

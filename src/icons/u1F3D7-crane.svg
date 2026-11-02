@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Crane</title>
+<rect x="5.2" y="3" width="4.6" height="19" rx="0.8" fill="#3a2a1c"/>
+<rect x="2.2" y="2.4" width="20.4" height="4.4" rx="0.8" fill="#3a2a1c"/>
+<rect x="2.8" y="19.6" width="9.4" height="3.4" rx="0.8" fill="#3a2a1c"/>
+<rect x="6.4" y="4" width="2.2" height="17" fill="#f0b847"/>
+<rect x="3.4" y="3.6" width="18" height="2" fill="#f0b847"/>
+<rect x="4" y="20.8" width="7" height="1.2" fill="#c9965a"/>
+<polygon points="6.4,8 8.6,10.2 8.6,11.6 6.4,9.4" fill="#7a4f12"/>
+<polygon points="6.4,13 8.6,15.2 8.6,16.6 6.4,14.4" fill="#7a4f12"/>
+<rect x="18.8" y="6.8" width="1" height="7.4" fill="#3a2a1c"/>
+<rect x="17.6" y="13.6" width="3.4" height="3.4" rx="0.6" fill="#3a2a1c"/>
+<rect x="18.6" y="14.4" width="1.4" height="1.6" fill="#8a96a3"/>
+</svg>

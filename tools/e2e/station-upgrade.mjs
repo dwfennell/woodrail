@@ -203,7 +203,7 @@ await p.touchscreen.tap(at.x, at.y);
 await p.waitForTimeout(1200);
 const button = await p.evaluate(() => [...document.querySelectorAll(".station-upgrade-btn")].map((x) => x.textContent.trim()));
 const moves = setup.pick.plan.moves;
-const label = `⬆ Two-platform station · 10🪵${moves ? ` (moves ${moves} house${moves === 1 ? "" : "s"})` : ""}`;
+const label = `⬆ Two-platform station · 10\uE000${moves ? ` (moves ${moves} house${moves === 1 ? "" : "s"})` : ""}`;
 check(`a tap on the station: its card offers "${label}"`, button.includes(label), JSON.stringify(button));
 await shot("1b-card");
 
@@ -297,7 +297,7 @@ if (mover) {
   const pt = await stationAt();
   await p.touchscreen.tap(pt.x, pt.y);
   await p.waitForTimeout(1200);
-  const want = `⬆ Two-platform station · 10🪵 (moves ${mover.moves} house${mover.moves === 1 ? "" : "s"})`;
+  const want = `⬆ Two-platform station · 10\uE000 (moves ${mover.moves} house${mover.moves === 1 ? "" : "s"})`;
   const offered = await p.evaluate(() => [...document.querySelectorAll(".station-upgrade-btn")].map((x) => x.textContent.trim()));
   check(`${mover.name}'s card offers "${want}"`, offered.includes(want), JSON.stringify(offered));
   await tap(".station-upgrade-btn", "⬆ Two-platform station");

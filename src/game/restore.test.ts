@@ -151,9 +151,9 @@ describe("restoring a ruin: when it can't", () => {
     none.coins = 100;
     expect(restoreWhy(w, farm.id, { pay: gamePayment(w, none, "farm") })).toBe(RESTORE_NO_WORKSHOP);
     const p = shop(w, 1, 30);
-    expect(restoreRuin(w, editor, farm.id, { pay: gamePayment(w, p, "farm") })).toEqual({ why: "Restoring needs 2🪵 more at the workshop and 15🪙 more" });
+    expect(restoreRuin(w, editor, farm.id, { pay: gamePayment(w, p, "farm") })).toEqual({ why: "Restoring needs 2\uE000 more at the workshop and 15🪙 more" });
     p.coins = 100;
-    expect(restoreWhy(w, farm.id, { pay: gamePayment(w, p, "farm") })).toBe("Restoring needs 2🪵 more at the workshop");
+    expect(restoreWhy(w, farm.id, { pay: gamePayment(w, p, "farm") })).toBe("Restoring needs 2\uE000 more at the workshop");
     expect(w.layout.getPiece(stub)?.type).toBe("straight-216");
     expect(p.coins).toBe(100);
     expect(workshopStock(w).planks).toBe(1);
@@ -190,7 +190,7 @@ describe("restoring a ruin: what the player is told and shown", () => {
   it("the card offers Restore with its price once Farming is learned", () => {
     const { w, farm } = setup();
     expect(ruinCard(w.landscape, farm, "game", () => false).restore).toBeNull();
-    expect(ruinCard(w.landscape, farm, "game", (id) => id === "farming").restore).toBe("Restore · 3🪵 45🪙");
+    expect(ruinCard(w.landscape, farm, "game", (id) => id === "farming").restore).toBe("Restore · 3\uE000 45🪙");
   });
 
   it("names a ruin by its nearest town", () => {

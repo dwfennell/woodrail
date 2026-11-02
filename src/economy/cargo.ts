@@ -21,13 +21,16 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
 };
 
 /**
- * One icon per kind of goods, used wherever goods are counted (tray costs, cards, needs, the journal): "30🪵 10🪨".
+ * One icon per kind of goods, used wherever goods are counted (tray costs, cards, needs, the journal): "30🪵 10🪨" (logs and stone).
  * Each is one glyph (a single code point, at most with a variation selector; no joined sequences that older phones
- * draw as two), and no two kinds share one. Planks are 🪵 (as they always were); logs are a tree.
+ * draw as two), and no two kinds share one. Logs are 🪵 (it's a log: raw wood). On screen each is the game's own
+ * drawing, not the emoji (src/icons/*.svg, compiled into the "Woodrail Icons" font: see style.css). Planks have no
+ * emoji, so they're U+E000 (private use), three sawn boards with a strap. Where that font isn't used (a screen
+ * reader, a copied text) it's silent or a box, so a line meant to be read without the picture says "planks" too.
  */
 export const GOODS_ICON: Record<CargoKind, string> = {
-  log: "🌲",
-  planks: "🪵",
+  log: "🪵",
+  planks: "\uE000",
   grain: "🌾",
   flour: "🍞",
   stone: "🪨",
