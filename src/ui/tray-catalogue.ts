@@ -169,6 +169,7 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-orchard", label: "Orchard" },
       { kind: "piece", type: "depot-juicer", label: "Juice works" },
       { kind: "piece", type: "depot-creamery", label: "Creamery" },
+      { kind: "piece", type: "depot-icecream", label: "Ice cream factory" },
       { kind: "piece", type: "depot-quarry", label: "Quarry" },
       { kind: "piece", type: "depot-mine", label: "Mine" },
       { kind: "piece", type: "depot-foundry", label: "Foundry" },

@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -27,6 +27,8 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   juice: { index: 13, label: "Juice" },
   // Cheese from a creamery, made of a dairy's milk: round cheeses on a board.
   cheese: { index: 14, label: "Cheese" },
+  // Ice cream from an ice cream factory, of milk and fruit: tubs, in cold vans only.
+  icecream: { index: 15, label: "Ice cream" },
 };
 
 /**
@@ -55,6 +57,7 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   // The next nodes' goods (src/icons/u1F9C3-juice).
   juice: "🧃",
   cheese: "🧀",
+  icecream: "🍦",
 };
 
 /** Coins, beside goods in a cost. */
@@ -69,7 +72,7 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   van: ["flour", "furniture", "tools", "bread", "juice", "cheese"],
   tanker: ["milk"],
   // The cold van: cheese (which a van carries too) and, the only wagon it rides in, ice cream.
-  reefer: ["cheese"],
+  reefer: ["cheese", "icecream"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

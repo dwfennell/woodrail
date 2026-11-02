@@ -215,7 +215,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   // coins. Their goods towns always buy at full pay (`FULL_PAY`); no study asks for them.
   row({ id: "creamery", label: "Creamery", branch: "food", tier: 2, needs: ["dairy"], price: { planks: 10, coins: 140 }, blurb: "A dairy's milk made into cheese. Towns buy it at full pay.", brings: "Creamery" }),
   row({ id: "juice", label: "Juice works", branch: "food", tier: 2, needs: ["orchard"], price: { planks: 8, coins: 120 }, blurb: "An orchard's fruit pressed into juice, in bottles by the crate. Towns buy it at full pay.", brings: "Juice works" }),
-  row({ id: "ice-cream", label: "Ice cream factory", branch: "food", tier: 3, plan: "later", needs: ["creamery", "orchard"], price: { planks: 20, coins: 80 }, blurb: "Milk and fruit make ice cream. Seaside towns want lots.", brings: "Ice cream factory" }),
+  row({ id: "ice-cream", label: "Ice cream factory", branch: "food", tier: 3, needs: ["reefer", "orchard"], price: { planks: 10, coins: 200 }, blurb: "Milk and fruit make ice cream, carried in cold vans. Towns pay the most for it.", brings: "Ice cream factory" }),
   row({ id: "fishing", label: "Fishing boats", branch: "food", tier: 3, plan: "soon", needs: ["harbours"], price: { planks: 16, coins: 40 }, blurb: "Fishing boats go out from your harbours and bring back fish. Towns take fish as well as flour, so a town by the water can grow without a farm.", brings: "Fishing boats, fish" }),
   row({ id: "chocolate", label: "Chocolate factory", branch: "food", tier: 3, plan: "later", needs: ["trade", "dairy"], price: { planks: 24, coins: 120 }, blurb: "Cocoa from abroad and milk make chocolate.", brings: "Chocolate factory" }),
 

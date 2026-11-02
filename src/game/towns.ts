@@ -73,14 +73,14 @@ export function housesBy(level: number): number {
 }
 
 /** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
-export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13 };
+export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13, icecream: 20 };
 
 /**
- * Everyday food a town always wants (the dairy chain, the orchard, the juice works and the creamery): it takes all a train brings
+ * Everyday food a town always wants (the dairy chain, the orchard, the juice works, the creamery and the ice cream factory): it takes all a train brings
  * and pays the full price, at any level. Not needed to grow (no level asks for them), so a game without them grows as
  * before.
  */
-export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit", "juice", "cheese"]);
+export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit", "juice", "cheese", "icecream"]);
 
 /**
  * Goods a town always buys at the full price, at any level, and never needs to grow: everyday food, and building goods

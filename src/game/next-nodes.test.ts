@@ -6,7 +6,9 @@ import { BLUEPRINTS } from "./blueprints";
 import { firstFoodNews } from "./food-text";
 import { buysText } from "./town-ledger";
 import { FULL_PAY, LUXURIES, payFor, PRICES, townStatus } from "./towns";
+import { STICKERS, type StickerContext } from "./stickers";
 import { THING_RULES } from "./things";
+import type { World } from "./world";
 import { INDUSTRY_ROLE } from "./world";
 
 /**
@@ -118,5 +120,38 @@ describe("Cold van", () => {
     run(15);
     expect(economy.made[CARGO.cheese.index]).toBeGreaterThan(0);
     expect(got("cheese")).toBeGreaterThan(0);
+  }, 120_000);
+});
+
+describe("Ice cream factory", () => {
+  it("is built: tier 3 after the Cold van and Orchards, two goods from two chains make ice cream", () => {
+    expect(bp("ice-cream").plan).toBeUndefined();
+    expect(bp("ice-cream")).toMatchObject({ needs: ["reefer", "orchard"], tier: 3, research: { goods: { planks: 10 }, coins: 200 } });
+    expect(THING_RULES["piece:depot-icecream"]).toMatchObject({ tech: "ice-cream", coins: 360 });
+    expect(RECIPES.icecream).toMatchObject({ takes: ["milk", "fruit"], gives: ["icecream"], cycle: { uses: { milk: 1, fruit: 1 }, makes: { icecream: 1 } } });
+    // Ice cream rides in a cold van and nothing else.
+    expect(CAR_KINDS.filter((k) => canCarry(k, "icecream"))).toEqual(["reefer"]);
+  });
+
+  it("(milk + fruit) → ice cream: the train brings both, and a cold van takes the ice cream to town", () => {
+    const { closed, run, economy, got } = loop(["depot-dairy", "depot-orchard", "depot-icecream"], ["engine", "tanker", "timber", "reefer"]);
+    expect(closed).toBe(true);
+    run(20);
+    expect(economy.made[CARGO.icecream.index]).toBeGreaterThan(0);
+    expect(got("icecream")).toBeGreaterThan(0);
+    // The hidden sticker for it: earned by the delivery itself (its check reads the economy's totals).
+    const sticker = STICKERS.find((s) => s.id === "ice-cream-day")!;
+    expect(sticker.hidden).toBe(true);
+    expect(sticker.check({ economy } as unknown as World, {} as StickerContext)).toBe(true);
+  }, 120_000);
+
+  it("fruit alone isn't ice cream, and without a cold van it stays at the factory", () => {
+    const fruitOnly = loop(["depot-orchard", "depot-icecream"], ["engine", "timber", "reefer"]);
+    fruitOnly.run(10);
+    expect(fruitOnly.economy.made[CARGO.icecream.index]).toBe(0);
+    const noColdVan = loop(["depot-dairy", "depot-orchard", "depot-icecream"], ["engine", "tanker", "timber", "van"]);
+    noColdVan.run(15);
+    expect(noColdVan.economy.made[CARGO.icecream.index]).toBeGreaterThan(0);
+    expect(noColdVan.got("icecream")).toBe(0);
   }, 120_000);
 });

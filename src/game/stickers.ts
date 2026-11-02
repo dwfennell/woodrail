@@ -137,6 +137,17 @@ export const STICKERS: readonly Sticker[] = [
   { id: "rich", title: "Piggy bank", how: `Have ${RICH.toLocaleString("en")} coins at once`, icon: "🪙", theme: "economy", deps: ["coins"], check: (_w, c) => c.coins >= RICH },
   { id: "delivered-some", title: "Special delivery", how: `Deliver ${DELIVERED_SOME} goods to the towns`, icon: "📬", theme: "economy", deps: ["towns"], check: (w) => deliveredTotal(w) >= DELIVERED_SOME },
   { id: "delivered-lots", title: "Big deliveries", how: `Deliver ${DELIVERED_LOTS.toLocaleString("en")} goods to the towns`, icon: "🎁", theme: "economy", deps: ["towns"], check: (w) => deliveredTotal(w) >= DELIVERED_LOTS },
+  {
+    id: "ice-cream-day",
+    title: "Ice cream day",
+    how: "Bring ice cream to a town",
+    icon: "🍦",
+    theme: "economy",
+    hidden: true,
+    hint: "Milk and fruit make something sweet. It needs a cold van.",
+    deps: ["towns"],
+    check: (w) => [...w.economy.deliveredGoods.values()].some((bag) => (bag.icecream ?? 0) > 0),
+  },
   { id: "busy-loads", title: "Busy railway", how: `Move ${BUSY_LOADS} loads`, icon: "📦", theme: "economy", deps: ["counts"], check: (_w, c) => count(c, "loadsMoved") >= BUSY_LOADS },
   {
     id: "sawdust",

@@ -67,7 +67,7 @@ export interface LedgerContext {
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
-const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard", "juicer", "creamery"];
+const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream"];
 
 /** The everyday food a town always buys, by the blueprint that brings its maker, in cargo order. */
 const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
@@ -76,6 +76,7 @@ const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
   ["fruit", "orchard"],
   ["juice", "juice"],
   ["cheese", "creamery"],
+  ["icecream", "ice-cream"],
 ];
 
 /** "Always buys 🥛 milk, 🥖 bread and 🍎 fruit at full pay" for the foods whose blueprint is learned, or null. */

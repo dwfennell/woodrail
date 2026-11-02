@@ -221,6 +221,16 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  icecream: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      milk: { t: 38, l: 64, y: YARD, across: 3, axis: "t" },
+      fruit: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      icecream: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   juicer: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -348,6 +358,11 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
   creamery: [
     { asset: "bldg-red-barn", t: 160, l: 86 },
     { asset: "life-cow", t: 110, l: 98, turn: 0.9 },
+  ],
+  // The ice cream factory: the catalogue's kiosk (its cone turns in the catalogue; here it stands) and a seller.
+  icecream: [
+    { asset: "bldg-ice-cream-kiosk", t: 160, l: 88 },
+    { asset: "life-ice-cream-seller", t: 118, l: 100, turn: 0.6 },
   ],
   // The juice works: the catalogue's watermill as its cider press, and an apple tree by it.
   juicer: [
@@ -563,7 +578,12 @@ export class DepotView {
         [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2.5, SACK_WIDTH, 1, 0.8).translate(0, -1.25, 0), mats.naturalWood],
         [new RoundedBoxGeometry(SACK_LENGTH - 2, 2.5, SACK_WIDTH - 2, 2, 1.2).translate(0, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer("#c8442f")],
       ],
-      // The next nodes' goods: a round cheese on a board; a crate of juice bottles (amber, green caps).
+      // The next nodes' goods: a tub of ice cream (pink, a cream lid);
+      icecream: [
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.4, SACK_WIDTH / 2 - 1.4, CRATE_HEIGHT - 2, 14).translate(0, -1, 0), mats.lacquer("#e98aa8")],
+        [new CylinderGeometry(SACK_WIDTH / 2, SACK_WIDTH / 2, 2, 14).translate(0, CRATE_HEIGHT / 2 - 1, 0), mats.lacquer("#f6f3ec")],
+      ],
+      // a round cheese on a board; a crate of juice bottles (amber, green caps).
       cheese: [
         [new RoundedBoxGeometry(SACK_LENGTH, 2, SACK_WIDTH, 1, 0.6).translate(0, -CRATE_HEIGHT / 2 + 1, 0), mats.naturalWood],
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.3, SACK_WIDTH / 2 - 0.3, CRATE_HEIGHT - 3, 16).translate(0, 0.5, 0), mats.lacquer("#f1c446")],
@@ -1030,6 +1050,13 @@ export class DepotView {
         b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(12, 12, 9), d.t, d.l, PAD_H + 28));
         for (const [dt, dl, dy] of [[8, -6, 30], [-6, 8, 26], [2, -10, 22]] as const) b.add(mats.lacquer("#c8442f"), place(new SphereGeometry(2.4, 8, 6), d.t + dt, d.l + dl, PAD_H + dy));
       }
+      return;
+    }
+    if (role === "icecream") {
+      // A round pink kiosk with a striped roof and a cone on top.
+      b.add(mats.lacquer("#e98aa8"), place(new CylinderGeometry(20, 20, 30, 20), 160, 88, PAD_H + 15));
+      b.add(mats.lacquer("#f6f3ec"), place(new ConeGeometry(26, 14, 20), 160, 88, PAD_H + 37));
+      b.add(mats.lacquer("#d9a441"), place(new ConeGeometry(5, 14, 12).rotateX(Math.PI), 160, 88, PAD_H + 50));
       return;
     }
     if (role === "creamery") {
