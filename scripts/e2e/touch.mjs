@@ -3621,7 +3621,7 @@ async function routeUx(ctx, p) {
     // (`track`: a straight clear of the train, which stands on the third piece, and over 100 mm from any place's track.)
     return { engine, places, pieces: [placed[0], placed[7], placed[9]], track: placed[8] };
   });
-  const { tapOn, tapButton, still } = mapHelpers(p);
+  const { tapOn, tapButton, still, showing } = mapHelpers(p);
   await p.setViewportSize({ width: 360, height: 740 });
   const route = () => p.evaluate((e) => {
     const w = window.woodrail;
@@ -3688,9 +3688,11 @@ async function routeUx(ctx, p) {
   const undone = await route();
   check("route-ux (F1): Undo after adding a stop puts the route back, the train heading where it did", undone.stops.length === 2 && JSON.stringify(undone) === JSON.stringify(two), JSON.stringify({ undone, two }));
   await tapOn({ depot: setup.places[2] });
+  await still();
   check("route-ux: the third stop tapped again", (await route()).stops.length === 3);
-  // F6: a tap on the track just past the sawmill's end (about 20 mm on) adds the sawmill, not a via point there.
-  await tapOn({ depot: setup.places[1] });
+  // F6: a tap on the track just past the sawmill's end (about 20 mm on) adds the sawmill, not a via point there. (The
+  // view only panned there, not tapped: a tap would add it.)
+  await showing({ depot: setup.places[1] });
   const beside = await p.evaluate((id) => {
     const w = window.woodrail;
     const q = w.layout.getPiece(id);
