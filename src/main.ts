@@ -84,6 +84,7 @@ import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
+import { installSwipeGuard } from "./ui/swipe-guard";
 import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
@@ -370,6 +371,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // A tap that opens a card (or a tray shelf) under the finger mustn't also press what opened there.
   installClickShield(canvas);
+  // A sideways swipe or wheel never goes Back a page.
+  installSwipeGuard();
   const hud = new Hud(
     document.body,
     {

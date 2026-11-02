@@ -594,6 +594,59 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await ctx.close();
 }
 
+// ---- fullscreen, and a sideways wheel never goes Back a page ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  await p.waitForFunction(() => window.woodrail.settled?.() ?? true, null, { timeout: 60000 }).catch(() => {});
+  const fs = () => p.evaluate(() => {
+    const btn = document.querySelector(".actions .fullscreen-btn");
+    const r = btn?.getBoundingClientRect();
+    return { on: document.fullscreenElement === document.documentElement, shown: !!btn && !btn.hidden && getComputedStyle(btn).display !== "none", title: btn?.getAttribute("aria-label") ?? "", w: r?.width ?? 0, h: r?.height ?? 0 };
+  });
+  const before = await fs();
+  check("the Fullscreen button shows in the top bar (Chromium allows fullscreen), 44 px or more", before.shown && !before.on && before.w >= 44 && before.h >= 44, JSON.stringify(before));
+  await p.click(".actions .fullscreen-btn");
+  await p.waitForFunction(() => document.fullscreenElement === document.documentElement, null, { timeout: 10000 }).catch(() => {});
+  await frames(p);
+  const inFs = await fs();
+  check("tapped, it puts the page fullscreen and its icon becomes Leave fullscreen", inFs.on && inFs.title === "Leave fullscreen", JSON.stringify(inFs));
+  // The canvas follows its box (the ResizeObserver), and the game goes still again: no frame drawn on and on.
+  const sized = await p.evaluate(() => { const c = window.woodrail.canvas; return Math.abs(c.width / devicePixelRatio - c.clientWidth) <= 2 && Math.abs(c.height / devicePixelRatio - c.clientHeight) <= 2; });
+  check("in fullscreen the canvas is drawn at its box's size", sized);
+  await p.click(".actions .fullscreen-btn");
+  await p.waitForFunction(() => !document.fullscreenElement, null, { timeout: 10000 }).catch(() => {});
+  await frames(p);
+  const out = await fs();
+  check("tapped again, it leaves fullscreen and its icon is Fullscreen again", !out.on && out.title === "Fullscreen", JSON.stringify(out));
+  await new Promise((r) => setTimeout(r, 1500));
+  const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
+  await new Promise((r) => setTimeout(r, 3000));
+  const f1 = await p.evaluate(() => window.woodrail.framesDrawn);
+  check("after fullscreen and back, a still game draws no more frames", f1 - f0 <= 1, `${f1 - f0} frames in 3 s`);
+
+  // A sideways wheel (a trackpad swipe) on the canvas is cancelled: the browser takes no Back from it.
+  const wheel = (sel, dx, dy) => p.evaluate(([sel, dx, dy]) => {
+    const t = sel === "canvas" ? window.woodrail.canvas : document.querySelector(sel);
+    const r = t.getBoundingClientRect();
+    const e = new WheelEvent("wheel", { deltaX: dx, deltaY: dy, bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+    t.dispatchEvent(e);
+    return e.defaultPrevented;
+  }, [sel, dx, dy]);
+  check("a horizontal wheel on the canvas has defaultPrevented", await wheel("canvas", 120, 0));
+  check("a horizontal wheel on the top bar has defaultPrevented", await wheel(".topbar", -120, 4));
+  // A real one, sent as the mouse does: the view doesn't move and the page stays.
+  const url = p.url();
+  const v0 = await view(p);
+  const box = await p.evaluate(() => ({ x: innerWidth / 2, y: innerHeight / 2 }));
+  await p.mouse.move(box.x, box.y);
+  for (let i = 0; i < 5; i++) await p.mouse.wheel(-200, 0);
+  await frames(p);
+  const v1 = await view(p);
+  check("a real sideways wheel on the map neither zooms the view nor leaves the page", p.url() === url && v0.d === v1.d, `${JSON.stringify(v0)} → ${JSON.stringify(v1)}`);
+  await ctx.close();
+}
+
 // ---- touch: a tap in the tray carries nothing (as before) ----
 {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
@@ -602,6 +655,31 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await p.touchscreen.tap(item.x, item.y);
   await frames(p);
   check("on touch, a tap on a tray piece doesn't carry it", !(await carried(p)) && !(await marked(p, item.key)));
+  // A sideways wheel on the tray is cancelled (no Back a page) and scrolls the tray by hand instead.
+  const tray = await p.evaluate(() => {
+    const s = document.querySelector(".tray .scroller");
+    s.scrollLeft = 0;
+    const t = s.querySelector(".tray-item");
+    const e = new WheelEvent("wheel", { deltaX: 120, deltaY: 0, bubbles: true, cancelable: true });
+    t.dispatchEvent(e);
+    return { prevented: e.defaultPrevented, left: s.scrollLeft, room: s.scrollWidth - s.clientWidth, overscroll: getComputedStyle(s).overscrollBehaviorX, page: getComputedStyle(document.documentElement).overscrollBehaviorX };
+  });
+  check("a horizontal wheel on the tray has defaultPrevented and scrolls the tray sideways", tray.prevented && (tray.room <= 0 || tray.left > 0), JSON.stringify(tray));
+  // On a phone the bar is full: Fullscreen is in the menu (Chromium on Android allows it), and does its job there.
+  await p.tap(".actions .chip[aria-label='Menu']");
+  await frames(p);
+  const menuFs = await p.evaluate(() => {
+    const it = [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent === "Fullscreen");
+    const bar = document.querySelector(".actions .fullscreen-btn");
+    return { item: !!it && getComputedStyle(it).display !== "none" && it.offsetHeight >= 44, bar: !!bar && getComputedStyle(bar).display !== "none" };
+  });
+  check("on a phone, Fullscreen is a menu item (44 px tall), not in the full top bar", menuFs.item && !menuFs.bar, JSON.stringify(menuFs));
+  await p.locator(".menu .menu-item", { hasText: /^Fullscreen$/ }).tap();
+  // (fullscreenchange comes with the next rendering update, a moment after fullscreenElement is set.)
+  await p.waitForFunction(() => !!document.fullscreenElement && [...document.querySelectorAll(".menu .menu-item")].some((b) => b.textContent === "Leave fullscreen"), null, { timeout: 10000 }).catch(() => {});
+  const phoneFs = await p.evaluate(() => ({ on: !!document.fullscreenElement, menuHidden: document.querySelector(".menu").hidden, label: [...document.querySelectorAll(".menu .menu-item")].some((b) => b.textContent === "Leave fullscreen") }));
+  check("…tapped, it puts the page fullscreen, closes the menu, and then reads Leave fullscreen", phoneFs.on && phoneFs.menuHidden && phoneFs.label, JSON.stringify(phoneFs));
+  check("the page and the tray never overscroll into a Back", tray.overscroll === "none" && tray.page === "none", JSON.stringify(tray));
   await ctx.close();
 }
 
