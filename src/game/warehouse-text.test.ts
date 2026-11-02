@@ -15,7 +15,7 @@ function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] } {
 describe("warehouse words", () => {
   it("say why a train beside one trades nothing, and what to do", () => {
     expect(storeSkipText(false)).toBe("Warehouses trade with trains on a route. Plan a route with a stop here");
-    expect(storeSkipText(true)).toBe("This warehouse isn't on its route. Edit the route to add a stop here");
+    expect(storeSkipText(true)).toBe("This warehouse isn't on its line. Edit the line to add a stop here");
     expect(STORE_HELP).toBe("Drop goods here to keep them for later. On a route, set its stop to Only drop or Only pick up");
   });
 

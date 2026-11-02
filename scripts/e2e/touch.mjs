@@ -1210,7 +1210,9 @@ async function wyeLevers(ctx, p, tapOn) {
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
 // follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
 // lines' routes kept through track laid at a stop, undo and redo, the stop taken up), blocker (a card's Show and Put
-// it away for an engine left in a line train's way), route-ux (the route card's UX fixes, F1–F7, by taps at 360 px).)
+// it away for an engine left in a line train's way), route-ux (the route card's UX fixes, F1–F7, by taps at 360 px), route-ux-more (the roadmap's phases B and C: a
+// route from a place's card, a stop put in the middle, the ribbon's edge and arrows, tools in view on a phone on its
+// side, the Lines view's actions, a line sent another way).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -3829,6 +3831,179 @@ async function routeUx(ctx, p) {
   await p.setViewportSize({ width: 390, height: 844 });
 }
 
+/**
+ * The route UX roadmap's phases B and C (docs/superpowers/specs/2026-11-02-route-ux.md), by the player's path on a phone:
+ * a route started from a place's card ("New route from here", C1); a stop put in the middle by picking its neighbour
+ * while planning (B8); the ribbon's dark edge and its arrows on the map (B3, B4); on its side (844×390) a picked stop's
+ * tools in view without a scroll (B9); the Lines view's discs and arrows, "+ Train", "Edit stops" and "+ New line"
+ * (B5, C2); and a track edit that sends the line another way: the card says so, and the flash ends (B6). (Setup only,
+ * not what's tested: the oval, the trains, and for B6 the two ways and their route, put down in code; the top road
+ * taken up by the editor's own command, as the eraser does.)
+ */
+async function routeUxMore(ctx, p) {
+  await p.keyboard.press("Escape");
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const o = S.oval(scratch);
+    const ids = o.ids;
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    if (!g) throw new Error("no open ground for the oval");
+    const types = { 0: "depot-forest", 7: "depot-sawmill", 9: "depot-forest" };
+    const placed = w.editor().placeRun(ids.map((i, k) => {
+      const q = scratch.getPiece(i);
+      return { type: types[k] ?? q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = [depot(placed[0], "forest").id, depot(placed[7], "sawmill").id, depot(placed[9], "forest").id];
+    const engines = [placed[2], placed[5], placed[12]].map((pieceId) => {
+      const r = w.sim.addTrain(["engine", "timber"], { pieceId, pathIndex: 0, s: 100, reversed: false });
+      if (r.kind !== "placed") throw new Error("no room for a train");
+      const e = w.sim.getTrain(r.trainId).cars[0].id;
+      w.sim.setLever(e, 0);
+      return e;
+    });
+    w.invalidate();
+    return { engines, places, pieces: [placed[0], placed[7], placed[9]] };
+  });
+  const { tapOn, tapButton, still } = mapHelpers(p);
+  await p.setViewportSize({ width: 360, height: 740 });
+  const stopsOf = (e) => p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? [], e);
+  // C1: the forest's card, "New route from here": the nearest free train (the first) plans, the forest its stop 1.
+  await tapOn({ depot: setup.places[0] });
+  await tapButton(".depot-routes .route-new-here");
+  await p.waitForFunction(() => !!document.querySelector(".engine-extra .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
+  const started = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".engine-extra .route-plan.on") }));
+  // (The free train nearest the forest, of the three.)
+  const first = started.open;
+  check("route-ux-more (C1): a forest's card, New route from here: the nearest free train plans, the forest its first stop", started.planning && setup.engines.includes(first) && JSON.stringify(await stopsOf(first)) === JSON.stringify([setup.places[0]]), JSON.stringify({ started, stops: await stopsOf(first) }));
+  // B8: the sawmill, then the first stop's chip picked and the second forest tapped: it goes in after the first.
+  await tapOn({ depot: setup.places[1] });
+  await tapButton('.engine-extra .route-chip[data-stop="0"]');
+  const hint = await p.evaluate(() => document.querySelector(".engine-extra .route-insert-hint")?.textContent);
+  await tapOn({ depot: setup.places[2] });
+  const order = await stopsOf(first);
+  check("route-ux-more (B8): planning with stop 1 picked, a place tapped goes in after it (said)", JSON.stringify(order) === JSON.stringify([setup.places[0], setup.places[2], setup.places[1]]) && /^Places you tap now go after /.test(hint ?? ""), JSON.stringify({ order, hint }));
+  await tapButton(".engine-extra .route-plan.on");
+  await still();
+  // B3, B4: the line on the map has its dark edge and its arrows.
+  const map = await p.evaluate(() => {
+    const g = window.woodrail.scene.getObjectByName("route");
+    const named = (n) => g?.children.find((c) => c.name === n);
+    return { edge: !!named("route-edge"), arrows: named("route-chevrons")?.geometry.getAttribute("position").count ?? 0 };
+  });
+  check("route-ux-more (B3, B4): the ribbon has its dark edge and arrows along it", map.edge && map.arrows >= 9, JSON.stringify(map));
+  // B9: on its side, a stop's chip tapped: its tools in the card's view, no scroll by the player.
+  await p.setViewportSize({ width: 844, height: 390 });
+  await frames(p);
+  await tapButton('.engine-extra .route-chip[data-stop="2"]');
+  await frames(p);
+  await p.waitForTimeout(300);
+  const fold = await p.evaluate(() => {
+    const card = document.querySelector(".engine-card").getBoundingClientRect();
+    const tools = document.querySelector(".engine-extra .route-tools")?.getBoundingClientRect();
+    return { card: [Math.round(card.top), Math.round(card.bottom)], tools: tools && [Math.round(tools.top), Math.round(tools.bottom)], inside: !!tools && tools.top >= card.top && tools.bottom <= card.bottom + 1 && tools.bottom <= innerHeight };
+  });
+  check("route-ux-more (B9): at 844×390 a stop picked has its tools in view in the card", fold.inside, JSON.stringify(fold));
+  await p.setViewportSize({ width: 360, height: 740 });
+  await p.keyboard.press("Escape");
+  // B5, C2: ☰ → Lines: discs and arrows on every line's ribbon; + Train puts the nearest free train on it.
+  const openLinesView = async () => {
+    // (Each step waited for, and on a timeout what the page shows said: the menu, its Lines item, the view, a card.)
+    const state = () => p.evaluate(() => ({ menu: document.querySelector(".menu")?.hidden, item: document.querySelector(".menu button[title^='Every line']")?.hidden, view: document.querySelector(".lines-view")?.hidden, engine: window.woodrail.interaction.openEngineCarId, cards: [...document.querySelectorAll(".card")].filter((c) => !c.hidden).map((c) => c.className), menus: [...document.querySelectorAll(".menu")].map((m) => [m.hidden, [...m.querySelectorAll("button")].map((b) => `${b.textContent}${b.hidden ? "(hidden)" : ""}`).join("|")]) }));
+    try {
+      await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId === -1, null, { timeout: 10000 });
+      await tapButton('button[aria-label="Menu"]');
+      // (By its words: the tooltip takes a button's title once it has shown it.)
+      await p.evaluate(() => [...document.querySelectorAll(".menu button")].find((b) => b.textContent === "Lines")?.setAttribute("data-e2e", "lines"));
+      await tapButton(".menu button[data-e2e='lines']");
+      await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 30000 });
+    } catch (e) {
+      throw new Error(`Lines didn't open: ${JSON.stringify(await state())}`);
+    }
+    await frames(p);
+  };
+  await openLinesView();
+  await still();
+  const all = await p.evaluate(() => {
+    const g = window.woodrail.scene.getObjectByName("all-lines");
+    return { discs: g?.children.filter((c) => c.isSprite).length ?? 0, arrows: !!g?.children.find((c) => c.name === "route-chevrons"), acts: [...document.querySelectorAll(".lines-actions button")].map((b) => ({ t: b.textContent, h: Math.round(b.getBoundingClientRect().height) })) };
+  });
+  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and offers Edit stops and + Train (44 px)", all.discs >= 3 && all.arrows && all.acts.map((a) => a.t).join(",") === "Edit stops,+ Train" && all.acts.every((a) => a.h >= 44), JSON.stringify(all));
+  await tapButton(".lines-actions button:last-child");
+  await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
+  const joined = await p.evaluate((es) => {
+    const w = window.woodrail;
+    const on = es.engines.filter((e) => w.economy.lineIdOf.get(e) === w.economy.lineIdOf.get(es.first));
+    return { on, open: w.interaction.openEngineCarId };
+  }, { engines: setup.engines, first });
+  // (Of the two free trains, the one nearer the line's places.)
+  const added = joined.on.find((e) => e !== first);
+  check("route-ux-more (C2): + Train puts a free train on the line, and opens its card", joined.on.length === 2 && joined.open === added, JSON.stringify(joined));
+  await p.keyboard.press("Escape");
+  // C2: + New line: the last free train's card, planning.
+  await openLinesView();
+  await tapButton(".lines-head .lines-new");
+  await p.waitForFunction(() => !!document.querySelector(".engine-extra .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
+  const fresh = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".engine-extra .route-plan.on") }));
+  check("route-ux-more (C2): + New line opens the last free train's card, planning", fresh.planning && fresh.open !== -1 && fresh.open !== added && fresh.open !== first, JSON.stringify({ fresh, added }));
+  await tapButton(".engine-extra .route-plan.on");
+  await p.keyboard.press("Escape");
+  // B6: a line on two ways (the harness's `twoWays`), the top road taken up: the card says it goes another way now,
+  // the flash ends by itself.
+  const two = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const { editLine } = await import("/src/game/lines.ts");
+    const scratch = new Layout();
+    const { scenario } = S.twoWays(false, true);
+    const built = scenario.build(scratch);
+    const ids = [...scratch.pieceIds()];
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    if (!g) throw new Error("no open ground for the two ways");
+    const t = built.trains[0];
+    const placed = w.editor().placeRun(ids.map((i) => {
+      const q = scratch.getPiece(i);
+      return { type: i === t.stops[1] ? "depot-sawmill" : q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const at = (i) => placed[ids.indexOf(i)];
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = [depot(at(t.stops[0]), "forest").id, depot(at(t.stops[1]), "sawmill").id];
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: at(t.pieceId), pathIndex: 0, s: 150, reversed: !!t.reversed });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(engine, 0);
+    editLine(w.economy, engine, (l) => l.push({ depotId: places[0], action: "auto" }, { depotId: places[1], action: "auto" }));
+    const sw = placed.filter((i) => w.layout.getPiece(i).type === "switch");
+    const curves = placed.filter((i) => w.layout.getPiece(i).type === "curve-large");
+    const between = placed.slice(placed.indexOf(sw[0]) + 1, placed.indexOf(sw[1]));
+    w.invalidate();
+    return { engine, top: between.filter((i) => w.layout.getPiece(i).type === "straight-216"), curves };
+  });
+  await tapOn({ engine: two.engine });
+  await still();
+  const runs = () => p.evaluate(() => window.woodrail.routeShown().flatMap((r) => r.runs.map((x) => x.pieceId)));
+  const before = await runs();
+  // (The road the line is drawn by, of the two, taken up: a straight between the switches it runs over.)
+  const road = two.top.find((i) => before.includes(i));
+  const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
+  const gone = await p.evaluate((id) => window.woodrail.editor().remove(id), road);
+  await p.waitForFunction(() => !!document.querySelector(".engine-extra .route-way-changed"), null, { timeout: 30000 }).catch(() => {});
+  const said = await p.evaluate(() => document.querySelector(".engine-extra .route-way-changed")?.textContent);
+  const after = await runs();
+  check("route-ux-more (B6): the road its line ran by taken up, the card says it goes another way now (and it does)", gone && said === "Goes another way now: the track changed" && !after.includes(road) && after.length > 0, JSON.stringify({ road, gone, said, before: before.length, after: after.length }));
+  await p.waitForFunction(() => !document.querySelector(".engine-extra .route-way-changed"), null, { timeout: 30000 }).catch(() => {});
+  await frames(p);
+  const fA = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.waitForTimeout(1500);
+  const fB = await p.evaluate(() => window.woodrail.framesDrawn);
+  check("route-ux-more (B6): the note goes after a few seconds, and the flash ends (no frames after)", !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-way-changed"))) && fB - fA <= 1 && fA > f0, JSON.stringify({ f0, fA, fB }));
+  await p.keyboard.press("Escape");
+}
+
 async function runMode(mode) {
   const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -3902,7 +4077,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "route-ux": () => routeUx(ctx, p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

@@ -6,6 +6,13 @@
   /* A pale beech board with a faint grain, and its thickness showing along the bottom edge. */
   --wood-panel: repeating-linear-gradient(91deg, transparent 0 13px, rgba(170, 120, 60, 0.035) 14px 15px, transparent 16px 37px, rgba(170, 120, 60, 0.05) 38px 39px, transparent 40px 52px), linear-gradient(170deg, #fbf3e4, #f1e0c2);
   --wood-panel-edge: inset 0 1px 0 #fffaf0, inset 0 -5px 0 rgba(176, 122, 68, 0.35);
+  /* DESIGN.md tokens the route card uses (audit F18: its colours were off the system). */
+  --ink-soft: #5e4128;
+  --ink-muted: #74522f;
+  --go-green-light: #8fd08a;
+  --go-green: #5aa35a;
+  --go-green-ink: #13310f;
+  --warn-ink: #b0391f;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -1009,13 +1016,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-head { display: flex; align-items: center; gap: 8px; }
 .route-head .engine-extra-label { display: inline-flex; align-items: center; gap: 6px; }
 .route-swatch { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.15); }
-.route-none { font-size: 0.85em; opacity: 0.7; flex: 1; }
+.route-none { font-size: 0.85em; color: var(--ink-muted); flex: 1; }
 .route-head .route-plan { margin-left: auto; }
-.route-plan.on { background: #3c9a5f; color: #fff; }
-.route-hint { font-size: 0.85em; opacity: 0.75; }
+/* Done: the system's go-green, dark ink (audit F18: white on #3c9a5f was 3.5:1). */
+.route-plan.on { background: linear-gradient(180deg, var(--go-green-light), var(--go-green)); color: var(--go-green-ink); }
+.route-hint { font-size: 0.85em; color: var(--ink-soft); }
 .route-stops { display: flex; flex-wrap: nowrap; gap: 4px; position: relative; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .route-stops::-webkit-scrollbar { display: none; }
-.route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
+/* The line's colour is the stop number's lacquer ring (filled on the next stop), not a stripe down the side (audit F11). */
+.route-chip { padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
 /* The stop's number, in a ring of the line's colour; the stop the train's heading for has it filled (audit F7). */
 .route-num { display: inline-block; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 4px; margin-right: 5px; border-radius: 999px; font-size: 12px; font-weight: 900; line-height: 20px; text-align: center; vertical-align: 1px; box-shadow: inset 0 0 0 2px var(--line, #888); }
@@ -1027,14 +1036,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A stop's plan under its name: what it picks up (⬆) and drops (⬇), icons only (a tap on the stop says it in words). */
 .route-chip.has-goods { display: inline-block; text-align: left; white-space: nowrap; height: auto; min-height: 44px; line-height: 1.2; padding-block: 4px; }
 .route-goods { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; }
-.route-chip.lost { opacity: 0.55; text-decoration: line-through; }
+.route-chip.lost { opacity: 0.7; text-decoration: line-through; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
 /* Only drop or Only pick up, on the chip beside its name (audit F2: the chip looked the same as one that does both). */
 .route-intent { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 999px; font-size: 11.5px; font-weight: 800; line-height: 1.5; background: rgba(58, 42, 28, 0.12); color: #3a2a1c; vertical-align: 1px; }
 /* What a picked stop does: three choices side by side, the one it does pressed (green, as a toggle that's on). */
 .route-modes { display: flex; gap: 4px; }
 .route-modes .route-mode { flex: 1 1 0; min-width: 0; min-height: 44px; height: auto; padding: 4px 6px; white-space: normal; line-height: 1.15; font-size: 13px; text-align: center; }
-.route-modes .route-mode.on { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(20, 60, 20, 0.3); }
+.route-modes .route-mode.on { background: linear-gradient(180deg, var(--go-green-light), var(--go-green)); color: var(--go-green-ink); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(20, 60, 20, 0.3); }
 /* A via point (passed, not stopped at): a lighter chip, "via" and the line's dot. */
 .route-chip.route-via { border-left: none; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 2px var(--line, #888); font-weight: 700; font-size: 13px; padding-inline: 8px; display: inline-flex; align-items: center; }
 .route-via-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--line, #888); box-shadow: inset 0 0 0 3px #fff, 0 0 0 1px var(--line, #888); }
@@ -1053,9 +1062,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .planning .engine-card .engine-extra { margin-top: 0; }
 .planning .tray, .planning .tray-draw, .planning .tray-orient { display: none; }
 .route-tools { flex-wrap: wrap; }
-.route-wait.on { background: #e6b52c; }
+.route-wait.on { background: linear-gradient(180deg, var(--go-green-light), var(--go-green)); color: var(--go-green-ink); }
 .route-chip[data-wait]::before { content: "⏳ "; }
-.route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
+.route-warn { font-size: 0.85em; color: var(--warn-ink); font-weight: 700; }
 /* The stops one row, scrolled sideways if they don't fit (the card stays short); planning, a picked stop's tools compact. */
 .planning .route-tools { flex-wrap: wrap; }
 .route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
@@ -1104,14 +1113,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-line-name { cursor: pointer; min-height: 44px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
 .route-riders { white-space: nowrap; flex: 0 0 auto; }
 /* A long name ends in "…" rather than wrapping the card's head. */
+.route-line-edit { margin-left: 2px; font-size: 13px; color: var(--ink-soft); flex: 0 0 auto; }
+.route-place-num { font-weight: 600; color: var(--ink-muted); }
 .route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
-.route-leave.asking, .goals-new.asking { background: #b0391f; color: #fff; }
+.route-leave.asking, .goals-new.asking { background: var(--warn-ink); color: #fff; }
 .route-join-line:disabled { opacity: 0.45; }
-.route-riders { font-weight: 600; opacity: 0.7; }
+.route-riders { font-weight: 700; color: var(--ink-soft); }
 .route-head .route-leave { padding-inline: 10px; }
 .route-join { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.route-join-line { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
+.route-join-line { padding-inline: 8px; display: inline-flex; align-items: center; gap: 6px; }
+/* A lacquer disc in the line's colour before its name, as the card's own swatch. */
+.route-join-line::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--line, #888); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -2px 0 rgba(0, 0, 0, 0.2); flex: 0 0 auto; }
 /* The Lines view: a sheet at the bottom (the tray's away), each line a row. */
 .lines-open .tray, .lines-open .tray-draw, .lines-open .tray-orient { display: none; }
 .lines-view { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); gap: 8px; padding: 12px; }
@@ -1119,6 +1132,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
 .lines-row { display: flex; align-items: center; gap: 10px; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
+/* A line's actions, under its row (audit F12): Edit stops, + Train. */
+.lines-actions { display: flex; gap: 6px; padding-left: 54px; }
+.lines-actions button { min-height: 44px; }
+.lines-head .lines-new { margin-left: auto; margin-right: 6px; }
+/* A place's card: the lines that call there, and New route from here (audit F12). */
+.depot-routes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.depot-routes .route-join-line, .depot-routes .route-new-here { min-height: 44px; }
 .lines-swatch { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; padding: 0; }
 .lines-swatch.on { outline: 3px solid #3a2a1c; outline-offset: 1px; }
 .lines-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -1264,3 +1284,8 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
   /* (Loops shown for a while: the Re-rail nudge and Show me's ring stand still, coloured as they are.) */
   .chip.attention, .goals-show-icon.nudge { animation: none; }
 }
+/* The line's way changed under a track edit (audit F14): said for a few seconds, as its ribbon flashes. */
+.route-way-changed { font-weight: 800; color: var(--ink-soft); }
+/* "Add Foxley": the status's fix, one tap (audit F15). */
+.route-fix { display: flex; }
+.route-fix .route-add-stop { min-height: 44px; }

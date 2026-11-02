@@ -3,6 +3,7 @@ import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
 import { siteWhy } from "./industries";
+import { editLine } from "./lines";
 import { BRIDGE_KNOWN_HINT, BUY_LAND_HINT, GOALS, plotsBought, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, OPEN_INDUSTRY_GOALS, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
 import mainSrc from "../main.ts?raw";
 import panelSrc from "../ui/workshop-panel.ts?raw";
@@ -50,6 +51,23 @@ function trainOn(w: World, pieceId: number, kinds: Parameters<World["sim"]["addT
   if (r.kind !== "placed") throw new Error("no room for the train");
   return w.sim.getTrain(r.trainId)!;
 }
+
+describe("Give a train a route (audit F4)", () => {
+  it("needs Train routes; done once a train on the map runs a line of two stops, by the card's own edit", () => {
+    const w = buildStarterWorld();
+    const g = GOALS.find((x) => x.id === "give-route")!;
+    expect(g).toMatchObject({ title: "Give a train a route", needs: ["routes"], blueprint: "routes" });
+    const [a, b] = w.landscape.towns.map((t) => w.economy.allDepots().find((d) => d.pieceId === w.stations.get(t.id))!.id);
+    const engine = trainOn(w, w.stations.get(w.landscape.towns[0].id)!).cars[0].id;
+    expect(g.check(w).done).toBe(false);
+    editLine(w.economy, engine, (s) => s.push({ depotId: a, action: "auto" }));
+    expect(g.check(w).done, "one stop isn't a route yet").toBe(false);
+    editLine(w.economy, engine, (s) => s.push({ depotId: b, action: "auto" }));
+    expect(g.check(w).done).toBe(true);
+    // Show me: the trains.
+    expect(g.guide(w).marks.length).toBeGreaterThan(0);
+  });
+});
 
 describe("goals", () => {
   it("have unique ids, and none is done on a fresh starter map", () => {
@@ -657,8 +675,8 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
 
   it("come after the passing loop, before Connect every town; each needs its blueprint; Open a farm is where it was", () => {
     const ids = GOALS.map((g) => g.id);
-    expect(GOALS).toHaveLength(23);
-    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "open-quarry", "open-mine", "open-harbour", "join-all", "buy-land"]);
+    expect(GOALS).toHaveLength(24);
+    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "give-route", "open-quarry", "open-mine", "open-harbour", "join-all", "buy-land"]);
     for (const r of ROLES) expect(goal(r.id)).toMatchObject({ title: r.title, hint: r.hint, needs: [r.bp] });
     expect(goal("open-farm")).toMatchObject({ title: "Open a farm", hint: "Restore an old farm, or build a farm yard by some fields.", needs: ["farming"] });
     expect(OPEN_INDUSTRY_GOALS).toEqual(["open-farm", "open-quarry", "open-mine", "open-harbour"]);

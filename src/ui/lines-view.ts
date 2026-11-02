@@ -14,6 +14,12 @@ export interface LinesViewHandlers {
   recolour(id: number, colour: string): void;
   /** Frame a line's places on the map. */
   show(id: number): void;
+  /** Edit a line's stops: its train's card, planning (audit F12). */
+  edit(id: number): void;
+  /** Put another train on a line: the nearest free one that track leads from to it. */
+  addTrain(id: number): void;
+  /** A new line: the nearest free train's card, planning. */
+  newLine(): void;
   close(): void;
 }
 
@@ -50,7 +56,16 @@ export class LinesView {
       e.stopPropagation();
       handlers.close();
     });
-    head.append(title, close);
+    // (A new line from here, not only from a train's card: audit F12.)
+    const add = document.createElement("button");
+    add.className = "chip text lines-new";
+    add.textContent = "+ New line";
+    add.title = "Plan a new line for a train that runs none";
+    add.addEventListener("click", (e) => {
+      e.stopPropagation();
+      handlers.newLine();
+    });
+    head.append(title, add, close);
     this.list.className = "lines-list";
     this.root.append(head, this.list);
     parent.appendChild(this.root);
@@ -79,7 +94,7 @@ export class LinesView {
     if (rows.length === 0) {
       const none = document.createElement("div");
       none.className = "lines-none";
-      none.textContent = "No lines yet: plan a train's route from its card";
+      none.textContent = "No lines yet: tap + New line, or a train and Plan a route";
       this.list.append(none);
       return;
     }
@@ -132,9 +147,27 @@ export class LinesView {
     main.className = "lines-main";
     main.append(name, info);
     row.append(swatch, main, show);
-    if (this.picking !== r.id) return row;
+    // Under it, what to do with the line: edit its stops, put another train on it.
+    const acts = document.createElement("div");
+    acts.className = "lines-actions";
+    const act = (text: string, tip: string, fn: () => void) => {
+      const b = document.createElement("button");
+      b.className = "chip text";
+      b.textContent = text;
+      b.title = tip;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        fn();
+      });
+      return b;
+    };
+    acts.append(act("Edit stops", "Change this line's stops (all its trains run them)", () => this.handlers.edit(r.id)), act("+ Train", "Put another train on this line", () => this.handlers.addTrain(r.id)));
     const wrap = document.createElement("div");
     wrap.className = "lines-row-wrap";
+    if (this.picking !== r.id) {
+      wrap.append(row, acts);
+      return wrap;
+    }
     const colours = document.createElement("div");
     colours.className = "lines-palette";
     for (const c of this.palette) {
@@ -150,7 +183,7 @@ export class LinesView {
       });
       colours.append(b);
     }
-    wrap.append(row, colours);
+    wrap.append(row, colours, acts);
     return wrap;
   }
 }
