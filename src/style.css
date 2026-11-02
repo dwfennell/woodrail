@@ -1312,3 +1312,13 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
   /* (Loops shown for a while: the Re-rail nudge and Show me's ring stand still, coloured as they are.) */
   .chip.attention, .goals-show-icon.nudge { animation: none; }
 }
+
+/* The place card (hud.ts showPlaceCard): a tray item's name, what it does and what sets it apart, above the tray over
+   the item while it's ready to place. Never takes a pointer: the map under it still takes the drop. */
+.place-card { position: fixed; z-index: 34; max-width: min(280px, calc(100vw - 16px)); padding: 9px 12px 10px; border-radius: 14px; background: #faf3e6; color: #3a2a1c; box-shadow: inset 0 1px 0 #fff8, 0 10px 30px rgba(60, 40, 20, 0.28); pointer-events: none; display: flex; flex-direction: column; gap: 2px; animation: card-in 0.2s cubic-bezier(0.3, 1.4, 0.5, 1); transform-origin: 50% 100%; }
+.place-card[hidden] { display: none; }
+.place-card .pc-name { font-size: 15px; font-weight: 800; }
+.place-card .pc-what { font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #5e4128; text-wrap: pretty; }
+.place-card .pc-fact { font-size: 13px; font-weight: 700; line-height: 1.3; color: #74522f; }
+.place-card .pc-fact:first-of-type { margin-top: 3px; }
+@media (prefers-reduced-motion: reduce) { .place-card { animation: none; } }

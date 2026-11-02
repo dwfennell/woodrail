@@ -1,5 +1,5 @@
 import { installTooltips, type Tooltips } from "./tooltip";
-import { trayInfo } from "./piece-info";
+import { placeCardInfo, trayInfo } from "./piece-info";
 import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
 import { blockWord } from "./blocks";
@@ -833,7 +833,7 @@ export class Hud {
         b.title = "Drag onto the map, or click then click the map";
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: (up) => this.lockedTap(b, item) || this.handlers.trayTap(item, up.pointerType), details });
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: (up) => this.tapTrayItem(b, item, up, () => this.handlers.trayTap(item, up.pointerType)), details });
         });
       } else {
         // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
@@ -852,11 +852,12 @@ export class Hud {
           e.preventDefault();
           this.trayPress(e, scroller, {
             pick: (move) => this.handlers.trayPointerDown(item, move),
-            tap: (up) => {
-              if (this.lockedTap(b, item)) return;
-              if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
-              else if (crossing || detail) this.toast(tip);
-            },
+            // (On touch a tap carries nothing: the place card shows what it is a moment, with its Game-mode note.)
+            tap: (up) =>
+              this.tapTrayItem(b, item, up, () => {
+                if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
+                else if (crossing) this.toast(tip);
+              }),
             details,
           });
         });
@@ -894,6 +895,7 @@ export class Hud {
       if (openId !== "" && openId !== tab.id) this.handlers.trayTabChanged();
       openId = tab.id;
       openDef = tab;
+      this.hidePlaceCard();
       // The Land tab switches land editing on (with its first tool), any other tab off.
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
@@ -2087,6 +2089,106 @@ export class Hud {
     this.root.classList.remove("picking");
   }
 
+  /**
+   * The place card: an item's name, what it does and what sets it apart (piece-info's `placeCardInfo`), docked above
+   * the tray over the item while it's ready to place (clicked, or a road tapped), so the choice is explained without
+   * covering the map's middle. On touch, a tap that makes nothing ready (a train, a piece) shows it a moment instead
+   * (`timed`). A locked tile's tap shows its lock note instead (`lockedTap`). `pointer-events: none`: it never takes a drop or a
+   * click. Built only when it's shown for a new item (a selection change), never per frame or pointer move.
+   */
+  private placeCard: { el: HTMLElement | null; key: string | null; timed: boolean; timer: number } = { el: null, key: null, timed: false, timer: 0 };
+
+  /** A tap on a tray item: `run` does what a tap does; then the place card for what it made ready, or a moment's. */
+  private tapTrayItem(b: HTMLElement, item: TrayItem, up: PointerEvent, run: () => void): void {
+    const key = b.dataset.key ?? null;
+    // (Whatever card was up gives way to this tap's.)
+    if (this.placeCard.key !== key) this.hidePlaceCard();
+    // Locked: its note says how to unlock it, with Show in Research (and nothing is picked up).
+    if (this.lockedTap(b, item)) return;
+    const before = this.armedKey;
+    run();
+    if (key && this.armedKey === key && before !== key) this.showPlaceCard(b, item, false);
+    else if (up.pointerType === "touch" && before !== key && this.placeCard.key !== key) this.showPlaceCard(b, item, true);
+    else this.hidePlaceCard();
+  }
+
+  /** How long a place card shown by a tap that made nothing ready stays up (ms). */
+  static readonly PLACE_CARD_MS = 3500;
+
+  private showPlaceCard(b: HTMLElement, item: TrayItem, timed: boolean): void {
+    const card = this.placeCard;
+    clearTimeout(card.timer);
+    if (!card.el) {
+      card.el = el("div", "place-card");
+      card.el.setAttribute("role", "status");
+      card.el.hidden = true;
+      document.body.appendChild(card.el);
+      // Kept over its item when the screen changes (a turn of the phone).
+      window.addEventListener("resize", () => {
+        if (card.key === null) return;
+        const at = this.tray.querySelector<HTMLElement>(`.tray-item[data-key="${CSS.escape(card.key)}"]`);
+        if (at) this.placeCardAt(at);
+        else this.hidePlaceCard();
+      });
+    }
+    const info = placeCardInfo(item);
+    const line = (cls: string, text: string) => {
+      const d = el("div", cls);
+      d.textContent = text;
+      return d;
+    };
+    const lines = [line("pc-name", info.name), line("pc-what", info.detail), ...info.facts.map((f) => line("pc-fact", f))];
+    // What it does in Game mode (a caboose: makes its train a bit faster).
+    if (item.kind === "train" && this.trayMode === "game" && item.gameDetail) lines.push(line("pc-fact", item.gameDetail));
+    card.el.replaceChildren(...lines);
+    this.hideLockNote();
+    this.tray.querySelector(".tray-item.has-card")?.classList.remove("has-card");
+    b.classList.add("has-card");
+    card.key = b.dataset.key ?? null;
+    card.timed = timed;
+    // (Its details from a hover or long press would sit in the same place, saying less.)
+    this.tips.hide();
+    this.placeCardAt(b);
+    if (timed) card.timer = window.setTimeout(() => this.hidePlaceCard(), Hud.PLACE_CARD_MS);
+  }
+
+  /** Dock the place card above the tray, over item `b` (kept on the screen). */
+  private placeCardAt(b: HTMLElement): void {
+    const c = this.placeCard.el!;
+    c.hidden = false;
+    const r = b.getBoundingClientRect();
+    // Over the tray and anything standing on it (Clear, Turn and Flip), so nothing of the tray is hidden.
+    let top = Math.min(r.top, this.tray.getBoundingClientRect().top);
+    for (const t of this.tray.querySelectorAll<HTMLElement>(".tray-tools > *")) {
+      const box = t.getBoundingClientRect();
+      if (box.height > 0 && box.right > 0) top = Math.min(top, box.top);
+    }
+    const w = c.offsetWidth;
+    const x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+    c.style.left = `${Math.round(x)}px`;
+    c.style.bottom = `${Math.round(window.innerHeight - top + 8)}px`;
+  }
+
+  /** The place card taken away (placing ended, or its moment is up). */
+  hidePlaceCard(): void {
+    const card = this.placeCard;
+    clearTimeout(card.timer);
+    if (card.key === null) return;
+    card.key = null;
+    card.el!.hidden = true;
+    this.tray.querySelector(".tray-item.has-card")?.classList.remove("has-card");
+  }
+
+  /** Something from the tray was put down: the item's card has said its piece (the next goes down without it). */
+  trayPlaced(): void {
+    if (this.placeCard.key !== null && !this.placeCard.timed) this.hidePlaceCard();
+  }
+
+  /** The key of the item whose place card is up, or null (for tests). */
+  get placeCardShown(): string | null {
+    return this.placeCard.key;
+  }
+
   /** The tray piece readied for placing with taps (`trayKey`), or null. */
   private armedKey: string | null = null;
   private armedCarried = false;
@@ -2094,6 +2196,8 @@ export class Hud {
   /** Mark the tray item that's ready (`carried`: clicked, following the mouse, marked apart), or none (null). */
   setArmed(key: string | null, carried = false): void {
     if (key === this.armedKey && carried === this.armedCarried) return;
+    // Placing ended (put away, or something else made ready): its card goes too.
+    if (this.placeCard.key !== null && key !== this.placeCard.key) this.hidePlaceCard();
     this.armedKey = key;
     this.armedCarried = carried;
     this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => {

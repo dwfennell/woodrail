@@ -662,6 +662,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.keysTaken = () => interaction.piecesTakeKeys;
   interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {
+    hud.trayPlaced();
     audio.putdown(snapped);
     if (snapped) hud.haptic("snap");
   };
@@ -1687,6 +1688,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let trainMade: Map<ThingId, number> | null = null;
   let trainSaid = "";
   interaction.onTrayTrainDropped = (placed) => {
+    if (placed) hud.trayPlaced();
     const made = trainMade;
     const said = trainSaid;
     trainMade = null;

@@ -1,7 +1,10 @@
 // End-to-end click-to-place on a desktop (`npm run e2e:click`): a tray piece (a model, a train) clicked with the mouse is carried, its
 // ghost following the mouse over the map; each click puts one down there (joined to a track end it's shown at), ready
 // for the next; a drag still pans, the wheel still zooms; R turns it; Esc, a right-click or the tray item again put it
-// away. On touch a tap in the tray carries nothing (as before). Starts its own dev server on any free port. Chromium as
+// away. On touch a tap in the tray carries nothing (as before). The place card (#12): while an item is ready to place
+// its card (name, what it does, a train's pulls and speed) sits above the tray taking no pointer, and goes once one is
+// put down or it's put away; Game mode's Engine, and a locked engine's lock note in its place; on touch a tap shows it a moment, a road made ready
+// keeps it, and a long press shows the details without a drag. Starts its own dev server on any free port. Chromium as
 // for e2e:roads.
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
@@ -57,6 +60,43 @@ const press = async (p, key) => {
 };
 /** The view's tilt (radians from straight down). */
 const tilt = (p) => p.evaluate(() => { const w = window.woodrail; const d = w.camera.position.clone().sub(w.controls.target); return Math.acos(d.y / d.length()); });
+/**
+ * The place card (#12): shown, its name, all its lines, and where it sits: above the tray and its tools, taking no
+ * pointer (the map under its middle is what a click there hits). Null if it isn't up.
+ */
+function readCard() {
+    const c = document.querySelector(".place-card");
+    if (!c || c.hidden || getComputedStyle(c).display === "none") return null;
+    const r = c.getBoundingClientRect();
+    const tray = Math.min(...[document.querySelector(".tray"), ...document.querySelectorAll(".tray-tools > *")].map((e) => e.getBoundingClientRect()).filter((b) => b.height > 0).map((b) => b.top));
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { name: c.querySelector(".pc-name")?.textContent ?? null, text: [...c.children].map((x) => x.textContent), pointer: getComputedStyle(c).pointerEvents, above: r.bottom <= tray + 1, onScreen: r.left >= 0 && r.right <= innerWidth && r.top >= 0, hitsMap: hit?.tagName === "CANVAS" };
+}
+const placeCard = (p) => p.evaluate(readCard);
+/**
+ * Catch the next place card the moment it shows (a card shown for a moment can be gone before a poll under load):
+ * `await catchCard(p)` before the tap, then `await caught(p)` after it.
+ */
+const catchCard = (p) =>
+  p.evaluate((src) => {
+    const read = new Function(`return (${src})()`);
+    window.__caught = null;
+    const obs = new MutationObserver(() => {
+      const c = document.querySelector(".place-card");
+      if (c && !c.hidden && !window.__caught) {
+        window.__caught = read();
+        obs.disconnect();
+      }
+    });
+    obs.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden"] });
+  }, readCard.toString());
+const caught = async (p) => {
+  await p.waitForFunction(() => window.__caught !== null, null, { timeout: 10000 }).catch(() => {});
+  return p.evaluate(() => window.__caught);
+};
+/** Wait (a few seconds at most) for the place card to be up. */
+/** The card's place and lines are right for a ready item named `name`. */
+const cardOk = (c, name) => !!c && c.name === name && c.text.length >= 2 && c.pointer === "none" && c.above && c.onScreen && c.hitsMap;
 const frames = (p) => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 /** Points on open map: on the canvas, nothing there to pick, ground under it, in the middle of the view. */
@@ -95,6 +135,8 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const toast = await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
   check("a click on a tray piece carries it (marked in the tray)", (await carried(p)) && (await marked(p, item.key)), `carried ${await carried(p)}; marked ${await marked(p, item.key)}`);
   check("…and says how: “Click to place · Esc to stop”", /Click to place · Esc to stop/.test(toast), toast);
+  const card1 = await placeCard(p);
+  check("…and its card shows above the tray: its name and what it's for, never taking a click (#12)", cardOk(card1, "Medium straight"), JSON.stringify(card1));
   const look = await p.evaluate((key) => ({ placing: document.querySelector(`.scroller .tray-item[data-key="${key}"]`)?.classList.contains("carried"), cursor: window.woodrail.canvas.style.cursor }), item.key);
   check("carried is marked apart from ready in the tray (“placing”), and the cursor over the map says so", look.placing && look.cursor === "copy", JSON.stringify(look));
 
@@ -121,6 +163,7 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const n1 = await pieces(p);
   const placed = await p.evaluate(() => Math.max(...window.woodrail.layout.pieceIds()));
   check("a click on the map puts one down, and it's still carried for the next", n1 === n0 + 1 && (await carried(p)) && (await marked(p, item.key)), `pieces ${n0} → ${n1}; carried ${await carried(p)}; ghost ${JSON.stringify(g0)}; said ${await p.evaluate(() => [...document.querySelectorAll(".toast, .refusal")].map((t) => t.textContent).join(" | "))}`);
+  check("…and its card has gone (it's said its piece)", n1 === n0 + 1 && (await placeCard(p)) === null, JSON.stringify(await placeCard(p)));
 
   // 4. At a free end, the ghost snaps to it, and a click there puts the next one down joined. (The piece just put
   // down's, or, if both of its run into something, a house or a hill, another's put down in the open.)
@@ -647,14 +690,83 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await ctx.close();
 }
 
-// ---- touch: a tap in the tray carries nothing (as before) ----
+// ---- Game mode: the Engine clicked (the user's screenshot, #12), and a locked engine ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await ctx.newPage();
+  p.on("pageerror", (e) => errors.push(String(e)));
+  await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await p.goto(URL);
+  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game button.primary") !== null, null, { timeout: 180000 });
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  // (The Trains tab's Engines shelf, opened as a tap on them would: the tray's tabs aren't what's tested here.)
+  await p.evaluate(() => window.woodrail.hud.openTray("trains", "Engines"));
+  await p.waitForFunction(() => !!document.querySelector('.scroller .tray-item[data-key="train:Engine"]'), null, { timeout: 30000 });
+  const at = (sel) => p.evaluate((sel) => { const e = document.querySelector(sel); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2, e.dataset.key]; }, sel);
+  const engine = await at('.scroller .tray-item[data-key="train:Engine"]');
+  await p.mouse.click(engine[0], engine[1]);
+  await frames(p);
+  const c1 = await placeCard(p);
+  check("Game mode: a click on the Engine carries it, and its card says what it is, pulls and how fast", (await thing())?.kind === "drag-train" && cardOk(c1, "Engine") && c1.text.includes("Pulls 4 cars · steady"), JSON.stringify(c1));
+  await p.keyboard.press("Escape");
+  await frames(p);
+  check("…Esc puts it away, and the card goes with it", !(await thing()) && (await placeCard(p)) === null, JSON.stringify(await placeCard(p)));
+  const locked = await at(".scroller .tray-item.locked");
+  await p.mouse.click(locked[0], locked[1]);
+  await p.waitForFunction(() => document.querySelector(".lock-note")?.hidden === false, null, { timeout: 5000 }).catch(() => {});
+  const note = await p.evaluate(() => { const n = document.querySelector(".lock-note"); return n && !n.hidden ? n.textContent : null; });
+  check("…a click on a locked engine carries nothing; its lock note (claude/locked-tiles) says how to unlock it, in place of a card", !(await thing()) && (await placeCard(p)) === null && !!note && /unlock|soon/i.test(note), `${locked[2]}: ${note}`);
+  await ctx.close();
+
+  async function thing() {
+    return p.evaluate(() => { const c = window.woodrail.interaction.carriedThing; return c ? { kind: c.m.kind } : null; });
+  }
+}
+
+// ---- touch: a tap in the tray carries nothing (as before); its card shows a moment; a long press shows details ----
 {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const p = await sandbox(ctx);
   const item = await firstItem(p);
+  await catchCard(p);
   await p.touchscreen.tap(item.x, item.y);
-  await frames(p);
+  const c1 = await caught(p);
   check("on touch, a tap on a tray piece doesn't carry it", !(await carried(p)) && !(await marked(p, item.key)));
+  check("…but its card shows a moment, above the tray, taking no touch", cardOk(c1, "Medium straight"), JSON.stringify(c1));
+  await p.waitForFunction(() => document.querySelector(".place-card")?.hidden === true, null, { timeout: 10000 }).catch(() => {});
+  check("…and goes by itself", (await placeCard(p)) === null);
+
+  // A long press (held 450 ms or more, by event time): its details, and no drag.
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const t0 = Date.now() / 1000;
+  const before = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, mode: window.woodrail.interaction.mode.kind }));
+  await touch("touchStart", item.x, item.y, t0);
+  await p.waitForFunction(() => window.woodrail.hud.lastTrayDetails > 0, null, { timeout: 10000 }).catch(() => {});
+  await touch("touchMove", item.x + 2, item.y - 2, t0 + 0.6);
+  const held = await p.evaluate(() => { const t = document.querySelector(".tooltip"); return { tip: t && !t.hidden ? t.querySelector(".tip-name")?.textContent : null, mode: window.woodrail.interaction.mode.kind, ghost: !!window.woodrail.interaction.preview?.ghost.visible }; });
+  await touch("touchEnd", item.x + 2, item.y - 2, t0 + 0.7);
+  await frames(p);
+  const after = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, mode: window.woodrail.interaction.mode.kind }));
+  check("a long press on a tray piece shows its details, and starts no drag", held.tip === "Medium straight" && held.mode === before.mode && !held.ghost && after.pieces === before.pieces && after.mode === before.mode && !(await carried(p)), JSON.stringify({ held, before, after }));
+
+  // A road tapped is made ready (touch's tap-to-select): its card shows while it's ready, and goes when put away.
+  await p.evaluate(() => window.woodrail.hud.openTray("roads"));
+  await p.waitForFunction(() => !!document.querySelector('.scroller .tray-item[data-key^="road"]'), null, { timeout: 30000 }).catch(() => {});
+  const road = await p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key^="road"]'); if (!e) return null; e.scrollIntoView(); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, key: e.dataset.key, name: e.dataset.tipName }; });
+  if (!road) check("a road on the Roads tab", false);
+  else {
+    await p.touchscreen.tap(road.x, road.y);
+    await frames(p);
+    const c2 = await placeCard(p);
+    check("on touch, a tap on a road makes it ready, and its card shows while it is", (await marked(p, road.key)) && cardOk(c2, road.name), JSON.stringify(c2));
+    await new Promise((r) => setTimeout(r, 4000));
+    check("…(still up after the moment a plain tap's card stays)", (await placeCard(p))?.name === road.name);
+    await p.touchscreen.tap(road.x, road.y);
+    await frames(p);
+    check("…tapped again it's put away, and the card goes", !(await marked(p, road.key)) && (await placeCard(p)) === null, JSON.stringify(await placeCard(p)));
+  }
   // A sideways wheel on the tray is cancelled (no Back a page) and scrolls the tray by hand instead.
   const tray = await p.evaluate(() => {
     const s = document.querySelector(".tray .scroller");
