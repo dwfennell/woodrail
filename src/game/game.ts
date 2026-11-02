@@ -589,7 +589,7 @@ export class Game {
       // (On the side of plain ground: not on a platform or a town's lot, not on other track.)
       const open = (x: number, z: number) => {
         const i = g.cellAtWorld(x, z);
-        return i >= 0 && g.surface[i] === SURF_GRASS && g.feature[i] === FEAT_NONE && !nearTrack(track, x, z, 16) && !land.towns.some((t) => inStationFootprint(t.station, x, z, 6));
+        return i >= 0 && g.surface[i] === SURF_GRASS && g.feature[i] === FEAT_NONE && !nearTrack(track, x, z, 16) && !land.towns.some((t) => inStationFootprint(t.station, x, z, 2));
       };
       land.firstTrain = firstTrainMark(snap.transforms[o], snap.transforms[o + 2], snap.transforms[o + 3], open);
       this.touches.setMark(land.firstTrain, (x, z) => hillsOf(land.grid).groundAt(x, z));
