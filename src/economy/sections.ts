@@ -447,6 +447,11 @@ interface LineInfo {
   blocked: ReadonlySet<number>;
   /** Trains the line has no room for (for cards: how many more loops). */
   more: number;
+  /**
+   * Every train working its track goes round circuits one way round, none against another (`oneWayRound`): its routed
+   * trains may follow each other (`follows`), and the room rule isn't applied.
+   */
+  oneWay: boolean;
   /** Every other train on the track (not this line's, nor a line's sharing its network): where it stands, it's in the way. */
   foreign: readonly Train[];
   /** A loop of its line has a train not on the line standing on each road: only moving one helps (see `line`). */
@@ -476,7 +481,7 @@ export class Sections {
   /** The trains each line has room for (kept: see `line`). */
   private readonly admitted = new Map<number, Set<number>>();
   /** Per line: what `line` last worked out of its room (see there), and for what. */
-  private readonly slow = new Map<number, { key: string; topo: Topology; blocked: ReadonlySet<number>; more: number; spareCut: boolean; parked: boolean; other: boolean }>();
+  private readonly slow = new Map<number, { key: string; topo: Topology; blocked: ReadonlySet<number>; more: number; spareCut: boolean; parked: boolean; other: boolean; oneWay: boolean }>();
   /** When each engine was first seen on its line (for the room rule: the first ones are let run). */
   private readonly firstSeen = new Map<number, number>();
   /**
@@ -1106,8 +1111,9 @@ export class Sections {
    * a hand-run train goes on as the points lie and never stops at a slot for good, so token working with it is only to
    * keep the two from meeting head on (play-test 2026-11-01, src/play/bugmaps/route-stuck.txt: hand-run trains running
    * round a ring one behind another stood in one section together the moment a line came to manage it, each waiting on
-   * the next, round the ring). And where both are routed trains each going round a circuit (the user, 2026-11-02:
-   * "let line trains on circuits follow each other too"): a line's trains on a ring follow round as hand-run ones do.
+   * the next, round the ring). And where both are routed trains each going round a circuit, and every train working
+   * the track goes round one way (`LineInfo.oneWay`; the user, 2026-11-02: "let line trains on circuits follow each
+   * other too"): a line's trains on a ring follow round as hand-run ones do.
    * Trains going the same way don't meet head on; the sim keeps the one behind back from the one ahead (`followCap`: the
    * gap while it moves, close behind once it stands). A train going the other way, or one that will turn back at a line
    * end (a convoy into a dead end), keeps single-line working: one to a section.
@@ -1115,13 +1121,15 @@ export class Sections {
   private follows(info: LineInfo, engine: number, u: number): boolean {
     if (!this.hasRoom(info, engine) || !this.hasRoom(info, u) || !this.circling(u)) return false;
     if (info.loose.includes(engine) || info.loose.includes(u)) return true;
-    return this.circling(engine);
+    // (Two routed trains: only where nobody on the track could meet them head on. Else a train going round the other way
+    // could wait for ever for a section the two never both leave: single-line working keeps it its turn.)
+    return info.oneWay && this.circling(engine);
   }
 
   /** Could `engine`, asking with train `u` in its way, follow it (so it's worth working out its way: `follows`)? */
   private mayFollow(info: LineInfo, engine: number, u: number): boolean {
     if (info.loose.length > 0) return true;
-    return u >= 0 && info.users.includes(u) && this.circling(engine) && this.circling(u);
+    return info.oneWay && u >= 0 && info.users.includes(u) && this.circling(engine) && this.circling(u);
   }
 
   /**
@@ -1343,7 +1351,7 @@ export class Sections {
     // (Running through a loop that's no passing place: the sections beyond it must be free too.)
     if (way && way.dest !== -1)
       for (const x of way.sections) {
-        const v = x === section ? -1 : this.sectionUser(info, x, st.engine, along ?? (info.loose.length > 0 || this.circling(st.engine) ? (along = this.alongOf(way.steps, topo)) : undefined));
+        const v = x === section ? -1 : this.sectionUser(info, x, st.engine, along ?? (info.loose.length > 0 || (info.oneWay && this.circling(st.engine)) ? (along = this.alongOf(way.steps, topo)) : undefined));
         if (v !== -1) {
           this.hold(st, { kind: "section", engine: v });
           return false;
@@ -1376,7 +1384,7 @@ export class Sections {
     if (!way) return true;
     if (way.dest === DEAD_END) return this.deadEndWait(st, info, way);
     const ahead = new Set(way.steps.map((s) => s.pieceId));
-    const along = info.loose.length > 0 || this.circling(st.engine) ? this.alongOf(way.steps, info.topo) : null;
+    const along = info.loose.length > 0 || (info.oneWay && this.circling(st.engine)) ? this.alongOf(way.steps, info.topo) : null;
     for (const u of info.users) {
       if (u === st.engine) continue;
       const t = this.sim.findCar(u)?.train;
@@ -1624,6 +1632,7 @@ export class Sections {
     let spareCut = false;
     let parked = false;
     let other = false;
+    let oneWay = false;
     if (managed) {
       // Every other train on the track (another line's, or one standing on its own) is in the way where it stands.
       const mine = new Set([...engines, ...peers].map((e) => this.sim.findCar(e)?.train.id ?? -1));
@@ -1648,6 +1657,7 @@ export class Sections {
         spareCut = last.spareCut;
         parked = last.parked;
         other = last.other;
+        oneWay = last.oneWay;
       } else {
         const order = [...engines].sort((a, b) => this.firstSeen.get(a)! - this.firstSeen.get(b)!);
         // (The loops whose roads hold a train standing that has no room (`adm`: those with room), or one not on the line.)
@@ -1686,8 +1696,8 @@ export class Sections {
         // (Every train working its track going round circuits one way (none could ever meet another head on: they only
         // follow, `follows`): room for all of them, however many loops (the user, 2026-11-02: a line of 3 on a ring with
         // one loop was held "too many", though they could just follow round). Else a train more than its loops.)
-        const circuit = engines.length > 1 && this.oneWayRound([...engines, ...peers, ...loose]);
-        const roomOf = (adm: ReadonlySet<number>) => (circuit ? engines.length : Math.max(1, loops - roadsHeld(adm).b.size + 1));
+        oneWay = this.oneWayRound([...engines, ...peers, ...loose]);
+        const roomOf = (adm: ReadonlySet<number>) => (oneWay ? engines.length : Math.max(1, loops - roadsHeld(adm).b.size + 1));
         // (Let in first those whose holding would block most: one in a section holds the single track; one at a line end
         // holds its stop; one standing on a loop's road costs only that loop, and is let in last.)
         const where = (e: number): number => {
@@ -1805,14 +1815,14 @@ export class Sections {
         if (engines.length > admitted.size) more = Math.max(1, engines.length - 1 - (loops - held.gone));
         parked = held.gone > 0;
         other = parked && !byParked;
-        this.slow.set(lineId, { key, topo, blocked, more, spareCut, parked, other });
+        this.slow.set(lineId, { key, topo, blocked, more, spareCut, parked, other, oneWay });
       }
       // Trains gone from the line give up what they held.
       for (const [e, st] of this.states) if (this.host.lineOf(e) === lineId && !engines.includes(e)) this.states.delete(st.engine);
     }
     const zone = { slots: new Map<number, number>(), sections: new Map<number, number>() };
     if (managed) for (const t of foreign) if (t.speed >= 1) this.zoneOf(t, topo, zone);
-    info = { engines, users: peers.length + loose.length > 0 ? [...engines, ...peers, ...loose] : engines, loose, topo, loops, admitted, managed, blocked, more, foreign, spareCut, parked, other, zone };
+    info = { engines, users: peers.length + loose.length > 0 ? [...engines, ...peers, ...loose] : engines, loose, topo, loops, admitted, managed, blocked, more, oneWay, foreign, spareCut, parked, other, zone };
     this.lineInfo.set(lineId, info);
     if (managed) {
       this.managedTick = this.sim.ticks;

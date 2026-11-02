@@ -395,6 +395,22 @@ describe("stalls", () => {
   });
 });
 
+/**
+ * Known, found on this branch and on its base alike (the same trajectory with following and the circuit room off): two
+ * lines round a ring with two loops, Red's two trains one way and Blue's one the other. Red's two follow nobody
+ * (`oneWay` false: Blue could meet them head on), and each waits in its loop for a road of the other's loop; Blue, going
+ * round non-stop, has a move to that road every time one is asked for (slots have no first-come order), so Red's two
+ * stand for good, never said stuck (Blue moves). A fix takes this off (open items in rail-road.md).
+ */
+describe("known: a train going round the other way starves a line's two (slot waits have no order)", () => {
+  it("Red's two stand from the start while Blue's runs; the 60 s check sees it", () => {
+    const r = runScenario(new Layout(), S.ringLinesBothWays);
+    expect(r.arrivals.slice(0, 2)).toEqual([0, 0]);
+    expect(r.arrivals[2]).toBeGreaterThan(60);
+    expect(r.broke.deadlock.count).toBeGreaterThan(0);
+  }, 60_000);
+});
+
 describe("every expected failure names a step", () => {
   it("and names a check the case has", () => {
     for (const c of [...KID, ...OTHERS, ...SHARED, ...FORWARD]) {

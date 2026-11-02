@@ -549,6 +549,27 @@ export function ringLineBothWays(three: boolean): Scenario {
   };
 }
 
+/**
+ * Two lines on `ringTwoLoops`: Red, two trains going round one way, and Blue, one going round the other way. Blue's
+ * could meet Red's head on, so Red's two don't follow each other (`LineInfo.oneWay` false): single-line working, as
+ * before. Known: Blue's starves Red's two (harness.test.ts "known: …").
+ */
+export const ringLinesBothWays: Scenario = {
+  name: "two lines round a ring with two loops: two trains one way, one the other",
+  seconds: KID_SECONDS,
+  maxStill: 60,
+  build: (layout) => {
+    const r = ringTwoLoops(layout);
+    return {
+      trains: [
+        { pieceId: r.north.main[0], stops: [r.a, r.b], next: 1, line: 1, cars: CARS },
+        { pieceId: r.south.main[0], stops: [r.a, r.b], next: 0, line: 1, cars: CARS },
+        { pieceId: r.north.side[1], reversed: true, stops: [r.a, r.b], next: 0, line: 2, cars: CARS },
+      ],
+    };
+  },
+};
+
 export const SHARED: readonly Scenario[] = [twoLinesOneLoop, twoLinesNoLoop, threeLinesTwoLoops, twoLinesThreeTrains, linelessWithLine, ringRoutedAmongHandRun, ringLineOfThree];
 
 /** The branch delivery, with the player doing `what` once the wye is set for the siding and the train is coming to it. */
