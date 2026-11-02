@@ -36,3 +36,13 @@ describe("an industry's goods rows (the mine)", () => {
     expect(html).not.toContain("data-unlist");
   });
 });
+
+describe("a wagon's goods rows", () => {
+  it("on or off each, no counts", () => {
+    const html = storeHtml({ wagon: true, others: null, addable: [], rows: [{ kind: "coal", count: 0, cap: 0, mode: "both", listed: true }, { kind: "ore", count: 0, cap: 0, mode: "off", listed: true }] }, false);
+    expect(html.match(/data-mode=/g)?.length).toBe(4);
+    expect(html).toContain('<span class="store-sub">Takes</span>');
+    expect(html).toContain('<span class="store-sub">Off</span>');
+    expect(html).not.toContain("/0");
+  });
+});

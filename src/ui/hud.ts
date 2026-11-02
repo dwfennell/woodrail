@@ -1,6 +1,7 @@
 import { installTooltips, type Tooltips } from "./tooltip";
 import { trayInfo } from "./piece-info";
 import { storeHtml, type StoreView } from "./store-rows";
+import { WAGON_NONE, WAGON_SAME } from "../game/warehouse-text";
 import type { CargoKind, StoreMode } from "../economy";
 import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
@@ -107,6 +108,10 @@ export interface HudHandlers {
   storeMode(kind: CargoKind | null, mode: StoreMode): void;
   /** A warehouse's card: a good taken off its list (it follows "Any other goods" again). */
   storeUnlist(kind: CargoKind): void;
+  /** A wagon's card: a good it can carry switched on or off. */
+  carGoods(kind: CargoKind, on: boolean): void;
+  /** A wagon's card: every wagon of its kind on its train set the same as it. */
+  carGoodsSame(): void;
   toggleSound(): void;
   /** Any HUD button pressed (for a soft click). */
   buttonTap(): void;
@@ -252,6 +257,9 @@ export class Hud {
   private readonly summaryLoad = el("div", "summary-load");
   /** A wagon's (or coach's) load, on its card. */
   private readonly carLoad = el("div", "car-load");
+  /** A wagon's goods, on or off each (`setCarGoods`), as the warehouse's rows. */
+  private readonly carGoods = el("div", "depot-store car-goods");
+  private carGoodsShown = "";
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
@@ -607,6 +615,15 @@ export class Hud {
     this.carCard.appendChild(el("div", "card-title", "Wagon"));
     this.carLoad.hidden = true;
     this.carCard.appendChild(this.carLoad);
+    this.carGoods.hidden = true;
+    this.carGoods.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
+      if (!b) return;
+      e.stopPropagation();
+      if (b.dataset.same !== undefined) h.carGoodsSame();
+      else if (b.dataset.mode && b.dataset.kind && b.getAttribute("aria-pressed") !== "true") h.carGoods(b.dataset.kind as CargoKind, b.dataset.mode === "both");
+    });
+    this.carCard.appendChild(this.carGoods);
     const carRow = el("div", "card-row");
     carRow.append(
       button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"),
@@ -1561,6 +1578,27 @@ export class Hud {
   setCarLoad(text: string): void {
     this.carLoad.hidden = !text;
     if (this.carLoad.textContent !== text) this.carLoad.textContent = text;
+  }
+
+  /**
+   * The open wagon's goods (null hides them): on or off for each it can carry, "Carries nothing (all switched off)"
+   * when none is on, and (`same`: its train has other wagons like it) a button to set them all the same. Drawn again
+   * only when it changes.
+   */
+  setCarGoods(view: { rows: { kind: CargoKind; on: boolean }[]; same: boolean } | null): void {
+    const key = view ? JSON.stringify(view) : "";
+    if (key === this.carGoodsShown) return;
+    this.carGoodsShown = key;
+    this.carGoods.hidden = !view;
+    if (!view) {
+      this.carGoods.innerHTML = "";
+      return;
+    }
+    const rows = storeHtml({ wagon: true, others: null, addable: [], rows: view.rows.map((r) => ({ kind: r.kind, count: 0, cap: 0, mode: r.on ? "both" : "off", listed: true })) }, false);
+    const none = view.rows.every((r) => !r.on) ? `<div class="car-goods-none">${WAGON_NONE}</div>` : "";
+    const same = view.same ? `<button class="chip text car-goods-same" data-same>${WAGON_SAME}</button>` : "";
+    this.carGoods.innerHTML = rows + none + same;
+    this.onCardResize?.();
   }
 
   get carCardOpen(): boolean {

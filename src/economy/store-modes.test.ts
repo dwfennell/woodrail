@@ -248,3 +248,45 @@ describe("an industry that gives several goods (the mine): Gives / Doesn't give 
     expect(w.plan()[0]).toMatchObject({ picks: [], notPicks: ["coal", "ore"] });
   });
 });
+
+describe("a wagon's goods, on or off each (its card)", () => {
+  it("all on to start; a good switched off isn't loaded, by the crane or by hand", () => {
+    const w = line(["mine", "foundry"], ["engine", "hopper"]);
+    const [mine] = w.depots;
+    expect(["coal", "ore", "grain", "stone"].every((k) => w.economy.carTakes(w.wagon, k as "coal"))).toBe(true);
+    mine.piles[CARGO.coal.index] = 6;
+    w.economy.setCarTakes(w.wagon, "coal", false);
+    expect(w.economy.needsService(mine, w.wagon)).toBe(false);
+    expect(w.economy.carAccepts(w.wagon, "coal")).toBe(false);
+    expect(w.economy.carAccepts(w.wagon, "ore")).toBe(true);
+    mine.piles[CARGO.ore.index] = 6;
+    expect(w.economy.needsService(mine, w.wagon)).toBe(true);
+    expect(w.economy.carOffKinds(w.wagon)).toEqual(["coal"]);
+    w.economy.setCarTakes(w.wagon, "coal", true);
+    expect(w.economy.carOffKinds(w.wagon)).toEqual([]);
+  });
+
+  it("a hopper set to ore only, beside one set to everything, at a mine: ore on the first, the least-carried rule for the other", () => {
+    const w = line(["mine"], ["engine", "hopper", "hopper"]);
+    const [mine] = w.depots;
+    mine.piles[CARGO.coal.index] = 12;
+    mine.piles[CARGO.ore.index] = 12;
+    const [a, b] = w.train().cars.filter((c) => c.kind === "hopper").map((c) => c.id);
+    for (const k of ["coal", "grain", "stone"] as const) w.economy.setCarTakes(a, k, false);
+    w.sim.setLever(w.engine, 1);
+    for (let i = 0; i < 60 * SIM_HZ; i++) (w.sim.tick(), w.economy.tick());
+    expect(w.economy.cargoOf(a).kind).toBe("ore");
+    // (The other takes what the train has least of: coal, as the first has ore.)
+    expect(w.economy.cargoOf(b).kind).toBe("coal");
+  });
+
+  it("all switched off: it carries nothing, and a wait-to-fill stop doesn't hold it", () => {
+    const w = line(["mine", "foundry"], ["engine", "hopper"]);
+    const [mine, foundry] = w.depots;
+    mine.piles[CARGO.coal.index] = 6;
+    mine.piles[CARGO.ore.index] = 6;
+    for (const k of ["coal", "ore", "grain", "stone"] as const) w.economy.setCarTakes(w.wagon, k, false);
+    w.route([{ depotId: mine.id, action: "auto", waitFill: true }, { depotId: foundry.id, action: "auto" }]);
+    expect(w.economy.needsService(mine, w.wagon)).toBe(false);
+  });
+});

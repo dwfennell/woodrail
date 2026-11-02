@@ -1,5 +1,5 @@
 import { CARGO, GOODS_ICON, STORE_MODES, type CargoKind, type StoreMode } from "../economy";
-import { GIVES_MODE_ICON, GIVES_MODE_WORDS, GIVES_MODES, STORE_ADD, STORE_MODE_ICON, STORE_MODE_WORDS, STORE_OTHERS } from "../game/warehouse-text";
+import { GIVES_MODE_ICON, GIVES_MODE_WORDS, GIVES_MODES, WAGON_MODE_ICON, WAGON_MODE_WORDS, WAGON_MODES, STORE_ADD, STORE_MODE_ICON, STORE_MODE_WORDS, STORE_OTHERS } from "../game/warehouse-text";
 
 /** One good on a warehouse's card: how many it holds, what it lets trains do with it, and whether it's on its list. */
 export interface StoreRow {
@@ -20,6 +20,8 @@ export interface StoreView {
   /** "Any other goods" (null: no such row). */
   readonly others: StoreMode | null;
   readonly gives?: boolean;
+  /** A wagon's card: on or off per good it can carry (no counts: `cap` 0). */
+  readonly wagon?: boolean;
   /** Goods "+ Add a good" offers: ones the player knows, not shown yet. */
   readonly addable: readonly CargoKind[];
 }
@@ -32,6 +34,7 @@ interface Choices {
 }
 const STORE: Choices = { modes: STORE_MODES, words: STORE_MODE_WORDS, icons: STORE_MODE_ICON };
 const GIVES: Choices = { modes: GIVES_MODES, words: GIVES_MODE_WORDS, icons: GIVES_MODE_ICON };
+const WAGON: Choices = { modes: WAGON_MODES, words: WAGON_MODE_WORDS, icons: WAGON_MODE_ICON };
 
 /** The choice for one good (`kind` "": any other good), each a 44 px button with its picture and its name. */
 function choice(c: Choices, kind: CargoKind | "", mode: StoreMode, what: string): string {
@@ -48,8 +51,8 @@ function row(c: Choices, kind: CargoKind | "", name: string, sub: string, mode: 
 
 /** The warehouse's goods rows, "Any other goods", and "+ Add a good" (with its picker open: the goods to add). */
 export function storeHtml(v: StoreView, adding: boolean): string {
-  const c = v.gives ? GIVES : STORE;
-  const rows = v.rows.map((r) => row(c, r.kind, `${GOODS_ICON[r.kind]} ${CARGO[r.kind].label}`, `${r.count}/${r.cap} · ${c.words[r.mode]}`, r.mode, !v.gives && r.listed && r.count === 0)).join("");
+  const c = v.wagon ? WAGON : v.gives ? GIVES : STORE;
+  const rows = v.rows.map((r) => row(c, r.kind, `${GOODS_ICON[r.kind]} ${CARGO[r.kind].label}`, `${r.cap > 0 ? `${r.count}/${r.cap} · ` : ""}${c.words[r.mode]}`, r.mode, c === STORE && r.listed && r.count === 0)).join("");
   const others = v.others === null ? "" : row(c, "", STORE_OTHERS, STORE_MODE_WORDS[v.others], v.others, false);
   const add = v.addable.length
     ? `<button class="chip text store-add${adding ? " active" : ""}" data-add aria-expanded="${adding}">${STORE_ADD}</button>` +

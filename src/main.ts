@@ -52,7 +52,7 @@ import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./rende
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { blockerOf, engineView, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
-import { givesBlockText, STORE_NO_ROUTE, storeBlockText, storeStopText } from "./game/warehouse-text";
+import { givesBlockText, STORE_NO_ROUTE, WAGON_SAME_DONE, storeBlockText, storeStopText } from "./game/warehouse-text";
 import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
@@ -489,6 +489,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
       storeMode: (kind, mode) => interaction.setStoreMode(kind, mode),
       storeUnlist: (kind) => interaction.unlistStore(kind),
+      carGoods: (kind, on) => {
+        game.economy.setCarTakes(interaction.openCarCardId, kind, on);
+        showSummary();
+        scheduleSave();
+      },
+      carGoodsSame: () => {
+        // Every wagon of this kind on its train set as this one (one tap).
+        const found = game.sim.findCar(interaction.openCarCardId);
+        if (!found) return;
+        const me = found.train.cars[found.index];
+        for (const c of found.train.cars) if (c.kind === me.kind && c.id !== me.id) for (const k of CARRIES[me.kind] ?? []) game.economy.setCarTakes(c.id, k, game.economy.carTakes(me.id, k));
+        hud.toast(WAGON_SAME_DONE);
+        showSummary();
+        scheduleSave();
+      },
       needThumbnails: (items) => wantPictures(items, "tray"),
       kitsShown: (items) => interaction.warmKits(items),
       landTool: (tool) => setLandTool(tool),
@@ -2922,7 +2937,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const cars = found.train.cars;
     const line = engineId !== -1 ? lineOf(game.economy, engineId) : undefined;
-    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
+    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
     if (key === summaryKey) return;
     summaryKey = key;
     if (engineId !== -1) {
@@ -2931,11 +2946,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const kmh = mode !== "game" ? CLASSIC_KMH : l.cars > l.pulls || l.engines.length === 0 ? 0 : CLASSIC_KMH * Math.min(...l.engines.map((e) => e.speed));
       const s = trainSummary(cars.map(summaryCar), kmh, line?.name ?? "");
       hud.setEngineSummary(s.about, s.load);
+      hud.setCarGoods(null);
     } else {
       const car = cars[found.index];
       const room = car.kind === "passenger" ? (game.economy.seatsOf?.(car.id) ?? 0) : game.economy.wagonCapacity;
-      const carries = CARRIES[car.kind];
+      // (What it carries, as switched on on its card; all switched off, all it could, beside "Carries nothing".)
+      const all = CARRIES[car.kind];
+      const on = all?.filter((k) => game.economy.carTakes(car.id, k));
+      const carries = on && on.length > 0 ? on : all;
       hud.setCarLoad(car.kind === "passenger" && room === 0 ? "" : carries || car.kind === "passenger" ? carLoadWords(summaryCar(car), room, carries) : "");
+      // A wagon carrying more than one kind of goods: which of them it takes, on or off each.
+      hud.setCarGoods(
+        all && all.length > 1
+          ? { rows: all.map((k) => ({ kind: k, on: game.economy.carTakes(car.id, k) })), same: cars.some((c) => c.kind === car.kind && c.id !== car.id) }
+          : null,
+      );
     }
   }
   function showRoute(): void {

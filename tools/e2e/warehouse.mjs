@@ -7,7 +7,8 @@
 // own events. The warehouse's own setting per good, by taps: before anything arrives, planks listed ("+ Add a good")
 // and set to Takes only: route 1 still drops them, route 2 picks none up and its card says why ("Not picking up
 // planks: the warehouse is set to Takes only"); set back to Takes and gives, route 2 takes them to the town. Last, a
-// mine on the line set by a tap to give coal only: a hopper train there leaves with coal only.
+// mine on the line set by a tap to give coal only: a hopper train there leaves with coal only. Then a hopper's own
+// card: coal switched off and "Same for all wagons like this on this train": the train leaves with ore only.
 //
 // Usage: npm run e2e:warehouse [-- <out dir>]   (default out: e2e-out/warehouse)
 import { existsSync, mkdirSync } from "node:fs";
@@ -54,9 +55,11 @@ const tapped = async (act) => {
 const worldAt = (what) =>
   p.evaluate((what) => {
     const w = window.woodrail;
-    if (what.engine !== undefined) {
-      const t = w.sim.findCar(what.engine).train;
-      const [a, c] = [t.world[0], t.world[1]];
+    if (what.engine !== undefined || what.car !== undefined) {
+      const found = w.sim.findCar(what.engine ?? what.car);
+      const t = found.train;
+      const i = what.car !== undefined ? found.index : 0;
+      const [a, c] = [t.world[2 * i], t.world[2 * i + 1]];
       return { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2, z: (a.z + c.z) / 2 };
     }
     const piece = w.layout.getPiece(w.economy.depot(what.depot).pieceId);
@@ -340,9 +343,9 @@ if (!setup.error && setup.engine !== -1) {
     mine.piles[CARGO.coal.index] = 8;
     mine.piles[CARGO.ore.index] = 8;
     // (Its train is put down after its card is set: standing on the mine, a tap there would take the train.)
-    window.__hoppers = () => {
+    window.__hoppers = (at = piece) => {
       for (const s of [0, 20, 40, 60]) {
-        const r = w.sim.addTrain(["engine", "hopper", "hopper"], { pieceId: piece, pathIndex: 0, reversed: false, s });
+        const r = w.sim.addTrain(["engine", "hopper", "hopper"], { pieceId: at, pathIndex: 0, reversed: false, s });
         if (r.kind === "placed") {
           const engine = w.sim.getTrain(r.trainId).cars[0].id;
           w.sim.setLever(engine, 0);
@@ -383,6 +386,62 @@ if (!setup.error && setup.engine !== -1) {
       "mine set to coal only: the hopper train leaves with coal only, the ore stays",
       (run3.loaded[`${mineSetup.mine}:coal`] ?? 0) > 0 && (run3.loaded[`${mineSetup.mine}:ore`] ?? 0) === 0 && onBoard.every((c) => c.kind === "coal" || c.count === 0) && oreAfter >= oreBefore,
       JSON.stringify({ run3, onBoard, oreBefore, oreAfter }),
+    );
+
+    // 9. A wagon's own goods: the mine set back to give both (a tap); a fresh hopper train at the (empty) warehouse,
+    // clear of the mine's piles (a tap there would hand it a load); on a hopper's card (its train tapped, then the
+    // hopper), coal switched off, then "Same for all wagons like this on this train". Run back past the mine: it
+    // leaves with ore only.
+    await p.evaluate((e) => (window.woodrail.sim.removeTrain(window.woodrail.sim.findCar(e).train.id), window.woodrail.invalidate()), mineSetup.engine);
+    for (const along of [108, 60, 160, 20, 220, 300]) {
+      await tapOn({ depot: mineSetup.mine, along });
+      await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 3000 }).catch(() => {});
+      if (await p.evaluate(() => window.woodrail.hud.depotCardOpen)) break;
+      await p.keyboard.press("Escape");
+    }
+    await tapButton('.depot-store [data-kind="ore"][data-mode="both"]');
+    check("the mine set back to give ore too, by a tap", await p.evaluate((d) => window.woodrail.economy.depot(d).modes.every((m) => m === null || m === "both"), mineSetup.mine));
+    await p.keyboard.press("Escape");
+    const engine4 = await p.evaluate((d) => window.__hoppers(window.woodrail.economy.depot(d).pieceId), warehouse);
+    const hoppers = await p.evaluate((e) => window.woodrail.sim.findCar(e).train.cars.filter((c) => c.kind === "hopper").map((c) => c.id), engine4);
+    check("a fresh train of two hoppers at the warehouse", engine4 !== -1 && hoppers.length === 2, JSON.stringify(hoppers));
+    // A first tap takes the train (its engine's card); a second, on the hopper, opens the hopper's own card.
+    // (Framed close and above any open card, as train-summary's wagon tap: the engine's card covers the middle.)
+    const tapCar = async (id) => {
+      const v = await worldAt({ car: id });
+      await p.evaluate((v) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), 520, { duration: 0.1, inRoom: true }), v);
+      await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+      await settle();
+      const [x, y] = await onScreen({ car: id });
+      await tapped(() => p.touchscreen.tap(x, y));
+      await p.waitForTimeout(600);
+    };
+    await tapCar(hoppers[0]);
+    await p.waitForFunction(() => window.woodrail.hud.engineCardOpen || window.woodrail.hud.carCardOpen, null, { timeout: 20000 }).catch(() => {});
+    if (!(await p.evaluate(() => window.woodrail.hud.carCardOpen))) await tapCar(hoppers[0]);
+    await p.waitForFunction(() => window.woodrail.hud.carCardOpen, null, { timeout: 20000 }).catch(() => {});
+    if (!(await p.evaluate(() => window.woodrail.hud.carCardOpen))) await tapCar(hoppers[0]);
+    await settle();
+    const card0 = await p.evaluate(() => ({ open: window.woodrail.hud.carCardOpen, rows: [...document.querySelectorAll(".car-goods .store-row")].map((r) => r.querySelector(".store-what").textContent), same: !!document.querySelector(".car-goods [data-same]") }));
+    check("the hopper's card: coal, grain, stone, ore, each Takes, and Same for all wagons like this", card0.open && card0.rows.length === 4 && card0.rows.every((r) => /Takes$/.test(r)) && card0.same, JSON.stringify(card0));
+    await tapButton('.car-goods [data-kind="coal"][data-mode="off"]');
+    await tapButton(".car-goods [data-same]");
+    const set4 = await p.evaluate((ids) => ({ off: ids.map((id) => window.woodrail.economy.carOffKinds(id)), row: [...document.querySelectorAll(".car-goods .store-row")].map((r) => r.querySelector(".store-what").textContent).find((t) => /Coal/.test(t)), small: Math.min(...[...document.querySelectorAll(".car-goods button")].map((b) => Math.min(b.getBoundingClientRect().width, b.getBoundingClientRect().height))), card: document.querySelector(".car-card").getBoundingClientRect().right }), hoppers);
+    check("…coal switched off by a tap, and Same for all sets the other hopper too (44 px buttons, inside 390 px)", JSON.stringify(set4.off) === JSON.stringify([["coal"], ["coal"]]) && /Off$/.test(set4.row ?? "") && set4.small >= 44 && set4.card <= 390, JSON.stringify(set4));
+    await shot("9-hopper-card-no-coal");
+    await p.keyboard.press("Escape");
+    // (Back toward the station, past the mine; the other way too if it didn't pass it.)
+    await p.evaluate((e) => window.woodrail.sim.setLever(e, -1), engine4);
+    let run4 = await p.evaluate(() => window.__run(120));
+    if (!run4.loaded[`${mineSetup.mine}:ore`]) {
+      await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), engine4);
+      run4 = await p.evaluate(() => window.__run(120));
+    }
+    const onBoard4 = await p.evaluate((ids) => ids.map((id) => window.woodrail.economy.cargoOf(id)), hoppers);
+    check(
+      "hoppers set not to take coal: the train leaves the mine with ore only",
+      (run4.loaded[`${mineSetup.mine}:ore`] ?? 0) > 0 && (run4.loaded[`${mineSetup.mine}:coal`] ?? 0) === 0 && onBoard4.every((c) => c.kind === "ore" || c.count === 0),
+      JSON.stringify({ run4, onBoard4 }),
     );
   }
 }

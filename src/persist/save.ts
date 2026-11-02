@@ -68,6 +68,8 @@ const trainSchema = z.object({
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
         look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(MAX_WAGON_CAPACITY) }).optional(),
+        /** Goods a wagon is switched off for on its card (optional: absent, an older save's, it takes all it can carry). */
+        off: z.array(z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]])).max(CARGO_KINDS.length).optional(),
         /** The harbour (economy depot id) its cargo was bought at: not unloaded back there. */
         landedFrom: z.number().int().min(0).optional(),
         /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
@@ -272,6 +274,7 @@ export function serializeWorld(world: World): SaveData {
         const riders = world.economy.ridersOf(c.id);
         const look = sim.lookOf(c.id);
         const line = lineSaved.get(c.id);
+        const off = world.economy.carOffKinds(c.id);
         return {
           id: c.id,
           kind: c.kind,
@@ -281,6 +284,7 @@ export function serializeWorld(world: World): SaveData {
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
+          ...(off.length > 0 ? { off } : {}),
           ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: { count: Math.min(riders.count, MAX_RIDERS), from: renumbered.get(riders.from)! } } : {}),
         };
       }),
@@ -536,6 +540,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
         const from = t.cars[i].landedFrom;
         if (from !== undefined && economy.depot(from)) economy.landedFrom.set(car.id, from);
       }
+      // A wagon's goods switched off on its card (only goods it can carry).
+      for (const kind of t.cars[i].off ?? []) if (canCarry(car.kind, kind)) economy.setCarTakes(car.id, kind, false);
       const riders = t.cars[i].riders;
       if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") economy.setRiders(car.id, riders.count, riders.from);
     });

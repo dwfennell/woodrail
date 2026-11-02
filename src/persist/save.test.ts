@@ -710,6 +710,22 @@ describe("economy in saves", () => {
     expect(w.economy.delivered.get(1)).toBe(9);
   });
 
+  it("round-trips the goods each wagon is switched off for; an older save's wagons take everything", () => {
+    const world = timberWorld();
+    const wagon = world.sim.getTrain(world.sim.trainIds()[0])!.cars.find((c) => c.kind === "timber")!;
+    world.economy.setCarTakes(wagon.id, "iron", false);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const saved = data.trains.flatMap((t) => t.cars).find((c) => c.id === wagon.id)!;
+    expect(saved.off).toEqual(["iron"]);
+    const w = deserializeWorld(data);
+    if (!w.ok) throw new Error(w.error);
+    expect([w.value.economy.carTakes(wagon.id, "iron"), w.value.economy.carTakes(wagon.id, "log")]).toEqual([false, true]);
+    delete saved.off;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.carOffKinds(wagon.id)).toEqual([]);
+  });
+
   it("round-trips each car's look", () => {
     const world = timberWorld();
     const t = world.sim.getTrain(world.sim.trainIds()[0])!;
