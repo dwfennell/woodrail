@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
@@ -141,6 +141,12 @@ const saveSchema = z.object({
       waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
       /** A harbour's dock sheds. */
       sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
+      /**
+       * A warehouse's listed goods and what it lets trains do with each (`StoreMode`), and with goods not listed
+       * (`others`). Optional: absent (saves from before them, and a warehouse never set), it takes and gives everything.
+       */
+      modes: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.enum(STORE_MODES as [StoreMode, ...StoreMode[]])).optional(),
+      others: z.enum(STORE_MODES as [StoreMode, ...StoreMode[]]).optional(),
       /** Of its piles, what's landed there for trains to take away (a harbour's bought goods), in cargo order. */
       landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_KINDS.length).optional(),
     }),
@@ -196,6 +202,20 @@ const saveSchema = z.object({
 export type SaveData = z.infer<typeof saveSchema>;
 
 /** A depot's landed goods, for its save entry (none: nothing). */
+/** A warehouse's store settings for its save: only what isn't the default (nothing listed, everything taken and given). */
+function storeOf(d: DepotState): { modes?: Partial<Record<CargoKind, StoreMode>>; others?: StoreMode } {
+  const modes: Partial<Record<CargoKind, StoreMode>> = {};
+  let any = false;
+  for (const kind of CARGO_KINDS) {
+    const m = d.modes[CARGO[kind].index];
+    if (m !== null) {
+      modes[kind] = m;
+      any = true;
+    }
+  }
+  return { ...(any ? { modes } : {}), ...(d.others !== "both" ? { others: d.others } : {}) };
+}
+
 function landedOf(world: World, depotId: number): { landed?: number[] } {
   const l = world.economy.landed.get(depotId);
   return l && l.some((n) => n > 0) ? { landed: [...l] } : {};
@@ -286,7 +306,7 @@ export function serializeWorld(world: World): SaveData {
     wyeLevers: 3,
     trains,
     ids: sim.idCounters(),
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...storeOf(d), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
@@ -457,6 +477,11 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     state.waitFull = d.waitFull;
     state.takesAll = (d.role === "workshop" || d.role === "school") && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
+    // A warehouse's store settings (older saves have none: it takes and gives everything).
+    if (d.role === "warehouse") {
+      state.others = d.others ?? "both";
+      for (const kind of CARGO_KINDS) state.modes[CARGO[kind].index] = d.modes?.[kind] ?? null;
+    }
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);
     for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capAt(state), d.piles[CARGO[kind].index] ?? 0) : 0;
