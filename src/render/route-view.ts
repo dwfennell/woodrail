@@ -102,6 +102,8 @@ export class RouteView {
   /** Animation: the next stop's pulse until this time, and a disc (by stop) popping in since `popAt` (seconds). */
   private pulseFrom = -Infinity;
   private popStop = -1;
+  /** Or a via point's disc (by its piece) popping: its chip was picked (−1: none). */
+  private popVia = -1;
   private popAt = -Infinity;
   /** The camera's view the discs were last fanned out for (its matrix, the view's height, its fov). */
   private fannedFor: number[] = [];
@@ -165,6 +167,14 @@ export class RouteView {
   /** The disc of stop `stop` pops in (just added), from `now` (seconds). */
   pop(stop: number, now: number): void {
     this.popStop = stop;
+    this.popVia = -1;
+    this.popAt = now;
+  }
+
+  /** The disc of the via point on piece `pieceId` pops (its chip was picked: which one it is), from `now` (seconds). */
+  popViaAt(pieceId: number, now: number): void {
+    this.popStop = -1;
+    this.popVia = pieceId;
     this.popAt = now;
   }
 
@@ -175,7 +185,7 @@ export class RouteView {
   animate(now: number): boolean {
     let moving = false;
     for (const d of this.discs) {
-      const u = d.userData as { size: number; index: number; next: boolean };
+      const u = d.userData as { size: number; index: number; next: boolean; kind: string; pieceId: number };
       let k = 1;
       const pulse = now - this.pulseFrom;
       if (u.next && pulse >= 0 && pulse < PULSE_S) {
@@ -184,7 +194,8 @@ export class RouteView {
         moving = true;
       }
       const pop = now - this.popAt;
-      if (u.index === this.popStop && pop >= 0 && pop < POP_S) {
+      const popping = this.popVia !== -1 ? u.kind === "route-via" && u.pieceId === this.popVia : u.index === this.popStop && u.kind !== "route-via";
+      if (popping && pop >= 0 && pop < POP_S) {
         // From nothing, a little past full size, and back.
         const t = pop / POP_S;
         k *= t < 0.6 ? (t / 0.6) * 1.25 : 1.25 - 0.25 * ((t - 0.6) / 0.4);

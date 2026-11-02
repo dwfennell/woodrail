@@ -112,6 +112,8 @@ const TOUCH_LIFT_PX = 56;
 const GUIDE_REACH = 130;
 /** A tap on touch takes a car this near it on screen (half a 44 px target): cars are small at the default zoom. */
 const TOUCH_SLACK_PX = 22;
+/** Planning a route: how near (px, a finger; half for a mouse) a tap beside a station or depot's track takes the place. */
+const PLACE_SLACK_PX = 24;
 /** About the middle of a car's body above the rails (mm): where a finger aims at it. */
 const CAR_BODY_MID_MM = 14;
 /** Loose pieces snap to this grid (mm): a quarter of a landscape square, the step between straight lengths. */
@@ -5613,6 +5615,12 @@ export class Interaction {
     // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
     if (exact?.kind === "route-stop" || exact?.kind === "route-via") return exact;
     if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
+    // Planning, a tap on plain track (or the ground) just beside a station or depot means the place: a via point there
+    // was the stray tap's (audit F6). Within a fingertip of the place's track on screen.
+    if (this.onPickPlace && (!exact || exact.kind === "piece")) {
+      const place = this.placeNear(x, y, touch ? PLACE_SLACK_PX : PLACE_SLACK_PX / 2);
+      if (place !== -1) return { kind: "piece", pieceId: place };
+    }
     // A signal's post, over the track or the ground (not over a train or a model: those win).
     if (!this.onPickPlace && (!exact || exact.kind === "piece") && this.game.layout.signalCount > 0) {
       const mark = this.markAt(x, y, touch);
@@ -5632,6 +5640,32 @@ export class Interaction {
     const won = fingertipWinner(car, lever);
     if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(post?.corner ? { corner: post.corner } : {}), slack: lever.d };
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
+  }
+
+  /**
+   * Planning: the piece of the station or depot whose track passes within `slack` px of (x, y) on screen (end to end),
+   * the nearest; −1 for none. Asked once a tap (a few dozen places at most), never on a move.
+   */
+  private placeNear(x: number, y: number, slack: number): number {
+    const g = this.game;
+    const r = g.canvas.getBoundingClientRect();
+    const v = new Vector3();
+    const w = { x: 0, z: 0, heading: 0, y: 0, kind: "peg" } as WorldConnector;
+    const toScreen = (): [number, number, number] => {
+      v.set(w.x, w.y, w.z).project(g.camera);
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height, v.z];
+    };
+    const ends: CarOnScreen[] = [];
+    for (const d of g.economy.allDepots()) {
+      const piece = g.layout.getPiece(d.pieceId);
+      if (!piece || getPieceDef(piece.type, piece.flipped).connectors.length < 2) continue;
+      g.layout.worldConnector(connectorRef(d.pieceId, 0), w);
+      const [ax, ay, az] = toScreen();
+      g.layout.worldConnector(connectorRef(d.pieceId, 1), w);
+      const [bx, by, bz] = toScreen();
+      if (inFrontOfCamera(az, bz)) ends.push({ id: d.pieceId, ax, ay, bx, by });
+    }
+    return nearestOnScreen(x, y, ends, slack).id;
   }
 
   /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
