@@ -1039,6 +1039,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-chip.route-via { border-left: none; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 2px var(--line, #888); font-weight: 700; font-size: 13px; padding-inline: 8px; display: inline-flex; align-items: center; }
 .route-via-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--line, #888); box-shadow: inset 0 0 0 3px #fff, 0 0 0 1px var(--line, #888); }
 .route-via-what { align-self: center; white-space: nowrap; }
+/* Planning: "+ via", after the last stop (audit F6): dashed, as something to add; pressed while it waits for a track tap. */
+.route-chip.route-add-via { border-left: none; background: transparent; box-shadow: none; outline: 2px dashed var(--line, #888); outline-offset: -4px; font-weight: 800; font-size: 13px; padding-inline: 10px; }
+.route-chip.route-add-via.on { background: rgba(255, 255, 255, 0.7); outline-style: solid; }
 .route-tools { display: flex; gap: 4px; }
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }
