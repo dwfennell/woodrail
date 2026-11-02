@@ -81,6 +81,9 @@ const carving = {
 };
 const standIns = new Map<string, BufferGeometry>();
 
+/** Pieces shown as stand-ins (or waited for) not carved yet: their swap will ask for a frame (see `Game.settled`). */
+export const piecesWanted = (): boolean => carving.wanted.size > 0;
+
 /** Call `f` whenever pieces shown as stand-ins have been carved (to swap them in). */
 export function onPiecesBuilt(f: () => void): () => void {
   carving.listeners.add(f);
