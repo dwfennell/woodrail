@@ -231,16 +231,12 @@ export function owedText(goods: Bag): string | null {
   return total(owed) > 0 ? `Needs ${costTag(owed)} at the workshop` : null;
 }
 
-/** Said beside a second engine before Signals (see `makeNote`). */
-export const ENGINE_NOTE = "Needs Signals to share a line";
-
 /**
- * A note on making `id`, or null: an engine before Signals, with one owned already (`owned`: how many before it), "Needs Signals to share a line"
- * (QA: the workshop made the second engine the presents hold back till Signals). Not a gate: a second engine on a
- * line of its own runs fine.
+ * A note on making `id`, or null. None now: the second engine's "Needs Signals to share a line" went with signals step 6
+ * (trains of a line pass at a loop with no signals; signals spec §7). Kept for notes to come.
  */
-export function makeNote(p: Progress, id: ThingId, owned = p.owned.get(id) ?? 0): string | null {
-  return id === "car:engine" && !p.learned.has("signals") && owned >= 1 ? ENGINE_NOTE : null;
+export function makeNote(_p: Progress, _id: ThingId, _owned = 0): string | null {
+  return null;
 }
 
 /**

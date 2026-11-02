@@ -1486,6 +1486,12 @@ describe("the harness's footprints", () => {
   });
 });
 
+describe("signals and the goals (signals spec §11 step 6)", () => {
+  it("no goal waits for Signals: trains pass at a loop with none", () => {
+    for (const g of GOALS) expect(g.needs ?? [], g.id).not.toContain("signals");
+  });
+});
+
 describe("the goals guard", () => {
   it("names a goal neither met nor allowed, and an allowance for a goal met or gone", () => {
     const goals = [
@@ -1561,6 +1567,10 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   expect(w.layout.getPiece(P.quarry)?.type, "the quarry on the map").toBe("depot-quarry");
   expect(w.economy.made[CARGO.stone.index], "stone cut").toBeGreaterThan(0);
   expect(P.p.progress.counts.get("delivered:stone") ?? 0, "stone delivered to a town").toBeGreaterThan(0);
+  // Signals are for players who want them (signals spec §2, §11 step 6): no goal is met by one, and the goals player
+  // never places one (no mark, no old signal piece) yet meets its goals.
+  expect(w.layout.signalCount, "signal marks placed by the goals player").toBe(0);
+  expect([...w.layout.pieceIds()].filter((id) => getPieceDef(w.layout.getPiece(id)!.type, false).signal), "signal pieces laid by the goals player").toEqual([]);
   // Stickers on the player's path (they're optional: not every one is met here; earned stays earned, so the long part
   // has these too). Measured: 4 of 10 by minute 175, about 6 µs a check.
   expect(P.p.stickers.ids(), "stickers earned by playing").toEqual(expect.arrayContaining(["track-layer", "first-city", "two-cities", "busy-loads"]));

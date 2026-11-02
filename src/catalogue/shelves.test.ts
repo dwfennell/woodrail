@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CATALOGUE } from "./assets";
 import { fileOf } from "./registry";
-import { BRIDGE_PROP_SHELVES, PROP_TABS, RAIL_HELD_BACK } from "./shelves";
+import { BRIDGE_PROP_SHELVES, PROP_TABS, RAIL_HELD_BACK, SIGNAL_SKIN_ASSETS } from "./shelves";
 import { KIT_TYPES, KITS } from "../track";
 
 const listed = [...PROP_TABS.flatMap((t) => t.shelves), ...BRIDGE_PROP_SHELVES].flatMap((s) => s.assets);
@@ -21,7 +21,7 @@ describe("prop shelves", () => {
     const offered = new Set(listed);
     for (const id of RAIL_HELD_BACK) expect(ids.has(id), id).toBe(true);
     const held = new Set(RAIL_HELD_BACK);
-    const rest = CATALOGUE.filter((a) => !offered.has(a.id) && !held.has(a.id) && !a.inGame && a.category !== "Track" && a.category !== "Trains" && a.category !== "Wagons");
+    const rest = CATALOGUE.filter((a) => !offered.has(a.id) && !held.has(a.id) && !SIGNAL_SKIN_ASSETS.includes(a.id) && !a.inGame && a.category !== "Track" && a.category !== "Trains" && a.category !== "Wagons");
     expect(rest.map((a) => a.id).sort()).toEqual([
       "mech-double-tunnel",
       "mech-mountain-tunnel",
@@ -43,6 +43,11 @@ describe("prop shelves", () => {
     const held = new Set(RAIL_HELD_BACK);
     for (const type of KIT_TYPES) {
       const asset = KITS[type].asset;
+      // (The signal skins: a Signal's styles now, off the shelves.)
+      if (SIGNAL_SKIN_ASSETS.includes(asset)) {
+        expect(listed, type).not.toContain(asset);
+        continue;
+      }
       expect(listed, type).toContain(asset);
       expect(held.has(asset), type).toBe(false);
     }
