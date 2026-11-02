@@ -363,7 +363,7 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
 // (The route card's UX fixes, docs/design/2026-11-02-route-ux F1–F3, with a mouse. Setup only, not what's tested: an
 // oval of track with a forest and a sawmill on it, and a train, put down in code past the land's edge on the flat
 // table, where the view can go.)
-{
+try {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await sandbox(ctx);
   const setup = await p.evaluate(async () => {
@@ -375,13 +375,27 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
     const xs = o.ids.map((i) => scratch.getPiece(i).pose.x);
     const zs = o.ids.map((i) => scratch.getPiece(i).pose.z);
     const b = w.director.bounds;
-    // (The first spot, from the bounds' edge inward, with no piece within 1.6 m and no model within 1 m.)
+    // (The first shift, outward from the view's middle, where each of the oval's pieces is inside the view's bounds,
+    // 500 mm from every piece and 300 mm from every model: on the land or the flat table past it.)
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+    const pieces = [...w.layout.pieceIds()].map((i) => w.layout.getPiece(i).pose);
+    const models = [...w.props.all()];
+    const fits = (dx, dz) => xs.every((x, k) => {
+      const px = x + dx;
+      const pz = zs[k] + dz;
+      return px > b.x0 + 200 && px < b.x1 - 200 && pz > b.z0 + 200 && pz < b.z1 - 200 && pieces.every((q) => Math.hypot(q.x - px, q.z - pz) > 500) && models.every((q) => Math.hypot(q.x - px, q.z - pz) > 300);
+    });
+    const t = w.controls.target;
     let g = null;
-    for (let x = b.x1 - 1600; !g && x > b.x0 + 1600; x -= 200)
-      for (let z = b.z0 + 1600; !g && z < b.z1 - 1600; z += 200) {
-        const free = [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 1600; }) && [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 1000);
-        if (free) g = { x: x - (Math.min(...xs) + Math.max(...xs)) / 2, z: z - (Math.min(...zs) + Math.max(...zs)) / 2 };
+    for (let d = 0; !g && d < 40000; d += 150) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 150));
+      for (let a = 0; !g && a < n; a++) {
+        const dx = t.x + d * Math.cos((a * 2 * Math.PI) / n) - cx;
+        const dz = t.z + d * Math.sin((a * 2 * Math.PI) / n) - cz;
+        if (fits(dx, dz)) g = { x: dx, z: dz };
       }
+    }
     if (!g) throw new Error("no room for the oval");
     const types = { 0: "depot-forest", 7: "depot-sawmill" };
     const placed = w.editor().placeRun(o.ids.map((i, k) => {
@@ -394,7 +408,7 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
     if (r.kind !== "placed") throw new Error("no room for a train");
     const engine = w.sim.getTrain(r.trainId).cars[0].id;
     w.sim.setLever(engine, 0);
-    w.director.glideTo(new w.controls.target.constructor(g.x + (Math.min(...xs) + Math.max(...xs)) / 2, 0, g.z + (Math.min(...zs) + Math.max(...zs)) / 2), 2600, { duration: 0.2 });
+    w.director.glideTo(new w.controls.target.constructor(g.x + cx, 0, g.z + cz), 2600, { duration: 0.2 });
     w.invalidate();
     return { engine, places, pieces: [placed[0], placed[7]] };
   });
@@ -467,6 +481,8 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const back = await route();
   check("desktop (F1): Ctrl+Z brings the line back, Only drop and all", back.lines === 1 && back.stops.length === 2 && back.stops[1].a === "drop", JSON.stringify(back));
   await ctx.close();
+} catch (e) {
+  check("desktop routes: ran to the end", false, String(e?.message ?? e).split("\n")[0]);
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
