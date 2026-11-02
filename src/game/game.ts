@@ -38,7 +38,7 @@ import { ResolutionGovernor } from "../render/resolution";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
-import { arrowScaleFor, onPiecesBuilt, TrackView } from "../render/track-view";
+import { arrowScaleFor, onPiecesBuilt, piecesWanted, TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
@@ -889,7 +889,9 @@ export class Game {
 
   /**
    * Resolves once the scene has been still (nothing drawn) for `ticks` ticks in a row, counted from now: for tests,
-   * in place of waiting a fixed time for animations and camera moves to end.
+   * in place of waiting a fixed time for animations and camera moves to end. (Not while track pieces are still being
+   * carved: each lands with a frame. A slow load's carving outlasted five still ticks, and an idle check after it saw
+   * the frames.)
    */
   settled(ticks = 5): Promise<void> {
     return new Promise((done) => this.settling.push({ ticks, still: 0, done }));
@@ -906,9 +908,11 @@ export class Game {
   private settleWaiters(drew: boolean): void {
     const now = performance.now();
     if (drew) this.lastDrewAt = now;
-    const quiet = !drew && now - this.lastDrewAt >= SETTLE_QUIET_MS;
+    // (A look at the carving only while someone waits: idle, nothing.)
+    const carving = this.settling.length > 0 && piecesWanted();
+    const quiet = !drew && !carving && now - this.lastDrewAt >= SETTLE_QUIET_MS;
     this.settling = this.settling.filter((w) => {
-      w.still = drew ? 0 : w.still + 1;
+      w.still = drew || carving ? 0 : w.still + 1;
       if (w.still < w.ticks && !(quiet && w.still >= 1)) return true;
       w.done();
       return false;
