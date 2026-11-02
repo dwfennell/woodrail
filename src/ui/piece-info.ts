@@ -190,6 +190,8 @@ export function trayInfo(item: TrayItem): ItemInfo {
       return p(item.label, item.tool === "move" ? "Drag trees, fields and the shed to move them." : item.tool === "raise" ? "Tap the land to raise it a block." : "Tap the land to lower it a block.");
     case "prop":
       return p(item.label, "A model to put by your railway.");
+    case "signal":
+      return p("Signal", "Drag onto a joint: trains wait there for the track ahead.");
   }
 }
 

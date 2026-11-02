@@ -567,20 +567,20 @@ describe("place-workshop guide", () => {
     const fresh = buildStarterWorld();
     expect(goal("place-workshop").guide(fresh).towns.length).toBe(2);
   });
-  it("two trains at once waits for signals (a passing loop): hidden, not counted, never the current goal till then", () => {
+  it("two trains at once waits for switches (a passing loop), not signals: hidden, not counted, never the current goal till then", () => {
     const w = buildStarterWorld();
     const t = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains" && g.id !== "join-all").map((g) => g.id));
-    t.update(w, { learned: new Set(["switches"]) });
+    t.update(w, { learned: new Set() });
     expect(t.current()?.id).toBe("join-all");
     expect(t.next()).toBeNull();
     expect(t.total).toBe(GOALS.length - 1);
-    expect(t.lockedHint()).toBe("Research Signals to unlock a goal");
+    expect(t.lockedHint()).toBe("Research Switches to unlock a goal");
     // Every other goal done: still not the current one.
     const all = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains").map((g) => g.id));
     all.update(w, { learned: new Set() });
     expect(all.current()).toBeNull();
-    expect(all.lockedHint()).toBe("Research Signals to unlock a goal");
-    t.update(w, { learned: new Set(["switches", "signals"]) });
+    expect(all.lockedHint()).toBe("Research Switches to unlock a goal");
+    t.update(w, { learned: new Set(["switches"]) });
     expect(t.current()?.id).toBe("two-trains");
     expect(t.total).toBe(GOALS.length);
     expect(t.lockedHint()).toBeNull();
@@ -588,11 +588,11 @@ describe("place-workshop guide", () => {
 
   it("learning Signals names the goal it opens, and where the second engine is (QA: it opened unseen)", () => {
     const t = new GoalTracker(["join-two", "place-train"]);
-    // Signals open "Run two trains at once"; Switches open none (no goal waits for them alone).
-    expect(t.openedBy("signals", new Set(["switches", "signals"])).map((g) => g.title)).toEqual(["Run two trains at once"]);
-    expect(t.openedBy("switches", new Set(["switches"]))).toEqual([]);
+    // Switches open "Run two trains at once" (signals step 6); Signals open none.
+    expect(t.openedBy("switches", new Set(["switches"])).map((g) => g.title)).toEqual(["Run two trains at once"]);
+    expect(t.openedBy("signals", new Set(["switches", "signals"]))).toEqual([]);
     // Already done (an old save): nothing to say.
-    expect(new GoalTracker(["two-trains"]).openedBy("signals", new Set(["signals"]))).toEqual([]);
+    expect(new GoalTracker(["two-trains"]).openedBy("switches", new Set(["switches"]))).toEqual([]);
     // The second engine: in the toy box (the Signals present, or one made), to be made (one owned), or both on the map.
     expect(secondEngineTip(1, 2)).toBe("Engine in the Trains tab");
     expect(secondEngineTip(0, 1)).toBe("Make an engine at the workshop");

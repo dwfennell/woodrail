@@ -703,6 +703,11 @@ export class Hud {
       if (item.kind === "piece" && isKit(item.type)) missing.push(item);
       if (item.kind === "piece") return `<span class="thumb-icon" data-thumb="${key}">${pieceIcon(item.type)}</span>`;
       if (item.kind === "tool") return uiIcon(item.tool);
+      // (A signal mark: the old signal piece's picture.)
+      if (item.kind === "signal") {
+        const pic = this.thumbs.get("piece:signal");
+        return pic ? `<img src="${pic}" alt="" draggable="false">` : `<span class="thumb-icon" data-thumb="piece:signal">${pieceIcon("signal")}</span>`;
+      }
       if (item.kind === "road") return roadIcon(item.auto ? "auto" : item.piece);
       if (item.kind === "train") return `<span class="thumb-icon" data-thumb="${key}">${trainIcon(item.cars)}</span>`;
       missing.push(item);
@@ -812,7 +817,7 @@ export class Hud {
           e.preventDefault();
           this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool), details });
         });
-      } else if (item.kind === "piece" || item.kind === "road") {
+      } else if (item.kind === "piece" || item.kind === "road" || item.kind === "signal") {
         // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
         // Clicked (a mouse or pen), it's carried: each click on the map puts one down. A road is dragged out, or tapped
         // to make it ready (then each click on the map lays one). A tap on the ready one here puts it away.

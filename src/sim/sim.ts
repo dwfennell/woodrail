@@ -288,6 +288,12 @@ export class Sim {
     way(train: Train, pieceId: number, entry: number): number;
     version(): number;
   } | null = null;
+  /**
+   * Sections' waiting points (signals spec §3.2): `at` gives the train a mark's waiting point holds (by the mark's joint
+   * end, `Signal.at`) with no move on past it granted, −1: none (the mark shows red then, so its green is the grant);
+   * `version` changes whenever an answer would. Null: no sections.
+   */
+  signalGate: { at(ref: number): number; version(): number } | null = null;
   /** Each signal's aspect as of this tick, by key (`signalKey`): true at clear (its block's free), false at red. */
   private readonly aspects = new Map<number, boolean>();
   /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
@@ -1574,6 +1580,25 @@ export class Sim {
     return t ? (this.redAhead(t)?.key ?? -1) : -1;
   }
 
+  /** Since when (tick) each train (by id) has stood at a red signal, as `signalCap` stops it there. */
+  private readonly redSince = new Map<number, number>();
+
+  /** How long (s) a train has stood at a red signal: 0 if it isn't standing at one (signals spec §6). */
+  redWaitSeconds(trainId: number): number {
+    const t = this.trains.get(trainId);
+    const since = this.redSince.get(trainId);
+    if (!t || since === undefined || !this.atRedSignal(trainId)) return 0;
+    return (this.ticks - since) / SIM_HZ;
+  }
+
+  /** Is the red signal a train stands at, or brakes for, held at red by hand (a tap, or its card)? */
+  redHeldByHand(trainId: number): boolean {
+    const key = this.redSignalKeyAhead(trainId);
+    if (key === -1) return false;
+    const g = this.signals?.find((x) => x.key === key);
+    return !!g && this.isHeld(g);
+  }
+
   /** Are there any signals (marks or old signal pieces)? (None: the router's walks ask nothing of them.) */
   get hasSignals(): boolean {
     if (this.layout.signalCount > 0) return true;
@@ -1612,6 +1637,7 @@ export class Sim {
     this.findSignals();
     const g = this.signalByExit.get(ref);
     if (!g) return null;
+    if (this.gatedFor(g) !== -1) return { free: false };
     if (!g.junction) return { free: !this.isHeld(g) && (this.blockBy.get(g.key) ?? -1) === -1 };
     const r = this.pathFor(train, g, false);
     return { free: r.clear };
@@ -1721,6 +1747,7 @@ export class Sim {
       for (const b of t.bogies) stamp = (Math.imul(stamp, 0x01000193) ^ (b.pieceId * 16 + b.pathIndex)) | 0;
     }
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.pathLocks ? this.pathLocks.version() : 0)) | 0;
+    stamp = (Math.imul(stamp, 0x01000193) ^ (this.signalGate ? this.signalGate.version() : 0)) | 0;
     if (!force && stamp === this.signalStamp) return;
     this.signalStamp = stamp;
     this.pathCache.clear();
@@ -1740,12 +1767,18 @@ export class Sim {
       if (g.junction) continue;
       const by = this.isHeld(g) ? -1 : this.blockOccupant(g, -1);
       this.blockBy.set(g.key, by);
-      const clear = !this.isHeld(g) && by === -1;
+      const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
       if (this.aspects.get(g.key) !== clear) {
         this.aspects.set(g.key, clear);
         this.signalsVersion++;
       }
     }
+  }
+
+  /** The train a mark's waiting point holds there for want of a grant (`signalGate`), or −1 (an old piece: none). */
+  private gatedFor(g: SignalAt): number {
+    if (!this.signalGate || g.markId === -1 || g.exit < 0) return -1;
+    return this.signalGate.at(connectorRef(g.pieceId, g.exit));
   }
 
   /** The first train (its id) on a signal's block other than `self`, or −1. On double track only the block's road counts. */
@@ -1834,8 +1867,10 @@ export class Sim {
    */
   private signalCap(train: Train): number {
     const red = this.redAhead(train);
+    if (red === null || red.dist >= 0.5) this.redSince.delete(train.id);
     if (red === null) return Infinity;
     if (red.dist >= 0.5) return Math.sqrt(2 * ACCELERATION * (red.dist - 0.5));
+    if (!this.redSince.has(train.id)) this.redSince.set(train.id, this.ticks);
     // (Standing at it for a train on its block or way, or holding its points: held by that train, for wait chains.)
     const by = red.by >= 0 ? this.trains.get(red.by) : undefined;
     if (by && by !== train) this.holdBy(train, by, "signal");
@@ -1854,6 +1889,11 @@ export class Sim {
    * noted as coming to it, for its aspect: `junctionSeen`).
    */
   private redFor(train: Train, g: SignalAt): { by: number } | null {
+    // (A waiting point's train with no move past it granted: red for it, whatever the block (sections' wait names who).)
+    if (g.junction && this.gatedFor(g) === train.id) {
+      if (!this.junctionNear.has(g.key)) this.junctionNear.set(g.key, false);
+      return { by: -1 };
+    }
     if (!g.junction) return this.aspects.get(g.key) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
     const r = this.pathFor(train, g);
     if (!this.junctionNear.has(g.key)) this.junctionNear.set(g.key, r.clear);

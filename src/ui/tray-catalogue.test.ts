@@ -1,3 +1,4 @@
+import { SIGNAL_SKIN_ASSETS } from "../catalogue/shelves";
 import { describe, expect, it } from "vitest";
 import { ruleOf, THING_RULES, type ThingId } from "../game/things";
 import { isKit, kitForAsset, kitOf, KITS, type PieceTypeId } from "../track";
@@ -87,7 +88,7 @@ describe("kit pieces on the catalogue shelves (Sandbox)", () => {
     for (const tab of sandbox) for (const g of tab.groups) for (const item of g.items) expect(item.kind === "piece" && isKit(item.type), `${tab.id}/${g.label}`).toBe(false);
     // Every kit is offered on a catalogue shelf.
     const shelved = new Set(sandbox.flatMap((t) => t.props ?? []).flatMap((s) => s.assets));
-    for (const k of Object.values(KITS)) expect(shelved.has(k.asset), k.asset).toBe(true);
+    for (const k of Object.values(KITS)) expect(shelved.has(k.asset), k.asset).toBe(!SIGNAL_SKIN_ASSETS.includes(k.asset));
   });
 });
 
@@ -97,7 +98,7 @@ describe("Game mode's railway kits on the tray", () => {
   const keys = (g: TrayGroup) => g.items.map(trayKey);
 
   it("track kits on the Track tab, buildings and services on the Industries tab's railway shelves", () => {
-    expect(keys(tab("track").groups.find((g) => g.label === "Railway kit")!)).toEqual(["piece:kit-semaphore-signal", "piece:kit-colour-light-signal", "piece:kit-signal-gantry", "piece:kit-turntable", "piece:kit-transfer-table", "piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"]);
+    expect(keys(tab("track").groups.find((g) => g.label === "Railway kit")!)).toEqual(["piece:kit-turntable", "piece:kit-transfer-table", "piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"]);
     expect(tab("industries").groups.map((g) => g.label)).toEqual(["Industries", "Railway", "Stations", "Yard", "Halts", "Lineside"]);
     expect(keys(tab("industries").groups.find((g) => g.label === "Halts")!)).toEqual(["piece:kit-country-halt", "piece:kit-mountain-station", "piece:kit-harbour-station", "piece:kit-platform-furnished"]);
   });

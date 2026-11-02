@@ -575,9 +575,9 @@ export const GOALS: readonly Goal[] = [
     id: "two-trains",
     title: "Run two trains at once",
     hint: "Lay a passing loop so they can pass.",
-    // On one line two trains only turn each other back: this goal waits till the player can build a passing loop (two
-    // switches, learned before signals). Signals aren't needed for trains to pass at a loop any more.
-    needs: ["signals"],
+    // Two trains on one line need a passing loop to pass: this goal waits till the player can build one (Switches).
+    // Signals aren't needed for that (signals spec §7, the user's decision 5).
+    needs: ["switches"],
     check: (w) => {
       const n = running(w).length;
       // One train on the map: the second engine first (QA: what to do wasn't said).
