@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CARGO, CARGO_KINDS, Economy, RECIPES, type CargoKind } from "../economy";
-import { Sim, SIM_HZ, type CarKind } from "../sim";
+import { canCarry, CARGO, CARGO_KINDS, Economy, RECIPES, type CargoKind } from "../economy";
+import { CAR_KINDS, CAR_SPECS, Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { firstFoodNews } from "./food-text";
@@ -97,6 +97,24 @@ describe("Creamery", () => {
   it("dairy → creamery → town: milk by tank wagon, cheese by van", () => {
     const { closed, run, economy, got } = loop(["depot-dairy", "depot-creamery"], ["engine", "tanker", "van"]);
     expect(closed).toBe(true);
+    run(15);
+    expect(economy.made[CARGO.cheese.index]).toBeGreaterThan(0);
+    expect(got("cheese")).toBeGreaterThan(0);
+  }, 120_000);
+});
+
+describe("Cold van", () => {
+  it("is built: after Creamery, a wagon of its own (4 planks) that carries cheese", () => {
+    expect(bp("reefer").plan).toBeUndefined();
+    expect(bp("reefer")).toMatchObject({ needs: ["creamery"], tier: 2, research: { goods: { planks: 4 }, coins: 100 } });
+    expect(THING_RULES["car:reefer"]).toMatchObject({ tech: "reefer", cost: { planks: 4 } });
+    expect(CAR_KINDS.filter((k) => canCarry(k, "cheese"))).toEqual(["van", "reefer"]);
+    expect(canCarry("reefer", "milk")).toBe(false);
+    expect(CAR_SPECS.reefer).toMatchObject({ length: 84, powered: false });
+  });
+
+  it("a cold van carries the creamery's cheese to town", () => {
+    const { run, got, economy } = loop(["depot-dairy", "depot-creamery"], ["engine", "tanker", "reefer"]);
     run(15);
     expect(economy.made[CARGO.cheese.index]).toBeGreaterThan(0);
     expect(got("cheese")).toBeGreaterThan(0);

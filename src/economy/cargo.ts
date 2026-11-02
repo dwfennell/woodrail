@@ -68,6 +68,8 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles, cheeses). Milk goes in a tank wagon.
   van: ["flour", "furniture", "tools", "bread", "juice", "cheese"],
   tanker: ["milk"],
+  // The cold van: cheese (which a van carries too) and, the only wagon it rides in, ice cream.
+  reefer: ["cheese"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

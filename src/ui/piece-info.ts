@@ -154,6 +154,7 @@ const CAR_DETAIL: Record<CarKind, string> = {
   caboose: "Goes at the back of the train.",
   cleaner: "Brushes the track clean as it runs.",
   tanker: "Carries milk from a dairy farm.",
+  reefer: "Keeps cheese and ice cream cold on the way.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {

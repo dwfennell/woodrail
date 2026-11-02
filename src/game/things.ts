@@ -62,6 +62,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:caboose": { label: "Caboose", cost: { planks: 2 }, tech: "brake-vans" },
   "car:van": { label: "Van", cost: { planks: 3 }, tech: "mills" },
   "car:tanker": { label: "Milk tank wagon", cost: { planks: 3 }, tech: "dairy" },
+  "car:reefer": { label: "Cold van", cost: { planks: 4 }, tech: "reefer" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 10 }, coins: 300, tech: "sawmills" },
