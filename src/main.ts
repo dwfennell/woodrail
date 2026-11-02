@@ -3441,8 +3441,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function donePlanning(): void {
     const carId = interaction.openEngineCarId;
     setPlanning(false);
-    // (Two frames: the card's new height laid out, and the director's room measured from it.)
+    // (Two frames: the card's new height laid out, and the director's room measured from it. Then once more a little
+    // later, in case a busy phone laid the card out after those: nothing moves if the route is in view by then. QA: under
+    // load the first look still saw the slim bar, and the route was left under the card.)
     requestAnimationFrame(() => requestAnimationFrame(() => frameRoute(carId)));
+    window.setTimeout(() => {
+      if (!game.director.busy) frameRoute(carId);
+    }, 450);
   }
 
   /** Where the open engine's route is on the map: the train, each stop (its disc's top too) and each via point. */
