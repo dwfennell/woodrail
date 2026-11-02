@@ -1,4 +1,4 @@
-import { installDevChecks } from "./game/dev-checks";
+import { installDevChecks, recentBreaks } from "./game/dev-checks";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
@@ -15,7 +15,7 @@ import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
-import { reporter, startLog, type Reporter } from "./debug/report";
+import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker, secondEngineTip, trayRing } from "./game/goals";
 import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
@@ -96,6 +96,7 @@ import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { CloudCard } from "./ui/cloud-card";
+import { FeedbackSheet } from "./ui/feedback-sheet";
 import { StatsCard } from "./ui/stats-card";
 import { pageStats } from "./stats/stats";
 import "./style.css";
@@ -4533,6 +4534,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [] });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
+  // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
+  const feedbackUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
+  if (feedbackUrl) {
+    const sheet = new FeedbackSheet(hud.root, feedbackUrl, {
+      map: async () => {
+        save();
+        return { map: await mapText(mode), mode };
+      },
+      capture: () => game.capture(),
+      info: () => ({ build: __BUILD_ID__ || "dev", badges: [...recentBreaks(), ...recentErrors()] }),
+      toast: (m) => hud.toast(m),
+    });
+    hud.addFeedbackItem(() => {
+      hud.hideCards();
+      sheet.show();
+    });
+  }
   /** The one-time "Help improve Woodrail?" question: put off while something else is being done. */
   function askStats(): void {
     if (!statsCard || !stats.shouldAsk || !playing) return;

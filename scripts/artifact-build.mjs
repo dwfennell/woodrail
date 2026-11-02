@@ -13,8 +13,8 @@ rmSync(OUT, { recursive: true, force: true });
 // No update check: an artifact is republished by hand, so the build turns the check off and drops version.json.
 execFileSync("npx", ["vite", "build", "--base=./", "--outDir", OUT, "--emptyOutDir"], {
   stdio: "inherit",
-  // (No cloud saves on claude.ai: the page can't reach the Worker.)
-  env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1", VITE_CLOUD_URL: "", VITE_STATS_URL: "" },
+  // (No cloud saves on claude.ai: the page can't reach the Worker. Feedback only if VITE_FEEDBACK_URL is set for it.)
+  env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1", VITE_CLOUD_URL: "", VITE_STATS_URL: "", VITE_FEEDBACK_URL: process.env.VITE_FEEDBACK_URL ?? "" },
 });
 rmSync(join(OUT, "version.json"), { force: true });
 
