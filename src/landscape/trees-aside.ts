@@ -63,6 +63,11 @@ export class TreeClearance {
     private readonly trees: readonly TreeSpot[],
   ) {}
 
+  /** Points along all the track now (see `trackPoints`), bucketed: kept for others who keep clear of track too. */
+  get trackBuckets(): ReadonlyMap<number, number[]> {
+    return this.track;
+  }
+
   /** Call when the layout changes. */
   setLayout(layout: Layout): void {
     this.track = trackPoints(layout);
@@ -289,7 +294,7 @@ function nearestTrack(buckets: Map<number, number[]>, x: number, z: number): { x
   return best;
 }
 
-function nearTrack(buckets: Map<number, number[]>, x: number, z: number, reach: number): boolean {
+export function nearTrack(buckets: ReadonlyMap<number, number[]>, x: number, z: number, reach: number): boolean {
   const bx = Math.floor(x / BUCKET);
   const bz = Math.floor(z / BUCKET);
   const span = Math.ceil(reach / BUCKET);

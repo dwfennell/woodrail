@@ -162,6 +162,11 @@ export interface Landscape {
    * gets the map's extra towns; an old Sandbox save gains nothing.
    */
   siteless?: boolean;
+  /**
+   * Where the player's first train first ran on this map: a little painted marker stands there
+   * (`game/touches.ts`). Null: the map had trains already running before there were markers (none is put down).
+   */
+  firstTrain?: { x: number; z: number; heading: number } | null;
 }
 
 export const STATION_LENGTH = 216;

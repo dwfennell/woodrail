@@ -5,6 +5,7 @@ import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, SURF_TOWN, typ
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import { addPart } from "../blender-models";
+import { stationTheme } from "../../game/touches";
 import type { Materials } from "../materials";
 import type { Batcher } from "./batcher";
 
@@ -287,10 +288,20 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   for (const t of [36, 180]) addPart(b, mats, "canopy-post-76", (g) => place(g, t, -CANOPY_FAR, 0));
   const canopyW = side + 34 + CANOPY_FAR;
   const canopyMid = (side + 34 - CANOPY_FAR) / 2;
-  b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(176, 4, canopyW, 1, 1.5), 108, canopyMid, CANOPY_Y + 2));
+  // Each town's station in its own colours, from its name (`stationTheme`): the canopy, the house's roof, the bunting.
+  const theme = stationTheme(town.name);
+  b.add(mats.lacquer(theme.canopy), place(new RoundedBoxGeometry(176, 4, canopyW, 1, 1.5), 108, canopyMid, CANOPY_Y + 2));
   b.add(mats.lacquer("#fbf6ec"), place(new RoundedBoxGeometry(178, 3, canopyW + 2, 1, 1.2), 108, canopyMid, CANOPY_Y - 0.5));
   b.add(mats.blockWood, place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
-  b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
+  b.add(mats.lacquer(theme.roof), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
+  // Bunting along the canopy's platform edge: a cord, and little flags hanging from it in the town's colours.
+  const edge = side + 34 + 0.8;
+  b.add(mats.lacquer("#fbf6ec"), place(new BoxGeometry(170, 0.5, 0.5), 108, edge, CANOPY_Y - 1.2));
+  const flag = new Shape().moveTo(-2.6, 0).lineTo(2.6, 0).lineTo(0, -5.2).closePath();
+  for (let k = 0; k < 21; k++) {
+    const g = new ExtrudeGeometry(flag, { depth: 0.4, bevelEnabled: false }).translate(0, 0, -0.2);
+    b.add(mats.lacquer(theme.bunting[k % theme.bunting.length]), place(g, 28 + k * 8, edge, CANOPY_Y - 1.2));
+  }
   // Station house door and windows facing the platform.
   addPart(b, mats, "door", (g) => place(g.scale(12 / 13, 1, 1).rotateY(Math.PI), 108, side + 43, 14 + 12), { door: "#7a3b26" });
   for (const t of [86, 130]) {

@@ -692,6 +692,11 @@ export class LandscapeView {
     return this.retarget(this.clearance.spots(this.held ?? undefined), animate);
   }
 
+  /** Points along the track as last synced (`syncTrees`), bucketed (see `trackPoints`). */
+  get trackBuckets(): ReadonlyMap<number, number[]> {
+    return this.clearance.trackBuckets;
+  }
+
   /** Trees hop aside for a piece held over the mat, and back when it moves on (null: nothing held). */
   previewTrees(held: HeldPiece | null): Flourish | null {
     this.held = held;

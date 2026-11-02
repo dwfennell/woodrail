@@ -40,7 +40,7 @@ const check = (what, ok, detail = "") => {
 };
 const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
 const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-const state = () => p.evaluate(() => window.woodrail.touches.state());
+const state = () => p.evaluate(() => window.woodrail.stationTouches.state());
 
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
@@ -154,7 +154,7 @@ const line = await p.evaluate(
 check("a coach train on a line between the two stations", !!line, JSON.stringify(line));
 await p.waitForTimeout(800);
 // (Frames are slow headless: wait for the board's next paint rather than a while.)
-await p.waitForFunction((id) => window.woodrail.touches.state().bigs.some((b) => b.pieceId === id && b.paints > 0), station.id, { timeout: 30000 }).catch(() => {});
+await p.waitForFunction((id) => window.woodrail.stationTouches.state().bigs.some((b) => b.pieceId === id && b.paints > 0), station.id, { timeout: 30000 }).catch(() => {});
 s = await state();
 const board1 = s.bigs.find((x) => x.pieceId === station.id);
 check("the board says the line and where it heads next", board1.rows.includes(`${line.name} → ${setup.pick.other}`), JSON.stringify(board1));
@@ -223,7 +223,7 @@ const seen = await p.evaluate(
       const out = { heard: null, leaned: 0, maxDolls: 0, on: 0, off: 0, flag: false, wave: 0, flagAngle: null, frames: 0 };
       const t0 = performance.now();
       const look = () => {
-        const s = w.touches.state();
+        const s = w.stationTouches.state();
         const v = s.visits.find((x) => x.pieceId === pieceId);
         out.frames++;
         if (v) {
@@ -259,7 +259,7 @@ check("afterwards: no stand-ins left, nothing moving", s.visits.length === 0 && 
 
 // 5. Pictures: the stop again (the board, the people leaning, someone hopping, the flag), by stepping to the next halt.
 // (Its next stop moves on once it's clear of the station, a little after the flag: the board is painted then.)
-await p.waitForFunction(({ id, paints }) => window.woodrail.touches.state().bigs.some((b) => b.pieceId === id && b.paints > paints), { id: station.id, paints: board1.paints }, { timeout: 180000 }).catch(() => {});
+await p.waitForFunction(({ id, paints }) => window.woodrail.stationTouches.state().bigs.some((b) => b.pieceId === id && b.paints > paints), { id: station.id, paints: board1.paints }, { timeout: 180000 }).catch(() => {});
 const board2 = (await state()).bigs.find((x) => x.pieceId === station.id);
 check("the board changed as the train's next stop did (not per frame)", board2.paints <= board1.paints + 4 && board2.paints > board1.paints && board2.rows === "", `${board1.paints} → ${board2.paints}: ${board2.rows}`);
 await p.evaluate(() => (window.woodrail.paused = true));
@@ -273,12 +273,12 @@ await p.evaluate((townId) => {
   w.paused = false;
 }, townId);
 // Mid-stop: someone getting on (the sim on, frames real).
-await p.waitForFunction(() => window.woodrail.touches.state().visits.some((v) => v.dolls.some((d) => d.mode !== "stand" || d.lean > 0.15)), null, { timeout: 60000 }).catch(() => {});
+await p.waitForFunction(() => window.woodrail.stationTouches.state().visits.some((v) => v.dolls.some((d) => d.mode !== "stand" || d.lean > 0.15)), null, { timeout: 60000 }).catch(() => {});
 await p.evaluate(() => (window.woodrail.paused = true));
 await p.waitForTimeout(300);
 await shot("1-people-board");
 await p.evaluate(() => (window.woodrail.paused = false));
-await p.waitForFunction(() => window.woodrail.touches.state().bigs.some((b) => b.flagUp && b.flag < 0.5), null, { timeout: 90000 }).catch(() => {});
+await p.waitForFunction(() => window.woodrail.stationTouches.state().bigs.some((b) => b.flagUp && b.flag < 0.5), null, { timeout: 90000 }).catch(() => {});
 await p.evaluate(() => (window.woodrail.paused = true));
 await p.waitForTimeout(300);
 await shot("2-guard-flag");
@@ -289,13 +289,13 @@ await p.evaluate(() => {
   w.world.sim.setLever(window.__engine, 0);
   w.paused = false;
 });
-await p.waitForFunction(() => !window.woodrail.touches.busy, null, { timeout: 30000 }).catch(() => {});
+await p.waitForFunction(() => !window.woodrail.stationTouches.busy, null, { timeout: 30000 }).catch(() => {});
 await p.waitForTimeout(4000);
 const idle = await p.evaluate(async () => {
   const w = window.woodrail;
   const f0 = w.framesDrawn;
   await new Promise((r) => setTimeout(r, 3000));
-  return { frames: w.framesDrawn - f0, busy: w.touches.busy };
+  return { frames: w.framesDrawn - f0, busy: w.stationTouches.busy };
 });
 check("idle: the touches ask for no frames (a stop standing still included)", !idle.busy && idle.frames <= 1, JSON.stringify(idle));
 // The board close up.

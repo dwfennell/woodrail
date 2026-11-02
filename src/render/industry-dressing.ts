@@ -161,10 +161,7 @@ function quarry(add: PlaceFn, mats: Materials): void {
   const rail = mats.lacquer("#6b6f75");
   for (const s of [-1, 1]) add(rail, new BoxGeometry(64, 1.6, 1.4), 172, 64 + s * 4.5, PAD_H + 2.2);
   for (let k = 0; k < 6; k++) add(mats.naturalWood, new BoxGeometry(3, 1.4, 14), 144 + k * 11.5, 64, PAD_H + 0.7);
-  // The tub: an iron box on four little wheels, heaped with stone.
-  add(mats.lacquer("#4f6f8f"), new RoundedBoxGeometry(18, 9, 12, 1, 1.5), 172, 64, PAD_H + 9);
-  for (const dt of [-6, 6]) for (const s of [-1, 1]) add(mats.lacquer("#2f2f33"), new CylinderGeometry(2.6, 2.6, 1.6, 10).rotateX(Math.PI / 2), 172 + dt, 64 + s * 5.4, PAD_H + 4);
-  for (const [dt, dl, r] of [[-4, -2, 3.2], [3, 2, 3.6], [0, -1, 2.8]] as const) add(greys[1], new DodecahedronGeometry(r, 0), 172 + dt, 64 + dl, PAD_H + 14);
+  // (The tub wagon on them runs along them while the quarry works: a mote, `industry-motes.ts`.)
   // A buffer stop at the end of the siding.
   add(mats.lacquer("#c8442f"), new RoundedBoxGeometry(4, 8, 14, 1, 1.2), 206, 64, PAD_H + 4);
 }
