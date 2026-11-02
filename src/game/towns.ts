@@ -73,10 +73,16 @@ export function housesBy(level: number): number {
 }
 
 /** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
-export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14 };
+export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5 };
 
-/** Made goods a town always takes (and pays for), wanted for growth or not: they're treats. */
-export const LUXURIES: ReadonlySet<CargoKind> = new Set(["furniture", "tools"]);
+/**
+ * Everyday food a town always wants (the dairy chain and the orchard): it takes all a train brings and pays the full
+ * price, at any level. Not needed to grow (no level asks for them), so a game without them grows as before.
+ */
+export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit"]);
+
+/** Goods a town always takes (and pays for), wanted for growth or not: made goods (treats) and everyday food. */
+export const LUXURIES: ReadonlySet<CargoKind> = new Set(["furniture", "tools", ...FOODS]);
 
 /**
  * What a hamlet or a village pays for a plank it wants: more than a town does, so a new game's first coins come sooner
@@ -93,7 +99,7 @@ export const EARLY_FLOUR_PRICE = 12;
 /** What a town pays for one unit of `kind`, as it is now. */
 export function payFor(kind: CargoKind, status: TownStatus): number {
   const price = kind === "planks" && status.level <= 1 ? EARLY_PLANK_PRICE : kind === "flour" && status.level <= 2 ? EARLY_FLOUR_PRICE : (PRICES[kind] ?? 0);
-  return (status.wants[kind] ?? 0) > 0 ? price : Math.ceil(price / 2);
+  return (status.wants[kind] ?? 0) > 0 || FOODS.has(kind) ? price : Math.ceil(price / 2);
 }
 
 /** Coins for the next plot of land: dearer the more land you have (a new game's land is four plots). */

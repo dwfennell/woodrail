@@ -13,13 +13,16 @@ export const SACK_WIDTH = 9;
 export const SACK_HEIGHT = 6;
 /** A cut stone block: a sack's footprint, a little taller. */
 export const STONE_HEIGHT = 8;
-/** Made goods on a sack's footprint: a furniture crate (flat-topped), and a tool box (its handles poke up: stacked 7.5 apart). */
+/**
+ * Made goods on a sack's footprint: a furniture crate (flat-topped), and a tool box (its handles poke up: stacked 7.5
+ * apart). Food stacks the crate's height too: a milk churn, a tray of loaves, a crate of apples.
+ */
 export const CRATE_HEIGHT = 9;
 export const TOOLBOX_PITCH = 7.5;
 
 /** How far apart units of a sack-sized kind stack. */
 function sackPitch(kind: CargoKind): number {
-  return kind === "furniture" ? CRATE_HEIGHT : kind === "tools" ? TOOLBOX_PITCH : kind === "stone" || kind === "coal" || kind === "ore" ? STONE_HEIGHT : SACK_HEIGHT;
+  return kind === "furniture" || kind === "milk" || kind === "bread" || kind === "fruit" ? CRATE_HEIGHT : kind === "tools" ? TOOLBOX_PITCH : kind === "stone" || kind === "coal" || kind === "ore" ? STONE_HEIGHT : SACK_HEIGHT;
 }
 
 export interface Slot {

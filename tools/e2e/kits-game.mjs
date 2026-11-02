@@ -2,6 +2,8 @@
 // the water tower comes out of the Industries tab's Railway shelf, is dragged with the mouse onto a line of straights
 // (it splices in), and a steam engine stops at it. Halts are refused far from towns. Then a kit that was Sandbox's
 // only: Loading kits learned, the log loader comes off the Yard shelf onto the line, and the engine runs through it.
+// Then the dairy chain: Dairy farm learned, the dairy farm and the milk tank wagon on the tray, and a tank wagon
+// filled with milk at a dairy farm.
 //
 // Usage: npm run e2e:kits-game [-- <out dir>]   (default out: e2e-out/kits-game)
 // Starts its own dev server (on 5361, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -299,6 +301,105 @@ if (line) {
       await settle();
       await shot("5-log-loader-on-the-line");
     }
+  }
+}
+
+
+// 8. The dairy chain (tech-tree I3): Dairy farm learned (a setup shortcut, as step 7's: the study isn't under test), the
+// dairy farm is on the Industries tab and the milk tank wagon on the Trains tab's Wagons shelf; a dairy farm laid by
+// the game's own placement rules, and a hand-run train with a tank wagon fills it with milk at the dairy.
+{
+  // (Industries not learned yet show on the tray, locked: a tap says what to learn.)
+  const locked = () => p.evaluate(() => Object.fromEntries([...document.querySelectorAll(".tray-item[data-key]")].map((b) => [b.dataset.key, b.classList.contains("locked")])));
+  await clickText(".tabs button", "Industries");
+  await clickText(".tray-item.tray-group", "Industries");
+  const before = await locked();
+  check("Dairy farm not learned: the dairy farm and the bakery are locked on the Industries shelf", before["piece:depot-dairy"] === true && before["piece:depot-bakery"] === true, JSON.stringify(before));
+  await clickText(".tabs button", "Trains");
+  await clickText(".tray-item.tray-group", "Wagons");
+  check("…and no milk tank wagon on the Wagons shelf yet", !("train:Milk tank wagon" in (await locked())), JSON.stringify(await locked()));
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.learn("dairy");
+    w.learn("mills");
+    w.learn("bakery");
+    w.hud.refreshTrayBadges();
+    w.hud.trayLearned();
+  });
+  await p.waitForTimeout(800);
+  await clickText(".tabs button", "Industries");
+  await clickText(".tray-item.tray-group", "Industries");
+  const after = await locked();
+  check("learned: the dairy farm and the bakery are unlocked", after["piece:depot-dairy"] === false && after["piece:depot-bakery"] === false, JSON.stringify(after));
+  await clickText(".tabs button", "Trains");
+  await clickText(".tray-item.tray-group", "Wagons");
+  const wagons = await locked();
+  check("…and the milk tank wagon on the Wagons shelf, unlocked", wagons["train:Milk tank wagon"] === false, JSON.stringify(wagons));
+  // A short line on clear ground, by the same placement rules a drop is checked with: turnback, dairy farm, straight,
+  // turnback.
+  const dairyLine = await p.evaluate(() => {
+    const w = window.woodrail;
+    const i = w.interaction;
+    const seq = ["buffer-turnback", "depot-dairy", "straight-216", "straight-216", "buffer-turnback"];
+    const c = (id, k) => w.layout.worldConnector(id * 8 + k, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    for (let ring = 4; ring < 40; ring++)
+      for (let k = 0; k < 16; k++)
+        for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+          const a = (k * Math.PI) / 8;
+          let t = { x: Math.round((Math.cos(a) * ring * 300) / 18) * 18, z: Math.round((Math.sin(a) * ring * 300) / 18) * 18, heading };
+          const ids = [];
+          let ok = true;
+          for (const type of seq) {
+            const pose = { x: t.x, z: t.z, heading: t.heading };
+            if (i.placement(type, false, pose, 0, -1).reason) {
+              ok = false;
+              break;
+            }
+            const id = w.editor().place(type, pose, 0, false);
+            ids.push(id);
+            t = c(id, type === "buffer-turnback" ? 0 : 1);
+          }
+          if (ok) return { ids };
+          for (const id of ids.reverse()) w.editor().remove(id);
+        }
+    return null;
+  });
+  check("a dairy farm laid on a line by the placement rules", !!dairyLine, JSON.stringify(dairyLine));
+  if (dairyLine) {
+    await p.evaluate(({ ids }) => {
+      const w = window.woodrail;
+      const pose = w.layout.getPiece(ids[1]).pose;
+      w.director.glideTo(new w.camera.position.constructor(pose.x + 108 * Math.cos(pose.heading), 0, pose.z + 108 * Math.sin(pose.heading)), 520, { duration: 0.1 });
+    }, dairyLine);
+    await p.waitForTimeout(2500);
+    await settle();
+    const r = await p.evaluate(({ ids }) => {
+      const w = window.woodrail;
+      w.paused = true;
+      const dairy = w.economy.depotAtPiece(ids[1]);
+      const placed = w.sim.addTrain(["engine", "tanker"], { pieceId: ids[3], pathIndex: 0, reversed: false, s: 100 });
+      if (placed.kind !== "placed" || !dairy) return { placed: placed.kind, dairy: dairy?.role ?? null };
+      const t = w.sim.getTrain(placed.trainId);
+      const tanker = t.cars[1].id;
+      // Toward the dairy farm (whichever way that is from where it stands), then run: the cows give milk, its crane
+      // fills the tank wagon.
+      w.sim.setLever(t.cars[0].id, 1);
+      let milk = 0;
+      for (let k = 0; k < 120 * 240 && milk === 0; k++) {
+        w.sim.tick();
+        w.economy.tick();
+        const c = w.economy.cargoOf(tanker);
+        if (c.kind === "milk") milk = c.count;
+        if (k === 120 * 30 && w.sim.getTrain(placed.trainId).speed === 0) w.sim.setLever(t.cars[0].id, -1);
+      }
+      w.paused = false;
+      w.invalidate();
+      return { placed: "placed", dairy: dairy.role, milk };
+    }, dairyLine);
+    check("a hand-run train's tank wagon is filled with milk at the dairy farm", r.dairy === "dairy" && r.milk > 0, JSON.stringify(r));
+    await p.waitForTimeout(1500);
+    await settle();
+    await shot("6-dairy-farm-and-tank-wagon");
   }
 }
 

@@ -100,7 +100,8 @@ export class TownLife {
     this.shown.clear();
     this.statuses.clear();
     // A town takes from trains only what it still wants for its next level: the rest rides on to the next town.
-    // (Made goods, furniture and tools, are always welcome: towns pay for them, wanted or not.)
+    // (Made goods, furniture and tools, and everyday food, milk, bread and fruit, are always welcome: towns pay for
+    // them, wanted or not.)
     // A school takes only what its research still lacks (`TownLifeEvents.school`; none: nothing).
     this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind) : d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind));
     // A town joined by road to another counts some of what it receives twice toward growing (roads spec D2).

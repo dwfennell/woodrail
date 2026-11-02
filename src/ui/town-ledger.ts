@@ -69,6 +69,8 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
   }
   main.append(goods);
   if (v.holding) main.append(el("p", "ledger-holding", v.holding));
+  // The everyday food it always buys (once the dairy, the bakery or the orchard is learned).
+  if (v.buys) main.append(el("p", "ledger-buys", v.buys));
 
   const rows = el("div", "ledger-rows");
   if (v.school) {

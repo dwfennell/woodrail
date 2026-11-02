@@ -742,6 +742,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ledger-good.done .ledger-fill { background: #6aa84f; }
 .ledger-good.done .ledger-good-count { color: #3f7a2c; }
 .ledger-holding { margin: 0; padding: 8px 10px; border-radius: 10px; background: #fbe7cf; font-size: 13px; line-height: 1.4; font-weight: 800; color: #7a3d10; }
+/* What a town always buys (everyday food): a plain line, a quiet green. */
+.ledger-buys { margin: 0; font-size: 13px; line-height: 1.4; font-weight: 800; color: #3f7a2c; }
 .ledger-rows { display: flex; flex-direction: column; border-top: 1.5px solid #eadcc2; }
 .ledger-row { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0; border: none; border-bottom: 1.5px solid #eadcc2; background: none; font: inherit; font-size: 14px; font-weight: 800; color: #3a2a1c; text-align: left; }
 .ledger-row:last-child { border-bottom: none; }
