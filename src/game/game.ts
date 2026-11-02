@@ -286,6 +286,7 @@ export class Game {
     this.trackView.sync();
     this.trainView = new TrainView(this.mats);
     this.trainView.lookOf = (id) => this.sim.lookOf(id);
+    this.trainView.nameOf = (id) => this.sim.nameOf(id);
     this.scene.add(this.trainView.group);
     this.depotView = new DepotView(this.mats);
     this.scene.add(this.depotView.group);
@@ -864,6 +865,12 @@ export class Game {
     this.sim.writeSnapshot(this.snapshot);
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
+    // An engine renamed (or a save's names put back): its plates painted again, once.
+    if (this.sim.namesVersion !== this.namesShown) {
+      this.namesShown = this.sim.namesVersion;
+      this.trainView.syncNames();
+      this.invalidate();
+    }
     let active = this.crossingsView.update(this.snapshot, dt);
     // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
     if (this.marksView.animate(dt)) active = true;
@@ -1233,6 +1240,7 @@ export class Game {
 
   /** The sim's signal aspects last drawn (see `Sim.signalsVersion`). */
   private signalsShown = -1;
+  private namesShown = -1;
 
   /** The sim's mark aspects, for the marks' view (the sim is replaced on a new world: read through `this`). */
   private markAspects(): { markClear(id: number): boolean; readonly signalsVersion: number } {

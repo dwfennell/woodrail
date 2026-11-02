@@ -1,6 +1,7 @@
 import { installDevChecks } from "./game/dev-checks";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
+import { CrossingBells } from "./audio/crossing-bell";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
@@ -435,6 +436,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lever: (v) => interaction.setLever(v),
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
+      renameEngine: (name) => interaction.renameSelectedEngine(name),
       showBlocker: () => showBlocker(),
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
@@ -4294,6 +4296,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
   const whistles = new WhistlePosts();
+  const crossingBells = new CrossingBells();
+  const bellScratch = new Vector3();
   /**
    * Which engine by a whistle post whistles in a frame, and how loud: heard from the camera as `listen` hears its
    * clacks (louder and more central the nearer it is), the nearest train's whistle winning over a far one's.
@@ -4599,6 +4603,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
     }
     whistleCalls.flush(now, playWhistle, trainAlive);
+    // Level crossings: a soft "ding ding" as barriers come down, for one on the screen and near the camera's focus.
+    const rung = crossingBells.ring(game.crossingsView.closing, now, (x, z) => {
+      const c = bellScratch.set(x, 0, z).project(game.camera);
+      return Math.abs(c.x) <= 1 && Math.abs(c.y) <= 1 && c.z < 1 ? listen(x, z) : null;
+    });
+    if (rung) audio.crossingBell(rung[0], rung[1]);
     for (const id of game.sim.trainIds()) {
       const t = game.sim.getTrain(id)!;
       if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;

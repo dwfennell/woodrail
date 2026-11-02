@@ -2,6 +2,7 @@ import { BackSide, Box3, Color, Group, Matrix4, Mesh, MeshBasicMaterial, MeshSta
 import { CAR_KINDS, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { OUTLINE_TONES } from "./track-view";
+import { NamePlates } from "./name-plates";
 import { buildCarModel, carVariant, disposeObject, WHEEL_RADIUS, type CarModel } from "./train-models";
 
 interface CarEntry {
@@ -41,6 +42,9 @@ const LAMP_COLORS: Record<number, [Color, number]> = {
 export class TrainView {
   /** Each car's look (see `Sim.lookOf`). */
   lookOf: (carId: number) => CarLook = () => "classic";
+  /** Each engine's name, painted on its plates (see `Sim.nameOf`). */
+  nameOf: (carId: number) => string = () => "";
+  private readonly plates = new NamePlates();
   readonly group = new Group();
   private readonly cars = new Map<number, CarEntry>();
 
@@ -99,7 +103,12 @@ export class TrainView {
       if (!entry) {
         const kind = CAR_KINDS[snap.kinds[i]];
         // The colour scheme follows the car (its id survives being picked up and put down), not the order models were built.
-        const model = buildCarModel(kind, this.mats, carVariant(kind, id), this.lookOf(id));
+        const look = this.lookOf(id);
+        const model = buildCarModel(kind, this.mats, carVariant(kind, id), look);
+        if (kind === "engine") {
+          const plates = this.plates.make(id, this.nameOf(id), look);
+          if (plates) model.root.add(plates);
+        }
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
@@ -143,10 +152,24 @@ export class TrainView {
       if (!seen.has(id)) {
         this.group.remove(entry.model.root);
         disposeObject(entry.model.root);
+        this.plates.release(id);
         this.cars.delete(id);
       }
     }
     return tipping;
+  }
+
+  /** Engines' names changed (`Sim.namesVersion`): plates showing an old name are painted again. Not per frame. */
+  syncNames(): void {
+    for (const id of this.cars.keys()) {
+      const name = this.nameOf(id);
+      if (name && this.plates.nameShown(id) !== name) this.plates.rename(id, name);
+    }
+  }
+
+  /** The name an engine's plates show ("" for none: tests, and the e2e, read it). */
+  plateName(carId: number): string {
+    return this.plates.nameShown(carId);
   }
 
   /** Each car's shells as its selection asks (only those that change are touched; trains coupling or parting follow). */
@@ -195,7 +218,7 @@ export class TrainView {
     const parts: { part: Mesh; size: Vector3; centre: Vector3; scale: Vector3 }[] = [];
     root.traverse((o) => {
       const part = o as Mesh;
-      if (!part.isMesh) return;
+      if (!part.isMesh || NamePlates.isPlate(part)) return;
       // A hopper's modelled coal is a load, not the car's shape (and its lumps' rims would only speckle it).
       for (let p: Object3D | null = part; p && p !== root; p = p.parent) if (p.name.startsWith("coal")) return;
       const g = part.geometry;

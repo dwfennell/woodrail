@@ -267,6 +267,34 @@ export class ToyAudio {
     }
   }
 
+  /**
+   * A level crossing's bell as its barriers come down: a soft "ding ding", lower and gentler than an engine's bell,
+   * heard from where the crossing is (`volume` and `pan` as `listen` gives them). Callers rate-limit it (CrossingBells).
+   */
+  crossingBell(volume: number, pan: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || this.muted || volume <= 0.02) return;
+    this.wake(1400);
+    const t = ctx.currentTime;
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    panner.connect(this.master);
+    for (const k of [0, 0.32]) {
+      for (const [ratio, vol, decay] of [[1, 0.09, 0.8], [2.4, 0.03, 0.35], [4.1, 0.012, 0.18]] as const) {
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = 988 * ratio;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t + k);
+        g.gain.linearRampToValueAtTime(vol * volume, t + k + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + k + decay);
+        osc.connect(g).connect(panner);
+        osc.start(t + k);
+        osc.stop(t + k + decay + 0.05);
+      }
+    }
+  }
+
   private lastWhistle = 0;
   private lastWhistleVolume = 0;
   /** The last whistle's output, to fade when a nearer engine's cuts in over it. */
