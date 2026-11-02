@@ -14,7 +14,7 @@ rmSync(OUT, { recursive: true, force: true });
 execFileSync("npx", ["vite", "build", "--base=./", "--outDir", OUT, "--emptyOutDir"], {
   stdio: "inherit",
   // (No cloud saves on claude.ai: the page can't reach the Worker.)
-  env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1", VITE_CLOUD_URL: "" },
+  env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1", VITE_CLOUD_URL: "", VITE_STATS_URL: "" },
 });
 rmSync(join(OUT, "version.json"), { force: true });
 
