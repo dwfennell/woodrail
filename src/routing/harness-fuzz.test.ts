@@ -68,15 +68,18 @@ describe(`routing fuzz: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × 
  * The same seeds with 0 to 6 signal marks on random joints (signals spec §10.1): every invariant holds (`redRun` and
  * `blockOne` too), and a stall the seed doesn't have without them is a ring of signals (kind "signals").
  */
-describe(`routing fuzz with signals: ${SEEDS} seeds × ${SECONDS} s`, () => {
+describe(`routing fuzz with signals: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × ${SECONDS} s`, () => {
   let reports: { plain: Report; marked: Report }[] | undefined;
   const run = () =>
     (reports ??= Array.from({ length: SEEDS }, (_, k) => {
-      const marked = new HarnessRun(new Layout(), fuzz(k + 1, SECONDS, true)).run(SECONDS);
-      const plain = new HarnessRun(new Layout(), fuzz(k + 1, SECONDS)).run(SECONDS);
+      // (FIRST + k, as the plain fuzz: a shard of `npm run fuzz:long` once ran seeds 1 .. ROUTING_FUZZ here whatever its
+      // FIRST, so every shard ran the same seeds with signals and those past the first shard's never ran.)
+      const seed = FIRST + k;
+      const marked = new HarnessRun(new Layout(), fuzz(seed, SECONDS, true)).run(SECONDS);
+      const plain = new HarnessRun(new Layout(), fuzz(seed, SECONDS)).run(SECONDS);
       if (LONG) {
         const broke = INVARIANTS.filter((i) => marked.broke[i].count > 0);
-        if (broke.length > 0) console.log(`seed ${k + 1} with signals: ${broke.map((i) => `${i} ×${marked.broke[i].count} (${marked.broke[i].first[0]})`).join("; ")}`);
+        if (broke.length > 0) console.log(`seed ${seed} with signals: ${broke.map((i) => `${i} ×${marked.broke[i].count} (${marked.broke[i].first[0]})`).join("; ")}`);
       }
       return { plain, marked };
     }));
