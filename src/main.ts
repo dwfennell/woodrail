@@ -3779,11 +3779,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const toNext = aim === -1 ? null : legFromCursor(game.layout, front, aim, undefined, keep);
       // (The legs on from the next stop follow the way the train comes into it: it runs on round a loop past it.)
       const legs = viaLegs(game.layout, line.stops.map((st, k) => ({ piece: pieces[k], via: st.via })), { k: next, done: r.at ? Infinity : viaDone(r, next), leg: toNext }, keep);
-      // The way changed under a track edit (the stops and the stop it's heading for as they were, the legs not): the
-      // ribbon flashes once and the card says so a few seconds (audit F14: a train went somewhere new, no one said why).
+      // The way changed under a track edit (the stops and the stop it's heading for as they were, the legs not, and
+      // every leg still has a way: one with none says "Can't reach" instead): the ribbon flashes once and the card says
+      // so a few seconds (audit F14: a train went somewhere new, no one said why).
       const stopsSig = line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",");
       const runsSig = legs.map((leg) => (leg ? leg.map((x) => `${x.pieceId}/${x.pathIndex}`).join(".") : "-")).join("|");
-      const wayChanged = wayFor.carId === carId && wayFor.line === line.id && wayFor.stops === stopsSig && wayFor.next === next && wayFor.track !== game.trackVersion && wayFor.runs !== runsSig;
+      const wayChanged = wayFor.carId === carId && wayFor.line === line.id && wayFor.stops === stopsSig && wayFor.next === next && wayFor.track !== game.trackVersion && wayFor.runs !== runsSig && !legs.includes(null);
       wayFor = { carId, line: line.id, stops: stopsSig, next, track: game.trackVersion, runs: runsSig };
       const ribbons: RibbonSpec[] = legs.flatMap((leg) => (leg ? [{ runs: leg, colour: line.colour }] : []));
       if (toNext) ribbons.push({ runs: toNext, colour: line.colour });
