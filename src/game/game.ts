@@ -48,6 +48,7 @@ import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
 import { connectorRef, getPieceDef, pathLength, type KitDef, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
+import { BlockTint, SignalMarksView } from "../render/signal-marks-view";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlot, type World } from "./world";
 
@@ -138,6 +139,9 @@ export class Game {
   readonly mats: Materials;
   readonly stage: Stage;
   readonly trackView: TrackView;
+  /** Signal marks on joints (signals spec §4, §5), and the tint over a held or opened signal's blocks. */
+  readonly marksView: SignalMarksView;
+  readonly blockTint = new BlockTint();
   landscapeView: LandscapeView;
   readonly trainView: TrainView;
   readonly crossingsView: CrossingsView;
@@ -264,6 +268,10 @@ export class Game {
     this.scene.add(this.crossingsView.group);
     this.crossingsChanged();
     this.propLibrary = new PropLibrary(this.mats);
+    // (Signal marks draw their styles from the kits' models: signals spec §5.)
+    this.marksView = new SignalMarksView(this.layout, this.markAspects(), this.mats, this.propLibrary);
+    this.marksView.onLoaded = () => this.invalidate();
+    this.scene.add(this.marksView.group, this.blockTint.mesh);
     this.propsView = new PropsView(this.propLibrary);
     this.scene.add(this.propsView.group);
     this.kitView = new KitView(this.propLibrary);
@@ -359,6 +367,9 @@ export class Game {
     this.trackView.showAllEnds(this.allEnds);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
+    this.marksView.setLayout(this.layout);
+    this.blockTint.hide();
+    this.blockTint.reset();
     this.watchHidden();
     this.syncKits(true);
     this.crossingsChanged();
@@ -797,6 +808,8 @@ export class Game {
     // Station clocks show the game's time: their hands are set when its minute changes (drawn if one's in view).
     if (this.clockView.count > 0 && this.clockView.tick(this.simSeconds, this.camera, this.canvas.height)) this.invalidate();
     // A signal changed aspect: its arm moves (nothing else is redrawn).
+    // Signal marks: worked out again only when a mark, the track or an aspect changed.
+    if (this.marksView.sync()) this.invalidate();
     if (this.sim.signalsVersion !== this.signalsShown) {
       this.signalsShown = this.sim.signalsVersion;
       this.trackView.syncSwitches();
@@ -809,6 +822,8 @@ export class Game {
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
     let active = this.crossingsView.update(this.snapshot, dt);
+    // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
+    if (this.marksView.animate(dt)) active = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
     const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused);
     if (depots === "moving") active = true;
@@ -1143,6 +1158,17 @@ export class Game {
 
   /** The sim's signal aspects last drawn (see `Sim.signalsVersion`). */
   private signalsShown = -1;
+
+  /** The sim's mark aspects, for the marks' view (the sim is replaced on a new world: read through `this`). */
+  private markAspects(): { markClear(id: number): boolean; readonly signalsVersion: number } {
+    const game = this;
+    return {
+      markClear: (id) => game.sim.markClear(id),
+      get signalsVersion() {
+        return game.sim.signalsVersion;
+      },
+    };
+  }
 
   /** Is this spot on a road or lane (switch levers stand clear of them)? */
   private readonly onRoad = (x: number, z: number): boolean => {

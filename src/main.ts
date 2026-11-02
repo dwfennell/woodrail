@@ -51,7 +51,7 @@ import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
-import { blockerOf, engineView, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
+import { blockerOf, engineView, FOLLOW_TIP, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
 import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
@@ -319,6 +319,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     // Every props edit, done, undone or redone (and a land edit recorded): the one place a prop coming or going is
     // heard, so Game mode's toy box counts on the tray follow it here (a made prop, once placed, isn't one left).
+    // Every signal-mark edit, done, undone or redone (signals spec §4): saved; an open signal card follows it.
+    ed.onSignalsChange = () => {
+      hud.setHistory(ed.canUndo, ed.canRedo);
+      interaction?.signalsChanged();
+      game.invalidate();
+      scheduleSave();
+    };
     ed.onPropsChange = () => {
       game.propsChanged();
       hud.setHistory(ed.canUndo, ed.canRedo);
@@ -1596,6 +1603,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
   function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {
+    // (A signal mark is free once Signals is learned: it's no piece from the toy box, signals spec §4.)
+    if (mode === "game" && item.kind === "signal" && !progress.knows("piece:signal")) {
+      hud.toast("Signal: not learned yet");
+      return false;
+    }
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
     // (A new take: whatever an earlier one made is settled, or never was.)
     if (make) trainMade = pieceMade = null;
@@ -1736,6 +1748,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const spare = roadsSpare(progress.roads, roadsOnMap(game.landscape.grid));
       return spare > 0 ? { text: String(spare), empty: false } : { text: `${ROAD_COINS}🪙`, empty: false, craft: true };
     }
+    // (A signal mark: free once Signals is learned, signals spec §4.)
+    if (item.kind === "signal") return progress.knows("piece:signal") ? null : { text: "Locked", empty: true, locked: true };
     if (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop") return null;
     const needs = thingsFor(item as ThingItem);
     if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true, locked: true };
@@ -4322,6 +4336,33 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return false;
     }
   })();
+  /**
+   * A line's trains waiting for each other on a long stretch (signals spec §7): once ever, after Signals is learned,
+   * say a signal would let them follow, and show where. Looked for once a game second till said.
+   */
+  let followTold = (() => {
+    try {
+      return localStorage.getItem("woodrail.followTip") === "1";
+    } catch {
+      return false;
+    }
+  })();
+  let followLooked = 0;
+  function lookForFollowers(): void {
+    if (followTold || Math.abs(game.simSeconds - followLooked) < 1) return;
+    followLooked = game.simSeconds;
+    if (mode === "game" && !progress.learned.has("signals")) return;
+    const at = game.economy.sections.followSpot();
+    if (at === -1) return;
+    followTold = true;
+    try {
+      localStorage.setItem("woodrail.followTip", "1");
+    } catch {
+      // storage unavailable: it may show again next visit
+    }
+    hud.toast(FOLLOW_TIP, false, 8000, () => interaction.showSignalSpot(at));
+  }
+
   /** A train too long for a lift is told so once (for a few minutes), not on every approach. */
   const tooLong = new TooLongNotice();
   /** The lifts heard riding (for the clunk as each gets there), and where. */
@@ -4472,6 +4513,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
     if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
     if (game.economy.stalls.onStuck !== stuckTip) game.economy.stalls.onStuck = stuckTip;
+    lookForFollowers();
     showEngineView();
     showSummary();
     let derailed = false;

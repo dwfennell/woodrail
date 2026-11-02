@@ -318,6 +318,9 @@ export class HarnessRun implements InvariantWorld {
     // (Path signals read the router's locks, as the economy wires them.)
     const router = this.router;
     sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
+    // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
+    const sections = this.sections;
+    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion() };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
       routeWait: (engine) => this.router.waitingOn(engine),

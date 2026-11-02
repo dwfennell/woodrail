@@ -19,7 +19,15 @@ export type TrayItem =
   /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
   | { kind: "road"; piece: RoadPieceId; label: string; auto?: boolean; unlearned?: "hide" }
   /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
-  | { kind: "tool"; tool: LandTool; label: string };
+  | { kind: "tool"; tool: LandTool; label: string }
+  /**
+   * A signal (signals spec §4): dragged onto laid track it goes on a joint, facing the way the finger moved; tapped,
+   * it's ready (the Signal tool): each tap on the track then puts one on the nearest joint.
+   */
+  | { kind: "signal"; label: string };
+
+/** The Signal (a mark on a joint, not a piece: the old signal pieces and their skins are no longer offered). */
+export const SIGNAL_ITEM: TrayItem = { kind: "signal", label: "Signal" };
 
 /** Land-editing tools: move the map's scenery (trees, fields, the shed), or raise or lower a square a block. */
 export type LandTool = "move" | "raise" | "lower";
@@ -100,7 +108,7 @@ const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i
 export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
-  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45", "signal") },
+  { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45"), SIGNAL_ITEM] },
   { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
@@ -177,9 +185,7 @@ export const GAME_TRACK_KITS: TrayGroup = {
   label: "Railway kit",
   modes: ["game"],
   items: [
-    kit("kit-semaphore-signal", "Semaphore"),
-    kit("kit-colour-light-signal", "Colour light"),
-    kit("kit-signal-gantry", "Signal gantry"),
+    // (The signal skins are a Signal's styles now, on its card: signals spec §4, §9.)
     kit("kit-turntable", "Turntable"),
     kit("kit-transfer-table", "Transfer table"),
     kit("kit-train-lift", "Train lift"),
@@ -331,6 +337,7 @@ export function shelfItem(asset: string, label: string): TrayItem {
 export function trayKey(item: TrayItem): string {
   if (item.kind === "piece") return `piece:${item.type}${item.auto ? ":auto" : ""}`;
   if (item.kind === "tool") return `tool:${item.tool}`;
+  if (item.kind === "signal") return "signal";
   if (item.kind === "road") return `road:${item.auto ? "auto" : item.piece}`;
   return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
 }

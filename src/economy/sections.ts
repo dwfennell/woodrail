@@ -1,5 +1,5 @@
-import { getPieceDef, pathLength, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, type Cursor, type Sim, type Train } from "../sim";
+import { connectorRef, getPieceDef, indexOfRef, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, waysFrom } from "../routing/graph";
 import { plan, planWay, type KeepTest } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
@@ -51,16 +51,28 @@ export const ROAD_MARGIN = 2 * STAND_SHORT;
 const ASK_LOOK = 24;
 /** How often (sim ticks) a waiting train asks again. */
 export const CHECK_TICKS = 12;
+/** How long (s) a line's train waits for a line-mate going its way before a signal is suggested (signals spec §7). */
+export const FOLLOW_HINT_S = 20;
 
-/** A slot (see the header): a loop road, or a line end. */
+/**
+ * A slot (see the header): a loop road, a line end, or a signal's waiting point (signals spec §3.2): the track in front
+ * of a signal the player placed, long enough for the longest train, clear of points. A waiting point is one-way: trains
+ * going the signal's way stop there (its `out` end is the far side of the signal's joint); trains going against it run
+ * through it with the sections either side as one move (`Way.through`), so two never meet head on.
+ */
 export interface Slot {
   id: number;
-  kind: "road" | "end";
+  kind: "road" | "end" | "signal";
   /** For a road: its loop (index in `Topology.loops`) and which road; −1 for a line end. */
   loop: number;
   road: number;
   pieces: ReadonlySet<number>;
   length: number;
+  /** A waiting point's: the signal's joint end (`Signal.at`), the end past it (a connector ref), and its back end, the
+   * end of its last piece trains going its way come in by. −1 for other slots. */
+  mark?: number;
+  out?: number;
+  back?: number;
 }
 
 export interface Loop {
@@ -380,6 +392,8 @@ function buildTopology(layout: Layout, minRoad: number): Topology {
       for (const p of pieces) slotOf.set(p, sid);
     }
   }
+  // Signals' waiting points (signals spec §3.2): only where both ends of one meet a section.
+  if (layout.signalCount > 0) signalSlots(layout, minRoad, slots, slotOf);
   // Sections: the rest, in connected stretches.
   const sectionOf = new Map<number, number>();
   let sections = 0;
@@ -403,6 +417,84 @@ function buildTopology(layout: Layout, minRoad: number): Topology {
   return { slots, loops, slotOf, sectionOf, sections, pinnedLoops };
 }
 
+/**
+ * Waiting points: for each signal mark, the plain track behind its joint (on the side trains come from) as far back as
+ * `minRoad`, none of it in a slot, no points in it. One whose track runs short is no slot (the sim still holds trains
+ * at it: a block boundary only). Each must have a section piece just past its joint and just behind its back end, so
+ * a move into or out of it is always asked for; one that doesn't (signals closer than a train's length) is dropped, and
+ * the rest looked at again.
+ */
+function signalSlots(layout: Layout, minRoad: number, slots: Slot[], slotOf: Map<number, number>): void {
+  const found: { mark: number; out: number; back: number; behind: number; pieces: number[]; length: number }[] = [];
+  const taken = new Set<number>();
+  for (const m of [...layout.signals()].sort((a, b) => a.id - b.id)) {
+    const out = layout.joinedConnector(m.at);
+    if (out === -1) continue;
+    const pieces: number[] = [];
+    let length = 0;
+    let id = pieceOfRef(m.at);
+    let exit = indexOfRef(m.at);
+    let back = -1;
+    let behind = -1;
+    for (let k = 0; k < MAX_ROAD && length < minRoad; k++) {
+      if (slotOf.has(id) || taken.has(id) || pieces.includes(id) || branches(layout, id)) break;
+      const p = layout.getPiece(id);
+      if (!p) break;
+      const def = getPieceDef(p.type, p.flipped);
+      const path = def.paths.find((x) => x.to === exit || (x.from === exit && x.to !== null));
+      if (!path || path.to === null) break;
+      const entry = path.to === exit ? path.from : path.to;
+      pieces.push(id);
+      length += pathLength(path.geom);
+      back = connectorRef(id, entry);
+      const n = next(layout, id, entry);
+      if (!n) {
+        behind = -1;
+        break;
+      }
+      behind = n.pieceId;
+      id = n.pieceId;
+      exit = n.entry;
+    }
+    if (length < minRoad || behind === -1) continue;
+    for (const p of pieces) taken.add(p);
+    found.push({ mark: m.at, out, back, behind, pieces, length });
+  }
+  // (Both ends on a section: not on another slot, nor on another waiting point.)
+  let list = found;
+  for (let changed = true; changed; ) {
+    changed = false;
+    const on = new Set<number>();
+    for (const f of list) for (const p of f.pieces) on.add(p);
+    const ok = list.filter((f) => {
+      const past = pieceOfRef(f.out);
+      return !slotOf.has(past) && !on.has(past) && !slotOf.has(f.behind) && !on.has(f.behind);
+    });
+    if (ok.length !== list.length) {
+      // (Drop one at a time, the last placed first, then look again: dropping one may free its neighbour.)
+      const bad = list.filter((f) => !ok.includes(f));
+      list = list.filter((f) => f !== bad[bad.length - 1]);
+      changed = true;
+    }
+  }
+  for (const f of list) {
+    const id = slots.length;
+    slots.push({ id, kind: "signal", loop: -1, road: -1, pieces: new Set(f.pieces), length: f.length, mark: f.mark, out: f.out, back: f.back });
+    for (const p of f.pieces) slotOf.set(p, id);
+  }
+}
+
+/** A key for the signal marks' places (the topology depends on them: waiting points), cached by `signalsVersion`. */
+export function marksKey(layout: Layout): string {
+  if (layout.signalCount === 0) return "";
+  const hit = marksKeys.get(layout);
+  if (hit && hit.v === layout.signalsVersion) return hit.key;
+  const key = `|s${[...layout.signals()].map((m) => m.at).sort((a, b) => a - b).join(",")}`;
+  marksKeys.set(layout, { v: layout.signalsVersion, key });
+  return key;
+}
+const marksKeys = new WeakMap<Layout, { v: number; key: string }>();
+
 const topoCache = new WeakMap<Layout, { key: string; byRoad: Map<number, Topology> }>();
 
 /** The layout's slots and sections for trains of `trainLength` mm (cached per revision, pins and length). */
@@ -410,7 +502,7 @@ export function topologyOf(layout: Layout, trainLength: number): Topology {
   // (Pinned switches, and the way each is set, decide which loops pass: part of the key. There are few.)
   let pins = "";
   for (const id of layout.pinnedIds()) pins += `,${id}:${layout.switchState(id)}`;
-  const key = `${layout.revision}${pins}`;
+  const key = `${layout.revision}${pins}${marksKey(layout)}`;
   let hit = topoCache.get(layout);
   if (!hit || hit.key !== key) topoCache.set(layout, (hit = { key, byRoad: new Map() }));
   // (Bucketed, so trains a few mm apart share one.)
@@ -865,7 +957,7 @@ export class Sections {
    * next slot, choosing at each switch as steering would (for its stop), and at a loop's facing switch a road with
    * room. Null if it reaches no slot. `dest` −1: the slot ahead is full (`blockedBy` is in it, or on its way there).
    */
-  private wayOn(st: TrainState, info: LineInfo, start: { pieceId: number; entry: number }, firstPath = -1, short: ReadonlySet<number> | null = null): Way | null {
+  private wayOn(st: TrainState, info: LineInfo, start: { pieceId: number; entry: number }, firstPath = -1, short: ReadonlySet<number> | null = null, depth = 0): Way | null {
     const { layout } = this;
     const topo = info.topo;
     const target = this.host.target(st.engine);
@@ -895,6 +987,26 @@ export class Sections {
       const slot = topo.slotOf.get(at.pieceId);
       if (slot !== undefined) {
         const s = topo.slots[slot];
+        if (s.kind === "signal") {
+          const u = this.slotUser(info, slot, st.engine);
+          // Going its way: it waits there, if the way on past the signal can take it after the train ahead (`convoy`).
+          // (Probing the way on for `convoy`: on through it, whoever's there.)
+          if (depth === 0 && connectorRef(at.pieceId, at.entry) === s.back) {
+            if (u !== -1) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u };
+            const c = this.convoy(st, info, s);
+            return { steps, sections, through, dest: c === -1 ? slot : -1, outBy: -1, blockedBy: c };
+          }
+          // Against it: through it, holding it and the sections either side as one move, to the slot after.
+          if (u !== -1 && depth === 0) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u };
+          through.push(slot);
+          for (let r = 0; at && r < SEARCH && topo.slotOf.get(at.pieceId) === slot; r++) {
+            const ways = waysFrom(layout, at.pieceId, at.entry);
+            if (ways.length !== 1) return null;
+            steps.push({ pieceId: at.pieceId, path: ways[0].path, entry: at.entry });
+            at = next(layout, at.pieceId, ways[0].exit);
+          }
+          continue;
+        }
         if (s.kind === "end") {
           const u = this.slotUser(info, slot, st.engine);
           // (Held there for want of room on the line: it won't move, so the section before it is a dead end, turned
@@ -1000,6 +1112,43 @@ export class Sections {
       at = next(layout, at.pieceId, w.exit);
     }
     return null;
+  }
+
+  /**
+   * May a train going a waiting point's way (`sig`) stop there, its way on past the signal not yet free (signals spec
+   * §3.2)? Only if, once the trains ahead have gone on, the way on can take it: a passing loop is next (it passes any
+   * train coming back there), or a waiting point its way (the same asked of it), or a line end with no other train in
+   * it or on the way there. Else it would stand there in the way of a train coming back from that line end, each
+   * waiting on the other. −1: yes; else the train it waits for (or `heldOf`'s).
+   */
+  private convoy(st: TrainState, info: LineInfo, sig: Slot): number {
+    const topo = info.topo;
+    if (sig.out === undefined || sig.out < 0) return this.heldOf(info, st.engine);
+    const start = { pieceId: pieceOfRef(sig.out), entry: indexOfRef(sig.out) };
+    // (Probed: on through any waiting points, to the next loop or line end.)
+    const way = this.wayOn(st, info, start, -1, null, 1);
+    if (!way || way.dest === DEAD_END) return way && way.blockedBy !== -1 ? way.blockedBy : this.heldOf(info, st.engine);
+    // (The slot the way comes to, taken or not.)
+    let reached = topo.slotOf.get(start.pieceId);
+    const last = way.steps[way.steps.length - 1];
+    if (last) {
+      const w = waysFrom(this.layout, last.pieceId, last.entry).find((x) => x.path === last.path);
+      const n = w ? next(this.layout, last.pieceId, w.exit) : null;
+      reached = n ? topo.slotOf.get(n.pieceId) : undefined;
+    }
+    if (reached === undefined || topo.slots[reached].kind === "signal") return way.blockedBy !== -1 ? way.blockedBy : this.heldOf(info, st.engine);
+    const r = topo.slots[reached];
+    if (r.kind === "road") return info.blocked.has(r.loop) ? (way.blockedBy !== -1 ? way.blockedBy : this.heldOf(info, st.engine)) : -1;
+    // (A line end: nobody there, nor on the way there, nor in the waiting points between, either way.)
+    for (const x of way.sections) {
+      const u = this.sectionUser(info, x, st.engine);
+      if (u !== -1) return u;
+    }
+    for (const x of [...way.through, reached]) {
+      const u = this.slotUser(info, x, st.engine);
+      if (u !== -1) return u;
+    }
+    return -1;
   }
 
   /**
@@ -1318,6 +1467,14 @@ export class Sections {
   private ask(st: TrainState, info: LineInfo): boolean {
     const topo = info.topo;
     if (st.exitPiece === -1) return true;
+    // (At a waiting point whose signal the player holds at red: it asks for nothing past it, so it holds nothing
+    // ahead; the sim stands it at the signal, and its card says why (signals spec §3.3, §6). Not a wait on a train.)
+    const here = st.slot >= 0 ? topo.slots[st.slot] : undefined;
+    if (here?.kind === "signal" && here.mark !== undefined && connectorRef(st.exitPiece, st.exitEntry) === here.out && this.layout.signalAt(here.mark)?.held) {
+      st.wait = null;
+      st.waitSince = -1;
+      return false;
+    }
     const section = topo.sectionOf.get(st.exitPiece);
     if (section === undefined) return true;
     if (!this.hasRoom(info, st.engine)) {
@@ -1479,6 +1636,138 @@ export class Sections {
     st.waitSince = -1;
     this.granted++;
     this.steerSoon.add(st.engine);
+  }
+
+  /**
+   * The train standing in (or coming to) the waiting point of the signal at this joint end (`Signal.at`), going its way,
+   * with no move granted on past it: −1 if none. The sim shows that signal red then, so the green the player sees is
+   * sections' grant (signals spec §3.2). Worked out once a tick, from where trains are as sections last looked.
+   */
+  gateAt(ref: number): number {
+    this.refreshGate();
+    return this.gate.get(ref) ?? -1;
+  }
+
+  /** Goes up whenever `gateAt` would answer differently (the sim's aspects are worked out again only then). */
+  gateVersion(): number {
+    this.refreshGate();
+    return this.gateVer;
+  }
+
+  private refreshGate(): void {
+    if (this.gateTick === this.sim.ticks) return;
+    this.gateTick = this.sim.ticks;
+    const now = this.gateNext;
+    now.clear();
+    if (this.enabled && this.layout.signalCount > 0)
+      for (const st of this.states.values()) {
+        if (st.slot < 0 || st.exitPiece < 0) continue;
+        const sl = st.topo.slots[st.slot];
+        if (sl?.kind !== "signal" || sl.mark === undefined || connectorRef(st.exitPiece, st.exitEntry) !== sl.out || this.ownsAhead(st)) continue;
+        const t = this.sim.getTrain(st.trainId);
+        if (!t || t.derailed || !t.bogies.some((b) => sl.pieces.has(b.pieceId))) continue;
+        now.set(sl.mark, t.id);
+      }
+    let same = now.size === this.gate.size;
+    if (same) for (const [k, v] of now) if (this.gate.get(k) !== v) same = false;
+    if (same) return;
+    this.gateNext = this.gate;
+    this.gate = now;
+    this.gateVer++;
+  }
+  private gateTick = -1;
+  private gateVer = 0;
+  private gate = new Map<number, number>();
+  private gateNext = new Map<number, number>();
+
+  /**
+   * Where a signal would let a line's trains follow each other (signals spec §7): a train of a line standing at its
+   * slot's end for `FOLLOW_HINT_S` or more, waiting for a train of its line that's going the same way through the stretch
+   * ahead, on a stretch long enough to split (plain track for the longest train, and room, either side of a joint). The
+   * joint end nearest the middle of that run (facing the way they go), or −1. Looked at by the game now and then (once
+   * a second, till told).
+   */
+  followSpot(): number {
+    if (!this.enabled) return -1;
+    for (const st of this.states.values()) {
+      const w = st.wait;
+      if (!w || (w.kind !== "section" && w.kind !== "slot") || st.slot < 0 || st.exitPiece < 0 || st.waitSince < 0) continue;
+      const line = this.host.lineOf(st.engine);
+      if (line < 0 || this.host.lineOf(w.engine) !== line) continue;
+      const info = this.lineInfo.get(line);
+      if (!info?.managed) continue;
+      const way = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
+      if (!way) continue;
+      // (The one it waits for: going through the stretch ahead its way, or the other way, as its move has it.)
+      const lead = this.states.get(w.engine)?.move;
+      let same = false;
+      let against = false;
+      if (lead)
+        for (const x of lead.steps) {
+          const y = way.steps.find((z) => z.pieceId === x.pieceId);
+          if (!y) continue;
+          if (y.entry === x.entry) same = true;
+          else against = true;
+        }
+      // (Seen going ahead its way during this wait: noted, by when the wait began.)
+      if (same && !against) this.sawLead.set(st.engine, st.waitSince);
+      if (this.sawLead.get(st.engine) !== st.waitSince || this.sim.ticks - st.waitSince < FOLLOW_HINT_S * SIM_HZ) continue;
+      // (Not one coming back toward it now: into its slot or its loop, or through the stretch the other way.)
+      if (lead) {
+        const here = st.topo.slots[st.slot];
+        const dest = lead.dest >= 0 ? st.topo.slots[lead.dest] : undefined;
+        if (against || lead.dest === st.slot || lead.through.includes(st.slot) || (dest && here.kind === "road" && dest.kind === "road" && dest.loop === here.loop)) continue;
+      }
+      let longest = 0;
+      for (const u of info.users) {
+        const t = this.sim.findCar(u)?.train;
+        if (t) longest = Math.max(longest, trainLength(t));
+      }
+      const spot = this.splitAt(way.steps, longest + ROAD_MARGIN);
+      if (spot !== -1) return spot;
+    }
+    return -1;
+  }
+
+  /** Trains seen waiting while the train they wait for went ahead their way (by engine: that wait's start, `waitSince`). */
+  private readonly sawLead = new Map<number, number>();
+
+  /** The joint end along these steps with plain track at least `need` either side, nearest the middle; −1: none. */
+  private splitAt(steps: readonly Step[], need: number): number {
+    const { layout } = this;
+    const len: number[] = [];
+    const plain: boolean[] = [];
+    for (const x of steps) {
+      plain.push(!branches(layout, x.pieceId));
+      len.push(lengthOfPath(layout, x.pieceId, x.path));
+    }
+    const before: number[] = [];
+    let run = 0;
+    for (let k = 0; k < steps.length; k++) {
+      run = plain[k] ? run + len[k] : 0;
+      before.push(run);
+    }
+    const after: number[] = new Array(steps.length).fill(0);
+    run = 0;
+    for (let k = steps.length - 1; k >= 0; k--) {
+      after[k] = run;
+      run = plain[k] ? run + len[k] : 0;
+    }
+    let best = -1;
+    let bestD = Infinity;
+    for (let k = 0; k < steps.length - 1; k++) {
+      if (!plain[k] || before[k] < need || after[k] < need) continue;
+      const w = waysFrom(layout, steps[k].pieceId, steps[k].entry).find((x) => x.path === steps[k].path);
+      if (!w) continue;
+      const ref = connectorRef(steps[k].pieceId, w.exit);
+      if (layout.signalAt(ref)) continue;
+      const d = Math.abs(before[k] - after[k]);
+      if (d < bestD) {
+        bestD = d;
+        best = ref;
+      }
+    }
+    return best;
   }
 
   /** Steering for a train holding a move: its way (`follow`), aimed at a piece of the slot it goes to. */
@@ -1708,7 +1997,7 @@ export class Sections {
           let sec = false;
           for (const x of t.bogies) {
             const sl = topo.slotOf.get(x.pieceId);
-            if (sl === undefined) sec = true;
+            if (sl === undefined || topo.slots[sl].kind === "signal") sec = true;
             else if (topo.slots[sl].kind === "road") road = true;
             else end = true;
           }
@@ -1901,7 +2190,7 @@ export class Sections {
     let pins = "";
     for (const id of this.layout.pinnedIds()) pins += `,${id}:${this.layout.switchState(id)}`;
     const lines = [...longest.keys()].sort((a, b) => a - b);
-    let key = `${this.layout.revision}${pins}`;
+    let key = `${this.layout.revision}${pins}${marksKey(this.layout)}`;
     for (const l of lines) key += `|${l}:${longest.get(l)}:${this.host.stopPieces(l).join(",")}`;
     if (this.net?.key === key) return this.net.of;
     // (Regions, in the topology for the longest train of all: those its ways run through.)
@@ -2123,7 +2412,8 @@ export class Sections {
     for (const piece of way) {
       const s = topo.slotOf.get(piece);
       if (s === undefined) continue;
-      slots++;
+      // (A waiting point alone doesn't make a line managed: an oval with signals is the sim's block working, §3.4.)
+      if (topo.slots[s].kind !== "signal") slots++;
       if (topo.slots[s].kind === "road") loops.add(topo.slots[s].loop);
     }
     const n = slots === 0 ? -1 : loops.size;

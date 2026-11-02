@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { appendPiece, connectorRef } from "../track";
-import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, ENGINE_NOTE, lacking, madeText, makeNote, uncraft, workshopStock } from "./crafting";
+import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, lacking, madeText, makeNote, uncraft, workshopStock } from "./crafting";
 import { makeRowHtml, SHARES_LABEL, TAKES_ALL_LABEL, yardHint, yardModeHtml } from "../ui/workshop-panel";
 import type { ThingId } from "./things";
 import { Progress } from "./progress";
@@ -209,56 +209,23 @@ describe("uncraft", () => {
   });
 });
 
-describe("a second engine before Signals (QA: the workshop could make the one the presents hold back)", () => {
-  it("its row says it needs Signals to share a line, with an engine owned; it isn't barred", () => {
+describe("a second engine (signals step 6: no longer noted as needing Signals)", () => {
+  it("its row and its toast say nothing of Signals: trains of a line pass at a loop without them", () => {
     const p = Progress.fresh();
     expect(p.owned.get("car:engine")).toBe(1);
-    expect(makeNote(p, "car:engine")).toBe(ENGINE_NOTE);
-    expect(ENGINE_NOTE).toBe("Needs Signals to share a line");
-    // Nothing else is noted.
+    expect(makeNote(p, "car:engine")).toBeNull();
     expect(makeNote(p, "car:timber")).toBeNull();
-    expect(makeNote(p, "piece:buffer-turnback")).toBeNull();
-    // The first engine (none owned): nothing to say.
-    p.owned.delete("car:engine");
-    expect(makeNote(p, "car:engine")).toBeNull();
-    // Signals learned: two can share a line now.
-    p.owned.set("car:engine", 1);
-    p.learned.add("signals");
-    expect(makeNote(p, "car:engine")).toBeNull();
-    // Not a gate: it's still made, from 6 planks.
     const { w } = withWorkshop(6);
     const q = Progress.fresh();
-    expect(makeNote(q, "car:engine")).toBe(ENGINE_NOTE);
     expect(craftNow(w, q, new Map([["car:engine" as ThingId, 1]]))).toBeNull();
     expect(q.owned.get("car:engine")).toBe(2);
-  });
-
-  it("an engine ordered on the workshop's card says it too as it's made (QA P5: only the tray's said it)", () => {
-    const { w } = withWorkshop(12);
-    const p = Progress.fresh();
-    const c = new Crafting(p);
-    c.order("car:engine");
-    let made: ThingId | null = null;
-    for (let i = 0; i < 10 && !made; i++) made = c.tick(w, 1);
-    expect(made).toBe("car:engine");
-    expect(p.owned.get("car:engine")).toBe(2);
-    expect(madeText(p, made!, "Engine")).toBe(`+1 Engine in your toy box. ${ENGINE_NOTE}`);
-    // A wagon: no note.
-    expect(madeText(p, "car:timber", "Flatbed wagon")).toBe("+1 Flatbed wagon in your toy box");
-    // The first engine (none before it), or with Signals learned: none either.
-    const q = Progress.fresh();
-    q.owned.delete("car:engine");
-    q.add("car:engine");
     expect(madeText(q, "car:engine", "Engine")).toBe("+1 Engine in your toy box");
-    p.learned.add("signals");
-    expect(madeText(p, "car:engine", "Engine")).toBe("+1 Engine in your toy box");
   });
 
-  it("the workshop's card shows the note under the engine's name, beside its + button", () => {
+  it("the workshop's card shows a note under a name, beside its + button, only when there is one", () => {
     const row = { id: "car:engine" as ThingId, label: "Engine", cost: "6 planks", have: 0, queued: 0, shelf: "Trains" };
-    const html = makeRowHtml({ ...row, note: ENGINE_NOTE });
-    expect(html).toContain(`<span class="make-note">Needs Signals to share a line</span>`);
-    expect(html).toContain(`data-make="car:engine" title="Make one more"`);
+    expect(makeRowHtml({ ...row, note: "A note" })).toContain(`<span class="make-note">A note</span>`);
     expect(makeRowHtml({ ...row, note: null })).not.toContain("make-note");
   });
 });
+
