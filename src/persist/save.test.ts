@@ -274,6 +274,25 @@ describe("save format", () => {
     expect(deserializeWorld(data).ok).toBe(false);
   });
 
+  it("keeps a mine's Gives / Doesn't give per good; an older save's mine gives both", () => {
+    const world = worldWithTrain();
+    const end = appendPiece(world.layout, "depot-mine", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    const mine = world.economy.depotAtPiece(end)!;
+    expect(mine.role).toBe("mine");
+    world.economy.setStoreMode(mine.id, "ore", "off");
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const saved = data.depots.find((d) => d.role === "mine")!;
+    expect([saved.modes, saved.others]).toEqual([{ ore: "off" }, undefined]);
+    const r = deserializeWorld(data);
+    if (!r.ok) throw new Error(r.error);
+    expect([storeModeOf(r.value.economy.depotAtPiece(end)!, "ore"), storeModeOf(r.value.economy.depotAtPiece(end)!, "coal")]).toEqual(["off", "both"]);
+    delete saved.modes;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.depotAtPiece(end)!.modes.every((m) => m === null)).toBe(true);
+  });
+
   it("keeps lines: their colour, name and stops (wait to fill too), shared by the trains that run them", () => {
     const world = worldWithTrain();
     const engine = world.sim.getTrain(world.sim.trainIds()[0])!.cars[0];

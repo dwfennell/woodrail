@@ -174,6 +174,15 @@ export function storeLetsOut(d: DepotState, kind: CargoKind): boolean {
   return m === "both" || m === "out";
 }
 
+/**
+ * An industry that gives more than one good (the mine: coal and ore): its card lets the player say which of them trains
+ * load there ("both": Gives, the default; "off": Doesn't give), in its depot's `modes`. What it takes stays automatic.
+ */
+export function givesChoice(role: DepotRole): boolean {
+  const r = RECIPES[role];
+  return r.gives.length > 1 && !r.routedOnly && !r.endless;
+}
+
 /** A good on a warehouse's own list (its card shows a row for it even while it holds none). */
 export function storeListed(d: DepotState, kind: CargoKind): boolean {
   return d.modes[CARGO[kind].index] !== null;
@@ -879,12 +888,14 @@ export class Economy {
   }
 
   /**
-   * A warehouse's mode for one good (listing it on its card), or with `kind` null for any other good. What routed lines
-   * plan there may change: `wantsStamp` (so `laterOf` and `plansVersion`).
+   * A warehouse's mode for one good (listing it on its card), or with `kind` null for any other good; or an industry's
+   * Gives / Doesn't give for one of its goods (`givesChoice`). What routed lines plan there may change: `wantsStamp` (so `laterOf` and `plansVersion`).
    */
   setStoreMode(depotId: number, kind: CargoKind | null, mode: StoreMode): void {
     const d = this.depots[depotId];
-    if (!d || d.role !== "warehouse") return;
+    if (!d) return;
+    // An industry giving several goods: only Gives / Doesn't give, of each good it gives (`givesChoice`).
+    if (d.role !== "warehouse" && !(givesChoice(d.role) && kind !== null && RECIPES[d.role].gives.includes(kind) && (mode === "both" || mode === "off"))) return;
     if (kind === null) d.others = mode;
     else d.modes[CARGO[kind].index] = mode;
     this.wantsStamp++;
