@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import { aheadRuns, lineLegs, nearestAhead, stopCursors } from "../game/route-path";
 import type { Materials } from "./materials";
-import { discLabel, RouteView } from "./route-view";
+import { discLabel, ribbonEdge, RIBBON_OPACITY, RouteView } from "./route-view";
+import { LINE_COLOURS } from "../game/lines";
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
 function stubMaterials(): Materials {
@@ -41,10 +42,11 @@ describe("RouteView", () => {
     );
     const meshes = view.group.children.filter((o) => (o as Mesh).isMesh && o.name.startsWith("route-"));
     // The dotted way: soft dashes, one mesh for its colour.
-    expect(meshes.map((m) => m.name).sort()).toEqual(["route-dots", "route-ribbon"]);
+    expect(meshes.map((m) => m.name).sort()).toEqual(["route-dots", "route-edge", "route-ribbon"]);
     const discs = view.group.children.filter((o) => (o as Sprite).isSprite);
     expect(discs.map((d) => d.userData)).toMatchObject(stops.map((pieceId, index) => ({ kind: "route-stop", pieceId, index })));
-    expect(view.group.children).toHaveLength(2 + 3 * 2);
+    // (The ribbon, its dark edge, the dots, and a disc and post a stop.)
+    expect(view.group.children).toHaveLength(3 + 3 * 2);
     // The ribbon lies just over the track's top (all flat here).
     const ribbon = meshes.find((m) => m.name === "route-ribbon") as Mesh;
     ribbon.geometry.computeBoundingBox();
@@ -58,7 +60,8 @@ describe("RouteView", () => {
     ribbon.geometry.addEventListener("dispose", () => (disposed = true));
     view.show([{ runs: legs[0]!, colour: "#3a7bd5" }], []);
     expect(disposed).toBe(true);
-    expect(view.group.children).toHaveLength(1);
+    // (The ribbon and its edge.)
+    expect(view.group.children).toHaveLength(2);
     view.clear();
     expect(view.group.children).toHaveLength(0);
     view.dispose();
@@ -147,5 +150,24 @@ describe("discLabel: a stop disc's number fits inside it (QA: a place visited fo
       expect(fit.size, label).toBeGreaterThanOrEqual(r * 0.5);
     }
     expect(discLabel("1·2·3·4·5·6", r, width).text).toBe("1·2+");
+  });
+});
+
+describe("ribbon edges against the track (audit F10)", () => {
+  /** WCAG contrast of two "#rrggbb" colours. */
+  const lum = (hex: string) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contrast = (a: string, b: string) => {
+    const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  };
+  /** `top` at `alpha` over `under`, mixed per channel as the screen does. */
+  const over = (top: string, under: string, alpha: number) =>
+    "#" + [1, 3, 5].map((i) => Math.round(parseInt(top.slice(i, i + 2), 16) * alpha + parseInt(under.slice(i, i + 2), 16) * (1 - alpha)).toString(16).padStart(2, "0")).join("");
+  it("every line colour's edge, drawn at the ribbon's opacity over beech, holds 3:1 against beech", () => {
+    const BEECH = "#e7c89a";
+    for (const { name, colour } of LINE_COLOURS) expect(contrast(over(ribbonEdge(colour), BEECH, RIBBON_OPACITY), BEECH), name).toBeGreaterThanOrEqual(3);
   });
 });

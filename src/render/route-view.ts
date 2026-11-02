@@ -49,6 +49,17 @@ export interface DiscSpec {
 /** The ribbon: its width (mm), how far over the track's top it lies, and how finely it follows curves. */
 const RIBBON_WIDTH = 14;
 const RIBBON_LIFT = 0.4;
+/** The dark edge under a ribbon: how far it shows past each side (mm), and its lift (under the ribbon's). */
+const EDGE_WIDTH = 4;
+const EDGE_LIFT = 0.3;
+/** How dark a ribbon's edge is: its colour (in linear light) times this. */
+const EDGE_SHADE = 0.15;
+
+/** A ribbon's edge colour: a dark shade of its own (see `EDGE_SHADE`), as "#rrggbb". */
+export function ribbonEdge(colour: string): string {
+  const c = new Color(colour).multiplyScalar(EDGE_SHADE);
+  return `#${c.getHexString()}`;
+}
 /** Dashes lie a little higher, so where a dotted way runs over a solid one they show on top. */
 const DOTS_LIFT = 0.7;
 const STEP = 6;
@@ -65,7 +76,7 @@ const DOT_OPACITY = 0.65;
 /** The red dashes of a gap no track crosses. */
 const GAP_COLOUR = "#d33a2c";
 const GAP_WIDTH = 9;
-const RIBBON_OPACITY = 0.85;
+export const RIBBON_OPACITY = 0.85;
 /**
  * Stop discs keep one size on screen, as map markers do (a 22 mm token is a few pixels at the usual zoom): a fraction
  * of the view's distance, about 34 px across on a phone held upright with the game's 30° camera ("next" a little
@@ -130,6 +141,7 @@ export class RouteView {
       if (!b) strips.set(key, (b = { colour, dotted, pos: [], uv: [] }));
       return b;
     };
+    const edges = new Set(ribbons.filter((r) => !r.dotted).map((r) => ribbonEdge(r.colour)));
     for (const r of ribbons) {
       if (r.dotted) {
         const b = stripOf(r.colour, true);
@@ -137,6 +149,10 @@ export class RouteView {
       } else {
         const b = stripOf(r.colour, false);
         for (const run of r.runs) this.strip(run, b.pos, b.uv);
+        // Under it, a wider strip in a dark shade of its colour: an edge that holds 3:1 against the beech track
+        // (audit F10: yellow was 1.2:1). Drawn first; the ribbon over it.
+        const e = stripOf(ribbonEdge(r.colour), false);
+        for (const run of r.runs) if (this.layout.getPiece(run.pieceId)) this.span(run, run.s0, run.s1, EDGE_LIFT, e.pos, e.uv, RIBBON_WIDTH + 2 * EDGE_WIDTH);
       }
     }
     if (gaps.length > 0) {
@@ -150,8 +166,8 @@ export class RouteView {
       g.setAttribute("uv", new Float32BufferAttribute(b.uv, 2));
       g.computeBoundingSphere();
       const mesh = new Mesh(g, this.ribbonMaterial(b.colour, b.dotted));
-      mesh.renderOrder = 3;
-      mesh.name = b.dotted ? "route-dots" : "route-ribbon";
+      mesh.renderOrder = edges.has(b.colour) ? 2 : 3;
+      mesh.name = b.dotted ? "route-dots" : edges.has(b.colour) ? "route-edge" : "route-ribbon";
       this.group.add(mesh);
     }
     this.discs = [];
