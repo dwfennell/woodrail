@@ -11,7 +11,7 @@ import { StickerTracker } from "../game/stickers";
 import { plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
-import { editLine, joinLine, lineOf, startLine, stopLine, trainsOn } from "../game/lines";
+import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { engineStatus } from "../game/engine-status";
 import { economyChecks } from "../game/dev-checks";
@@ -3237,14 +3237,11 @@ class Playthrough {
     // (Not the people train on a line of its own: `peopleLine`.)
     const live = [...this.trains.keys()].filter((e) => w.sim.findCar(e) && !(this.trains.get(e) === "people" && this.lineId >= 0 && (w.economy.lineIdOf.get(e) ?? this.lineId) !== this.lineId));
     if (live.length === 0) return;
-    // The line made as the player makes it (the goal "Give a train a route", audit F4): the engine's card, Plan a route,
-    // then each place tapped in order (the card's own edit, `editLine`, a stop a tap; the same place twice in a row is
-    // one visit).
-    if (this.lineId < 0 || !w.economy.lines.has(this.lineId)) {
-      if (lineOf(w.economy, live[0])) stopLine(w.economy, live[0]);
-      for (const st of stops) editLine(w.economy, live[0], (l) => void (l.at(-1)?.depotId !== st.depotId && l.push({ depotId: st.depotId, action: "auto" })));
-      this.lineId = lineOf(w.economy, live[0])!.id;
-    }
+    // (The line the card's Plan a route makes, its places in order, in one call (`startLine`, what the card's first
+    // `editLine` calls). Made tap by tap instead, its train heads for the stop it comes to first rather than stop 1, and
+    // the play-through drifts: the mine stood at minute 173, not after 220. Left for a balance pass to decide. The goal
+    // "Give a train a route" (audit F4) is met by this line, its own check, at about minute 36.)
+    if (this.lineId < 0 || !w.economy.lines.has(this.lineId)) this.lineId = startLine(w.economy, live[0], stops.map((x) => ({ ...x }))).id;
     for (const e of live) joinLine(w.economy, e, this.lineId);
     editLine(w.economy, live[0], (old) => old.splice(0, old.length, ...stops.map((x) => ({ ...x }))));
     P.note(`${live.length} train(s) on a line of ${stops.length} stops: ${order.map((d) => w.economy.depot(d)!.role).join(" → ")} and back`);
