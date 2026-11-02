@@ -9,7 +9,7 @@ import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
-import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
+import { aimOf, passVias, ranOnto, resetVias, skipVias } from "../routing/via";
 import { RoadVehicles } from "../roads/vehicles";
 
 const NONE = 0;
@@ -37,7 +37,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -94,7 +94,7 @@ export const SCHOOL_SHARE = 0.6;
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
@@ -102,6 +102,11 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
   farm: { takes: [], gives: ["grain"], cycle: { uses: {}, makes: { grain: 1 }, seconds: 12 } },
   mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },
+  // The dairy chain (tech-tree I3, I4): a dairy farm's cows give milk; a bakery bakes bread of flour and milk, the
+  // first recipe of two goods brought from two chains. An orchard's trees give fruit. Towns take all three.
+  dairy: { takes: [], gives: ["milk"], cycle: { uses: {}, makes: { milk: 1 }, seconds: 12 } },
+  bakery: { takes: ["flour", "milk"], gives: ["bread"], cycle: { uses: { flour: 1, milk: 1 }, makes: { bread: 1 }, seconds: 10 } },
+  orchard: { takes: [], gives: ["fruit"], cycle: { uses: {}, makes: { fruit: 1 }, seconds: 14 } },
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
   // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.
@@ -436,6 +441,9 @@ export class Economy {
     // (Path signals read the router's locks: signals spec §3.1.)
     const router = this.router;
     sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
+    // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
+    const sections = this.sections;
+    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion() };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.router.waitingOn(engine),
@@ -461,10 +469,21 @@ export class Economy {
     const r = this.routes.get(engine);
     if (!r || r.stops.length === 0) return -1;
     let i = r.next % r.stops.length;
-    // (At its stop: the stop after, a different depot.)
+    // (At its stop: the stop after, a different depot; past any it has run onto already, between its front and this
+    // one: it comes to them as soon as it's off this one. Aimed at one behind its front, the router would ask for
+    // nothing, or for the way back round to it, and it would run over the points ahead as they lie.)
     if (r.at) {
       const here = r.stops[i].depotId;
-      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+      const hereAt = this.depots[here]?.pieceId ?? -1;
+      const train = this.sim.findCar(engine)?.train;
+      for (let k = 0; k < r.stops.length; k++) {
+        const id = r.stops[i].depotId;
+        if (id !== here) {
+          const d = this.depots[id];
+          if (!train || !d || !this.onMap(d) || !ranOnto(train.bogies, this.drive(train), hereAt, d.pieceId)) break;
+        }
+        i = (i + 1) % r.stops.length;
+      }
     }
     return this.aim(r, i, skip);
   }
@@ -556,8 +575,8 @@ export class Economy {
 
   /**
    * Does this car's train keep its `kind` on board for a school set to Research first (`takesAll` on a school), at a
-   * town or a workshop? While the research lacks some (`sinkWants`), a train keeps as many as it lacks and a town or
-   * workshop takes only the rest. A routed train keeps them while its line comes to such a school that takes them before
+   * town or a workshop? While the research lacks some (`sinkWants`), a train keeps as many as it lacks (a routed one at
+   * most one wagon's worth: `schoolHold`, issue #20), and a town or workshop takes the rest. A routed train keeps them while its line comes to such a school that takes them before
    * anywhere else but a town or workshop that does (`Later.school`); an unrouted one while it comes to one, the points
    * as they lie (`reachOf`: one on joined track it never comes to kept a workshop's planks on the train for good). Only
    * by the school's own visible setting: a school left sharing (its default) holds nothing back (the 2026-11-01 report).
@@ -582,7 +601,60 @@ export class Economy {
       const reach = this.reachOf(found.train);
       if (!this.schools.some((d) => first(d) && reach.has(d.pieceId))) return false;
     }
-    return this.onBoard(found.train, kind) <= want;
+    // A hand-run train keeps all the research lacks; a routed one at most one wagon's worth (`schoolHold`). (Issue #20:
+    // capping hand-run trains too failed 6 of the 9 balance seeds, not 3, and the goals play-through: holding all
+    // carried planks past the first town to the towns beyond the school while the line was still hand-run.)
+    if (!route) return this.onBoard(found.train, kind) <= want;
+    return this.schoolHold(found.train, kind, want, carId).keeps;
+  }
+
+  /**
+   * What a train on a route holds of `kind` for a school set to Research first, at most `want` (what the research
+   * lacks) and at most `schoolHoldCap`, so the other wagons stay free to drop at towns and the workshop and to load other goods (issue
+   * #20: planks held for the school filled both timber wagons, so at the forest they took no logs and a city starved).
+   * Its cars of `kind` front to back: the first is held (trimmed to the limit as it drops the rest), later ones only
+   * while they fit whole in what's left. `keeps`: `carId` is one held. `held`: how many are held. Cheap: the train's cars.
+   */
+  private schoolHold(train: Train, kind: CargoKind, want: number, carId: number): { keeps: boolean; held: number } {
+    const limit = Math.min(want, this.schoolHoldCap);
+    let room = limit;
+    let held = 0;
+    let first = true;
+    let keeps = false;
+    for (const car of train.cars) {
+      const c = this.cargo.get(car.id);
+      if (c?.kind !== kind || c.count <= 0) continue;
+      const fits = first ? limit > 0 : c.count <= room;
+      if (car.id === carId) keeps = fits && c.count <= room;
+      if (fits) {
+        const h = Math.min(c.count, room);
+        held += h;
+        room -= h;
+      }
+      first = false;
+    }
+    return { keeps, held };
+  }
+
+  /**
+   * The most a train on a route holds for a school set to Research first: one wagon's worth (`wagonCapacity`: more with heavy
+   * wagons). (Issue #20's balance runs also tried a third of the train's capacity for the good: the same on the nine
+   * seeds, and harder to say.)
+   */
+  get schoolHoldCap(): number {
+    return this.wagonCapacity;
+  }
+
+  /**
+   * How many of `kind` a train holds for a school set to Research first, for its engine card: a routed one's
+   * `schoolHold`, a hand-run one's all the research lacks. 0: none.
+   */
+  heldForSchool(trainId: number, kind: CargoKind): number {
+    const train = this.sim.getTrain(trainId);
+    const want = this.sinkWants?.(kind) ?? 0;
+    if (!train || want <= 0) return 0;
+    if (!this.routeOfTrain(train)) return Math.min(want, this.onBoard(train, kind));
+    return this.schoolHold(train, kind, want, -1).held;
   }
   private schools: DepotState[] = [];
   private schoolsOf: readonly DepotState[] | null = null;
@@ -741,6 +813,49 @@ export class Economy {
       this.cargo.delete(carId);
       this.landedFrom.delete(carId);
     } else this.cargo.set(carId, { kind, count: Math.min(count, this.wagonCapacity) });
+  }
+
+  /**
+   * Why Empty (tip a wagon's goods out, thrown away) would be refused now: "moving" (its train isn't standing),
+   * "empty" (no goods on it: a coach's riders aren't goods, and stay), "none" (no such car, or off the rails), or null.
+   */
+  dumpRefusal(carId: number): "moving" | "empty" | "none" | null {
+    const found = this.sim.findCar(carId);
+    if (!found || found.train.derailed) return "none";
+    if (this.cargoOf(carId).count <= 0) return "empty";
+    return this.sim.standing(found.train) ? null : "moving";
+  }
+
+  /**
+   * Empty: tip a standing wagon's goods out, thrown away (onto no pile, so no town or school is credited). What it
+   * held, or null (nothing done: see `dumpRefusal`). What's held for a school is worked out from what's on board
+   * (`heldForSchool`), so nothing else is kept to clear but the pass's count of that good, which starts afresh at the
+   * next load once none is left on board.
+   */
+  dump(carId: number): { kind: CargoKind; count: number } | null {
+    if (this.dumpRefusal(carId) !== null) return null;
+    const train = this.sim.findCar(carId)!.train;
+    const c = this.cargoOf(carId);
+    const out = { kind: c.kind!, count: c.count };
+    this.setCargo(carId, null, 0);
+    const p = this.passes.get(train.id);
+    const i = CARGO[out.kind].index;
+    if (p && p.loaded[i] >= 0) {
+      if (this.onBoard(train, out.kind) === 0) {
+        p.loaded[i] = -1;
+        p.school[i] = 0;
+      } else p.loaded[i] = Math.max(0, p.loaded[i] - out.count);
+    }
+    return out;
+  }
+
+  /** A depot on the map that takes `kind` from trains (for Empty's hint: "The Mill takes 🌾"), or null. */
+  takerOf(kind: CargoKind): DepotState | null {
+    for (const d of this.depots) {
+      if (!d.auto || !this.onMap(d) || RECIPES[d.role].routedOnly) continue;
+      if (this.takesNow(d, kind) && (!this.accepts || this.accepts(d, kind))) return d;
+    }
+    return null;
   }
 
   ridersOf(carId: number): Readonly<Riders> {

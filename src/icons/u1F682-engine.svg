@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Engine</title>
+<rect x="2.6" y="7.6" width="13.4" height="9" rx="2.4" fill="#3a2a1c"/>
+<rect x="13.8" y="3.6" width="8" height="13" rx="1.8" fill="#3a2a1c"/>
+<rect x="4.6" y="2.8" width="4.6" height="7" rx="1" fill="#3a2a1c"/>
+<rect x="1.4" y="14.4" width="21.2" height="4.4" rx="1.2" fill="#3a2a1c"/>
+<rect x="3.8" y="8.8" width="11.4" height="6.6" rx="1.4" fill="#3f8f4a"/>
+<rect x="3.8" y="8.8" width="11.4" height="1.4" rx="0.7" fill="#8fd08a"/>
+<rect x="9" y="8.8" width="1.4" height="6.6" fill="#c8442f"/>
+<rect x="15" y="4.8" width="5.6" height="10.6" rx="0.8" fill="#c8442f"/>
+<rect x="16.2" y="6.2" width="3.2" height="3.2" rx="0.5" fill="#fbf3e4"/>
+<rect x="13.8" y="3" width="8" height="1.8" rx="0.6" fill="#3a2a1c"/>
+<rect x="5.8" y="4" width="2.2" height="5" fill="#2e3338"/>
+<rect x="2.6" y="15.6" width="18.8" height="2" fill="#e3bf8c"/>
+<circle cx="6.2" cy="19.2" r="3.4" fill="#3a2a1c"/>
+<circle cx="6.2" cy="19.2" r="2.3" fill="#c8442f"/>
+<circle cx="12.4" cy="19.2" r="3.4" fill="#3a2a1c"/>
+<circle cx="12.4" cy="19.2" r="2.3" fill="#c8442f"/>
+<circle cx="18.4" cy="19.2" r="3.4" fill="#3a2a1c"/>
+<circle cx="18.4" cy="19.2" r="2.3" fill="#c8442f"/>
+<circle cx="6.2" cy="19.2" r="0.8" fill="#f6dfb4"/>
+<circle cx="12.4" cy="19.2" r="0.8" fill="#f6dfb4"/>
+<circle cx="18.4" cy="19.2" r="0.8" fill="#f6dfb4"/>
+</svg>

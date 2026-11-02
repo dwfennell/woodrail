@@ -104,6 +104,16 @@ const OTHERS: Case[] = [
   { scenario: S.stopBeforePoints(false), checks: { "payoff: at both its stops": arrivals(1) } },
   { scenario: S.stopBeforePoints(true), checks: { "payoff: both at their stops": arrivals(1) } },
   { scenario: S.stopBeforePoints(true, true), checks: { "payoff: the routed one at its stops": (r) => expect(r.arrivals[1]).toBeGreaterThanOrEqual(1) } },
+  // (A train still at a stop, its tail on it, its front past the next stop and onto points: it heads for the stop after
+  // that, the one it's at as soon as its tail is off. Before (the goals play-through from minute 223): it headed for the
+  // stop under it, asked for nothing, and took the points as they lay: into the spur, or toward C by a wrong road.)
+  ...[true, false].map((spur) => ({
+    scenario: S.ranThroughStop(spur),
+    checks: {
+      "payoff: round its four stops, laps on": arrivals(8),
+      "never onto the spur": (r: Report) => expect(r.onWatched).toBe(0),
+    },
+  })),
   {
     scenario: S.twoRoadsOneSwitch,
     checks: {
@@ -230,6 +240,15 @@ const SHARED: Case[] = [
       "the hand-run one keeps going: 80+ turns at the buffers": (r) => expect(r.turns[1].buffer).toBeGreaterThanOrEqual(80),
       "they pass at the loop: never stuck": noStall,
       "turns back only at the buffers": endsOnly,
+    },
+  },
+  {
+    // (Play-test 2026-11-01: all three stood, stuck, from the start, till a train could follow one on no line.)
+    scenario: S.ringRoutedAmongHandRun,
+    checks: {
+      "payoff: the routed train 60+ stops in 30 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(60),
+      "they follow each other round: never stuck": noStall,
+      "nobody turns back (a ring has no end)": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
     },
   },
   {

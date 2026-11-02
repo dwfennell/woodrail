@@ -396,7 +396,7 @@ describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
     expect(r.meet).toBe(0);
     // (One held for room, the other stands short of it: stuck, too many trains. Before, the other turned back.)
     expect(runsOrSays(r, 240, 6)).toEqual([]);
-    expect([...r.cards]).toContain("Stuck: too many trains for this line. Put one away or add a loop");
+    expect([...r.cards]).toContain("Stuck: this line has a train too many. Add a passing loop");
   });
 
   it("N2: a train put down just short of one loading at its stop, facing it, doesn't bump it", () => {

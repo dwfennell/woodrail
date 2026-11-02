@@ -1,3 +1,4 @@
+import { STUCK_S } from "../economy/stalls";
 import { RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import { kitOf, type Layout } from "../track";
@@ -12,7 +13,8 @@ export type TrainState =
   | { kind: "derailed" }
   | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading" }
   | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
-  | { kind: "red-signal"; signalId: number }
+  /** At a red signal; `holding`: held there by the player's hand, for `STUCK_S` or more (signals spec §6). */
+  | { kind: "red-signal"; signalId: number; holding?: boolean }
   /** Standing at a kit's stop (a platform) for its dwell. */
   | { kind: "at-stop"; pieceId: number }
   /** Carried by a train lift, or waiting for its platform (on it, about to go; or at its far end). */
@@ -99,7 +101,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   const lift = sim.liftState(train.id);
   if (lift) return { kind: "lift", riding: lift === "riding" };
-  if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id) };
+  if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   // Held a moment at its stop so its line's trains spread out.
   for (const car of train.cars) {
@@ -301,6 +303,9 @@ const OR_MOVE_OTHER = ", or move the other train";
 /** A train not on the line standing in one of its passing loops: moving it gives the loop back, as laying one would. */
 const OR_MOVE = ", or move the parked train";
 
+/** Said once ever, when a line's trains wait for each other on a long stretch a signal could split (signals spec §7). */
+export const FOLLOW_TIP = "Trains on this line wait for the whole stretch. A signal here lets them follow · Show me where";
+
 /**
  * What a train is doing, in a few words for its engine's card: off the rails, being worked at a depot, turning back,
  * waiting at a red signal, too heavy or without power, stopped, held up, or on its way (to the next stop on its route,
@@ -342,7 +347,10 @@ export function engineView(
   // share, not needed now). Each stop takes what it takes in turn; nothing is held back for one further on.
   if (s.kind === "running" || s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || s.kind === "starting") {
     const kept = economy.keptAt(found.train.id);
-    if (kept) return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id)), blocker: null };
+    if (kept) {
+      const held = kept.why === "school" ? economy.heldForSchool(found.train.id, kept.kind) : 0;
+      return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id), held), blocker: null };
+    }
   }
   const blocker = blockerOf(sim, economy, s);
   // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
@@ -363,7 +371,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";
     case "red-signal":
-      return "Waiting at a red signal";
+      return s.holding ? "Waiting at a signal you're holding. Tap it to let go" : "Waiting at a red signal";
     case "at-stop": {
       const type = economy.layout.getPiece(s.pieceId)?.type;
       return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;
@@ -395,14 +403,15 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.line) return `Waiting for the train on the ${s.line} to pass the points`;
       return who && who.car >= 0 ? `Waiting for ${blockerName(who, place)} to pass the points` : "Waiting for another train to pass the points";
     case "stuck":
-      if (s.why === "too-many") return "Stuck: too many trains for this line. Put one away or add a loop";
-      if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal or put one away";
+      if (s.why === "too-many") return "Stuck: this line has a train too many. Add a passing loop";
+      if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal";
       if (s.why === "parked") return `Stuck: ${who && who.car >= 0 ? inTheWay(who, place) : SPARE_CUT}`;
       // (Left standing, named by where it is: moving it is the fix. Two lines' trains with no passing loop where they
       // meet: one lets them pass. Else moving one is.)
       // (One with its lever on in a ring waits on this one too: named as running, not as "stopped".)
       if (who?.how === "parked") return `Stuck: ${inTheWay(who, place)}`;
-      return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : "Put one away"}`;
+      // (The fix, not a button: a train with no route can be given one, or moved; two with routes, one moved.)
+      return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : who?.how === "line" ? "Move one of them" : "Move it or give it a route"}`;
     case "red-switch":
       return "A red switch is in the way. Tap and hold it to unpin";
     case "needs-loop":
@@ -466,10 +475,10 @@ export function headOnTip(learned: ReadonlySet<string> | null): string {
 
 /**
  * Said once a line, when a train is put on it with no room for it: what the line has room for, and what would run
- * them all ("Put away" on the card is the other way out).
+ * them all (or one fewer: taken off the track).
  */
 export function fullLineToast(room: number, trains: number, more: number): string {
   const loops = room <= 1 && trains === 2 ? "a passing loop" : more === 1 ? "another passing loop" : `${more} more passing loops`;
-  // (Or the one just put on it back in the box: "Put away" on its card.)
-  return `This line has room for ${room} train${room === 1 ? "" : "s"}. Lay ${loops}, or put one away (on its card).`;
+  // (Or one taken off the track: its own card's Remove, or picked up.)
+  return `This line has room for ${room} train${room === 1 ? "" : "s"}. Lay ${loops}, or take one off the track.`;
 }

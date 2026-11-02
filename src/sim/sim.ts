@@ -288,6 +288,12 @@ export class Sim {
     way(train: Train, pieceId: number, entry: number): number;
     version(): number;
   } | null = null;
+  /**
+   * Sections' waiting points (signals spec §3.2): `at` gives the train a mark's waiting point holds (by the mark's joint
+   * end, `Signal.at`) with no move on past it granted, −1: none (the mark shows red then, so its green is the grant);
+   * `version` changes whenever an answer would. Null: no sections.
+   */
+  signalGate: { at(ref: number): number; version(): number } | null = null;
   /** Each signal's aspect as of this tick, by key (`signalKey`): true at clear (its block's free), false at red. */
   private readonly aspects = new Map<number, boolean>();
   /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
@@ -544,24 +550,43 @@ export class Sim {
    * train's stopped; refused where there's no room for the engine at the other end (a buffer, the end of the track,
    * another train). The train keeps its id (a depot working it carries on).
    */
-  runAround(engineCarId: number): "ran-round" | "turned" | "moving" | "no-room" | "none" {
+  /**
+   * Why Swap ends would be refused now, without trying it (the card greys the button): "moving" (or riding a turning
+   * deck), "none" (no such engine, or off the rails), or null. (Room at the other end is only known by trying.)
+   */
+  runAroundRefusal(engineCarId: number): "moving" | "none" | null {
     const found = this.findCar(engineCarId);
     if (!found || found.train.derailed) return "none";
     const t = found.train;
     // Riding a turning deck: it's moving.
     if (this.rides.size > 0 && this.riding(t)) return "moving";
+    // Only turning it (see `runAround`): fine moving or not.
+    if (this.runAroundOnlyTurns(t, found.index)) return null;
+    return t.speed > 0 ? "moving" : null;
+  }
+
+  /** Nothing to run round (an engine alone, mid-train, or with another engine at the far end): Swap ends turns it. */
+  private runAroundOnlyTurns(t: Train, i: number): boolean {
+    const n = t.cars.length;
+    const atFront = i === 0;
+    return n === 1 || !(atFront || i === n - 1) || t.cars[atFront ? n - 1 : 0].kind === "engine";
+  }
+
+  runAround(engineCarId: number): "ran-round" | "turned" | "moving" | "no-room" | "none" {
+    const refused = this.runAroundRefusal(engineCarId);
+    if (refused) return refused;
+    const found = this.findCar(engineCarId)!;
+    const t = found.train;
     const n = t.cars.length;
     const i = found.index;
     const engine = t.cars[i];
     const atFront = i === 0;
-    const atRear = i === n - 1;
-    if (n === 1 || !(atFront || atRear) || t.cars[atFront ? n - 1 : 0].kind === "engine") {
+    if (this.runAroundOnlyTurns(t, i)) {
       // Nothing to run round: turn it (moving or not, as ever), and the train goes the other way (led by its other
       // engine, if it has one).
       this.flipCar(engineCarId);
       return "turned";
     }
-    if (t.speed > 0) return "moving";
     const cars = atFront ? [...t.cars.slice(1), engine] : [engine, ...t.cars.slice(0, n - 1)];
     const offsets = bogieOffsets(cars.map((c) => c.kind));
     // The new front axle: the first wagon's (staying put) when the engine goes to the back; ahead of it by the
@@ -603,27 +628,40 @@ export class Sim {
    * new train, set back a few mm so the gap shows. Only while the train's stopped. Neither part is moving, so they
    * stay apart until an engine drives them together again.
    */
-  decouple(carId: number): { kind: "decoupled"; trainId: number } | { kind: "moving" } | { kind: "alone" } | { kind: "none" } {
+  /** Where `decouple` would split the car's train (the index of the first car of the rear part). */
+  private decoupleAt(t: Train, i: number): number {
+    const n = t.cars.length;
+    if (t.cars[i].kind === "engine") return i === 0 ? 1 : i === n - 1 ? n - 1 : i + 1;
+    // The nearest engine decides which side is "the engine's side" (the front, if there's none).
+    let e = -1;
+    for (let j = 0; j < n; j++) {
+      if (t.cars[j].kind === "engine" && (e < 0 || Math.abs(j - i) < Math.abs(e - i))) e = j;
+    }
+    return e > i ? i + 1 : i;
+  }
+
+  /**
+   * Why Decouple would be refused now, without trying it (the cards grey the button): "moving" (or riding a turning
+   * deck), "alone" (nothing coupled on that side), "none" (no such car, or off the rails), or null.
+   */
+  decoupleRefusal(carId: number): "moving" | "alone" | "none" | null {
     const found = this.findCar(carId);
-    if (!found || found.train.derailed) return { kind: "none" };
+    if (!found || found.train.derailed) return "none";
     const t = found.train;
     // Riding a turning deck: it's moving.
-    if (this.rides.size > 0 && this.riding(t)) return { kind: "moving" };
-    const n = t.cars.length;
+    if (this.rides.size > 0 && this.riding(t)) return "moving";
+    const k = this.decoupleAt(t, found.index);
+    if (k <= 0 || k >= t.cars.length) return "alone";
+    return t.speed > 0 ? "moving" : null;
+  }
+
+  decouple(carId: number): { kind: "decoupled"; trainId: number } | { kind: "moving" } | { kind: "alone" } | { kind: "none" } {
+    const refused = this.decoupleRefusal(carId);
+    if (refused) return { kind: refused };
+    const found = this.findCar(carId)!;
+    const t = found.train;
     const i = found.index;
-    let k: number;
-    if (t.cars[i].kind === "engine") {
-      k = i === 0 ? 1 : i === n - 1 ? n - 1 : i + 1;
-    } else {
-      // The nearest engine decides which side is "the engine's side" (the front, if there's none).
-      let e = -1;
-      for (let j = 0; j < n; j++) {
-        if (t.cars[j].kind === "engine" && (e < 0 || Math.abs(j - i) < Math.abs(e - i))) e = j;
-      }
-      k = e > i ? i + 1 : i;
-    }
-    if (k <= 0 || k >= n) return { kind: "alone" };
-    if (t.speed > 0) return { kind: "moving" };
+    const k = this.decoupleAt(t, i);
     const frontHas = t.cars.slice(0, k).some((c) => c.kind === "engine");
     const rearHas = t.cars.slice(k).some((c) => c.kind === "engine");
     const frontKeeps = frontHas || rearHas ? frontHas : i < k;
@@ -991,6 +1029,11 @@ export class Sim {
   deckCarries(pieceId: number): boolean {
     for (const t of this.trains.values()) if (!t.derailed && t.bogies.some((b) => b.pieceId === pieceId)) return true;
     return false;
+  }
+
+  /** Is this train standing: not moving, nor riding a turning deck? (What a wagon card's Empty needs.) */
+  standing(train: Train): boolean {
+    return train.speed <= 0 && !(this.rides.size > 0 && this.riding(train));
   }
 
   /** Is this train riding a turning deck (held still)? */
@@ -1542,6 +1585,25 @@ export class Sim {
     return t ? (this.redAhead(t)?.key ?? -1) : -1;
   }
 
+  /** Since when (tick) each train (by id) has stood at a red signal, as `signalCap` stops it there. */
+  private readonly redSince = new Map<number, number>();
+
+  /** How long (s) a train has stood at a red signal: 0 if it isn't standing at one (signals spec §6). */
+  redWaitSeconds(trainId: number): number {
+    const t = this.trains.get(trainId);
+    const since = this.redSince.get(trainId);
+    if (!t || since === undefined || !this.atRedSignal(trainId)) return 0;
+    return (this.ticks - since) / SIM_HZ;
+  }
+
+  /** Is the red signal a train stands at, or brakes for, held at red by hand (a tap, or its card)? */
+  redHeldByHand(trainId: number): boolean {
+    const key = this.redSignalKeyAhead(trainId);
+    if (key === -1) return false;
+    const g = this.signals?.find((x) => x.key === key);
+    return !!g && this.isHeld(g);
+  }
+
   /** Are there any signals (marks or old signal pieces)? (None: the router's walks ask nothing of them.) */
   get hasSignals(): boolean {
     if (this.layout.signalCount > 0) return true;
@@ -1580,6 +1642,7 @@ export class Sim {
     this.findSignals();
     const g = this.signalByExit.get(ref);
     if (!g) return null;
+    if (this.gatedFor(g) !== -1) return { free: false };
     if (!g.junction) return { free: !this.isHeld(g) && (this.blockBy.get(g.key) ?? -1) === -1 };
     const r = this.pathFor(train, g, false);
     return { free: r.clear };
@@ -1689,6 +1752,7 @@ export class Sim {
       for (const b of t.bogies) stamp = (Math.imul(stamp, 0x01000193) ^ (b.pieceId * 16 + b.pathIndex)) | 0;
     }
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.pathLocks ? this.pathLocks.version() : 0)) | 0;
+    stamp = (Math.imul(stamp, 0x01000193) ^ (this.signalGate ? this.signalGate.version() : 0)) | 0;
     if (!force && stamp === this.signalStamp) return;
     this.signalStamp = stamp;
     this.pathCache.clear();
@@ -1708,12 +1772,18 @@ export class Sim {
       if (g.junction) continue;
       const by = this.isHeld(g) ? -1 : this.blockOccupant(g, -1);
       this.blockBy.set(g.key, by);
-      const clear = !this.isHeld(g) && by === -1;
+      const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
       if (this.aspects.get(g.key) !== clear) {
         this.aspects.set(g.key, clear);
         this.signalsVersion++;
       }
     }
+  }
+
+  /** The train a mark's waiting point holds there for want of a grant (`signalGate`), or −1 (an old piece: none). */
+  private gatedFor(g: SignalAt): number {
+    if (!this.signalGate || g.markId === -1 || g.exit < 0) return -1;
+    return this.signalGate.at(connectorRef(g.pieceId, g.exit));
   }
 
   /** The first train (its id) on a signal's block other than `self`, or −1. On double track only the block's road counts. */
@@ -1802,8 +1872,10 @@ export class Sim {
    */
   private signalCap(train: Train): number {
     const red = this.redAhead(train);
+    if (red === null || red.dist >= 0.5) this.redSince.delete(train.id);
     if (red === null) return Infinity;
     if (red.dist >= 0.5) return Math.sqrt(2 * ACCELERATION * (red.dist - 0.5));
+    if (!this.redSince.has(train.id)) this.redSince.set(train.id, this.ticks);
     // (Standing at it for a train on its block or way, or holding its points: held by that train, for wait chains.)
     const by = red.by >= 0 ? this.trains.get(red.by) : undefined;
     if (by && by !== train) this.holdBy(train, by, "signal");
@@ -1822,6 +1894,11 @@ export class Sim {
    * noted as coming to it, for its aspect: `junctionSeen`).
    */
   private redFor(train: Train, g: SignalAt): { by: number } | null {
+    // (A waiting point's train with no move past it granted: red for it, whatever the block (sections' wait names who).)
+    if (g.junction && this.gatedFor(g) === train.id) {
+      if (!this.junctionNear.has(g.key)) this.junctionNear.set(g.key, false);
+      return { by: -1 };
+    }
     if (!g.junction) return this.aspects.get(g.key) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
     const r = this.pathFor(train, g);
     if (!this.junctionNear.has(g.key)) this.junctionNear.set(g.key, r.clear);
@@ -2058,6 +2135,10 @@ export class Sim {
     for (let i = b.length - 1; i >= 0; i--) {
       const c = b[i];
       // On a switch, travelling from its trunk end out along a path; the axles behind it (higher indices) follow.
+      // (Only those not on it already: going from the back, the first axle found on a switch is the rearmost there. One
+      // counted that was on it already never came onto it, so the memory outlived the train's pass and sent its front
+      // that way the next time round, against the points: a split.)
+      if (i < b.length - 1 && b[i + 1].pieceId === c.pieceId) continue;
       if (c.reversed || train.memory.has(c.pieceId)) continue;
       const piece = this.layout.getPiece(c.pieceId);
       if (!piece || !getPieceDef(piece.type, piece.flipped).isSwitch) continue;

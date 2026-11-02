@@ -51,6 +51,8 @@ function withWorkshop(planks: number, iron = 0) {
   return { w, d, piece };
 }
 
+const SIGNAL_SKINS: readonly string[] = ["kit-semaphore-signal", "kit-colour-light-signal", "kit-signal-gantry"];
+
 describe("railway kits in Game mode", () => {
   it("each blueprint unlocks exactly its kits", () => {
     for (const [tech, things] of Object.entries(UNLOCKS)) expect(new Set(unlocksOf(tech)), tech).toEqual(new Set(things));
@@ -72,6 +74,11 @@ describe("railway kits in Game mode", () => {
     const tray = new Set([GAME_TRACK_KITS, ...GAME_KIT_GROUPS].flatMap((g) => g.items.map((i) => (i.kind === "piece" ? i.type : ""))));
     for (const type of Object.keys(KITS) as PieceTypeId[]) {
       expect(ruleOf(pieceThing(type))?.tech, type).toBeDefined();
+      // (Not the signal skins: a Signal's styles now, signals spec §4. Old saves' pieces still load and work.)
+      if (SIGNAL_SKINS.includes(type)) {
+        expect(tray.has(type), type).toBe(false);
+        continue;
+      }
       expect(tray.has(type), type).toBe(true);
     }
   });
@@ -135,7 +142,7 @@ describe("railway kits in Game mode", () => {
       expect(workshopStock(w).planks, id).toBe(20 - cost.planks);
       expect(workshopStock(w).iron ?? 0, id).toBe(5 - (cost.iron ?? 0));
     }
-    expect(costText(ruleOf("piece:kit-colour-light-signal")!)).toBe("2🪵 1🔩");
+    expect(costText(ruleOf("piece:kit-colour-light-signal")!)).toBe("2\uE000 1🔩");
     // Short of planks: says so, takes nothing.
     const { w } = withWorkshop(3);
     expect(craftNow(w, p, new Map([["piece:kit-engine-shed", 1]]))).toEqual({ goods: { planks: 9 }, coins: 0 });

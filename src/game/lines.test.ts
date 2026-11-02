@@ -33,6 +33,31 @@ describe("lines", () => {
     expect(other.name).toBe("Blue line");
   });
 
+  it("a line's second stop: the train heads for the stop it comes to first along its way, not the first tapped (play-test 2026-11-01)", () => {
+    // (The engine is between the forest, behind it, and the sawmill, ahead.)
+    const w = world();
+    editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }));
+    expect(w.economy.routeOf(w.engine)!.next).toBe(0);
+    editLine(w.economy, w.engine, (s) => s.push({ depotId: w.mill, action: "auto" }));
+    expect(w.economy.routeOf(w.engine)!.next).toBe(1);
+    // (A third stop after that: it keeps heading for the stop it was.)
+    editLine(w.economy, w.engine, (s) => s.push({ depotId: w.town, action: "auto" }));
+    expect(w.economy.routeOf(w.engine)!.next).toBe(1);
+    // A train joining the line between the sawmill and the town, facing the sawmill: it heads for the sawmill (stop 1);
+    // facing the town, for the town (stop 2).
+    const id = lineOf(w.economy, w.engine)!.id;
+    const between = [...w.economy.layout.pieceIds()][3];
+    for (const [reversed, next] of [[true, 1], [false, 2]] as const) {
+      const r = w.sim.addTrain(["engine"], { pieceId: between, pathIndex: 0, reversed, s: 108 });
+      if (r.kind !== "placed") throw new Error();
+      const other = w.sim.getTrain(r.trainId)!.cars[0].id;
+      w.sim.setLever(other, 1);
+      joinLine(w.economy, other, id);
+      expect(w.economy.routeOf(other)!.next, reversed ? "facing the sawmill" : "facing the town").toBe(next);
+      w.sim.removeTrain(r.trainId);
+    }
+  });
+
   it("editing keeps the train heading for the stop it was; emptied, the line goes and the train goes anywhere", () => {
     const w = world();
     editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }, { depotId: w.mill, action: "auto" }, { depotId: w.town, action: "drop" }));

@@ -1,5 +1,8 @@
-import { CARGO, CARRIES } from "../economy/cargo";
-import { ENGINES } from "../game/engines";
+import { CARGO, CARRIES, type CargoKind } from "../economy/cargo";
+import { RECIPES, type DepotRole } from "../economy/economy";
+import type { Bag } from "../economy/goods";
+import { ENGINES, type EngineKind } from "../game/engines";
+import { speedWord } from "../game/train-summary";
 import { LIFT_NAME } from "../game/lift-notice";
 import type { CarKind, CarLook } from "../sim";
 import { isFit, isJoin, isKit, KITS, type KitTypeId, type PieceTypeId } from "../track";
@@ -75,6 +78,9 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-foundry": p("Foundry", "Makes iron from coal and ore."),
   "depot-carpenter": p("Carpenter's yard", "Makes furniture from planks."),
   "depot-smithy": p("Smithy", "Makes tools from iron."),
+  "depot-dairy": p("Dairy farm", "Cows give milk, for tank wagons."),
+  "depot-bakery": p("Bakery", "Bakes bread from flour and milk."),
+  "depot-orchard": p("Orchard", "Apple trees give fruit, by the crate."),
   "depot-power": p("Power station", "Burns coal so electric engines can run."),
   "depot-harbour": p("Harbour", "Ships bring and take goods here."),
   "depot-warehouse": p("Warehouse", "Keeps goods until a train takes them."),
@@ -145,6 +151,7 @@ const CAR_DETAIL: Record<CarKind, string> = {
   passenger: "Carries passengers between stations.",
   caboose: "Goes at the back of the train.",
   cleaner: "Brushes the track clean as it runs.",
+  tanker: "Carries milk from a dairy farm.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
@@ -183,5 +190,62 @@ export function trayInfo(item: TrayItem): ItemInfo {
       return p(item.label, item.tool === "move" ? "Drag trees, fields and the shed to move them." : item.tool === "raise" ? "Tap the land to raise it a block." : "Tap the land to lower it a block.");
     case "prop":
       return p(item.label, "A model to put by your railway.");
+    case "signal":
+      return p("Signal", "Drag onto a joint: trains wait there for the track ahead.");
   }
+}
+
+/**
+ * The card shown above the tray while an item is ready to place (clicked, or a road tapped), or for a moment after a
+ * tap on a phone: its name, what it does in a line, and what sets it apart (`facts`: a train's pulls and speed and its
+ * key stat, an industry's recipe). Hud.showPlaceCard adds a Game-mode note and how to unlock a locked one.
+ */
+export interface PlaceCardInfo extends ItemInfo {
+  readonly facts: readonly string[];
+}
+
+
+/** What sets an engine apart from the others, in a line ("Starts and stops in half the time."), or "". */
+export function engineKeyStat(e: EngineKind): string {
+  const all = Object.values(ENGINES) as EngineKind[];
+  const classic = ENGINES.classic!;
+  if (e.quick >= 2) return `Starts and stops in ${e.quick === 2 ? "half" : `1/${e.quick} of`} the time.`;
+  if (e.electric) return "Runs only while a power station has coal.";
+  if (e.speed >= Math.max(...all.map((x) => x.speed))) return "The fastest engine.";
+  if (e.pulls >= Math.max(...all.map((x) => x.pulls))) return e.quick < 1 ? "Pulls the most cars, but slow to start." : "Pulls the most cars.";
+  if (e === classic) return "A good all-round engine.";
+  if (e.pulls > classic.pulls && e.speed > classic.speed) return "Pulls more than the Engine, and faster.";
+  return "";
+}
+
+const goods = (bag: Bag): string =>
+  listed(
+    (Object.entries(bag) as [CargoKind, number][])
+      .filter(([, n]) => n > 0)
+      .map(([k, n]) => `${n > 1 ? `${n} ` : ""}${CARGO[k].label.toLowerCase()}`),
+  );
+
+/** An industry's recipe in a line ("Makes planks from logs · every 8 s"), or "" for one that makes nothing itself. */
+export function recipeWords(role: DepotRole): string {
+  const c = RECIPES[role]?.cycle;
+  if (!c) return "";
+  const makes = goods(c.makes);
+  if (!makes) return "";
+  const uses = goods(c.uses);
+  return `Makes ${makes}${uses ? ` from ${uses}` : ""} · every ${c.seconds} s`;
+}
+
+export function placeCardInfo(item: TrayItem): PlaceCardInfo {
+  const info = trayInfo(item);
+  if (item.kind === "train" && item.cars.length === 1 && item.cars[0] === "engine") {
+    const e = ENGINES[item.looks?.[0] ?? "classic"] ?? ENGINES.classic!;
+    const stat = engineKeyStat(e);
+    return { name: info.name, detail: e.electric ? "Pulls a train while the power is on." : "Pulls a train of wagons and coaches.", facts: [`Pulls ${e.pulls} cars · ${speedWord(e.speed)}`, ...(stat ? [stat] : [])] };
+  }
+  if (item.kind === "piece" && item.type.startsWith("depot-")) {
+    const role = item.type.slice("depot-".length) as DepotRole;
+    const recipe = role in RECIPES ? recipeWords(role) : "";
+    return { ...info, facts: recipe ? [recipe] : [] };
+  }
+  return { ...info, facts: [] };
 }

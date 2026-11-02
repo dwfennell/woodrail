@@ -45,9 +45,13 @@ const enterGame = async () => {
   await p.keyboard.press("Escape");
 };
 const tap = async (selector) => {
-  const box = await p.evaluate((selector) => {
+  const box = await p.evaluate(async (selector) => {
     const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
     if (!el) return null;
+    // (Aimed once its card has popped in: `card-in` scales the card from 0.96, so a box read mid-way, as under
+    // SwiftShader at 360 px it was, puts the tap off the chip's middle: the flaky "Takes all planks" tap. mobile-ux.md.)
+    const card = el.closest(".card, .depot-card") ?? el;
+    await Promise.race([Promise.all(card.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {}))), new Promise((r) => setTimeout(r, 3000))]);
     el.scrollIntoView({ block: "center" });
     const r = el.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
@@ -197,7 +201,7 @@ check("the school's card: Shares with towns (on) / Research first", sc.on === "S
 check("…its line", sc.hint === "Trains drop goods at each stop in turn; here, a share when a town further on wants them too", String(sc.hint));
 await tap('.depot-card [data-school="first"]');
 sc = await schoolCard();
-check("a tap on Research first switches it", sc.on === "Research first" && sc.takesAll === true && sc.hint === "Trains keep what its research needs for it, past towns and the workshop", JSON.stringify(sc));
+check("a tap on Research first switches it", sc.on === "Research first" && sc.takesAll === true && sc.hint === "Trains keep what its research needs for it, past towns and the workshop. On a route, up to one wagon", JSON.stringify(sc));
 await shot("school-research-first");
 await openCard();
 await tap('.yard-mode [data-yard="all"]');

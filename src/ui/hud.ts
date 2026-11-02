@@ -1,10 +1,11 @@
 import { installTooltips, type Tooltips } from "./tooltip";
-import { trayInfo } from "./piece-info";
+import { placeCardInfo, trayInfo } from "./piece-info";
 import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
 import { blockWord } from "./blocks";
 import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
+import { fullscreenAvailable, onFullscreenChange, toggleFullscreen } from "./fullscreen";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
 import { crossingStyleOf } from "../landscape/crossing-styles";
@@ -27,6 +28,8 @@ export interface HudHandlers {
   /** A tray piece tapped (the ready one is put away). */
   /** A tap on a tray item (`pointerType`: what tapped it, a mouse, pen or finger). */
   trayTap(item: TrayItem, pointerType: string): void;
+  /** Open the Research picker on this blueprint (a locked tray tile's "Show in Research"). */
+  showResearch?(id: string): void;
   /** Another tray tab opened (the ready piece is put away). */
   trayTabChanged(): void;
   /** The Track tab opened or closed (building: free track ends show their end boards). */
@@ -38,12 +41,8 @@ export interface HudHandlers {
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
-  /** The engine card of a line with a train too many: that train (this one, or the one held) back in the box. */
-  putAway(): void;
   /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
   showBlocker(): void;
-  /** "Put it away" beside Show: the train in the way, left standing or running with no route, back in the box. */
-  putAwayBlocker(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
@@ -52,6 +51,10 @@ export interface HudHandlers {
   continueOn(): void;
   /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
   decouple(): void;
+  /** The wagon card's Empty: tip its goods out (thrown away), while its train stands. */
+  emptyCar(): void;
+  /** The engine card's Empty all: tip out every wagon of its train, while it stands. */
+  emptyTrain(): void;
   rotate(): void;
   flip(): void;
   deletePiece(): void;
@@ -147,9 +150,29 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
   b.setAttribute("aria-label", title);
   b.addEventListener("click", (e) => {
     e.stopPropagation();
+    // Greyed for now (see `setRefused`): it would only be refused.
+    if (b.getAttribute("aria-disabled") === "true") return;
     onClick();
   });
   return b;
+}
+
+const SWAP_TITLE = "Move the engine to the other end of its train";
+const ENGINE_DECOUPLE_TITLE = "Uncouple the engine from its cars";
+const CAR_DECOUPLE_TITLE = "Uncouple this wagon (and those behind it) from the cars on the engine's side";
+const EMPTY_CAR_TITLE = "Tip this wagon's goods out (they're thrown away)";
+const EMPTY_TRAIN_TITLE = "Tip out every wagon's goods (they're thrown away)";
+
+/**
+ * Grey a button that would only be refused now (`why` says why, as its tooltip), or bring it back (`why` ""). It stays
+ * in the tab order and keeps its place; a tap does nothing. Set only when it changes.
+ */
+function setRefused(b: HTMLButtonElement, why: string, title: string): void {
+  const off = why !== "";
+  if ((b.getAttribute("aria-disabled") === "true") === off && (!off || b.title === why)) return;
+  if (off) b.setAttribute("aria-disabled", "true");
+  else b.removeAttribute("aria-disabled");
+  b.title = off ? why : title;
 }
 
 /** A switch: a label and a pill with a knob, on or off (role="switch"). Its name is its label; `title` is the tooltip. */
@@ -246,6 +269,9 @@ export class Hud {
   private readonly summaryLoad = el("div", "summary-load");
   /** A wagon's (or coach's) load, on its card. */
   private readonly carLoad = el("div", "car-load");
+  /** Empty (the wagon card, beside its load) and Empty all (the engine card, beside the train's): see `setEmpty`. */
+  private readonly emptyCarBtn: HTMLButtonElement;
+  private readonly emptyTrainBtn: HTMLButtonElement;
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
@@ -264,6 +290,8 @@ export class Hud {
   private readonly landTitle = el("div", "card-title", "Add land");
   private landBtn!: HTMLButtonElement;
   private soundItem!: HTMLButtonElement;
+  private fullBtn!: HTMLButtonElement;
+  private fullItem!: HTMLButtonElement;
   private redoItem!: HTMLButtonElement;
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
@@ -277,16 +305,19 @@ export class Hud {
   private readonly flipBtn: HTMLButtonElement;
   /** The engine card: Go/Stop, the way it goes (an arrow as on screen), what it's doing, and the rest tucked away. */
   private readonly goBtn: HTMLButtonElement;
-  /** "Put away", on an engine card whose line has a train too many (see `setPutAway`). */
-  private readonly putAwayBtn: HTMLButtonElement;
-  private putAwayShown = false;
-  /** Who's in the way (see `setBlocker`): Show, and the fix for a train left in the way. */
+  /**
+   * Who's in the way (see `setBlocker`): Show. (No button here puts that train away: beside Remove it read as this
+   * one's. The player taps the other train, or picks it up, and does it there: the user, 2026-11-01.)
+   */
   private readonly blockerRow = el("div", "engine-blocker");
   private readonly showBlockerBtn: HTMLButtonElement;
-  private readonly fixBlockerBtn: HTMLButtonElement;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
+  /** Swap ends and Decouple (the engine card's), and the wagon card's Decouple: greyed where they'd be refused. */
+  private readonly swapBtn: HTMLButtonElement;
+  private readonly engineDecoupleBtn: HTMLButtonElement;
+  private readonly carDecoupleBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
   private readonly followBtn: HTMLButtonElement;
   /** The engine's lever as last shown, and the way Go will send it (+1: its own front first). */
@@ -310,7 +341,7 @@ export class Hud {
   private readonly coinTag = el("span", "coins");
   /** Game mode: the railway's date ("Mar 2001", see game/calendar.ts). */
   private readonly dateTag = el("span", "game-date");
-  /** Game mode: the research under way and how far ("📘 Bridges 6/10🪵"), or "Pick research"; tap: the picker. */
+  /** Game mode: the research under way and how far ("📘 Bridges 6/10\uE000"), or "Pick research"; tap: the picker. */
   private readonly researchPill = el("button", "research-pill") as HTMLButtonElement;
   /** What the pill shows now (its whole text and fill): it's redrawn only when this changes. */
   private pillShown = "";
@@ -416,8 +447,11 @@ export class Hud {
     this.boardBtn = button(uiIcon("blueprint"), "Research: learn new things", () => h.toggleBoard(), "chip research-btn");
     this.boardBtn.hidden = true;
     // On a phone the bar can't hold them all: these move into the menu (see `.narrow-menu`).
-    for (const b of [this.landBtn, this.redoBtn, this.soundBtn]) b.classList.add("wide-only");
-    actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
+    // Fullscreen, where the page may go fullscreen (not on an iPhone, nor in an iframe not allowed it): no button else.
+    this.fullBtn = button(uiIcon("fullscreen"), "Fullscreen", toggleFullscreen, "chip fullscreen-btn");
+    this.fullBtn.hidden = !fullscreenAvailable();
+    for (const b of [this.landBtn, this.redoBtn, this.soundBtn, this.fullBtn]) b.classList.add("wide-only");
+    actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn, this.fullBtn);
     this.menuBtn = button(uiIcon("menu"), "Menu", () => this.toggleMenu());
     actions.append(this.menuBtn);
     top.appendChild(actions);
@@ -498,7 +532,10 @@ export class Hud {
     this.soundItem = narrow(opts.muted ? "Sound: off" : "Sound: on", "Sound on or off", h.toggleSound);
     this.redoItem = narrow("Redo", "Redo what was undone", h.redo);
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
+    this.fullItem = narrow("Fullscreen", "Fill the screen with the game", toggleFullscreen);
+    this.fullItem.hidden = this.fullBtn.hidden;
     this.menu.append(this.redoItem, this.landItem);
+    onFullscreenChange((on) => this.setFullscreen(on));
     this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
       this.menu.hidden = true;
       h.openLines();
@@ -510,6 +547,7 @@ export class Hud {
     this.menu.append(
       this.linesItem,
       this.soundItem,
+      this.fullItem,
       quality,
       sep(),
       button("How to play", "Show help", () => {
@@ -550,16 +588,14 @@ export class Hud {
     this.engineCard.append(this.followBtn);
     this.engineStatus.setAttribute("aria-live", "polite");
     this.engineCard.appendChild(this.engineStatus);
-    this.engineSummary.append(this.summaryAbout, this.summaryLoad);
+    this.emptyTrainBtn = button("Empty all", EMPTY_TRAIN_TITLE, h.emptyTrain, "chip text empty-all");
+    this.emptyTrainBtn.hidden = true;
+    // (Beside both lines, not under them: the card doesn't grow as a crane loads the train. See style.css.)
+    this.engineSummary.append(this.summaryAbout, this.summaryLoad, this.emptyTrainBtn);
     this.engineSummary.hidden = true;
     this.engineCard.appendChild(this.engineSummary);
-    this.putAwayBtn = button("Put away", "Put this line's extra train back in the box: then the others can run", h.putAway, "chip text put-away");
-    this.putAwayBtn.hidden = true;
-    this.engineCard.appendChild(this.putAwayBtn);
     this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
-    this.fixBlockerBtn = button("Put it away", "Put the train in the way back in the box", h.putAwayBlocker, "chip text fix-blocker");
-    this.fixBlockerBtn.hidden = true;
-    this.blockerRow.append(this.showBlockerBtn, this.fixBlockerBtn);
+    this.blockerRow.append(this.showBlockerBtn);
     this.blockerRow.hidden = true;
     this.engineCard.appendChild(this.blockerRow);
     const controls = el("div", "engine-controls");
@@ -577,10 +613,12 @@ export class Hud {
     this.continueBtn.hidden = true;
     // Swap ends, Decouple and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): under Go and
     // the arrow, or beside them on a phone on its side (style.css).
+    this.swapBtn = button("Swap ends", SWAP_TITLE, h.swapEnds, "chip text swap-ends");
+    this.engineDecoupleBtn = button("Decouple", ENGINE_DECOUPLE_TITLE, h.decouple, "chip text decouple");
     const engineActions = el("div", "engine-actions");
     engineActions.append(
-      button("Swap ends", "Move the engine to the other end of its train", h.swapEnds, "chip text swap-ends"),
-      button("Decouple", "Uncouple the engine from its cars", h.decouple, "chip text decouple"),
+      this.swapBtn,
+      this.engineDecoupleBtn,
       button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove"),
     );
     controls.append(this.goBtn, this.wayBtn, this.continueBtn, engineActions);
@@ -594,11 +632,16 @@ export class Hud {
     this.carCard.hidden = true;
     this.carCard.appendChild(el("div", "card-title", "Wagon"));
     this.carLoad.hidden = true;
-    this.carCard.appendChild(this.carLoad);
+    this.emptyCarBtn = button("Empty", EMPTY_CAR_TITLE, h.emptyCar, "chip text empty-car");
+    this.emptyCarBtn.hidden = true;
+    const carLoadRow = el("div", "car-load-row");
+    carLoadRow.append(this.carLoad, this.emptyCarBtn);
+    this.carCard.appendChild(carLoadRow);
+    this.carDecoupleBtn = button("Decouple", CAR_DECOUPLE_TITLE, h.decouple, "chip text decouple");
     const carRow = el("div", "card-row");
     carRow.append(
       button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"),
-      button("Decouple", "Uncouple this wagon (and those behind it) from the cars on the engine's side", h.decouple, "chip text"),
+      this.carDecoupleBtn,
       button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
     );
     this.carCard.appendChild(carRow);
@@ -676,6 +719,11 @@ export class Hud {
       if (item.kind === "piece" && isKit(item.type)) missing.push(item);
       if (item.kind === "piece") return `<span class="thumb-icon" data-thumb="${key}">${pieceIcon(item.type)}</span>`;
       if (item.kind === "tool") return uiIcon(item.tool);
+      // (A signal mark: the old signal piece's picture.)
+      if (item.kind === "signal") {
+        const pic = this.thumbs.get("piece:signal");
+        return pic ? `<img src="${pic}" alt="" draggable="false">` : `<span class="thumb-icon" data-thumb="piece:signal">${pieceIcon("signal")}</span>`;
+      }
       if (item.kind === "road") return roadIcon(item.auto ? "auto" : item.piece);
       if (item.kind === "train") return `<span class="thumb-icon" data-thumb="${key}">${trainIcon(item.cars)}</span>`;
       missing.push(item);
@@ -785,7 +833,7 @@ export class Hud {
           e.preventDefault();
           this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool), details });
         });
-      } else if (item.kind === "piece" || item.kind === "road") {
+      } else if (item.kind === "piece" || item.kind === "road" || item.kind === "signal") {
         // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
         // Clicked (a mouse or pen), it's carried: each click on the map puts one down. A road is dragged out, or tapped
         // to make it ready (then each click on the map lays one). A tap on the ready one here puts it away.
@@ -796,7 +844,7 @@ export class Hud {
         b.title = "Drag onto the map, or click then click the map";
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: (up) => this.handlers.trayTap(item, up.pointerType), details });
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: (up) => this.tapTrayItem(b, item, up, () => this.handlers.trayTap(item, up.pointerType)), details });
         });
       } else {
         // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
@@ -815,10 +863,12 @@ export class Hud {
           e.preventDefault();
           this.trayPress(e, scroller, {
             pick: (move) => this.handlers.trayPointerDown(item, move),
-            tap: (up) => {
-              if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
-              else if (crossing || detail) this.toast(tip);
-            },
+            // (On touch a tap carries nothing: the place card shows what it is a moment, with its Game-mode note.)
+            tap: (up) =>
+              this.tapTrayItem(b, item, up, () => {
+                if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
+                else if (crossing) this.toast(tip);
+              }),
             details,
           });
         });
@@ -856,6 +906,7 @@ export class Hud {
       if (openId !== "" && openId !== tab.id) this.handlers.trayTabChanged();
       openId = tab.id;
       openDef = tab;
+      this.hidePlaceCard();
       // The Land tab switches land editing on (with its first tool), any other tab off.
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
@@ -866,6 +917,8 @@ export class Hud {
       this.handlers.trackTab?.(tab.id === "track");
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
       this.propsTab = tab.orient === "turn";
+      this.hideLockNote();
+      fitTabs();
       let groups = tab.groups;
       if (tab.props) {
         const loaded = loadedGroups.get(tab.id);
@@ -890,6 +943,29 @@ export class Hud {
       else if (open) showItems(groups, open);
       else showGroups(groups);
     };
+    /**
+     * Game mode on a narrow phone: the tabs share their row with the tools (Draw, Clear, Turn, Flip), and must all show
+     * without a sideways scroll. Tightened by CSS first (`max-width: 380px`); if they still don't fit (the Roads tab
+     * learned, or Turn and Flip beside Industries), the tabs not open show their picture only, then all of them do (the
+     * open one is still the lifted cream tab; each keeps its name for a screen reader and the tooltip). Measured only
+     * when a tab opens or the row's room changes (a shelf opens, the tools change, a turn of the phone), never per frame.
+     */
+    const fitTabs = () => {
+      tabs.classList.remove("short", "icons");
+      if (this.trayMode !== "game" || tabs.children.length === 0 || [...tabs.children].some((t) => !(t as HTMLElement).dataset.icon)) return;
+      for (const step of ["short", "icons"]) {
+        if (tabs.scrollWidth <= tabs.clientWidth + 1) return;
+        tabs.classList.add(step);
+      }
+    };
+    // (Watching the row and the tools, not the tabs: fitting changes the tabs, never these, so it can't loop.)
+    let fitKey = "";
+    const fitWatch = new ResizeObserver(() => {
+      const key = `${head.clientWidth} ${tools.offsetWidth}`;
+      if (key === fitKey) return;
+      fitKey = key;
+      fitTabs();
+    });
     let list: TrayTab[] = [];
     this.openTrayTab = (id, shelf) => {
       const tab = list.find((t) => t.id === id);
@@ -911,6 +987,7 @@ export class Hud {
           openTab(tab);
         }, "tab");
         t.dataset.tab = tab.id;
+        if (tab.icon) t.dataset.icon = tab.icon;
         tabs.appendChild(t);
       }
       // (Tabs shown again as one came or went (Roads, learned): the open one stays open. A new mode opens the first.)
@@ -944,6 +1021,8 @@ export class Hud {
     tools.append(pens, orient);
     const head = el("div", "tray-head");
     head.append(tools, tabs);
+    fitWatch.observe(head);
+    fitWatch.observe(tools);
     this.tray.append(head, scroller);
     this.root.appendChild(this.tray);
 
@@ -1158,6 +1237,89 @@ export class Hud {
   trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null) | null = null;
   private trayButtons: [HTMLElement, TrayItem][] = [];
 
+  /**
+   * How a locked tray item is unlocked, in plain words ("Research Signals to unlock"), and the blueprint the Research
+   * picker can open on (null: none). Set by the game (Game mode).
+   */
+  trayLock: ((item: TrayItem) => { text: string; jump: string | null } | null) | null = null;
+  private lockNoteEl: HTMLElement | null = null;
+  private lockNoteTimer = 0;
+  private lockNoteOff: (() => void) | null = null;
+
+  /**
+   * A tap (or click) on a locked tray tile: a note over it says how to unlock it, with "Show in Research" to open the
+   * picker on that blueprint. Nothing is picked up. Returns false if the tile isn't locked (the tap goes on as usual).
+   */
+  private lockedTap(b: HTMLElement, item: TrayItem): boolean {
+    if (!b.classList.contains("locked")) return false;
+    const lock = this.trayLock?.(item);
+    if (!lock) return false;
+    this.showLockNote(b, item.label, lock);
+    return true;
+  }
+
+  private showLockNote(b: HTMLElement, name: string, lock: { text: string; jump: string | null }): void {
+    this.hideLockNote();
+    this.handlers.buttonTap();
+    const note = (this.lockNoteEl ??= el("div", "lock-note"));
+    note.setAttribute("role", "status");
+    note.innerHTML = "";
+    const title = el("div", "lock-note-name");
+    title.textContent = `🔒 ${name}`;
+    const how = el("div", "lock-note-how");
+    how.textContent = lock.text;
+    note.append(title, how);
+    if (lock.jump && this.handlers.showResearch) {
+      const id = lock.jump;
+      const go = button(`<span aria-hidden="true">📘</span> Show in Research`, "Open Research on what unlocks it", () => {
+        this.hideLockNote();
+        this.handlers.showResearch!(id);
+      }, "chip text primary lock-note-go");
+      note.appendChild(go);
+    }
+    document.body.appendChild(note);
+    note.hidden = false;
+    // Over the tile (the tray is at the bottom), its notch pointing at it, kept on the screen.
+    const r = b.getBoundingClientRect();
+    const w = note.offsetWidth;
+    const x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+    note.style.left = `${Math.round(x)}px`;
+    note.style.bottom = `${Math.round(window.innerHeight - r.top + 10)}px`;
+    note.style.setProperty("--notch", `${Math.round(Math.min(Math.max(16, r.left + r.width / 2 - x), w - 16))}px`);
+    note.classList.remove("in");
+    void note.offsetWidth;
+    note.classList.add("in");
+    // Gone with a tap anywhere else, the tray scrolled, a key, or after a while (long enough to read and tap).
+    const away = (e: Event) => {
+      if (e.target instanceof Node && (note.contains(e.target) || b.contains(e.target))) return;
+      this.hideLockNote();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") this.hideLockNote();
+    };
+    const scroll = () => this.hideLockNote();
+    const scroller = b.closest(".scroller");
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", key);
+    scroller?.addEventListener("scroll", scroll, { passive: true });
+    window.addEventListener("resize", scroll);
+    this.lockNoteOff = () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", key);
+      scroller?.removeEventListener("scroll", scroll);
+      window.removeEventListener("resize", scroll);
+    };
+    this.lockNoteTimer = window.setTimeout(() => this.hideLockNote(), 9000);
+  }
+
+  /** Take the locked tile's note away (if it's up). */
+  hideLockNote(): void {
+    clearTimeout(this.lockNoteTimer);
+    this.lockNoteOff?.();
+    this.lockNoteOff = null;
+    if (this.lockNoteEl) this.lockNoteEl.hidden = true;
+  }
+
   refreshTrayBadges(): void {
     for (const [b, item] of this.trayButtons) this.decorate(b, item);
   }
@@ -1168,8 +1330,11 @@ export class Hud {
     b.classList.toggle("attention", badge?.attention === true);
     // None left, but it can be made on the spot: its cost shows instead of a dead zero.
     b.classList.toggle("craft", badge?.craft === true);
-    // Not learned yet: says so in its corner (and no ★ to make it a favourite).
+    // Not learned yet: says so in its corner (and no ★ to make it a favourite), and how to unlock it in its tooltip.
     b.classList.toggle("locked", badge?.locked === true);
+    const lock = badge?.locked ? (this.trayLock?.(item) ?? null) : null;
+    if (lock) b.dataset.tipLock = `🔒 ${lock.text}`;
+    else delete b.dataset.tipLock;
     if (!badge) {
       tag?.remove();
       b.classList.remove("empty");
@@ -1178,7 +1343,7 @@ export class Hud {
     if (!tag) b.appendChild((tag = el("span", "have")));
     if (tag.textContent !== badge.text) {
       tag.textContent = badge.text;
-      // One line always: a long cost ("30🪵 10🪨 100🪙") in smaller type.
+      // One line always: a long cost ("30\uE000 10🪨 100🪙") in smaller type.
       const size = costTagSize(badge.text);
       tag.classList.toggle("long", size !== null);
       tag.style.fontSize = size === null ? "" : `${size}px`;
@@ -1210,7 +1375,7 @@ export class Hud {
   }
 
   /**
-   * The research pill: shown with what's being researched ("📘 Mills 🪵0/6 🌾0/6", a bar for how far), "Pick research"
+   * The research pill: shown with what's being researched ("📘 Mills \uE0000/6 🌾0/6", a bar for how far), "Pick research"
    * with nothing picked, or hidden (null). Called when the research changes (`pillKey`); the DOM is touched only when
    * what it shows does.
    */
@@ -1367,6 +1532,15 @@ export class Hud {
     this.pauseBtn.classList.toggle("active", paused);
   }
 
+  /** The fullscreen button's icon and words follow the page (the button, Esc, the browser's own controls). */
+  private setFullscreen(on: boolean): void {
+    this.fullBtn.innerHTML = uiIcon(on ? "exit-fullscreen" : "fullscreen");
+    this.fullBtn.title = on ? "Leave fullscreen" : "Fullscreen";
+    this.fullBtn.setAttribute("aria-label", this.fullBtn.title);
+    this.fullBtn.classList.toggle("active", on);
+    this.fullItem.textContent = on ? "Leave fullscreen" : "Fullscreen";
+  }
+
   setMuted(muted: boolean): void {
     this.soundBtn.innerHTML = uiIcon(muted ? "mute" : "sound");
     this.soundBtn.title = muted ? "Sound on" : "Sound off";
@@ -1466,24 +1640,13 @@ export class Hud {
   }
 
   /** The open engine's train is (or isn't) held at its stop for spacing: Go reads "Go now", and one tap sends it on. */
-  /** The open engine's line has a train too many: "Put away" shows (this train, or the one held, back in the box). */
-  setPutAway(on: boolean, self: boolean): void {
-    const title = self ? "Put this train back in the box: the line has no room for it" : "Put the train this line has no room for back in the box";
-    if (on === this.putAwayShown && this.putAwayBtn.title === title) return;
-    this.putAwayShown = on;
-    this.putAwayBtn.hidden = !on;
-    this.putAwayBtn.title = title;
-    this.putAwayBtn.setAttribute("aria-label", title);
-  }
-
   /**
-   * Something's in the open engine's way (`show`): Show takes the camera there. `fix`: it's a train left standing in
-   * the way, or one running with no route: "Put it away" too. `what`: what Show shows ("train", "points"), for its title.
+   * Something's in the open engine's way (`show`): Show takes the camera there. `what`: what Show shows ("train",
+   * "points"), for its title.
    */
-  setBlocker(show: boolean, fix: boolean, what: "train" | "points" = "train"): void {
-    if (this.blockerRow.hidden === !show && this.fixBlockerBtn.hidden === !fix && this.showBlockerBtn.dataset.what === what) return;
+  setBlocker(show: boolean, what: "train" | "points" = "train"): void {
+    if (this.blockerRow.hidden === !show && this.showBlockerBtn.dataset.what === what) return;
     this.blockerRow.hidden = !show;
-    this.fixBlockerBtn.hidden = !fix;
     this.showBlockerBtn.dataset.what = what;
     const title = what === "points" ? "Show the points it's waiting at" : "Show the train in the way";
     this.showBlockerBtn.title = title;
@@ -1500,6 +1663,16 @@ export class Hud {
   setContinue(on: boolean): void {
     if (on === !this.continueBtn.hidden) return;
     this.continueBtn.hidden = !on;
+  }
+
+  /**
+   * Why the open card's Swap ends and Decouple would be refused now ("" for neither): greyed with that as the tooltip.
+   * Main sets it as the train starts and stops (set only on change). `swap` is the engine card's alone.
+   */
+  setCardRefusals(swap: string, decouple: string): void {
+    setRefused(this.swapBtn, swap, SWAP_TITLE);
+    setRefused(this.engineDecoupleBtn, decouple, ENGINE_DECOUPLE_TITLE);
+    setRefused(this.carDecoupleBtn, decouple, CAR_DECOUPLE_TITLE);
   }
 
   private drawEngine(): void {
@@ -1541,6 +1714,17 @@ export class Hud {
     if (this.summaryAbout.textContent !== about) this.summaryAbout.textContent = about;
     if (this.summaryLoad.textContent !== load) this.summaryLoad.textContent = load;
     this.summaryLoad.hidden = !load;
+  }
+
+  /**
+   * Empty (the wagon card) and Empty all (the engine card): shown while there are goods to tip out, greyed with `why`
+   * ("Stop the train first") while they'd be refused, "" for not. Main sets it only when that changes.
+   */
+  setEmpty(car: { shown: boolean; why: string }, train: { shown: boolean; why: string }): void {
+    if (this.emptyCarBtn.hidden === car.shown) this.emptyCarBtn.hidden = !car.shown;
+    if (this.emptyTrainBtn.hidden === train.shown) this.emptyTrainBtn.hidden = !train.shown;
+    setRefused(this.emptyCarBtn, car.why, EMPTY_CAR_TITLE);
+    setRefused(this.emptyTrainBtn, train.why, EMPTY_TRAIN_TITLE);
   }
 
   /** What the open wagon carries ("" hides it). */
@@ -1738,6 +1922,16 @@ export class Hud {
     );
   }
 
+  /** Offer "Help improve Woodrail" in the menu (the build can send play stats: see stats/stats.ts). */
+  addStatsItem(onTap: () => void): void {
+    this.linesItem.after(
+      button("💛 Help improve Woodrail", "Share anonymous play stats, or stop sharing them", () => {
+        this.menu.hidden = true;
+        onTap();
+      }, "menu-item"),
+    );
+  }
+
   /** Show how tray pieces will come out: the Turn arrow points their way, and Flip lights up when mirroring. */
   /** Show "Send to Claude…" in the menu (the page can store reports). */
   enableReports(): void {
@@ -1906,6 +2100,106 @@ export class Hud {
     this.root.classList.remove("picking");
   }
 
+  /**
+   * The place card: an item's name, what it does and what sets it apart (piece-info's `placeCardInfo`), docked above
+   * the tray over the item while it's ready to place (clicked, or a road tapped), so the choice is explained without
+   * covering the map's middle. On touch, a tap that makes nothing ready (a train, a piece) shows it a moment instead
+   * (`timed`). A locked tile's tap shows its lock note instead (`lockedTap`). `pointer-events: none`: it never takes a drop or a
+   * click. Built only when it's shown for a new item (a selection change), never per frame or pointer move.
+   */
+  private placeCard: { el: HTMLElement | null; key: string | null; timed: boolean; timer: number } = { el: null, key: null, timed: false, timer: 0 };
+
+  /** A tap on a tray item: `run` does what a tap does; then the place card for what it made ready, or a moment's. */
+  private tapTrayItem(b: HTMLElement, item: TrayItem, up: PointerEvent, run: () => void): void {
+    const key = b.dataset.key ?? null;
+    // (Whatever card was up gives way to this tap's.)
+    if (this.placeCard.key !== key) this.hidePlaceCard();
+    // Locked: its note says how to unlock it, with Show in Research (and nothing is picked up).
+    if (this.lockedTap(b, item)) return;
+    const before = this.armedKey;
+    run();
+    if (key && this.armedKey === key && before !== key) this.showPlaceCard(b, item, false);
+    else if (up.pointerType === "touch" && before !== key && this.placeCard.key !== key) this.showPlaceCard(b, item, true);
+    else this.hidePlaceCard();
+  }
+
+  /** How long a place card shown by a tap that made nothing ready stays up (ms). */
+  static readonly PLACE_CARD_MS = 3500;
+
+  private showPlaceCard(b: HTMLElement, item: TrayItem, timed: boolean): void {
+    const card = this.placeCard;
+    clearTimeout(card.timer);
+    if (!card.el) {
+      card.el = el("div", "place-card");
+      card.el.setAttribute("role", "status");
+      card.el.hidden = true;
+      document.body.appendChild(card.el);
+      // Kept over its item when the screen changes (a turn of the phone).
+      window.addEventListener("resize", () => {
+        if (card.key === null) return;
+        const at = this.tray.querySelector<HTMLElement>(`.tray-item[data-key="${CSS.escape(card.key)}"]`);
+        if (at) this.placeCardAt(at);
+        else this.hidePlaceCard();
+      });
+    }
+    const info = placeCardInfo(item);
+    const line = (cls: string, text: string) => {
+      const d = el("div", cls);
+      d.textContent = text;
+      return d;
+    };
+    const lines = [line("pc-name", info.name), line("pc-what", info.detail), ...info.facts.map((f) => line("pc-fact", f))];
+    // What it does in Game mode (a caboose: makes its train a bit faster).
+    if (item.kind === "train" && this.trayMode === "game" && item.gameDetail) lines.push(line("pc-fact", item.gameDetail));
+    card.el.replaceChildren(...lines);
+    this.hideLockNote();
+    this.tray.querySelector(".tray-item.has-card")?.classList.remove("has-card");
+    b.classList.add("has-card");
+    card.key = b.dataset.key ?? null;
+    card.timed = timed;
+    // (Its details from a hover or long press would sit in the same place, saying less.)
+    this.tips.hide();
+    this.placeCardAt(b);
+    if (timed) card.timer = window.setTimeout(() => this.hidePlaceCard(), Hud.PLACE_CARD_MS);
+  }
+
+  /** Dock the place card above the tray, over item `b` (kept on the screen). */
+  private placeCardAt(b: HTMLElement): void {
+    const c = this.placeCard.el!;
+    c.hidden = false;
+    const r = b.getBoundingClientRect();
+    // Over the tray and anything standing on it (Clear, Turn and Flip), so nothing of the tray is hidden.
+    let top = Math.min(r.top, this.tray.getBoundingClientRect().top);
+    for (const t of this.tray.querySelectorAll<HTMLElement>(".tray-tools > *")) {
+      const box = t.getBoundingClientRect();
+      if (box.height > 0 && box.right > 0) top = Math.min(top, box.top);
+    }
+    const w = c.offsetWidth;
+    const x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+    c.style.left = `${Math.round(x)}px`;
+    c.style.bottom = `${Math.round(window.innerHeight - top + 8)}px`;
+  }
+
+  /** The place card taken away (placing ended, or its moment is up). */
+  hidePlaceCard(): void {
+    const card = this.placeCard;
+    clearTimeout(card.timer);
+    if (card.key === null) return;
+    card.key = null;
+    card.el!.hidden = true;
+    this.tray.querySelector(".tray-item.has-card")?.classList.remove("has-card");
+  }
+
+  /** Something from the tray was put down: the item's card has said its piece (the next goes down without it). */
+  trayPlaced(): void {
+    if (this.placeCard.key !== null && !this.placeCard.timed) this.hidePlaceCard();
+  }
+
+  /** The key of the item whose place card is up, or null (for tests). */
+  get placeCardShown(): string | null {
+    return this.placeCard.key;
+  }
+
   /** The tray piece readied for placing with taps (`trayKey`), or null. */
   private armedKey: string | null = null;
   private armedCarried = false;
@@ -1913,6 +2207,8 @@ export class Hud {
   /** Mark the tray item that's ready (`carried`: clicked, following the mouse, marked apart), or none (null). */
   setArmed(key: string | null, carried = false): void {
     if (key === this.armedKey && carried === this.armedCarried) return;
+    // Placing ended (put away, or something else made ready): its card goes too.
+    if (this.placeCard.key !== null && key !== this.placeCard.key) this.hidePlaceCard();
     this.armedKey = key;
     this.armedCarried = carried;
     this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => {

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "wrangler dev --local --port 8787 --var CODE_KEY:local-dev-only",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "stats": "node stats-report.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.7",

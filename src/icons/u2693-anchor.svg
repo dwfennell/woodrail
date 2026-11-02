@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Anchor</title>
+<path d="M8.8,4.6a3.2,3.2 0 1 0 6.4,0a3.2,3.2 0 1 0 -6.4,0zM10.4,4.6a1.6,1.6 0 1 1 3.2,0a1.6,1.6 0 1 1 -3.2,0z" fill="#173a63"/>
+<rect x="10.6" y="7" width="2.8" height="14" rx="1" fill="#173a63"/>
+<rect x="6.4" y="9" width="11.2" height="2.6" rx="1.2" fill="#173a63"/>
+<path d="M2 12.6 L5.4 12.6 C5.4 16.6 8 19.2 12 19.2 C16 19.2 18.6 16.6 18.6 12.6 L22 12.6 C22 18.4 17.8 22.6 12 22.6 C6.2 22.6 2 18.4 2 12.6 Z" fill="#173a63"/>
+<polygon points="0.6,14 3.6,10.2 6.8,14" fill="#173a63"/>
+<polygon points="17.2,14 20.4,10.2 23.4,14" fill="#173a63"/>
+<rect x="11.4" y="8" width="1.2" height="12" rx="0.6" fill="#5b93cf"/>
+</svg>

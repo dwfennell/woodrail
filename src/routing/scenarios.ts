@@ -323,7 +323,7 @@ export const threeTrainsOneLoop: Scenario = {
 
 /**
  * The same three trains, and the player's fix once they're stuck (stalls.ts: too many trains for the line): the held
- * one put away (its card's Put away), at 2 minutes. The other two then pass at the loop and deliver.
+ * one put away (its card's Remove), at 2 minutes. The other two then pass at the loop and deliver.
  */
 export const threeTrainsPutAway: Scenario = {
   ...threeTrainsOneLoop,
@@ -470,7 +470,41 @@ export const linelessWithLine: Scenario = {
   },
 };
 
-export const SHARED: readonly Scenario[] = [twoLinesOneLoop, twoLinesNoLoop, threeLinesTwoLoops, twoLinesThreeTrains, linelessWithLine];
+/**
+ * A ring with one passing loop: `A ══ ══ ══ ══ (round) B ═ (loop) (round)` back to A. Its stops, the straights on A's
+ * side, and the loop. With a line on it, everything but the loop's two roads is one section.
+ */
+export function ringWithLoop(layout: Layout) {
+  const [a, n1, n2, n3, n4, , , , , b, s144] = chain(layout, [STOP, S, S, S, S, C, C, C, C, STOP, "straight-144"]);
+  const loop = loopOn(layout, connectorRef(s144, 1), [S, S], [S]);
+  const round = chain(layout, [C, C, C, C], connectorRef(loop.s2, 0));
+  if (layout.joinedConnector(connectorRef(a, 0)) !== connectorRef(round[3], 1)) throw new Error("the ring doesn't close");
+  return { a, b, north: [n1, n2, n3, n4], round, loop };
+}
+
+/**
+ * The 2026-11-01 play-test (src/play/bugmaps/route-stuck.txt), small: hand-run trains running one behind another round
+ * a ring, as they did fine, and then one of them given a route. The line's sections took in the hand-run trains, two
+ * of them in the ring's one section at once, each waiting on the next round the ring: all stood, stuck, from the start.
+ * Going the same way, a train follows one on no line (`Sections.follows`), as it did hand-run.
+ */
+export const ringRoutedAmongHandRun: Scenario = {
+  name: "a routed train among hand-run trains following each other round a ring with one loop",
+  seconds: KID_SECONDS,
+  maxStill: KID_STILL,
+  build: (layout) => {
+    const r = ringWithLoop(layout);
+    return {
+      trains: [
+        { pieceId: r.loop.main[0], stops: [r.a, r.b], next: 0, line: 1, cars: CARS },
+        { pieceId: r.north[1], cars: CARS },
+        { pieceId: r.round[2], cars: CARS },
+      ],
+    };
+  },
+};
+
+export const SHARED: readonly Scenario[] = [twoLinesOneLoop, twoLinesNoLoop, threeLinesTwoLoops, twoLinesThreeTrains, linelessWithLine, ringRoutedAmongHandRun];
 
 /** The branch delivery, with the player doing `what` once the wye is set for the siding and the train is coming to it. */
 function duringLock(name: string, what: (run: HarnessRun, o: ReturnType<typeof ovalWithSiding>) => void): Scenario {
@@ -755,6 +789,35 @@ function fuzzBuild(layout: Layout, seed: number, seconds: number): { trains: Tra
   }
 }
 
+/**
+ * A ring for the fuzz's "a route never makes it worse" (harness-fuzz.test.ts): `ringWithLoop`, 2 to 4 trains on no
+ * line on its plain track and the loop's main road, all running the same way round (as hand-run trains on a ring do,
+ * one behind another), the loop's points left either way. Stops A and B for the one given a route.
+ */
+export function ringFuzz(seed: number, seconds: number): Scenario {
+  return {
+    name: `ring fuzz seed ${seed}`,
+    seconds,
+    build: (layout) => {
+      const r = rng(seed * 31 + 5);
+      const ring = ringWithLoop(layout);
+      if (r() < 0.5) layout.setSwitchState(ring.loop.s1, 1);
+      const places = [...ring.north, ...ring.round, ...ring.loop.main];
+      const n = 2 + Math.floor(r() * 3);
+      const used = new Set<number>();
+      const trains: TrainSpec[] = [];
+      for (let k = 0; k < n; k++) {
+        const free = places.map((_, i) => i).filter((i) => !used.has(i));
+        if (free.length === 0) break;
+        const i = free[Math.floor(r() * free.length)];
+        used.add(i - 1).add(i).add(i + 1);
+        trains.push({ pieceId: places[i], cars: CARS, optional: true });
+      }
+      return { trains, events: [] };
+    },
+  };
+}
+
 // ── Negative controls: the checks catch what they're for ────────────────────────────────────────────────────────────
 
 /**
@@ -956,6 +1019,33 @@ export function handFollower(): { scenario: Scenario; j: () => ReturnType<typeof
           ],
         };
       },
+    },
+  };
+}
+
+/**
+ * Two stops end to end with points just past the second (the goals play-through's line from minute 223, once the plot
+ * Show me frames was bought): `⊐ Y ══ ══ A B ⊐ points`, the straight road ══ ══ C ══ ══ ⊏, the curved one a short spur
+ * ⊏. The route Y → A → B → C. A train runs through its stops (the harness has no dwell, as the game's goods train runs
+ * through a stop with nothing to do), so it's still at A, its tail on it, while its front is past B and onto the points:
+ * heading for B then, it asked for nothing (its front on its goal), and took the points as they lay, toward the spur
+ * (`spur`) or toward C (the plan from there back to B is by the spur: a wrong road). It's already at B as its tail
+ * leaves A, so its heading is C: it asks for the points for C. The spur is watched: no train should go onto it.
+ */
+export function ranThroughStop(spur: boolean): Scenario {
+  return {
+    name: `two stops end to end, points just past them laid for the ${spur ? "spur" : "way on"}`,
+    seconds: 120,
+    build: (layout) => {
+      const [y, s1, , a, b] = chain(layout, [STOP, S, S, STOP, STOP]);
+      appendPiece(layout, BUFFER, false, connectorRef(y, 0));
+      const sw = appendPiece(layout, "switch", false, connectorRef(b, 1), 0);
+      const on = chain(layout, [S, S, STOP, S, S], connectorRef(sw, 1));
+      appendPiece(layout, BUFFER, false, connectorRef(on[on.length - 1], 1));
+      const off = chain(layout, [C, S], connectorRef(sw, 2), [true]);
+      appendPiece(layout, BUFFER, false, connectorRef(off[off.length - 1], 1));
+      layout.setSwitchState(sw, spur ? 1 : 0);
+      return { trains: [{ pieceId: s1, stops: [y, a, b, on[2]], cars: CARS, s: 40 }], watch: off };
     },
   };
 }

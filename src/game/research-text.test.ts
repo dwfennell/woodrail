@@ -3,7 +3,7 @@ import { Progress } from "./progress";
 import { costOf, deliver, pick, tick, toggleQueue } from "./research";
 import * as text from "./research-text";
 import { cardState, chipsText, costWords, unlocksWords, goalPick, IdleNotice, idleText, pickerKey, pillCount, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
-import { TECHS } from "./tech";
+import { seenOf, TECHS } from "./tech";
 
 const SCHOOL = "Larkfield school";
 
@@ -30,25 +30,25 @@ describe("a card's chips", () => {
   it("each good got of needed, then the coins (red while short) unless paid", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
-    expect(chipsText(researchChips(p, "bridges"))).toBe("🪵 0/10");
+    expect(chipsText(researchChips(p, "bridges"))).toBe("\uE000 0/10");
     // Mills: planks and grain, and 40 coins (none in hand: short).
-    expect(researchChips(p, "mills").map(({ text, short }) => ({ text, short }))).toEqual([{ text: "🪵 0/6" }, { text: "🌾 0/6" }, { text: "🪙 40", short: true }].map(({ text, short }) => ({ text, short })));
-    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 0/6 · 🌾 0/6 · 🪙 40");
+    expect(researchChips(p, "mills").map(({ text, short }) => ({ text, short }))).toEqual([{ text: "\uE000 0/6" }, { text: "🌾 0/6" }, { text: "🪙 40", short: true }].map(({ text, short }) => ({ text, short })));
+    expect(chipsText(researchChips(p, "mills"))).toBe("\uE000 0/6 · 🌾 0/6 · 🪙 40");
     p.coins = 50;
     expect(researchChips(p, "mills")[2]).toEqual({ text: "🪙 40", title: "Coins: 40, paid when it starts" });
     // Started: its coins are paid (no chip), its goods count up.
     pick(p, "mills");
     deliver(p, "planks", 4);
-    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 4/6 · 🌾 0/6");
+    expect(chipsText(researchChips(p, "mills"))).toBe("\uE000 4/6 · 🌾 0/6");
   });
 
   it("a ready card: Research when idle, else Add to queue; one in the queue has Remove and Research now (the swap)", () => {
     const p = Progress.fresh();
-    expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/3", title: "Planks: 0 of 3 brought" }], study: "20 s study", action: "Research" });
+    expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "\uE000 0/3", title: "Planks: 0 of 3 brought" }], study: "20 s study", action: "Research" });
     pick(p, "switches");
-    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", action: "Add to queue" });
+    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "\uE000 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", action: "Add to queue" });
     pick(p, "bridges");
-    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", why: "Next up, after Switches", action: "Research now", remove: true });
+    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "\uE000 0/10", title: "Planks: 0 of 10 brought" }], study: "20 s study", why: "Next up, after Switches", action: "Research now", remove: true });
     // Tapping it again swaps the two.
     pick(p, "bridges");
     expect(cardState(p, "bridges")).toBe("researching");
@@ -59,7 +59,7 @@ describe("a card's chips", () => {
     const p = Progress.fresh();
     pick(p, "bridges");
     deliver(p, "planks", 6);
-    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 6/10", title: "Planks: 6 of 10 brought" }], study: "20 s study", why: "bring 4🪵 to Larkfield school", fill: 0.6 });
+    expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "\uE000 6/10", title: "Planks: 6 of 10 brought" }], study: "20 s study", why: "bring 4\uE000 to Larkfield school", fill: 0.6 });
     deliver(p, "planks", 4);
     tick(p, 5);
     expect(researchCard(p, "bridges", SCHOOL)).toMatchObject({ why: "studying: 15 s", fill: 0.25 });
@@ -89,7 +89,7 @@ describe("the HUD's research pill", () => {
     expect(pillView(p, true)?.idle).toBe(true);
     pick(p, "bridges");
     deliver(p, "planks", 6);
-    expect(pillText(pillView(p, true))).toBe("📘 Bridges 🪵6/10");
+    expect(pillText(pillView(p, true))).toBe("📘 Bridges \uE0006/10");
     expect(pillView(p, true)).toMatchObject({ name: "Bridges", fill: 0.6, idle: false });
     deliver(p, "planks", 4);
     expect(pillText(pillView(p, true))).toBe("📘 Bridges ⏱ 20 s");
@@ -103,9 +103,9 @@ describe("the HUD's research pill", () => {
     p.coins = 40;
     pick(p, "mills");
     // (Its 40 coins paid as it started: not shown.)
-    expect(pillText(pillView(p, true))).toBe("📘 Mills 🪵0/6 🌾0/6");
+    expect(pillText(pillView(p, true))).toBe("📘 Mills \uE0000/6 🌾0/6");
     deliver(p, "planks", 12);
-    expect(pillText(pillView(p, true))).toBe("📘 Mills 🪵✓ 🌾0/6");
+    expect(pillText(pillView(p, true))).toBe("📘 Mills \uE000✓ 🌾0/6");
     const q = Progress.fresh();
     q.learned.add("switches");
     q.coins = 5;
@@ -119,9 +119,9 @@ describe("the HUD's research pill", () => {
       pick(p, "switches");
       deliver(p, "planks", 2);
       const v = pillView(p, true)!;
-      expect(pillText(v)).toBe("📘 Switches 🪵2/3");
-      expect([0, 1, 2].map((f) => pillCount(v, f as 0 | 1 | 2))).toEqual(["🪵2/3", "🪵2/3", "🪵2/3"]);
-      expect(v.words).toBe("2 of 3 🪵 planks");
+      expect(pillText(v)).toBe("📘 Switches \uE0002/3");
+      expect([0, 1, 2].map((f) => pillCount(v, f as 0 | 1 | 2))).toEqual(["\uE0002/3", "\uE0002/3", "\uE0002/3"]);
+      expect(v.words).toBe("2 of 3 \uE000 planks");
       deliver(p, "planks", 1);
       expect(pillCount(pillView(p, true)!, 2)).toMatch(/^⏱ \d+ s$/);
     });
@@ -133,14 +133,14 @@ describe("the HUD's research pill", () => {
       pick(p, "mills");
       deliver(p, "grain", 2);
       const v = pillView(p, true)!;
-      expect(pillText(v)).toBe("📘 Mills 🪵0/6 🌾2/6");
-      expect(v.words).toBe("0 of 6 🪵 planks, 2 of 6 🌾 grain");
-      expect(pillCount(v, 1)).toBe("🪵0/6 🌾2/6");
+      expect(pillText(v)).toBe("📘 Mills \uE0000/6 🌾2/6");
+      expect(v.words).toBe("0 of 6 \uE000 planks, 2 of 6 🌾 grain");
+      expect(pillCount(v, 1)).toBe("\uE0000/6 🌾2/6");
       // The most lacking (all 6 planks still to come) and one more.
-      expect(pillCount(v, 2)).toBe("🪵0/6 +1");
+      expect(pillCount(v, 2)).toBe("\uE0000/6 +1");
       deliver(p, "planks", 6);
       const w = pillView(p, true)!;
-      expect(pillCount(w, 0)).toBe("🪵✓ 🌾2/6");
+      expect(pillCount(w, 0)).toBe("\uE000✓ 🌾2/6");
       // The planks all in: left out when short of room, so no "+".
       expect(pillCount(w, 1)).toBe("🌾2/6");
       expect(pillCount(w, 2)).toBe("🌾2/6");
@@ -159,13 +159,13 @@ describe("the HUD's research pill", () => {
         deliver(p, "grain", 1);
         const v = pillView(p, true)!;
         expect(v.parts).toHaveLength(3);
-        expect(pillText(v)).toBe("📘 Mills 🪵3/6 🌾1/6 🔩0/10");
-        expect(v.words).toBe("3 of 6 🪵 planks, 1 of 6 🌾 grain, 0 of 10 🔩 iron");
+        expect(pillText(v)).toBe("📘 Mills \uE0003/6 🌾1/6 🔩0/10");
+        expect(v.words).toBe("3 of 6 \uE000 planks, 1 of 6 🌾 grain, 0 of 10 🔩 iron");
         expect(pillCount(v, 2)).toBe("🔩0/10 +2");
         deliver(p, "iron", 10);
         deliver(p, "planks", 3);
         const w = pillView(p, true)!;
-        expect(pillCount(w, 0)).toBe("🪵✓ 🌾1/6 🔩✓");
+        expect(pillCount(w, 0)).toBe("\uE000✓ 🌾1/6 🔩✓");
         expect(pillCount(w, 1)).toBe("🌾1/6");
         expect(pillCount(w, 2)).toBe("🌾1/6");
         deliver(p, "grain", 5);
@@ -182,11 +182,11 @@ describe("the HUD's research pill", () => {
       pick(p, "mills");
       const v = pillView(p, true)!;
       expect(pillText(v)).toBe("📘 Mills 🪙10/40");
-      expect(v.words).toContain("6 🪵 planks, 6 🌾 grain");
+      expect(v.words).toContain("6 \uE000 planks, 6 🌾 grain");
       p.coins = 40;
       tick(p, 1);
       expect(p.research.current).toBe("mills");
-      expect(pillText(pillView(p, true))).toBe("📘 Mills 🪵0/6 🌾0/6");
+      expect(pillText(pillView(p, true))).toBe("📘 Mills \uE0000/6 🌾0/6");
     });
   });
 
@@ -297,7 +297,7 @@ describe("the school's card", () => {
     pick(p, "switches");
     expect(schoolCardKey(p)).not.toBe(k0);
     deliver(p, "planks", 2);
-    expect(schoolCard(p)).toEqual({ piles: [{ label: "🪵", count: 2, cap: 3 }], note: "Researching Switches", idle: false });
+    expect(schoolCard(p)).toEqual({ piles: [{ label: "\uE000", count: 2, cap: 3 }], note: "Researching Switches", idle: false });
     const k1 = schoolCardKey(p);
     expect(schoolCardKey(p)).toBe(k1);
     deliver(p, "planks", 1);
@@ -405,13 +405,13 @@ describe("the full cost and what it unlocks, in words (#11)", () => {
   it("every good with its amount, icon and name, then the coins; paid coins say so", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
-    expect(costWords(p, "switches")).toBe("3 🪵 planks");
-    expect(costWords(p, "mills")).toBe("6 🪵 planks, 6 🌾 grain, 40 🪙 coins");
+    expect(costWords(p, "switches")).toBe("3 \uE000 planks");
+    expect(costWords(p, "mills")).toBe("6 \uE000 planks, 6 🌾 grain, 40 🪙 coins");
     p.coins = 100;
     pick(p, "mills");
-    expect(costWords(p, "mills")).toBe("6 🪵 planks, 6 🌾 grain, 40 🪙 coins (paid)");
+    expect(costWords(p, "mills")).toBe("6 \uE000 planks, 6 🌾 grain, 40 🪙 coins (paid)");
     // Its chips drop the paid coins; the full cost still shows them.
-    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 0/6 · 🌾 0/6");
+    expect(chipsText(researchChips(p, "mills"))).toBe("\uE000 0/6 · 🌾 0/6");
     expect(costWords(p, "no-such-thing")).toBe("nothing");
   });
 
@@ -440,10 +440,10 @@ describe("the research queue in words (#14)", () => {
     toggleQueue(p, "routes"); // 40 coins, 10 in hand
     expect(researchCard(p, "signals", SCHOOL)).toMatchObject({ why: "Next up, after Bridges", action: "Research now", remove: true });
     expect(researchCard(p, "routes", SCHOOL)).toMatchObject({ why: "2nd in line, after Signals · 30🪙 short", action: "Research now", blocked: true, remove: true });
-    expect(researchCard(p, "junctions", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/" + costOf("junctions").goods.planks, title: `Planks: 0 of ${costOf("junctions").goods.planks} brought` }], study: "20 s study", action: "Add to queue" });
+    expect(researchCard(p, "junctions", SCHOOL)).toEqual({ chips: [{ text: "\uE000 0/" + costOf("junctions").goods.planks, title: `Planks: 0 of ${costOf("junctions").goods.planks} brought` }], study: "20 s study", action: "Add to queue" });
     expect(cardState(p, "routes")).toBe("next");
     expect(pillView(p, true)?.more).toBe(2);
-    expect(pillText(pillView(p, true))).toBe("📘 Bridges 🪵0/10 +2");
+    expect(pillText(pillView(p, true))).toBe("📘 Bridges \uE0000/10 +2");
     expect(schoolCard(p).note).toBe("Researching Bridges and ramps · 2 in queue");
     // Full: Add to queue is held back and says why.
     for (const id of ["junctions", "tank", "cranes1"]) toggleQueue(p, id);
@@ -452,5 +452,42 @@ describe("the research queue in words (#14)", () => {
     toggleQueue(p, "signals");
     expect(cardState(p, "signals")).toBe("ready");
     expect(researchCard(p, "routes", SCHOOL)?.why).toBe("Next up, after Bridges · 30🪙 short");
+  });
+});
+
+describe("a locked tray tile says how to unlock it (unlockHow)", () => {
+  it("one to research now: its name, and the picker opens on it", () => {
+    const p = Progress.fresh();
+    expect(text.unlockHow(p, "switches")).toEqual({ text: "Research Switches to unlock", jump: "switches" });
+  });
+  it("what it needs first, then it; the picker opens on the nearest one it shows", () => {
+    const p = Progress.fresh();
+    const how = text.unlockHow(p, "signals");
+    expect(how.text).toBe("Research Switches, then Signals");
+    // Signals is a key blueprint: its card shows already.
+    expect(how.jump).toBe("signals");
+  });
+  it("a town to reach first, in the player's words", () => {
+    const p = Progress.fresh();
+    for (const id of ["switches", "stations"]) p.learned.add(id);
+    expect(text.unlockHow(p, "big-stations").text).toBe("Reach a town, then research Big stations");
+    p.bestLevel = 2;
+    expect(text.unlockHow(p, "big-stations").text).toBe("Research Big stations to unlock");
+  });
+  it("under way, or up next, says so", () => {
+    const p = Progress.fresh();
+    pick(p, "switches");
+    pick(p, "bridges");
+    expect(text.unlockHow(p, "switches").text).toBe("Researching Switches now: it unlocks then");
+    expect(text.unlockHow(p, "bridges").text).toBe("Bridges is next in Research: it unlocks then");
+  });
+  it("a jump only to a card the picker shows (never a ? or one not found yet)", () => {
+    const p = Progress.fresh();
+    for (const t of TECHS) {
+      const how = text.unlockHow(p, t.id);
+      expect(how.text.length, t.id).toBeGreaterThan(0);
+      expect(how.text.length, `${t.id}: ${how.text}`).toBeLessThanOrEqual(110);
+      if (how.jump) expect(seenOf(p).get(how.jump), t.id).toBe("shown");
+    }
   });
 });

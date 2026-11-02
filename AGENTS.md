@@ -9,6 +9,7 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run typecheck`
 - `npm run build`
 - `npm run build:artifact`: a build to publish as a claude.ai Artifact (see `docs/artifact-builds.md`)
+- `npm run build:itch`: a build for itch.io, zipped (`woodrail-itch.zip`); releases push it there (see `docs/itch-builds.md`)
 - `npm run fuzz:long [-- --seeds 200 --seconds 1800]`: the long routing fuzz with every train invariant, sharded over the cores; for release points (about 30 game minutes a seed)
 - `npm run replay -- <file>`: replay a "Copy map for a bug report" text headless with the train invariants on, and print the first break (`src/play/bugmap.ts`)
 - `npm run e2e:roads`: end-to-end road tests in a headless browser
@@ -17,7 +18,12 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run e2e:copy-map [-- <out>]`: ☰ "Copy map for a bug report" and the dev-only `#load=` back in, on a phone, headless (about 2 min)
 - `npm run e2e:train-summary [-- <out>]`: end-to-end train summary and wagon loads on the cards, Game mode on a 360×740 phone, headless (about 8 min)
 - `npm run e2e:stickers [-- <out>]`: end-to-end stickers: one earned quietly by laying track, the dot, the last core goal, the toast and the Stickers tab, on a 390×844 phone, headless
+- `npm run e2e:stats [-- <out>]`: end-to-end "Help improve Woodrail" play stats on a 390×844 phone: asked after the first goal, a yes, the batch the Worker reads, Stop sharing (about 2 min; see `docs/stats.md`)
+- `npm run e2e:hopper-load [-- <out>]`: hoppers in Sandbox, headless: empty shows an open bin, loads show a heap of their goods as high as they are full, with pictures (about 1.5 min)
+- `npm run e2e:locked [-- <out>]`: locked tray tiles say how to unlock them and open Research there; Game's tray tabs fit at 360 px; the town card on a phone on its side in two columns (about 6 min)
 - `npm run e2e:warehouse [-- <out>]`: end-to-end warehouses in Game mode on a 390×844 phone: the hand-run explanation, a route dropping planks there and one taking them to a town, by taps, headless (about 3.5 min)
+- `npm run e2e:focus-ring [-- <out>]`: the keyboard focus ring: none after a click or tap (even when a key follows), and inside the control by Tab, on the tray tabs, Journal tabs, research board and chips, at 390 and 1440, headless (about 4 min)
+- `npm run e2e:signals [-- <out>]`: end-to-end signals in Game mode on a 390×844 phone: dragged from the Switch shelf onto a joint (snap, tint, move cost), its card, Turn round, a tap to hold, the Signal tool and a run along the track, undo; 0 idle frames and a few draws; the payoff on a line of two trains, the held-by-hand card, an old save's signal piece, headless (about 7 min)
 
 Designs and plans are in `docs/superpowers/specs` and `docs/superpowers/plans`.
 

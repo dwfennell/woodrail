@@ -3,7 +3,7 @@ import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
 import { siteWhy } from "./industries";
-import { BRIDGE_KNOWN_HINT, BUY_LAND_HINT, GOALS, plotsBought, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, OPEN_INDUSTRY_GOALS, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
+import { BRIDGE_KNOWN_HINT, BUY_LAND_COINS, BUY_LAND_HINT, goalTickTitle, GOALS, payGoal, plotsBought, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, OPEN_INDUSTRY_GOALS, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
 import mainSrc from "../main.ts?raw";
 import panelSrc from "../ui/workshop-panel.ts?raw";
 import { Crafting, keepsForOrder } from "./crafting";
@@ -14,6 +14,7 @@ import { restoredType } from "./map-sites";
 import { restoreRuin } from "./restore";
 import { CARGO } from "../economy/cargo";
 import { Progress } from "./progress";
+import { plotPrice } from "./towns";
 import { pick } from "./research";
 import { goalPick, showMePick } from "./research-text";
 import { deserializeWorld, serializeWorld } from "../persist/save";
@@ -566,20 +567,20 @@ describe("place-workshop guide", () => {
     const fresh = buildStarterWorld();
     expect(goal("place-workshop").guide(fresh).towns.length).toBe(2);
   });
-  it("two trains at once waits for signals (a passing loop): hidden, not counted, never the current goal till then", () => {
+  it("two trains at once waits for switches (a passing loop), not signals: hidden, not counted, never the current goal till then", () => {
     const w = buildStarterWorld();
     const t = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains" && g.id !== "join-all").map((g) => g.id));
-    t.update(w, { learned: new Set(["switches"]) });
+    t.update(w, { learned: new Set() });
     expect(t.current()?.id).toBe("join-all");
     expect(t.next()).toBeNull();
     expect(t.total).toBe(GOALS.length - 1);
-    expect(t.lockedHint()).toBe("Research Signals to unlock a goal");
+    expect(t.lockedHint()).toBe("Research Switches to unlock a goal");
     // Every other goal done: still not the current one.
     const all = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains").map((g) => g.id));
     all.update(w, { learned: new Set() });
     expect(all.current()).toBeNull();
-    expect(all.lockedHint()).toBe("Research Signals to unlock a goal");
-    t.update(w, { learned: new Set(["switches", "signals"]) });
+    expect(all.lockedHint()).toBe("Research Switches to unlock a goal");
+    t.update(w, { learned: new Set(["switches"]) });
     expect(t.current()?.id).toBe("two-trains");
     expect(t.total).toBe(GOALS.length);
     expect(t.lockedHint()).toBeNull();
@@ -587,11 +588,11 @@ describe("place-workshop guide", () => {
 
   it("learning Signals names the goal it opens, and where the second engine is (QA: it opened unseen)", () => {
     const t = new GoalTracker(["join-two", "place-train"]);
-    // Signals open "Run two trains at once"; Switches open none (no goal waits for them alone).
-    expect(t.openedBy("signals", new Set(["switches", "signals"])).map((g) => g.title)).toEqual(["Run two trains at once"]);
-    expect(t.openedBy("switches", new Set(["switches"]))).toEqual([]);
+    // Switches open "Run two trains at once" (signals step 6); Signals open none.
+    expect(t.openedBy("switches", new Set(["switches"])).map((g) => g.title)).toEqual(["Run two trains at once"]);
+    expect(t.openedBy("signals", new Set(["switches", "signals"]))).toEqual([]);
     // Already done (an old save): nothing to say.
-    expect(new GoalTracker(["two-trains"]).openedBy("signals", new Set(["signals"]))).toEqual([]);
+    expect(new GoalTracker(["two-trains"]).openedBy("switches", new Set(["switches"]))).toEqual([]);
     // The second engine: in the toy box (the Signals present, or one made), to be made (one owned), or both on the map.
     expect(secondEngineTip(1, 2)).toBe("Engine in the Trains tab");
     expect(secondEngineTip(0, 1)).toBe("Make an engine at the workshop");
@@ -658,7 +659,7 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
   it("come after the passing loop, before Connect every town; each needs its blueprint; Open a farm is where it was", () => {
     const ids = GOALS.map((g) => g.id);
     expect(GOALS).toHaveLength(23);
-    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "open-quarry", "open-mine", "open-harbour", "join-all", "buy-land"]);
+    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "open-quarry", "open-mine", "open-harbour", "join-all"]);
     for (const r of ROLES) expect(goal(r.id)).toMatchObject({ title: r.title, hint: r.hint, needs: [r.bp] });
     expect(goal("open-farm")).toMatchObject({ title: "Open a farm", hint: "Restore an old farm, or build a farm yard by some fields.", needs: ["farming"] });
     expect(OPEN_INDUSTRY_GOALS).toEqual(["open-farm", "open-quarry", "open-mine", "open-harbour"]);
@@ -724,8 +725,11 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
 });
 
 describe("Buy some land", () => {
-  it("is the last goal, an open one: ticked when a plot is bought (as the land card's Add this land does), and stays", () => {
-    expect(GOALS[GOALS.length - 1].id).toBe("buy-land");
+  it("comes after Connect three towns, an open one: ticked when a plot is bought (as the land card's Add this land does), and stays", () => {
+    const ids = GOALS.map((g) => g.id);
+    expect(ids.indexOf("buy-land")).toBe(ids.indexOf("join-three") + 1);
+    expect(ids.indexOf("buy-land")).toBeGreaterThan(ids.indexOf("build-bridge"));
+    expect(GOALS[GOALS.length - 1].id).toBe("join-all");
     expect(goal("buy-land").title).toBe("Buy some land");
     expect(goal("buy-land").hint).toBe(BUY_LAND_HINT);
     const w = buildStarterWorld();
@@ -745,6 +749,24 @@ describe("Buy some land", () => {
     expect(tracker.isDone("buy-land")).toBe(true);
     // Stays met: kept in the saved goals.
     expect(new GoalTracker(tracker.ids()).isDone("buy-land")).toBe(true);
+  });
+
+  it("pays a little back as it's ticked, said on its toast; other goals pay nothing", () => {
+    expect(goal("buy-land").coins).toBe(BUY_LAND_COINS);
+    expect(BUY_LAND_COINS).toBeGreaterThan(0);
+    expect(BUY_LAND_COINS).toBeLessThan(plotPrice(4));
+    const p = { coins: 10 };
+    expect(payGoal(p, goal("buy-land"))).toBe(BUY_LAND_COINS);
+    expect(p.coins).toBe(10 + BUY_LAND_COINS);
+    expect(goalTickTitle(goal("buy-land"))).toBe(`Buy some land (+${BUY_LAND_COINS} 🪙)`);
+    for (const g of GOALS.filter((x) => x.id !== "buy-land")) {
+      expect(payGoal(p, g), g.id).toBe(0);
+      expect(goalTickTitle(g)).toBe(g.title);
+    }
+    expect(p.coins).toBe(10 + BUY_LAND_COINS);
+    // The game pays it as it ticks a goal, and its toast names it.
+    expect(mainSrc).toContain("payGoal(progress, g)");
+    expect(mainSrc).toContain("fresh.map(goalTickTitle)");
   });
 
   it("an old save with land bought ticks it on load", () => {

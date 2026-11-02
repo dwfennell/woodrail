@@ -1,3 +1,8 @@
+/* The game's own icons, not emoji: the drawings in src/icons/*.svg, compiled into one colour font
+   (scripts/icon-font.py, which also writes this unicode-range). Each draws the character it stands for (🪙, 📘, ⏱, the
+   goods; planks have no emoji, so they're U+E000), so strings keep their emoji and screen readers their words. Listed
+   first wherever a font is named, it draws only these characters; everything else is Nunito's. */
+@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A1, U+26AB, U+26CF, U+26F0, U+26F5, U+2713, U+2728, U+2795, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F33E, U+1F34E, U+1F35E, U+1F37D, U+1F381, U+1F393, U+1F3AF, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3E1, U+1F4D8, U+1F4DA, U+1F4E6, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5FA, U+1F682, U+1F683, U+1F689, U+1F69C, U+1F6A7, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9D1, U+1F9F0, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5; font-weight: 100 900; font-display: block; }
 :root {
   --ink: #2b2118;
   --paper: #f6efe3;
@@ -11,7 +16,10 @@
 [hidden] { display: none !important; }
 /* An icon standing in for a tray picture not drawn yet: laid out as the icon itself. */
 .thumb-icon { display: contents; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+/* A swipe that reaches an edge never chains to the page, so never goes Back a page (see ui/swipe-guard.ts). The
+   scroll boxes below keep theirs too (contain or none: either stops the swipe navigating). */
+html, body { overscroll-behavior: none; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Woodrail Icons", "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
 /* A toy, not a page: nothing on screen is selected as text or brings up a long-press menu, and a quick second tap on
    a button is another tap, never a page zoom (iOS ignores user-scalable=no in the viewport; touch-action is what
    stops it there). The game canvas takes all its own gestures (touch-action: none, below). Text typed in a box is
@@ -19,8 +27,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 html, body, button, .hud, .card, .tray, .title-screen, #loading { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 html, body, button { touch-action: manipulation; }
 input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
-/* Keyboard focus: a ring in the logo's blue, clear of the button's edge (a mouse or a finger shows none). */
-:focus-visible { outline: 3px solid #2f6fb5; outline-offset: 2px; }
+/* Keyboard focus: a ring in the logo's blue, drawn just inside the control's edge, so a strip that scrolls (the tray's
+   tabs) doesn't clip it and it never laps onto a neighbour. Only while moving focus by Tab (`kbd-nav`, from
+   ui/focus-ring.ts): a mouse or a finger shows none, even when a key follows a click (Chrome's :focus-visible would).
+   A text box being typed in rings however it was reached. */
+:focus-visible { outline: none; }
+.kbd-nav :focus-visible, textarea:focus-visible, input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible { outline: 3px solid #2f6fb5; outline-offset: -3px; }
 /* Scroll bars (a mouse's lists: the News, the research board, a card): thin, in the wood's own brown. */
 * { scrollbar-width: thin; scrollbar-color: rgba(138, 100, 64, 0.45) transparent; }
 #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
@@ -37,7 +49,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .brand { position: relative; min-height: 44px; min-width: 44px; cursor: pointer; transition: transform 0.12s; }
 .brand:active { transform: scale(0.96); }
 .brand::after { content: "⌖"; position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; line-height: 1; background: #fbf3e4; color: #6a4a2c; box-shadow: 0 1px 4px rgba(60, 40, 20, 0.3); opacity: 0; transition: opacity 0.12s; pointer-events: none; }
-.brand:active::after, .brand:focus-visible::after { opacity: 1; }
+.brand:active::after, .kbd-nav .brand:focus-visible::after { opacity: 1; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .chip { min-width: 44px; height: 44px; padding: 0 12px; border: none; border-radius: 13px; font: inherit; font-weight: 800; font-size: 17px; color: #3a2a1c; cursor: pointer;
   background: linear-gradient(180deg, #f3dcb6, #dcb682); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.25), 0 4px 14px rgba(60, 40, 20, 0.22); transition: transform 0.08s ease, filter 0.15s; }
@@ -48,6 +60,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    was lost against the grass. */
 .actions .chip:disabled { opacity: 1; color: rgba(58, 42, 28, 0.3); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
 .chip.text { font-size: 15px; }
+/* A card's button that would only be refused now (Swap ends, Decouple, Empty while the train moves): the top bar's
+   disabled look, solid wood with its words faded, not see-through; no hover or press. */
+.card .chip[aria-disabled="true"] { opacity: 1; cursor: default; filter: none; transform: none; color: rgba(58, 42, 28, 0.36); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
 .chip.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
 /* A switch: label, then a pill with a knob. Off = outline and knob left; on = filled green and knob right. */
 .chip.toggle { display: inline-flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; background: transparent; box-shadow: inset 0 0 0 2px #b58f62; }
@@ -84,7 +99,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tabs::-webkit-scrollbar { display: none; }
 .tab { flex: none; border: none; font: inherit; font-weight: 800; font-size: 13.5px; color: #5e4128; padding: 6px 14px 5px; border-radius: 0 0 10px 10px; cursor: pointer; background: rgba(120, 80, 40, 0.1); }
 .tab.active { background: #fbf2e2; color: #3a2a1c; box-shadow: 0 2px 6px rgba(80, 50, 20, 0.18); }
-.scroller { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; padding: 7px 2px 2px; overscroll-behavior-x: contain; touch-action: none; }
+.scroller { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; padding: 7px 2px 2px; overscroll-behavior: none; touch-action: none; }
 .scroller::-webkit-scrollbar { display: none; }
 .tray.more-right .scroller { mask-image: linear-gradient(90deg, #000 calc(100% - 46px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 46px), transparent); }
 .tray.more-left .scroller { mask-image: linear-gradient(90deg, transparent, #000 30px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 30px); }
@@ -179,6 +194,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-summary > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .planning .engine-card .engine-summary { display: none; }
 .car-load { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; margin-top: -4px; }
+/* Empty beside a wagon's load, Empty all beside the train's (shown only while there are goods on board). */
+.car-load-row { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
+.car-load-row > .chip { flex: none; }
+/* Empty all to the right of the summary's two lines, a finger's size but taking only their height (the card doesn't
+   grow when a load comes on: a phone on its side, a camera glide that framed the room above the card). */
+.engine-summary:has(> .empty-all:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center; }
+.engine-summary > div { grid-column: 1; }
+.engine-summary > .empty-all { grid-column: 2; grid-row: 1 / span 2; margin: -4px 0; }
 /* Who's in the way (a waiting or stuck train): Show, and the fix for a train left there; a thumb tall, under the status. */
 .engine-blocker { display: flex; gap: 8px; justify-content: center; margin-top: -4px; }
 .engine-blocker[hidden], .engine-blocker > [hidden] { display: none; }
@@ -335,11 +358,30 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) > .close { position: sticky; bottom: -11px; z-index: 2; order: 3; align-self: flex-start; margin: -57px 0 -11px -10px; }
   /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
   .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
-  .depot-extra.ledger > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
+  .depot-extra.ledger > *, .ledger-main > *, .ledger-side > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
   /* (The card's top is a resting place too, its title's: with none there, a card opened at its top could be snapped
      down to the first row, its name half cut off. QA at 740x360: opened at 25 px.) */
   .depot-card:has(.depot-extra.ledger) > .card-title { scroll-snap-align: start; scroll-margin-top: 12px; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
+  /* A town's card on its side: two columns, so its ledger shows whole on a 390 px tall phone (it was one 146 px column
+     that scrolled, its ✕ in the footer). How it grows (level, goods, what holds it back) at the left; what it has
+     (school, market, station, lines), then Automatic and the station's upgrades at the right. The ✕ at the top right,
+     as on every card. It keeps to the right 60% of the screen (the map's room is beside it), and comes down over the
+     tray as the engine card does: it's in charge while it's open. Taller still (a long upgrade list) it scrolls. */
+  .depot-card:has(.depot-extra.ledger) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr; column-gap: 16px; row-gap: 6px; align-items: start; width: min(540px, calc(60vw - 12px - env(safe-area-inset-right))); box-sizing: border-box; padding-top: 10px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); scroll-snap-type: none; }
+  .depot-card:has(.depot-extra.ledger) > * { grid-column: 1 / -1; }
+  .depot-card:has(.depot-extra.ledger) > .card-title { grid-row: 1; scroll-snap-align: none; padding: 2px 40px 0 0; text-align: left; }
+  /* (Placed by the card's edges, not a grid area's: a grid area would hold it inside the card's padding.) */
+  .depot-card:has(.depot-extra.ledger) > .close { grid-column: auto; grid-row: auto; position: absolute; top: 0; right: 0; bottom: auto; margin: 0; order: 0; }
+  .depot-card .depot-extra.ledger { display: contents; }
+  .depot-extra.ledger .ledger-main { grid-column: 1; grid-row: 2 / 6; display: flex; flex-direction: column; gap: 7px; }
+  .depot-extra.ledger .ledger-side { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; gap: 6px; }
+  .depot-extra.ledger .ledger-side:not(:has(> :not(.ledger-pay))) { display: none; }
+  .depot-card:has(.depot-extra.ledger) > .card-row { grid-column: 2; grid-row: 3; position: static; margin: 0; padding: 0; background: none; box-shadow: none; justify-content: flex-start; }
+  .depot-extra.ledger .station-upgrade { grid-column: 2; grid-row: 4; }
+  /* (Narrower columns: the good's name, its bar and its count fit in half a 667 px phone's card.) */
+  .depot-extra.ledger .ledger-good { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 8px; font-size: 13.5px; }
+  .depot-extra.ledger .ledger-row { font-size: 13.5px; }
 }
 
 /* ---- motion ---------------------------------------------------------------------------------------------- */
@@ -351,7 +393,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .menu:not([hidden]) { animation: pop-in 0.18s ease-out; transform-origin: top right; }
 .chip, .tray-item, .menu-item, .tab { transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), filter 0.15s, background-color 0.15s; }
 .chip:active, .tray-item:active { transform: translateY(1px) scale(0.93); transition-duration: 0.06s; }
-@media (prefers-reduced-motion: reduce) { .card:not([hidden]), .menu:not([hidden]) { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .card:not([hidden]), .menu:not([hidden]), .lock-note.in { animation: none; } }
 
 /* Turn / Flip: above the tray while a group of track pieces is open. */
 .tray-orient { position: absolute; right: 12px; top: -52px; display: none; gap: 6px; }
@@ -417,6 +459,21 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .chip { min-width: 34px; padding: 0 5px; }
   .tray-tools .chip::after { inset: -5px -2px; }
 }
+/* A 360 px phone: tighter still, so Game's three tabs show in words beside all four tools (Industries, with Turn and
+   Flip). The drawn chips are narrower; their reach (::after) keeps them 40–44 px to tap. */
+@media (max-width: 380px) {
+  .tray-head .tab { padding-left: 5px; padding-right: 5px; font-size: 12.5px; min-height: 44px; }
+  .tray-tools, .tray-tools .tray-orient { gap: 3px; }
+  .tray-tools .chip { min-width: 32px; padding: 0 4px; }
+  .tray-tools .chip.tray-erase { min-width: 40px; }
+  .tray-tools .chip::after { inset: -5px -2px; }
+}
+/* Still too many to fit (hud.ts `fitTabs`): the tabs not open show their picture, then all do. A tab's word stays in
+   the page (its name for a screen reader); the picture is drawn over it. */
+.tab::before { content: none; }
+/* (40 px wide, 44 tall: four of them and the four tools fit 360 px, as the tools' own 40 px reach.) */
+.tabs.short .tab:not(.active), .tabs.icons .tab { font-size: 0; min-width: 40px; min-height: 44px; padding-left: 0; padding-right: 0; display: inline-flex; align-items: center; justify-content: center; }
+.tabs.short .tab:not(.active)::before, .tabs.icons .tab::before { content: attr(data-icon); font-size: 19px; line-height: 18px; }
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
 
@@ -570,7 +627,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .report-card { z-index: 30; width: min(420px, calc(100% - 24px)); align-items: stretch; }
 .report-card .card-title { text-align: center; }
 .report-card .card-row { justify-content: flex-end; }
-.report-note { font: 500 15px/1.35 Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; resize: vertical; background: #fffaf2; color: #2b2118; }
+.report-note { font: 500 15px/1.35 "Woodrail Icons", Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; resize: vertical; background: #fffaf2; color: #2b2118; }
 .cloud-card { z-index: 30; width: min(400px, calc(100% - 24px)); align-items: stretch; gap: 8px; }
 .cloud-card .card-title { text-align: center; }
 .cloud-card .card-row { justify-content: flex-end; flex-wrap: wrap; }
@@ -580,7 +637,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .cloud-label { font-size: 13px; font-weight: 800; color: #6a4a2c; text-transform: uppercase; letter-spacing: 0.04em; }
 .cloud-code-row { display: flex; align-items: center; gap: 10px; }
 .cloud-code { flex: 1; font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: #2b2118; background: #fffaf2; border-radius: 10px; padding: 6px 10px; user-select: all; -webkit-user-select: all; }
-.cloud-input { font: 700 18px/1.3 Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; background: #fffaf2; color: #2b2118; }
+.cloud-input { font: 700 18px/1.3 "Woodrail Icons", Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; background: #fffaf2; color: #2b2118; }
 .cloud-error { font-size: 14px; font-weight: 700; color: #a3361f; }
 .cloud-card .cloud-restore { align-self: flex-start; }
 .cloud-copy-field { position: fixed; left: -9999px; top: 0; opacity: 0; }
@@ -655,7 +712,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #3f8f4a; color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; text-align: center;
   /* One line, never wider than the item: it may cover the top of the picture, never more. */
   white-space: nowrap; max-width: calc(100% - 12px); overflow: hidden; box-sizing: border-box; }
-/* A long cost ("30🪵 10🪨 100🪙") spans the item's top, its type as small as its length needs (`costTagSize`, 11 to
+/* A long cost ("30\uE000 10🪨 100🪙") spans the item's top, its type as small as its length needs (`costTagSize`, 11 to
    7 px, set inline). */
 .tray-item .have.long { left: 2px; right: 2px; max-width: none; padding: 1px 3px; letter-spacing: -0.01em; }
 /* A long cost spans the item's top: no ★ over it. */
@@ -679,6 +736,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-card:has(.depot-extra.ledger) > .card-title { font-size: 20px; font-weight: 900; color: #3a2a1c; }
 .depot-card:has(.depot-extra.ledger) > .card-row { order: 2; }
 .depot-extra.ledger { order: 1; align-self: stretch; gap: 8px; width: min(340px, 84vw); max-height: min(62vh, 560px); text-align: left; color: #3a2a1c; }
+/* (Its two groups are one column upright: see the phone on its side for the two.) */
+.ledger-main, .ledger-side { display: contents; }
 .ledger-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ledger-level { padding: 2px 9px; border-radius: 999px; background: #d9ead2; color: #2d5a2a; font-size: 12px; font-weight: 900; }
 .ledger-growing { font-size: 13px; font-weight: 700; color: #6b5440; }
@@ -691,6 +750,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ledger-good.done .ledger-fill { background: #6aa84f; }
 .ledger-good.done .ledger-good-count { color: #3f7a2c; }
 .ledger-holding { margin: 0; padding: 8px 10px; border-radius: 10px; background: #fbe7cf; font-size: 13px; line-height: 1.4; font-weight: 800; color: #7a3d10; }
+/* What a town always buys (everyday food): a plain line, a quiet green. */
+.ledger-buys { margin: 0; font-size: 13px; line-height: 1.4; font-weight: 800; color: #3f7a2c; }
 .ledger-rows { display: flex; flex-direction: column; border-top: 1.5px solid #eadcc2; }
 .ledger-row { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0; border: none; border-bottom: 1.5px solid #eadcc2; background: none; font: inherit; font-size: 14px; font-weight: 800; color: #3a2a1c; text-align: left; }
 .ledger-row:last-child { border-bottom: none; }
@@ -730,10 +791,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-web { position: relative; }
 .bp-band { position: absolute; left: 0; right: 0; }
 .bp-band.alt { background: rgba(160, 106, 54, 0.06); }
-.bp-band + .bp-band { border-top: 1.5px solid rgba(167, 138, 102, 0.22); }
+.bp-band + .bp-band { box-shadow: inset 0 1.5px 0 rgba(167, 138, 102, 0.22); }
 /* A band's name: a painted tab in a strip of its own above its tags, kept in view as the web
    scrolls sideways (never over a tag: the board opens scrolled to the top of the picked tag's band). */
-.bp-band-label { position: sticky; left: 0; display: inline-flex; align-items: center; height: 24px; margin: 3px 0 0 8px; padding: 0 10px 0 8px; border-left: 4px solid var(--c, #b8a68c); border-radius: 0 8px 8px 0; background: #fff8ea; font-size: 12px; font-weight: 900; line-height: 1; color: #3a2a1c; white-space: nowrap; z-index: 3; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.18), 0 2px 6px rgba(60, 40, 20, 0.08); }
+.bp-band-label { position: sticky; left: 0; display: inline-flex; align-items: center; height: 24px; margin: 10px 0 0 8px; padding: 0 10px 0 8px; border-left: 4px solid var(--c, #b8a68c); border-radius: 0 8px 8px 0; background: #fff8ea; font-size: 12px; font-weight: 900; line-height: 1; color: #3a2a1c; white-space: nowrap; z-index: 3; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.18), 0 2px 6px rgba(60, 40, 20, 0.08); }
 .bp-links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 /* Links, quiet to loud: future (dotted, no arrow), laid (learned to learned: solid, soft), open (learned into one you can
    research: solid, an arrow), lit (the selected tag's path: blue). */
@@ -742,8 +803,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-link.laid { stroke-width: 3; opacity: 0.45; }
 .bp-link.open { stroke-width: 2.5; opacity: 0.9; }
 .bp-link.lit { stroke: #2f6db5 !important; stroke-dasharray: none; stroke-width: 3; opacity: 1; }
-.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 46px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 7px; align-items: center; padding: 5px 8px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: transform 0.15s; }
-.bp-node:focus-visible, .bp-hints:focus-visible { outline: 3px solid #2f6fb5; outline-offset: 2px; }
+.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 48px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 7px; align-items: center; padding: 5px 8px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: transform 0.15s; }
 .bp-node .bp-dot { grid-row: 1 / span 2; width: 20px; height: 20px; font-size: 12px; }
 .bp-node .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
 .bp-node .bp-tag { justify-self: start; margin-top: 2px; }
@@ -768,7 +828,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-node.ready { background: #fffdf6; border-color: #e0c48c; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.2), 0 3px 8px rgba(60, 40, 20, 0.1); }
 /* Under way: a blue tag, a blue ring round the card, and its progress along the bottom (as the top bar's pill). */
 .researching .bp-dot { background: #2f6db5; box-shadow: 0 0 0 2px #1f4f8a; }
-.bp-node.researching { background: #f1f6fd; border-color: #2f6db5; box-shadow: 0 0 0 1.5px #2f6db5, 0 3px 8px rgba(47, 109, 181, 0.18); padding-bottom: 8px; }
+.bp-node.researching { background: #f1f6fd; border-color: #2f6db5; box-shadow: 0 0 0 1.5px #2f6db5, 0 3px 8px rgba(47, 109, 181, 0.18); }
 .bp-node-gauge { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: #d6e3f4; }
 .bp-node-gauge::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; transition: width 0.4s ease-out; }
 .next .bp-dot { background: #fffaf0; box-shadow: 0 0 0 2px #2f6db5; }
@@ -786,7 +846,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-legend-box summary::-webkit-details-marker { display: none; }
 .bp-legend-box .bp-legend { position: absolute; right: 0; top: 44px; z-index: 5; width: 240px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 6px 18px rgba(60, 40, 20, 0.25); }
 /* Phones: each branch a list of tags in two columns (see BlueprintBoard.narrow); the panel is the one thing that scrolls. */
-.bp-list-band { display: flex; flex-direction: column; gap: 6px; }
+.bp-list-band { display: flex; flex-direction: column; gap: 10px; }
+/* (The same room above a band's name as below it, plus the panel's gap between bands.) */
+.bp-list-band + .bp-list-band { margin-top: 10px; }
 .bp-list-band .bp-band-label { position: static; align-self: flex-start; margin: 0; }
 .bp-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bp-list .bp-node { position: relative; width: auto; }
@@ -830,7 +892,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-tag.now, .bp-tag.next { color: #1f4f8a; background: #dde9f8; }
 .bp-tag.now { color: #fff; background: #2f6db5; }
 .bp-tag.goal { align-self: center; color: #5a3d06; background: #ffd88a; }
-/* A research card's cost: a chip a good ("🪵 6/10"), the coins red while short, and its study time. */
+/* A research card's cost: a chip a good ("\uE000 6/10"), the coins red while short, and its study time. */
 .bp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .bp-chip { padding: 2px 8px; border-radius: 9px; background: #f1e1c2; font-size: 13px; font-weight: 800; color: #5a3d22; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bp-chip.short { background: #f8d9cc; color: #a33a1a; }
@@ -933,14 +995,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .brand:has(.game-date:not([hidden])) .coins { padding: 1px 7px 1px 2px; }
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
 }
-/* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10🪵"); tap for the picker. */
+/* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10\uE000"); tap for the picker. */
 .research-pill { position: relative; overflow: hidden; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
 .research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
 .research-pill .rp-line { display: flex; flex: 0 100 auto; align-items: center; gap: 4px; min-width: 0; }
 .research-pill .rp-icon { flex: none; font-size: 16px; line-height: 1; }
 .research-pill .rp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* The count: every good the research needs ("🪵0/6 🌾0/6"). Where they don't all fit, `fitPill` shortens it to the
+/* The count: every good the research needs ("\uE0000/6 🌾0/6"). Where they don't all fit, `fitPill` shortens it to the
    goods still lacking, then to the one most lacking and "+1" (it's measured against this room: the name gives way first). */
 .research-pill .rp-count { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; font-variant-numeric: tabular-nums; color: #1f4f8a; }
 .research-pill .rp-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; }
@@ -989,7 +1051,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .research-pill .rp-name { grid-area: name; }
   .research-pill .rp-count { grid-area: count; }
 }
-/* At 360 px the pill has about 76 px: the book gives way so the count stays whole (QA: "13/14🪵" lost its log); the
+/* At 360 px the pill has about 76 px: the book gives way so the count stays whole (QA: "13/14\uE000" lost its log); the
    pill's place, its bar and its colours say what it is. */
 @media (max-width: 370px) {
   .research-pill .rp-text { grid-template-columns: minmax(0, max-content); grid-template-areas: "name" "count"; }
@@ -997,11 +1059,20 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 
 /* Tooltips for the HUD's controls (see ui/tooltip.ts). */
-.tooltip { position: fixed; left: 0; top: 0; z-index: 100; max-width: 240px; padding: 5px 10px; border-radius: 9px; background: #3a2a1c; color: #fbf3e4; font: 700 13px/1.3 Nunito, system-ui, sans-serif; box-shadow: 0 4px 14px rgba(30, 20, 10, 0.3); pointer-events: none; }
+.tooltip { position: fixed; left: 0; top: 0; z-index: 100; max-width: 240px; padding: 5px 10px; border-radius: 9px; background: #3a2a1c; color: #fbf3e4; font: 700 13px/1.3 "Woodrail Icons", Nunito, system-ui, sans-serif; box-shadow: 0 4px 14px rgba(30, 20, 10, 0.3); pointer-events: none; }
 /* A tray item's details (hover, or a long press): its name, what it does, and (hover) how to use it. */
 .tooltip.details { max-width: 260px; padding: 7px 11px; }
 .tooltip .tip-name { font-weight: 800; font-size: 14px; }
 .tooltip .tip-detail { font-weight: 600; }
+.tooltip .tip-lock { font-weight: 700; font-size: 12.5px; color: #f6d48a; margin-top: 3px; }
+/* A locked tray tile, tapped: a cream tag over it says how to unlock it, with a way into Research. */
+.lock-note { position: fixed; z-index: 34; max-width: min(300px, calc(100vw - 16px)); padding: 10px 12px 12px; border-radius: 14px; background: #faf3e6; color: #3a2a1c; box-shadow: inset 0 1px 0 #fff8, 0 10px 34px rgba(60, 40, 20, 0.3); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.lock-note[hidden] { display: none; }
+.lock-note::after { content: ""; position: absolute; bottom: -7px; left: calc(var(--notch, 50%) - 8px); width: 16px; height: 16px; background: #faf3e6; transform: rotate(45deg); border-radius: 0 0 4px 0; }
+.lock-note.in { animation: card-in 0.24s cubic-bezier(0.3, 1.4, 0.5, 1); transform-origin: var(--notch, 50%) 100%; }
+.lock-note-name { font-size: 15px; font-weight: 800; }
+.lock-note-how { font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #5e4128; text-wrap: pretty; }
+.lock-note-go { margin-top: 6px; align-self: stretch; min-height: 44px; }
 .tooltip .tip-use { font-weight: 600; font-size: 12px; opacity: 0.7; margin-top: 3px; }
 .engine-extra { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .engine-extra-label { font-weight: 700; opacity: 0.75; font-size: 0.9em; }
@@ -1017,6 +1088,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops::-webkit-scrollbar { display: none; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
+/* The ▶ come to this stop while the card is open (the train heads here now): a short pop, so the move is seen. */
+.route-chip.next.moved { animation: next-moved 0.7s ease-out; }
+@keyframes next-moved { 0% { transform: scale(1); box-shadow: 0 0 0 0 var(--line, #888); } 35% { transform: scale(1.12); box-shadow: 0 0 0 4px var(--line, #888); } 100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .route-chip.next.moved { animation: none; outline: 2px solid var(--line, #888); outline-offset: 1px; } }
 /* A stop's plan under its name: what it picks up (⬆) and drops (⬇), icons only (a tap on the stop says it in words). */
 .route-chip.has-goods { display: inline-block; text-align: left; white-space: nowrap; height: auto; min-height: 44px; line-height: 1.2; padding-block: 4px; }
 .route-goods { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; }
@@ -1251,3 +1326,13 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
   /* (Loops shown for a while: the Re-rail nudge and Show me's ring stand still, coloured as they are.) */
   .chip.attention, .goals-show-icon.nudge { animation: none; }
 }
+
+/* The place card (hud.ts showPlaceCard): a tray item's name, what it does and what sets it apart, above the tray over
+   the item while it's ready to place. Never takes a pointer: the map under it still takes the drop. */
+.place-card { position: fixed; z-index: 34; max-width: min(280px, calc(100vw - 16px)); padding: 9px 12px 10px; border-radius: 14px; background: #faf3e6; color: #3a2a1c; box-shadow: inset 0 1px 0 #fff8, 0 10px 30px rgba(60, 40, 20, 0.28); pointer-events: none; display: flex; flex-direction: column; gap: 2px; animation: card-in 0.2s cubic-bezier(0.3, 1.4, 0.5, 1); transform-origin: 50% 100%; }
+.place-card[hidden] { display: none; }
+.place-card .pc-name { font-size: 15px; font-weight: 800; }
+.place-card .pc-what { font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #5e4128; text-wrap: pretty; }
+.place-card .pc-fact { font-size: 13px; font-weight: 700; line-height: 1.3; color: #74522f; }
+.place-card .pc-fact:first-of-type { margin-top: 3px; }
+@media (prefers-reduced-motion: reduce) { .place-card { animation: none; } }

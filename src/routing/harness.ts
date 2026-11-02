@@ -18,7 +18,7 @@ import { connectorRef, type Layout, type SignalStyle } from "../track";
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
-import { aimOf, passVias, resetVias, skipVias, type ViaProgress } from "./via";
+import { aimOf, passVias, ranOnto, resetVias, skipVias, type ViaProgress } from "./via";
 import { INVARIANTS, Invariants, type Invariant, type InvariantWorld } from "../sim/invariants";
 
 export { INVARIANTS, type Invariant };
@@ -76,6 +76,8 @@ export interface Report {
   held: number[];
   /** Per train (in `trains` order): stops come to, turn-backs, the longest stand-still (s). */
   arrivals: number[];
+  /** Per train: whether it runs a route (has stops); a hand-run one comes to no stop, it shuttles end to end. */
+  routed: boolean[];
   /** Of those, the ones made with the engine not leading (pushing its cars). */
   pushed: number[];
   turns: Turns[];
@@ -216,6 +218,7 @@ export class HarnessRun implements InvariantWorld {
       name: scenario.name,
       broke: this.checks.broke,
       arrivals: this.specs.map(() => 0),
+      routed: this.specs.map((t) => !!t.stops),
       pushed: this.specs.map(() => 0),
       turns: this.specs.map(() => ({ buffer: 0, "open-end": 0 })),
       longestStill: this.specs.map(() => 0),
@@ -317,6 +320,9 @@ export class HarnessRun implements InvariantWorld {
     // (Path signals read the router's locks, as the economy wires them.)
     const router = this.router;
     sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
+    // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
+    const sections = this.sections;
+    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion() };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
       routeWait: (engine) => this.router.waitingOn(engine),
@@ -359,7 +365,13 @@ export class HarnessRun implements InvariantWorld {
     let i = r.next % r.stops.length;
     if (r.at) {
       const here = r.stops[i];
-      for (let k = 0; k < r.stops.length && r.stops[i] === here; k++) i = (i + 1) % r.stops.length;
+      const train = this.sim.findCar(engine)?.train;
+      // (And past any it has run onto already, between its front and this one, as the economy's.)
+      for (let k = 0; k < r.stops.length; k++) {
+        const p = r.stops[i];
+        if (p !== here && (!train || !this.layout.getPiece(p) || !ranOnto(train.bogies, drive(train), here, p))) break;
+        i = (i + 1) % r.stops.length;
+      }
     }
     return this.aim(r, i, skip);
   }
@@ -377,7 +389,7 @@ export class HarnessRun implements InvariantWorld {
     return !("refused" in r);
   }
 
-  /** Train `k` put away (the card's Put away): off the track and its line. */
+  /** Train `k` put away (its card's Remove, or picked up): off the track and its line. */
   putAway(k: number): void {
     const engine = this.engines[k];
     const t = engine === undefined ? undefined : this.sim.findCar(engine)?.train;
@@ -385,7 +397,7 @@ export class HarnessRun implements InvariantWorld {
     this.sim.removeTrain(t.id);
     this.routes.delete(engine);
     this.lineOf.delete(engine);
-    // (As the game's Put away: `economy.prune()`.)
+    // (As the game's Remove: `economy.prune()`.)
     this.sections.prune(new Set(this.lineOf.keys()));
     this.stalls.prune();
   }

@@ -6,9 +6,9 @@ import { describe as describeGoods, total, type Bag } from "../economy/goods";
 import { HarbourTrade } from "../game/harbours";
 import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, shopSpare, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
-import { GOALS, GoalTracker } from "../game/goals";
+import { GOALS, GoalTracker, payGoal } from "../game/goals";
 import { StickerTracker } from "../game/stickers";
-import { plotPrice } from "../game/towns";
+import { FOODS, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
@@ -24,7 +24,7 @@ import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
 import { buildStarterWorld, plotsForSale, unlockPlot, haltTown, haltWhy, INDUSTRY_ROLE, syncIndustries, type World, fixedPieces } from "../game/world";
-import { FEAT_FIELD, FEAT_TREE, isWater, looseHeight, type SiteRole } from "../landscape";
+import { FEAT_FIELD, FEAT_TREE, isWater, looseHeight, PLOT_DEPTH, PLOT_WIDTH, type SiteRole } from "../landscape";
 import { gamePayment, nearestRuin, restoreRuin } from "../game/restore";
 import { restorePrice, restoredType } from "../game/map-sites";
 import { LandEditor } from "../landscape/edit";
@@ -199,7 +199,6 @@ export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
   "open-mine": "Mines wants 20 stone delivered, 10 more at the school and the Goods engine, which this one goods train brings only at about minute 195; the mine stands at about 220: the long part's (GOALS_LONG=1)",
   "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 412: the long part's (GOALS_LONG=1)",
   "join-all": "the player joins Ashcombe and Brambleton once the mine is open (the goals' order), past this part's minutes: the long part's (GOALS_LONG=1)",
-  "buy-land": "the player buys land once every town is joined (the goals' order: more land, more towns), past this part's minutes: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
 export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {};
@@ -693,6 +692,8 @@ class Player {
       }
       this.stuckSeconds += this.w.economy.stalls.count;
       for (const g of this.goals.update(this.w, { learned: this.progress.learned, owned: this.progress.owned, orders: this.progress.orders })) {
+        // (Its coins, if it pays any, as main's checkGoals pays them.)
+        payGoal(this.progress, g);
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
       }
@@ -1486,6 +1487,12 @@ describe("the harness's footprints", () => {
   });
 });
 
+describe("signals and the goals (signals spec §11 step 6)", () => {
+  it("no goal waits for Signals: trains pass at a loop with none", () => {
+    for (const g of GOALS) expect(g.needs ?? [], g.id).not.toContain("signals");
+  });
+});
+
 describe("the goals guard", () => {
   it("names a goal neither met nor allowed, and an allowance for a goal met or gone", () => {
     const goals = [
@@ -1518,6 +1525,10 @@ describe("the goals guard", () => {
  * check below fails on one that no longer breaks).
  */
 const GOALS_KNOWN_BREAKS: Partial<Record<Invariant, string>> = {};
+/** The long part's own (it plays on past the fast part's minutes): the fast part's and these. */
+const GOALS_LONG_KNOWN_BREAKS: Partial<Record<Invariant, string>> = {
+  ...GOALS_KNOWN_BREAKS,
+};
 
 /** The invariants' breaks not in `known`, and the known ones that didn't break (both should be empty). */
 export function invariantsAgainst(checks: Invariants, known: Partial<Record<Invariant, string>>): { unknown: string[]; fixed: string[] } {
@@ -1545,8 +1556,8 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   if (missed.length > 0 || stale.length > 0 || ENV.BALANCE_GOALS_LOG) P.report();
   expect(missed, "goals neither met nor allowed").toEqual([]);
   // The train invariants held, but those known on main.
-  const inv = invariantsAgainst(P.p.checks!, GOALS_KNOWN_BREAKS);
-  expect(inv.unknown, "invariants broken, and not known (GOALS_KNOWN_BREAKS)").toEqual([]);
+  const inv = invariantsAgainst(P.p.checks!, part === "long" ? GOALS_LONG_KNOWN_BREAKS : GOALS_KNOWN_BREAKS);
+  expect(inv.unknown, "invariants broken, and not known (GOALS_KNOWN_BREAKS, GOALS_LONG_KNOWN_BREAKS)").toEqual([]);
   expect(inv.fixed, "known breaks that no longer break (take them off GOALS_KNOWN_BREAKS)").toEqual([]);
   expect(stale, "allowed but met (take them off the part's list), or not goals").toEqual([]);
   // The old farm, restored (its Restore, paid for), not a new farm yard; its grain made, and carried to the mill.
@@ -1561,6 +1572,10 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   expect(w.layout.getPiece(P.quarry)?.type, "the quarry on the map").toBe("depot-quarry");
   expect(w.economy.made[CARGO.stone.index], "stone cut").toBeGreaterThan(0);
   expect(P.p.progress.counts.get("delivered:stone") ?? 0, "stone delivered to a town").toBeGreaterThan(0);
+  // Signals are for players who want them (signals spec §2, §11 step 6): no goal is met by one, and the goals player
+  // never places one (no mark, no old signal piece) yet meets its goals.
+  expect(w.layout.signalCount, "signal marks placed by the goals player").toBe(0);
+  expect([...w.layout.pieceIds()].filter((id) => getPieceDef(w.layout.getPiece(id)!.type, false).signal), "signal pieces laid by the goals player").toEqual([]);
   // Stickers on the player's path (they're optional: not every one is met here; earned stays earned, so the long part
   // has these too). Measured: 4 of 10 by minute 175, about 6 µs a check.
   expect(P.p.stickers.ids(), "stickers earned by playing").toEqual(expect.arrayContaining(["track-layer", "first-city", "two-cities", "busy-loads"]));
@@ -1607,9 +1622,9 @@ describe.skipIf(RUN || !GOALS_LONG)("the long goals play-through (GOALS_LONG=1)"
     expect(P.firsts["land bought"], "a plot bought").toBeDefined();
     expect(P.p.goals.isDone("buy-land"), "Buy some land ticked").toBe(true);
     // Every town on the railway, joined to Larkfield's station.
-    // (Those the map had when "Connect every town" was met: the plot bought after brings its own, not joined.)
-    const had = w.landscape.towns.slice(0, P.townsBeforeLand < 0 ? undefined : P.townsBeforeLand);
-    expect(townsOnLine(P.p).filter((i) => i < had.length).map((i) => w.landscape.towns[i].name), "every town joined").toEqual(had.map((t) => t.name));
+    // (The plot's town too: "Buy some land" comes before "Connect every town", so its town is one to join.)
+    const had = w.landscape.towns;
+    expect(townsOnLine(P.p).map((i) => w.landscape.towns[i].name), "every town joined").toEqual(had.map((t) => t.name));
     // The harbour, built (or an old one restored) by the sea, on the line: Harbours researched, the stone of its price
     // brought to the workshop by train (the cranes' own unloads: no pile written to), and a boat trading there.
     expect(P.p.learnedAt.find((b) => b.id === "harbours")?.how, "Harbours researched").toBe("researched");
@@ -1850,11 +1865,11 @@ class Playthrough {
     // (Where the longest stall began, for the summary.)
     if (sawn === this.sawn && Math.round(P.minute - this.sawnAt) > this.stall) this.stallFrom = `${this.sawnAt.toFixed(0)}, ${this.trains.size} train(s), ${Math.max(0, 2 * lineOrder(P).length - 2)} stops`;
     // A train of the player's stuck (stalls.ts: nothing turns a train back now, routing §16 Q3), its card saying so and
-    // "Put one away": looked at once a minute, the player does, the newest first (as for a jam, below).
+    // "Move one of them": looked at once a minute, the player does, the newest first (as for a jam, below).
     const stuck = [...this.trains.keys()].find((e) => w.economy.stalls.stuckOf(e));
     // (The card says "Add a passing loop here" (two lines' trains, or one on no line, with no loop to meet at): the
     // player lays one on the line, as for a second train (`spliceLoop`), once the switches can be made, rather than
-    // picking a train up. Still stuck with a loop there, the card says "Put one away", and the player does, below.)
+    // picking a train up. Still stuck with a loop there, the card says "Move one of them", and the player does, below.)
     const fix = stuck === undefined ? null : w.economy.stalls.stuckOf(stuck);
     let laidFor = false;
     const owed = this.loopOwed && P.minute - this.stuckLoopTry >= 3;
@@ -2030,7 +2045,10 @@ class Playthrough {
       // workshop's yard and Smithy was never picked); the rest in the blueprints' order, as before. Not what asks a good
       // of a chain the line has (ranked so, Diesel was picked on 8 of 9 seeds and on 4 still waited on its 8 flour at
       // minute 180), nor what such a one needs (Warehouses, College): either way fewer were researched by 180.)
-      const rank = (id: string) => (goodsUnlocked(id).some((k) => !made.has(k)) ? 0 : 1);
+      // (Everyday food (`FOODS`: the dairy chain, the orchard) doesn't count: towns buy it, but no town needs it to grow
+      // and no study asks for it, so it stays with the rest, in the blueprints' order. Ranked first, Dairy farm took
+      // Junctions' place at minute 166 on seeds 2027 and 1, one fewer researched by 180.)
+      const rank = (id: string) => (goodsUnlocked(id).some((k) => !made.has(k) && !FOODS.has(k)) ? 0 : 1);
       const rest = idle ? [...others].sort((a, b) => rank(a) - rank(b)) : others;
       const order = [...new Set([...toward, ...wished, ...(rich || idle ? rest : [])])];
       // (A filler, picked only as nothing wanted was left, gives way once a wanted one opens (a chain's or a wish's): the
@@ -2482,7 +2500,7 @@ class Playthrough {
           this.extraAt = P.minute;
           P.note(`another train (engine, 2 flatbeds) on the line: ${trainsOn(w.economy, this.lineId).length} now`);
         }
-      } else this.why ||= `another train for the line (engine 6🪵 + 2 flatbeds 6🪵; have ${P.planks()} planks)`;
+      } else this.why ||= `another train for the line (engine 6\uE000 + 2 flatbeds 6\uE000; have ${P.planks()} planks)`;
     }
     // A second goods train on a long line (P5 (h), only with BALANCE_SECOND_GOODS: see `SECOND_GOODS_STOPS`): one
     // train hauls only so much a pass round 15 stops or more, and the research and the towns wait on it. As the game
@@ -2663,26 +2681,24 @@ class Playthrough {
 
   /** A plot bought (the goal "Buy some land"). */
   boughtLand = false;
-  /** The towns the map had before (the land bought brings more: not joined). */
-  townsBeforeLand = -1;
   /**
-   * The goals play-through only, once every town is joined (the goals' order: more land, more towns to join): the
-   * plot for sale nearest the start bought, its price paid, as the land card's "Add this land" does (`unlockPlot`,
+   * The goals play-through only, once "Buy some land" is the goal (the goals' order: after three towns are joined):
+   * the plot its Show me frames bought (the one for sale nearest the line), its price paid, as the land card's "Add this land" does (`unlockPlot`,
    * as `Game.unlockPlot`). (Not in the balance run: its SUMMARY lines stay as they were.)
    */
   buyLand(): void {
     const P = this.p;
-    if (!this.goalsFirst || this.boughtLand || !P.goals.isDone("join-all")) return;
+    if (!this.goalsFirst || this.boughtLand || P.goals.current()?.id !== "buy-land") return;
     const price = plotPrice(P.w.landscape.grid.plots.length);
     if (P.progress.coins < price) return;
-    const plot = plotsForSale(P.w.landscape).sort((a, b) => Math.hypot(a.px + 0.5, a.pz + 0.5) - Math.hypot(b.px + 0.5, b.pz + 0.5))[0];
-    const before = P.w.landscape.towns.length;
+    // The plot its Show me frames (the one for sale nearest the line), as a player taps it.
+    const at = GOALS.find((g) => g.id === "buy-land")!.guide(P.w).points[0];
+    const near = (q: { px: number; pz: number }) => (at ? Math.hypot((q.px + 0.5) * PLOT_WIDTH - at.x, (q.pz + 0.5) * PLOT_DEPTH - at.z) : Math.hypot(q.px + 0.5, q.pz + 0.5));
+    const plot = plotsForSale(P.w.landscape).sort((a, b) => near(a) - near(b))[0];
     if (!plot || !unlockPlot(P.w, plot.px, plot.pz)) return;
     P.progress.coins -= price;
     P.fixed = fixedPieces(P.w);
     this.boughtLand = true;
-    // (Every plot for sale has a town: the new ones aren't joined, "Connect every town" was met before and stays.)
-    this.townsBeforeLand = before;
     this.firsts["land bought"] = Math.round(P.minute);
     P.note(`bought the plot ${plot.px},${plot.pz} for ${price} coins`);
   }
@@ -3076,7 +3092,7 @@ class Playthrough {
 
   /**
    * Room for the mine's goods: once the mine stands on the line and another stop takes its coal or ore (the harbour,
-   * or the school while Foundry wants coal), the player sets the stop the train calls at just before the mine to pick
+   * or the school while Foundry wants coal), the player sets the stop with goods the train calls at last before the mine to pick
    * up only on its other visit (`onlyNearestPickup`, the engine card's stops, as `unstick` does), so the hoppers reach
    * the mine with room. Done once; kept when the line is laid out again (`routeGoods`). (The goals play-through: the
    * mine is a line end with the quarry beside it, and the hoppers left the quarry for the mine full of stone each lap.
@@ -3100,8 +3116,15 @@ class Playthrough {
     });
     if (!takes) return;
     this.mineRoom = true;
+    // (The nearest stop before the mine that gives goods: towns between give none. With "Buy some land" before
+    // "Connect every town", the goals play-through's line has a town just before the mine, so the quarry is further.)
     const n = line.stops.length;
-    const before = w.economy.depot(line.stops[(at - 1 + n) % n].depotId);
+    let before: ReturnType<typeof w.economy.depot>;
+    // (The goals play-through only: the balance run keeps the stop just before, so its SUMMARY lines stay as they were.)
+    for (let k = 1; k < (this.goalsFirst ? n : 2) && !before; k++) {
+      const d = w.economy.depot(line.stops[(at - k + n) % n].depotId);
+      if (d && d.id !== mine.id && RECIPES[d.role].gives.some((g) => !ore.includes(g))) before = d;
+    }
     const goods = (before ? RECIPES[before.role].gives : []).filter((k) => !ore.includes(k) && !this.nearestPickup.has(k));
     if (goods.length === 0) return;
     for (const k of goods) this.nearestPickup.add(k);

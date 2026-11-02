@@ -16,3 +16,5 @@ dist-artifact/
 /*.png
 .trajectory/
 .fuzz-long/
+dist-itch/
+woodrail-itch.zip

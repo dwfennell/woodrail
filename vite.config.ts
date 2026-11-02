@@ -27,6 +27,10 @@ export default defineConfig(({ command }) => ({
     // The update check is for the deployed site: the artifact build (scripts/artifact-build.mjs) turns it off.
     __UPDATE_CHECK__: updateCheckOn() ? "true" : "false",
   },
+  build: {
+    // The icon font is its own file, never a data: URL (an artifact's page may not allow data: fonts).
+    assetsInlineLimit: (file: string) => (file.endsWith(".woff2") ? false : undefined),
+  },
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],

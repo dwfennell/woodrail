@@ -172,12 +172,12 @@ await shot("03-ready-card");
 // 4. Research Switches with one tap, then Bridges up next.
 await tap(".board-sheet button[data-act=pick]", "Research");
 t = await ticket();
-check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /🪵 0\/3/.test(t.foot) && /bring 3🪵 to/.test(t.foot), JSON.stringify(t));
-check("the pill shows it", (await pill()) === "📘 Switches 🪵0/3", String(await pill()));
+check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /\uE000 0\/3/.test(t.foot) && /bring 3\uE000 to/.test(t.foot), JSON.stringify(t));
+check("the pill shows it", (await pill()) === "📘 Switches \uE0000/3", String(await pill()));
 await shot("04-picked-research");
 await select("Bridges and ramps");
 t = await ticket();
-check("a ready card while one is under way: one button, Add to queue", t?.state === "ready" && t.buttons.length === 1 && t.buttons[0].text === "Add to queue" && /🪵 0\/10/.test(t.foot) && /20 s study/.test(t.foot), JSON.stringify(t));
+check("a ready card while one is under way: one button, Add to queue", t?.state === "ready" && t.buttons.length === 1 && t.buttons[0].text === "Add to queue" && /\uE000 0\/10/.test(t.foot) && /20 s study/.test(t.foot), JSON.stringify(t));
 // The queue (#14), by taps: Bridges, then Farming, lined up behind Switches.
 await tap(".board-sheet button[data-act=pick]", "Add to queue");
 t = await ticket();
@@ -222,7 +222,7 @@ await shot("06-pill-before-delivery");
 await deliver(2);
 await p.waitForTimeout(300);
 const after = await pill();
-check("a delivery moves the pill", before === "📘 Switches 🪵0/3" && after === "📘 Switches 🪵2/3", `${before} → ${after}`);
+check("a delivery moves the pill", before === "📘 Switches \uE0000/3" && after === "📘 Switches \uE0002/3", `${before} → ${after}`);
 await shot("07-pill-after-delivery");
 await deliver(1);
 await p.waitForTimeout(1300);
@@ -232,7 +232,7 @@ await shot("08-pill-studying");
 // Learned (20 s), and Bridges starts from the queue by itself; Farming moves up to Next up.
 await p.waitForFunction(() => window.woodrail.progress().learned.has("switches"), null, { timeout: 60000 });
 await p.waitForTimeout(600);
-check("Switches learned, Bridges started by itself from the queue", (await pill()) === "📘 Bridges 🪵0/10", String(await pill()));
+check("Switches learned, Bridges started by itself from the queue", (await pill()) === "📘 Bridges \uE0000/10", String(await pill()));
 check("…Farming moved up to Next up, the pill +1", JSON.stringify(await queued()) === JSON.stringify(["bridges", "farming"]) && (await pillMore()) === "+1", JSON.stringify([await queued(), await pillMore()]));
 // …and the school now takes Bridges' planks (the payoff: goods go to the one that started).
 const taken = await p.evaluate(() => {
@@ -276,9 +276,9 @@ for (const state of ["locked", "soon"]) {
   await shot(`09-card-${state}`);
 }
 check("learned: Learned, no button", states.learned?.state === "learned" && states.learned.buttons.length === 0, JSON.stringify(states.learned));
-check("researching: live progress, no button", states.researching?.state === "researching" && /🪵 1\/10/.test(states.researching.foot) && states.researching.buttons.length === 0, JSON.stringify(states.researching));
+check("researching: live progress, no button", states.researching?.state === "researching" && /\uE000 1\/10/.test(states.researching.foot) && states.researching.buttons.length === 0, JSON.stringify(states.researching));
 check("next: after Bridges, its coins chip short, Remove and Research now", states.next?.state === "next" && /Next up, after Bridges · 40🪙 short/.test(states.next.foot) && /🪙 40/.test(states.next.foot) && states.next.buttons.map((x) => x.text).join("|") === "✕ Remove|Research now", JSON.stringify(states.next));
-check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /🪵 0\/4/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
+check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /\uE000 0\/4/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
 check("locked: what it waits for", states.locked?.state === "locked" && states.locked.buttons.length === 0, JSON.stringify(states.locked));
 check("soon: coming soon", states.soon?.state === "soon" && states.soon.buttons.length === 0, JSON.stringify(states.soon));
 // 6b. A tap on a card says what it unlocks and everything it costs, in words (#11), fitting a 360 px phone: the
@@ -308,13 +308,13 @@ const learnedWords = await words("Switches");
 await shot("09b-card-words-360");
 await p.setViewportSize({ width: 390, height: 844 });
 await p.waitForTimeout(400);
-// Every chip's amount appears in the cost line, its good named: "🪵 0/5" → "5 🪵 planks"; "🪙 40" → "40 🪙 coins".
+// Every chip's amount appears in the cost line, its good named: "\uE000 0/5" → "5 \uE000 planks"; "🪙 40" → "40 🪙 coins".
 const chipsInWords = (w) => !!w && w.chips.length > 0 && w.chips.every((c) => {
   const m = c.text.match(/^(\S+) (?:\d+\/)?(\d+)$/);
   return m && w.cost.includes(`${m[2]} ${m[1]} `) && c.title.length > 0;
 });
-check("tap Train routes: it says what it unlocks, and its full cost (goods and coins) in words", /^Unlocks: Routes on the engine card/.test(routesWords?.unlocks ?? "") && /^Costs: \d+ 🪵 planks, 40 🪙 coins$/.test(routesWords?.cost ?? "") && chipsInWords(routesWords), JSON.stringify(routesWords));
-check("tap Bridges (under way): unlocks named, every good it needs in the cost line", /^Unlocks: \S/.test(bridgesWords?.unlocks ?? "") && /^Costs: 10 🪵 planks/.test(bridgesWords?.cost ?? "") && chipsInWords(bridgesWords), JSON.stringify(bridgesWords));
+check("tap Train routes: it says what it unlocks, and its full cost (goods and coins) in words", /^Unlocks: Routes on the engine card/.test(routesWords?.unlocks ?? "") && /^Costs: \d+ \uE000 planks, 40 🪙 coins$/.test(routesWords?.cost ?? "") && chipsInWords(routesWords), JSON.stringify(routesWords));
+check("tap Bridges (under way): unlocks named, every good it needs in the cost line", /^Unlocks: \S/.test(bridgesWords?.unlocks ?? "") && /^Costs: 10 \uE000 planks/.test(bridgesWords?.cost ?? "") && chipsInWords(bridgesWords), JSON.stringify(bridgesWords));
 check("a learned card names what it unlocked, and no cost", /^Unlocks: Switch, Y switch/.test(learnedWords?.unlocks ?? "") && learnedWords.cost === undefined, JSON.stringify(learnedWords));
 check("the tag's tooltip says the same (hover on desktop)", routesWords?.title === `Train routes. Unlocks: Routes on the engine card. ${routesWords?.cost}`, String(routesWords?.title));
 check("…and the ticket fits a 360 px phone, nothing sideways", routesWords?.fits && bridgesWords?.fits && learnedWords?.fits, JSON.stringify([routesWords?.fits, bridgesWords?.fits, learnedWords?.fits]));

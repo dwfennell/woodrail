@@ -374,6 +374,42 @@ export class Editor {
     return this.run({ do: () => void this.layout.turnSignal(id), undo: () => void this.layout.turnSignal(id), signals: true });
   }
 
+  /** Move a signal mark to another joint end, as one undo step (it keeps its id, style and hold). False if it can't go there. */
+  moveSignal(id: number, at: number): boolean {
+    const m = this.layout.getSignal(id);
+    if (!m || m.at === at || this.layout.joinedConnector(at) === -1 || this.layout.signalAt(at)) return false;
+    const from = m.at;
+    const move = (to: number) => {
+      const now = this.layout.getSignal(id)!;
+      this.layout.removeSignal(id);
+      this.layout.addSignal(to, now.style, now.held, id);
+    };
+    return this.run({ do: () => move(at), undo: () => move(from), signals: true });
+  }
+
+  /** Put signal marks on several joint ends at once (a drag along the track with the Signal tool), as one undo step. */
+  addSignals(ats: readonly number[], style: SignalStyle = "plain"): number[] {
+    const ok = ats.filter((at, i) => ats.indexOf(at) === i && this.layout.joinedConnector(at) !== -1 && !this.layout.signalAt(at));
+    if (ok.length === 0) return [];
+    let ids: number[] = [];
+    this.run({
+      do: () => void (ids = ok.map((at, i) => this.layout.addSignal(at, style, false, ids.length === ok.length ? ids[i] : undefined))),
+      undo: () => {
+        for (const id of ids) this.layout.removeSignal(id);
+      },
+      signals: true,
+    });
+    return ids;
+  }
+
+  /** Give a signal mark another style (plain, semaphore, colour light), as one undo step. */
+  setSignalStyle(id: number, style: SignalStyle): boolean {
+    const m = this.layout.getSignal(id);
+    if (!m || m.style === style) return false;
+    const was = m.style;
+    return this.run({ do: () => this.layout.setSignalStyle(id, style), undo: () => this.layout.setSignalStyle(id, was), signals: true });
+  }
+
   /** Take up a piece. False if there's none, or it may not be taken up now (see `run`). */
   remove(id: number): boolean {
     const rec = this.record(id);

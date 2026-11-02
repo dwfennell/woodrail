@@ -19,7 +19,15 @@ export type TrayItem =
   /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
   | { kind: "road"; piece: RoadPieceId; label: string; auto?: boolean; unlearned?: "hide" }
   /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
-  | { kind: "tool"; tool: LandTool; label: string };
+  | { kind: "tool"; tool: LandTool; label: string }
+  /**
+   * A signal (signals spec §4): dragged onto laid track it goes on a joint, facing the way the finger moved; tapped,
+   * it's ready (the Signal tool): each tap on the track then puts one on the nearest joint.
+   */
+  | { kind: "signal"; label: string };
+
+/** The Signal (a mark on a joint, not a piece: the old signal pieces and their skins are no longer offered). */
+export const SIGNAL_ITEM: TrayItem = { kind: "signal", label: "Signal" };
 
 /** Land-editing tools: move the map's scenery (trees, fields, the shed), or raise or lower a square a block. */
 export type LandTool = "move" | "raise" | "lower";
@@ -76,6 +84,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Flatbed wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
+  // (Game mode's once Dairy farm is learned.)
+  { kind: "train", cars: ["tanker"], label: "Milk tank wagon", unlearned: "hide" },
   // (Game mode's once Scenery kit is learned.)
   { kind: "train", cars: ["cleaner"], label: "Track cleaner", unlearned: "hide" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
@@ -100,7 +110,7 @@ const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i
 export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
-  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45", "signal") },
+  { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45"), SIGNAL_ITEM] },
   { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
@@ -111,7 +121,7 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   // ready-made set picks the cars for the player.
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2), modes: ["sandbox"] },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "cleaner")) },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
@@ -152,6 +162,9 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-forest", label: "Harvester" },
       { kind: "piece", type: "depot-farm", label: "Farm yard" },
       { kind: "piece", type: "depot-mill", label: "Mill" },
+      { kind: "piece", type: "depot-dairy", label: "Dairy farm" },
+      { kind: "piece", type: "depot-bakery", label: "Bakery" },
+      { kind: "piece", type: "depot-orchard", label: "Orchard" },
       { kind: "piece", type: "depot-quarry", label: "Quarry" },
       { kind: "piece", type: "depot-mine", label: "Mine" },
       { kind: "piece", type: "depot-foundry", label: "Foundry" },
@@ -177,9 +190,7 @@ export const GAME_TRACK_KITS: TrayGroup = {
   label: "Railway kit",
   modes: ["game"],
   items: [
-    kit("kit-semaphore-signal", "Semaphore"),
-    kit("kit-colour-light-signal", "Colour light"),
-    kit("kit-signal-gantry", "Signal gantry"),
+    // (The signal skins are a Signal's styles now, on its card: signals spec §4, §9.)
     kit("kit-turntable", "Turntable"),
     kit("kit-transfer-table", "Transfer table"),
     kit("kit-train-lift", "Train lift"),
@@ -267,6 +278,8 @@ export interface TrayTab {
   favourites?: boolean;
   /** In Game mode, shown only once this blueprint is learned (the Roads tab: Roads). */
   gameTech?: string;
+  /** Game mode's tabs: its picture, shown in place of the word only when the tabs don't fit beside the tools (a 360 px phone). */
+  icon?: string;
 }
 
 const BOTH: readonly GameMode[] = ["sandbox", "game"];
@@ -274,12 +287,12 @@ const SANDBOX: readonly GameMode[] = ["sandbox"];
 const GAME: readonly GameMode[] = ["game"];
 
 export const TRAY_TABS: TrayTab[] = [
-  { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS, GAME_TRACK_KITS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
-  { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
-  { id: "industries", label: "Industries", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
+  { id: "track", label: "Track", icon: "🛤️", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS, GAME_TRACK_KITS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
+  { id: "trains", label: "Trains", icon: "🚂", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
+  { id: "industries", label: "Industries", icon: "🏭", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
   // (Game mode's once Roads is learned: spec 2026-10-31-roads.md. Its zebra, bridge and ramps wait for their blueprints.)
-  { id: "roads", label: "Roads", modes: BOTH, groups: ROAD_GROUPS, orient: "turn", gameTech: "roads" },
+  { id: "roads", label: "Roads", icon: "🛣️", modes: BOTH, groups: ROAD_GROUPS, orient: "turn", gameTech: "roads" },
   // Opening the Land tab switches land editing on; the tools act on the land itself.
   {
     id: "land",
@@ -332,6 +345,7 @@ export function shelfItem(asset: string, label: string): TrayItem {
 export function trayKey(item: TrayItem): string {
   if (item.kind === "piece") return `piece:${item.type}${item.auto ? ":auto" : ""}`;
   if (item.kind === "tool") return `tool:${item.tool}`;
+  if (item.kind === "signal") return "signal";
   if (item.kind === "road") return `road:${item.auto ? "auto" : item.piece}`;
   return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
 }

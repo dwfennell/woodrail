@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 
@@ -93,8 +94,8 @@ const menu = (p, label) =>
   }, label);
 const tap = (p, label) =>
   p.evaluate((label) => {
-    const c = [...document.querySelectorAll(".cloud-card button")].find((b) => b.textContent.trim() === label);
-    if (!c) throw new Error(`no ${label} on the card: ${document.querySelector(".cloud-card")?.textContent}`);
+    const c = [...document.querySelectorAll(".cloud-card:not(.stats-card) button")].find((b) => b.textContent.trim() === label);
+    if (!c) throw new Error(`no ${label} on the card: ${document.querySelector(".cloud-card:not(.stats-card)")?.textContent}`);
     c.click();
   }, label);
 const seed = (p) => p.evaluate(() => window.woodrail.landscape.seed);
@@ -103,7 +104,8 @@ const autosaved = (p) => p.waitForFunction(() => (localStorage.getItem("woodrail
     console.log("autosave:", await p.evaluate(() => ({ seed: window.woodrail.landscape.seed, title: window.woodrail.title.shown, mode: window.woodrail.mode(), head: (localStorage.getItem("woodrail.autosave.v3") ?? "").slice(0, 80) })));
     throw e;
   });
-const card = (p) => p.evaluate(() => document.querySelector(".cloud-card")?.textContent ?? "");
+// (The cloud card, not the play-stats card, which wears its look: `card cloud-card stats-card`.)
+const card = (p) => p.evaluate(() => document.querySelector(".cloud-card:not(.stats-card)")?.textContent ?? "");
 const remote = async (code, mode = "sandbox") => {
   const res = await fetch(`${WORKER}/v1/saves/${mode}`, { method: "HEAD", headers: { "X-Woodrail-Code": code } });
   return { status: res.status, savedAt: Number(res.headers.get("X-Saved-At")), size: Number(res.headers.get("Content-Length")) };
@@ -307,6 +309,51 @@ try {
     const res = await fetch(`${WORKER}/v1/saves/game`, { method: "HEAD", headers: { "X-Woodrail-Code": code2 } });
     return { savedAt: Number(res.headers.get("X-Saved-At")), layoutAt: Number(res.headers.get("X-Layout-At")), layoutStoredAt: Number(res.headers.get("X-Layout-Stored-At")) };
   };
+  /**
+   * Till neither page has anything waiting to go up: each one's upload round, now (as its minute timer would), and
+   * whatever it then plays on (a merge may start it again on the other's later copy, with its own to send again).
+   */
+  const waitingToSend = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("woodrail.cloud.v1")).modes.game.dirty).catch(() => true);
+  const quiesce = async () => {
+    for (let i = 0; i < 6; i++) {
+      const waiting = [];
+      for (const p of [c, d]) {
+        await inMode(p, "game");
+        if (await waitingToSend(p)) waiting.push(p);
+      }
+      if (waiting.length === 0) return;
+      for (const p of waiting) {
+        await pastLimit();
+        const was = await remote2();
+        await p.evaluate(() => dispatchEvent(new Event("online"))).catch(() => {});
+        await landed2(was);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+    throw new Error("the pages never stopped having something to send");
+  };
+  /** The coins in the cloud's copy of the game (its bundle: gzipped JSON of the mode's storage keys). */
+  const cloudCoins2 = async () => {
+    const res = await fetch(`${WORKER}/v1/saves/game`, { headers: { "X-Woodrail-Code": code2 } });
+    if (!res.ok) return null;
+    const bundle = JSON.parse(gunzipSync(Buffer.from(await res.arrayBuffer())).toString());
+    return JSON.parse(bundle.keys["woodrail.game.progress.v1"] ?? "{}").coins ?? null;
+  };
+  /**
+   * Started again, on the cloud's copy. The game waits on its start-up check of the cloud for 3 s past loading, then
+   * cuts it off and leaves the cloud's copy for its next upload round, which a page with nothing of its own to send
+   * hasn't got (QA 2026-11-01: C, reloaded, kept 375 coins where the cloud had 405). Headless, where a frame takes
+   * seconds, the check is cut off now and then: the page is started again, as a player opening it again would.
+   */
+  const restart = async (p) => {
+    for (let i = 0; i < 4; i++) {
+      await p.reload();
+      await inMode(p, "game");
+      const m = await p.evaluate(() => JSON.parse(localStorage.getItem("woodrail.cloud.v1")).modes.game);
+      if (m.dirty || m.remoteSavedAt === (await remote2()).savedAt) return;
+      console.log(`  (${p === c ? "C" : "D"}'s start-up check was cut off: started again)`);
+    }
+  };
   const landed2 = async (was) => {
     let r = await remote2();
     for (let i = 0; i < 60 && r.savedAt === was.savedAt; i++) {
@@ -324,14 +371,35 @@ try {
   // (The 5 s save sees the progress changed: an edit, of the progress kind.)
   await c.waitForFunction((n) => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).coins === n, earned, { timeout: 15000 });
   await c.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
-  const g1 = await landed2(g0);
-  await d.reload();
-  await inMode(d, "game");
+  // (Landed: the cloud's copy has C's coins, not just any new copy. C's own minute timer may have sent a copy of its
+  // progress just before (the forest's logs cut), and then the Worker turns the one sent as the page hid away as too soon
+  // (429, 10 s between uploads): C keeps it and sends it on its next round, prompted here as being back online does.
+  // QA 2026-11-01: it failed every run, D reloading onto C's earlier copy, without the coins.)
+  let g1 = await landed2(g0);
+  for (let i = 0; i < 6 && (await cloudCoins2()) !== earned; i++) {
+    await pastLimit();
+    await c.evaluate(() => dispatchEvent(new Event("online")));
+    g1 = await landed2(g1);
+  }
+  await restart(d);
   check(
     "Game mode: coins earned on one device (trains running, no layout edit) go up, and the other takes them",
     g1.savedAt > g0.savedAt && g1.layoutAt === g0.layoutAt && (await coins(d)) === earned,
     `cloud ${g0.savedAt} → ${g1.savedAt} (layout at ${g0.layoutAt} → ${g1.layoutAt}); C ${earned}; D ${await coins(d)}`,
   );
+
+  // From here both games are paused (a setup shortcut, not what's tested: the steps below make the earnings and send
+  // each upload themselves). Running, a new game's forest cuts logs (its `counts`: a progress edit every 15 s or so),
+  // so each page also sends its progress on its own minute timer, and one that then finds the other's later copy
+  // starts again on it (by design). At a moment of its own, that cut a step off (QA 2026-11-01: `progress` of
+  // undefined, D reloading in the middle of step 8). Then what either still has to send goes now.
+  for (const p of [c, d]) {
+    await inMode(p, "game");
+    await p.evaluate(() => (window.woodrail.paused = true));
+  }
+  // (Kept by the 5 s save, so a copy one takes from the other is paused too.)
+  await new Promise((r) => setTimeout(r, 6000));
+  await quiesce();
 
   // 7b. C earns more (not sent yet); D lays a piece of track, sent as its page hides. C's next upload finds D's layout
   // edit: it outranks C's progress, though C's came later. C takes D's railway (starting again on it, and saying so,
@@ -376,6 +444,9 @@ try {
   // 8. Both earn (progress only, on both): merged, nothing lost, nothing said. Then one learns a blueprint while the
   // other earns: both keep both.
   await tap(c, "Done");
+  // (The toast keeps its words when it goes: cleared on D, so "no toast" below reads only what's said from here, not a
+  // note from 7b, where D's layout copy can meet C's progress going up just then and say so.)
+  await d.evaluate(() => (document.querySelector(".toast").textContent = ""));
   const syncedCoins = await coins(c);
   const earnOn = async (p, n) => {
     const want = await p.evaluate((n) => (window.woodrail.progress().coins += n), n);
@@ -384,13 +455,21 @@ try {
   };
   /**
    * A page's next upload round, now (as its timer would, in a minute: the cloud's copy checked first, and merged), and
-   * whatever it then plays on (a merge may reload it onto the later railway) is in play.
+   * whatever it then plays on (a merge may reload it onto the later railway) is in play. A merge that took the other's
+   * later copy starts the page again on it, with the merged copy still to go up, and sends nothing that round: that
+   * copy goes in a second round, now too (its timer would send it in a minute).
    */
   const hideAndSettle = async (p, was) => {
-    await p.evaluate(() => dispatchEvent(new Event("online")));
-    const r = await landed2(was);
-    await new Promise((res) => setTimeout(res, 3000));
-    await inMode(p, "game");
+    let r = was;
+    for (let i = 0; i < 3; i++) {
+      await inMode(p, "game");
+      await p.evaluate(() => dispatchEvent(new Event("online")));
+      r = await landed2(was);
+      await new Promise((res) => setTimeout(res, 3000));
+      await inMode(p, "game");
+      if (r.savedAt !== was.savedAt || !(await waitingToSend(p))) break;
+      await pastLimit();
+    }
     return r;
   };
   const g4 = await remote2();
@@ -400,8 +479,7 @@ try {
   const g5 = await hideAndSettle(c, g4);
   await pastLimit();
   const g6 = await hideAndSettle(d, g5);
-  await c.reload();
-  await inMode(c, "game");
+  await restart(c);
   const both = { c: await coins(c), d: await coins(d), toasts: await d.evaluate(() => document.querySelector(".toast")?.textContent ?? "") };
   check(
     "Game mode: both earn; after each syncs and reloads, both have the sum (and no toast)",
@@ -420,8 +498,7 @@ try {
   const g7 = await hideAndSettle(c, g6);
   await pastLimit();
   await hideAndSettle(d, g7);
-  await c.reload();
-  await inMode(c, "game");
+  await restart(c);
   const kept = await Promise.all([c, d].map((p) => p.evaluate((id) => ({ learned: window.woodrail.progress().learned.has(id), coins: window.woodrail.progress().coins }), learnt)));
   check(
     "Game mode: one learns a blueprint while the other earns: both keep both",
@@ -445,8 +522,7 @@ try {
   const g9 = await hideAndSettle(c, g8);
   await pastLimit();
   await hideAndSettle(d, g9);
-  await c.reload();
-  await inMode(c, "game");
+  await restart(c);
   const offers = { c: await offersFor(c), d: await offersFor(d) };
   check("Game mode: one town's growth seen on both devices is one reward offer, not two (QA)", offers.c === 1 && offers.d === 1, JSON.stringify(offers));
 
@@ -457,8 +533,7 @@ try {
   await c.waitForFunction(() => JSON.parse(localStorage.getItem("woodrail.game.progress.v1")).offers.some((o) => o.from === "Testbury" && o.level === 3), null, { timeout: 15000 });
   const g11 = await hideAndSettle(c, await remote2());
   // (D, with nothing of its own to send, picks the cloud's copy up when it starts.)
-  await d.reload();
-  await inMode(d, "game");
+  await restart(d);
   const before = { c: await coins(c), d: await coins(d), offer: (await city(c)) && (await city(d)) };
   const take = (p) =>
     p.evaluate(async () => {
@@ -473,8 +548,7 @@ try {
   const g12 = await hideAndSettle(c, g11);
   await pastLimit();
   await hideAndSettle(d, g12);
-  await c.reload();
-  await inMode(c, "game");
+  await restart(c);
   const after = { c: await coins(c), d: await coins(d), offer: (await city(c)) || (await city(d)) };
   check(
     "Game mode: a reward taken on both devices pays once (QA: 0 → 400)",

@@ -21,7 +21,7 @@ export interface Station {
   seen: "shown" | "hint" | "unseen";
   /** Blueprints to learn first. */
   needs: string[];
-  /** What researching it takes, in a few words ("10🪵 20🪙"), or "free". */
+  /** What researching it takes, in a few words ("10\uE000 20🪙"), or "free". */
   price: string;
   /** Everything it costs, in words with the icons ("6 🌾 grain, 40 🪙 coins"): see `costWords`. */
   cost: string;
@@ -81,8 +81,15 @@ export const HINT_W = 44;
 const COL_W = 176;
 const ROW_H = 60;
 const BAND_PAD = 8;
-/** Each band's name sits in a strip above its tags (sticky as the web scrolls), never over them. */
-const BAND_HEAD = 30;
+/**
+ * Each band's name sits in a strip above its tags (sticky as the web scrolls), never over them: 10 px above its 24 px
+ * tag and 10 px below it, in every band.
+ */
+const BAND_HEAD = 44;
+/** A tag's height (CSS `.bp-node` min-height): arrows meet tags, and "?"s, at its middle. */
+export const TAG_H = 48;
+/** Where a tag of this width sits in its column's slot: a "?" is centred both ways in the slot of the tag it stands for. */
+export const slotInset = (w: number) => ({ x: (TAG_W - w) / 2, y: (TAG_H - Math.min(w, TAG_H)) / 2 });
 const LEFT = 14;
 /**
  * Lay out the web: each blueprint one column right of its furthest prerequisite (among those drawn), each branch a band
@@ -153,8 +160,10 @@ export function layoutWeb(stations: readonly Station[], branches: readonly strin
 export interface WebLink {
   from: string;
   to: string;
-  /** The width of the tag it leaves (a "?" is narrower). */
+  /** The width of the tag it leaves (a "?" is narrower, centred in its slot). */
   fromW: number;
+  /** The width of the tag it goes to (TAG_W if not given). */
+  toW?: number;
 }
 
 /**
@@ -164,7 +173,7 @@ export interface WebLink {
  * end's), not through them. Pure, worked out once per redraw of the web.
  */
 export function routeLinks(web: WebLayout, links: readonly WebLink[]): string[] {
-  const MID = 22;
+  const MID = TAG_H / 2;
   const colOf = (x: number) => Math.round((x - LEFT) / COL_W);
   // The tags in each column, by their top (for "is this row clear").
   const cols = new Map<number, number[]>();
@@ -203,12 +212,12 @@ export function routeLinks(web: WebLayout, links: readonly WebLink[]): string[] 
   };
   return plan.map(({ l, a, b, y0, turns }) => {
     // The corners: out along the start's row, then for each turn across to its lane and down (or up) to its row.
-    const pts: [number, number][] = [[a.x + l.fromW, y0]];
+    const pts: [number, number][] = [[a.x + slotInset(l.fromW).x + l.fromW, y0]];
     for (const t of turns) {
       const x = laneX(t.gap, l.from);
       pts.push([x, pts[pts.length - 1][1]], [x, t.y]);
     }
-    pts.push([b.x - 2, pts[pts.length - 1][1]]);
+    pts.push([b.x + slotInset(l.toW ?? TAG_W).x - 2, pts[pts.length - 1][1]]);
     return rounded(pts);
   });
 }
@@ -255,7 +264,7 @@ const STATE_WORDS: Record<CardState, string> = { learned: "learned", researching
 export const tagTitle = (s: Pick<Station, "label" | "unlocks" | "cost">): string => `${s.label}.${s.unlocks ? ` Unlocks: ${s.unlocks}.` : ""} Costs: ${s.cost}`;
 
 /**
- * A research card's foot: its goods as chips ("🪵 6/10", the coins red while short) and its study time, a bar for the
+ * A research card's foot: its goods as chips ("\uE000 6/10", the coins red while short) and its study time, a bar for the
  * one under way, how it stands, and its one button (Research, Add to queue; in the queue Remove and Research now, the swap), 44 px tall.
  */
 export function researchFoot(id: string, r: ResearchCardView, goal: boolean): string {
@@ -441,7 +450,7 @@ export class BlueprintBoard {
         // A dotted line across several columns only tangles the web: the ticket names what a card needs.
         if (kind === "future" && !lit && web.at.get(s.id)!.x - web.at.get(n)!.x > 1.5 * COL_W) continue;
         const cls = `bp-link ${kind}${lit ? " lit" : ""}${fresh.has(n) && kind !== "future" ? " fresh" : ""}`;
-        links.push({ from: n, to: s.id, fromW: hintOf(from) ? HINT_W : TAG_W, cls, color: color.get(from.branch) ?? "#b8a68c" });
+        links.push({ from: n, to: s.id, fromW: hintOf(from) ? HINT_W : TAG_W, toW: hintOf(s) ? HINT_W : TAG_W, cls, color: color.get(from.branch) ?? "#b8a68c" });
       }
     }
     // Future lines first, then laid, open and lit on top.
@@ -463,7 +472,9 @@ export class BlueprintBoard {
       const hint = hintOf(s);
       const tag = hint ? "" : (NODE_TAG[s.state]?.(s) ?? "");
       const cls = `bp-node ${hint ? "hint" : s.state}${s.id === this.selected ? " selected" : ""}${fresh.has(s.id) ? " fresh" : ""}${opened.has(s.id) && !hint ? " opened" : ""}`;
-      const at = p ? `left:${p.x}px;top:${p.y}px;` : "";
+      // (A "?" centred in its slot, both ways.)
+      const inset = slotInset(hint ? HINT_W : TAG_W);
+      const at = p ? `left:${p.x + inset.x}px;top:${p.y + inset.y}px;` : "";
       const fill = s.state === "researching" && s.research?.fill !== undefined ? `--fill:${Math.round(s.research.fill * 100)}%;` : "";
       const gauge = s.state === "researching" && !hint ? `<span class="bp-node-gauge" aria-hidden="true"></span>` : "";
       const label = hint ? `Not found yet, in ${v.branches.find((b) => b.id === s.branch)?.label ?? "this branch"}` : `${s.label}, ${STATE_WORDS[s.state]}`;

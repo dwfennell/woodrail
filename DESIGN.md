@@ -124,13 +124,26 @@ Wood has a thickness: depth is an inset highlight on top (`inset 0 1px 0 #fff8`)
 
 Generous rounding: chips 13px, tiles 14px, cards 18px, panels 20px, pills for badges and counts. A toast is a paper luggage tag: 6px corners, a coloured left edge, a slight tilt.
 
+## Icons
+
+The game's icons are its own drawings, not the phone's emoji: one small SVG per icon in `src/icons/`, the source of truth, compiled into one colour font, `src/assets/woodrail-icons.woff2` ("Woodrail Icons", about 15 kB for every icon). Each drawing is named for the character it stands for (`u1FA99-coin.svg` draws 🪙), so the game's text keeps its emoji ("40🪙", "📘 Mills") and screen readers their words, and the font draws them on screen at the text's size, on its baseline, in any text: labels, costs, chips, cards, toasts, tooltips. No DOM per icon, no per-frame work. Planks have no emoji, so they're U+E000 (`GOODS_ICON.planks`, written `"\uE000"`).
+
+**Style:** a 24×24 viewBox; flat fills in the palette above (beech `#e3bf8c`/`#f6dfb4`/`#c9965a`, lacquer red, blue, yellow and green, ink `#3a2a1c` or a dark of the shape's own colour for outlines); an outline is a darker shape drawn under the shape, about 1.2 units wide; a light strip or two for the lit side; chunky shapes that still read at 14 px. `fill="currentColor"` takes the text's colour (the ✓ tick, ➕). No strokes, gradients, text or images: the compiler takes paths, rects (`rx`), circles, ellipses, polygons and `<g>` with `translate`/`rotate`/`scale`. A hole is an inner subpath wound the other way.
+
+**To add or change an icon:**
+1. Draw `src/icons/u<HEX>-<name>.svg` for the character it replaces (copy a neighbour for the palette and outline).
+2. Run `npm run icons` (`python3 scripts/icon-font.py`; needs `pip install fonttools brotli`). It rebuilds the font and writes the face's `unicode-range` in `src/style.css`.
+3. Check it at 14, 16 and 20 px on light and dark, beside its neighbours, and commit the SVG, the font and style.css together. `src/ui/icon-font.test.ts` fails if the range and the drawings differ.
+
+**Loading:** index.html preloads the font, its face is `font-display: block`, and main.ts asks for it at start, so an icon is never an empty box; were the font to fail, the phone's own emoji would show instead (planks alone would be a box). Where colour fonts aren't drawn, each icon is its silhouette in the text's colour.
+
 ## Components
 
 ### Buttons
 - **Chip:** beech gradient, 44px tall at least, 13px corners, 800 weight. Pressed: down 1px and 2% smaller. Disabled: 0.45 opacity; in the top bar it stays solid wood with its picture faded.
 - **Primary / on:** green lacquer gradient with dark green ink.
 - **Toggle:** a label and a pill switch; off is outlined, on is filled green with the knob right.
-- **Focus:** a 3px blue (`#2f6fb5`) outline, 2px clear of the button.
+- **Focus:** a 3px blue (`#2f6fb5`) outline drawn just inside the control (`outline-offset: -3px`), so a scrolling strip never clips it and it never laps a neighbour. Shown only while moving focus by Tab (`.kbd-nav` on the root, `src/ui/focus-ring.ts`), never after a click or tap, even when a key follows; a text box rings whenever it has focus.
 
 ### Cards / Containers
 Cream, 18px corners, 12–14px padding, a bold `✕` (18px/900, `#6a4a2c`) in a 44px corner target. Cards pop in (0.24s, slight overshoot).
@@ -141,11 +154,13 @@ Cream, 18px corners, 12–14px padding, a bold `✕` (18px/900, `#6a4a2c`) in a 
 
 ### Tray tiles
 84×90px cream tiles with the piece's picture, a two-line label, and corner badges: a green count, a brown "Locked", a gold ★ favourite. Ready: a green ring and a "ready" tag; carried: a blue ring and "placing".
+- **A locked tile, tapped:** a cream note over it (14px corners, a notch pointing at the tile): 🔒 and the name, how to unlock it in plain words, and a green **📘 Show in Research** (44px). Gone with a tap elsewhere. Hover says the same in the tooltip.
+- **Tabs on a narrow phone:** they always fit beside the tools, never scroll: tighter below 380px, then the tabs not open show only their picture, then all do (40×44px each).
 
 ### Research board
 A web of wooden tickets on squared paper, banded by subject, with a lacquer rail on each node's left. The picked node is lifted with a wood ring; its ticket sits under the web (upright) or beside it (a phone on its side).
-- **Bands:** each subject's name is a painted tab in a strip of its own above its tags (sticky sideways), never over a tag.
-- **Tags by state, one slot each:** learned, a green dot with a ✓; researching, a blue card ring, a blue "📘 Researching" tag and its progress as a 4px bar along the bottom (as the top bar's pill); next up, a blue-ringed dot and "Next up" / "In line: N"; can research, a yellow dot and its price on a gold pill; later, a flat card and its price outlined; soon, a dashed card and a dashed "Soon". A "?" (not found yet) is a 44px dashed circle; on a phone a band's "?"s are one "N more to find" chip.
+- **Bands:** each subject's name is a painted tab in a strip of its own above its tags (sticky sideways), never over a tag, with 10px above and below it in every band.
+- **Tags by state, one slot each:** learned, a green dot with a ✓; researching, a blue card ring, a blue "📘 Researching" tag and its progress as a 4px bar along the bottom (as the top bar's pill); next up, a blue-ringed dot and "Next up" / "In line: N"; can research, a yellow dot and its price on a gold pill; later, a flat card and its price outlined; soon, a dashed card and a dashed "Soon". A "?" (not found yet) is a 44px dashed circle, centred in the slot of the tag it stands for; on a phone a band's "?"s are one "N more to find" chip.
 - **Links, quiet to loud:** laid like track (straight, one rounded turn in the gap between columns, each card's links in a lane of their own, never through a card). Future: a faint dotted line, no arrow, and none across more than a column or between two "?"s. Learned to learned: soft solid. Learned into one you can research: solid with an arrow. The picked tag's path: blue.
 - **Ticket:** the name (18px/900), its line under it, then a label column (Unlocks, Needs, Opens, Costs), and the foot (goods, study, button) torn off along a dashed perforation.
 - **A research learned:** its ✓ is stamped on, a glint runs over the card, the track to what it opens is laid and those cards click up; once, on the open board or the next time it opens.
@@ -157,6 +172,7 @@ A web of wooden tickets on squared paper, banded by subject, with a lacquer rail
 - Use one-off CSS animations for wins (a coin flips, the goal chip rocks, a toast is stamped down), all off under `prefers-reduced-motion`.
 - Rebuild and animate only on change: the HUD costs nothing when nothing happens.
 - Write as you'd say it to a child: "Join two towns", "Show me", "Pick a reward".
+- Draw a new icon in `src/icons/` (see Icons) rather than reach for an emoji.
 
 ### Don't:
 - Don't use backdrop-filter, big blur filters, or animations that loop while the player isn't looking at them.

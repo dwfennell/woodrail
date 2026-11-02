@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 import { CARGO, Economy } from "../economy";
 import { Sim, SIM_DT } from "../sim";
 import { Layout } from "../track";
-import { DepotView } from "./depot-view";
+import { Editor } from "../editor/editor";
+import { planUpgrade, upgradeLand, UPGRADE_UNDO_REFUSED, type StationUpgrade, type UpgradePlan } from "../game/station-upgrade";
+import { buildStarterWorld, syncIndustries } from "../game/world";
+import { LandEditor } from "../landscape/edit";
+import { deserializeWorld, serializeWorld } from "../persist/save";
+import { DepotView, siteLayout } from "./depot-view";
 import { cullTiles, detailReach, viewReach } from "./dressing/tiles";
 import type { Materials } from "./materials";
 
@@ -166,4 +171,70 @@ describe("DepotView: a crane setting down a good its yard has a pile for or not 
       if (role === "workshop") expect(d.piles[CARGO[kind].index]).toBe(3);
     });
   }
+});
+
+describe("DepotView: a town's station upgraded in place keeps its goods crane (the station-upgrade follow-up)", () => {
+  for (const type of ["kit-two-platform-station", "kit-grand-terminus"] as StationUpgrade[]) {
+    it(`${type}: the crane on the kit's first platform at the same stop; only that station drawn again; saved and loaded; undo`, () => {
+      const w = buildStarterWorld(true);
+      syncIndustries(w, true);
+      const checker = new LandEditor(w.landscape, w.layout);
+      // (The drop rule stood in for by the land's, as in station-upgrade.test.ts: the game's full rule is in the e2e.)
+      const plan = w.landscape.towns.map((t) => planUpgrade(w, t.id, type, checker, () => null)).find((p): p is UpgradePlan => typeof p !== "string");
+      expect(plan).toBeDefined();
+      if (!plan) return;
+      const view = new DepotView(stubMaterials());
+      view.setWorld(w.economy, w.layout);
+      const depot = w.economy.depotAtPiece(plan.stationId)!;
+      const before = view.craneOf(depot.id)!;
+      expect(before.drawn).toBe("station");
+      expect(before.l).toBeGreaterThan(0);
+      const others = w.economy.allDepots().filter((d) => d !== depot).map((d) => [d.id, view.craneOf(d.id)?.trolley] as const);
+      const children = view.group.children.length;
+      expect(view.syncStations(w.economy, w.layout)).toBe(false);
+
+      // Upgraded, as the town card does it (`upgradeStation` in main.ts): the land, then the retype as one undo step.
+      const editor = new Editor(w.layout, w.sim, () => {}, (id) => id === plan.stationId);
+      const land = upgradeLand(w, plan);
+      land.do();
+      expect(editor.retype(plan.stationId, type, land, UPGRADE_UNDO_REFUSED)).toBe(true);
+      expect(view.syncStations(w.economy, w.layout)).toBe(true);
+      const after = view.craneOf(depot.id)!;
+      // The same crane at the same place along the track (wagons stop where they did), across the line on the kit's
+      // first platform, where its people wait.
+      expect(after.drawn).toBe(type);
+      expect(after.t).toBe(before.t);
+      expect(after.l).toBe(-before.l);
+      expect(before.trolley.parent).toBeNull();
+      expect(after.trolley.parent).toBe(view.group);
+      // No other site drawn again, and nothing left behind.
+      for (const [id, trolley] of others) expect(view.craneOf(id)?.trolley).toBe(trolley);
+      expect(view.group.children.length).toBe(children);
+      expect(view.syncStations(w.economy, w.layout)).toBe(false);
+
+      // Saved and loaded: drawn with its crane from the start.
+      const back = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+      expect(back.ok).toBe(true);
+      if (!back.ok) return;
+      const loaded = new DepotView(stubMaterials());
+      loaded.setWorld(back.value.economy, back.value.layout);
+      const again = loaded.craneOf(back.value.economy.depotAtPiece(plan.stationId)!.id)!;
+      expect([again.drawn, again.t, again.l]).toEqual([type, after.t, after.l]);
+
+      // Undo: the plain station's crane again, where it was.
+      expect(editor.undo()).toBe(true);
+      expect(view.syncStations(w.economy, w.layout)).toBe(true);
+      const undone = view.craneOf(depot.id)!;
+      expect([undone.drawn, undone.t, undone.l]).toEqual(["station", before.t, before.l]);
+      for (const [id, trolley] of others) expect(view.craneOf(id)?.trolley).toBe(trolley);
+      expect(view.group.children.length).toBe(children);
+    });
+  }
+
+  it("a big station built as one (a halt: passengers only) has no goods corner of its own here", () => {
+    expect(siteLayout("town", "kit-two-platform-station", false)).toBeNull();
+    expect(siteLayout("town", "kit-grand-terminus", false)).toBeNull();
+    expect(siteLayout("town", "kit-country-halt", true)).toBeNull();
+    expect(siteLayout("town", "kit-two-platform-station", true)).not.toBeNull();
+  });
 });

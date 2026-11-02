@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Medal</title>
+<polygon points="5,1.4 10.4,1.4 13.6,10 8.2,10" fill="#173a63"/>
+<polygon points="6.6,2.4 9.6,2.4 12,9 9,9" fill="#2f6fb5"/>
+<polygon points="19,1.4 13.6,1.4 10.4,10 15.8,10" fill="#6b2216"/>
+<polygon points="17.4,2.4 14.4,2.4 12,9 15,9" fill="#c8442f"/>
+<circle cx="12" cy="15.4" r="7.8" fill="#7a4f12"/>
+<circle cx="12" cy="15.4" r="6.6" fill="#f0b847"/>
+<polygon points="12,11.4 13.06,14.14 15.99,14.3 13.71,16.16 14.47,19 12,17.4 9.53,19 10.29,16.16 8.01,14.3 10.94,14.14" fill="#f3c766"/>
+</svg>

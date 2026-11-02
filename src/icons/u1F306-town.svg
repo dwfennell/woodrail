@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Town</title>
+<rect x="1" y="1.6" width="22" height="20.8" rx="3" fill="#3a2a1c"/>
+<rect x="2.2" y="2.8" width="19.6" height="18.4" rx="2" fill="#f0a35a"/>
+<rect x="2.2" y="2.8" width="19.6" height="6" rx="2" fill="#c86a8a"/>
+<circle cx="16.6" cy="11.4" r="3" fill="#f3c766"/>
+<rect x="3.6" y="12.6" width="4.4" height="8.6" fill="#4a3550"/>
+<rect x="8.8" y="9.6" width="4.6" height="11.6" fill="#5b4060"/>
+<rect x="14.4" y="13.6" width="6" height="7.6" fill="#4a3550"/>
+<rect x="4.6" y="14.4" width="1.2" height="1.2" fill="#f3c766"/>
+<rect x="10" y="11.6" width="1.2" height="1.2" fill="#f3c766"/>
+<rect x="11.6" y="14.6" width="1.2" height="1.2" fill="#f3c766"/>
+<rect x="16" y="15.6" width="1.2" height="1.2" fill="#f3c766"/>
+<rect x="18.2" y="18" width="1.2" height="1.2" fill="#f3c766"/>
+</svg>

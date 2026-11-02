@@ -1,9 +1,11 @@
 // End-to-end: what a train carries, on its cards (#9), in Game mode on a 360×740 phone with touch. A new game; track
 // from the first town's station to the forest yard; an engine and a flatbed on it, sent off with the engine card's Go.
 // Once the forest's crane has loaded logs onto the flatbed, a tap on the train opens its engine card: the summary says
-// "1 car · 40 km/h" and the logs on board, in two lines that fit the card at 360 px, its buttons 44 px or more; it
+// "1 car · steady" and the logs on board, in two lines that fit the card at 360 px, its buttons 44 px or more; it
 // follows the load as it changes, and is set only then (not per frame). A second tap, on the wagon, opens its card with
-// its load ("🌲 Logs: 3 of 3").
+// its load ("🪵 Logs: 3 of 3"). Empty: the engine card has Empty all beside the load; while the train moves the wagon
+// card's Empty is greyed ("Stop the train first") and a tap tips nothing out; stopped, the wagon card's Empty tips its logs out ("Tipped out 3 🪵"), the card
+// says "Empty" and the button goes.
 //
 // Usage: npm run e2e:train-summary [-- <out dir>]   (default out: e2e-out/train-summary)
 import { existsSync, mkdirSync } from "node:fs";
@@ -57,6 +59,34 @@ const carOnScreen = (id) =>
     const r = w.canvas.getBoundingClientRect();
     return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
   }, id);
+/**
+ * Where a finger's tap on car `id` is taken as that car, by the game's own touch pick (`Interaction.pick`, the tap's
+ * rules): the nearest such point to the car's middle, with the map (not a HUD chip or a card) under it, once the view
+ * has stopped. Null if none. (The car's middle alone isn't enough: from some views the forest yard's crane, or the goals
+ * chip, is over it, and the tap went there: the flaky wagon tap, QA 2026-11-01.) Only aims: the tap is the finger's.
+ */
+const tapPointOn = async (id) => {
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+  await settle();
+  return p.evaluate((id) => {
+    const w = window.woodrail;
+    const o = w.trainView.carObject(id);
+    if (!o) return null;
+    const v = o.getWorldPosition(new w.camera.position.constructor()).project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    const cx = r.left + ((v.x + 1) / 2) * r.width;
+    const cy = r.top + ((1 - v.y) / 2) * r.height;
+    const spots = [];
+    for (let dx = -36; dx <= 36; dx += 6) for (let dy = -36; dy <= 36; dy += 6) spots.push([cx + dx, cy + dy]);
+    spots.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+    for (const [x, y] of spots) {
+      if (x < 1 || y < 1 || x > innerWidth - 1 || y > innerHeight - 1 || document.elementFromPoint(x, y) !== w.canvas) continue;
+      const hit = w.interaction.pick(x, y, true);
+      if (hit?.kind === "car" && hit.carId === id) return { x, y };
+    }
+    return null;
+  }, id);
+};
 /** Glide to car `id`; `inRoom`: framed where the map shows past an open card, as the game frames what a card is for. */
 const lookAt = async (id, dist = 520, inRoom = false) => {
   // (A car new on the map gets its model on the next frame drawn.)
@@ -121,7 +151,7 @@ if (!setup.error) {
   await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
   check("a tap on the train opens its engine card", await p.evaluate(() => window.woodrail.hud.engineCardOpen));
   const before = await p.evaluate(() => ({ about: document.querySelector(".summary-about")?.textContent, load: document.querySelector(".summary-load")?.textContent }));
-  check("…its summary: one car, its speed, empty", before.about === "1 car · 40 km/h" && before.load === "Empty", JSON.stringify(before));
+  check("…its summary: one car, its speed, empty", before.about === "1 car · steady" && before.load === "Empty", JSON.stringify(before));
   await tapButton(".engine-card .chip.go");
   await p.waitForFunction((e) => window.woodrail.sim.findCar(e)?.train.speed > 0, engine, { timeout: 30000 }).catch(() => {});
   check("Go sends it off", await p.evaluate((e) => window.woodrail.sim.findCar(e)?.train.speed > 0, engine));
@@ -149,7 +179,7 @@ if (!setup.error) {
           break;
         }
         const c = w.economy.cargoOf(wagon);
-        const want = c.count > 0 ? `🌲 ${c.count}` : "Empty";
+        const want = c.count > 0 ? `🪵 ${c.count}` : "Empty";
         const got = document.querySelector(".summary-load").textContent;
         seen.add(got === want ? "ok" : `${got} != ${want}`);
         if (c.count >= 1) break;
@@ -179,7 +209,9 @@ if (!setup.error) {
       const w = window.woodrail;
       const c = w.economy.cargoOf(wagon);
       const s = document.querySelector(".engine-summary");
-      const lines = [...s.children].filter((e) => getComputedStyle(e).display !== "none");
+      // (Its two lines: what the train is, and its load, beside which Empty all stands while there's a load.)
+      const lines = [s.querySelector(".summary-about"), s.querySelector(".summary-load")].filter((e) => e && getComputedStyle(e).display !== "none");
+      const all = document.querySelector(".engine-card .empty-all");
       const box = document.querySelector(".engine-card").getBoundingClientRect();
       const buttons = [...document.querySelectorAll(".engine-card button")].filter((e) => getComputedStyle(e).display !== "none" && e.getBoundingClientRect().width > 0).map((e) => {
         const r = e.getBoundingClientRect();
@@ -192,8 +224,9 @@ if (!setup.error) {
         load: lines[1]?.textContent,
         lines: lines.length,
         clipped: lines.some((e) => e.scrollWidth > e.clientWidth + 1),
-        height: s.getBoundingClientRect().height,
+        height: Math.max(...lines.map((e) => e.getBoundingClientRect().height)),
         lineHeight: parseFloat(getComputedStyle(s).lineHeight),
+        emptyAll: !!all && !all.hidden,
         card: { left: box.left, right: box.right },
         small: buttons.filter((x) => x.w < 44 || x.h < 44),
       };
@@ -201,8 +234,9 @@ if (!setup.error) {
     { wagon },
   );
   check("the engine card opens on the loaded train", card.open);
-  check("the summary says the logs on board", card.about === "1 car · 40 km/h" && card.load === `🌲 ${card.count}`, JSON.stringify({ about: card.about, load: card.load, count: card.count }));
+  check("the summary says the logs on board", card.about === "1 car · steady" && card.load === `🪵 ${card.count}`, JSON.stringify({ about: card.about, load: card.load, count: card.count }));
   check("…in two lines at 360 px, neither cut short", card.lines === 2 && card.height <= 2 * card.lineHeight + 1 && !card.clipped, JSON.stringify(card));
+  check("…with Empty all beside the load", card.emptyAll, JSON.stringify(card));
   check("…the card inside the screen", card.card.left >= 0 && card.card.right <= 360, JSON.stringify(card.card));
   check("…its buttons 44 px or more", card.small.length === 0, JSON.stringify(card.small));
   await shot("1-engine-card-loaded");
@@ -219,19 +253,75 @@ if (!setup.error) {
   await p.waitForFunction((e) => Math.abs(window.woodrail.sim.findCar(e)?.train.speed ?? 1) < 1, engine, { timeout: 30000 }).catch(() => {});
   await lookAt(wagon, 420, true);
   await settle();
-  // (The first tap takes the train, its engine's card; the next, on the wagon, the wagon's own.)
-  at = await carOnScreen(wagon);
+  // (The first tap takes the train, its engine's card; the next, on the wagon, the wagon's own. Each aimed where the
+  // game's pick takes it as the wagon, after the view has stopped: a tap may move it.)
+  at = await tapPointOn(wagon);
   if (at) await p.touchscreen.tap(at.x, at.y);
   await p.waitForFunction(() => window.woodrail.hud.engineCardOpen || window.woodrail.hud.carCardOpen, null, { timeout: 20000 }).catch(() => {});
   await settle();
   await p.waitForTimeout(600);
-  at = await carOnScreen(wagon);
-  if (at && !(await p.evaluate(() => window.woodrail.hud.carCardOpen))) await p.touchscreen.tap(at.x, at.y);
+  if (!(await p.evaluate(() => window.woodrail.hud.carCardOpen))) {
+    at = await tapPointOn(wagon);
+    if (!at) {
+      // (Framed again above the card, if the first tap moved the view off it.)
+      await lookAt(wagon, 420, true);
+      at = await tapPointOn(wagon);
+    }
+    if (at) await p.touchscreen.tap(at.x, at.y);
+  }
   await p.waitForFunction(() => window.woodrail.hud.carCardOpen, null, { timeout: 20000 }).catch(() => {});
   await settle();
   const wagonCard = await p.evaluate((id) => ({ open: window.woodrail.hud.carCardOpen, text: document.querySelector(".car-load")?.textContent, count: window.woodrail.economy.cargoOf(id).count, room: window.woodrail.economy.wagonCapacity }), wagon);
-  check("a tap on the wagon opens its card, with its load", wagonCard.open && (wagonCard.count > 0 ? wagonCard.text === `🌲 Logs: ${wagonCard.count} of ${wagonCard.room}` : /^Empty/.test(wagonCard.text ?? "")), JSON.stringify(wagonCard));
+  check("a tap on the wagon opens its card, with its load", !!at && wagonCard.open && (wagonCard.count > 0 ? wagonCard.text === `🪵 Logs: ${wagonCard.count} of ${wagonCard.room}` : /^Empty/.test(wagonCard.text ?? "")), JSON.stringify({ ...wagonCard, at }));
   await shot("2-wagon-card");
+
+  // 8. Moving: the wagon card's Empty is greyed with why, and a tap on it tips nothing out. (The train is set going by
+  // its lever: a harness shortcut, as step 7's stop is; the wagon card has no Go. What's tested is the button.)
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), engine);
+  await p.waitForFunction((e) => window.woodrail.sim.findCar(e)?.train.speed > 0, engine, { timeout: 30000 }).catch(() => {});
+  await p.waitForFunction(() => document.querySelector(".car-card .empty-car")?.getAttribute("aria-disabled") === "true", null, { timeout: 5000 }).catch(() => {});
+  const greyed = await p.evaluate(
+    ({ engine, wagon }) => {
+      const b = document.querySelector(".car-card .empty-car");
+      return { open: window.woodrail.hud.carCardOpen, moving: window.woodrail.sim.findCar(engine)?.train.speed > 0, hidden: b?.hidden, disabled: b?.getAttribute("aria-disabled"), title: b?.title, count: window.woodrail.economy.cargoOf(wagon).count };
+    },
+    { engine, wagon },
+  );
+  check("moving: Empty greyed, \"Stop the train first\"", greyed.open && greyed.moving && !greyed.hidden && greyed.disabled === "true" && greyed.title === "Stop the train first", JSON.stringify(greyed));
+  await tapButton(".car-card .empty-car");
+  await p.waitForTimeout(300);
+  const kept = await p.evaluate((id) => window.woodrail.economy.cargoOf(id).count, wagon);
+  check("…a tap on it tips nothing out", kept === greyed.count && kept > 0, JSON.stringify({ kept, was: greyed.count }));
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 0), engine);
+  await p.waitForFunction((e) => Math.abs(window.woodrail.sim.findCar(e)?.train.speed ?? 1) < 1e-6, engine, { timeout: 30000 }).catch(() => {});
+  await p.waitForFunction(() => document.querySelector(".car-card .empty-car")?.getAttribute("aria-disabled") === null, null, { timeout: 5000 }).catch(() => {});
+
+  // 9. Stopped: the wagon card's Empty tips its logs out, thrown away. The card says "Empty", the button goes, a toast
+  // says what went.
+  const ready = await p.evaluate(() => {
+    const b = document.querySelector(".car-card .empty-car");
+    return { hidden: b?.hidden, disabled: b?.getAttribute("aria-disabled") ?? null };
+  });
+  check("stopped: the wagon card has Empty, not greyed", ready.hidden === false && ready.disabled === null, JSON.stringify(ready));
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.__toasts = [];
+    const toast = w.hud.toast.bind(w.hud);
+    w.hud.toast = (m, ...rest) => (w.__toasts.push(m), toast(m, ...rest));
+  });
+  const had = wagonCard.count;
+  await tapButton(".car-card .empty-car");
+  await p.waitForFunction((id) => window.woodrail.economy.cargoOf(id).count === 0, wagon, { timeout: 10000 }).catch(() => {});
+  await settle();
+  const emptied = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const b = document.querySelector(".car-card .empty-car");
+    return { count: w.economy.cargoOf(id).count, open: w.hud.carCardOpen, text: document.querySelector(".car-load")?.textContent, hidden: b?.hidden, toasts: w.__toasts };
+  }, wagon);
+  check("Empty tips the logs out", emptied.count === 0 && had > 0, JSON.stringify({ had, ...emptied }));
+  check("…the card says Empty, and Empty goes", emptied.open && /^Empty/.test(emptied.text ?? "") && emptied.hidden === true, JSON.stringify(emptied));
+  check("…a toast says what went", emptied.toasts.some((t) => t.startsWith(`Tipped out ${had} 🪵`)), JSON.stringify(emptied.toasts));
+  await shot("3-wagon-emptied");
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));

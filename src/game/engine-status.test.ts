@@ -198,8 +198,12 @@ describe("why a train with its lever on isn't moving", () => {
     sim.toggleSwitch(ids[2]);
     sim.setLever(engine, 1);
     run(sim, 5);
-    expect(trainState(sim, economy, train, 1)).toEqual({ kind: "red-signal", signalId: ids[2] });
+    expect(trainState(sim, economy, train, 1)).toMatchObject({ kind: "red-signal", signalId: ids[2] });
     expect(sim.redSignalAhead(train.id)).toBe(ids[2]);
+    // Held by hand (a tap): after STUCK_S standing there, its card says so, and how to let it go (signals spec §6).
+    run(sim, 6);
+    expect(trainState(sim, economy, train, 1)).toEqual({ kind: "red-signal", signalId: ids[2], holding: true });
+    expect(engineStatus(sim, economy, engine, () => "?")).toBe("Waiting at a signal you're holding. Tap it to let go");
     sim.toggleSwitch(ids[2]);
     run(sim, 1);
     expect(trainState(sim, economy, train, 1).kind).toBe("running");
@@ -318,9 +322,9 @@ describe("headOnTip", () => {
 
 describe("the full line's toast", () => {
   it("says what the line has room for, and what would run them all, short", () => {
-    expect(fullLineToast(2, 3, 1)).toBe("This line has room for 2 trains. Lay another passing loop, or put one away (on its card).");
-    expect(fullLineToast(1, 2, 1)).toBe("This line has room for 1 train. Lay a passing loop, or put one away (on its card).");
-    expect(fullLineToast(2, 4, 2)).toBe("This line has room for 2 trains. Lay 2 more passing loops, or put one away (on its card).");
+    expect(fullLineToast(2, 3, 1)).toBe("This line has room for 2 trains. Lay another passing loop, or take one off the track.");
+    expect(fullLineToast(1, 2, 1)).toBe("This line has room for 1 train. Lay a passing loop, or take one off the track.");
+    expect(fullLineToast(2, 4, 2)).toBe("This line has room for 2 trains. Lay 2 more passing loops, or take one off the track.");
     // (Three lines at most on a 360 px phone: the toast wraps at 328 px, some 33 characters a line.)
     for (const t of [fullLineToast(2, 3, 1), fullLineToast(9, 12, 3)]) expect(t.length).toBeLessThanOrEqual(96);
   });
@@ -425,7 +429,7 @@ describe("stuck for good (stalls.ts; routing §16 Q3: nothing turns a train back
       economy.tick();
     }
     const said = [red, blue].map((e) => engineStatus(sim, economy, e, () => "the stop"));
-    expect(said).toEqual(["Stuck: the train on the Blue line is in the way. Put one away", "Stuck: the train on the Red line is in the way. Put one away"]);
+    expect(said).toEqual(["Stuck: the train on the Blue line is in the way. Move one of them", "Stuck: the train on the Red line is in the way. Move one of them"]);
     for (const e of [red, blue]) expect(sim.findCar(e)!.train.lastTurn).toBeUndefined();
     // (Told once, for both.)
     expect(told).toEqual([[red, blue].sort((a, b) => a - b)]);

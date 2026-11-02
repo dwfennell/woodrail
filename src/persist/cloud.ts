@@ -151,6 +151,13 @@ export class CloudSync {
   private readonly newer = new Set<GameMode>();
   /** Past the start-up check's deadline: it no longer writes a cloud copy into storage (the game has read it). */
   private late = false;
+  /**
+   * A copy was taken while playing (`onTaken`): the page is starting again on it, and sends nothing more. The page that
+   * starts sends what's waiting (the merged copy). QA 2026-11-01: this one went on to send the merged copy as it went;
+   * landing after the new page's own round began, the cloud's copy wasn't known there as its own, and was merged with
+   * it again: the coins earned counted twice.
+   */
+  private reloading = false;
   private _status: CloudStatus;
   onStatus: (s: CloudStatus) => void = () => {};
   /** A mode's railway was changed elsewhere too while this one was played: theirs is kept as the backup. */
@@ -255,7 +262,7 @@ export class CloudSync {
       this.timer = null;
       this.due = Infinity;
     }
-    if (!this.meta.code) return;
+    if (!this.meta.code || this.reloading) return;
     const run = Promise.all(MODES.map((m) => this.upload(m, leaving))).then(() => {});
     this.flushing = run;
     await run;
@@ -462,7 +469,7 @@ export class CloudSync {
       this.sent[mode] = null;
       this.writeMeta();
       if (when === "before-put") {
-        if (later === "remote") this.onTaken(mode, null);
+        if (later === "remote") this.taken(mode, null);
         else this.onMerged(mode);
       }
       return null;
@@ -489,7 +496,7 @@ export class CloudSync {
       }
       this.writeMeta();
       const note: SyncNote = both ? "took-cloud" : null;
-      if (when === "before-put") this.onTaken(mode, note);
+      if (when === "before-put") this.taken(mode, note);
       return note;
     }
     // This device's wins (a layout edit over progress, or the later): the cloud's is kept aside (dated by when the cloud
@@ -509,7 +516,7 @@ export class CloudSync {
   private async upload(mode: GameMode, leaving: boolean): Promise<void> {
     const code = this.meta.code;
     const m = this.meta.modes[mode];
-    if (!code || !m.dirty || this.newer.has(mode) || this.busy.has(mode)) return;
+    if (!code || !m.dirty || this.newer.has(mode) || this.busy.has(mode) || this.reloading) return;
     this.busy.add(mode);
     try {
       let keys = this.readKeys(mode);
@@ -524,6 +531,8 @@ export class CloudSync {
       // over another device's, it's turned away, and settled at the next start.)
       if (!leaving) {
         const note = await this.reconcile(code, mode, "before-put");
+        // (Taken: the page starts again on it, and the merged copy goes from there.)
+        if (this.reloading) return;
         if (note === "wait") {
           this.arm();
           return;
@@ -581,8 +590,20 @@ export class CloudSync {
     return MODES.some((m) => this.meta.modes[m].dirty && !this.newer.has(m));
   }
 
+  /** A copy taken while playing: nothing more goes from this page (`reloading`), and the game starts again on it. */
+  private taken(mode: GameMode, note: SyncNote): void {
+    this.reloading = true;
+    if (this.timer !== null) {
+      this.o.clearTimer(this.timer);
+      this.timer = null;
+      this.due = Infinity;
+    }
+    this.onTaken(mode, note);
+  }
+
   /** The upload timer: 30 s after a layout edit, 60 s when there's only progress to send (a sooner one replaces it). */
   private arm(): void {
+    if (this.reloading) return;
     const layout = MODES.some((m) => this.meta.modes[m].dirty && this.meta.modes[m].layout);
     const ms = layout ? UPLOAD_EVERY_MS : PROGRESS_EVERY_MS;
     const due = this.o.now() + ms;
