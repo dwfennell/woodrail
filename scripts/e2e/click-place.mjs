@@ -101,6 +101,31 @@ const caught = async (p) => {
 /** The card's place and lines are right for a ready item named `name`. */
 const cardOk = (c, name) => !!c && c.name === name && c.text.length >= 2 && c.pointer === "none" && c.above && c.onScreen && c.hitsMap;
 const frames = (p) => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+/**
+ * Wait (60 s at most) for the page to go quiet: the game settled and no long task on the main thread for 1.5 s. Just
+ * after Sandbox opens, the tray's pictures are made in stalls of up to a few seconds (software GL): a touch's down and
+ * up handled either side of one is a long press by the clock, not a tap. A player's tap then is the same; the check is
+ * of the tap, so it waits for the page to be still first.
+ */
+const quiet = (p) =>
+  p.evaluate(async () => {
+    await Promise.race([window.woodrail.settled?.(), new Promise((r) => setTimeout(r, 30000))]);
+    await new Promise((res) => {
+      let last = performance.now();
+      const obs = new PerformanceObserver((l) => {
+        if (l.getEntries().length) last = performance.now();
+      });
+      obs.observe({ type: "longtask" });
+      const t0 = performance.now();
+      const look = () => {
+        if (performance.now() - last >= 1500 || performance.now() - t0 > 30000) {
+          obs.disconnect();
+          res();
+        } else setTimeout(look, 250);
+      };
+      setTimeout(look, 250);
+    });
+  });
 
 /** Points on open map: on the canvas, nothing there to pick, ground under it, in the middle of the view. */
 const openPoints = (p, avoid = []) =>
@@ -749,6 +774,8 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
 {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const p = await sandbox(ctx);
+  // (The tray's pictures made first: see `quiet`.)
+  await quiet(p);
   const item = await firstItem(p);
   await catchCard(p);
   await p.touchscreen.tap(item.x, item.y);
@@ -761,6 +788,7 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   // A long press (held 450 ms or more, by event time): its details, and no drag.
   const cdp = await ctx.newCDPSession(p);
   const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  await quiet(p);
   const t0 = Date.now() / 1000;
   const before = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, mode: window.woodrail.interaction.mode.kind }));
   await touch("touchStart", item.x, item.y, t0);
