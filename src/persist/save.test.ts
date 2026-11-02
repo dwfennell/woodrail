@@ -7,7 +7,7 @@ import { SIM_DT, SIM_HZ } from "../sim";
 import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, MIGRATES_FROM, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { Journal } from "../game/journal";
 import { editLine, lineOf } from "../game/lines";
-import { CARGO_KINDS } from "../economy";
+import { CARGO_KINDS, storeListed, storeModeOf } from "../economy";
 
 /** The starter map with its first two towns joined by a line and a train running on it. */
 function worldWithTrain(): World {
@@ -240,6 +240,57 @@ describe("save format", () => {
     expect(r.value.economy.depotAtPiece(end)).toMatchObject({ role: "school", townId: town.id });
     data.depots.find((d) => d.role === "school")!.townId = 99;
     expect(deserializeWorld(data).ok).toBe(false);
+  });
+
+  it("keeps a warehouse's modes per good and for any other; an older save's warehouse takes and gives everything", () => {
+    const world = worldWithTrain();
+    const end = appendPiece(world.layout, "depot-warehouse", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    const store = world.economy.depotAtPiece(end)!;
+    expect(store.role).toBe("warehouse");
+    world.economy.setStoreMode(store.id, "planks", "in");
+    world.economy.setStoreMode(store.id, "log", "both");
+    world.economy.setStoreMode(store.id, null, "off");
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const saved = data.depots.find((d) => d.role === "warehouse")!;
+    expect([saved.modes, saved.others]).toEqual([{ log: "both", planks: "in" }, "off"]);
+    // Other depots save nothing for it.
+    expect(data.depots.filter((d) => d.role !== "warehouse").every((d) => d.modes === undefined && d.others === undefined)).toBe(true);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const back = r.value.economy.depotAtPiece(end)!;
+    expect([storeModeOf(back, "planks"), storeModeOf(back, "log"), storeModeOf(back, "iron"), storeListed(back, "log"), storeListed(back, "iron")]).toEqual(["in", "both", "off", true, false]);
+    // A save from before warehouse modes (neither field): everything Takes and gives, nothing listed.
+    delete saved.modes;
+    delete saved.others;
+    const old = deserializeWorld(data);
+    expect(old.ok).toBe(true);
+    if (!old.ok) return;
+    const was = old.value.economy.depotAtPiece(end)!;
+    expect([was.others, was.modes.every((m) => m === null)]).toEqual(["both", true]);
+    // A mode it doesn't know is turned away.
+    (saved as { others?: string }).others = "sometimes";
+    expect(deserializeWorld(data).ok).toBe(false);
+  });
+
+  it("keeps a mine's Gives / Doesn't give per good; an older save's mine gives both", () => {
+    const world = worldWithTrain();
+    const end = appendPiece(world.layout, "depot-mine", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    const mine = world.economy.depotAtPiece(end)!;
+    expect(mine.role).toBe("mine");
+    world.economy.setStoreMode(mine.id, "ore", "off");
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const saved = data.depots.find((d) => d.role === "mine")!;
+    expect([saved.modes, saved.others]).toEqual([{ ore: "off" }, undefined]);
+    const r = deserializeWorld(data);
+    if (!r.ok) throw new Error(r.error);
+    expect([storeModeOf(r.value.economy.depotAtPiece(end)!, "ore"), storeModeOf(r.value.economy.depotAtPiece(end)!, "coal")]).toEqual(["off", "both"]);
+    delete saved.modes;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.depotAtPiece(end)!.modes.every((m) => m === null)).toBe(true);
   });
 
   it("keeps lines: their colour, name and stops (wait to fill too), shared by the trains that run them", () => {
@@ -657,6 +708,22 @@ describe("economy in saves", () => {
     const cargo = (x: World) => x.sim.trainIds().flatMap((id) => x.sim.getTrain(id)!.cars.map((c) => x.economy.cargoOf(c.id)));
     expect(cargo(w)).toEqual(cargo(world));
     expect(w.economy.delivered.get(1)).toBe(9);
+  });
+
+  it("round-trips the goods each wagon is switched off for; an older save's wagons take everything", () => {
+    const world = timberWorld();
+    const wagon = world.sim.getTrain(world.sim.trainIds()[0])!.cars.find((c) => c.kind === "timber")!;
+    world.economy.setCarTakes(wagon.id, "iron", false);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const saved = data.trains.flatMap((t) => t.cars).find((c) => c.id === wagon.id)!;
+    expect(saved.off).toEqual(["iron"]);
+    const w = deserializeWorld(data);
+    if (!w.ok) throw new Error(w.error);
+    expect([w.value.economy.carTakes(wagon.id, "iron"), w.value.economy.carTakes(wagon.id, "log")]).toEqual([false, true]);
+    delete saved.off;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.carOffKinds(wagon.id)).toEqual([]);
   });
 
   it("round-trips each car's look", () => {

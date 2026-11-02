@@ -1,5 +1,8 @@
 import { installTooltips, type Tooltips } from "./tooltip";
 import { placeCardInfo, trayInfo } from "./piece-info";
+import { storeHtml, type StoreView } from "./store-rows";
+import { WAGON_NONE, WAGON_SAME } from "../game/warehouse-text";
+import type { CargoKind, StoreMode } from "../economy";
 import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
 import { blockWord } from "./blocks";
@@ -8,6 +11,7 @@ import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { fullscreenAvailable, onFullscreenChange, toggleFullscreen } from "./fullscreen";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
+import { MAX_ENGINE_NAME } from "../sim/engine-names";
 import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
@@ -47,6 +51,8 @@ export interface HudHandlers {
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
+  /** The open engine card's engine renamed (as typed: the sim tidies it). Returns the name it now has. */
+  renameEngine(name: string): string;
   /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
   showBlocker(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
@@ -110,6 +116,14 @@ export interface HudHandlers {
   depotAuto(): void;
   /** Depot card: trains wait for a full load, or not. */
   depotWaitFull(): void;
+  /** A warehouse's card: what it lets trains do with a good (listing it), or with `kind` null, any good not listed. */
+  storeMode(kind: CargoKind | null, mode: StoreMode): void;
+  /** A warehouse's card: a good taken off its list (it follows "Any other goods" again). */
+  storeUnlist(kind: CargoKind): void;
+  /** A wagon's card: a good it can carry switched on or off. */
+  carGoods(kind: CargoKind, on: boolean): void;
+  /** A wagon's card: every wagon of its kind on its train set the same as it. */
+  carGoodsSame(): void;
   toggleSound(): void;
   /** Any HUD button pressed (for a soft click). */
   buttonTap(): void;
@@ -246,6 +260,9 @@ export class Hud {
   private readonly rerailBtn: HTMLButtonElement;
   private readonly soundBtn: HTMLButtonElement;
   private readonly engineCard = el("div", "card engine-card");
+  /** The engine card's title: the engine's name, a tap to rename it (`engineNameInput` in its place meanwhile). */
+  private readonly engineTitle = el("button", "card-title engine-name");
+  private readonly engineNameInput = el("input", "card-title engine-name-input");
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
   private tips!: Tooltips;
@@ -265,6 +282,8 @@ export class Hud {
   private readonly depotCard = el("div", "card depot-card");
   /** Below a depot card's switches: filled by the game for some depots (Game mode's workshop), else hidden. */
   readonly depotExtra = el("div", "depot-extra");
+  /** A place's routes (audit F12): the lines that call there, and "New route from here" (filled by main). */
+  readonly depotRoutes = el("div", "depot-routes");
   /** The depot card's choice of how it shares (the workshop's planks): beside the extra, its own so it can move up. */
   readonly depotYard = el("div", "depot-yard");
   /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
@@ -278,6 +297,9 @@ export class Hud {
   /** Empty (the wagon card, beside its load) and Empty all (the engine card, beside the train's): see `setEmpty`. */
   private readonly emptyCarBtn: HTMLButtonElement;
   private readonly emptyTrainBtn: HTMLButtonElement;
+  /** A wagon's goods, on or off each (`setCarGoods`), as the warehouse's rows. */
+  private readonly carGoods = el("div", "depot-store car-goods");
+  private carGoodsShown = "";
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
@@ -308,6 +330,12 @@ export class Hud {
   private readonly depotChain = el("div", "depot-chain");
   /** The ☰ menu's Chain hints switch (Sandbox only). */
   private readonly chainItem: HTMLButtonElement;
+  /** A warehouse's goods, each with what it lets trains do with it (`StoreView`), or hidden. */
+  private readonly depotStore = el("div", "depot-store");
+  /** What the warehouse rows show now (drawn again only when it changes), and its "+ Add a good" picker open. */
+  private storeShown = "";
+  private storeView: StoreView | null = null;
+  private storeAdding = false;
   /** A school's card with nothing under way or up next: a button for the Research picker. */
   private readonly depotPickBtn: HTMLButtonElement;
   private depotAutoBtn!: HTMLButtonElement;
@@ -365,6 +393,11 @@ export class Hud {
     this.openReport();
   }, "menu-item");
   private readonly reportCard = el("div", "card report-card");
+  /** The menu's "Copy map for a bug report" (with "Report a bug or give feedback" before it, in a build that can send). */
+  private readonly copyMapItem = button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
+    this.menu.hidden = true;
+    this.handlers.copyMap();
+  }, "menu-item");
   private readonly reportNote = document.createElement("textarea");
   private readonly sandboxItems: HTMLButtonElement[];
   private readonly gameItems: HTMLButtonElement[];
@@ -586,10 +619,7 @@ export class Hud {
       ...this.gameItems,
       sep(),
       this.reportItem,
-      button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
-        this.menu.hidden = true;
-        h.copyMap();
-      }, "menu-item"),
+      this.copyMapItem,
     );
     this.reportItem.hidden = true;
     this.buildReportCard();
@@ -597,7 +627,7 @@ export class Hud {
 
     // Engine card
     this.engineCard.hidden = true;
-    this.engineCard.appendChild(el("div", "card-title", "Engine"));
+    this.buildEngineTitle(h);
     // Follow (the camera rides along) in the top corner.
     this.followBtn = button("", "Follow this train with the camera", h.follow, "corner follow");
     this.followBtn.innerHTML = CAMERA_ICON;
@@ -654,6 +684,15 @@ export class Hud {
     carLoadRow.append(this.carLoad, this.emptyCarBtn);
     this.carCard.appendChild(carLoadRow);
     this.carDecoupleBtn = button("Decouple", CAR_DECOUPLE_TITLE, h.decouple, "chip text decouple");
+    this.carGoods.hidden = true;
+    this.carGoods.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
+      if (!b) return;
+      e.stopPropagation();
+      if (b.dataset.same !== undefined) h.carGoodsSame();
+      else if (b.dataset.mode && b.dataset.kind && b.getAttribute("aria-pressed") !== "true") h.carGoods(b.dataset.kind as CargoKind, b.dataset.mode === "both");
+    });
+    this.carCard.appendChild(this.carGoods);
     const carRow = el("div", "card-row");
     carRow.append(
       button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"),
@@ -691,7 +730,10 @@ export class Hud {
     this.depotPickBtn.hidden = true;
     this.depotYard.hidden = true;
     this.depotChain.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotStore.hidden = true;
+    this.depotStore.addEventListener("click", (e) => this.storeClick(e));
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
+    this.depotRoutes.hidden = true;
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -1582,7 +1624,58 @@ export class Hud {
     }
   }
 
-  showEngineCard(lever: number, following: boolean): void {
+  /** The engine card's title, the engine's name: tapped, a little text box to rename it (Enter or tapping away keeps it). */
+  private buildEngineTitle(h: HudHandlers): void {
+    const title = this.engineTitle;
+    const input = this.engineNameInput;
+    title.type = "button";
+    title.title = "Rename this engine";
+    input.type = "text";
+    input.maxLength = MAX_ENGINE_NAME;
+    input.hidden = true;
+    input.setAttribute("aria-label", "Engine's name");
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.enterKeyHint = "done";
+    let editing = false;
+    const finish = (keep: boolean) => {
+      if (!editing) return;
+      editing = false;
+      if (keep && input.value.trim() !== "" && input.value !== title.textContent) this.setEngineName(h.renameEngine(input.value));
+      input.hidden = true;
+      title.hidden = false;
+    };
+    title.addEventListener("click", (e) => {
+      e.stopPropagation();
+      editing = true;
+      input.value = title.textContent ?? "";
+      title.hidden = true;
+      input.hidden = false;
+      input.focus();
+      input.select();
+    });
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") {
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+    for (const type of ["pointerdown", "click"]) input.addEventListener(type, (e) => e.stopPropagation());
+    this.engineCard.append(title, input);
+  }
+
+  /** The name the engine card's title shows. */
+  setEngineName(name: string): void {
+    this.engineTitle.textContent = name || "Engine";
+    this.engineTitle.setAttribute("aria-label", `${name || "Engine"}: tap to rename`);
+  }
+
+  showEngineCard(lever: number, following: boolean, name = ""): void {
+    // (A rename still being typed on the card before is kept.)
+    if (!this.engineNameInput.hidden) this.engineNameInput.blur();
+    this.setEngineName(name);
     this.hideCards();
     this.engineCard.hidden = false;
     this.root.classList.add("card-open");
@@ -1750,6 +1843,27 @@ export class Hud {
   setCarLoad(text: string): void {
     this.carLoad.hidden = !text;
     if (this.carLoad.textContent !== text) this.carLoad.textContent = text;
+  }
+
+  /**
+   * The open wagon's goods (null hides them): on or off for each it can carry, "Carries nothing (all switched off)"
+   * when none is on, and (`same`: its train has other wagons like it) a button to set them all the same. Drawn again
+   * only when it changes.
+   */
+  setCarGoods(view: { rows: { kind: CargoKind; on: boolean }[]; same: boolean } | null): void {
+    const key = view ? JSON.stringify(view) : "";
+    if (key === this.carGoodsShown) return;
+    this.carGoodsShown = key;
+    this.carGoods.hidden = !view;
+    if (!view) {
+      this.carGoods.innerHTML = "";
+      return;
+    }
+    const rows = storeHtml({ wagon: true, others: null, addable: [], rows: view.rows.map((r) => ({ kind: r.kind, count: 0, cap: 0, mode: r.on ? "both" : "off", listed: true })) }, false);
+    const none = view.rows.every((r) => !r.on) ? `<div class="car-goods-none">${WAGON_NONE}</div>` : "";
+    const same = view.same ? `<button class="chip text car-goods-same" data-same>${WAGON_SAME}</button>` : "";
+    this.carGoods.innerHTML = rows + none + same;
+    this.onCardResize?.();
   }
 
   get carCardOpen(): boolean {
@@ -1941,6 +2055,16 @@ export class Hud {
     );
   }
 
+  /** Offer "Report a bug or give feedback" in the menu, by Copy map (the build has somewhere to send it). */
+  addFeedbackItem(onTap: () => void): void {
+    this.copyMapItem.before(
+      button("Report a bug or give feedback", "Tell us what went wrong, or what you'd like, with your map and a picture", () => {
+        this.menu.hidden = true;
+        onTap();
+      }, "menu-item feedback-item"),
+    );
+  }
+
   /** Offer "Help improve Woodrail" in the menu (the build can send play stats: see stats/stats.ts). */
   addStatsItem(onTap: () => void): void {
     this.linesItem.after(
@@ -2028,8 +2152,12 @@ export class Hud {
     this.depotYard.hidden = true;
     this.depotYard.innerHTML = "";
     this.setDepotChain(null);
+    this.setStore(null);
+    this.storeAdding = false;
     // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
     this.depotExtra.className = "depot-extra";
+    this.depotRoutes.hidden = true;
+    this.depotRoutes.innerHTML = "";
     this.depotCard.hidden = false;
     // (A card scrolled on a phone opens at its top again: its title and ✕ in view.)
     this.depotCard.scrollTop = 0;
@@ -2091,6 +2219,39 @@ export class Hud {
       }
       this.depotChain.append(row);
     }
+  }
+
+  /**
+   * A warehouse's goods on its card (null: hide them): a row per good it lists or holds, its count and a four-way choice
+   * (Takes and gives, Takes only, Gives only, Closed); "Any other goods"; and "+ Add a good" with the goods to list.
+   * Drawn again only when what it shows changes (cheap to call every frame the card is open).
+   */
+  setStore(view: StoreView | null): void {
+    const key = view ? JSON.stringify(view) + this.storeAdding : "";
+    if (key === this.storeShown) return;
+    this.storeShown = key;
+    this.storeView = view;
+    this.depotStore.hidden = !view;
+    this.depotStore.innerHTML = view ? storeHtml(view, this.storeAdding) : "";
+    if (view) this.onCardResize?.();
+  }
+
+  private storeClick(e: MouseEvent): void {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
+    if (!b || !this.storeView) return;
+    e.stopPropagation();
+    const kind = (b.dataset.kind || null) as CargoKind | null;
+    if (b.dataset.mode) {
+      if (b.getAttribute("aria-pressed") !== "true") this.handlers.storeMode(kind, b.dataset.mode as StoreMode);
+    } else if (b.dataset.add !== undefined) {
+      this.storeAdding = !this.storeAdding;
+      const v = this.storeView;
+      this.storeShown = "";
+      this.setStore(v);
+    } else if (b.dataset.list) {
+      this.storeAdding = false;
+      this.handlers.storeMode(b.dataset.list as CargoKind, "both");
+    } else if (b.dataset.unlist) this.handlers.storeUnlist(b.dataset.unlist as CargoKind);
   }
 
   /**

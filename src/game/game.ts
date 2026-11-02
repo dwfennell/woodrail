@@ -27,6 +27,9 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
+import { BIG_STATIONS, StationTouchesView } from "../render/station-touches";
+import { departures } from "./departures";
+import { routeStops } from "./route-stops";
 import { pulseBeacons } from "../render/dressing/roads";
 import { createMaterials, type Materials } from "../render/materials";
 import { Flourishes } from "../render/flourishes";
@@ -39,11 +42,11 @@ import { arrowScaleFor, onPiecesBuilt, TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
-import { DepotView } from "../render/depot-view";
+import { DepotView, inStationFootprint } from "../render/depot-view";
 import { RuinsView, type ShownRuin } from "../render/ruins-view";
 import type { RuinOnMap } from "./map-markers";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { archFloors, bridgeLevels, findCrossings, styleCrossings, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape } from "../landscape";
+import { archFloors, bridgeLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
 import type { Prop, PropPose } from "../props/store";
 import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
@@ -51,6 +54,10 @@ import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
 import { connectorRef, getPieceDef, pathLength, type KitDef, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { BlockTint, SignalMarksView } from "../render/signal-marks-view";
+import { TouchesView } from "../render/touches-view";
+import { firstTrainMark, TOUCH_TRACK_CLEARANCE } from "./touches";
+import { nearTrack } from "../landscape/trees-aside";
+import { hillsOf } from "../landscape/hill-shape";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlot, type World } from "./world";
 
@@ -150,6 +157,16 @@ export class Game {
   readonly depotView: DepotView;
   /** Old industries' ruins, on the land and the land around (see `syncRuins`). */
   readonly ruinsView: RuinsView;
+  /** Small touches of life: the towns' cats, washing and benches, the waving children, the first train's marker. */
+  readonly touches: TouchesView;
+  /** A town's level for its touches (Game mode's; null: by its size, as in Sandbox). */
+  touchLevel: ((town: Town) => number) | null = null;
+  /** Bump when a town's level may have changed (its touches are placed again). */
+  touchLevelsVersion = 0;
+  /** What the touches were last placed from (see `syncTouches`). */
+  private touchesKey: number[] = [-1, -1, -1, -1, -1, -1, -1];
+  /** Bumped with each world, so the touches are placed afresh for it. */
+  private worldsSeen = 0;
   readonly post: Post;
   readonly snapshot: SimSnapshot = createSnapshot();
   /** Simulation events from the latest frame (derailments, couplings, …). */
@@ -185,6 +202,13 @@ export class Game {
   simSeconds = 0;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
+  /** A big station's guard raised his flag as a train set off, here (the host's soft whistle). */
+  onGuardFlag: ((x: number, z: number) => void) | null = null;
+  /** The stations' little touches: people turning to a train and getting on and off, guards' flags, departure boards. */
+  readonly stationTouches: StationTouchesView;
+  /** The layout and routes the big stations' guards and boards were last set from (`syncStationTouches`). */
+  private touchesPieces = -1;
+  private touchesNext = -1;
   /** The camera moved since the last frame (called on such frames only: see `cameraMoved`). */
   onCameraMoved: (() => void) | null = null;
   /** Milliseconds spent simulating in the last frame (for the perf overlay). */
@@ -255,6 +279,25 @@ export class Game {
     });
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
+    this.stationTouches = new StationTouchesView(this.mats, {
+      townAt: (pieceId) => {
+        for (const [townId, id] of this.stations) if (id === pieceId) return this.landscape.towns.find((t) => t.id === townId);
+        return undefined;
+      },
+      carPoint: (carId) => {
+        const found = this.sim.findCar(carId);
+        return found ? midpoint(found.train.world[2 * found.index], found.train.world[2 * found.index + 1]) : null;
+      },
+      trainPoint: (trainId) => {
+        const t = this.sim.getTrain(trainId);
+        return t && t.world.length > 1 ? midpoint(t.world[0], t.world[1]) : null;
+      },
+      waitingShown: (townId) => this.landscapeView.waitingShown(townId),
+      holdWaiting: (townId, from) => {
+        if (this.landscapeView.holdWaiting(townId, from)) this.invalidate();
+      },
+    });
+    this.scene.add(this.stationTouches.group);
     syncCuttings(this.landscape, this.layout);
     this.landscapeView.syncTrees(this.layout);
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf, this.archFloorsOf);
@@ -264,12 +307,15 @@ export class Game {
     this.trackView.sync();
     this.trainView = new TrainView(this.mats);
     this.trainView.lookOf = (id) => this.sim.lookOf(id);
+    this.trainView.nameOf = (id) => this.sim.nameOf(id);
     this.scene.add(this.trainView.group);
     this.depotView = new DepotView(this.mats);
     this.scene.add(this.depotView.group);
     this.depotView.setWorld(this.economy, this.layout);
     this.ruinsView = new RuinsView(this.mats, this.depotView);
     this.scene.add(this.ruinsView.group);
+    this.touches = new TouchesView(this.mats);
+    this.scene.add(this.touches.group);
     this.syncRuins();
     this.crossingsView = new CrossingsView(this.mats);
     this.scene.add(this.crossingsView.group);
@@ -353,6 +399,8 @@ export class Game {
   setWorld(world: GameWorld): void {
     this.invalidate();
     this.flourishes.clear();
+    this.stationTouches.clear();
+    this.touchesPieces = this.touchesNext = -1;
     this.boats.clear();
     this.layout = world.layout;
     this.sim = world.sim;
@@ -365,6 +413,7 @@ export class Game {
     this.props = world.props;
     this.hiddenProp = -1;
     this.trackVersion++;
+    this.worldsSeen++;
     this.propsView.sync(this.shownProps(), -1, true);
     this.clockView.sync(this.props, -1, true);
     this.scene.remove(this.landscapeView.group);
@@ -551,6 +600,61 @@ export class Game {
 
   /** Goes up whenever the track changes (or a new world is shown), for caches keyed by it (the whistle posts' near track). */
   trackVersion = 0;
+
+  /**
+   * Place the small touches again if anything they're placed from changed: the world, the track, the land (a town
+   * grew), the towns' levels, the props. Cheap when nothing did (a key of counters).
+   */
+  private syncTouches(): void {
+    const land = this.landscape;
+    let built = 0;
+    for (const t of land.towns) built += t.buildings.length + (t.upgraded ? 1 << 20 : 0);
+    const k = this.touchesKey;
+    let same = true;
+    const see = (i: number, v: number) => {
+      if (k[i] !== v) (k[i] = v), (same = false);
+    };
+    see(0, this.worldsSeen);
+    see(1, this.trackVersion);
+    see(2, land.grid.revision);
+    see(3, land.towns.length);
+    see(4, built);
+    see(5, this.touchLevelsVersion);
+    see(6, this.props.version);
+    if (same) return;
+    const key = k.join("|");
+    const track = this.landscapeView.trackBuckets;
+    const props = [...this.props.all()].map((p) => [p.x, p.z]);
+    const blocked = (x: number, z: number) => nearTrack(track, x, z, TOUCH_TRACK_CLEARANCE) || props.some(([px, pz]) => Math.abs(px - x) < 40 && Math.abs(pz - z) < 40);
+    if (this.touches.sync(land, key, this.touchLevel, blocked)) this.invalidate();
+    this.touches.setMark(land.firstTrain, (x, z) => hillsOf(land.grid).groundAt(x, z));
+  }
+
+  /**
+   * The first train's marker: the first time an engine runs on this map (a frame where trains moved and one has its
+   * lever on), where it is. A map with trains running before markers were made gets none (null).
+   */
+  private noteFirstTrain(): void {
+    const land = this.landscape;
+    if (land.firstTrain !== undefined) return;
+    const snap = this.snapshot;
+    for (let i = 0; i < snap.count; i++) {
+      if (snap.levers[i] === 0 || snap.derailed[i]) continue;
+      const o = i * 6;
+      const g = land.grid;
+      const track = this.landscapeView.trackBuckets;
+      // (On plain ground if a side has it, else anywhere but on a platform; never on other track.)
+      const open = (x: number, z: number) => {
+        if (nearTrack(track, x, z, 16) || land.towns.some((t) => inStationFootprint(t.station, x, z, 2))) return 0;
+        const i = g.cellAtWorld(x, z);
+        return i >= 0 && g.surface[i] === SURF_GRASS && g.feature[i] === FEAT_NONE ? 2 : 1;
+      };
+      land.firstTrain = firstTrainMark(snap.transforms[o], snap.transforms[o + 2], snap.transforms[o + 3], open);
+      this.touches.setMark(land.firstTrain, (x, z) => hillsOf(land.grid).groundAt(x, z));
+      this.invalidate();
+      return;
+    }
+  }
 
   /** Call after any layout edit. */
   trackChanged(): void {
@@ -845,12 +949,30 @@ export class Game {
       this.trackView.syncSwitches();
       this.invalidate();
     }
+    // The stations' touches: stepped only on a frame with station events (a halt, someone on or off, a train off) or
+    // while something of theirs moves; the big stations' guards and boards set again only when pieces or routes change.
+    this.syncStationTouches();
+    // (Paused, they wait: a stop begun by sim steps taken while paused, as tests and the e2e take them, is seen after.)
+    const stationEvents = this.paused ? NO_EVENTS : this.economy.drainStationEvents();
+    if (!this.paused && (stationEvents.length > 0 || this.stationTouches.busy)) {
+      for (const e of stationEvents) this.stationTouches.event(e.kind, e.pieceId, e.trainId, e.carId);
+      const touched = this.stationTouches.update(dt);
+      if (touched === "moving") this.touchesMoving = true;
+      else if (touched === "changed") this.invalidate();
+      for (const w of this.stationTouches.drainWhistles()) this.onGuardFlag?.(w.x, w.z);
+    }
     this.events = this.sim.drainEvents();
     // A train turned back where the track just stops: that end's board shows (a gap is plain to see).
     for (const e of this.events) if (e.kind === "buffer" && this.markOpenEnd(e.trainId)) this.invalidate();
     this.sim.writeSnapshot(this.snapshot);
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
+    // An engine renamed (or a save's names put back): its plates painted again, once.
+    if (this.sim.namesVersion !== this.namesShown) {
+      this.namesShown = this.sim.namesVersion;
+      this.trainView.syncNames();
+      this.invalidate();
+    }
     let active = this.crossingsView.update(this.snapshot, dt);
     // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
     if (this.marksView.animate(dt)) active = true;
@@ -859,7 +981,13 @@ export class Game {
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
     const trainsMoved = this.trainsChanged();
-    if (trainsMoved || tipping || this.flourishes.count > 0) active = true;
+    if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
+    this.touchesMoving = false;
+    // Small touches: placed again only when what they stand beside changed (a few comparisons a frame); the children
+    // look for trains only on frames where trains moved, or while one waves.
+    this.syncTouches();
+    if (trainsMoved) this.noteFirstTrain();
+    if ((trainsMoved || this.touches.waving) && this.touches.update(this.snapshot, dt, this.camera)) active = true;
     // Kits' moving parts (doors, cranes, spouts, a turntable's deck, a signal's arm or lamps): looked at only on frames
     // where trains moved, one halted, a switch was thrown (a deck turns), a signal changed aspect or a ride moved on
     // (a lift's platform: only as the sim ticks, so never while paused), or while one is
@@ -960,7 +1088,7 @@ export class Game {
     setHazeReach(this.scene.fog as Fog, reach);
     const detail = detailReach(dist);
     const landCulled = this.landscapeView.cull(this.camera, reach, detail);
-    const culled = cullTiles([this.depotView.group, this.ruinsView.group], this.camera, reach, detail) || landCulled;
+    const culled = cullTiles([this.depotView.group, this.ruinsView.group, this.touches.group], this.camera, reach, detail) || landCulled;
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
     this.stage.update(this.camera);
     pulseBeacons(this.mats, now);
@@ -1151,6 +1279,37 @@ export class Game {
     this.invalidate();
   }
 
+  private touchesMoving = false;
+
+  /**
+   * The big stations' guards and departure boards: put on (or taken off) as those pieces come, go or move, and their
+   * boards' rows worked out again when a routed train's next stop changes. Idle, two comparisons.
+   */
+  private syncStationTouches(): void {
+    const pieces = this.layout.revision;
+    const next = this.economy.nextVersion;
+    if (pieces === this.touchesPieces && next === this.touchesNext) return;
+    if (pieces !== this.touchesPieces) {
+      const bigs = [];
+      for (const id of this.layout.pieceIds()) {
+        const p = this.layout.getPiece(id)!;
+        if (BIG_STATIONS.has(p.type)) bigs.push({ id, type: p.type, flipped: p.flipped, pose: p.pose, y: p.y });
+      }
+      if (this.stationTouches.syncBigs(bigs)) this.invalidate();
+    }
+    this.touchesPieces = pieces;
+    this.touchesNext = next;
+    const ids = this.stationTouches.bigPieces();
+    if (ids.length === 0) return;
+    let names: Map<number, string> | null = null;
+    for (const id of ids) {
+      const d = this.economy.depotAtPiece(id);
+      if (d) names ??= new Map(routeStops(this.world).map((s) => [s.depotId, s.name]));
+      const rows = d ? departures(this.economy, d.id, (to) => names!.get(to) ?? "?") : [];
+      if (this.stationTouches.setBoard(id, rows)) this.invalidate();
+    }
+  }
+
   /** How many people wait on a town's platform (Game mode's passengers; null: its usual few). Cheap when unchanged. */
   setWaiting(townId: number, count: number | null): void {
     if (this.landscapeView.setWaiting(townId, count)) this.invalidate();
@@ -1190,6 +1349,7 @@ export class Game {
 
   /** The sim's signal aspects last drawn (see `Sim.signalsVersion`). */
   private signalsShown = -1;
+  private namesShown = -1;
 
   /** The sim's mark aspects, for the marks' view (the sim is replaced on a new world: read through `this`). */
   private markAspects(): { markClear(id: number): boolean; readonly signalsVersion: number } {
@@ -1324,4 +1484,11 @@ export class Game {
     }
     return changed;
   }
+}
+
+const NO_EVENTS: readonly never[] = [];
+
+/** Halfway between two points (a car's bogies). */
+function midpoint(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
 }

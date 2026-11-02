@@ -336,7 +336,7 @@ export function engineView(
   cantMove: CantMove | null = null,
   placeOf: (carId: number) => string = () => "",
   loadHints = false,
-): { status: string; blocker: Blocker | null } {
+): { status: string; blocker: Blocker | null; addStop?: number } {
   const found = sim.findCar(engineCarId);
   if (!found) return { status: "", blocker: null };
   const s = trainState(sim, economy, found.train, found.train.cars[found.index].lever, cantMove);
@@ -351,13 +351,15 @@ export function engineView(
     const kept = economy.keptAt(found.train.id);
     if (kept) {
       const held = kept.why === "school" ? economy.heldForSchool(found.train.id, kept.kind) : 0;
-      return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id), held), blocker: null };
+      // (Not a stop on its line: the card offers to add it, one tap. Audit F15.)
+      return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id), held), blocker: null, ...(kept.why === "not-stop" ? { addStop: kept.depot.id } : {}) };
     }
     // (Sandbox's chain hints: beside goods it won't load, because no wagon of its carries them or it doesn't stop here.)
     if (loadHints && s.kind !== "starting") {
       const route = economy.routeOfTrain(found.train);
-      const hint = loadHint(found.train, (id) => economy.depotAtPiece(id), route ? route.stops.map((x) => x.depotId) : null);
-      if (hint) return { status: loadHintText(hint, nameOf(hint.depot.id)), blocker: null };
+      const hint = loadHint(found.train, (id) => economy.depotAtPiece(id), route ? route.stops.map((x) => x.depotId) : null, (car, kind) => economy.carTakes(car, kind));
+      // (Not a stop on its line: the card offers to add it, as for "Not dropping…".)
+      if (hint) return { status: loadHintText(hint, nameOf(hint.depot.id)), blocker: null, ...(hint.why === "not-stop" ? { addStop: hint.depot.id } : {}) };
     }
   }
   const blocker = blockerOf(sim, economy, s);

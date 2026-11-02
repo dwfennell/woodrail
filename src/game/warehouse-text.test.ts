@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { Economy } from "../economy";
+import { Economy, STORE_MODES } from "../economy";
 import { Sim } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { engineStatus } from "./engine-status";
-import { STORE_HELP, STORE_NO_ROUTE, STORE_NOT_A_STOP, storeSkipText, storeStock, storeStopText } from "./warehouse-text";
+import { STORE_HELP, STORE_MODE_WORDS, STORE_NO_ROUTE, STORE_NOT_A_STOP, givesBlockText, storeBlockText, storeSkipText, storeStock, storeStopText } from "./warehouse-text";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] } {
   const layout = new Layout();
@@ -15,8 +15,17 @@ function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] } {
 describe("warehouse words", () => {
   it("say why a train beside one trades nothing, and what to do", () => {
     expect(storeSkipText(false)).toBe("Warehouses trade with trains on a route. Plan a route with a stop here");
-    expect(storeSkipText(true)).toBe("This warehouse isn't on its route. Edit the route to add a stop here");
-    expect(STORE_HELP).toBe("Drop goods here to keep them for later. On a route, set its stop to Only drop or Only pick up");
+    expect(storeSkipText(true)).toBe("This warehouse isn't on its line. Edit the line to add a stop here");
+    expect(STORE_HELP).toBe("Drop goods here to keep them for later. Choose below what it takes and gives; on a route, set its stop to Only drop or Only pick up");
+  });
+
+  it("name each store mode plainly, and say when a warehouse's setting stops a route's drop or pick-up", () => {
+    expect(STORE_MODES.map((m) => STORE_MODE_WORDS[m])).toEqual(["Takes and gives", "Takes only", "Gives only", "Closed"]);
+    expect(storeBlockText(true, "planks", "out")).toBe("Not dropping planks: the warehouse is set to Gives only");
+    expect(storeBlockText(false, "iron", "in")).toBe("Not picking up iron: the warehouse is set to Takes only");
+    expect(storeBlockText(false, "log", "off")).toBe("Not picking up logs: the warehouse is set to Closed");
+    expect(givesBlockText("Mine", null)).toBe("Not loading: the mine is set to give nothing");
+    expect(givesBlockText("Mine", "ore")).toBe("Not picking up ore: the mine is set not to give it");
   });
 
   it("the card lists only goods it holds, or Empty", () => {

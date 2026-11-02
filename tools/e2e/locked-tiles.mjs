@@ -44,6 +44,31 @@ async function newGame(viewport, touch = true) {
   await p.waitForTimeout(300);
   return { ctx, p };
 }
+/**
+ * Wait (about a minute at most) for the page to go quiet: the game settled and no long task on the main thread for
+ * 1.5 s. Just after a game opens, the tray's pictures are still being made (stalls of seconds on software GL) and the
+ * tray's items drawn again: a tile hovered then is taken away under the mouse, and its tip never shows (tooltip.ts:
+ * not for an item no longer on the page). A player's next move of the mouse would show it; the check waits instead.
+ */
+const quiet = (p) =>
+  p.evaluate(async () => {
+    await Promise.race([window.woodrail.settled?.(), new Promise((r) => setTimeout(r, 30000))]);
+    await new Promise((res) => {
+      let last = performance.now();
+      const obs = new PerformanceObserver((l) => {
+        if (l.getEntries().length) last = performance.now();
+      });
+      obs.observe({ type: "longtask" });
+      const t0 = performance.now();
+      const look = () => {
+        if (performance.now() - last >= 1500 || performance.now() - t0 > 30000) {
+          obs.disconnect();
+          res();
+        } else setTimeout(look, 250);
+      };
+      setTimeout(look, 250);
+    });
+  });
 const shot = (p, n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
 /** The middle of the first visible element matching `selector` whose text includes `text`. */
 const centre = (p, selector, text = "") =>
@@ -201,6 +226,7 @@ const tabRow = (p) =>
 {
   // A mouse: hover shows the same words in the tooltip.
   const { ctx, p } = await newGame({ width: 1440, height: 900 }, false);
+  await quiet(p);
   const c = await p.evaluate(() => {
     const t = [...document.querySelectorAll(".tray-item.locked")].find((x) => x.querySelector(".label")?.textContent === "Switch");
     t?.scrollIntoView({ inline: "center" });

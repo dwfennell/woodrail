@@ -49,6 +49,24 @@ export interface DiscSpec {
 /** The ribbon: its width (mm), how far over the track's top it lies, and how finely it follows curves. */
 const RIBBON_WIDTH = 14;
 const RIBBON_LIFT = 0.4;
+/** The dark edge under a ribbon: how far it shows past each side (mm), and its lift (under the ribbon's). */
+const EDGE_WIDTH = 4;
+const EDGE_LIFT = 0.3;
+/** The arrowheads showing which way a ribbon runs: every this far along it (mm), this long and wide, over it. */
+const CHEVRON_GAP = 120;
+/** A ribbon's flash (seconds): when its way changes under a track edit. */
+const FLASH_S = 1.6;
+const CHEVRON_LENGTH = 9;
+const CHEVRON_WIDTH = 9;
+const CHEVRON_LIFT = 0.6;
+/** How dark a ribbon's edge is: its colour (in linear light) times this. */
+const EDGE_SHADE = 0.15;
+
+/** A ribbon's edge colour: a dark shade of its own (see `EDGE_SHADE`), as "#rrggbb". */
+export function ribbonEdge(colour: string): string {
+  const c = new Color(colour).multiplyScalar(EDGE_SHADE);
+  return `#${c.getHexString()}`;
+}
 /** Dashes lie a little higher, so where a dotted way runs over a solid one they show on top. */
 const DOTS_LIFT = 0.7;
 const STEP = 6;
@@ -62,10 +80,16 @@ const GAP = 12;
 const DOT_WIDTH = 6;
 const DOT_TAPER = 0.45;
 const DOT_OPACITY = 0.65;
+/** A stretch a track edit changed the route to, lit up for `LIT_S` (s): pale, wider than the ribbon, over it. */
+const LIT_S = 1.6;
+const LIT_COLOUR = "#fff6d8";
+const LIT_WIDTH = 22;
+const LIT_LIFT = 0.9;
+const LIT_OPACITY = 0.8;
 /** The red dashes of a gap no track crosses. */
 const GAP_COLOUR = "#d33a2c";
 const GAP_WIDTH = 9;
-const RIBBON_OPACITY = 0.85;
+export const RIBBON_OPACITY = 0.85;
 /**
  * Stop discs keep one size on screen, as map markers do (a 22 mm token is a few pixels at the usual zoom): a fraction
  * of the view's distance, about 34 px across on a phone held upright with the game's 30° camera ("next" a little
@@ -97,17 +121,28 @@ export class RouteView {
   private readonly discMats = new Map<string, SpriteMaterial>();
   private readonly postGeom = new CylinderGeometry(POST_RADIUS, POST_RADIUS, 1, 6).translate(0, 0.5, 0);
   private edgeAlpha: DataTexture | null = null;
+  private arrowMat: MeshBasicMaterial | null = null;
+  /** How much wider than at the track's own size the solid ribbons are drawn (see `show`). */
+  private scale = 1;
   /** The discs drawn (sprites), each with its place over its stop (`userData.base`) and size (`userData.size`). */
   private discs: Sprite[] = [];
   /** Animation: the next stop's pulse until this time, and a disc (by stop) popping in since `popAt` (seconds). */
   private pulseFrom = -Infinity;
   private popStop = -1;
+  /** Or a via point's disc (by its piece) popping: its chip was picked (−1: none). */
+  private popVia = -1;
   private popAt = -Infinity;
+  /** The ribbon's flash, from this time (seconds; see `flash`). */
+  private flashAt = -Infinity;
   /** The camera's view the discs were last fanned out for (its matrix, the view's height, its fov). */
   private fannedFor: number[] = [];
 
   /** The ribbons drawn last (for the e2e: what the map shows). */
   shown: readonly RibbonSpec[] = [];
+  /** A changed stretch lit up (`highlight`): its mesh, when it began (s), and whether it fades (no: reduced motion). */
+  private lit: { mesh: Mesh; mat: MeshBasicMaterial; from: number; fade: boolean } | null = null;
+  /** The runs lit last (for the e2e). */
+  litRuns: readonly PathRun[] = [];
 
   constructor(
     private readonly layout: Layout,
@@ -117,8 +152,10 @@ export class RouteView {
   }
 
   /** Draw these ribbons and discs (replacing what was drawn). Builds geometry once per call; nothing per frame. */
-  show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = []): void {
-    this.clear();
+  show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = [], scale = 1): void {
+    this.clear(true);
+    // (Wider ribbons, arrows and edges, seen from far: the Lines view's. See `ribbonScale`.)
+    this.scale = scale;
     this.shown = ribbons;
     // One mesh per colour and kind: a handful of draw calls however long the route.
     const strips = new Map<string, { colour: string; dotted: boolean; pos: number[]; uv: number[] }>();
@@ -128,6 +165,7 @@ export class RouteView {
       if (!b) strips.set(key, (b = { colour, dotted, pos: [], uv: [] }));
       return b;
     };
+    const edges = new Set(ribbons.filter((r) => !r.dotted).map((r) => ribbonEdge(r.colour)));
     for (const r of ribbons) {
       if (r.dotted) {
         const b = stripOf(r.colour, true);
@@ -135,7 +173,24 @@ export class RouteView {
       } else {
         const b = stripOf(r.colour, false);
         for (const run of r.runs) this.strip(run, b.pos, b.uv);
+        // Under it, a wider strip in a dark shade of its colour: an edge that holds 3:1 against the beech track
+        // (audit F10: yellow was 1.2:1). Drawn first; the ribbon over it.
+        const e = stripOf(ribbonEdge(r.colour), false);
+        for (const run of r.runs) if (this.layout.getPiece(run.pieceId)) this.span(run, run.s0, run.s1, EDGE_LIFT, e.pos, e.uv, (RIBBON_WIDTH + 2 * EDGE_WIDTH) * this.scale);
       }
+    }
+    // Which way the train runs: small arrowheads along each solid ribbon, spaced by distance along it (audit F8: a
+    // shuttle and a ring looked the same). One mesh for them all, built with the ribbons.
+    const arrows: number[] = [];
+    for (const r of ribbons) if (!r.dotted) this.chevrons(r.runs, arrows);
+    if (arrows.length > 0) {
+      const g = new BufferGeometry();
+      g.setAttribute("position", new Float32BufferAttribute(arrows, 3));
+      g.computeBoundingSphere();
+      const mesh = new Mesh(g, this.chevronMaterial());
+      mesh.renderOrder = 4;
+      mesh.name = "route-chevrons";
+      this.group.add(mesh);
     }
     if (gaps.length > 0) {
       const red = stripOf(GAP_COLOUR, true);
@@ -148,13 +203,46 @@ export class RouteView {
       g.setAttribute("uv", new Float32BufferAttribute(b.uv, 2));
       g.computeBoundingSphere();
       const mesh = new Mesh(g, this.ribbonMaterial(b.colour, b.dotted));
-      mesh.renderOrder = 3;
-      mesh.name = b.dotted ? "route-dots" : "route-ribbon";
+      mesh.renderOrder = edges.has(b.colour) ? 2 : 3;
+      mesh.name = b.dotted ? "route-dots" : edges.has(b.colour) ? "route-edge" : "route-ribbon";
       this.group.add(mesh);
     }
     this.discs = [];
     discs.forEach((d, index) => this.disc(d, index));
     this.fannedFor = [];
+  }
+
+  /**
+   * Light up a stretch of the route (a way a track edit changed it to), from `now` (seconds), over the ribbon: a pale
+   * glow that fades out over `LIT_S` (one mesh, built once; `animate` sets its opacity). `fade` false (reduced motion):
+   * it stays steady for that long, then goes.
+   */
+  highlight(runs: readonly PathRun[], now: number, fade = true): void {
+    this.unlight();
+    if (runs.length === 0) return;
+    const pos: number[] = [];
+    const uv: number[] = [];
+    for (const run of runs) this.strip(run, pos, uv, LIT_WIDTH, LIT_LIFT);
+    if (pos.length === 0) return;
+    const g = new BufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute(pos, 3));
+    g.setAttribute("uv", new Float32BufferAttribute(uv, 2));
+    g.computeBoundingSphere();
+    const mat = new MeshBasicMaterial({ color: new Color(LIT_COLOUR), transparent: true, opacity: LIT_OPACITY, depthWrite: false, side: DoubleSide, depthFunc: LessDepth });
+    const mesh = new Mesh(g, mat);
+    mesh.renderOrder = 4;
+    mesh.name = "route-lit";
+    this.group.add(mesh);
+    this.lit = { mesh, mat, from: now, fade };
+    this.litRuns = runs;
+  }
+
+  private unlight(): void {
+    if (!this.lit) return;
+    this.group.remove(this.lit.mesh);
+    this.lit.mesh.geometry.dispose();
+    this.lit.mat.dispose();
+    this.lit = null;
   }
 
   /** The next stop's disc pulses (a few beats, from `now`, seconds): it has just become the next, or the card opened. */
@@ -165,6 +253,19 @@ export class RouteView {
   /** The disc of stop `stop` pops in (just added), from `now` (seconds). */
   pop(stop: number, now: number): void {
     this.popStop = stop;
+    this.popVia = -1;
+    this.popAt = now;
+  }
+
+  /** The ribbon flashes (its way just changed under the track's edit: audit F14), from `now` (seconds). */
+  flash(now: number): void {
+    this.flashAt = now;
+  }
+
+  /** The disc of the via point on piece `pieceId` pops (its chip was picked: which one it is), from `now` (seconds). */
+  popViaAt(pieceId: number, now: number): void {
+    this.popStop = -1;
+    this.popVia = pieceId;
     this.popAt = now;
   }
 
@@ -174,8 +275,24 @@ export class RouteView {
    */
   animate(now: number): boolean {
     let moving = false;
+    if (this.lit) {
+      const t = now - this.lit.from;
+      if (t >= LIT_S || t < 0) this.unlight();
+      else {
+        if (this.lit.fade) this.lit.mat.opacity = LIT_OPACITY * (1 - t / LIT_S) ** 2;
+        moving = true;
+      }
+    }
+    // The ribbon's flash: three soft beats of its opacity, then back as it was.
+    const f = now - this.flashAt;
+    if (f >= 0 && f < FLASH_S + 0.1) {
+      const k = f < FLASH_S ? 0.55 * Math.sin((f / FLASH_S) * Math.PI * 3) ** 2 : 0;
+      for (const [key, m] of this.ribbonMats) if (key.endsWith("|0")) m.opacity = RIBBON_OPACITY * (1 - k) + k * 0.15;
+      if (f < FLASH_S) moving = true;
+      else this.flashAt = -Infinity;
+    }
     for (const d of this.discs) {
-      const u = d.userData as { size: number; index: number; next: boolean };
+      const u = d.userData as { size: number; index: number; next: boolean; kind: string; pieceId: number };
       let k = 1;
       const pulse = now - this.pulseFrom;
       if (u.next && pulse >= 0 && pulse < PULSE_S) {
@@ -184,7 +301,8 @@ export class RouteView {
         moving = true;
       }
       const pop = now - this.popAt;
-      if (u.index === this.popStop && pop >= 0 && pop < POP_S) {
+      const popping = this.popVia !== -1 ? u.kind === "route-via" && u.pieceId === this.popVia : u.index === this.popStop && u.kind !== "route-via";
+      if (popping && pop >= 0 && pop < POP_S) {
         // From nothing, a little past full size, and back.
         const t = pop / POP_S;
         k *= t < 0.6 ? (t / 0.6) * 1.25 : 1.25 - 0.25 * ((t - 0.6) / 0.4);
@@ -236,12 +354,16 @@ export class RouteView {
     return true;
   }
 
-  clear(): void {
+  /** Take the route off the map. `keepLit`: a stretch lit up stays on till its time is up (`show` redraws under it). */
+  clear(keepLit = false): void {
+    if (!keepLit) this.unlight();
+    const lit = this.lit?.mesh;
     for (const o of this.group.children) {
       // Ribbon geometry is the call's own; the post geometry and the materials are kept for the next show().
-      if ((o as Mesh).isMesh && (o as Mesh).geometry !== this.postGeom) (o as Mesh).geometry.dispose();
+      if ((o as Mesh).isMesh && (o as Mesh).geometry !== this.postGeom && o !== lit) (o as Mesh).geometry.dispose();
     }
     this.group.clear();
+    if (lit) this.group.add(lit);
   }
 
   dispose(): void {
@@ -256,6 +378,8 @@ export class RouteView {
     this.discMats.clear();
     this.edgeAlpha?.dispose();
     this.edgeAlpha = null;
+    this.arrowMat?.dispose();
+    this.arrowMat = null;
   }
 
   /** World point `side` mm to the left of a path's centre line at `s`, `lift` mm over the track's top. */
@@ -297,9 +421,43 @@ export class RouteView {
     }
   }
 
-  private strip(run: PathRun, pos: number[], uv: number[]): void {
+  private strip(run: PathRun, pos: number[], uv: number[], width = RIBBON_WIDTH, lift = RIBBON_LIFT): void {
     if (!this.layout.getPiece(run.pieceId)) return;
-    this.span(run, run.s0, run.s1, RIBBON_LIFT, pos, uv);
+    this.span(run, run.s0, run.s1, lift, pos, uv, width * this.scale);
+  }
+
+  /**
+   * Arrowheads along a ribbon's runs, the way each run goes (s0 to s1, the way the train runs), every `CHEVRON_GAP`
+   * of the whole way (so they run on evenly from piece to piece): a flat triangle each, over the ribbon.
+   */
+  private chevrons(runs: readonly PathRun[], pos: number[]): void {
+    let along = 0;
+    const a: number[] = [];
+    const gap = CHEVRON_GAP * this.scale;
+    const len = CHEVRON_LENGTH * this.scale;
+    const wide = CHEVRON_WIDTH * this.scale;
+    for (const run of runs) {
+      if (!this.layout.getPiece(run.pieceId)) continue;
+      const dir = run.s1 >= run.s0 ? 1 : -1;
+      const n = Math.abs(run.s1 - run.s0);
+      for (let k = Math.ceil((along - gap / 2) / gap); ; k++) {
+        const d = k * gap + gap / 2 - along;
+        if (d > n) break;
+        // (Whole on this run: an arrow straddling a joint is left for the next.)
+        if (d - len / 2 < 0 || d + len / 2 > n) continue;
+        const s = run.s0 + dir * d;
+        a.length = 0;
+        this.point(run, s + (dir * len) / 2, 0, CHEVRON_LIFT, a);
+        this.point(run, s - (dir * len) / 2, wide / 2, CHEVRON_LIFT, a);
+        this.point(run, s - (dir * len) / 2, -wide / 2, CHEVRON_LIFT, a);
+        pos.push(...a);
+      }
+      along += n;
+    }
+  }
+
+  private chevronMaterial(): MeshBasicMaterial {
+    return (this.arrowMat ??= new MeshBasicMaterial({ color: new Color("#fff6e6"), transparent: true, opacity: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6, side: DoubleSide, fog: false }));
   }
 
   /** Dashes along the runs, spaced by distance along the whole way (so they run on evenly from piece to piece). */
@@ -557,4 +715,15 @@ export function discLabel(label: string, r: number, width: (text: string, size: 
     if (width(text, r * 0.5) <= room) return { text, size: (size * room) / w2 };
   }
   return { text: `${parts[0]}+`, size: r * 0.5 };
+}
+
+/**
+ * How much wider to draw ribbons seen from `distance` mm (on a view `heightPx` tall, `fovDeg` vertical) so they're at
+ * least `minPx` on screen: 1 close up; in steps of √2, so a zoom rebuilds them only when it crosses a step.
+ */
+export function ribbonScale(distance: number, heightPx: number, fovDeg: number, minPx = 4): number {
+  const pxPerMm = heightPx / (2 * distance * Math.tan((fovDeg * Math.PI) / 360));
+  const want = minPx / pxPerMm / RIBBON_WIDTH;
+  if (want <= 1) return 1;
+  return Math.SQRT2 ** Math.ceil(Math.log(want) / Math.log(Math.SQRT2));
 }

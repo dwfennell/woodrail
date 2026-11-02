@@ -25,7 +25,7 @@ import type { Sections } from "../economy/sections";
 import type { Stalls } from "../economy/stalls";
 import type { Router } from "../routing/router";
 import { next, waysFrom } from "../routing/graph";
-import { planChoice, ROUTE_COSTS, sticks } from "../routing/plan";
+import { planChoice, planWay, ROUTE_COSTS } from "../routing/plan";
 
 export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne"] as const;
 export type Invariant = (typeof INVARIANTS)[number];
@@ -527,7 +527,10 @@ export class Invariants {
       if (best === -1 || best === taken.option) return;
       // (Or the way its line kept, costing nearly the best: stickiness, via points' §3.5.)
       const aim = held?.aim ?? target;
-      const kept = this.world.owner !== undefined && this.world.router.ways.get(this.world.owner(engine), b.pieceId, entry, aim) === taken.option && sticks(costs[taken.option], costs[best]);
+      // (Kept as `planWay` keeps it: costing nearly the best, or no more than when it was taken, its way still there after
+      // a track edit made another shorter.)
+      const keep = this.world.owner !== undefined ? this.world.router.ways.get(this.world.owner(engine), b.pieceId, entry, aim) : undefined;
+      const kept = keep?.way?.option === taken.option && planWay(layout, b.pieceId, entry, ways, aim, undefined, keep) === taken.option;
       wrong = !(costs[taken.option] <= costs[best]) && !kept;
     }
     if (wrong) this.break("wrongRoad", `${this.name(key, engine)} took road ${taken.option} at points ${b.pieceId} (${followed.length === 1 ? "not the way granted" : `not its way to ${target}`})`, engine, b.pieceId);

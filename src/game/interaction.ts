@@ -47,10 +47,10 @@ import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
-import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
+import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
-import { STORE_HELP, storeStock } from "./warehouse-text";
+import { givesBlockText, GIVES_HELP, STORE_HELP, storeStock } from "./warehouse-text";
 import { SHOP_HELP } from "./workshop-text";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
@@ -112,6 +112,8 @@ const TOUCH_LIFT_PX = 56;
 const GUIDE_REACH = 130;
 /** A tap on touch takes a car this near it on screen (half a 44 px target): cars are small at the default zoom. */
 const TOUCH_SLACK_PX = 22;
+/** Planning a route: how near (px, a finger; half for a mouse) a tap beside a station or depot's track takes the place. */
+const PLACE_SLACK_PX = 24;
 /** About the middle of a car's body above the rails (mm): where a finger aims at it. */
 const CAR_BODY_MID_MM = 14;
 /** Loose pieces snap to this grid (mm): a quarter of a landscape square, the step between straight lengths. */
@@ -2691,7 +2693,7 @@ export class Interaction {
     this.selectedCar = car.id;
     g.trainView.setSelected(car.id);
     g.invalidate();
-    if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id);
+    if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id, g.sim.nameOf(car.id));
     else this.hud.showCarCard();
     // (The car tapped, kept in view: its engine's card may be what opens.)
     const tapped = found.train.cars[found.index].id;
@@ -2800,7 +2802,7 @@ export class Interaction {
     this.selectedCar = car.id;
     this.game.trainView.setSelected(car.id);
     this.game.invalidate();
-    this.hud.showEngineCard(car.lever, this.game.following === car.id);
+    this.hud.showEngineCard(car.lever, this.game.following === car.id, this.game.sim.nameOf(car.id));
   }
 
   /** The engine whose card is open, or −1. */
@@ -2943,7 +2945,7 @@ export class Interaction {
       this.townCard.show(d);
       return;
     }
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.sheds;
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.role === "warehouse" || givesChoice(d.role) ? storeKey(d) : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
     // this per-frame check.
@@ -2970,9 +2972,32 @@ export class Interaction {
     // A harbour's quay takes any good: it lists only what's there. (So does a town's card in Sandbox, which has no
     // ledger: a row for each of the nine goods a town takes was a wall of "0/12". Its chain rows say what can come.)
     if (d.role === "harbour" || d.role === "town") piles = piles.filter((p) => p.count > 0);
-    // A warehouse: only what it holds (not a row for every good), and how to use it.
+    // A warehouse: how to use it, and a row for each good it holds or lists (its count, and what it lets trains do with
+    // it), "Any other goods", and "+ Add a good" (goods the map makes, not shown yet). "Empty" while it holds nothing.
     if (d.role === "warehouse") {
-      this.hud.updateDepotCard([], d.auto, d.waitFull, storeStock(piles), false, STORE_HELP);
+      const stock = storeStock(piles);
+      this.hud.updateDepotCard([], d.auto, d.waitFull, stock === "Empty" ? stock : "", false, STORE_HELP);
+      const shown = CARGO_KINDS.filter((k) => d.piles[CARGO[k].index] > 0 || storeListed(d, k));
+      const made = new Set<CargoKind>();
+      for (const o of economy.allDepots()) {
+        const r = RECIPES[o.role];
+        if (r.routedOnly || o.role === "harbour") for (const k of CARGO_KINDS) if (o.piles[CARGO[k].index] > 0) made.add(k);
+        if (!r.routedOnly && o.role !== "harbour") for (const k of r.gives) made.add(k);
+      }
+      this.hud.setStore({
+        rows: shown.map((k) => ({ kind: k, count: d.piles[CARGO[k].index], cap: capAt(d), mode: storeModeOf(d, k), listed: storeListed(d, k) })),
+        others: d.others,
+        addable: CARGO_KINDS.filter((k) => made.has(k) && !shown.includes(k)),
+      });
+      return;
+    }
+    // An industry that gives several goods (the mine): a row each, its count and Gives / Doesn't give. Production runs
+    // on whatever is set; trains load only what it gives.
+    if (givesChoice(d.role)) {
+      const gives = RECIPES[d.role].gives;
+      const none = gives.every((k) => storeModeOf(d, k) === "off");
+      this.hud.updateDepotCard([], d.auto, d.waitFull, none ? givesBlockText(DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES] ?? "industry", null) : "", false, GIVES_HELP);
+      this.hud.setStore({ gives: true, others: null, addable: [], rows: gives.map((k) => ({ kind: k, count: d.piles[CARGO[k].index], cap: capAt(d), mode: storeModeOf(d, k), listed: true })) });
       return;
     }
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
@@ -2986,6 +3011,24 @@ export class Interaction {
     if (!d) return;
     this.game.economy.setAuto(d.id, !d.auto);
     this.hud.toast(d.auto ? "The crane works trains by itself" : "Trains run straight through; move cargo by hand");
+    this.refreshDepotCard();
+    this.changed();
+  }
+
+  /** The open warehouse's card: what it lets trains do with a good (listing it), or with `kind` null, any other good. */
+  setStoreMode(kind: CargoKind | null, mode: StoreMode): void {
+    const d = this.game.economy.depot(this.selectedDepot);
+    if (!d || (d.role !== "warehouse" && !givesChoice(d.role))) return;
+    this.game.economy.setStoreMode(d.id, kind, mode);
+    this.refreshDepotCard();
+    this.changed();
+  }
+
+  /** The open warehouse's card: a good taken off its list. */
+  unlistStore(kind: CargoKind): void {
+    const d = this.game.economy.depot(this.selectedDepot);
+    if (!d || d.role !== "warehouse") return;
+    this.game.economy.unlistStore(d.id, kind);
     this.refreshDepotCard();
     this.changed();
   }
@@ -3067,6 +3110,14 @@ export class Interaction {
     const found = this.game.sim.findCar(this.selectedCar);
     if (found) this.hud.updateEngineCard(found.train.cars[found.index].lever, this.game.following === this.selectedCar);
     this.changed();
+  }
+
+  /** Rename the engine whose card is open (as typed: `Sim.setName` tidies it). Returns the name it has now. */
+  renameSelectedEngine(raw: string): string {
+    const sim = this.game.sim;
+    if (this.selectedCar === -1) return "";
+    if (sim.setName(this.selectedCar, raw)) this.changed();
+    return sim.nameOf(this.selectedCar);
   }
 
   removeSelectedTrain(): void {
@@ -5578,6 +5629,12 @@ export class Interaction {
     // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
     if (exact?.kind === "route-stop" || exact?.kind === "route-via") return exact;
     if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
+    // Planning, a tap on plain track (or the ground) just beside a station or depot means the place: a via point there
+    // was the stray tap's (audit F6). Within a fingertip of the place's track on screen.
+    if (this.onPickPlace && (!exact || exact.kind === "piece")) {
+      const place = this.placeNear(x, y, touch ? PLACE_SLACK_PX : PLACE_SLACK_PX / 2);
+      if (place !== -1) return { kind: "piece", pieceId: place };
+    }
     // A signal's post, over the track or the ground (not over a train or a model: those win).
     if (!this.onPickPlace && (!exact || exact.kind === "piece") && this.game.layout.signalCount > 0) {
       const mark = this.markAt(x, y, touch);
@@ -5597,6 +5654,32 @@ export class Interaction {
     const won = fingertipWinner(car, lever);
     if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(post?.corner ? { corner: post.corner } : {}), slack: lever.d };
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
+  }
+
+  /**
+   * Planning: the piece of the station or depot whose track passes within `slack` px of (x, y) on screen (end to end),
+   * the nearest; −1 for none. Asked once a tap (a few dozen places at most), never on a move.
+   */
+  private placeNear(x: number, y: number, slack: number): number {
+    const g = this.game;
+    const r = g.canvas.getBoundingClientRect();
+    const v = new Vector3();
+    const w = { x: 0, z: 0, heading: 0, y: 0, kind: "peg" } as WorldConnector;
+    const toScreen = (): [number, number, number] => {
+      v.set(w.x, w.y, w.z).project(g.camera);
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height, v.z];
+    };
+    const ends: CarOnScreen[] = [];
+    for (const d of g.economy.allDepots()) {
+      const piece = g.layout.getPiece(d.pieceId);
+      if (!piece || getPieceDef(piece.type, piece.flipped).connectors.length < 2) continue;
+      g.layout.worldConnector(connectorRef(d.pieceId, 0), w);
+      const [ax, ay, az] = toScreen();
+      g.layout.worldConnector(connectorRef(d.pieceId, 1), w);
+      const [bx, by, bz] = toScreen();
+      if (inFrontOfCamera(az, bz)) ends.push({ id: d.pieceId, ax, ay, bx, by });
+    }
+    return nearestOnScreen(x, y, ends, slack).id;
   }
 
   /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
@@ -5879,4 +5962,11 @@ function shownInTree(o: Object3D | null): boolean {
 function coalesced(e: PointerEvent): readonly PointerEvent[] {
   const list = e.getCoalescedEvents?.();
   return list?.length ? list : [e];
+}
+
+/** A warehouse's store settings as one number, for its card's change check (no allocation: called every frame). */
+function storeKey(d: DepotState): number {
+  let key = STORE_MODES.indexOf(d.others) + 1;
+  for (const m of d.modes) key = key * 5 + (m === null ? 0 : STORE_MODES.indexOf(m) + 1);
+  return key;
 }

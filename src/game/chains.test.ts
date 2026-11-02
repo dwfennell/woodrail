@@ -157,12 +157,39 @@ describe("a train beside goods it won't load (the engine card, Sandbox's chain h
     expect(loadHintText(h, "the forest yard")).toBe("Not picking up logs: the forest yard isn't on this route. Edit the route to add a stop here");
   });
 
+  it("a flatbed switched Off for logs on its card: not picking up logs, and why", () => {
+    const { w, t } = atForest(["engine", "timber"]);
+    const flatbed = t.cars[1].id;
+    w.economy.setCarTakes(flatbed, "log", false);
+    const h = loadHint(t, at(w), null, (c, k) => w.economy.carTakes(c, k))!;
+    expect(h.why).toBe("off");
+    expect(loadHintText(h, "the forest yard")).toBe("Not picking up logs: its wagons are set to Off for logs. Switch them on in a wagon's card");
+    w.economy.setCarTakes(flatbed, "log", true);
+    expect(loadHint(t, at(w), null, (c, k) => w.economy.carTakes(c, k))).toBeNull();
+  });
+
+  it("routed past a place not on its line: the card offers to add the stop", () => {
+    const { w, forest, t, engine } = atForest(["engine", "timber"]);
+    w.sim.setLever(engine, 0);
+    const town = w.economy.allDepots().find((d) => d.role === "town")!;
+    w.economy.setRoute(engine, { stops: [{ depotId: town.id, action: "auto" }] } as Parameters<typeof w.economy.setRoute>[1]);
+    const v = engineView(w.sim, w.economy, engine, () => "the forest yard", null, () => "", true);
+    expect(v.status).toMatch(/^Not picking up logs: the forest yard isn't on this route/);
+    expect(v.addStop).toBe(forest.id);
+    expect(t).toBeTruthy();
+  });
+
   it("nothing piled there, or its crane off: nothing to say", () => {
     const { w, forest, t } = atForest(["engine", "passenger"]);
     forest.piles[CARGO.log.index] = 0;
     expect(loadHint(t, at(w), null)).toBeNull();
     forest.piles[CARGO.log.index] = 4;
     w.economy.setAuto(forest.id, false);
+    expect(loadHint(t, at(w), null)).toBeNull();
+    // (A place set on its card not to give a good, as a mine's coal or ore can be: its own setting says so, not this.
+    // Set here directly: only industries giving several goods have the choice, and `loadHint` reads the mode alone.)
+    w.economy.setAuto(forest.id, true);
+    forest.modes[CARGO.log.index] = "off";
     expect(loadHint(t, at(w), null)).toBeNull();
   });
 });

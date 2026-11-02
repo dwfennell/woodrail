@@ -5,6 +5,7 @@
  *   GET  /v1/saves/:mode         the bundle (`?prev=1`: the one before it)
  *   HEAD /v1/saves/:mode         just its headers: what's there, without the bytes
  *   POST /v1/stats               anonymous play stats, from players who said yes (stats.ts)
+ *   /feedback…                   "Report a bug or give feedback": reports, their maps and pictures (feedback.ts)
  *
  * The sync code is the only key: sent in `X-Woodrail-Code` (never in the URL, so it stays out of logs), and stored only
  * as an HMAC under the Worker's secret `CODE_KEY` (so the bucket's keys can't be tried against codes without it). The bundle is opaque here: the game gzips it, and checks it when it loads it. What the Worker keeps beside
@@ -18,10 +19,12 @@
  * been stored since, it's turned away (409), so a device never writes over a copy it hasn't seen.
  */
 
+import { readCapped } from "./body";
+import { handleFeedback, type FeedbackEnv } from "./feedback";
 import { MAX_BYTES, MIN_PUT_INTERVAL_MS, MODES } from "./limits";
 import { handleStats, type StatsEnv } from "./stats";
 
-export interface Env extends StatsEnv {
+export interface Env extends StatsEnv, FeedbackEnv {
   SAVES: R2Bucket;
   /** The pages that may call the Worker, comma separated (`https://example.com,http://localhost:5173`). */
   ALLOWED_ORIGINS: string;
@@ -35,6 +38,11 @@ const PATH = /^\/v1\/saves\/([a-z]+)$/;
 const EXPOSED = "X-Saved-At, X-Save-Version, X-Game-Version, X-Stored-At, X-Layout-At, X-Layout-Stored-At, X-Server-Now";
 /** Any port on this machine (the dev server, a preview, a test's own): a page there is the developer's. */
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+/**
+ * Where else the game is served, for feedback only (saves stay with `ALLOWED_ORIGINS`): itch.io (its games are served
+ * from shared CDN hosts) and a claude.ai artifact (served from claude's own content hosts).
+ */
+const FEEDBACK_HOSTS = /^https:\/\/([a-z0-9-]+\.)*(itch\.zone|itch\.io|hwcdn\.net|claudeusercontent\.com|claude\.ai)$/;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -42,6 +50,14 @@ export default {
     // Play stats (stats.ts): from any page, so not behind the saves' origin check.
     if (new URL(request.url).pathname === "/v1/stats") return handleStats(request, env, { "Access-Control-Allow-Origin": "*" });
     const allowed = origin !== null && (LOCAL.test(origin) || env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).includes(origin));
+    // Feedback (feedback.ts): from the saves' pages and the game's other homes; a request with no Origin (curl, the
+    // fetch script) is let through, as for saves. Its maps and pictures are read by unguessable id, from anywhere.
+    const path = new URL(request.url).pathname;
+    if (path === "/feedback" || path.startsWith("/feedback/")) {
+      const pageOk = origin === null || allowed || FEEDBACK_HOSTS.test(origin);
+      const cors: Record<string, string> = origin !== null && pageOk ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : { "Access-Control-Allow-Origin": "*" };
+      return handleFeedback(request, env, cors, pageOk);
+    }
     const cors = (res: Response): Response => {
       // (The Worker's clock, so a game can tell how far off its own is: see `X-Stored-At`.)
       res.headers.set("X-Server-Now", String(Date.now()));
@@ -140,31 +156,6 @@ function metaHeaders(obj: R2Object): Headers {
   const meta = obj.customMetadata ?? {};
   // (`X-Stored-At`: when the Worker stored it, by its own clock: games compare edits by it, not by each other's clocks.)
   return new Headers({ "X-Saved-At": meta.savedAt ?? "0", "X-Save-Version": meta.saveVersion ?? "0", "X-Game-Version": meta.gameVersion ?? "", "X-Stored-At": meta.putAt ?? "0", "X-Layout-At": meta.layoutAt ?? "0", "X-Layout-Stored-At": meta.layoutStoredAt ?? "0" });
-}
-
-/** The body, or null once it runs past `max` bytes (Content-Length can be missing, or wrong). */
-async function readCapped(request: Request, max: number): Promise<Uint8Array | null> {
-  if (!request.body) return new Uint8Array(0);
-  const reader = request.body.getReader();
-  const parts: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > max) {
-      await reader.cancel();
-      return null;
-    }
-    parts.push(value);
-  }
-  const out = new Uint8Array(size);
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.byteLength;
-  }
-  return out;
 }
 
 async function hmac(secret: string, s: string): Promise<string> {

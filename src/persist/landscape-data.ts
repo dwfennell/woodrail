@@ -99,6 +99,8 @@ export const landscapeSchema = z.object({
     .optional(),
   /** A Sandbox map: no sites, ever (`Landscape.siteless`). */
   siteless: z.boolean().optional(),
+  /** The first train's marker (`Landscape.firstTrain`); null: none ever; missing: none yet. */
+  firstTrain: z.object({ x: z.number().finite(), z: z.number().finite(), heading: z.number().finite() }).nullable().optional(),
 });
 
 export type LandscapeData = z.infer<typeof landscapeSchema>;
@@ -148,6 +150,7 @@ export function serializeLandscape(land: Landscape): LandscapeData {
     corridors: [...land.corridors],
     ...(land.sites ? { sites: land.sites.map((s) => ({ ...s, centre: { ...s.centre }, piece: { ...s.piece }, plot: { ...s.plot }, fields: [...s.fields] })) } : {}),
     ...(land.siteless ? { siteless: true } : {}),
+    ...(land.firstTrain !== undefined ? { firstTrain: land.firstTrain && { ...land.firstTrain } } : {}),
   };
 }
 
@@ -219,5 +222,6 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     coast: data.coast ? { ...data.coast, seed: data.seed } : null,
     ...(data.sites ? { sites: data.sites } : {}),
     ...(data.siteless ? { siteless: true } : {}),
+    ...(data.firstTrain !== undefined ? { firstTrain: data.firstTrain } : {}),
   });
 }

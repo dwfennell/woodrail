@@ -43,8 +43,8 @@ interface Crossing {
   posts: Group[];
   /** The level-crossing style's lit lamps: each post's pair, shown in turn while the booms are down. */
   lamps: Mesh[][];
-  /** A train was near at the last update (the barriers are coming down, or down). */
-  near: boolean;
+  /** A car near it at the last update (its barriers coming down), or null before its first. */
+  near: boolean | null;
 }
 
 const keyOf = (c: StyledCrossing) =>
@@ -82,6 +82,11 @@ export class CrossingsView {
   private readonly black: Material;
   private readonly grey: Material;
   private readonly lit: Material;
+  /**
+   * The crossings whose barriers began to come down at the last `update` (a train drawing near): the game rings
+   * their bell. Emptied at each update; nothing in it most frames.
+   */
+  readonly closing: StyledCrossing[] = [];
   /** Seconds the booms have been flashing for (the lamps' phase). */
   private time = 0;
 
@@ -149,7 +154,7 @@ export class CrossingsView {
   }
 
   private build(c: StyledCrossing, key: string): Crossing {
-    const out: Crossing = { c, key, barriers: [], posts: [], lamps: [], near: false };
+    const out: Crossing = { c, key, barriers: [], posts: [], lamps: [], near: null };
     // A barrier at each gate, its arm (or gate) reaching across that half of the road.
     for (const gate of c.gates) {
       // The post where the gate is (clear of the track: see `findCrossings`).
@@ -245,6 +250,7 @@ export class CrossingsView {
   update(snap: SimSnapshot, dt: number): boolean {
     let moving = false;
     this.time += dt;
+    this.closing.length = 0;
     const blink = Math.floor(this.time * FLASH) % 2;
     for (const crossing of this.crossings) {
       const { c, barriers, lamps } = crossing;
@@ -255,6 +261,8 @@ export class CrossingsView {
         const dz = snap.transforms[i * 6 + 2] - c.z;
         near = dx * dx + dz * dz < NEAR * NEAR;
       }
+      // (Not on its first update: a crossing laid under a standing train isn't one closing.)
+      if (near && crossing.near === false) this.closing.push(c);
       crossing.near = near;
       for (const b of barriers) {
         const target = near ? b.shut : b.open;

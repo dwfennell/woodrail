@@ -205,3 +205,114 @@ export function joinSavedLine(economy: Economy, saved: readonly SavedLine[], eng
   const at = Math.min(next, line.stops.length - 1);
   economy.setRoute(engineCarId, { stops: line.stops, next: at, ...(via > 0 ? { viaFor: at, viaDone: via } : {}) });
 }
+
+/** A stop's fields, copied (its via points a list of their own). */
+const copyStop = (s: RouteStopDef): RouteStopDef => ({ depotId: s.depotId, action: s.action, ...(s.waitFill ? { waitFill: true } : {}), ...(s.via ? { via: [...s.via] } : {}) });
+
+/** Where a train is on its line: the stop object it's heading for, at it or not, and its via points passed. */
+interface LineRun {
+  readonly engine: number;
+  readonly line: number;
+  readonly heading: RouteStopDef | undefined;
+  readonly next: number;
+  readonly at: boolean;
+  readonly viaFor?: number;
+  readonly viaDone?: number;
+}
+
+/**
+ * The lines as they stand, for a route edit's undo and redo (audit F1): every line (the very objects, with their stops'
+ * fields copied), and each train on one, where it is on it. Small: a few lines of a few stops.
+ */
+export interface LinesSnapshot {
+  readonly lines: readonly { readonly line: Line; readonly colour: string; readonly name: string; readonly stops: readonly { readonly ref: RouteStopDef; readonly copy: RouteStopDef }[] }[];
+  readonly runs: readonly LineRun[];
+}
+
+function runOf(economy: Economy, engine: number, id: number): LineRun {
+  const r = economy.routeOf(engine);
+  const line = economy.lines.get(id);
+  const heading = r && line && line.stops.length > 0 ? line.stops[r.next % line.stops.length] : undefined;
+  return { engine, line: id, heading, next: r?.next ?? 0, at: !!r?.at, ...(r?.viaFor !== undefined ? { viaFor: r.viaFor, viaDone: r.viaDone } : {}) };
+}
+
+export function snapshotLines(economy: Economy): LinesSnapshot {
+  return {
+    lines: [...economy.lines.values()].map((line) => ({ line, colour: line.colour, name: line.name, stops: line.stops.map((ref) => ({ ref, copy: copyStop(ref) })) })),
+    runs: [...economy.lineIdOf].map(([engine, id]) => runOf(economy, engine, id)),
+  };
+}
+
+/** Do two snapshots say the same (the same lines, stops and trains on them; not where the trains are on them)? */
+export function sameLines(a: LinesSnapshot, b: LinesSnapshot): boolean {
+  const key = (s: LinesSnapshot) =>
+    JSON.stringify([s.lines.map((l) => [l.line.id, l.colour, l.name, l.stops.map((st) => st.copy)]), s.runs.map((r) => [r.engine, r.line]).sort((x, y) => x[0] - y[0])]);
+  return key(a) === key(b);
+}
+
+/**
+ * Put the lines back as `to` has them (a route edit undone or redone): their stops, names and colours, which train
+ * runs which. A train still where `from` (the state the edit left, or the undo before) had it on its line goes back to
+ * where `to` had it (it heads where it did before the edit); one that has run on since keeps heading for its stop where
+ * that's still on the line, else for the stop it comes to first. Trains no longer on the map are left out, and a line
+ * none of its trains is left to run is gone.
+ */
+export function restoreLines(economy: Economy, to: LinesSnapshot, from: LinesSnapshot): void {
+  // Where each train is now, and whether that's still as `from` left it.
+  const now = new Map([...economy.lineIdOf].map(([engine, id]) => [engine, runOf(economy, engine, id)]));
+  const was = new Map(from.runs.map((r) => [r.engine, r]));
+  const unmoved = (engine: number) => {
+    const n = now.get(engine);
+    const f = was.get(engine);
+    if (!n || !f) return !n && !f;
+    return n.line === f.line && n.heading === f.heading && n.at === f.at;
+  };
+  const still = new Map([...new Set([...now.keys(), ...to.runs.map((r) => r.engine)])].map((e) => [e, unmoved(e)]));
+  const onMap = (engine: number) => !!economy.sim.findCar(engine);
+  // The lines: each stop object as it was, in its place.
+  for (const id of [...economy.lines.keys()]) if (!to.lines.some((l) => l.line.id === id)) economy.lines.delete(id);
+  for (const l of to.lines) {
+    if (!to.runs.some((r) => r.line === l.line.id && onMap(r.engine))) {
+      economy.lines.delete(l.line.id);
+      continue;
+    }
+    for (const { ref, copy } of l.stops) {
+      ref.depotId = copy.depotId;
+      ref.action = copy.action;
+      if (copy.waitFill) ref.waitFill = true;
+      else delete ref.waitFill;
+      if (copy.via) ref.via = [...copy.via];
+      else delete ref.via;
+    }
+    l.line.stops.splice(0, l.line.stops.length, ...l.stops.map((s) => s.ref));
+    l.line.colour = l.colour;
+    l.line.name = l.name;
+    economy.lines.set(l.line.id, l.line);
+  }
+  // The trains: off lines `to` hasn't them on; on the rest, heading as said above.
+  for (const engine of [...economy.lineIdOf.keys()]) {
+    if (to.runs.some((r) => r.engine === engine)) continue;
+    economy.lineIdOf.delete(engine);
+    economy.setRoute(engine, null);
+  }
+  for (const run of to.runs) {
+    const line = economy.lines.get(run.line);
+    if (!line || !onMap(run.engine)) continue;
+    economy.lineIdOf.set(run.engine, run.line);
+    const cur = now.get(run.engine);
+    const as = still.get(run.engine) ? run : cur && cur.line === run.line && cur.heading && line.stops.includes(cur.heading) ? cur : null;
+    let next: number;
+    let at = false;
+    let via = {};
+    if (as) {
+      const k = as.heading ? line.stops.indexOf(as.heading) : -1;
+      next = k !== -1 ? k : Math.min(as.next, line.stops.length - 1);
+      at = k !== -1 && as.at;
+      if (k !== -1 && as.viaFor !== undefined && as.viaFor === as.next) via = { viaFor: next, viaDone: as.viaDone };
+    } else {
+      const first = line.stops.length >= 2 ? firstStopAhead(economy, run.engine, line.stops) : -1;
+      next = first !== -1 ? first : 0;
+    }
+    economy.setRoute(run.engine, { stops: line.stops, next, at, ...via });
+  }
+}

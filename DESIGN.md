@@ -20,6 +20,7 @@ colors:
   go-green: "#5aa35a"
   go-green-ink: "#13310f"
   attention: "#f0ae3c"
+  warn-ink: "#b0391f"
   focus: "#2f6fb5"
   page: "#cbbba3"
 typography:
@@ -95,6 +96,10 @@ Mode: Operate (a game HUD). The map comes first; the HUD stays at the edges, cos
 - **Panel cream** (`#faf3e6`, the `--wood-panel` grain): cards, the Journal, the research board.
 - **Muted ink** `#5e4128` and `#74522f`: secondary text. On cream and beech these hold 4.5:1; anything paler is decoration only.
 
+### Line colours
+A train line's colour (`LINE_COLOURS`, src/game/lines.ts), in the order new lines take them: red `#e0533d`, blue `#2f6db5`, yellow `#e6b52c`, green `#3c9a5f`, purple `#8a4fb5`, orange `#e07b2e`, teal `#2fa3b5`, pink `#c2457a`. They are keys, not text colours: on a chip they're a ring or a cap, never the ink; on the map the ribbon has a dark edge so each holds 3:1 against the beech track.
+- **Warn ink** (`#b0391f`): a warning line's text on cream (5:1), and a destructive ask's background with white text ("Forget …?").
+
 ### Named Rules
 - **Text holds 4.5:1.** Inactive tabs, labels and hints use `#5e4128`/`#74522f`, never a paler brown or an opacity below 0.7.
 - **No glass.** Panels are near-opaque cream; no backdrop-filter (it re-blurs over the live canvas every frame a train moves).
@@ -163,6 +168,7 @@ A web of wooden tickets on squared paper, banded by subject, with a lacquer rail
 - **Tags by state, one slot each:** learned, a green dot with a ✓; researching, a blue card ring, a blue "📘 Researching" tag and its progress as a 4px bar along the bottom (as the top bar's pill); next up, a blue-ringed dot and "Next up" / "In line: N"; can research, a yellow dot and its price on a gold pill; later, a flat card and its price outlined; soon, a dashed card and a dashed "Soon". A "?" (not found yet) is a 44px dashed circle, centred in the slot of the tag it stands for; on a phone a band's "?"s are one "N more to find" chip.
 - **Links, quiet to loud:** laid like track (straight, one rounded turn in the gap between columns, each card's links in a lane of their own, never through a card). Future: a faint dotted line, no arrow, and none across more than a column or between two "?"s. Learned to learned: soft solid. Learned into one you can research: solid with an arrow. The picked tag's path: blue.
 - **Ticket:** the name (18px/900), its line under it, then a label column (Unlocks, Needs, Opens, Costs), and the foot (goods, study, button) torn off along a dashed perforation.
+- **Ticket buttons name what they do:** one that needs a blueprint not learned yet never says "Research now": "Queue Farming, then Mills", "Research Farming now". Taking one out of the queue that others need says so in a toast ("Removed Mills too").
 - **A research learned:** its ✓ is stamped on, a glint runs over the card, the track to what it opens is laid and those cards click up; once, on the open board or the next time it opens.
 
 ## Do's and Don'ts

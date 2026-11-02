@@ -9,7 +9,10 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 
+// "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
+process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
 // Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
@@ -98,6 +101,31 @@ const caught = async (p) => {
 /** The card's place and lines are right for a ready item named `name`. */
 const cardOk = (c, name) => !!c && c.name === name && c.text.length >= 2 && c.pointer === "none" && c.above && c.onScreen && c.hitsMap;
 const frames = (p) => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+/**
+ * Wait (60 s at most) for the page to go quiet: the game settled and no long task on the main thread for 1.5 s. Just
+ * after Sandbox opens, the tray's pictures are made in stalls of up to a few seconds (software GL): a touch's down and
+ * up handled either side of one is a long press by the clock, not a tap. A player's tap then is the same; the check is
+ * of the tap, so it waits for the page to be still first.
+ */
+const quiet = (p) =>
+  p.evaluate(async () => {
+    await Promise.race([window.woodrail.settled?.(), new Promise((r) => setTimeout(r, 30000))]);
+    await new Promise((res) => {
+      let last = performance.now();
+      const obs = new PerformanceObserver((l) => {
+        if (l.getEntries().length) last = performance.now();
+      });
+      obs.observe({ type: "longtask" });
+      const t0 = performance.now();
+      const look = () => {
+        if (performance.now() - last >= 1500 || performance.now() - t0 > 30000) {
+          obs.disconnect();
+          res();
+        } else setTimeout(look, 250);
+      };
+      setTimeout(look, 250);
+    });
+  });
 
 /** Points on open map: on the canvas, nothing there to pick, ground under it, in the middle of the view. */
 const openPoints = (p, avoid = []) =>
@@ -637,6 +665,24 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await ctx.close();
 }
 
+// ---- desktop: ☰ Report a bug or give feedback, with the mouse ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  const press = async (sel) => {
+    const e = await p.$(sel);
+    if (!e) throw new Error(`no ${sel}`);
+    await e.click();
+    await frames(p);
+  };
+  try {
+    await feedbackFlow(p, { press, check, label: "feedback (mouse)" });
+  } catch (e) {
+    check("feedback (mouse): ran to the end", false, String(e?.message ?? e).split("\n")[0]);
+  }
+  await ctx.close();
+}
+
 // ---- fullscreen, and a sideways wheel never goes Back a page ----
 {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
@@ -728,6 +774,8 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
 {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const p = await sandbox(ctx);
+  // (The tray's pictures made first: see `quiet`.)
+  await quiet(p);
   const item = await firstItem(p);
   await catchCard(p);
   await p.touchscreen.tap(item.x, item.y);
@@ -740,6 +788,7 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   // A long press (held 450 ms or more, by event time): its details, and no drag.
   const cdp = await ctx.newCDPSession(p);
   const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  await quiet(p);
   const t0 = Date.now() / 1000;
   const before = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, mode: window.woodrail.interaction.mode.kind }));
   await touch("touchStart", item.x, item.y, t0);
@@ -793,6 +842,166 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   check("…tapped, it puts the page fullscreen, closes the menu, and then reads Leave fullscreen", phoneFs.on && phoneFs.menuHidden && phoneFs.label, JSON.stringify(phoneFs));
   check("the page and the tray never overscroll into a Back", tray.overscroll === "none" && tray.page === "none", JSON.stringify(tray));
   await ctx.close();
+}
+
+// ---- desktop: a route planned by clicks; Ctrl+Z undoes a stop while planning; a stop's mode; Leave asks; Ctrl+Z ----
+// (The route card's UX fixes, docs/design/2026-11-02-route-ux F1–F3, with a mouse. Setup only, not what's tested: an
+// oval of track with a forest and a sawmill on it, and a train, put down in code past the land's edge on the flat
+// table, where the view can go.)
+try {
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const o = S.oval(scratch);
+    const xs = o.ids.map((i) => scratch.getPiece(i).pose.x);
+    const zs = o.ids.map((i) => scratch.getPiece(i).pose.z);
+    const b = w.director.bounds;
+    // (The first shift, outward from the view's middle, where each of the oval's pieces is inside the view's bounds,
+    // 500 mm from every piece and 300 mm from every model: on the land or the flat table past it.)
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+    const pieces = [...w.layout.pieceIds()].map((i) => w.layout.getPiece(i).pose);
+    const models = [...w.props.all()];
+    const fits = (dx, dz) => xs.every((x, k) => {
+      const px = x + dx;
+      const pz = zs[k] + dz;
+      return px > b.x0 + 200 && px < b.x1 - 200 && pz > b.z0 + 200 && pz < b.z1 - 200 && pieces.every((q) => Math.hypot(q.x - px, q.z - pz) > 500) && models.every((q) => Math.hypot(q.x - px, q.z - pz) > 300);
+    });
+    const t = w.controls.target;
+    let g = null;
+    for (let d = 0; !g && d < 40000; d += 150) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 150));
+      for (let a = 0; !g && a < n; a++) {
+        const dx = t.x + d * Math.cos((a * 2 * Math.PI) / n) - cx;
+        const dz = t.z + d * Math.sin((a * 2 * Math.PI) / n) - cz;
+        if (fits(dx, dz)) g = { x: dx, z: dz };
+      }
+    }
+    if (!g) throw new Error("no room for the oval");
+    const types = { 0: "depot-forest", 7: "depot-sawmill" };
+    const placed = w.editor().placeRun(o.ids.map((i, k) => {
+      const q = scratch.getPiece(i);
+      return { type: types[k] ?? q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = [depot(placed[0], "forest").id, depot(placed[7], "sawmill").id];
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: placed[2], pathIndex: 0, s: 150, reversed: false });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(engine, 0);
+    w.director.glideTo(new w.controls.target.constructor(g.x + cx, 0, g.z + cz), 2600, { duration: 0.2 });
+    w.invalidate();
+    return { engine, places, pieces: [placed[0], placed[7]] };
+  });
+  const still = async () => {
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+    await frames(p);
+  };
+  await still();
+  const at = (what) => p.evaluate((what) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    let v;
+    if (what.engine !== undefined) {
+      const t = w.sim.findCar(what.engine).train;
+      // (Its body, 40 mm over the rails: at rail height a click takes the track under it.)
+      v = new V((t.world[0].x + t.world[1].x) / 2, t.world[0].y + 40, (t.world[0].z + t.world[1].z) / 2);
+    } else {
+      const q = w.layout.getPiece(what.piece);
+      v = new V(q.pose.x + Math.cos(q.pose.heading) * 108, q.y, q.pose.z + Math.sin(q.pose.heading) * 108);
+    }
+    const c = v.project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
+  }, what);
+  // A click as a player makes it: the view panned to the thing first (where it isn't well on screen), then a click
+  // where it's seen.
+  const clickOn = async (what) => {
+    let [x, y] = await at(what);
+    if (!(x > 80 && x < 1200 && y > 80 && y < 600)) {
+      await p.evaluate((what) => {
+        const w = window.woodrail;
+        const t = what.engine !== undefined ? w.sim.findCar(what.engine).train.world[0] : w.layout.getPiece(what.piece).pose;
+        w.director.glideTo(new w.controls.target.constructor(t.x, 0, t.z), 2000, { duration: 0.2 });
+      }, what);
+      await still();
+      [x, y] = await at(what);
+    }
+    await p.mouse.click(x, y);
+    await frames(p);
+  };
+  // (The card is rebuilt as it changes: the button found, a moment's settle, then found again where it is now.)
+  const clickButton = async (sel) => {
+    const where = () => p.waitForFunction((sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel, { timeout: 30000 }).then((h) => h.jsonValue());
+    // (Clicked once it holds still: the card's tap guard drops a click on a button that moved within 150 ms, and a
+    // change before, such as Only drop, resizes the card.)
+    let [x, y] = await where();
+    for (let k = 0; k < 20; k++) {
+      await frames(p);
+      await p.waitForTimeout(250);
+      const [x2, y2] = await where();
+      const held = Math.abs(x2 - x) < 1 && Math.abs(y2 - y) < 1;
+      [x, y] = [x2, y2];
+      if (held) break;
+    }
+    await p.mouse.click(x, y);
+    await frames(p);
+  };
+  const route = () => p.evaluate((e) => {
+    const w = window.woodrail;
+    const r = w.economy.routeOf(e);
+    return { stops: r?.stops.map((s) => ({ d: s.depotId, a: s.action, via: s.via ?? [] })) ?? [], next: r?.next ?? -1, lines: w.economy.lines.size };
+  }, setup.engine);
+  await clickOn({ engine: setup.engine });
+  await clickButton(".engine-extra .route-plan");
+  await clickOn({ piece: setup.pieces[0] });
+  const one = await route();
+  await still();
+  await clickOn({ piece: setup.pieces[1] });
+  const two = await route();
+  check("desktop: a route planned by clicks (the engine, Plan a route, the forest, the sawmill)", one.stops.length === 1 && two.stops.length === 2 && two.stops[1].d === setup.places[1], JSON.stringify({ one, two }));
+  await p.keyboard.press("Control+z");
+  await frames(p);
+  const undone = await route();
+  check("desktop (F1): Ctrl+Z while planning takes the stop just added off, the train heading where it did", JSON.stringify(undone) === JSON.stringify(one) && (await p.evaluate(() => document.querySelector(".engine-extra .route-plan.on") !== null)), JSON.stringify({ undone, one }));
+  await still();
+  await clickOn({ piece: setup.pieces[1] });
+  await clickButton(".engine-extra .route-plan.on");
+  await clickButton('.engine-extra .route-chip[data-stop="1"]');
+  const opts = await p.evaluate(() => ({ modes: [...document.querySelectorAll(".engine-extra .route-mode")].map((b) => b.textContent), pass: !!document.querySelector(".engine-extra .route-pass") }));
+  await clickButton('.engine-extra .route-mode[data-mode="drop"]');
+  const dropped = await route();
+  check("desktop (F2): the stop's three modes, Only drop clicked; no Pass by with two stops", opts.modes.length === 3 && !opts.pass && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
+  // (Clicked again, up to 3 times, until it asks: the card's tap guard rightly drops a click on a button that just
+  // moved, and the card's status line above can change its height at any moment.)
+  for (let k = 0; k < 3 && !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-leave.asking"))); k++) await clickButton(".engine-extra .route-leave:not(.asking)");
+  // (The second click at once, where it is: "Forget …?" waits 4 s, and on a busy page waiting for it to hold still
+  // takes longer. It doesn't move.)
+  const ask = await p.waitForFunction(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return { text: e.textContent, lines: window.woodrail.economy.lines.size, x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, null, { timeout: 30000 }).then((h) => h.jsonValue());
+  // (Not before 300 ms: the guard drops a click on a button that came into place within 150 ms, and Forget has just
+  // replaced Leave. Again, while it still asks, if a click didn't take.)
+  for (let k = 0; k < 3; k++) {
+    await p.waitForTimeout(300);
+    const at = await p.evaluate(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+    if (!at || (await p.evaluate(() => window.woodrail.economy.lines.size)) === 0) break;
+    await p.mouse.click(at[0], at[1]);
+    await frames(p);
+  }
+  const text = ask.text;
+  const asked = { lines: ask.lines };
+  const gone = await route();
+  check("desktop (F3): Leave asks first (\"Forget …?\"), the second click forgets the line", asked.lines === 1 && /^Forget/.test(text ?? "") && gone.lines === 0 && gone.stops.length === 0, JSON.stringify({ asked, text, gone }));
+  await p.keyboard.press("Control+z");
+  await frames(p);
+  const back = await route();
+  check("desktop (F1): Ctrl+Z brings the line back, Only drop and all", back.lines === 1 && back.stops.length === 2 && back.stops[1].a === "drop", JSON.stringify(back));
+  await ctx.close();
+} catch (e) {
+  check("desktop routes: ran to the end", false, String(e?.message ?? e).split("\n")[0]);
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));

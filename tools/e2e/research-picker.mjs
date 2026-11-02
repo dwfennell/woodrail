@@ -7,6 +7,9 @@
 // reduced motion), a toast once ("Larkfield school is idle: pick what to learn next", a tap opens the picker), the school's
 // card saying Idle with a Research button, and no frames in 30 s with the dot pulsing (a few pulses, then it rests).
 //
+// Then chains: Mills (needs Farming) queued in one tap behind Farming, "Research Farming now" (never Research now while
+// Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through.
+//
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
 // the pill lists each, or the one most lacking and "+N", at 360, 390 and 1440 px.
@@ -287,8 +290,10 @@ for (const [state, name] of [["learned", "Switches"], ["researching", "Bridges a
   states[state] = await ticket();
   await shot(`09-card-${state}`);
 }
+// (Locked by something besides blueprints, the bench's 50 planks delivered: one locked behind blueprints has a chain
+// button now, checked in step 10.)
 for (const state of ["locked", "soon"]) {
-  const name = await p.evaluate((s) => document.querySelector(`.board-body .bp-node.${s} .bp-name`)?.textContent, state);
+  const name = state === "locked" ? "Carpenter's bench" : await p.evaluate((s) => document.querySelector(`.board-body .bp-node.${s} .bp-name`)?.textContent, state);
   if (name) await select(name);
   states[state] = await ticket();
   await shot(`09-card-${state}`);
@@ -595,6 +600,76 @@ await p.emulateMedia({ reducedMotion: "reduce" });
 const still = await p.evaluate(() => getComputedStyle(document.querySelector(".research-pill"), "::after").animationName);
 check("…with reduced motion the dot doesn't pulse", still === "none", still);
 await p.emulateMedia({ reducedMotion: "no-preference" });
+
+// 10. Chains (a research that needs one not learned yet): Mills needs Farming. Queued in one tap, Farming first; never
+// "Research now" while Farming isn't learned, "Research Farming now" instead; taking Farming out takes Mills too, with
+// a toast; and the chain runs through: Farming learned, then Mills researched and learned (the payoff).
+await tap(".research-pill");
+await select("Mills");
+t = await ticket();
+check("chain, idle: Mills (needs Farming) offers Research Farming now, then Mills", t?.state === "locked" && queuedButtons(t) === "Research Farming now" && /Then Mills/.test(t.foot) && t.buttons.every((x) => x.h >= 44), JSON.stringify(t));
+await shot("15-chain-idle");
+await select("Junctions and loops");
+await tap(".board-sheet button[data-act=pick]", "Research");
+await select("Mills");
+t = await ticket();
+check("chain, one under way: Queue Farming, then Mills", t?.state === "locked" && queuedButtons(t) === "Queue Farming, then Mills" && !t.foot.includes("Research now"), JSON.stringify(t));
+await tap(".board-sheet button[data-act=pick]", "Queue Farming, then Mills");
+check("…one tap queues Farming, then Mills, behind Junctions", JSON.stringify(await queued()) === JSON.stringify(["junctions", "farming", "mills"]), JSON.stringify(await queued()));
+check("…the web's tags: Farming Next up, Mills In line: 2", (await webTag("Farming")) === "Next up" && (await webTag("Mills")) === "In line: 2", `${await webTag("Farming")} / ${await webTag("Mills")}`);
+t = await ticket();
+check("…Mills queued: Remove and Research Farming now, never Research now", t?.state === "next" && queuedButtons(t) === "✕ Remove|Research Farming now" && /2nd in line, after Farming/.test(t.foot), JSON.stringify(t));
+await shot("16-chain-queued");
+const savedChain = await p
+  .waitForFunction(() => {
+    const r = JSON.parse(localStorage.getItem("woodrail.game.progress.v1") ?? "null")?.research;
+    return r?.next === "farming" && r.later?.[0] === "mills" ? r : null;
+  }, null, { timeout: 15000, polling: 250 })
+  .then((h) => h.jsonValue())
+  .catch(() => null);
+check("…saved in order, Farming before Mills", savedChain !== null, JSON.stringify(savedChain));
+// Farming out: Mills goes too, and a toast says so.
+await select("Farming");
+await tap(".board-sheet button[data-act=pick]", "✕ Remove");
+const removedToast = await p
+  .waitForFunction(() => {
+    const t = document.querySelector(".toast");
+    return t.classList.contains("show") && /^Removed /.test(t.textContent) ? t.textContent : null;
+  }, null, { timeout: 10000, polling: 100 })
+  .then((h) => h.jsonValue())
+  .catch(() => null);
+check("removing Farming takes Mills out too, with a toast", JSON.stringify(await queued()) === JSON.stringify(["junctions"]) && removedToast === "Removed Mills too", JSON.stringify([await queued(), removedToast]));
+await shot("17-chain-removed-toast");
+// Back in, then Research Farming now: Farming swaps in, Junctions waits up next, Mills behind.
+await select("Mills");
+await tap(".board-sheet button[data-act=pick]", "Queue Farming, then Mills");
+await tap(".board-sheet button[data-act=now]", "Research Farming now");
+check("Research Farming now: Farming under way, Junctions up next, Mills after", JSON.stringify(await queued()) === JSON.stringify(["farming", "junctions", "mills"]), JSON.stringify(await queued()));
+t = await ticket();
+check("…Mills, Farming under way: only Remove (it waits for Farming)", t?.name === "Mills" && t.state === "next" && queuedButtons(t) === "✕ Remove", JSON.stringify(t));
+await shot("18-chain-waits");
+await tap(".board-head .close");
+// The payoff: Farming's goods in and studied, learned; Mills' plain Research now; Mills researched and learned.
+const deliverGoods = (bag) =>
+  p.evaluate((bag) => {
+    const w = window.woodrail;
+    const school = w.economy.allDepots().find((d) => d.role === "school");
+    for (const [k, n] of Object.entries(bag)) for (let i = 0; i < n; i++) w.economy.intoSink(school, k);
+  }, bag);
+await deliverGoods({ planks: 6 });
+await p.waitForFunction(() => window.woodrail.progress().learned.has("farming"), null, { timeout: 90000 }).catch(() => null);
+await p.waitForTimeout(600);
+check("Farming learned; Junctions started from the queue, Mills next", JSON.stringify(await queued()) === JSON.stringify(["junctions", "mills"]), JSON.stringify(await queued()));
+await tap(".research-pill");
+await select("Mills");
+t = await ticket();
+check("…now Mills says Research now", queuedButtons(t) === "✕ Remove|Research now", JSON.stringify(t));
+await tap(".board-sheet button[data-act=now]", "Research now");
+check("…a tap starts Mills", (await queued())[0] === "mills", JSON.stringify(await queued()));
+await tap(".board-head .close");
+await deliverGoods({ planks: 6, grain: 6 });
+await p.waitForFunction(() => window.woodrail.progress().learned.has("mills"), null, { timeout: 150000 }).catch(() => null);
+check("…and Mills is learned (the mill is unlocked)", await p.evaluate(() => window.woodrail.progress().learned.has("mills")), JSON.stringify(await queued()));
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

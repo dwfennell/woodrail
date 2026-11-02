@@ -20,7 +20,7 @@ export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: Cargo
   const head = `Not dropping ${goods}: `;
   switch (why) {
     case "not-stop":
-      return `${head}${place} isn't on this route. Edit the route to add a stop here`;
+      return `${head}${place} isn't on this line. Edit the line to add a stop here`;
     case "full":
       return `${head}${place} is full`;
     case "shares":

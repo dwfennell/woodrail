@@ -11,8 +11,19 @@ bucket_name = "woodrail-saves"
 # The pages that may call the Worker (comma separated): the deployed game. (Pages on localhost, any port, always may.)
 ALLOWED_ORIGINS = "https://dwfennell.github.io"
 # (And the secret CODE_KEY, set with `wrangler secret put CODE_KEY`: never here.)
+# Where feedback opens its issues (only once the secret GITHUB_TOKEN is set too).
+GITHUB_REPO = "dwfennell/woodrail"
 
 # Anonymous play stats ("Help improve Woodrail", src/stats.ts), one data point per event, read with the SQL API.
 [[analytics_engine_datasets]]
 binding = "STATS"
 dataset = "woodrail_stats"
+
+# "Report a bug or give feedback" (src/feedback.ts): reports are kept in the SAVES bucket under feedback/, and an issue
+# is opened for each on GITHUB_REPO when the secret GITHUB_TOKEN is set (`wrangler secret put GITHUB_TOKEN`: never
+# here). The admin list (GET /feedback) needs the secret ADMIN_KEY.
+# A few reports a minute per IP. (namespace_id: any number, unique to this limiter in the account.)
+[[ratelimits]]
+name = "FEEDBACK_LIMIT"
+namespace_id = "4201"
+simple = { limit = 5, period = 60 }

@@ -3,7 +3,7 @@
 // going: earned quietly, a dot on the Journal's chip, no Stickers tab and no sticker toast. Then the last core goal
 // (Connect every town) is met by laying the last link: its toast, then "Stickers!", whose tap opens the Journal on the
 // new Stickers tab, with Track layer and Every town earned; a tile's tap shows its ticket; looking at the tab clears
-// the dot; the chip says "Goals ✓ · 🌟 n / 11"; New game is in the card; a reload keeps it all.
+// the dot; the chip says "Goals ✓ · 🌟 n / 21"; the Goals tab says keep building, with See stickers (no New game: that is only in the ☰ menu); a reload keeps it all.
 //
 // Usage: npm run e2e:stickers [-- <out dir>]   (default out: e2e-out/stickers)
 import { existsSync, mkdirSync } from "node:fs";
@@ -213,9 +213,12 @@ const pane = await p.evaluate(() => ({
 }));
 await shot("2-toast-tapped");
 check("a tap on the toast opens the Journal on the Stickers tab", tapped && pane.open && pane.tab === "Stickers", JSON.stringify(pane));
-check("…“🌟 2 / 11 stickers”, Track layer and Every town in colour", pane.count === "🌟 2 / 11 stickers" && pane.got.includes("track-layer") && pane.got.includes("all-towns") && pane.got.length === 2, JSON.stringify(pane));
+check("…“🌟 2 / 21 stickers”, Track layer and Every town in colour", pane.count === "🌟 2 / 21 stickers" && pane.got.includes("track-layer") && pane.got.includes("all-towns") && pane.got.length === 2, JSON.stringify(pane));
 check("…hidden ones as ???; tiles 64 px or more (44 px taps)", pane.hidden >= 1 && pane.tiles.every((w) => w >= 64), JSON.stringify(pane.tiles));
 await shot("3-stickers-tab");
+// The harbour stickers (earned on a boat's trade: unit tests in stickers.test.ts) are there to collect, not yet earned.
+const sea = await p.evaluate(() => ["harbour-seller", "harbour-buyer", "sea-trader", "long-line", "rush-hour"].map((id) => document.querySelector(`.sticker[data-id="${id}"]`)?.textContent ?? null));
+check("…Ahoy, seller!, Ahoy, buyer! and Long line to collect; Sea trader and Rush hour as ???", sea[0]?.includes("Ahoy, seller!") && sea[1]?.includes("Ahoy, buyer!") && sea[2]?.includes("???") && sea[3]?.includes("Long line") && sea[4]?.includes("???"), JSON.stringify(sea));
 await tap('.sticker[data-id="track-layer"]');
 const t1 = await p.evaluate(() => document.querySelector(".sticker-ticket")?.textContent);
 check("a tap on Track layer shows its ticket", /Track layer.*Earned! Lay 40 pieces of track/.test(t1 ?? ""), t1);
@@ -225,12 +228,18 @@ check("a tap on a hidden one shows its hint", /^\?\?\? Hint: /.test(t2 ?? ""), t
 await p.waitForFunction(() => !document.querySelector(".goals-dot") || document.querySelector(".goals-dot").hidden, null, { timeout: 5000 }).catch(() => {});
 check("looking at the tab clears the dot", !(await shown(".goals-dot")));
 await tap(".goals-tab", "Goals");
-check("the Goals tab: all done, with New game in the card", await shown(".goals-pane .goals-new"));
+const allDone = await p.evaluate(() => document.querySelector(".goals-pane")?.textContent ?? "");
+check("the Goals tab: all done, keep building and collect stickers", /All goals done!/.test(allDone) && /Keep building, and collect stickers/.test(allDone), allDone);
+check("…no New game in the card (it lives in the ☰ menu)", !(await shown(".goals-pane .goals-new")) && !/New game/.test(allDone), allDone);
+await shot("4-goals-done");
+await tap(".goals-pane .goals-stickers", "See stickers");
+const onTab = await p.evaluate(() => ({ tab: document.querySelector(".goals-tab.on")?.textContent, grid: !!document.querySelector(".stickers-pane:not([hidden]) .sticker") }));
+check("…See stickers opens the Stickers tab", /^Stickers/.test(onTab.tab ?? "") && onTab.grid, JSON.stringify(onTab));
 await tap(".goals-close");
 await p.waitForFunction(() => document.querySelector(".goals").classList.contains("collapsed"), null, { timeout: 10000 }).catch(() => {});
 const chip = await p.evaluate(() => document.querySelector(".goals-now")?.textContent);
-check("the folded chip: “Goals ✓ · 🌟 2 / 11”", chip === "Goals ✓ · 🌟 2 / 11", chip);
-await shot("4-chip");
+check("the folded chip: “Goals ✓ · 🌟 2 / 21”", chip === "Goals ✓ · 🌟 2 / 21", chip);
+await shot("5-chip");
 
 // 5. A reload keeps the stickers (and the tab, with no toast this time).
 await p.evaluate(() => window.woodrail.flushSave?.());

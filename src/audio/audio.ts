@@ -7,7 +7,11 @@ export const SOFT_CLUNK_GAP_MS = 700;
  */
 export const IDLE_SUSPEND_MS = 3000;
 
+/** Least time between two station guards' whistles (ms). */
+export const GUARD_WHISTLE_GAP_MS = 1500;
+
 /** Lets something through at most once every `ms` (by the times given). */
+
 export class Gate {
   private last = -Infinity;
 
@@ -263,6 +267,34 @@ export class ToyAudio {
     }
   }
 
+  /**
+   * A level crossing's bell as its barriers come down: a soft "ding ding", lower and gentler than an engine's bell,
+   * heard from where the crossing is (`volume` and `pan` as `listen` gives them). Callers rate-limit it (CrossingBells).
+   */
+  crossingBell(volume: number, pan: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || this.muted || volume <= 0.02) return;
+    this.wake(1400);
+    const t = ctx.currentTime;
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    panner.connect(this.master);
+    for (const k of [0, 0.32]) {
+      for (const [ratio, vol, decay] of [[1, 0.09, 0.8], [2.4, 0.03, 0.35], [4.1, 0.012, 0.18]] as const) {
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = 988 * ratio;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t + k);
+        g.gain.linearRampToValueAtTime(vol * volume, t + k + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + k + decay);
+        osc.connect(g).connect(panner);
+        osc.start(t + k);
+        osc.stop(t + k + decay + 0.05);
+      }
+    }
+  }
+
   private lastWhistle = 0;
   private lastWhistleVolume = 0;
   /** The last whistle's output, to fade when a nearer engine's cuts in over it. */
@@ -329,6 +361,47 @@ export class ToyAudio {
     src.loop = true;
     src.start(t);
     src.stop(t + 0.78);
+    return true;
+  }
+
+  private lastGuardWhistle = -Infinity;
+
+  /**
+   * A station guard's whistle as a train sets off from a big station: a short, soft pea-whistle trill (a high sine
+   * warbled by the pea), quieter than an engine's. `volume` and `pan` as `listen` hears the station. One every 1.5 s at
+   * most (trains leaving together don't make a chorus). Returns whether it was heard.
+   */
+  guardWhistle(volume: number, pan: number): boolean {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || this.muted || volume <= 0.05) return false;
+    const now = performance.now();
+    if (now - this.lastGuardWhistle < GUARD_WHISTLE_GAP_MS) return false;
+    this.lastGuardWhistle = now;
+    this.wake(900);
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(2350, t);
+    osc.frequency.linearRampToValueAtTime(2500, t + 0.05);
+    // The pea's warble: a fast wobble in pitch.
+    const pea = ctx.createOscillator();
+    pea.frequency.value = 26;
+    const depth = ctx.createGain();
+    depth.gain.value = 110;
+    pea.connect(depth).connect(osc.frequency);
+    const g = ctx.createGain();
+    const v = 0.045 * Math.min(1, volume);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(v, t + 0.02);
+    g.gain.setValueAtTime(v, t + 0.3);
+    g.gain.linearRampToValueAtTime(0.0001, t + 0.42);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    osc.connect(g).connect(panner).connect(this.master);
+    osc.start(t);
+    pea.start(t);
+    osc.stop(t + 0.45);
+    pea.stop(t + 0.45);
     return true;
   }
 

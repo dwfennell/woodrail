@@ -16,6 +16,7 @@ Out of scope: music, and any per-frame audio work while idle.
   - `ping()`: a sine with an inharmonic partial, used for coins and metal goods.
   - `vary()`: a ±6% pitch spread.
   - `saw`, `bell` and `whistle` build their own nodes.
+  - `guardWhistle(volume, pan)`: a station guard's soft pea-whistle trill (a 2.4 kHz sine warbled at 26 Hz, 0.45 s, gain 0.045) as a train sets off from a big station (`Game.onGuardFlag`). One per `GUARD_WHISTLE_GAP_MS` 1500; silent below volume 0.05. Not yet judged by ear.
 - **Placement:** `listen(x, z)` in `main.ts` returns `[volume, pan]`. Volume comes from distance to the camera's focus (`500/(d+150)`, capped at 1) and pan from screen x. UI sounds and tunes are centred.
 - **Rate limits:**
   - `Gate(ms)` lets one sound through per window: switch clunks at `SOFT_CLUNK_GAP_MS` 700, coins at `COIN_GAP_MS` 1500.
@@ -23,6 +24,7 @@ Out of scope: music, and any per-frame audio work while idle.
   - A whistle within 0.6 s plays only if it's ≥1.4× louder, and the earlier one fades out.
   - `hearCranes()` allows at most one goods sound per depot per frame.
   - `MAX_VOICES` 24 (mixer branch). Tunes are exempt.
+- **Level crossing bell:** `crossingBell(volume, pan)`, a soft two-strike "ding ding" (988 Hz, lower and quieter than the departure `bell`). `CrossingsView.closing` lists crossings whose barriers began to come down that update; `CrossingBells` (`src/audio/crossing-bell.ts`) rings only the loudest on screen with `listen` volume ≥ 0.3, at most once per `CROSSING_BELL_GAP_MS` 2500. Not rung for a crossing laid under a standing train.
 - **Tunes:** `cue(kind)` with the `CUES` table, all in C:
   - chime, rank 1: towns connected, rewards, things made, fields, dock sheds;
   - goal, rank 1;

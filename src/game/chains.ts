@@ -4,7 +4,7 @@
  * depots on the map, asked when a card opens or its piles change, or when an industry is picked up (never per frame).
  */
 import { CARGO, CARRIES, type CargoKind } from "../economy/cargo";
-import { capAt, RECIPES, type DepotRole, type DepotState } from "../economy/economy";
+import { capAt, RECIPES, storeLetsOut, type DepotRole, type DepotState } from "../economy/economy";
 import type { CarKind } from "../sim";
 
 /** The industries on Sandbox's Industries tab, by the tray's names (what "place one" points at). */
@@ -185,8 +185,11 @@ export function chainRows(view: ChainView, nameOf: (d: DepotState) => string, ic
 export interface LoadHint {
   readonly depot: DepotState;
   readonly kind: CargoKind;
-  /** "wagon": none of its cars carries what's there; "not-stop": it's routed, with no stop there. */
-  readonly why: "wagon" | "not-stop";
+  /**
+   * "wagon": none of its cars carries what's there; "off": some could, but each is switched Off for it on its card;
+   * "not-stop": it's routed, with no stop there.
+   */
+  readonly why: "wagon" | "off" | "not-stop";
 }
 
 /**
@@ -194,17 +197,25 @@ export interface LoadHint {
  * its wagons carries them, or (a routed train) the place isn't one of its stops. Null if it can load something there,
  * or it's beside nowhere with goods. Cheap: a lookup per bogie, asked while its card is open.
  */
-export function loadHint(train: { readonly cars: readonly { readonly kind: CarKind }[]; readonly bogies: readonly { readonly pieceId: number }[] }, depotAt: (pieceId: number) => DepotState | undefined, stops: readonly number[] | null): LoadHint | null {
+export function loadHint(
+  train: { readonly cars: readonly { readonly id: number; readonly kind: CarKind }[]; readonly bogies: readonly { readonly pieceId: number }[] },
+  depotAt: (pieceId: number) => DepotState | undefined,
+  stops: readonly number[] | null,
+  carTakes: (carId: number, kind: CargoKind) => boolean = () => true,
+): LoadHint | null {
   let asked: DepotState | undefined;
   for (const b of train.bogies) {
     const d = depotAt(b.pieceId);
     if (!d || d === asked || !d.auto || NOT_CHAIN.has(d.role) || RECIPES[d.role].routedOnly) continue;
     asked = d;
     const r = RECIPES[d.role];
-    const there = r.gives.filter((k) => r.endless || d.piles[CARGO[k].index] > 0);
+    // (A good the place is set not to give, on its card, isn't there for trains: its own setting says why.)
+    const there = r.gives.filter((k) => (r.endless || d.piles[CARGO[k].index] > 0) && storeLetsOut(d, k));
     if (there.length === 0) continue;
-    const carried = there.filter((k) => train.cars.some((c) => CARRIES[c.kind]?.includes(k)));
-    if (carried.length === 0) return { depot: d, kind: there[0], why: "wagon" };
+    const fits = there.filter((k) => train.cars.some((c) => CARRIES[c.kind]?.includes(k)));
+    if (fits.length === 0) return { depot: d, kind: there[0], why: "wagon" };
+    const carried = fits.filter((k) => train.cars.some((c) => CARRIES[c.kind]?.includes(k) && carTakes(c.id, k)));
+    if (carried.length === 0) return { depot: d, kind: fits[0], why: "off" };
     if (stops && !stops.includes(d.id)) return { depot: d, kind: carried[0], why: "not-stop" };
     return null;
   }
@@ -216,7 +227,9 @@ export function loadHintText(h: LoadHint, name: string): string {
   const good = goodsWord(h.kind);
   // (`name` as the engine card names places: "the forest yard", "Ashby".)
   const the = name;
+  // (Game mode's "Not dropping…" and the plan's "Not picking up…" words, turned round.)
   if (h.why === "not-stop") return `Not picking up ${good}: ${the} isn't on this route. Edit the route to add a stop here`;
+  if (h.why === "off") return `Not picking up ${good}: its wagons are set to Off for ${good}. Switch them on in a wagon's card`;
   return `${the[0].toUpperCase()}${the.slice(1)}'s ${good} ${plural(h.kind) ? "go" : "goes"} on ${wagonFor(h.kind)}: add one to this train`;
 }
 

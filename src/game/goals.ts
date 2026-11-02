@@ -93,7 +93,8 @@ export function goalTickTitle(goal: Goal): string {
 /** Above this speed (mm/s) a train counts as running. */
 const RUNNING = 5;
 
-const running = (w: World) =>
+/** The trains running now (not stopped, not derailed). */
+export const running = (w: World) =>
   w.sim.trainIds().filter((id) => {
     const t = w.sim.getTrain(id);
     return t && !t.derailed && t.speed > RUNNING;
@@ -336,6 +337,9 @@ const stationPieces = (w: World) => new Set(w.stations.values());
 /** "Make a switch": choose it first; the workshop keeps planks only for an order (`orderPlanks`). */
 export const MAKE_SWITCH_HINT = "Tap your workshop and choose Switch. Trains then bring its planks.";
 export const SWITCH_ORDERED_HINT = "Ordered: trains bring the workshop its planks.";
+
+/** "Give a train a route": where it's done (the engine card). */
+export const ROUTE_HINT = "Tap a train, then Plan a route, and tap two places on the track.";
 
 export const TWO_TRAINS_HINT = "Put a second engine on the track, then lay a passing loop.";
 
@@ -585,6 +589,17 @@ export const GOALS: readonly Goal[] = [
       return n < 2 && w.sim.trainIds().length < 2 ? { ...p, hint: TWO_TRAINS_HINT } : p;
     },
     guide: (w) => guideTrains(w, "trains", "Engines"),
+  },
+  {
+    // Once Train routes is learned (audit F4: nothing led a player to routes; they're only on the engine card). An
+    // open goal: a line made before it shows ticks it at once. Show me points at the trains.
+    id: "give-route",
+    title: "Give a train a route",
+    hint: ROUTE_HINT,
+    needs: ["routes"],
+    blueprint: "routes",
+    check: (w) => ({ done: [...w.economy.lineIdOf].some(([engine, id]) => (w.economy.lines.get(id)?.stops.length ?? 0) >= 2 && !!w.sim.findCar(engine)) }),
+    guide: (w) => guideTrains(w),
   },
   // The other old industries, each once its blueprint is learned (well after Farming: Quarries after Mills, Mines and
   // Harbours after Quarries), so after the passing loop. Open goals: ticked off as soon as one stands.

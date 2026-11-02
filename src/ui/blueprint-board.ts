@@ -265,7 +265,9 @@ export const tagTitle = (s: Pick<Station, "label" | "unlocks" | "cost">): string
 
 /**
  * A research card's foot: its goods as chips ("\uE000 6/10", the coins red while short) and its study time, a bar for the
- * one under way, how it stands, and its one button (Research, Add to queue; in the queue Remove and Research now, the swap), 44 px tall.
+ * one under way, how it stands, and its one button (Research, Add to queue, "Queue Farming, then Mills"; in the queue Remove
+ * and Research now, the swap, or "Research Farming now" for one that needs Farming; only Remove while what it needs is
+ * under way), 44 px tall.
  */
 export function researchFoot(id: string, r: ResearchCardView, goal: boolean): string {
   const chips = r.chips.map((c) => `<span class="bp-chip${c.short ? " short" : ""}" title="${esc(c.title)}">${esc(c.text)}</span>`).join("") + `<span class="bp-chip study" title="Study time at the school, once the goods are in">⏱ ${esc(r.study)}</span>`;
@@ -275,7 +277,9 @@ export function researchFoot(id: string, r: ResearchCardView, goal: boolean): st
   const act = r.remove ? "now" : "pick";
   const button = r.action
     ? `<button class="chip text${r.blocked ? "" : " primary"}${goal && !r.blocked ? " bp-goal" : ""}" data-act="${act}" data-id="${id}"${r.blocked ? ` aria-disabled="true" title="${esc(r.why ?? "")}"` : ""}>${esc(r.action)}</button>`
-    : `<span class="bp-now">📘 Researching</span>`;
+    : r.remove
+      ? ""
+      : `<span class="bp-now">📘 Researching</span>`;
   const remove = r.remove ? `<button class="chip text bp-remove" data-act="pick" data-id="${id}" title="Take it out of the queue">✕ Remove</button>` : "";
   return `<span class="bp-cost"><span class="bp-chips">${chips}</span>${bar}${why}</span>${remove}${button}`;
 }
