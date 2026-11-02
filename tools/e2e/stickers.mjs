@@ -170,6 +170,16 @@ await tap(".goals-close");
 await p.waitForFunction(() => document.querySelector(".goals").classList.contains("collapsed"), null, { timeout: 10000 }).catch(() => {});
 
 // 4. The last link: every town joined. The goal's toast, then the Stickers one.
+// Harness shortcut (named; not what's tested): the Stickers toast is kept up for a minute, not its 5.2 s. Headless,
+// SwiftShader takes 3–5 s to draw one frame of the map at this size, and a tap sent as the toast came on was handled
+// only after that frame, 8 s later, by when the toast had gone and the tap fell to the map (QA 2026-11-01: 7 fails;
+// traced with long-animation-frame entries: 27 ms of script, the rest the GPU). On a phone a frame is milliseconds. What
+// is tested is that the toast comes, after the goal's, and that a tap on it opens the Stickers tab, not how long it stays.
+await p.evaluate(() => {
+  const hud = window.woodrail.hud;
+  const toast = hud.toast.bind(hud);
+  hud.toast = (message, celebrate, ms, tap) => toast(message, celebrate, message.startsWith("🌟 Stickers!") ? 60000 : ms, tap);
+});
 const last = await link(joined.map((t) => t.id).reverse(), left[0].id);
 check(`the player lays the last link, to ${left[0].name}`, last.ok, `${await track()} pieces of track`);
 await p.waitForFunction(() => window.woodrail.goals().isDone("join-all"), null, { timeout: 60000, polling: 500 }).catch(() => {});

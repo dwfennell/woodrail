@@ -57,6 +57,34 @@ const carOnScreen = (id) =>
     const r = w.canvas.getBoundingClientRect();
     return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
   }, id);
+/**
+ * Where a finger's tap on car `id` is taken as that car, by the game's own touch pick (`Interaction.pick`, the tap's
+ * rules): the nearest such point to the car's middle, with the map (not a HUD chip or a card) under it, once the view
+ * has stopped. Null if none. (The car's middle alone isn't enough: from some views the forest yard's crane, or the goals
+ * chip, is over it, and the tap went there: the flaky wagon tap, QA 2026-11-01.) Only aims: the tap is the finger's.
+ */
+const tapPointOn = async (id) => {
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+  await settle();
+  return p.evaluate((id) => {
+    const w = window.woodrail;
+    const o = w.trainView.carObject(id);
+    if (!o) return null;
+    const v = o.getWorldPosition(new w.camera.position.constructor()).project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    const cx = r.left + ((v.x + 1) / 2) * r.width;
+    const cy = r.top + ((1 - v.y) / 2) * r.height;
+    const spots = [];
+    for (let dx = -36; dx <= 36; dx += 6) for (let dy = -36; dy <= 36; dy += 6) spots.push([cx + dx, cy + dy]);
+    spots.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+    for (const [x, y] of spots) {
+      if (x < 1 || y < 1 || x > innerWidth - 1 || y > innerHeight - 1 || document.elementFromPoint(x, y) !== w.canvas) continue;
+      const hit = w.interaction.pick(x, y, true);
+      if (hit?.kind === "car" && hit.carId === id) return { x, y };
+    }
+    return null;
+  }, id);
+};
 /** Glide to car `id`; `inRoom`: framed where the map shows past an open card, as the game frames what a card is for. */
 const lookAt = async (id, dist = 520, inRoom = false) => {
   // (A car new on the map gets its model on the next frame drawn.)
@@ -219,18 +247,26 @@ if (!setup.error) {
   await p.waitForFunction((e) => Math.abs(window.woodrail.sim.findCar(e)?.train.speed ?? 1) < 1, engine, { timeout: 30000 }).catch(() => {});
   await lookAt(wagon, 420, true);
   await settle();
-  // (The first tap takes the train, its engine's card; the next, on the wagon, the wagon's own.)
-  at = await carOnScreen(wagon);
+  // (The first tap takes the train, its engine's card; the next, on the wagon, the wagon's own. Each aimed where the
+  // game's pick takes it as the wagon, after the view has stopped: a tap may move it.)
+  at = await tapPointOn(wagon);
   if (at) await p.touchscreen.tap(at.x, at.y);
   await p.waitForFunction(() => window.woodrail.hud.engineCardOpen || window.woodrail.hud.carCardOpen, null, { timeout: 20000 }).catch(() => {});
   await settle();
   await p.waitForTimeout(600);
-  at = await carOnScreen(wagon);
-  if (at && !(await p.evaluate(() => window.woodrail.hud.carCardOpen))) await p.touchscreen.tap(at.x, at.y);
+  if (!(await p.evaluate(() => window.woodrail.hud.carCardOpen))) {
+    at = await tapPointOn(wagon);
+    if (!at) {
+      // (Framed again above the card, if the first tap moved the view off it.)
+      await lookAt(wagon, 420, true);
+      at = await tapPointOn(wagon);
+    }
+    if (at) await p.touchscreen.tap(at.x, at.y);
+  }
   await p.waitForFunction(() => window.woodrail.hud.carCardOpen, null, { timeout: 20000 }).catch(() => {});
   await settle();
   const wagonCard = await p.evaluate((id) => ({ open: window.woodrail.hud.carCardOpen, text: document.querySelector(".car-load")?.textContent, count: window.woodrail.economy.cargoOf(id).count, room: window.woodrail.economy.wagonCapacity }), wagon);
-  check("a tap on the wagon opens its card, with its load", wagonCard.open && (wagonCard.count > 0 ? wagonCard.text === `🪵 Logs: ${wagonCard.count} of ${wagonCard.room}` : /^Empty/.test(wagonCard.text ?? "")), JSON.stringify(wagonCard));
+  check("a tap on the wagon opens its card, with its load", !!at && wagonCard.open && (wagonCard.count > 0 ? wagonCard.text === `🪵 Logs: ${wagonCard.count} of ${wagonCard.room}` : /^Empty/.test(wagonCard.text ?? "")), JSON.stringify({ ...wagonCard, at }));
   await shot("2-wagon-card");
 }
 

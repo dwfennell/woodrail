@@ -699,6 +699,37 @@ describe("cloud saves", () => {
       expect(coinsOf(d.store)).toBe(1230);
     });
 
+    it("taken while playing: only the page starting again sends the merged copy (QA 2026-11-01: coins counted twice)", async () => {
+      const { cloud, server, c, d, code, events, earn } = await pair();
+      server.t = 2_000_000;
+      earn(d, 1030);
+      server.t = 2_100_000;
+      c.store.setItem("g.save", '{"version":13,"text":"the railway, trains further on"}');
+      earn(c, 1200);
+      await c.sync.flush();
+      const puts = cloud.puts;
+      server.t = 2_200_000;
+      await d.sync.flush();
+      expect(events).toEqual(["d taken game null"]);
+      // The page going sends nothing more: not that round, not as it's hidden, not on a timer. (It sent the merged copy
+      // as it went: landing after the new page's round began, that copy was merged with it again.)
+      await d.sync.flush(true);
+      expect(cloud.puts).toBe(puts);
+      expect(d.timers).toEqual([]);
+      // The page that starts sends it, once.
+      const d2 = device(cloud, d.store, server, merger);
+      expect(await d2.sync.start()).toEqual({});
+      server.t = 2_300_000;
+      await d2.sync.flush();
+      expect(cloud.puts).toBe(puts + 1);
+      expect(JSON.parse((await cloud.keysOf(code, "game"))["g.prog"]).coins).toBe(1230);
+      // C earns again: still exact.
+      server.t = 2_400_000;
+      earn(c, 1250);
+      await c.sync.flush();
+      expect(coinsOf(c.store)).toBe(1280);
+    });
+
     it("a layout clash: the railway is the layout winner's, but the earnings are still merged (CoS)", async () => {
       const { server, c, d, earn, events } = await pair();
       // C lays track (and earned 50 before it); D only earns 500, later.
@@ -715,8 +746,10 @@ describe("cloud saves", () => {
       expect(d.store.getItem("g.save")).toContain("c laid track");
       expect(coinsOf(d.store)).toBe(1550);
       expect(d.sync.backupOf("game")).not.toBeNull();
-      // And it goes up, so C has them too.
-      await d.tick();
+      // And it goes up, from the page started again on it (the one going sends nothing more), so C has them too.
+      const d2 = device(c.sync["o"].backend as FakeCloud, d.store, server, merger);
+      await d2.sync.start();
+      await d2.tick();
       const c2 = device(c.sync["o"].backend as FakeCloud, c.store, server, merger);
       await c2.sync.start();
       expect(coinsOf(c2.store)).toBe(1550);

@@ -26,6 +26,8 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 
 **Wait on conditions, not sleeps.** Use `woodrail.settled()`, `!director.busy`, a toast's `.show` with its transform settled, and train speed above 0. Headless frames can take seconds.
 
+**A tap can arrive seconds late.** At 390×844 with deviceScaleFactor 2, SwiftShader takes 3–5 s for one frame of the map, and a tap sent meanwhile is handled after it (e2e:stickers: 8 s, with 27 ms of script in the frame). A toast's time (4–5 s) can run out first, and the tap falls to the map. To tap a toast, keep it up longer in the harness (e2e:stickers wraps `hud.toast` for the one it taps), and say so as a named shortcut. To tap a car, aim with the game's own pick (`interaction.pick(x, y, true)`) where the canvas is on top, after the view has stopped (e2e:train-summary `tapPointOn`).
+
 **Shake out flakes:** run three `e2e:touch` at once, plus one busy-looping core.
 
 **Make e2e setups independent of the view.** Place pieces on open ground, searching outward from controls.target, at least 700 mm from pieces and 400 mm from props. Frame them with `glideTo(..., frameDistance(...))`, and confirm the view is there before tapping.
