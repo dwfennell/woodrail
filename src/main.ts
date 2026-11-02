@@ -44,7 +44,7 @@ import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateR
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
-import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./game/lines";
+import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, sameLines, snapshotLines, stopLine, trainsOn } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
@@ -325,6 +325,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       interaction?.signalsChanged();
       game.invalidate();
       scheduleSave();
+    };
+    // A route edit undone or redone (audit F1): the open card, its ribbon and the Lines view follow; a stop or via
+    // picked, or a Leave asking, is let go (its index may name another now).
+    ed.onRoutesChange = () => {
+      stopPicked = -1;
+      viaPicked = null;
+      leaveAsked = -1;
+      linesChanged();
+      showRoute();
+      hud.setHistory(ed.canUndo, ed.canRedo);
+      game.invalidate();
     };
     ed.onPropsChange = () => {
       game.propsChanged();
@@ -2651,6 +2662,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     prev.via = [...(prev.via ?? []), ...(piece !== undefined ? [piece] : []), ...(l[k].via ?? [])].slice(0, MAX_VIAS);
     l.splice(k, 1);
   };
+  /**
+   * Make a route edit (stops, a train joining or leaving a line) one undo step (audit F1): what `change` does to the
+   * lines, from a snapshot before and after (`snapshotLines`); undone, the lines go back and a train that hasn't run on
+   * since heads where it did before (`restoreLines`). Nothing recorded if nothing changed.
+   */
+  function routeEdit(change: () => void): void {
+    const before = snapshotLines(game.economy);
+    change();
+    const after = snapshotLines(game.economy);
+    if (sameLines(before, after)) return;
+    const economy = game.economy;
+    editor.recordRoutes({ undo: () => restoreLines(economy, before, after), redo: () => restoreLines(economy, after, before) });
+    hud.setHistory(editor.canUndo, editor.canRedo);
+  }
   /** "Tap a stop for options" is shown until a stop's chip is first tapped (remembered). */
   const STOP_HINT_KEY = "woodrail.hint.stopOptions";
   let stopHintSeen = loadFlag(STOP_HINT_KEY);
@@ -2974,7 +2999,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A stop taken up isn't among the places: named by its kind, and said below.)
     const nameOf = (id: number) => stops.find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id);
     const edit = (change: (l: RouteStopDef[]) => void) => {
-      editLine(game.economy, carId, change);
+      routeEdit(() => editLine(game.economy, carId, change));
       showRoute();
       routeChanged();
       scheduleSave();
@@ -3032,7 +3057,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           return;
         }
         leaveAsked = -1;
-        stopLine(game.economy, carId);
+        routeEdit(() => stopLine(game.economy, carId));
         showRoute();
         routeChanged();
         scheduleSave();
@@ -3055,7 +3080,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       let greyed = false;
       for (const l of game.economy.lines.values()) {
         const b = button(l.name, "route-join-line", `Run this train on ${l.name}`, () => {
-          joinLine(game.economy, carId, l.id);
+          routeEdit(() => joinLine(game.economy, carId, l.id));
           showRoute();
           routeChanged();
           scheduleSave();
@@ -3451,7 +3476,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             hud.toast("That's plenty of via points for one stop");
             return true;
           }
-          editLine(game.economy, carId, (l) => (l[last].via = [...(l[last].via ?? []), pieceId]));
+          routeEdit(() => editLine(game.economy, carId, (l) => (l[last].via = [...(l[last].via ?? []), pieceId])));
           hud.toast("Via point: the train goes this way, without stopping");
           viaPicked = null;
           viaAsked = false;
@@ -3467,10 +3492,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       ? (depotId) => {
           const carId = interaction.openEngineCarId;
           if (carId === -1) return false;
-          editLine(game.economy, carId, (l) => {
-            // The same place twice in a row is one visit: not added again.
-            if (l.at(-1)?.depotId !== depotId) l.push({ depotId, action: "auto" });
-          });
+          routeEdit(() =>
+            editLine(game.economy, carId, (l) => {
+              // The same place twice in a row is one visit: not added again.
+              if (l.at(-1)?.depotId !== depotId) l.push({ depotId, action: "auto" });
+            }),
+          );
           showRoute();
           routeChanged();
           scheduleSave();

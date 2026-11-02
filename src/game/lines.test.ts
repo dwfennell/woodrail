@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Economy } from "../economy";
 import { Sim } from "../sim";
 import { Layout } from "../track";
-import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./lines";
+import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, restoreLines, sameLines, snapshotLines, stopLine, trainsOn } from "./lines";
 
 /** An economy with three depots on a straight line, and an engine. */
 function world() {
@@ -153,5 +153,80 @@ describe("lines", () => {
     expect(line.name).toBe("Timber run");
     renameLine(w.economy, line.id, "x".repeat(60));
     expect(line.name).toHaveLength(LINE_NAME_MAX);
+  });
+});
+
+/** A route edit as the card makes one undoable (main.ts `routeEdit`): its snapshots before and after, undo and redo. */
+function undoable(w: ReturnType<typeof world>, change: () => void) {
+  const before = snapshotLines(w.economy);
+  change();
+  const after = snapshotLines(w.economy);
+  return { changed: !sameLines(before, after), undo: () => restoreLines(w.economy, before, after), redo: () => restoreLines(w.economy, after, before) };
+}
+
+describe("route edits undone (audit F1)", () => {
+  it("a stop added, undone: the route as it was, the train heading where it did; redone: the stop back", () => {
+    const w = world();
+    editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }));
+    // (Its second stop sends it to the stop it comes to first: the sawmill, ahead.)
+    const add = undoable(w, () => editLine(w.economy, w.engine, (s) => s.push({ depotId: w.mill, action: "auto" })));
+    expect(add.changed).toBe(true);
+    expect(w.economy.routeOf(w.engine)!.next).toBe(1);
+    const line = lineOf(w.economy, w.engine)!;
+    add.undo();
+    expect(lineOf(w.economy, w.engine)).toBe(line);
+    expect(line.stops.map((s) => s.depotId)).toEqual([w.forest]);
+    expect(w.economy.routeOf(w.engine)!.stops).toBe(line.stops);
+    expect(w.economy.routeOf(w.engine)!.next).toBe(0);
+    add.redo();
+    expect(line.stops.map((s) => s.depotId)).toEqual([w.forest, w.mill]);
+    expect(w.economy.routeOf(w.engine)!.next).toBe(1);
+  });
+
+  it("a stop's mode and its via points come back as they were", () => {
+    const w = world();
+    editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto", via: [7] }, { depotId: w.mill, action: "drop", waitFill: true }));
+    const line = lineOf(w.economy, w.engine)!;
+    const e = undoable(w, () =>
+      editLine(w.economy, w.engine, (s) => {
+        s[0].via!.push(8);
+        s[1].action = "pick";
+        delete s[1].waitFill;
+      }),
+    );
+    e.undo();
+    expect(line.stops).toEqual([{ depotId: w.forest, action: "auto", via: [7] }, { depotId: w.mill, action: "drop", waitFill: true }]);
+    e.redo();
+    expect(line.stops).toEqual([{ depotId: w.forest, action: "auto", via: [7, 8] }, { depotId: w.mill, action: "pick" }]);
+  });
+
+  it("Leave on a line's only train, undone: the line is back, with its name, colour and stops, and the train on it", () => {
+    const w = world();
+    editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }, { depotId: w.mill, action: "auto" }));
+    const line = lineOf(w.economy, w.engine)!;
+    renameLine(w.economy, line.id, "Logs");
+    const next = w.economy.routeOf(w.engine)!.next;
+    const leave = undoable(w, () => stopLine(w.economy, w.engine));
+    expect(w.economy.lines.size).toBe(0);
+    leave.undo();
+    expect(lineOf(w.economy, w.engine)).toBe(line);
+    expect(line.name).toBe("Logs");
+    expect(w.economy.routeOf(w.engine)).toMatchObject({ stops: line.stops, next });
+    leave.redo();
+    expect(w.economy.lines.size).toBe(0);
+    expect(w.economy.routeOf(w.engine)).toBeUndefined();
+  });
+
+  it("a train that has run on since the edit keeps heading for its stop; nothing changed, nothing recorded", () => {
+    const w = world();
+    editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }, { depotId: w.mill, action: "auto" }));
+    const add = undoable(w, () => editLine(w.economy, w.engine, (s) => s.push({ depotId: w.town, action: "auto" })));
+    // (It passed the sawmill meanwhile: now heading for the town, stop 2.)
+    w.economy.routeOf(w.engine)!.next = 2;
+    add.undo();
+    // (The town's off the line now: it heads for the stop it comes to first.)
+    expect(lineOf(w.economy, w.engine)!.stops.length).toBe(2);
+    expect(w.economy.routeOf(w.engine)!.next).toBeLessThan(2);
+    expect(undoable(w, () => editLine(w.economy, w.engine, () => {})).changed).toBe(false);
   });
 });
