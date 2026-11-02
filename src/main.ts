@@ -2980,6 +2980,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.setCarLoad(car.kind === "passenger" && room === 0 ? "" : carries || car.kind === "passenger" ? carLoadWords(summaryCar(car), room, carries) : "");
     }
   }
+  /** The stop whose tools were last scrolled into view on the card ("engine:stop"; see `showRoute`). */
+  let scrolledFor = "";
   /** The stop the open card's next mark was last drawn on (its engine): a mark that moves pops, so the player sees it go. */
   let nextDrawn = { carId: -1, next: -1 };
   function showRoute(): void {
@@ -3371,6 +3373,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           box.append(what);
         }
       }
+      // A stop just picked: its choices and tools scrolled into view in the card (audit F16: on a phone on its side
+      // they were below the card's fold). Once a pick, not on every rebuild.
+      if (k >= 0 && k < line.stops.length && scrolledFor !== `${carId}:${k}`) {
+        scrolledFor = `${carId}:${k}`;
+        const tools = box.querySelector<HTMLElement>(".route-tools");
+        if (tools) requestAnimationFrame(() => tools.isConnected && tools.scrollIntoView({ block: "nearest", inline: "nearest" }));
+      } else if (k < 0) scrolledFor = "";
       // A stop whose place was taken up: said, by name (the train runs on past it; undo brings it back).
       const lost = [...new Set(line.stops.filter((st) => !stops.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
       for (const name of lost) {
@@ -4536,6 +4545,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }
     }
   }
+
+  // Keys for the route card on a desktop (audit F19): Enter for Done while planning; with a stop picked, Delete (or
+  // Backspace) takes it off and ← → move it. They press the card's own buttons (the same edits, one undo step each),
+  // and are the card's alone then (not the editor's Delete, nor the view's arrows).
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.ctrlKey || e.metaKey || e.altKey || interaction.openEngineCarId === -1 || hud.engineExtra.hidden) return;
+      const box = hud.engineExtra;
+      const press = (b: HTMLButtonElement | null | undefined) => {
+        if (!b || b.disabled) return false;
+        b.click();
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return true;
+      };
+      if (e.key === "Enter" && planning && tag !== "BUTTON") press(box.querySelector<HTMLButtonElement>(".route-plan.on"));
+      else if ((e.key === "Delete" || e.key === "Backspace") && (stopPicked >= 0 || viaPicked)) press(box.querySelector<HTMLButtonElement>(".route-tools .route-remove"));
+      else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && stopPicked >= 0)
+        press([...box.querySelectorAll<HTMLButtonElement>(".route-tools .route-move")].find((b) => b.textContent === (e.key === "ArrowLeft" ? "←" : "→")));
+    },
+    { capture: true },
+  );
 
   const skipGlide = () => {
     if (game.director.busy) game.director.cancel();
