@@ -1017,6 +1017,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops::-webkit-scrollbar { display: none; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
+/* The stop's number, in a ring of the line's colour; the stop the train's heading for has it filled (audit F7). */
+.route-num { display: inline-block; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 4px; margin-right: 5px; border-radius: 999px; font-size: 12px; font-weight: 900; line-height: 20px; text-align: center; vertical-align: 1px; box-shadow: inset 0 0 0 2px var(--line, #888); }
+.route-chip.next .route-num { background: var(--line, #888); color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7), 0 0 1px rgba(0, 0, 0, 0.9); }
 /* The ▶ come to this stop while the card is open (the train heads here now): a short pop, so the move is seen. */
 .route-chip.next.moved { animation: next-moved 0.7s ease-out; }
 @keyframes next-moved { 0% { transform: scale(1); box-shadow: 0 0 0 0 var(--line, #888); } 35% { transform: scale(1.12); box-shadow: 0 0 0 4px var(--line, #888); } 100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; } }

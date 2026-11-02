@@ -2945,7 +2945,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.setCarLoad(car.kind === "passenger" && room === 0 ? "" : carries || car.kind === "passenger" ? carLoadWords(summaryCar(car), room, carries) : "");
     }
   }
-  /** The stop the open card's ▶ was last drawn on (its engine): a ▶ that moves pops, so the player sees it go. */
+  /** The stop the open card's next mark was last drawn on (its engine): a mark that moves pops, so the player sees it go. */
   let nextDrawn = { carId: -1, next: -1 };
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
@@ -3098,7 +3098,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const strip = document.createElement("div");
       strip.className = "route-stops";
       line.stops.forEach((st, k) => {
-        const chip = button(`${r?.next === k ? "▶" : k + 1} ${nameOf(st.depotId)}`, "route-chip", "Tap for this stop's options", () => {
+        const chip = button("", "route-chip", "Tap for this stop's options", () => {
           stopPicked = stopPicked === k ? -1 : k;
           viaPicked = null;
           if (!stopHintSeen) {
@@ -3111,8 +3111,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           }
           showRoute();
         });
+        // Its number always (the order), filled in the line's colour on the stop the train's heading for: the ▶ that
+        // marked it took the number's place, and ▶ also meant "visit later" in the tools under it (audit F7).
+        chip.append(Object.assign(document.createElement("span"), { className: "route-num", textContent: `${k + 1}` }), nameOf(st.depotId));
         chip.classList.toggle("next", r?.next === k);
-        // (The ▶ moved on this card: to the stop the train comes to first, once the line has two, or on as it runs.)
+        if (r?.next === k) {
+          chip.setAttribute("aria-current", "step");
+          chip.title = "The train's heading here next. Tap for this stop's options";
+        }
+        // (The next mark moved on this card: to the stop the train comes to first, once the line has two, or on as it runs.)
         chip.classList.toggle("moved", r?.next === k && nextDrawn.carId === carId && nextDrawn.next !== -1 && nextDrawn.next !== k);
         chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
         chip.classList.toggle("picked", stopPicked === k);
@@ -3214,8 +3221,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           // (A lone stop can't move; the first can't go earlier, nor the last later.)
           ...(line.stops.length > 1
             ? [
-                button("◀", "route-move", "Visit this stop earlier", () => edit((l) => (moveStop(l, k, k - 1), (stopPicked = Math.max(0, k - 1))))),
-                button("▶", "route-move", "Visit this stop later", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
+                button("←", "route-move", "Move this stop earlier (left)", () => edit((l) => (moveStop(l, k, k - 1), (stopPicked = Math.max(0, k - 1))))),
+                button("→", "route-move", "Move this stop later (right)", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
               ]
             : []),
           // (Waiting to fill means nothing where it only drops.)
