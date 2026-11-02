@@ -184,8 +184,8 @@ describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines an
 });
 
 /**
- * Seeds a route still makes worse (100 + 100 seeds × 1800 s, 2026-11-01), each with why: a decision for the user, see
- * rail-road.md's open items. All are hand-run trains running as a convoy into a dead end: the one behind pulls up behind
+ * Seeds a route still makes worse (100 + 100 seeds × 1800 s, 2026-11-01; 200 + 200, 2026-11-02), each with why: the
+ * user's decision B (2026-11-02, rail-road.md): kept. All are hand-run trains running as a convoy into a dead end: the one behind pulls up behind
  * the one standing at the end and turns there too (routing spec §16 Q9), and they go back together. With a route, the
  * line's single-line working lets one train into a stretch of single track at a time (or one into a line end), so the
  * two stand, said stuck, the card's fix a passing loop.
@@ -194,4 +194,10 @@ const KNOWN_WORSE: Record<string, string> = {
   "fuzz seed 74": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
   "fuzz seed 77": "two trains put down in one line end, a third hand-run: hand-run they convoy into the end",
   "fuzz seed 79": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
+  // (Seeds 101–200, first run long on claude/route-follow-lines, 2026-11-02; the same on its base. The user's decision B:
+  // convoys into a dead end stay one train to a section, the card's fix a passing loop.)
+  "fuzz seed 121": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
+  "fuzz seed 127": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
+  "fuzz seed 135": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
+  "fuzz seed 183": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
 };
