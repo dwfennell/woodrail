@@ -13,6 +13,9 @@ issues:
 - **#5:** routes set switches and restore them.
 - **#7:** prefer running forward.
 
+**The player's side of routes** (creating and editing them on the cards and the map) has its own roadmap:
+[2026-11-02-route-ux.md](2026-11-02-route-ux.md), from the route UX audit's 19 fixes.
+
 **The user's bar:**
 - "A train taking the wrong road and turning back later isn't acceptable."
 - "Centralize the logic and get things into a nice state."
