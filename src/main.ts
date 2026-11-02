@@ -3895,6 +3895,31 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const places = linePlaces(id);
       if (places.length > 0) frameInRoom(places.length === 1 ? [places[0], places[0].clone().add(new Vector3(250, 0, 250))] : places, 600);
     },
+    edit: (id) => {
+      const engine = trainsOn(game.economy, id).find((e) => game.sim.findCar(e) && !game.sim.findCar(e)!.train.derailed);
+      if (engine === undefined) return hud.toast("None of this line's trains is on the track");
+      planFor(engine);
+    },
+    addTrain: (id) => {
+      const line = game.economy.lines.get(id);
+      if (!line) return;
+      const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1).filter((p) => p !== -1);
+      // (A free train track leads from to one of its stops, the nearest to them.)
+      const engine = freeTrains((e) => {
+        const front = trainFront(e);
+        return !!front && pieces.some((p) => legFromCursor(game.layout, front, p) !== null);
+      }, linePlaces(id))[0];
+      if (engine === undefined) return hud.toast("No free train can reach this line: put an engine on its track");
+      routeEdit(() => joinLine(game.economy, engine, id));
+      linesChanged();
+      closeLines();
+      interaction.openEngineCard(engine);
+    },
+    newLine: () => {
+      const engine = freeTrains(() => true, [game.controls.target.clone()])[0];
+      if (engine === undefined) return hud.toast(game.sim.trainIds().length === 0 ? "Put an engine on the track first" : "Every train runs a line: put another engine on the track");
+      planFor(engine);
+    },
     close: () => closeLines(),
   });
 
@@ -3921,6 +3946,88 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const p = pieceSpot(game.economy.depot(st.depotId)?.pieceId ?? -1);
       return p ? [p] : [];
     });
+
+  /**
+   * The engines on the track that run no line (one a train), nearest `near` first (each its nearest point), those
+   * `ok` allows.
+   */
+  function freeTrains(ok: (engine: number) => boolean, near: readonly Vector3[]): number[] {
+    const out: { e: number; d: number }[] = [];
+    for (const id of game.sim.trainIds()) {
+      const t = game.sim.getTrain(id);
+      const engine = t?.cars.find((c) => c.kind === "engine");
+      if (!t || t.derailed || !engine || game.economy.lineIdOf.has(engine.id) || !ok(engine.id)) continue;
+      const at = trainSpot(engine.id);
+      out.push({ e: engine.id, d: at && near.length > 0 ? Math.min(...near.map((p) => p.distanceTo(at))) : 0 });
+    }
+    return out.sort((a, b) => a.d - b.d).map((x) => x.e);
+  }
+
+  /** This engine's card, planning its line (with `first` as its first stop, if given): from a place or Lines. */
+  function planFor(engine: number, first = -1): void {
+    closeLines();
+    interaction.openEngineCard(engine);
+    requestAnimationFrame(() => {
+      if (interaction.openEngineCarId !== engine) return;
+      setPlanning(true);
+      if (first !== -1) interaction.onPickPlace?.(first);
+    });
+  }
+
+  /**
+   * The open place's card (a station's or depot's): the lines calling there, a tap opening one's train, and "New route
+   * from here", the nearest free train track leads from planning a route with this place first (audit F12: a route
+   * could only be started from a train). Drawn when what it shows changes; a key a frame.
+   */
+  let placeRoutesKey = "";
+  function showPlaceRoutes(): void {
+    const id = interaction.openDepotId;
+    const box = hud.depotRoutes;
+    const allowed = mode === "sandbox" || progress.learned.has("routes");
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    if (!d || !allowed) {
+      if (placeRoutesKey !== "") box.hidden = true;
+      placeRoutesKey = "";
+      return;
+    }
+    const calling = [...game.economy.lines.values()].filter((l) => l.stops.some((st) => st.depotId === id));
+    const key = `${id}:${calling.map((l) => `${l.id}${l.colour}${l.name}`).join(",")}`;
+    if (key === placeRoutesKey && !box.hidden) return;
+    placeRoutesKey = key;
+    box.innerHTML = "";
+    box.hidden = false;
+    // (A town's ledger lists its lines already: there, only New route.)
+    if (calling.length > 0 && !(d.role === "town" && interaction.townCard)) {
+      box.append(Object.assign(document.createElement("span"), { className: "route-hint", textContent: "Lines here:" }));
+      for (const l of calling) {
+        const b = document.createElement("button");
+        b.className = "chip text route-join-line";
+        b.textContent = l.name;
+        b.title = `Open a ${l.name} train's card`;
+        b.style.setProperty("--line", l.colour);
+        b.addEventListener("click", () => {
+          const engine = trainsOn(game.economy, l.id).find((e) => game.sim.findCar(e));
+          if (engine !== undefined) interaction.openEngineCard(engine);
+        });
+        box.append(b);
+      }
+    }
+    const add = document.createElement("button");
+    add.className = "chip text route-new-here";
+    add.textContent = "New route from here";
+    add.title = "The nearest train with no line plans a route, starting here";
+    add.addEventListener("click", () => {
+      const piece = d.pieceId;
+      const spot = pieceSpot(piece);
+      const engine = freeTrains((e) => {
+        const front = trainFront(e);
+        return !!front && legFromCursor(game.layout, front, piece) !== null;
+      }, spot ? [spot] : [])[0];
+      if (engine === undefined) return hud.toast(game.sim.trainIds().length === 0 ? "Put an engine on the track first" : "No free train can reach here: put an engine on this track, or tap a train and Edit its line");
+      planFor(engine, id);
+    });
+    box.append(add);
+  }
 
   function openLines(): void {
     if (mapView.open) closeMap(false);
@@ -4758,6 +4865,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     animateDiscs();
     showRoute();
     showLines();
+    showPlaceRoutes();
     // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
     if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
     if (game.economy.stalls.onStuck !== stuckTip) game.economy.stalls.onStuck = stuckTip;

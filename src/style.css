@@ -1132,6 +1132,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
 .lines-row { display: flex; align-items: center; gap: 10px; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
+/* A line's actions, under its row (audit F12): Edit stops, + Train. */
+.lines-actions { display: flex; gap: 6px; padding-left: 54px; }
+.lines-actions button { min-height: 44px; }
+.lines-head .lines-new { margin-left: auto; margin-right: 6px; }
+/* A place's card: the lines that call there, and New route from here (audit F12). */
+.depot-routes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.depot-routes .route-join-line, .depot-routes .route-new-here { min-height: 44px; }
 .lines-swatch { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; padding: 0; }
 .lines-swatch.on { outline: 3px solid #3a2a1c; outline-offset: 1px; }
 .lines-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
