@@ -2985,6 +2985,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       routeShown = "";
       nextDrawn = { carId: -1, next: -1 };
       setPlanning(false);
+      // (The card closed: a stop or via picked, or a Leave asking, is let go; it opens again on the route as a whole.)
+      stopPicked = -1;
+      viaPicked = null;
+      leaveAsked = -1;
       return;
     }
     const stops = routeStops(game.world);
