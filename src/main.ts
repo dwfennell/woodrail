@@ -1944,7 +1944,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // second engine is, or that one's to be made.
     const opened = goals.openedBy(id, progress.learned);
     const tip = opened.some((g) => g.id === "two-trains") ? secondEngineTip(progress.available(game.world, "car:engine"), progress.owned.get("car:engine") ?? 0) : "";
-    const learnedLine = (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present;
+    // (A feature says how to start using it: audit F4, "Tap a train, then Plan a route".)
+    const learnedLine = (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.how ?? t.blurb}`) + present;
     const goalLine = opened.length > 0 ? `New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
     // Two News lines (what was learned, then the goal it opens), one toast saying both.
     note({ kind: "milestone", text: learnedLine }, 3800, true);
@@ -2015,7 +2016,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setCoins(progress.coins);
     learned(id);
     const next = progress.research.current;
-    if (next) hud.toast(`Learned ${techOf(id)!.label}! Next: ${techOf(next)!.label}`, true, 3800);
+    // (The next research's toast comes after the learned one: it says how to use a feature too, or that's lost.)
+    const how = techOf(id)!.how;
+    if (next) hud.toast(`Learned ${techOf(id)!.label}!${how ? ` ${how}.` : ""} Next: ${techOf(next)!.label}`, true, how ? 5200 : 3800);
     // Nothing under way or up next: the school's idle, said once (a tap opens the picker). The pill and the school's
     // card show it from then on.
     const idle = idleNotice.finished(progress, id, schoolName());
