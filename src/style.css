@@ -1164,6 +1164,8 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 @media (max-height: 520px) {
   :not(.planning) > .engine-card { width: auto; gap: 8px; padding-top: 12px; padding-bottom: 14px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); }
   :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }
+  /* (Its name no taller than a plain title: at 360 px tall every row counts.) */
+  :not(.planning) > .engine-card :is(.engine-name, .engine-name-input) { min-height: 0; margin-top: -4px; padding-top: 0; padding-bottom: 0; }
 }
 
 /* The first-run camera tutorial (ui/controls-tutorial.ts): a small coach card, off the middle of the map. Top right
