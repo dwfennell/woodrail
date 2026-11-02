@@ -504,7 +504,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes goal-arrive { from { opacity: 0; transform: translateY(14px); } }
 .goals.ticked .goals-count { animation: goal-pop 0.6s ease-out; }
 @keyframes goal-pop { 30% { transform: scale(1.35); background: #8fd08a; } }
-.goals-new { align-self: flex-start; }
+.goals-stickers { align-self: flex-start; }
 @media (prefers-reduced-motion: reduce) { .goal.arrive, .goals.ticked .goals-count { animation: none; } }
 /* The Journal: Goals and News tabs, the unread bell on the chip, and the news list. */
 .goals-pane { display: flex; flex-direction: column; gap: 6px; }
@@ -1097,7 +1097,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A long name ends in "…" rather than wrapping the card's head. */
 .route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
-.route-leave.asking, .goals-new.asking { background: #b0391f; color: #fff; }
+.route-leave.asking { background: #b0391f; color: #fff; }
 .route-join-line:disabled { opacity: 0.45; }
 .route-riders { font-weight: 600; opacity: 0.7; }
 .route-head .route-leave { padding-inline: 10px; }

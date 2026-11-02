@@ -34,9 +34,6 @@ const SHEET = "(max-width: 560px), (max-height: 520px)";
  * The panel's count: the goals done of all of them, those waiting for blueprints too ("16 / 17" beside "🔒 Learn
  * Signals to unlock a goal", never "16 / 16", which reads as all done).
  */
-/** How long New game asks before it goes back to itself (ms): as the menu's (see hud.ts). */
-const ASK_MS = 4000;
-
 /** When a News entry happened, as the railway's date ("Mar 2001": its time is on the game's clock, in ms). */
 const when = (e: JournalEntry): string => dateText(e.time / 1000);
 
@@ -45,8 +42,6 @@ export function goalsCountText(done: number, total: number, locked: number): str
 }
 
 export interface GoalsPanelHandlers {
-  /** All goals done: start a new game. */
-  newGame(): void;
   /** Show where the current goal is done, and reach for what it needs. */
   showMe(): void;
   /** A news entry with a place was tapped: fly the camera there. */
@@ -204,20 +199,10 @@ export class GoalsPanel {
     });
     this.body.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
-      const again = t.closest<HTMLElement>(".goals-new");
-      if (again) {
-        // Starting over loses the game's progress: the first tap asks, a second (while it asks) does it.
+      // All goals done: on to the stickers (New game stays in the ☰ menu: the card doesn't push starting over).
+      if (t.closest(".goals-stickers")) {
         e.stopPropagation();
-        if (!again.classList.contains("asking")) {
-          again.classList.add("asking");
-          again.textContent = "Start over? Tap again";
-          window.setTimeout(() => {
-            again.classList.remove("asking");
-            again.textContent = "New game";
-          }, ASK_MS);
-          return;
-        }
-        handlers.newGame();
+        this.setTab("stickers");
       }
       if (t.closest(".goals-show")) {
         e.stopPropagation();
@@ -456,8 +441,8 @@ export class GoalsPanel {
     }
     if (!current) {
       this.pane.innerHTML = `
-        <div class="goal current all-done"><span class="goal-tick">✓</span><div><b>All goals done!</b><p>Every town is on the railway and the planks are flowing.${this.stickers.open ? " Now collect the stickers!" : ""}</p></div></div>
-        <button class="chip text primary goals-new">New game</button>`;
+        <div class="goal current all-done"><span class="goal-tick">✓</span><div><b>All goals done!</b><p>${this.stickers.open ? "Keep building, and collect stickers." : "Keep building."}</p></div></div>
+        ${this.stickers.open ? `<button class="chip text primary goals-stickers">See stickers</button>` : ""}`;
       return;
     }
     const counted = progress?.target ? `<span class="goal-progress">${progress.count} / ${progress.target} ${progress.unit ?? ""}</span>` : "";
