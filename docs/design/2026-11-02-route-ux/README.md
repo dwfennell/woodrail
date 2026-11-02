@@ -294,3 +294,75 @@ Each fix should come with an e2e on the player's path that checks the payoff, as
 - **F2:** a stop set to Only drop on a 3-stop line delivers there and loads nothing, and tapping the mode three times never takes a stop off.
 - **F1:** Undo after adding a stop puts the route back, and the train heads where it did before.
 - **F4:** the "Give a train a route" goal is reached in `balance.test.ts` by taps (engine, Plan a route, places).
+
+## After the fixes (re-audit, 2026-11-02)
+
+All 19 fixes are built on `claude/route-ux-fixes` ([roadmap](../../superpowers/specs/2026-11-02-route-ux.md)). Two are partial: F8 has no two-lane drawing for legs run both ways, and F9 doesn't draw lines that share track side by side. Then the walk was done again on the same map (`route-stuck.txt`, `#load=`), by taps at 390×844, 360×740 and 844×390, with the same counting rules. A temporary script; its pictures aren't kept.
+
+⚠️ DEGRADED as before: one assessor, one context. The scores are judged from the walk, the pictures and the code, against the same heuristics.
+
+### Tap counts, before → after
+
+| Task | Before | After | What changed |
+|---|---|---|---|
+| Create a route from nothing (2 stops) | 5 taps, 2 pans | 5 taps, 3 pans* | Planning and Done frame the whole route (F5), so the route stays in view after the stops |
+| Create a route starting from a stop | not possible | **4**: the place, New route from here, the other place, Done | F12 |
+| A new line from the Lines view | not possible | ☰, Lines, + New line, then the places and Done | F12 |
+| Put a new stop in the middle | 3 + 1 + n | **4**: Edit, its neighbour's chip, the place, Done | F13 |
+| Set a stop to Only drop | 2, a guess (cycling) | 2, both visible: the chip, Only drop | F2 |
+| Only pick up / back to auto | 3 / 4 | 2 / 2 | F2 |
+| Lose a stop by accident (mode taps) | 4th tap, silent | can't: Pass by is its own button and says what it did | F2 |
+| Undo a route edit | not possible | **1** (Undo, also while planning, Ctrl+Z) | F1 |
+| Take a train off its line's only train | 1, line gone | 2 (asks), and Undo brings it back | F3, F1 |
+| Add a via | 3, found by chance | 3 (Edit, track, Done), or 4 with "+ via"; the hint says how | F6 |
+| Tell two vias apart | couldn't | numbered chips; picked, the view goes to it and its disc pops | F6 |
+| Fix "Foxley isn't on this line" | 3 (Edit, Foxley, Done) | **1** ("Add Foxley") | F15 |
+| Landscape stop tools | +1 scroll in 3 of 8 tasks | 0 (scrolled into view) | F16 |
+
+\* The walk counts a pan whenever the place to tap is outside the map's room. Here the first route's forest and sawmill are far apart, and the engine was off screen when it started.
+
+Sizes: every button, chip and field in the route UI, the place cards and the Lines view is 44 px or more, and nothing is clipped, at 390, 360 and 844×390 (measured).
+
+### Discovery, before → after (estimated, as before)
+
+| Task | Before | After | Why |
+|---|---|---|---|
+| Know routes exist | at the toast, or never | at once | The toast says "Tap a train, then Plan a route" (it no longer gives way to the Next: toast), and the goal "Give a train a route" opens with Show me on the trains (F4) |
+| Create a route from nothing | 1–6 min | **30–60 s** | Goal, Show me, the train's card, Plan a route, then the hint says what to tap |
+| Create a route from a place | never | ~15 s once the card is open | "New route from here" on every station's and depot's card |
+| Only drop | 30 s – 3 min | ~5 s | The three choices side by side |
+| Via point | by chance | ~20 s | The planning hint and the "+ via" chip |
+| Rename or recolour a line | 1–5 min | ~20 s | ✎ after the name on the card |
+
+### Critique, before → after
+
+| # | Heuristic | Before | After | Why |
+|---|---|---|---|---|
+| 1 | Visibility of system status | 3 | 4 | Arrows on the ribbon (F8); the next stop's number filled; the mode on the chip; "Goes another way now" and a flash after track work (F14) |
+| 2 | Match with the real world | 3 | 3 | "Wait to fill", "line" in the status texts, "Drop & pick up"; "via" is still a word to learn |
+| 3 | User control and freedom | 1 | 4 | Every route edit is undoable, also while planning; Leave asks |
+| 4 | Consistency and standards | 2 | 4 | ▶ and ← → mean one thing each; Done and toggles in the system's go-green; three choices, not a cycling state |
+| 5 | Error prevention | 2 | 4 | No silent stop → via; a stray tap by a station adds the station; Leave guarded |
+| 6 | Recognition over recall | 2 | 3 | Modes, vias and renaming all visible; vias still need the hint read once |
+| 7 | Flexibility and efficiency | 2 | 3 | Insert after a picked stop, start from a place or Lines, + Train, one-tap Add, desktop keys; no drag to reorder, no copy or reverse of a line |
+| 8 | Aesthetic and minimalist design | 3 | 3 | Lacquer number rings, not stripes. Upright, the full card is still tall, and a picked stop adds two rows |
+| 9 | Error recovery | 3 | 4 | "Add Foxley" in one tap; the cue when the way changes |
+| 10 | Help and documentation | 2 | 3 | A goal, a toast that says how, hints that say what a tap does now |
+| | **Total** | **23/40** | **35/40** | **Good** |
+
+### Audit, before → after
+
+| Dimension | Before | After | Why |
+|---|---|---|---|
+| Accessibility | 2 | 3 | Done 3.5:1 → 4.6–7.8:1 (dark ink on the go-green gradient, each end measured); a lost stop's chip at 0.7 and struck through; ribbon edges ≥ 3:1 on beech for all eight colours (unit test); `aria-pressed` on modes, toggles and "+ via"; `aria-current` on the next stop. Left: the filled number on a yellow line relies on a text shadow |
+| Performance | 4 | 4 | Built on change: ribbons, edges and arrows in one show; ribbon width in √2 steps; the flash and pops are a few frames, then 0 |
+| Theming | 2 | 4 | Route colours are tokens (`--go-green*`, `--ink-soft`, `--ink-muted`, `--warn-ink`); DESIGN.md has the line colours and the warn ink |
+| Responsive | 3 | 4 | No scroll for stop tools on a phone on its side; the tools fit at 360 px |
+| Implementation integrity | 3 | 4 | Pass by is explicit; route edits go through the editor's history |
+| **Total** | **14/20** | **19/20** | |
+
+### Left for later
+
+- Two lanes for legs run both ways, and lines sharing track drawn side by side (F8, F9).
+- Drag to reorder stops; copy or reverse a line (heuristic 7).
+- The harness makes its line in one call (`startLine`). Made tap by tap, the play-through drifts: the mine opens at minute 173, not after 220. Left for a balance pass (the CoS, 2026-11-02).

@@ -934,11 +934,20 @@ try {
     await p.mouse.click(x, y);
     await frames(p);
   };
+  // (The card is rebuilt as it changes: the button found, a moment's settle, then found again where it is now.)
   const clickButton = async (sel) => {
-    await p.waitForFunction((sel) => { const e = document.querySelector(sel); return !!e && e.offsetParent !== null; }, sel, { timeout: 30000 });
-    await frames(p);
-    await p.waitForTimeout(250);
-    const [x, y] = await p.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
+    const where = () => p.waitForFunction((sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel, { timeout: 30000 }).then((h) => h.jsonValue());
+    // (Clicked once it holds still: the card's tap guard drops a click on a button that moved within 150 ms, and a
+    // change before, such as Only drop, resizes the card.)
+    let [x, y] = await where();
+    for (let k = 0; k < 20; k++) {
+      await frames(p);
+      await p.waitForTimeout(250);
+      const [x2, y2] = await where();
+      const held = Math.abs(x2 - x) < 1 && Math.abs(y2 - y) < 1;
+      [x, y] = [x2, y2];
+      if (held) break;
+    }
     await p.mouse.click(x, y);
     await frames(p);
   };
@@ -968,9 +977,13 @@ try {
   const dropped = await route();
   check("desktop (F2): the stop's three modes, Only drop clicked; no Pass by with two stops", opts.modes.length === 3 && !opts.pass && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
   await clickButton(".engine-extra .route-leave");
-  const asked = await route();
-  const text = await p.evaluate(() => document.querySelector(".engine-extra .route-leave")?.textContent);
-  await clickButton(".engine-extra .route-leave.asking");
+  // (The second click at once, where it is: "Forget …?" waits 4 s, and on a busy page waiting for it to hold still
+  // takes longer. It doesn't move.)
+  const ask = await p.waitForFunction(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return { text: e.textContent, lines: window.woodrail.economy.lines.size, x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, null, { timeout: 30000 }).then((h) => h.jsonValue());
+  await p.mouse.click(ask.x, ask.y);
+  await frames(p);
+  const text = ask.text;
+  const asked = { lines: ask.lines };
   const gone = await route();
   check("desktop (F3): Leave asks first (\"Forget …?\"), the second click forgets the line", asked.lines === 1 && /^Forget/.test(text ?? "") && gone.lines === 0 && gone.stops.length === 0, JSON.stringify({ asked, text, gone }));
   await p.keyboard.press("Control+z");

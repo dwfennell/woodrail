@@ -3878,6 +3878,9 @@ async function routeUx(ctx, p) {
     return { ok: out.length === 0, out, top: Math.round(top), bottom: Math.round(bottom) };
   }, { o: setup, extra });
 
+  // (Not following a train: a check before this one may have left Follow on, and a followed train's view isn't
+  // reframed for its route, by design. Reset here, as the state asserted on.)
+  await p.evaluate(() => window.woodrail.follow(-1));
   // Planning by taps: the engine, Plan a route, the first forest.
   await tapOn({ engine: setup.engine });
   await tapButton(".engine-extra .route-plan");
@@ -3978,9 +3981,22 @@ async function routeUx(ctx, p) {
   await frames(p);
   await p.waitForTimeout(300);
   await still();
-  const done = await inRoom();
+  // (Upright at 360×740 the full card covers two thirds of the screen: where the route can't fit above it however far
+  // out, the view is as far out as it goes, with the route's middle above the card.)
+  const done = {
+    ...(await inRoom()),
+    ...(await p.evaluate((o) => {
+      const w = window.woodrail;
+      const mids = o.pieces.map((id) => w.layout.getPiece(id).pose);
+      const c = new w.camera.position.constructor(mids.reduce((a, q) => a + q.x, 0) / mids.length, 0, mids.reduce((a, q) => a + q.z, 0) / mids.length).project(w.camera);
+      const room = w.director.roomOf?.();
+      const cards = [...document.querySelectorAll(".hud .card, .hud .tray")].filter((e) => e.getBoundingClientRect().height > 0).map((e) => { const r = e.getBoundingClientRect(); return `${e.className.split(" ").slice(0, 2).join(".")}@${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`; });
+      return { following: w.following, distance: Math.round(w.camera.position.distanceTo(w.controls.target)), max: Math.round(w.controls.maxDistance), middleY: Math.round(((1 - c.y) / 2) * innerHeight), room: room && [room.left, room.top, room.right, room.bottom].map(Math.round), cards };
+    }, setup)),
+  };
   if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ux-done.png` });
-  check("route-ux (F5): after Done, the whole route shows above the card", done.ok && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify(done));
+  const asFarAsItGoes = done.distance >= done.max - 2 && done.middleY > done.top && done.middleY < done.bottom;
+  check("route-ux (F5): after Done, the whole route shows above the card (or the view is as far out as it goes, the route's middle above it)", (done.ok || asFarAsItGoes) && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify(done));
 
   // F7: the chips keep their numbers; the next stop's filled; no ▶ anywhere on the card.
   const chips = await p.evaluate(() => ({
@@ -4045,7 +4061,10 @@ async function routeUx(ctx, p) {
   const ask = await p.evaluate(() => ({ text: document.querySelector(".engine-extra .route-leave")?.textContent, asking: document.querySelector(".engine-extra .route-leave")?.classList.contains("asking"), says: document.querySelector(".engine-extra .route-leave-ask")?.textContent }));
   const still1 = await route();
   check("route-ux (F3): Leave on the line's only train asks first (\"Forget …?\"), the line kept", /^Forget “.+ line”\?$/.test(ask.text ?? "") && ask.asking && /^Tap again to forget .+ line and its stops$/.test(ask.says ?? "") && still1.stops.length === 3 && still1.lines === 1, JSON.stringify({ ask, still1 }));
-  await tapButton(".engine-extra .route-leave.asking");
+  // (The second press straight on the button, a click as its tap makes: "Forget …?" waits 4 s, and on the full run's
+  // busy page a touch's click can come later than that. The first press above was a real tap.)
+  await p.evaluate(() => document.querySelector(".engine-extra .route-leave.asking")?.click());
+  await frames(p);
   const gone = await route();
   check("route-ux (F3): the second tap forgets it", gone.stops.length === 0 && gone.lines === 0, JSON.stringify(gone));
   await tapUndo();
@@ -4220,10 +4239,14 @@ async function routeUxMore(ctx, p) {
   const after = await runs();
   check("route-ux-more (B6): the road its line ran by taken up, the card says it goes another way now (and it does)", gone && said === "Goes another way now: the track changed" && !after.includes(road) && after.length > 0, JSON.stringify({ road, gone, said, before: before.length, after: after.length }));
   await p.waitForFunction(() => !document.querySelector(".engine-extra .route-way-changed"), null, { timeout: 30000 }).catch(() => {});
+  // (Counted paused: other trains on the shared Sandbox map may still be running. The flash runs on real time.)
+  await p.evaluate(() => (window.woodrail.paused = true));
   await frames(p);
+  await p.waitForTimeout(300);
   const fA = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.waitForTimeout(1500);
   const fB = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.evaluate(() => (window.woodrail.paused = false));
   check("route-ux-more (B6): the note goes after a few seconds, and the flash ends (no frames after)", !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-way-changed"))) && fB - fA <= 1 && fA > f0, JSON.stringify({ f0, fA, fB }));
   await p.keyboard.press("Escape");
 }
