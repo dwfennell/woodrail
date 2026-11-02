@@ -54,6 +54,8 @@ const EDGE_WIDTH = 4;
 const EDGE_LIFT = 0.3;
 /** The arrowheads showing which way a ribbon runs: every this far along it (mm), this long and wide, over it. */
 const CHEVRON_GAP = 120;
+/** A ribbon's flash (seconds): when its way changes under a track edit. */
+const FLASH_S = 1.6;
 const CHEVRON_LENGTH = 9;
 const CHEVRON_WIDTH = 9;
 const CHEVRON_LIFT = 0.6;
@@ -124,6 +126,8 @@ export class RouteView {
   /** Or a via point's disc (by its piece) popping: its chip was picked (−1: none). */
   private popVia = -1;
   private popAt = -Infinity;
+  /** The ribbon's flash, from this time (seconds; see `flash`). */
+  private flashAt = -Infinity;
   /** The camera's view the discs were last fanned out for (its matrix, the view's height, its fov). */
   private fannedFor: number[] = [];
 
@@ -210,6 +214,11 @@ export class RouteView {
     this.popAt = now;
   }
 
+  /** The ribbon flashes (its way just changed under the track's edit: audit F14), from `now` (seconds). */
+  flash(now: number): void {
+    this.flashAt = now;
+  }
+
   /** The disc of the via point on piece `pieceId` pops (its chip was picked: which one it is), from `now` (seconds). */
   popViaAt(pieceId: number, now: number): void {
     this.popStop = -1;
@@ -223,6 +232,14 @@ export class RouteView {
    */
   animate(now: number): boolean {
     let moving = false;
+    // The ribbon's flash: three soft beats of its opacity, then back as it was.
+    const f = now - this.flashAt;
+    if (f >= 0 && f < FLASH_S + 0.1) {
+      const k = f < FLASH_S ? 0.55 * Math.sin((f / FLASH_S) * Math.PI * 3) ** 2 : 0;
+      for (const [key, m] of this.ribbonMats) if (key.endsWith("|0")) m.opacity = RIBBON_OPACITY * (1 - k) + k * 0.15;
+      moving = f < FLASH_S;
+      if (!moving) this.flashAt = -Infinity;
+    }
     for (const d of this.discs) {
       const u = d.userData as { size: number; index: number; next: boolean; kind: string; pieceId: number };
       let k = 1;

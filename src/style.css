@@ -1277,3 +1277,5 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
   /* (Loops shown for a while: the Re-rail nudge and Show me's ring stand still, coloured as they are.) */
   .chip.attention, .goals-show-icon.nudge { animation: none; }
 }
+/* The line's way changed under a track edit (audit F14): said for a few seconds, as its ribbon flashes. */
+.route-way-changed { font-weight: 800; color: var(--ink-soft); }

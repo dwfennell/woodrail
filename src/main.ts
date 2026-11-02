@@ -2996,7 +2996,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     const riders = line ? trainsOn(game.economy, line.id).length : 0;
     const others = line ? "" : [...game.economy.lines.values()].map((l) => `${l.id}${l.colour}${l.name}`).join(",");
-    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}:${viaAsked}`;
+    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}:${viaAsked}:${wayNote.carId === carId && performance.now() < wayNote.until}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -3371,6 +3371,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         warn.textContent = lostStopWords(name);
         box.append(warn);
       }
+      if (wayNote.carId === carId && performance.now() < wayNote.until) {
+        box.append(Object.assign(document.createElement("div"), { className: "route-hint route-way-changed", textContent: "Goes another way now: the track changed" }));
+      }
       const why = cantReach();
       if (why) {
         const warn = document.createElement("div");
@@ -3736,6 +3739,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const toNext = aim === -1 ? null : legFromCursor(game.layout, front, aim, undefined, keep);
       // (The legs on from the next stop follow the way the train comes into it: it runs on round a loop past it.)
       const legs = viaLegs(game.layout, line.stops.map((st, k) => ({ piece: pieces[k], via: st.via })), { k: next, done: r.at ? Infinity : viaDone(r, next), leg: toNext }, keep);
+      // The way changed under a track edit (the stops and the stop it's heading for as they were, the legs not): the
+      // ribbon flashes once and the card says so a few seconds (audit F14: a train went somewhere new, no one said why).
+      const stopsSig = line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",");
+      const runsSig = legs.map((leg) => (leg ? leg.map((x) => `${x.pieceId}/${x.pathIndex}`).join(".") : "-")).join("|");
+      const wayChanged = wayFor.carId === carId && wayFor.line === line.id && wayFor.stops === stopsSig && wayFor.next === next && wayFor.track !== game.trackVersion && wayFor.runs !== runsSig;
+      wayFor = { carId, line: line.id, stops: stopsSig, next, track: game.trackVersion, runs: runsSig };
       const ribbons: RibbonSpec[] = legs.flatMap((leg) => (leg ? [{ runs: leg, colour: line.colour }] : []));
       if (toNext) ribbons.push({ runs: toNext, colour: line.colour });
       const n = line.stops.length;
@@ -3773,6 +3782,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       routeView.show(ribbons, [...discs.values()], gaps);
       // A stop just added pops in; the next stop pulses when it becomes the next (or the card opens).
       const now = performance.now() / 1000;
+      if (wayChanged) {
+        routeView.flash(now);
+        wayNote = { carId, until: performance.now() + WAY_NOTE_MS };
+      }
       const stopsKey = line.stops.map((st) => st.depotId).join(",");
       if (ribbonFor.carId === carId && stopsKey.startsWith(ribbonFor.stops) && line.stops.length === ribbonFor.stops.split(",").filter(Boolean).length + 1) routeView.pop(line.stops.length - 1, now);
       if (ribbonFor.carId !== carId || ribbonFor.next !== next) routeView.pulse(now);
@@ -3802,6 +3815,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.invalidate();
   }
 
+  /** The open engine's line's way as last drawn: its legs' pieces, and what they were drawn for (see `showRibbon`). */
+  let wayFor = { carId: -1, line: -1, stops: "", next: -1, track: -1, runs: "" };
+  /** "Goes another way now" on this engine's card until then (ms). */
+  let wayNote = { carId: -1, until: 0 };
+  const WAY_NOTE_MS = 6000;
   /** What the ribbon last showed (to tell a stop just added, and a new next stop). */
   let ribbonFor = { carId: -1, stops: "", next: -1 };
   /** The engine whose card last nudged the view to show a stop it can't reach, or its way ahead (once per opening). */
