@@ -5,7 +5,9 @@
 // stops kept, the houses in its way moved to lots facing a street, the kit drawn instead of the station house. The line
 // keeps running and carrying people (riders counted, some at the upgraded station). Undo puts everything back. Then a
 // town whose upgrade moves houses: the card says how many, they go to lots facing a street, and undo puts them back.
-// Pictures before and after (1-before.png, 2-after.png; 4-houses-before.png, 5-houses-after.png).
+// The station keeps its goods crane through it all (on the kit's first platform, only that station drawn again): upgraded,
+// undone, redone, and saved and loaded. Pictures before and after (1-before.png, 2-after.png, 2b-crane.png;
+// 4-houses-before.png, 5-houses-after.png, 7-reloaded.png).
 //
 // Setup shortcuts (named, not what's under test): Passengers, Routes and Big stations learned through the game's own
 // `learned` (the studies skipped); one two-platform station put in the toy box, as the workshop would make it for 10
@@ -190,6 +192,19 @@ const stateOf = () =>
     return { id, type: world.layout.getPiece(id).type, depot: d?.id, halt: d ? world.economy.isHalt(d) : null, upgraded: world.landscape.towns.find((t) => t.id === townId).upgraded ?? null, route: route?.stops.map((s) => s.depotId) };
   }, townId);
 const before = await stateOf();
+/** The station's goods crane as the depot view draws it (`DepotView.craneOf`), and whether every other depot's crane is the one drawn when this was first called (none drawn again). */
+const craneOf = () =>
+  p.evaluate((townId) => {
+    const w = window.woodrail;
+    const view = w.depotView;
+    const d = w.world.economy.depotAtPiece(w.world.stations.get(townId));
+    const others = w.world.economy.allDepots().filter((x) => x !== d);
+    window.__trolleys ??= new Map(others.map((x) => [x.id, view.craneOf(x.id)?.trolley]));
+    const c = view.craneOf(d.id);
+    return { crane: c && { drawn: c.drawn, t: c.t, l: c.l, inScene: c.trolley.parent === view.group }, othersKept: others.every((x) => view.craneOf(x.id)?.trolley === window.__trolleys.get(x.id)) };
+  }, townId);
+const craneBefore = await craneOf();
+check("before: the plain station's goods crane drawn on its platform", craneBefore.crane?.drawn === "station" && craneBefore.crane.l > 0 && craneBefore.crane.inScene, JSON.stringify(craneBefore));
 
 // 3. A tap on the station: its town's card, with the upgrade button.
 const at = await p.evaluate((townId) => {
@@ -242,6 +257,40 @@ await p.evaluate(() => window.woodrail.kitView.load("kit-two-platform-station").
 await settle();
 await shot("2-after");
 
+// 4b. Still the town's goods station, so still its goods crane: at the same stop along the track, across the line on
+// the kit's first platform (where its people wait), and no other depot drawn again.
+const craneAfter = await craneOf();
+check(
+  "after: the goods crane drawn on the upgraded station, at the same place along the track, on the kit's first platform; no other depot drawn again",
+  craneAfter.crane?.drawn === "kit-two-platform-station" && craneAfter.crane.t === craneBefore.crane.t && craneAfter.crane.l === -craneBefore.crane.l && craneAfter.crane.inScene && craneAfter.othersKept,
+  JSON.stringify(craneAfter),
+);
+// A close look at it, its piles shown (shortcut, for the picture only: some goods put on them, then taken off again).
+const piles = await p.evaluate(async (townId) => {
+  const { CARGO } = await import("/src/economy/index.ts");
+  const w = window.woodrail;
+  const d = w.world.economy.depotAtPiece(w.world.stations.get(townId));
+  const was = [...d.piles];
+  d.piles[CARGO.planks.index] = 4;
+  d.piles[CARGO.flour.index] = 3;
+  d.piles[CARGO.stone.index] = 2;
+  const pose = w.world.layout.getPiece(d.pieceId).pose;
+  w.director.glideTo(new w.camera.position.constructor(pose.x + 46 * Math.cos(pose.heading), 0, pose.z + 46 * Math.sin(pose.heading)), 420, { duration: 0.1 });
+  return was;
+}, townId);
+await glided();
+await settle();
+await shot("2b-crane");
+await p.evaluate(
+  ({ townId, piles }) => {
+    const w = window.woodrail;
+    const d = w.world.economy.depotAtPiece(w.world.stations.get(townId));
+    piles.forEach((n, k) => (d.piles[k] = n));
+    w.invalidate();
+  },
+  { townId, piles },
+);
+
 // 5. The line keeps running and carrying, people boarding at the upgraded station.
 const later = await run(360);
 check("after: the line keeps carrying people, some boarding at the upgraded station", later.riders > 0 && later.boarded > 0, JSON.stringify(later));
@@ -252,6 +301,8 @@ await p.waitForTimeout(1200);
 const back = await stateOf();
 const housesBack = await houses();
 check("undo: the plain station again, the same depot and route, every house where it was", back.type === "station" && back.depot === before.depot && back.upgraded === null && JSON.stringify(back.route) === JSON.stringify(before.route) && JSON.stringify(housesBack) === JSON.stringify(housesBefore), JSON.stringify({ back, same: JSON.stringify(housesBack) === JSON.stringify(housesBefore) }));
+const craneBack = await craneOf();
+check("…undo: the plain station's crane again, where it was; no other depot drawn again", craneBack.crane?.drawn === "station" && craneBack.crane.t === craneBefore.crane.t && craneBack.crane.l === craneBefore.crane.l && craneBack.crane.inScene && craneBack.othersKept, JSON.stringify(craneBack));
 await settle();
 await shot("3-undone");
 
@@ -350,6 +401,53 @@ if (mover) {
   check("…undo: the plain station, and every house back where it was", backType === "station" && JSON.stringify(homesBack) === JSON.stringify(homesBefore), JSON.stringify({ backType }));
   await settle();
   await shot("6-houses-undone");
+
+  // 8. Redo (the top bar's button): upgraded again, its crane with it. Saved, and the page loaded again: the station
+  // comes back upgraded, its goods crane drawn from the start.
+  await tap("button[aria-label='Redo (Ctrl+Shift+Z)']");
+  await p.waitForTimeout(1200);
+  const craneAt = () =>
+    p.evaluate((tId) => {
+      const w = window.woodrail;
+      const id = w.world.stations.get(tId);
+      const d = w.world.economy.depotAtPiece(id);
+      const c = w.depotView.craneOf(d.id);
+      return { type: w.world.layout.getPiece(id).type, crane: c && { drawn: c.drawn, t: c.t, l: c.l, inScene: c.trolley.parent === w.depotView.group } };
+    }, tId);
+  const redone = await craneAt();
+  check("…redo: upgraded again, its goods crane on the kit's first platform", redone.type === "kit-two-platform-station" && redone.crane?.drawn === "kit-two-platform-station" && redone.crane.l < 0 && redone.crane.inScene, JSON.stringify(redone));
+  await p.waitForTimeout(2500); // (saved)
+  await p.reload();
+  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await settle();
+  await p.keyboard.press("Escape");
+  const reloaded = await craneAt();
+  check("…saved and loaded: still upgraded, its goods crane drawn where it was", reloaded.type === "kit-two-platform-station" && JSON.stringify(reloaded.crane) === JSON.stringify(redone.crane), JSON.stringify(reloaded));
+  // (Its piles shown for the picture: a shortcut as before, put back after.)
+  const was = await p.evaluate(async (tId) => {
+    const { CARGO } = await import("/src/economy/index.ts");
+    const w = window.woodrail;
+    const d = w.world.economy.depotAtPiece(w.world.stations.get(tId));
+    const was = [...d.piles];
+    d.piles[CARGO.planks.index] = 4;
+    d.piles[CARGO.flour.index] = 3;
+    d.piles[CARGO.stone.index] = 2;
+    const pose = w.world.layout.getPiece(d.pieceId).pose;
+    w.director.glideTo(new w.camera.position.constructor(pose.x + 46 * Math.cos(pose.heading), 0, pose.z + 46 * Math.sin(pose.heading)), 500, { duration: 0.1 });
+    return was;
+  }, tId);
+  await glided();
+  await settle();
+  await shot("7-reloaded");
+  await p.evaluate(
+    ({ tId, was }) => {
+      const d = window.woodrail.world.economy.depotAtPiece(window.woodrail.world.stations.get(tId));
+      was.forEach((n, k) => (d.piles[k] = n));
+    },
+    { tId, was },
+  );
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));

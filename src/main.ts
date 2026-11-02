@@ -1809,6 +1809,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     game.depotView.building = schoolHouse;
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
+    // A town's station upgraded in place (or back, by undo): only its goods corner drawn again.
+    else if (game.depotView.syncStations(game.economy, game.layout)) game.invalidate();
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
     const rateKey = `${key}#${game.landscape.grid.revision}#${mode === "game" ? upgradeKey(progress) : ""}`;
