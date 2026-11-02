@@ -3013,10 +3013,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)),
     );
     // On a line, this train can leave it (it goes anywhere again; the line stays for its other trains). The last train
-    // leaving a line the player has named asks first (the line goes with it): a second tap.
+    // leaving a line asks first, whatever its name (the line goes with it, its stops and via points: audit F3): a
+    // second tap within LEAVE_ASK_MS.
     if (line && !planning) {
-      const named = !LINE_COLOURS.some((c) => `${c.name} line` === line.name);
-      const asks = riders === 1 && named;
+      const asks = riders === 1;
       const leave = button(leaveAsked === carId ? `Forget “${line.name}”?` : "Leave", "route-leave", riders > 1 ? "Take this train off its line (its other trains keep running it)" : "Take this train off its line: it goes anywhere again", () => {
         if (asks && leaveAsked !== carId) {
           leaveAsked = carId;
@@ -3039,6 +3039,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       head.append(leave);
     }
     box.append(head);
+    // Asking: what a second tap does, in words (the button only says "Forget …?").
+    if (line && !planning && leaveAsked === carId) {
+      box.append(Object.assign(document.createElement("div"), { className: "route-warn route-leave-ask", textContent: `Tap again to forget ${line.name} and its stops` }));
+    }
     // On no line, with lines on the map: run one of them (a tap), as well as planning its own.
     if (!line && !planning && game.economy.lines.size > 0) {
       const join = document.createElement("div");
