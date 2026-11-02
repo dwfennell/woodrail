@@ -141,6 +141,8 @@ const line = await p.evaluate(
 );
 check("a coach train on a line between the two stations", !!line, JSON.stringify(line));
 await p.waitForTimeout(800);
+// (Frames are slow headless: wait for the board's next paint rather than a while.)
+await p.waitForFunction((id) => window.woodrail.touches.state().bigs.some((b) => b.pieceId === id && b.paints > 0), station.id, { timeout: 30000 }).catch(() => {});
 s = await state();
 const board1 = s.bigs.find((x) => x.pieceId === station.id);
 check("the board says the line and where it heads next", board1.rows.includes(`${line.name} → ${setup.pick.other}`), JSON.stringify(board1));
@@ -206,7 +208,7 @@ const seen = await p.evaluate(
   ({ pieceId }) =>
     new Promise((done) => {
       const w = window.woodrail;
-      const out = { leaned: 0, maxDolls: 0, on: 0, off: 0, flag: false, wave: 0, flagAngle: null, frames: 0 };
+      const out = { heard: null, leaned: 0, maxDolls: 0, on: 0, off: 0, flag: false, wave: 0, flagAngle: null, frames: 0 };
       const t0 = performance.now();
       const look = () => {
         const s = w.touches.state();
@@ -225,6 +227,7 @@ const seen = await p.evaluate(
           out.wave = Math.max(out.wave, Math.abs(big.wave));
           out.flagAngle = big.flag;
         }
+        out.heard = s.heard;
         if ((out.flag && !big?.flagUp && s.visits.length === 0) || performance.now() - t0 > 90000) done(out);
         else requestAnimationFrame(look);
       };
@@ -251,7 +254,7 @@ await p.evaluate((townId) => {
   const w = window.woodrail;
   const pose = w.world.layout.getPiece(w.world.stations.get(townId)).pose;
   const c = { x: pose.x + 108 * Math.cos(pose.heading), z: pose.z + 108 * Math.sin(pose.heading) };
-  w.director.glideTo(new w.camera.position.constructor(c.x, 0, c.z), 300, { duration: 0.1 });
+  w.director.glideTo(new w.camera.position.constructor(c.x, 0, c.z), 780, { duration: 0.1, phi: 0.95 });
   w.paused = false;
 }, townId);
 // Mid-stop: someone getting on (the sim on, frames real).
@@ -285,7 +288,7 @@ await p.evaluate((pieceId) => {
   const w = window.woodrail;
   const pose = w.world.layout.getPiece(pieceId).pose;
   const c = { x: pose.x + 150 * Math.cos(pose.heading) - 106 * Math.sin(pose.heading), z: pose.z + 150 * Math.sin(pose.heading) + 106 * Math.cos(pose.heading) };
-  w.director.glideTo(new w.camera.position.constructor(c.x, 0, c.z), 160, { duration: 0.1 });
+  w.director.glideTo(new w.camera.position.constructor(c.x, 20, c.z), 450, { duration: 0.1, phi: 1.1 });
 }, station.id);
 await p.waitForTimeout(1500);
 await settle();

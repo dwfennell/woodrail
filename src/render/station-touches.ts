@@ -128,6 +128,8 @@ export class StationTouchesView {
   private readonly offLooks = rng(7177);
   /** Big stations' flags just raised: the host whistles for each (drained by `departedBig`). */
   private readonly whistles: { x: number; z: number }[] = [];
+  /** Station events heard, by kind (for the e2e's account of a stop). */
+  private readonly heard: Record<string, number> = { halted: 0, on: 0, off: 0, left: 0, town: 0 };
 
   constructor(
     private readonly mats: Materials,
@@ -151,6 +153,7 @@ export class StationTouchesView {
 
   /** A station event (see `StationEvent`). */
   event(kind: "halted" | "on" | "off" | "left", pieceId: number, trainId: number, carId: number): void {
+    this.heard[kind]++;
     const big = this.bigs.get(pieceId);
     if (kind === "left" && big) {
       big.flagT = 0;
@@ -159,6 +162,7 @@ export class StationTouchesView {
     }
     const town = this.host.townAt(pieceId);
     if (!town) return;
+    this.heard.town++;
     let v = this.visits.get(town.id);
     if (kind === "halted") {
       const at = (carId >= 0 ? this.host.carPoint(carId) : null) ?? this.host.trainPoint(trainId);
@@ -301,6 +305,7 @@ export class StationTouchesView {
         leaving: v.leaving,
         dolls: v.dolls.map((d) => ({ index: d.index, mode: d.mode, lean: d.lean })),
       })),
+      heard: { ...this.heard },
       bigs: [...this.bigs.values()].map((b) => ({ pieceId: b.pieceId, rows: b.rows, paints: b.paints, flagUp: b.flagT >= 0, flag: b.flag.rotation.z, wave: b.cloth.rotation.y })),
     };
   }
