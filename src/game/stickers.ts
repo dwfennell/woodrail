@@ -1,6 +1,8 @@
 import { townStatus } from "./towns";
 import { receivedBy } from "./town-life";
 import { fixedPieces, type World } from "./world";
+import { running } from "./goals";
+import type { DepotRole } from "../economy";
 
 /**
  * Stickers: the open-ended layer on top of the goals (spec 2026-10-31-achievements.md). Broad, optional, collected in
@@ -21,9 +23,9 @@ export interface StickerContext {
  * What a check depends on: it's run again only when one of these has changed since the last check (see
  * `depKeys`). "pieces": the track (`Layout.piecesVersion`); "towns": what the towns have received; "coins"; "counts";
  * "learned"; "goals" (how many are done); "sea": goods sold to and bought from harbour boats (the counts "exported" and
- * "imported", which change only when a boat trades).
+ * "imported", which change only when a boat trades); "trains": how many are running.
  */
-export type StickerDep = "pieces" | "towns" | "coins" | "counts" | "learned" | "goals" | "sea";
+export type StickerDep = "pieces" | "towns" | "coins" | "counts" | "learned" | "goals" | "sea" | "trains";
 
 export type StickerTheme = "building" | "trains" | "towns" | "economy";
 
@@ -57,8 +59,34 @@ export function townLevels(w: World): number[] {
 
 const count = (ctx: StickerContext, key: string) => ctx.counts.get(key) ?? 0;
 
+/** Goods delivered to the towns on this map (the economy's totals, saved with the world), of every kind. */
+export function deliveredTotal(w: World): number {
+  // (Planks from `delivered`, as `receivedBy` reads them: saves from before goods were counted by kind have only that.)
+  let n = 0;
+  for (const v of w.economy.delivered.values()) n += v;
+  for (const bag of w.economy.deliveredGoods.values()) for (const [k, v] of Object.entries(bag)) if (k !== "planks") n += v ?? 0;
+  return n;
+}
+
+/** The industries that make goods, every one built by the player's path (the starter map has a forest and a sawmill). */
+export const INDUSTRY_KINDS: readonly DepotRole[] = ["forest", "sawmill", "farm", "mill", "quarry", "mine", "foundry", "carpenter", "smithy"];
+
+/** The kinds of industry on the map now (built, restored, or the map's own). */
+export function industryKinds(w: World): Set<DepotRole> {
+  const kinds = new Set<DepotRole>();
+  for (const d of w.economy.allDepots()) if (INDUSTRY_KINDS.includes(d.role)) kinds.add(d.role);
+  return kinds;
+}
+
 /** Laid track for this sticker. */
 export const TRACK_LAYER = 40;
+export const LONG_LINE = 200;
+export const DELIVERED_SOME = 100;
+export const DELIVERED_LOTS = 1000;
+export const BUSY_TRAINS = 5;
+export const RUSH_HOUR = 10;
+/** A town's level for City ★★ (3 a city, 4 City ★). */
+export const TWO_STARS = 5;
 export const RICH = 1000;
 export const BUSY_LOADS = 500;
 export const SCHOLAR = 25;
@@ -73,10 +101,25 @@ export const imported = (ctx: StickerContext) => count(ctx, "imported");
 
 export const STICKERS: readonly Sticker[] = [
   { id: "track-layer", title: "Track layer", how: `Lay ${TRACK_LAYER} pieces of track`, icon: "🛤️", theme: "building", deps: ["pieces"], check: (w) => ownTrack(w) >= TRACK_LAYER },
+  { id: "long-line", title: "Long line", how: `Lay ${LONG_LINE} pieces of track`, icon: "🚞", theme: "building", deps: ["pieces"], check: (w) => ownTrack(w) >= LONG_LINE },
+  { id: "all-industries", title: "The whole works", how: "Have every kind of industry on the map: forest to smithy", icon: "🏭", theme: "building", deps: ["pieces"], check: (w) => industryKinds(w).size >= INDUSTRY_KINDS.length },
   { id: "all-towns", title: "Every town", how: "Join every town on the map by rail", icon: "🗺️", theme: "building", deps: ["goals"], check: (_w, c) => c.goalsDone("join-all") },
   { id: "all-villages", title: "Villages everywhere", how: "Grow every town into a village or more", icon: "🏡", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).every((l) => l >= 1) },
   { id: "first-city", title: "A city", how: "Grow a town into a city", icon: "🏙️", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).some((l) => l >= 3) },
   { id: "city-star", title: "City ★", how: "Grow a city into a City ★", icon: "🌟", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).some((l) => l >= 4) },
+  { id: "city-two-stars", title: "City ★★", how: "Grow a City ★ into a City ★★", icon: "✨", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).some((l) => l >= TWO_STARS) },
+  { id: "five-trains", title: "Busy timetable", how: `Have ${BUSY_TRAINS} trains running at once`, icon: "🚂", theme: "trains", deps: ["trains"], check: (w) => running(w).length >= BUSY_TRAINS },
+  {
+    id: "rush-hour",
+    title: "Rush hour",
+    how: `Have ${RUSH_HOUR} trains running at once`,
+    icon: "🚦",
+    theme: "trains",
+    hidden: true,
+    hint: "Five trains is busy. How many more can your railway run at once?",
+    deps: ["trains"],
+    check: (w) => running(w).length >= RUSH_HOUR,
+  },
   {
     id: "two-cities",
     title: "Twin cities",
@@ -89,6 +132,8 @@ export const STICKERS: readonly Sticker[] = [
     check: (w) => townLevels(w).filter((l) => l >= 3).length >= 2,
   },
   { id: "rich", title: "Piggy bank", how: `Have ${RICH.toLocaleString("en")} coins at once`, icon: "🪙", theme: "economy", deps: ["coins"], check: (_w, c) => c.coins >= RICH },
+  { id: "delivered-some", title: "Special delivery", how: `Deliver ${DELIVERED_SOME} goods to the towns`, icon: "📬", theme: "economy", deps: ["towns"], check: (w) => deliveredTotal(w) >= DELIVERED_SOME },
+  { id: "delivered-lots", title: "Big deliveries", how: `Deliver ${DELIVERED_LOTS.toLocaleString("en")} goods to the towns`, icon: "🎁", theme: "economy", deps: ["towns"], check: (w) => deliveredTotal(w) >= DELIVERED_LOTS },
   { id: "busy-loads", title: "Busy railway", how: `Move ${BUSY_LOADS} loads`, icon: "📦", theme: "economy", deps: ["counts"], check: (_w, c) => count(c, "loadsMoved") >= BUSY_LOADS },
   {
     id: "sawdust",
@@ -131,6 +176,7 @@ export function depKeys(w: World, ctx: StickerContext, goalsDone: number): Recor
     learned: String(ctx.learned.size),
     goals: String(goalsDone),
     sea: `${exported(ctx)}:${imported(ctx)}`,
+    trains: String(running(w).length),
   };
 }
 

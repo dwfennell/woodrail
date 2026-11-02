@@ -76,7 +76,8 @@ export interface Goal {
 /** Above this speed (mm/s) a train counts as running. */
 const RUNNING = 5;
 
-const running = (w: World) =>
+/** The trains running now (not stopped, not derailed). */
+export const running = (w: World) =>
   w.sim.trainIds().filter((id) => {
     const t = w.sim.getTrain(id);
     return t && !t.derailed && t.speed > RUNNING;

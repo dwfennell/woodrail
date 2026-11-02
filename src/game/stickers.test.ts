@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { appendPiece, connectorRef } from "../track";
+import { appendPiece, connectorRef, type PieceTypeId } from "../track";
 import { buildStarterWorld, type World } from "./world";
-import { ownTrack, SEA_TRADER, STICKERS, StickerTracker, TRACK_LAYER, type StickerContext } from "./stickers";
+import { BUSY_TRAINS, DELIVERED_LOTS, DELIVERED_SOME, deliveredTotal, INDUSTRY_KINDS, industryKinds, LONG_LINE, ownTrack, RUSH_HOUR, SEA_TRADER, STICKERS, StickerTracker, TRACK_LAYER, TWO_STARS, townLevels, type StickerContext } from "./stickers";
+import { BLUEPRINTS } from "./blueprints";
+import { THING_RULES } from "./things";
 import { CARGO } from "../economy";
 import { HarbourTrade, type HarbourEvent } from "./harbours";
 import { coastWorld, harbourSite } from "./harbours-testing";
@@ -80,7 +82,7 @@ describe("StickerTracker", () => {
       expect([...calls.keys()], "nothing changed: nothing checked").toEqual([]);
       lay(w, 1);
       t.update(w, c, 0);
-      expect([...calls.keys()], "the track changed").toEqual(["track-layer"]);
+      expect([...calls.keys()], "the track changed").toEqual(STICKERS.filter((s) => s.deps.includes("pieces")).map((s) => s.id));
       calls.clear();
       t.update(w, ctx({ coins: 5 }), 0);
       expect([...calls.keys()]).toEqual(["rich"]);
@@ -206,6 +208,87 @@ describe("harbour stickers: Ahoy, seller! and Ahoy, buyer!", () => {
   it("the counts are kept by the boats' trades only (HarbourTrade), as the player's sold and bought goods", () => {
     expect(harboursSrc.match(/counts\.set\("exported"/g)?.length).toBe(1);
     expect(harboursSrc.match(/counts\.set\("imported"/g)?.length).toBe(1);
+  });
+});
+
+describe("milestone stickers", () => {
+  const earn = (t: StickerTracker, w: World, c = ctx()) => t.update(w, c, 0).map((s) => s.id);
+
+  it("Long line: 200 pieces of track, a tier above Track layer", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    lay(w, LONG_LINE - 1);
+    expect(earn(t, w)).toEqual(["track-layer"]);
+    lay(w, 1);
+    expect(earn(t, w)).toEqual(["long-line"]);
+  });
+
+  it("Special delivery and Big deliveries: goods the towns have received, every kind (planks as the old saves keep them)", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    const [a, b] = w.landscape.towns;
+    // (Setup: the economy's totals, as deliveries leave them; the play-through earns these by running trains.)
+    w.economy.delivered.set(a.id, DELIVERED_SOME - 10);
+    w.economy.deliveredGoods.set(a.id, { planks: DELIVERED_SOME - 10, flour: 9 });
+    expect(deliveredTotal(w)).toBe(DELIVERED_SOME - 1);
+    expect(earn(t, w).filter((id) => id.startsWith("delivered"))).toEqual([]);
+    w.economy.deliveredGoods.set(b.id, { stone: 1 });
+    expect(earn(t, w).filter((id) => id.startsWith("delivered"))).toEqual(["delivered-some"]);
+    w.economy.deliveredGoods.set(b.id, { stone: DELIVERED_LOTS - DELIVERED_SOME + 1 });
+    expect(earn(t, w).filter((id) => id.startsWith("delivered"))).toEqual(["delivered-lots"]);
+  });
+
+  it("City ★★: a town two stars past a city", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    const town = w.landscape.towns[0];
+    const lots = (n: number) => ({ planks: n, flour: n, stone: n, iron: n, furniture: n, tools: n });
+    const give = (n: number) => {
+      w.economy.delivered.set(town.id, n);
+      w.economy.deliveredGoods.set(town.id, lots(n));
+      return townLevels(w)[0];
+    };
+    let n = 0;
+    while (give(n) < TWO_STARS - 1) n += 5;
+    expect(earn(t, w)).toContain("city-star");
+    expect(t.has("city-two-stars")).toBe(false);
+    while (give(n) < TWO_STARS) n += 5;
+    expect(earn(t, w)).toEqual(["city-two-stars"]);
+  });
+
+  it("The whole works: every kind of industry on the map, each one a player can build", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    // Each kind is a thing the workshop makes, from a blueprint that can be learned (not "coming soon").
+    for (const role of INDUSTRY_KINDS) {
+      const rule = THING_RULES[`piece:depot-${role}` as keyof typeof THING_RULES];
+      expect(rule, role).toBeTruthy();
+      const tech = (rule as { tech?: string }).tech;
+      expect(tech && !BLUEPRINTS.find((b) => b.id === tech)?.plan, role).toBe(true);
+    }
+    expect(earn(t, w)).not.toContain("all-industries");
+    // (Setup: the depots put down straight, away from the starter's; site rules are the tray's, not this check's.)
+    let x = 3000;
+    for (const role of INDUSTRY_KINDS) if (!industryKinds(w).has(role)) w.layout.addPiece(`depot-${role}` as PieceTypeId, { x: (x += 400), z: 3000, heading: 0 });
+    syncIndustries(w);
+    expect(industryKinds(w).size).toBe(INDUSTRY_KINDS.length);
+    expect(earn(t, w)).toContain("all-industries");
+  });
+
+  it("Busy timetable and Rush hour (hidden): trains running at once, checked when that number changes", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    // (A stand-in sim: so many trains, each running or stopped.)
+    let speeds: number[] = [];
+    const sim = { trainIds: () => speeds.map((_, i) => i), getTrain: (i: number) => ({ derailed: false, speed: speeds[i] }) };
+    const v = Object.assign(Object.create(Object.getPrototypeOf(w)), w, { sim }) as World;
+    speeds = [...Array(BUSY_TRAINS - 1).fill(100), 0, 0];
+    expect(earn(t, v)).not.toContain("five-trains");
+    speeds[BUSY_TRAINS - 1] = 100;
+    expect(earn(t, v)).toEqual(["five-trains"]);
+    speeds = Array(RUSH_HOUR).fill(100);
+    expect(earn(t, v)).toEqual(["rush-hour"]);
+    expect(STICKERS.find((s) => s.id === "rush-hour")!.hidden).toBe(true);
   });
 });
 
