@@ -60,7 +60,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    was lost against the grass. */
 .actions .chip:disabled { opacity: 1; color: rgba(58, 42, 28, 0.3); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
 .chip.text { font-size: 15px; }
-/* A card's button that would only be refused now (Swap ends and Decouple while the train moves): the top bar's
+/* A card's button that would only be refused now (Swap ends, Decouple, Empty while the train moves): the top bar's
    disabled look, solid wood with its words faded, not see-through; no hover or press. */
 .card .chip[aria-disabled="true"] { opacity: 1; cursor: default; filter: none; transform: none; color: rgba(58, 42, 28, 0.36); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
 .chip.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
@@ -194,6 +194,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-summary > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .planning .engine-card .engine-summary { display: none; }
 .car-load { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; margin-top: -4px; }
+/* Empty beside a wagon's load, Empty all beside the train's (shown only while there are goods on board). */
+.car-load-row { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
+.car-load-row > .chip { flex: none; }
+/* Empty all to the right of the summary's two lines, a finger's size but taking only their height (the card doesn't
+   grow when a load comes on: a phone on its side, a camera glide that framed the room above the card). */
+.engine-summary:has(> .empty-all:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center; }
+.engine-summary > div { grid-column: 1; }
+.engine-summary > .empty-all { grid-column: 2; grid-row: 1 / span 2; margin: -4px 0; }
 /* Who's in the way (a waiting or stuck train): Show, and the fix for a train left there; a thumb tall, under the status. */
 .engine-blocker { display: flex; gap: 8px; justify-content: center; margin-top: -4px; }
 .engine-blocker[hidden], .engine-blocker > [hidden] { display: none; }

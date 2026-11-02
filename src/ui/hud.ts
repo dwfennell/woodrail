@@ -51,6 +51,10 @@ export interface HudHandlers {
   continueOn(): void;
   /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
   decouple(): void;
+  /** The wagon card's Empty: tip its goods out (thrown away), while its train stands. */
+  emptyCar(): void;
+  /** The engine card's Empty all: tip out every wagon of its train, while it stands. */
+  emptyTrain(): void;
   rotate(): void;
   flip(): void;
   deletePiece(): void;
@@ -156,6 +160,8 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
 const SWAP_TITLE = "Move the engine to the other end of its train";
 const ENGINE_DECOUPLE_TITLE = "Uncouple the engine from its cars";
 const CAR_DECOUPLE_TITLE = "Uncouple this wagon (and those behind it) from the cars on the engine's side";
+const EMPTY_CAR_TITLE = "Tip this wagon's goods out (they're thrown away)";
+const EMPTY_TRAIN_TITLE = "Tip out every wagon's goods (they're thrown away)";
 
 /**
  * Grey a button that would only be refused now (`why` says why, as its tooltip), or bring it back (`why` ""). It stays
@@ -263,6 +269,9 @@ export class Hud {
   private readonly summaryLoad = el("div", "summary-load");
   /** A wagon's (or coach's) load, on its card. */
   private readonly carLoad = el("div", "car-load");
+  /** Empty (the wagon card, beside its load) and Empty all (the engine card, beside the train's): see `setEmpty`. */
+  private readonly emptyCarBtn: HTMLButtonElement;
+  private readonly emptyTrainBtn: HTMLButtonElement;
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
@@ -579,7 +588,10 @@ export class Hud {
     this.engineCard.append(this.followBtn);
     this.engineStatus.setAttribute("aria-live", "polite");
     this.engineCard.appendChild(this.engineStatus);
-    this.engineSummary.append(this.summaryAbout, this.summaryLoad);
+    this.emptyTrainBtn = button("Empty all", EMPTY_TRAIN_TITLE, h.emptyTrain, "chip text empty-all");
+    this.emptyTrainBtn.hidden = true;
+    // (Beside both lines, not under them: the card doesn't grow as a crane loads the train. See style.css.)
+    this.engineSummary.append(this.summaryAbout, this.summaryLoad, this.emptyTrainBtn);
     this.engineSummary.hidden = true;
     this.engineCard.appendChild(this.engineSummary);
     this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
@@ -620,7 +632,11 @@ export class Hud {
     this.carCard.hidden = true;
     this.carCard.appendChild(el("div", "card-title", "Wagon"));
     this.carLoad.hidden = true;
-    this.carCard.appendChild(this.carLoad);
+    this.emptyCarBtn = button("Empty", EMPTY_CAR_TITLE, h.emptyCar, "chip text empty-car");
+    this.emptyCarBtn.hidden = true;
+    const carLoadRow = el("div", "car-load-row");
+    carLoadRow.append(this.carLoad, this.emptyCarBtn);
+    this.carCard.appendChild(carLoadRow);
     this.carDecoupleBtn = button("Decouple", CAR_DECOUPLE_TITLE, h.decouple, "chip text decouple");
     const carRow = el("div", "card-row");
     carRow.append(
@@ -1698,6 +1714,17 @@ export class Hud {
     if (this.summaryAbout.textContent !== about) this.summaryAbout.textContent = about;
     if (this.summaryLoad.textContent !== load) this.summaryLoad.textContent = load;
     this.summaryLoad.hidden = !load;
+  }
+
+  /**
+   * Empty (the wagon card) and Empty all (the engine card): shown while there are goods to tip out, greyed with `why`
+   * ("Stop the train first") while they'd be refused, "" for not. Main sets it only when that changes.
+   */
+  setEmpty(car: { shown: boolean; why: string }, train: { shown: boolean; why: string }): void {
+    if (this.emptyCarBtn.hidden === car.shown) this.emptyCarBtn.hidden = !car.shown;
+    if (this.emptyTrainBtn.hidden === train.shown) this.emptyTrainBtn.hidden = !train.shown;
+    setRefused(this.emptyCarBtn, car.why, EMPTY_CAR_TITLE);
+    setRefused(this.emptyTrainBtn, train.why, EMPTY_TRAIN_TITLE);
   }
 
   /** What the open wagon carries ("" hides it). */

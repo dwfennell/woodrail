@@ -51,6 +51,7 @@ import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
+import { addTipped, emptyWords, type Tipped } from "./game/empty-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { blockerOf, engineView, FOLLOW_TIP, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
@@ -439,6 +440,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
       decouple: () => decouple(),
+      emptyCar: () => emptyCars(false),
+      emptyTrain: () => emptyCars(true),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
@@ -2779,6 +2782,66 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
+   * Empty (the wagon card) or Empty all (the engine card, `all`): tip the goods out where the train stands, thrown away
+   * (`Economy.dump`). Not undoable: undo is the track's and the land's, and no train action (Decouple, Swap ends) or
+   * crane work is in it. A coach's riders stay on. The toast says what went, and a place on the map that takes it.
+   */
+  function emptyCars(all: boolean): void {
+    const carId = all ? interaction.openEngineCarId : interaction.openCarCardId;
+    const found = carId === -1 ? null : game.sim.findCar(carId);
+    if (!found) return;
+    const tipped: Tipped[] = [];
+    let moving = false;
+    for (const car of all ? found.train.cars : [found.train.cars[found.index]]) {
+      const why = game.economy.dumpRefusal(car.id);
+      if (why === "moving") moving = true;
+      if (why !== null) continue;
+      const t = game.economy.dump(car.id);
+      if (t) addTipped(tipped, t);
+    }
+    if (tipped.length === 0) {
+      if (moving) hud.toast("Stop the train first", false, 2500);
+      return;
+    }
+    audio.clunk(0.5, 0);
+    hud.toast(
+      emptyWords(tipped, (kind) => {
+        const d = game.economy.takerOf(kind);
+        return d ? { name: depotName(game.world, d), town: d.role === "town" } : null;
+      }),
+      false,
+      3000,
+    );
+    showSummary();
+    showEmpty();
+    game.invalidate();
+    onChange();
+  }
+
+  /**
+   * Empty and Empty all on the open card: shown while there are goods to tip out, greyed while the train moves. Keyed
+   * by the car, the loads' stamp and whether it stands: the buttons are touched only when one changes.
+   */
+  let emptyKey = "";
+  function showEmpty(): void {
+    const engineId = interaction.openEngineCarId;
+    const carId = engineId !== -1 ? engineId : interaction.openCarCardId;
+    const found = carId === -1 ? null : game.sim.findCar(carId);
+    if (!found) {
+      emptyKey = "";
+      return;
+    }
+    const standing = game.sim.standing(found.train);
+    const key = `${engineId}:${carId}:${game.economy.loadsVersion}:${standing}:${found.train.cars.length}`;
+    if (key === emptyKey) return;
+    emptyKey = key;
+    const why = standing ? "" : "Stop the train first";
+    const loaded = (id: number): boolean => game.economy.cargoOf(id).count > 0;
+    const anyLoaded = engineId !== -1 && found.train.cars.some((c) => loaded(c.id));
+    hud.setEmpty({ shown: engineId === -1 && loaded(carId), why }, { shown: anyLoaded, why });
+  }
+
+  /**
    * The engine has run round to the other end of its train: if that's off screen or under the card, glide just far
    * enough to show it.
    */
@@ -2958,6 +3021,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showEngineView();
     showSummary();
     showRefusals();
+    showEmpty();
   };
 
   /**
@@ -4598,6 +4662,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showEngineView();
     showSummary();
     showRefusals();
+    showEmpty();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);
