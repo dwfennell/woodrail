@@ -276,8 +276,8 @@ describe("a routed train and the workshop", () => {
     w.route([{ stop: w.at("town") }]);
     w.run(90);
     expect(w.planks(w.at("workshop"))).toBe(0);
-    expect(w.told.has("Not dropping planks: the workshop isn't on this route. Edit the route to add a stop here")).toBe(true);
-    expect(keptText("not-stop", "planks", "workshop", "the workshop")).toBe("Not dropping planks: the workshop isn't on this route. Edit the route to add a stop here");
+    expect(w.told.has("Not dropping planks: the workshop isn't on this line. Edit the line to add a stop here")).toBe(true);
+    expect(keptText("not-stop", "planks", "workshop", "the workshop")).toBe("Not dropping planks: the workshop isn't on this line. Edit the line to add a stop here");
   });
 
   it("keeps them for the stop it's heading for, the workshop a later stop: nothing said", () => {

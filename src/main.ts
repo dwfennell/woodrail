@@ -3031,6 +3031,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // Its trains, where it has more than this one; the name opens the Lines view (to rename it, recolour it).
       if (riders > 1) label.append(Object.assign(document.createElement("span"), { className: "route-riders", textContent: `· ${riders} trains` }));
       label.classList.add("route-line-name");
+      // (A pencil: the name can be tapped, to rename or recolour the line. Audit F17: it read as a label.)
+      label.append(Object.assign(document.createElement("span"), { className: "route-line-edit", textContent: "✎" }));
+      label.setAttribute("role", "button");
       label.title = "Lines: rename it, change its colour";
       label.addEventListener("click", () => openLines());
     } else label.textContent = "Route";
@@ -3149,7 +3152,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         });
         // Its number always (the order), filled in the line's colour on the stop the train's heading for: the ▶ that
         // marked it took the number's place, and ▶ also meant "visit later" in the tools under it (audit F7).
-        chip.append(Object.assign(document.createElement("span"), { className: "route-num", textContent: `${k + 1}` }), nameOf(st.depotId));
+        // (A place's own number, "Forest yard 2", in a lighter weight: it's not the stop's. Audit F17.)
+        const named = /^(.*\S) (\d+)$/.exec(nameOf(st.depotId));
+        chip.append(Object.assign(document.createElement("span"), { className: "route-num", textContent: `${k + 1}` }), named ? named[1] : nameOf(st.depotId));
+        if (named) chip.append(Object.assign(document.createElement("span"), { className: "route-place-num", textContent: ` ${named[2]}` }));
         chip.dataset.stop = String(k);
         chip.classList.toggle("next", r?.next === k);
         if (r?.next === k) {
@@ -3289,7 +3295,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           ...(st.action === "drop"
             ? []
             : [
-                button(st.waitFill ? "Wait: on" : "Wait: off", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
+                button(st.waitFill ? "Wait to fill: on" : "Wait to fill: off", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
                   edit((l) => (l[k].waitFill = !l[k].waitFill)),
                 ),
               ]),

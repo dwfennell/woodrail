@@ -7,7 +7,7 @@
 export const STORE_NO_ROUTE = "Warehouses trade with trains on a route. Plan a route with a stop here";
 
 /** A train on a route that has no stop at this warehouse. */
-export const STORE_NOT_A_STOP = "This warehouse isn't on its route. Edit the route to add a stop here";
+export const STORE_NOT_A_STOP = "This warehouse isn't on its line. Edit the line to add a stop here";
 
 /** What a train beside a warehouse it can't trade with is told: by whether it has a route. */
 export function storeSkipText(routed: boolean): string {
