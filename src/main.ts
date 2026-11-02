@@ -9,7 +9,7 @@ import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
-import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
+import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
@@ -1052,7 +1052,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     console.info(`Woodrail: ruin restored in ${ms.toFixed(1)} ms (ruins tile rebuilt in ${game.ruinsView.lastBuildMs.toFixed(1)} ms)`);
     // What it makes, what to do next and where its goods go (from the recipes), once; a tap frames it.
     const at = game.layout.getPiece(done.pieceId)?.pose;
-    const said = restoredText(site.role);
+    // (Naming only the industries the player knows: learned, or one on the map.)
+    const said = restoredText(site.role, (r) => knowsRole(r, progress.learned, (role) => game.economy.allDepots().some((d) => d.role === role)));
     hud.toast(said, true, 6000, at ? () => showSpot(yardMiddle(at)) : undefined);
     audio.putdown(true);
     if (mode === "game") {
