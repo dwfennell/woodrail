@@ -1624,16 +1624,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
   function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {
-    // (A signal mark is free once Signals is learned: it's no piece from the toy box, signals spec §4.)
-    if (mode === "game" && item.kind === "signal" && !progress.knows("piece:signal")) {
-      hud.toast("Signal: not learned yet");
-      return false;
-    }
-    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
-    // (A new take: whatever an earlier one made is settled, or never was.)
-    if (make) trainMade = pieceMade = null;
     // Not learned yet: how to unlock it, in plain words ("Switch: Research Switches to unlock"); a tap on the toast
     // opens Research there. (A tap on a locked tile shows its note instead: Hud.lockedTap. This is a drag out of it.)
+    // A signal mark too, till Signals is learned (then it's free: no piece from the toy box, signals spec §4).
     const lock = lockOf(item);
     if (lock) {
       const how = unlockHow(progress, lock.tech);
@@ -1641,6 +1634,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(`${lock.label}: ${how.text}`, false, 3600, jump ? () => setBoardOpen(true, jump) : undefined);
       return false;
     }
+    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
+    // (A new take: whatever an earlier one made is settled, or never was.)
+    if (make) trainMade = pieceMade = null;
     const needs = thingsFor(item as ThingItem);
     // None left of something it takes: all of what's missing is made on the spot from the workshop's yard, or none.
     const lack = lacking(game.world, progress, needs);
@@ -1730,6 +1726,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * the thing not known yet: "Switch"), or null if it isn't locked.
    */
   function lockOf(item: ThingItem | TrayItem | { kind: string }): { tech: string; label: string } | null {
+    // (A signal mark: locked till Signals is learned, as its tray badge says; its note and toast open Research there.)
+    if (mode === "game" && item.kind === "signal") return progress.knows("piece:signal") ? null : { tech: ruleOf("piece:signal")!.tech!, label: ruleOf("piece:signal")!.label };
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return null;
     const look = lockedLook(item);
     if (look) return { tech: look, label: "label" in item && typeof item.label === "string" ? item.label : techOf(look)!.label };

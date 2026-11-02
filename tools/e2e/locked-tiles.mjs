@@ -165,6 +165,37 @@ const tabRow = (p) =>
     const r = await p.evaluate(() => ({ current: window.woodrail.progress().research.current, next: window.woodrail.progress().research.next }));
     check("its Research button starts Switches", r.current === "switches" || r.next === "switches", JSON.stringify(r));
   } else check("its Research button is there", false);
+  // The Signal (signals' own tray mark, on the Switch shelf): locked till Signals is learned, its tap shows the same note.
+  // (Setup, not what's tested: Switches learned, so the shelf opens; the board closed by its ✕, clicked in the page.)
+  await p.evaluate(() => window.woodrail.learn("switches"));
+  await p.evaluate(() => document.querySelector(".board-panel:not([hidden]) .board-head .close")?.click());
+  await p.waitForTimeout(600);
+  const shelf = await p.evaluate(() => {
+    if (document.querySelector('.scroller .tray-item[data-key="signal"]')) return null;
+    const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Switch");
+    if (!g) return null;
+    g.scrollIntoView({ inline: "center" });
+    const r = g.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  if (shelf) await p.touchscreen.tap(shelf.x, shelf.y);
+  await p.waitForTimeout(600);
+  const sig = await p.evaluate(() => {
+    const e = document.querySelector('.scroller .tray-item[data-key="signal"]');
+    if (!e) return null;
+    e.scrollIntoView({ inline: "center" });
+    const r = e.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2, locked: e.classList.contains("locked") };
+  });
+  check("the Signal on the Switch shelf, locked", !!sig && sig.locked, JSON.stringify(sig ?? { shelf, dbg: await p.evaluate(() => ({ board: !!document.querySelector(".board-panel:not([hidden])"), items: [...document.querySelectorAll(".scroller .tray-item, .scroller .tray-group")].map((e) => e.dataset.key ?? e.querySelector(".label")?.textContent) })) }));
+  if (sig) {
+    await p.waitForTimeout(300);
+    await p.touchscreen.tap(sig.x, sig.y);
+    await p.waitForFunction(() => { const n = document.querySelector(".lock-note"); return n && !n.hidden; }, null, { timeout: 10000 }).catch(() => {});
+    const sn = await p.evaluate(() => { const n = document.querySelector(".lock-note"); return { text: n && !n.hidden ? n.textContent : null, armed: !!document.querySelector(".tray-item.armed") }; });
+    check("tapped, its note says how to unlock it (Signals), nothing picked up", !!sn.text && sn.text.includes("Signal") && /Signals/.test(sn.text) && !sn.armed, JSON.stringify(sn));
+    await shot(p, "3b-locked-signal-360");
+  }
   await ctx.close();
 }
 {
