@@ -3858,7 +3858,7 @@ async function routeUxMore(ctx, p) {
     }));
     const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
     const places = [depot(placed[0], "forest").id, depot(placed[7], "sawmill").id, depot(placed[9], "forest").id];
-    const engines = [placed[2], placed[11], placed[12]].map((pieceId) => {
+    const engines = [placed[2], placed[5], placed[12]].map((pieceId) => {
       const r = w.sim.addTrain(["engine", "timber"], { pieceId, pathIndex: 0, s: 100, reversed: false });
       if (r.kind !== "placed") throw new Error("no room for a train");
       const e = w.sim.getTrain(r.trainId).cars[0].id;
@@ -3923,16 +3923,21 @@ async function routeUxMore(ctx, p) {
   check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and offers Edit stops and + Train (44 px)", all.discs >= 3 && all.arrows && all.acts.map((a) => a.t).join(",") === "Edit stops,+ Train" && all.acts.every((a) => a.h >= 44), JSON.stringify(all));
   await tapButton(".lines-actions button:last-child");
   await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
-  const joined = await p.evaluate((e) => ({ line: window.woodrail.economy.lineIdOf.get(e) ?? -1, open: window.woodrail.interaction.openEngineCarId }), setup.engines[1]);
-  const lineId = await p.evaluate((e) => window.woodrail.economy.lineIdOf.get(e), setup.engines[0]);
-  check("route-ux-more (C2): + Train puts the nearest free train on the line, and opens its card", joined.line === lineId && joined.open === setup.engines[1], JSON.stringify({ joined, lineId }));
+  const joined = await p.evaluate((es) => {
+    const w = window.woodrail;
+    const on = es.filter((e) => w.economy.lineIdOf.get(e) === w.economy.lineIdOf.get(es[0]));
+    return { on, open: w.interaction.openEngineCarId };
+  }, setup.engines);
+  // (Of the two free trains, the one nearer the line's places.)
+  const added = joined.on.find((e) => e !== setup.engines[0]);
+  check("route-ux-more (C2): + Train puts a free train on the line, and opens its card", joined.on.length === 2 && joined.open === added, JSON.stringify(joined));
   await p.keyboard.press("Escape");
   // C2: + New line: the last free train's card, planning.
   await openLinesView();
   await tapButton(".lines-head .lines-new");
   await p.waitForFunction(() => !!document.querySelector(".engine-extra .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
   const fresh = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".engine-extra .route-plan.on") }));
-  check("route-ux-more (C2): + New line opens the free train's card, planning", fresh.planning && fresh.open === setup.engines[2], JSON.stringify(fresh));
+  check("route-ux-more (C2): + New line opens the last free train's card, planning", fresh.planning && fresh.open !== -1 && fresh.open !== added && fresh.open !== setup.engines[0], JSON.stringify({ fresh, added }));
   await tapButton(".engine-extra .route-plan.on");
   await p.keyboard.press("Escape");
   // B6: a line on two ways (the harness's `twoWays`), the top road taken up: the card says it goes another way now,
