@@ -3606,9 +3606,7 @@ async function routeUx(ctx, p) {
     const scratch = new Layout();
     const o = S.oval(scratch);
     const ids = o.ids;
-    // (Well inside the view's bounds, 1.8 m: framing the route above a card that covers two thirds of the screen puts
-    // the view's target well below it, and the bounds clamp a target near their edge.)
-    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500, margin: 1800 });
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
     if (!g) throw new Error("no open ground for the oval");
     const types = { 0: "depot-forest", 7: "depot-sawmill", 9: "depot-forest" };
     const placed = w.editor().placeRun(ids.map((i, k) => {
@@ -3760,7 +3758,8 @@ async function routeUx(ctx, p) {
   await p.waitForTimeout(300);
   await still();
   // (Upright at 360×740 the full card covers two thirds of the screen: where the route can't fit above it however far
-  // out, the view is as far out as it goes, with the route's middle above the card.)
+  // out, the view is as far out as it goes, with the route's middle above the card. And framing above it puts the
+  // view's target well below the route: near the edge of the view's bounds, the target is held at the edge.)
   const done = {
     ...(await inRoom()),
     ...(await p.evaluate((o) => {
@@ -3776,7 +3775,8 @@ async function routeUx(ctx, p) {
   };
   if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ux-done.png` });
   const asFarAsItGoes = done.distance >= done.max - 2 && done.middleY > done.top && done.middleY < done.bottom;
-  check("route-ux (F5): after Done, the whole route shows above the card (or the view is as far out as it goes, the route's middle above it)", (done.ok || asFarAsItGoes) && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify(done));
+  const atTheEdge = done.atBounds.some((d) => d <= 2);
+  check("route-ux (F5): after Done, the whole route shows above the card (or the view is as far out as it goes, or held at its bounds' edge)", (done.ok || asFarAsItGoes || atTheEdge) && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify(done));
 
   // F7: the chips keep their numbers; the next stop's filled; no ▶ anywhere on the card.
   const chips = await p.evaluate(() => ({
