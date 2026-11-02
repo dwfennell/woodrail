@@ -677,7 +677,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A warehouse's goods: a row each (name and count over what it's set to; four 44 px choices), "Any other goods", and
    "+ Add a good" with its picker. The chosen way is green, as any chip that's on. */
 .depot-stock:empty { display: none; }
-.depot-store { align-self: stretch; display: flex; flex-direction: column; gap: 6px; }
+/* (Never squeezed: the card scrolls instead, its buttons stay 44 px.) */
+.depot-store { align-self: stretch; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.store-row .chip, .store-add, .car-goods-same { flex-shrink: 0; }
 .depot-store[hidden] { display: none; }
 .store-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 2px solid rgba(176, 122, 68, 0.18); }
 .store-row:first-child { border-top: none; }

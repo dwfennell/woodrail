@@ -426,7 +426,8 @@ if (!setup.error && setup.engine !== -1) {
     check("the hopper's card: coal, grain, stone, ore, each Takes, and Same for all wagons like this", card0.open && card0.rows.length === 4 && card0.rows.every((r) => /Takes$/.test(r)) && card0.same, JSON.stringify(card0));
     await tapButton('.car-goods [data-kind="coal"][data-mode="off"]');
     await tapButton(".car-goods [data-same]");
-    const set4 = await p.evaluate((ids) => ({ off: ids.map((id) => window.woodrail.economy.carOffKinds(id)), row: [...document.querySelectorAll(".car-goods .store-row")].map((r) => r.querySelector(".store-what").textContent).find((t) => /Coal/.test(t)), small: Math.min(...[...document.querySelectorAll(".car-goods button")].map((b) => Math.min(b.getBoundingClientRect().width, b.getBoundingClientRect().height))), card: document.querySelector(".car-card").getBoundingClientRect().right }), hoppers);
+    // (Layout sizes: a button just tapped can still be scaled by its press.)
+    const set4 = await p.evaluate((ids) => ({ off: ids.map((id) => window.woodrail.economy.carOffKinds(id)), row: [...document.querySelectorAll(".car-goods .store-row")].map((r) => r.querySelector(".store-what").textContent).find((t) => /Coal/.test(t)), small: Math.min(...[...document.querySelectorAll(".car-goods button")].map((b) => Math.min(b.offsetWidth, b.offsetHeight))), card: document.querySelector(".car-card").getBoundingClientRect().right }), hoppers);
     check("…coal switched off by a tap, and Same for all sets the other hopper too (44 px buttons, inside 390 px)", JSON.stringify(set4.off) === JSON.stringify([["coal"], ["coal"]]) && /Off$/.test(set4.row ?? "") && set4.small >= 44 && set4.card <= 390, JSON.stringify(set4));
     await shot("9-hopper-card-no-coal");
     await p.keyboard.press("Escape");
