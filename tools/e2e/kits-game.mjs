@@ -3,7 +3,9 @@
 // (it splices in), and a steam engine stops at it. Halts are refused far from towns. Then a kit that was Sandbox's
 // only: Loading kits learned, the log loader comes off the Yard shelf onto the line, and the engine runs through it.
 // Then the dairy chain: Dairy farm learned, the dairy farm and the milk tank wagon on the tray, and a tank wagon
-// filled with milk at a dairy farm.
+// filled with milk at a dairy farm. Then the next nodes: the juice works, creamery, ice cream factory and brickworks
+// and the cold van on the tray once learned, and a cold van filled with ice cream made of the milk and fruit a train
+// brought.
 //
 // Usage: npm run e2e:kits-game [-- <out dir>]   (default out: e2e-out/kits-game)
 // Starts its own dev server (on 5361, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -400,6 +402,102 @@ if (line) {
     await p.waitForTimeout(1500);
     await settle();
     await shot("6-dairy-farm-and-tank-wagon");
+  }
+}
+
+// 9. The next nodes (tech-tree spec "Next nodes"): Juice works, Creamery, Cold van, Ice cream factory and Brickworks
+// learned (a setup shortcut, as step 8's), their buildings unlocked on the Industries shelf and the cold van on the
+// Wagons shelf; then the payoff: an ice cream factory laid by the placement rules between a dairy farm and an orchard,
+// and a hand-run train with a tank wagon, a flatbed and a cold van brings it milk and fruit and fills the cold van with
+// ice cream.
+{
+  const locked = () => p.evaluate(() => Object.fromEntries([...document.querySelectorAll(".tray-item[data-key]")].map((b) => [b.dataset.key, b.classList.contains("locked")])));
+  const NEW = ["piece:depot-juicer", "piece:depot-creamery", "piece:depot-icecream", "piece:depot-brickworks"];
+  await clickText(".tabs button", "Industries");
+  await clickText(".tray-item.tray-group", "Industries");
+  const before = await locked();
+  check("next nodes not learned: the juice works, creamery, ice cream factory and brickworks are locked", NEW.every((k) => before[k] === true), JSON.stringify(NEW.map((k) => before[k])));
+  await clickText(".tabs button", "Trains");
+  await clickText(".tray-item.tray-group", "Wagons");
+  check("…and no cold van on the Wagons shelf yet", !("train:Cold van" in (await locked())), JSON.stringify(await locked()));
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    for (const id of ["orchard", "juice", "creamery", "reefer", "ice-cream", "quarries", "tank", "goods-engine", "mines", "brickworks"]) w.learn(id);
+    w.hud.refreshTrayBadges();
+    w.hud.trayLearned();
+  });
+  await p.waitForTimeout(800);
+  await clickText(".tabs button", "Industries");
+  await clickText(".tray-item.tray-group", "Industries");
+  const after = await locked();
+  check("learned: all four are unlocked on the Industries shelf", NEW.every((k) => after[k] === false), JSON.stringify(NEW.map((k) => after[k])));
+  await shot("7-next-nodes-on-the-industries-shelf");
+  await clickText(".tabs button", "Trains");
+  await clickText(".tray-item.tray-group", "Wagons");
+  const wagons = await locked();
+  check("…and the cold van on the Wagons shelf, unlocked", wagons["train:Cold van"] === false, JSON.stringify(wagons));
+  const line = await p.evaluate(() => {
+    const w = window.woodrail;
+    const i = w.interaction;
+    const seq = ["buffer-turnback", "depot-dairy", "depot-orchard", "depot-icecream", "straight-216", "straight-216", "buffer-turnback"];
+    const c = (id, k) => w.layout.worldConnector(id * 8 + k, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    for (let ring = 6; ring < 46; ring++)
+      for (let k = 0; k < 16; k++)
+        for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+          const a = (k * Math.PI) / 8;
+          let t = { x: Math.round((Math.cos(a) * ring * 300) / 18) * 18, z: Math.round((Math.sin(a) * ring * 300) / 18) * 18, heading };
+          const ids = [];
+          let ok = true;
+          for (const type of seq) {
+            const pose = { x: t.x, z: t.z, heading: t.heading };
+            if (i.placement(type, false, pose, 0, -1).reason) {
+              ok = false;
+              break;
+            }
+            const id = w.editor().place(type, pose, 0, false);
+            ids.push(id);
+            t = c(id, type === "buffer-turnback" ? 0 : 1);
+          }
+          if (ok) return { ids };
+          for (const id of ids.reverse()) w.editor().remove(id);
+        }
+    return null;
+  });
+  check("a dairy farm, an orchard and an ice cream factory laid on a line by the placement rules", !!line, JSON.stringify(line));
+  if (line) {
+    await p.evaluate(({ ids }) => {
+      const w = window.woodrail;
+      const pose = w.layout.getPiece(ids[3]).pose;
+      w.director.glideTo(new w.camera.position.constructor(pose.x + 108 * Math.cos(pose.heading), 0, pose.z + 108 * Math.sin(pose.heading)), 620, { duration: 0.1 });
+    }, line);
+    await p.waitForTimeout(2500);
+    await settle();
+    const r = await p.evaluate(({ ids }) => {
+      const w = window.woodrail;
+      w.paused = true;
+      const factory = w.economy.depotAtPiece(ids[3]);
+      const placed = w.sim.addTrain(["engine", "tanker", "timber", "reefer"], { pieceId: ids[5], pathIndex: 0, reversed: false, s: 100 });
+      if (placed.kind !== "placed" || !factory) return { placed: placed.kind, factory: factory?.role ?? null };
+      const t = w.sim.getTrain(placed.trainId);
+      const coldVan = t.cars[3].id;
+      w.sim.setLever(t.cars[0].id, 1);
+      // Up and down the line (it turns back at either end): milk and fruit in, ice cream out into the cold van.
+      let ice = 0;
+      for (let k = 0; k < 120 * 600 && ice === 0; k++) {
+        w.sim.tick();
+        w.economy.tick();
+        const c = w.economy.cargoOf(coldVan);
+        if (c.kind === "icecream") ice = c.count;
+        if (k % (120 * 30) === 0 && k > 0 && w.sim.getTrain(placed.trainId).speed === 0) w.sim.setLever(t.cars[0].id, -w.sim.getTrain(placed.trainId).cars[0].lever || 1);
+      }
+      w.paused = false;
+      w.invalidate();
+      return { placed: "placed", factory: factory.role, made: w.economy.made[15], ice };
+    }, line);
+    check("a hand-run train brings the ice cream factory milk and fruit, and its cold van leaves with ice cream", r.factory === "icecream" && r.ice > 0, JSON.stringify(r));
+    await p.waitForTimeout(1500);
+    await settle();
+    await shot("8-ice-cream-factory-and-cold-van");
   }
 }
 

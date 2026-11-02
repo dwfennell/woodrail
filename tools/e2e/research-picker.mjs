@@ -8,7 +8,8 @@
 // card saying Idle with a Research button, and no frames in 30 s with the dot pulsing (a few pulses, then it rests).
 //
 // Then chains: Mills (needs Farming) queued in one tap behind Farming, "Research Farming now" (never Research now while
-// Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through.
+// Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through. Then the next
+// nodes: Juice works' ticket in words, and Cold van queued behind Creamery in one tap and researched through.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
@@ -670,6 +671,51 @@ await tap(".board-head .close");
 await deliverGoods({ planks: 6, grain: 6 });
 await p.waitForFunction(() => window.woodrail.progress().learned.has("mills"), null, { timeout: 150000 }).catch(() => null);
 check("…and Mills is learned (the mill is unlocked)", await p.evaluate(() => window.woodrail.progress().learned.has("mills")), JSON.stringify(await queued()));
+
+// 11. The next nodes (tech-tree spec "Next nodes"): Orchards and Dairy farm learned (a setup shortcut: they need a city,
+// which isn't under test), then Juice works' ticket says what it unlocks and its cost in words; Cold van (needs
+// Creamery) queues as a chain in one tap, Creamery first, and the chain is researched through by deliveries to the
+// school: both learned, and the creamery and the cold van unlocked (the payoff).
+await p.evaluate(() => {
+  const w = window.woodrail;
+  for (const id of ["orchard", "dairy"]) w.learn(id);
+  const pr = w.progress();
+  pr.coins = 1000;
+  w.hud.setCoins(pr.coins);
+});
+await tap(".research-pill");
+await p.setViewportSize({ width: 360, height: 780 });
+await p.waitForTimeout(400);
+const juiceWords = await words("Juice works");
+check("Juice works: unlocks the juice works, costs 8 planks and 120 coins, in words, fitting 360 px", /^Unlocks: Juice works/.test(juiceWords?.unlocks ?? "") && /^Costs: 8 \uE000 planks, 120 🪙 coins$/.test(juiceWords?.cost ?? "") && chipsInWords(juiceWords) && juiceWords.fits, JSON.stringify(juiceWords));
+await shot("19-juice-works-360");
+await p.setViewportSize({ width: 390, height: 844 });
+await p.waitForTimeout(400);
+const ahead = await queued();
+await select("Cold van");
+t = await ticket();
+const coldBtn = queuedButtons(t);
+check("Cold van (needs Creamery): a chain button naming Creamery first", t?.state === "locked" && /Creamery/.test(coldBtn) && /Cold van/.test(`${coldBtn} ${t.foot}`), JSON.stringify(t));
+await tap(".board-sheet button[data-act=pick]", coldBtn.split("|")[0]);
+const q = await queued();
+check("…one tap queues Creamery, then Cold van", q.indexOf("creamery") >= 0 && q.indexOf("creamery") + 1 === q.indexOf("reefer"), JSON.stringify(q));
+await shot("20-cold-van-chain");
+// Whatever was under way before goes first (its goods brought too): then Creamery, then Cold van.
+if (ahead.length > 0) {
+  await tap(".board-sheet button[data-act=now]", "Research Creamery now").catch(() => null);
+}
+await tap(".board-head .close");
+for (const id of ["creamery", "reefer"]) {
+  await p.waitForFunction((id) => window.woodrail.progress().research.current === id, id, { timeout: 60000 }).catch(() => null);
+  await deliverGoods({ planks: 12 });
+  await p.waitForFunction((id) => window.woodrail.progress().learned.has(id), id, { timeout: 150000 }).catch(() => null);
+}
+const payoff = await p.evaluate(() => {
+  const w = window.woodrail;
+  const learned = w.progress().learned;
+  return { creamery: learned.has("creamery"), reefer: learned.has("reefer") };
+});
+check("…Creamery and then Cold van researched and learned (the creamery and the cold van unlocked)", payoff.creamery && payoff.reefer, JSON.stringify([payoff, await queued()]));
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
