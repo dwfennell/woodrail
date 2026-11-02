@@ -85,3 +85,20 @@ describe("goods towns always buy at full pay", () => {
     expect(buysText(new Set(["orchard", "juice"]))).toBe("Always buys 🍎 fruit and 🧃 juice at full pay");
   });
 });
+
+describe("Creamery", () => {
+  it("is built: after Dairy farm, mostly coins, the creamery it brings makes cheese of milk", () => {
+    expect(bp("creamery").plan).toBeUndefined();
+    expect(bp("creamery")).toMatchObject({ needs: ["dairy"], tier: 2, research: { goods: { planks: 10 }, coins: 140 } });
+    expect(THING_RULES["piece:depot-creamery"]).toMatchObject({ tech: "creamery", coins: 240 });
+    expect(RECIPES.creamery).toMatchObject({ takes: ["milk"], gives: ["cheese"], cycle: { uses: { milk: 1 }, makes: { cheese: 1 } } });
+  });
+
+  it("dairy → creamery → town: milk by tank wagon, cheese by van", () => {
+    const { closed, run, economy, got } = loop(["depot-dairy", "depot-creamery"], ["engine", "tanker", "van"]);
+    expect(closed).toBe(true);
+    run(15);
+    expect(economy.made[CARGO.cheese.index]).toBeGreaterThan(0);
+    expect(got("cheese")).toBeGreaterThan(0);
+  }, 120_000);
+});

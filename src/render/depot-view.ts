@@ -212,6 +212,15 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   },
   // The next nodes (tech-tree spec, 2026-11-02): one good in, one out (two in for the ice cream factory and the
   // brickworks), under a jib at the near end, as the bakery's; their buildings at the far end.
+  creamery: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      milk: { t: 46, l: 64, y: YARD, across: 3, axis: "t" },
+      cheese: { t: 74, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   juicer: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -335,6 +344,11 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
     { asset: "life-cow", t: 122, l: 80, turn: 2.6 },
   ],
   bakery: [{ asset: "bldg-bakery", t: 156, l: 84 }],
+  // The creamery: the catalogue's red barn, a cow at its door.
+  creamery: [
+    { asset: "bldg-red-barn", t: 160, l: 86 },
+    { asset: "life-cow", t: 110, l: 98, turn: 0.9 },
+  ],
   // The juice works: the catalogue's watermill as its cider press, and an apple tree by it.
   juicer: [
     { asset: "bldg-watermill", t: 160, l: 86 },
@@ -549,7 +563,12 @@ export class DepotView {
         [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2.5, SACK_WIDTH, 1, 0.8).translate(0, -1.25, 0), mats.naturalWood],
         [new RoundedBoxGeometry(SACK_LENGTH - 2, 2.5, SACK_WIDTH - 2, 2, 1.2).translate(0, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer("#c8442f")],
       ],
-      // The next nodes' goods: a crate of juice bottles (amber, green caps).
+      // The next nodes' goods: a round cheese on a board; a crate of juice bottles (amber, green caps).
+      cheese: [
+        [new RoundedBoxGeometry(SACK_LENGTH, 2, SACK_WIDTH, 1, 0.6).translate(0, -CRATE_HEIGHT / 2 + 1, 0), mats.naturalWood],
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.3, SACK_WIDTH / 2 - 0.3, CRATE_HEIGHT - 3, 16).translate(0, 0.5, 0), mats.lacquer("#f1c446")],
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.1, SACK_WIDTH / 2 - 0.1, 1.2, 16).translate(0, CRATE_HEIGHT / 2 - 2.2, 0), mats.lacquer("#c8442f")],
+      ],
       juice: [
         [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 4, SACK_WIDTH, 1, 0.8).translate(0, -2, 0), mats.naturalWood],
         [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(1.5, 1.5, 5, 8).translate((i * SACK_LENGTH) / 3.4, 1.5, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#e6a52c")],
@@ -1011,6 +1030,12 @@ export class DepotView {
         b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(12, 12, 9), d.t, d.l, PAD_H + 28));
         for (const [dt, dl, dy] of [[8, -6, 30], [-6, 8, 26], [2, -10, 22]] as const) b.add(mats.lacquer("#c8442f"), place(new SphereGeometry(2.4, 8, 6), d.t + dt, d.l + dl, PAD_H + dy));
       }
+      return;
+    }
+    if (role === "creamery") {
+      // A red barn with a white roof.
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(50, 34, 36, 2, 3), 160, 88, PAD_H + 17));
+      b.add(mats.lacquer("#f6f3ec"), place(new RoundedBoxGeometry(56, 5, 42, 1, 2), 160, 88, PAD_H + 36));
       return;
     }
     if (role === "juicer") {

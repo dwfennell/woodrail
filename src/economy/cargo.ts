@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -25,6 +25,8 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   fruit: { index: 12, label: "Fruit" },
   // Juice from a juice works, pressed from an orchard's fruit (next nodes, 2026-11-02): bottles by the crate.
   juice: { index: 13, label: "Juice" },
+  // Cheese from a creamery, made of a dairy's milk: round cheeses on a board.
+  cheese: { index: 14, label: "Cheese" },
 };
 
 /**
@@ -52,6 +54,7 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   fruit: "🍎",
   // The next nodes' goods (src/icons/u1F9C3-juice).
   juice: "🧃",
+  cheese: "🧀",
 };
 
 /** Coins, beside goods in a cost. */
@@ -62,8 +65,8 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   // Timber wagons are flatbeds: logs, planks, iron bars and crates of fruit.
   timber: ["log", "planks", "iron", "fruit"],
   hopper: ["grain", "stone", "coal", "ore"],
-  // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles). Milk goes in a tank wagon.
-  van: ["flour", "furniture", "tools", "bread", "juice"],
+  // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles, cheeses). Milk goes in a tank wagon.
+  van: ["flour", "furniture", "tools", "bread", "juice", "cheese"],
   tanker: ["milk"],
 };
 

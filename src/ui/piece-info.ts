@@ -82,6 +82,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-bakery": p("Bakery", "Bakes bread from flour and milk."),
   "depot-orchard": p("Orchard", "Apple trees give fruit, by the crate."),
   "depot-juicer": p("Juice works", "Presses fruit into juice, in bottles by the crate."),
+  "depot-creamery": p("Creamery", "Makes cheese from milk."),
   "depot-power": p("Power station", "Burns coal so electric engines can run."),
   "depot-harbour": p("Harbour", "Ships bring and take goods here."),
   "depot-warehouse": p("Warehouse", "Keeps goods until a train takes them."),
