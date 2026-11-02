@@ -836,7 +836,8 @@ export class Game {
     // The stations' touches: stepped only on a frame with station events (a halt, someone on or off, a train off) or
     // while something of theirs moves; the big stations' guards and boards set again only when pieces or routes change.
     this.syncStationTouches();
-    const stationEvents = this.economy.drainStationEvents();
+    // (Paused, they wait: a stop begun by sim steps taken while paused, as tests and the e2e take them, is seen after.)
+    const stationEvents = this.paused ? NO_EVENTS : this.economy.drainStationEvents();
     if (!this.paused && (stationEvents.length > 0 || this.touches.busy)) {
       for (const e of stationEvents) this.touches.event(e.kind, e.pieceId, e.trainId, e.carId);
       const touched = this.touches.update(dt);
@@ -1341,6 +1342,8 @@ export class Game {
     return changed;
   }
 }
+
+const NO_EVENTS: readonly never[] = [];
 
 /** Halfway between two points (a car's bogies). */
 function midpoint(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): { x: number; y: number; z: number } {

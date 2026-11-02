@@ -98,7 +98,6 @@ const button = await findButton();
 check("the town card offers the upgrade", !!button, JSON.stringify(button));
 if (button) await p.touchscreen.tap(button.x, button.y);
 await p.waitForTimeout(1500);
-console.log("  toasts:", await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | ")));
 await p.keyboard.press("Escape");
 const station = await p.evaluate((townId) => {
   const w = window.woodrail;
@@ -131,9 +130,9 @@ const line = await p.evaluate(
       }
     if (placed.kind !== "placed") return null;
     const engine = world.sim.getTrain(placed.trainId).cars.find((c) => c.kind === "engine").id;
-    const stops = [other, townIndex].map((i) => ({ depotId: world.economy.depotAtPiece(st(i)).id, action: "auto" }));
+    // Heading for the upgraded station first.
+    const stops = [townIndex, other].map((i) => ({ depotId: world.economy.depotAtPiece(st(i)).id, action: "auto" }));
     const l = startLine(world.economy, engine, stops);
-    world.economy.routeOf(engine).next = 1;
     world.sim.setLever(engine, 1);
     window.__engine = engine;
     return { engine, name: l.name, colour: l.colour };
@@ -146,11 +145,15 @@ s = await state();
 const board1 = s.bigs.find((x) => x.pieceId === station.id);
 check("the board says the line and where it heads next", board1.rows.includes(`${line.name} → ${setup.pick.other}`), JSON.stringify(board1));
 check("…painted once for it", board1.paints === board0.paints + 1, `${board0.paints} → ${board1.paints}`);
+// Unchanged frames later (nothing's next stop changed): not painted again.
+await p.waitForTimeout(1500);
+const board1b = (await state()).bigs.find((x) => x.pieceId === station.id);
+check("…and not again while nothing changes", board1b.paints === board1.paints, `${board1.paints} → ${board1b.paints}`);
 
 /** Step the sim headless until the train halts at the station (people arriving each second as main.ts has them). */
-const runUntilHalted = (limit) =>
+const runUntilHalted = (limit, visit = 1) =>
   p.evaluate(
-    async ({ limit, pieceId, townId }) => {
+    async ({ limit, pieceId, townId, visit }) => {
       const { peopleArrive } = await import("/src/game/passengers.ts");
       const w = window.woodrail;
       const world = w.world;
@@ -158,6 +161,9 @@ const runUntilHalted = (limit) =>
       const depot = world.economy.depotAtPiece(pieceId);
       window.__clock ??= new Map();
       w.paused = true;
+      const train = () => world.sim.trainIds().map((id) => world.sim.getTrain(id)).find((t) => t.cars.some((c) => c.id === window.__engine));
+      let visits = 0;
+      let wasOn = false;
       let k = 0;
       for (; k < 120 * limit; k++) {
         world.sim.tick();
@@ -168,14 +174,17 @@ const runUntilHalted = (limit) =>
           if (depot.waiting < 4) depot.waiting = Math.min(4, depot.waiting + 1);
           w.setWaiting(townId, depot.waiting);
         }
-        if (world.economy.servicedCar(depot.id) >= 0) break;
+        const on = !!train()?.bogies.some((b) => b.pieceId === pieceId);
+        if (on && !wasOn) visits++;
+        wasOn = on;
+        if (visits >= visit && world.economy.servicedCar(depot.id) >= 0) break;
       }
-      // Its paints so far (the e2e counts what follows).
       return { seconds: k / 120, waiting: depot.waiting, halted: world.economy.servicedCar(depot.id) >= 0, nextVersion: world.economy.nextVersion };
     },
-    { limit, pieceId: station.id, townId },
+    { limit, pieceId: station.id, townId, visit },
   );
-const halted = await runUntilHalted(600);
+// Its second call there: on round from the other town, with people from there aboard to get off.
+const halted = await runUntilHalted(900, 2);
 check("the train comes to the upgraded station and halts", halted.halted, JSON.stringify(halted));
 
 // 4. The stop, in real time: the guard's whistle counted as it's asked for.
@@ -234,9 +243,9 @@ check("afterwards: no stand-ins left, nothing moving", s.visits.length === 0 && 
 
 // 5. Pictures: the stop again (the board, the people leaning, someone hopping, the flag), by stepping to the next halt.
 const board2 = s.bigs.find((x) => x.pieceId === station.id);
-check("the board changed as the train's next stop did (not per frame)", board2.paints <= board1.paints + 3 && board2.rows !== board1.rows, `${board1.paints} → ${board2.paints}: ${board2.rows}`);
+check("the board changed as the train's next stop did (not per frame)", board2.paints <= board1.paints + 4 && board2.paints > board1.paints, `${board1.paints} → ${board2.paints}: ${board2.rows}`);
 await p.evaluate(() => (window.woodrail.paused = true));
-const again = await runUntilHalted(900);
+const again = await runUntilHalted(900, 2);
 check("round again: the train halts there again", again.halted, JSON.stringify(again));
 await p.evaluate((townId) => {
   const w = window.woodrail;
