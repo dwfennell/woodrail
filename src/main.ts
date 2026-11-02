@@ -3445,17 +3445,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function donePlanning(): void {
     const carId = interaction.openEngineCarId;
     setPlanning(false);
-    // (Two frames: the card's new height laid out, and the director's room measured from it. Then once more when that
-    // glide is over, in case the first look still saw the slim bar: nothing moves if the route is in view by then. QA:
-    // the e2e found the route left under the card.)
+    // (Two frames: the card's new height laid out, and the director's room measured from it.)
     requestAnimationFrame(() => requestAnimationFrame(() => frameRoute(carId)));
-    // (Once the first glide is over: it takes 0.7 s, and a look while it runs sees the view mid-way. A few tries.)
-    let tries = 0;
-    const again = () => {
-      if (game.director.busy && ++tries < 12) window.setTimeout(again, 150);
-      else frameRoute(carId);
-    };
-    window.setTimeout(again, 450);
+    // (And a look every 300 ms for 3 s, each when no glide is running: whenever the card has its full height by then,
+    // the route is framed above it. Each look does nothing while the route is in view. QA: on a busy page the first
+    // look still saw the slim bar, and timers and frames came in any order.)
+    for (let t = 300; t <= 3000; t += 300)
+      window.setTimeout(() => {
+        if (!game.director.busy && !planning) frameRoute(carId);
+      }, t);
   }
 
   /** Where the open engine's route is on the map: the train, each stop (its disc's top too) and each via point. */

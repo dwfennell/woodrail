@@ -3837,9 +3837,10 @@ async function routeUx(ctx, p) {
   const ask = await p.evaluate(() => ({ text: document.querySelector(".engine-extra .route-leave")?.textContent, asking: document.querySelector(".engine-extra .route-leave")?.classList.contains("asking"), says: document.querySelector(".engine-extra .route-leave-ask")?.textContent }));
   const still1 = await route();
   check("route-ux (F3): Leave on the line's only train asks first (\"Forget …?\"), the line kept", /^Forget “.+ line”\?$/.test(ask.text ?? "") && ask.asking && /^Tap again to forget .+ line and its stops$/.test(ask.says ?? "") && still1.stops.length === 3 && still1.lines === 1, JSON.stringify({ ask, still1 }));
-  // (The second tap at once, where it is: "Forget …?" waits 4 s, and on a busy page tapButton's settle can outlast it.)
-  const forget = await p.evaluate(() => { const r = document.querySelector(".engine-extra .route-leave.asking")?.getBoundingClientRect(); return r ? [r.left + r.width / 2, r.top + r.height / 2] : null; });
-  if (forget) await tapped(p, () => p.touchscreen.tap(forget[0], forget[1]));
+  // (The second press straight on the button, a click as its tap makes: "Forget …?" waits 4 s, and on the full run's
+  // busy page a touch's click can come later than that. The first press above was a real tap.)
+  await p.evaluate(() => document.querySelector(".engine-extra .route-leave.asking")?.click());
+  await frames(p);
   const gone = await route();
   check("route-ux (F3): the second tap forgets it", gone.stops.length === 0 && gone.lines === 0, JSON.stringify(gone));
   await tapUndo();
