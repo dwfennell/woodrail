@@ -3911,9 +3911,18 @@ async function routeUxMore(ctx, p) {
   await p.keyboard.press("Escape");
   // B5, C2: ☰ → Lines: discs and arrows on every line's ribbon; + Train puts the nearest free train on it.
   const openLinesView = async () => {
-    await tapButton('button[aria-label="Menu"]');
-    await tapButton(".menu button:not([hidden])[title^='Every line']");
-    await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 30000 });
+    // (Each step waited for, and on a timeout what the page shows said: the menu, its Lines item, the view, a card.)
+    const state = () => p.evaluate(() => ({ menu: document.querySelector(".menu")?.hidden, item: document.querySelector(".menu button[title^='Every line']")?.hidden, view: document.querySelector(".lines-view")?.hidden, engine: window.woodrail.interaction.openEngineCarId, cards: [...document.querySelectorAll(".card")].filter((c) => !c.hidden).map((c) => c.className), menus: [...document.querySelectorAll(".menu")].map((m) => [m.hidden, [...m.querySelectorAll("button")].map((b) => `${b.textContent}${b.hidden ? "(hidden)" : ""}`).join("|")]) }));
+    try {
+      await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId === -1, null, { timeout: 10000 });
+      await tapButton('button[aria-label="Menu"]');
+      // (By its words: the tooltip takes a button's title once it has shown it.)
+      await p.evaluate(() => [...document.querySelectorAll(".menu button")].find((b) => b.textContent === "Lines")?.setAttribute("data-e2e", "lines"));
+      await tapButton(".menu button[data-e2e='lines']");
+      await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 30000 });
+    } catch (e) {
+      throw new Error(`Lines didn't open: ${JSON.stringify(await state())}`);
+    }
     await frames(p);
   };
   await openLinesView();
