@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout } from "../track";
 import { HarnessRun, type Report, type Scenario } from "./harness";
-import { planWay, WayMemory } from "./plan";
+import { clearlyBetter, planWay, SHORTCUT, WayMemory } from "./plan";
 import { next, waysFrom } from "./graph";
 import { racetrack, ringTwoLoops } from "./scenarios";
 
@@ -9,7 +9,9 @@ import { racetrack, ringTwoLoops } from "./scenarios";
  * Track edits with a route running (the user, 2026-11-02: "more predictable if it tries to follow the route. But we
  * probably adjust the route as rails change automatically too, so it should also try to stay predictable across those
  * kinds of changes"): a routed train keeps its way, the same road at each points, as far as the new track allows. Only a
- * leg the edit broke is planned again, and a new shortcut is taken only where a stop needs it (`WayMemory`, `planWay`).
+ * leg the edit broke is planned again. A way the edit made that clearly saves (20% of the leg, or a train's length:
+ * `clearlyBetter`; the user: "allow shortcuts to improve routing, that's one case where predictability isn't
+ * everything") is taken; a small gain isn't; a via keeps the old way (`WayMemory`, `planWay`).
  *
  * Each case logs the pieces the train's front comes onto (with the time), and checks which roads it ran before and after
  * the edit, the stops it came to, and every train invariant (the harness checks them every tick).
@@ -78,87 +80,70 @@ describe("a far edit changes nothing", () => {
   it("every invariant holds", () => clean(edited.report));
 });
 
-describe("a shortcut laid across the racetrack: the route keeps its way unless a stop needs the shortcut", () => {
+describe("a shortcut laid across the racetrack: taken when it clearly saves, unless a via keeps the old way", () => {
   const SECONDS = 900;
   const LAID = 120;
-  /** `then`: what else the player does once the shortcut is laid (at 400 s): a via on it, or the old way cut. */
-  const run = (then: "nothing" | "via" | "cut") => {
+  /** `via`: a via point on the far end (the long way) from the start: the route must pass it, shortcut or not. */
+  const run = (via: boolean) => {
     const log: FrontLog = [];
     let chord: number[] = [];
-    let top: number[] = [];
     let far: number[] = [];
     let atB = -1;
+    let laidAt = -1;
     const scenario: Scenario = {
-      name: `racetrack, A ⇄ B, a shortcut laid${then === "via" ? ", then a via point on it" : then === "cut" ? ", then the long way cut" : ""}`,
+      name: `racetrack, A ⇄ B${via ? ", a via point round the far end" : ""}, a shortcut laid`,
       seconds: SECONDS,
       build: (layout) => {
         const r = racetrack(layout);
-        top = r.top;
         far = r.far;
         atB = r.b;
         // (Laid while the train is on its way back to A round the near end, past B, clear of X1 and X2.)
-        let laid = false;
         const lay = {
-          when: (h: HarnessRun) => !laid && h.tick >= LAID * 120 && onto(log.slice(-1), [r.near[2]]) === 1,
+          when: (h: HarnessRun) => laidAt < 0 && h.tick >= LAID * 120 && onto(log.slice(-1), [r.near[2]]) === 1,
           do: (h: HarnessRun) => {
-            laid = true;
+            laidAt = h.tick / 120;
             h.edit(() => void (chord = r.shortcut().chord));
           },
         };
-        const after = {
-          // (Once the train has gone round past B again: on its way to A round the near end.)
-          when: (h: HarnessRun) => laid && h.tick >= 400 * 120 && onto(log.slice(-1), [r.near[2]]) === 1,
-          do: (h: HarnessRun) => {
-            done.add(h);
-            if (then === "via") h.routes.get(h.engines[0])!.vias = [[chord[0]], []];
-            if (then === "cut") h.edit((l) => void l.removePiece(r.top[1]));
-          },
-        };
         return {
-          trains: [{ pieceId: r.top[0], stops: [r.a, r.b], next: 1, cars: [...CARS] }],
-          events: [{ when: (h) => logFronts(h, log), do: () => {} }, lay, ...(then === "nothing" ? [] : [{ ...after, when: (h: HarnessRun) => after.when(h) && !done.has(h) }])],
+          trains: [{ pieceId: r.top[0], stops: [r.a, r.b], next: 1, cars: [...CARS], ...(via ? { vias: [[r.far[1]], []] } : {}) }],
+          events: [{ when: (h) => logFronts(h, log), do: () => {} }, lay],
         };
       },
     };
-    const done = new Set<HarnessRun>();
     const h = new HarnessRun(new Layout(), scenario);
     const report = h.run(SECONDS);
     const bAt = log.filter((e) => e.piece === atB).map((e) => e.tick / 120);
-    return { report, log, chord, top, far, bAt };
+    return { report, log, chord, far, bAt, laidAt };
   };
 
-  const kept = run("nothing");
-  it("it was going the long way round before (the far end, the top)", () => {
-    expect(onto(kept.log, kept.far, 0, LAID)).toBeGreaterThan(0);
+  const taken = run(false);
+  it("it went the long way round before (the far end)", () => {
+    expect(onto(taken.log, taken.far, 0, taken.laidAt)).toBeGreaterThan(0);
   });
-  it("after the shortcut is laid, it never takes it: the same way round, lap after lap", () => {
-    expect(kept.chord.length).toBe(2);
-    expect(onto(kept.log, kept.chord)).toBe(0);
-    // (Round the far end every lap after it was laid as before: once for each time it came to B.)
-    const lapsAfter = kept.bAt.filter((t) => t > LAID + 30).length;
-    expect(lapsAfter).toBeGreaterThanOrEqual(8);
-    expect(onto(kept.log, [kept.far[0]], LAID + 30)).toBeGreaterThanOrEqual(lapsAfter);
+  it("the shortcut laid saves far more than 20%: it takes it every lap from then on, never the far end again", () => {
+    expect(taken.chord.length).toBe(2);
+    expect(onto(taken.log, taken.chord, 0, taken.laidAt)).toBe(0);
+    const lapsAfter = taken.bAt.filter((t) => t > taken.laidAt + 30).length;
+    expect(lapsAfter).toBeGreaterThanOrEqual(10);
+    expect(onto(taken.log, [taken.chord[0]], taken.laidAt)).toBeGreaterThanOrEqual(lapsAfter);
+    expect(onto(taken.log, [taken.far[1]], taken.laidAt + 30)).toBe(0);
   });
-  it("and keeps coming to its stops (20+ in 15 min)", () => expect(kept.report.arrivals[0]).toBeGreaterThanOrEqual(20));
-  it("every invariant holds", () => clean(kept.report));
+  it("and comes to its stops more often than before (the laps are shorter)", () => {
+    const before = taken.bAt.filter((t) => t < taken.laidAt).length / taken.laidAt;
+    const after = taken.bAt.filter((t) => t > taken.laidAt + 30).length / (900 - taken.laidAt - 30);
+    expect(after).toBeGreaterThan(before * 1.3);
+  });
+  it("every invariant holds", () => clean(taken.report));
 
-  const via = run("via");
-  it("a via point put on the shortcut: it goes by it from then on (the stop needs it)", () => {
-    expect(onto(via.log, via.chord, 0, 400)).toBe(0);
-    expect(onto(via.log, [via.chord[0]], 400)).toBeGreaterThanOrEqual(5);
-    // (No longer round the far end on its way to B.)
-    expect(onto(via.log, [via.far[0]], 500)).toBe(0);
+  const via = run(true);
+  it("a via point round the far end: the shortcut is never taken (the via keeps the way)", () => {
+    expect(via.laidAt).toBeGreaterThan(0);
+    expect(onto(via.log, via.chord)).toBe(0);
+    expect(onto(via.log, [via.far[1]], via.laidAt)).toBeGreaterThanOrEqual(8);
     expect(via.report.arrivals[0]).toBeGreaterThanOrEqual(20);
   });
   it("every invariant holds (with the via)", () => clean(via.report));
-
-  const cut = run("cut");
-  it("the long way cut: only then it takes the shortcut, and still comes to its stops", () => {
-    expect(onto(cut.log, cut.chord, 0, 400)).toBe(0);
-    expect(onto(cut.log, [cut.chord[0]], 400)).toBeGreaterThanOrEqual(5);
-    expect(cut.report.arrivals[0]).toBeGreaterThanOrEqual(20);
-  });
-  it("every invariant holds (with the cut)", () => clean(cut.report));
 });
 
 describe("a ring with two loops, a leg each: a road cut re-plans only its leg", () => {
@@ -222,7 +207,7 @@ describe("a ring with two loops, a leg each: a road cut re-plans only its leg", 
     expect(onto(log, r.south.main, 0, laidAt)).toBeGreaterThan(0);
     expect(onto(log, r.south.side, 0, laidAt)).toBe(0);
   });
-  it("the north loop's straight road laid (shorter): A to B keeps its curved road, every lap, through the far edit and the cut", () => {
+  it("the north loop's straight road laid (a little shorter, a small gain): A to B keeps its curved road, every lap, through the far edit and the cut", () => {
     expect(northMain.length).toBe(2);
     expect(onto(log, northMain)).toBe(0);
     expect(onto(log, [r.north.side[1]], laidAt)).toBeGreaterThanOrEqual(10);
@@ -242,28 +227,41 @@ describe("a ring with two loops, a leg each: a road cut re-plans only its leg", 
   it("every invariant holds", () => clean(report));
 });
 
-describe("planWay keeps a way still there after an edit, not only one costing nearly the best", () => {
-  it("the racetrack's long way, kept with what it cost, against the shortcut laid since", () => {
+describe("planWay after an edit: keeps a way still there, but takes a way laid since that clearly saves", () => {
+  it("the racetrack's long way, kept with what it and the best cost when taken: the shortcut laid since saves far more than 20%", () => {
     const layout = new Layout();
     const r = racetrack(layout);
     const { s1 } = r.shortcut();
     const ways = waysFrom(layout, s1, 0);
     const best = planWay(layout, s1, 0, ways, r.b);
     const long = ways.find((w) => w.option !== best)!.option;
-    const longCost = { cost: 0 };
-    planWay(layout, s1, 0, ways, r.b, undefined, { way: { option: long, cost: Infinity } }, longCost);
-    expect(longCost.cost).toBeGreaterThan(1000);
-    // (Kept with no cost known, as before: only while it costs nearly the best; the long way doesn't.)
-    expect(planWay(layout, s1, 0, ways, r.b, undefined, long)).toBe(best);
-    // (Kept with what it cost when taken, and it costs that still: kept.)
-    expect(planWay(layout, s1, 0, ways, r.b, undefined, { way: { option: long, cost: longCost.cost } })).toBe(long);
+    const c = { cost: 0, best: 0 };
+    planWay(layout, s1, 0, ways, r.b, undefined, { way: { option: long, cost: Infinity } }, c);
+    const longCost = c.cost;
+    expect(longCost - c.best).toBeGreaterThan(longCost * SHORTCUT);
+    // (Taken when the long way was the best: an edit since made one that clearly saves. The shortcut.)
+    expect(planWay(layout, s1, 0, ways, r.b, undefined, { way: { option: long, cost: longCost, best: longCost } })).toBe(best);
+    // (Taken with the best as it is now (no edit since): kept, still there.)
+    expect(planWay(layout, s1, 0, ways, r.b, undefined, { way: { option: long, cost: longCost, best: c.best } })).toBe(long);
     // (Dearer now than when taken (its way was cut and goes round): not kept.)
-    expect(planWay(layout, s1, 0, ways, r.b, undefined, { way: { option: long, cost: longCost.cost - 100 } })).toBe(best);
+    expect(planWay(layout, s1, 0, ways, r.b, undefined, { way: { option: long, cost: longCost - 100, best: c.best } })).toBe(best);
     const m = new WayMemory();
-    m.set(1, s1, 0, r.b, long, longCost.cost);
-    expect(planWay(layout, s1, 0, ways, r.b, undefined, m.get(1, s1, 0, r.b))).toBe(long);
+    m.set(1, s1, 0, r.b, long, longCost, longCost);
+    expect(planWay(layout, s1, 0, ways, r.b, undefined, m.get(1, s1, 0, r.b))).toBe(best);
   });
-  it("new points with no way kept: the option back onto the line's trail", () => {
+  it("a small gain (a loop's straight road laid beside its curved one) doesn't flip a kept way", () => {
+    const layout = new Layout();
+    const r = ringTwoLoops(layout);
+    const ways = waysFrom(layout, r.north.s1, 0);
+    const best = planWay(layout, r.north.s1, 0, ways, r.b);
+    const side = ways.find((w) => w.option !== best)!.option;
+    const c = { cost: 0, best: 0 };
+    planWay(layout, r.north.s1, 0, ways, r.b, undefined, { way: { option: side, cost: Infinity } }, c);
+    expect(clearlyBetter(c.best, c.cost)).toBe(false);
+    // (Taken when it was the only way: the straight road laid since is better, but not clearly.)
+    expect(planWay(layout, r.north.s1, 0, ways, r.b, undefined, { way: { option: side, cost: c.cost, best: c.cost } })).toBe(side);
+  });
+  it("new points with no way kept: back onto the line's trail, unless the best way on clearly saves", () => {
     const layout = new Layout();
     const r = racetrack(layout);
     const m = new WayMemory();
@@ -274,9 +272,18 @@ describe("planWay keeps a way still there after an edit, not only one costing ne
     const { s1 } = r.shortcut();
     const ways = waysFrom(layout, s1, 0);
     const best = planWay(layout, s1, 0, ways, r.b);
-    const trail = planWay(layout, s1, 0, ways, r.b, undefined, m.get(1, s1, 0, r.b));
-    expect(trail).not.toBe(best);
-    expect(next(layout, s1, ways.find((w) => w.option === trail)!.exit)).toEqual(after);
+    // (The shortcut clearly saves: taken, trail or not.)
+    expect(planWay(layout, s1, 0, ways, r.b, undefined, m.get(1, s1, 0, r.b))).toBe(best);
+    // (A loop's points new to the trail, its curved road on it: the straight road saves little, so back onto the trail.)
+    const ring = new Layout();
+    const t = ringTwoLoops(ring);
+    const rw = waysFrom(ring, t.north.s1, 0);
+    const rb = planWay(ring, t.north.s1, 0, rw, t.b);
+    const curved = rw.find((w) => w.option !== rb)!;
+    const on = next(ring, t.north.s1, curved.exit)!;
+    const n = new WayMemory();
+    n.ran(1, on.pieceId, on.entry, t.b);
+    expect(planWay(ring, t.north.s1, 0, rw, t.b, undefined, n.get(1, t.north.s1, 0, t.b))).toBe(curved.option);
   });
 });
 

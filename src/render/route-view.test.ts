@@ -148,4 +148,37 @@ describe("discLabel: a stop disc's number fits inside it (QA: a place visited fo
     }
     expect(discLabel("1·2·3·4·5·6", r, width).text).toBe("1·2+");
   });
+
+  it("a changed stretch lights up over the ribbon, fades out in under 2 s and goes; it stays through a redraw; steady with reduced motion", () => {
+    const { layout, ids } = line();
+    const view = new RouteView(layout, stubMaterials());
+    const legs = lineLegs(layout, [ids[0], ids[6]]);
+    const ribbons = legs.map((l) => ({ runs: l!, colour: "#3a7bd5" }));
+    view.show(ribbons, []);
+    const lit = () => view.group.children.find((o) => o.name === "route-lit") as Mesh | undefined;
+    const opacity = () => (lit()!.material as { opacity: number }).opacity;
+    view.highlight(legs[0]!.slice(1, 3), 10);
+    expect(lit()).toBeDefined();
+    expect(view.animate(10)).toBe(true);
+    const o0 = opacity();
+    // (The train moves on a piece: the route is drawn again, the light stays.)
+    view.show(ribbons, []);
+    expect(lit()).toBeDefined();
+    expect(view.animate(10.8)).toBe(true);
+    expect(opacity()).toBeLessThan(o0);
+    expect(view.animate(12)).toBe(false);
+    expect(lit()).toBeUndefined();
+    // (Reduced motion: no fade, then gone.)
+    view.highlight(legs[0]!.slice(1, 3), 20, false);
+    view.animate(20);
+    const s0 = opacity();
+    view.animate(21);
+    expect(opacity()).toBe(s0);
+    view.animate(22);
+    expect(lit()).toBeUndefined();
+    // (The card closed: gone at once.)
+    view.highlight(legs[0]!.slice(1, 3), 30);
+    view.clear();
+    expect(lit()).toBeUndefined();
+  });
 });

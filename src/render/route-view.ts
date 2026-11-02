@@ -62,6 +62,12 @@ const GAP = 12;
 const DOT_WIDTH = 6;
 const DOT_TAPER = 0.45;
 const DOT_OPACITY = 0.65;
+/** A stretch a track edit changed the route to, lit up for `LIT_S` (s): pale, wider than the ribbon, over it. */
+const LIT_S = 1.6;
+const LIT_COLOUR = "#fff6d8";
+const LIT_WIDTH = 22;
+const LIT_LIFT = 0.9;
+const LIT_OPACITY = 0.8;
 /** The red dashes of a gap no track crosses. */
 const GAP_COLOUR = "#d33a2c";
 const GAP_WIDTH = 9;
@@ -110,6 +116,10 @@ export class RouteView {
 
   /** The ribbons drawn last (for the e2e: what the map shows). */
   shown: readonly RibbonSpec[] = [];
+  /** A changed stretch lit up (`highlight`): its mesh, when it began (s), and whether it fades (no: reduced motion). */
+  private lit: { mesh: Mesh; mat: MeshBasicMaterial; from: number; fade: boolean } | null = null;
+  /** The runs lit last (for the e2e). */
+  litRuns: readonly PathRun[] = [];
 
   constructor(
     private readonly layout: Layout,
@@ -120,7 +130,7 @@ export class RouteView {
 
   /** Draw these ribbons and discs (replacing what was drawn). Builds geometry once per call; nothing per frame. */
   show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = []): void {
-    this.clear();
+    this.clear(true);
     this.shown = ribbons;
     // One mesh per colour and kind: a handful of draw calls however long the route.
     const strips = new Map<string, { colour: string; dotted: boolean; pos: number[]; uv: number[] }>();
@@ -159,6 +169,39 @@ export class RouteView {
     this.fannedFor = [];
   }
 
+  /**
+   * Light up a stretch of the route (a way a track edit changed it to), from `now` (seconds), over the ribbon: a pale
+   * glow that fades out over `LIT_S` (one mesh, built once; `animate` sets its opacity). `fade` false (reduced motion):
+   * it stays steady for that long, then goes.
+   */
+  highlight(runs: readonly PathRun[], now: number, fade = true): void {
+    this.unlight();
+    if (runs.length === 0) return;
+    const pos: number[] = [];
+    const uv: number[] = [];
+    for (const run of runs) this.strip(run, pos, uv, LIT_WIDTH, LIT_LIFT);
+    if (pos.length === 0) return;
+    const g = new BufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute(pos, 3));
+    g.setAttribute("uv", new Float32BufferAttribute(uv, 2));
+    g.computeBoundingSphere();
+    const mat = new MeshBasicMaterial({ color: new Color(LIT_COLOUR), transparent: true, opacity: LIT_OPACITY, depthWrite: false, side: DoubleSide, depthFunc: LessDepth });
+    const mesh = new Mesh(g, mat);
+    mesh.renderOrder = 4;
+    mesh.name = "route-lit";
+    this.group.add(mesh);
+    this.lit = { mesh, mat, from: now, fade };
+    this.litRuns = runs;
+  }
+
+  private unlight(): void {
+    if (!this.lit) return;
+    this.group.remove(this.lit.mesh);
+    this.lit.mesh.geometry.dispose();
+    this.lit.mat.dispose();
+    this.lit = null;
+  }
+
   /** The next stop's disc pulses (a few beats, from `now`, seconds): it has just become the next, or the card opened. */
   pulse(now: number): void {
     this.pulseFrom = now;
@@ -184,6 +227,14 @@ export class RouteView {
    */
   animate(now: number): boolean {
     let moving = false;
+    if (this.lit) {
+      const t = now - this.lit.from;
+      if (t >= LIT_S || t < 0) this.unlight();
+      else {
+        if (this.lit.fade) this.lit.mat.opacity = LIT_OPACITY * (1 - t / LIT_S) ** 2;
+        moving = true;
+      }
+    }
     for (const d of this.discs) {
       const u = d.userData as { size: number; index: number; next: boolean; kind: string; pieceId: number };
       let k = 1;
@@ -247,12 +298,16 @@ export class RouteView {
     return true;
   }
 
-  clear(): void {
+  /** Take the route off the map. `keepLit`: a stretch lit up stays on till its time is up (`show` redraws under it). */
+  clear(keepLit = false): void {
+    if (!keepLit) this.unlight();
+    const lit = this.lit?.mesh;
     for (const o of this.group.children) {
       // Ribbon geometry is the call's own; the post geometry and the materials are kept for the next show().
-      if ((o as Mesh).isMesh && (o as Mesh).geometry !== this.postGeom) (o as Mesh).geometry.dispose();
+      if ((o as Mesh).isMesh && (o as Mesh).geometry !== this.postGeom && o !== lit) (o as Mesh).geometry.dispose();
     }
     this.group.clear();
+    if (lit) this.group.add(lit);
   }
 
   dispose(): void {
@@ -308,9 +363,9 @@ export class RouteView {
     }
   }
 
-  private strip(run: PathRun, pos: number[], uv: number[]): void {
+  private strip(run: PathRun, pos: number[], uv: number[], width = RIBBON_WIDTH, lift = RIBBON_LIFT): void {
     if (!this.layout.getPiece(run.pieceId)) return;
-    this.span(run, run.s0, run.s1, RIBBON_LIFT, pos, uv);
+    this.span(run, run.s0, run.s1, lift, pos, uv, width);
   }
 
   /** Dashes along the runs, spaced by distance along the whole way (so they run on evenly from piece to piece). */
