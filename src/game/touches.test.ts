@@ -165,7 +165,7 @@ describe("the first train's marker", () => {
 
   it("lies on the open side: not on the platform", () => {
     // Left (−z for heading 0) is a platform; right is grass.
-    const m = firstTrainMark(0, 0, 0, (_x, z) => z > 0);
+    const m = firstTrainMark(0, 0, 0, (_x, z) => (z > 0 ? 1 : 0));
     expect(m.z).toBeCloseTo(MARK_ASIDE);
     expect(firstTrainMark(0, 0, 0).z).toBeCloseTo(-MARK_ASIDE);
   });

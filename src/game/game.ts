@@ -586,10 +586,11 @@ export class Game {
       const o = i * 6;
       const g = land.grid;
       const track = this.landscapeView.trackBuckets;
-      // (On the side of plain ground: not on a platform or a town's lot, not on other track.)
+      // (On plain ground if a side has it, else anywhere but on a platform; never on other track.)
       const open = (x: number, z: number) => {
+        if (nearTrack(track, x, z, 16) || land.towns.some((t) => inStationFootprint(t.station, x, z, 2))) return 0;
         const i = g.cellAtWorld(x, z);
-        return i >= 0 && g.surface[i] === SURF_GRASS && g.feature[i] === FEAT_NONE && !nearTrack(track, x, z, 16) && !land.towns.some((t) => inStationFootprint(t.station, x, z, 2));
+        return i >= 0 && g.surface[i] === SURF_GRASS && g.feature[i] === FEAT_NONE ? 2 : 1;
       };
       land.firstTrain = firstTrainMark(snap.transforms[o], snap.transforms[o + 2], snap.transforms[o + 3], open);
       this.touches.setMark(land.firstTrain, (x, z) => hillsOf(land.grid).groundAt(x, z));

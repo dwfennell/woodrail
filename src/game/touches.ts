@@ -194,11 +194,11 @@ export interface FirstTrainMark {
 export const MARK_ASIDE = TRACK_WIDTH / 2 + 12;
 
 /**
- * The marker for a train standing at x, z, heading along `heading`: beside the track, on whichever side is `open`
- * (plain ground: not a platform, not other track), its left if both or neither are.
+ * The marker for a train standing at x, z, heading along `heading`: beside the track, on the side `fit` scores higher
+ * (plain ground before a street, anything before a platform), its left on a tie.
  */
-export function firstTrainMark(x: number, z: number, heading: number, open: (x: number, z: number) => boolean = () => true): FirstTrainMark {
+export function firstTrainMark(x: number, z: number, heading: number, fit: (x: number, z: number) => number = () => 0): FirstTrainMark {
   const left = { x: x + Math.sin(heading) * MARK_ASIDE, z: z - Math.cos(heading) * MARK_ASIDE, heading };
   const right = { x: x - Math.sin(heading) * MARK_ASIDE, z: z + Math.cos(heading) * MARK_ASIDE, heading };
-  return !open(left.x, left.z) && open(right.x, right.z) ? right : left;
+  return fit(right.x, right.z) > fit(left.x, left.z) ? right : left;
 }
