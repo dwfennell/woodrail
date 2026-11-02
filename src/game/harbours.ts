@@ -341,6 +341,9 @@ export class HarbourTrade {
         goods[k] = (goods[k] ?? 0) + 1;
       }
     }
+    let n = 0;
+    for (const v of Object.values(goods)) n += v ?? 0;
+    if (n > 0) p.counts.set("imported", (p.counts.get("imported") ?? 0) + n);
     return { kind: "bought", depotId: d.id, goods, coins, short };
   }
 
