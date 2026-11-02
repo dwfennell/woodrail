@@ -130,7 +130,7 @@ Generous rounding: chips 13px, tiles 14px, cards 18px, panels 20px, pills for ba
 - **Chip:** beech gradient, 44px tall at least, 13px corners, 800 weight. Pressed: down 1px and 2% smaller. Disabled: 0.45 opacity; in the top bar it stays solid wood with its picture faded.
 - **Primary / on:** green lacquer gradient with dark green ink.
 - **Toggle:** a label and a pill switch; off is outlined, on is filled green with the knob right.
-- **Focus:** a 3px blue (`#2f6fb5`) outline, 2px clear of the button.
+- **Focus:** a 3px blue (`#2f6fb5`) outline drawn just inside the control (`outline-offset: -3px`), so a scrolling strip never clips it and it never laps a neighbour. Shown only while moving focus by Tab (`.kbd-nav` on the root, `src/ui/focus-ring.ts`), never after a click or tap, even when a key follows; a text box rings whenever it has focus.
 
 ### Cards / Containers
 Cream, 18px corners, 12–14px padding, a bold `✕` (18px/900, `#6a4a2c`) in a 44px corner target. Cards pop in (0.24s, slight overshoot).

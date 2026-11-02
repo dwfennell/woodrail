@@ -19,8 +19,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 html, body, button, .hud, .card, .tray, .title-screen, #loading { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 html, body, button { touch-action: manipulation; }
 input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
-/* Keyboard focus: a ring in the logo's blue, clear of the button's edge (a mouse or a finger shows none). */
-:focus-visible { outline: 3px solid #2f6fb5; outline-offset: 2px; }
+/* Keyboard focus: a ring in the logo's blue, drawn just inside the control's edge, so a strip that scrolls (the tray's
+   tabs) doesn't clip it and it never laps onto a neighbour. Only while moving focus by Tab (`kbd-nav`, from
+   ui/focus-ring.ts): a mouse or a finger shows none, even when a key follows a click (Chrome's :focus-visible would).
+   A text box being typed in rings however it was reached. */
+:focus-visible { outline: none; }
+.kbd-nav :focus-visible, textarea:focus-visible, input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible { outline: 3px solid #2f6fb5; outline-offset: -3px; }
 /* Scroll bars (a mouse's lists: the News, the research board, a card): thin, in the wood's own brown. */
 * { scrollbar-width: thin; scrollbar-color: rgba(138, 100, 64, 0.45) transparent; }
 #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
@@ -37,7 +41,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .brand { position: relative; min-height: 44px; min-width: 44px; cursor: pointer; transition: transform 0.12s; }
 .brand:active { transform: scale(0.96); }
 .brand::after { content: "⌖"; position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; line-height: 1; background: #fbf3e4; color: #6a4a2c; box-shadow: 0 1px 4px rgba(60, 40, 20, 0.3); opacity: 0; transition: opacity 0.12s; pointer-events: none; }
-.brand:active::after, .brand:focus-visible::after { opacity: 1; }
+.brand:active::after, .kbd-nav .brand:focus-visible::after { opacity: 1; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .chip { min-width: 44px; height: 44px; padding: 0 12px; border: none; border-radius: 13px; font: inherit; font-weight: 800; font-size: 17px; color: #3a2a1c; cursor: pointer;
   background: linear-gradient(180deg, #f3dcb6, #dcb682); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.25), 0 4px 14px rgba(60, 40, 20, 0.22); transition: transform 0.08s ease, filter 0.15s; }
@@ -746,7 +750,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-link.open { stroke-width: 2.5; opacity: 0.9; }
 .bp-link.lit { stroke: #2f6db5 !important; stroke-dasharray: none; stroke-width: 3; opacity: 1; }
 .bp-node { position: absolute; z-index: 1; width: 148px; min-height: 48px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 7px; align-items: center; padding: 5px 8px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: transform 0.15s; }
-.bp-node:focus-visible, .bp-hints:focus-visible { outline: 3px solid #2f6fb5; outline-offset: 2px; }
 .bp-node .bp-dot { grid-row: 1 / span 2; width: 20px; height: 20px; font-size: 12px; }
 .bp-node .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
 .bp-node .bp-tag { justify-self: start; margin-top: 2px; }
