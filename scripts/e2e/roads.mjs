@@ -966,6 +966,18 @@ if (route && route.path.length <= 60) {
     await p.locator(".tray-item", { hasText: "Bus stop" }).first().waitFor({ state: "visible", timeout: 20000 }).catch(() => {});
     await p.evaluate(() => [...document.querySelectorAll(".tray-item")].find((b) => b.textContent.includes("Bus stop"))?.scrollIntoView({ inline: "center" }));
   };
+  // (W's Elderwick grew: its "grew! Pick one" sheet is up over the tray. Closed with its ✕, as a player does: the offer
+  // waits with a badge.)
+  const sheetClose = await p.evaluate(() => {
+    const b = document.querySelector(".growth-sheet:not([hidden]) .close");
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+  });
+  if (sheetClose) {
+    await p.mouse.click(sheetClose.x, sheetClose.y);
+    await p.waitForFunction(() => document.querySelector(".growth-sheet")?.hidden !== false, null, { timeout: 10000 }).catch(() => {});
+  }
   await openLineside();
   const shelf = await p.evaluate(() => [...document.querySelectorAll(".tray-item")].some((b) => b.offsetParent && b.textContent.includes("Bus stop")));
   check("X1 Buses learned: the bus stop is on the Industries tab's Lineside shelf", shelf);
