@@ -4,7 +4,7 @@ import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
 import { ruleOf, type ThingId } from "./things";
 import { growthOf } from "./town-life";
-import { FOODS, townLevel, townStatus } from "./towns";
+import { FULL_PAY, townLevel, townStatus } from "./towns";
 import { DEPOT_NAMES, depotName, type World } from "./world";
 import { townLinks } from "../roads/graph";
 
@@ -67,18 +67,19 @@ export interface LedgerContext {
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
-const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard"];
+const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard", "juicer"];
 
 /** The everyday food a town always buys, by the blueprint that brings its maker, in cargo order. */
 const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
   ["milk", "dairy"],
   ["bread", "bakery"],
   ["fruit", "orchard"],
+  ["juice", "juice"],
 ];
 
 /** "Always buys 🥛 milk, 🥖 bread and 🍎 fruit at full pay" for the foods whose blueprint is learned, or null. */
 export function buysText(learned: ReadonlySet<string>): string | null {
-  const foods = FOOD_TECH.filter(([k, tech]) => FOODS.has(k) && learned.has(tech)).map(([k]) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
+  const foods = FOOD_TECH.filter(([k, tech]) => FULL_PAY.has(k) && learned.has(tech)).map(([k]) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
   if (foods.length === 0) return null;
   const list = foods.length === 1 ? foods[0] : `${foods.slice(0, -1).join(", ")} and ${foods[foods.length - 1]}`;
   return `Always buys ${list} at full pay`;

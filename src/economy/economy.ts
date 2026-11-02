@@ -39,7 +39,7 @@ interface Service {
   halted?: boolean;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -96,7 +96,7 @@ export const SCHOOL_SHARE = 0.6;
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
@@ -109,6 +109,8 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   dairy: { takes: [], gives: ["milk"], cycle: { uses: {}, makes: { milk: 1 }, seconds: 12 } },
   bakery: { takes: ["flour", "milk"], gives: ["bread"], cycle: { uses: { flour: 1, milk: 1 }, makes: { bread: 1 }, seconds: 10 } },
   orchard: { takes: [], gives: ["fruit"], cycle: { uses: {}, makes: { fruit: 1 }, seconds: 14 } },
+  // The next nodes (tech-tree spec, 2026-11-02): a juice works presses an orchard's fruit into juice.
+  juicer: { takes: ["fruit"], gives: ["juice"], cycle: { uses: { fruit: 1 }, makes: { juice: 1 }, seconds: 10 } },
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
   // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.

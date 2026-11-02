@@ -72,6 +72,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-dairy": { label: "Dairy farm", cost: { planks: 8 }, coins: 180, tech: "dairy" },
   "piece:depot-bakery": { label: "Bakery", cost: { planks: 10 }, coins: 260, tech: "bakery" },
   "piece:depot-orchard": { label: "Orchard", cost: { planks: 6 }, coins: 150, tech: "orchard" },
+  // The next nodes (tech-tree spec, 2026-11-02): chains past the farm and the mine, mostly coins.
+  "piece:depot-juicer": { label: "Juice works", cost: { planks: 8 }, coins: 200, tech: "juice" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 15 }, coins: 480, tech: "foundry" },

@@ -8,7 +8,7 @@ import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopO
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker, payGoal } from "../game/goals";
 import { StickerTracker } from "../game/stickers";
-import { FOODS, plotPrice } from "../game/towns";
+import { FULL_PAY, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
@@ -2045,10 +2045,10 @@ class Playthrough {
       // workshop's yard and Smithy was never picked); the rest in the blueprints' order, as before. Not what asks a good
       // of a chain the line has (ranked so, Diesel was picked on 8 of 9 seeds and on 4 still waited on its 8 flour at
       // minute 180), nor what such a one needs (Warehouses, College): either way fewer were researched by 180.)
-      // (Everyday food (`FOODS`: the dairy chain, the orchard) doesn't count: towns buy it, but no town needs it to grow
+      // (Goods towns only buy (`FULL_PAY`: the dairy chain, the orchard, juice, cheese, ice cream, bricks) don't count: towns buy it, but no town needs it to grow
       // and no study asks for it, so it stays with the rest, in the blueprints' order. Ranked first, Dairy farm took
       // Junctions' place at minute 166 on seeds 2027 and 1, one fewer researched by 180.)
-      const rank = (id: string) => (goodsUnlocked(id).some((k) => !made.has(k) && !FOODS.has(k)) ? 0 : 1);
+      const rank = (id: string) => (goodsUnlocked(id).some((k) => !made.has(k) && !FULL_PAY.has(k)) ? 0 : 1);
       const rest = idle ? [...others].sort((a, b) => rank(a) - rank(b)) : others;
       const order = [...new Set([...toward, ...wished, ...(rich || idle ? rest : [])])];
       // (A filler, picked only as nothing wanted was left, gives way once a wanted one opens (a chain's or a wish's): the

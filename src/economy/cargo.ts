@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -23,6 +23,8 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   milk: { index: 10, label: "Milk" },
   bread: { index: 11, label: "Bread" },
   fruit: { index: 12, label: "Fruit" },
+  // Juice from a juice works, pressed from an orchard's fruit (next nodes, 2026-11-02): bottles by the crate.
+  juice: { index: 13, label: "Juice" },
 };
 
 /**
@@ -48,6 +50,8 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   milk: "🥛",
   bread: "🥖",
   fruit: "🍎",
+  // The next nodes' goods (src/icons/u1F9C3-juice).
+  juice: "🧃",
 };
 
 /** Coins, beside goods in a cost. */
@@ -58,8 +62,8 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   // Timber wagons are flatbeds: logs, planks, iron bars and crates of fruit.
   timber: ["log", "planks", "iron", "fruit"],
   hopper: ["grain", "stone", "coal", "ore"],
-  // Vans: sacks and crates (flour, made goods, bread). Milk goes in a tank wagon.
-  van: ["flour", "furniture", "tools", "bread"],
+  // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles). Milk goes in a tank wagon.
+  van: ["flour", "furniture", "tools", "bread", "juice"],
   tanker: ["milk"],
 };
 

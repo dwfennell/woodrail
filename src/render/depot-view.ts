@@ -210,6 +210,17 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: { fruit: { t: 60, l: 66, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 60,
   },
+  // The next nodes (tech-tree spec, 2026-11-02): one good in, one out (two in for the ice cream factory and the
+  // brickworks), under a jib at the near end, as the bakery's; their buildings at the far end.
+  juicer: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      fruit: { t: 46, l: 64, y: YARD, across: 3, axis: "t" },
+      juice: { t: 74, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
@@ -324,6 +335,11 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
     { asset: "life-cow", t: 122, l: 80, turn: 2.6 },
   ],
   bakery: [{ asset: "bldg-bakery", t: 156, l: 84 }],
+  // The juice works: the catalogue's watermill as its cider press, and an apple tree by it.
+  juicer: [
+    { asset: "bldg-watermill", t: 160, l: 86 },
+    { asset: "scene-apple-tree", t: 112, l: 96, turn: 1.1 },
+  ],
   // Two rows of apple trees beyond the crates.
   orchard: [
     { asset: "scene-apple-tree", t: 112, l: 70, turn: 0 },
@@ -532,6 +548,12 @@ export class DepotView {
       fruit: [
         [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2.5, SACK_WIDTH, 1, 0.8).translate(0, -1.25, 0), mats.naturalWood],
         [new RoundedBoxGeometry(SACK_LENGTH - 2, 2.5, SACK_WIDTH - 2, 2, 1.2).translate(0, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer("#c8442f")],
+      ],
+      // The next nodes' goods: a crate of juice bottles (amber, green caps).
+      juice: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 4, SACK_WIDTH, 1, 0.8).translate(0, -2, 0), mats.naturalWood],
+        [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(1.5, 1.5, 5, 8).translate((i * SACK_LENGTH) / 3.4, 1.5, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#e6a52c")],
+        [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(0.9, 0.9, 1.2, 8).translate((i * SACK_LENGTH) / 3.4, 4.4, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#3c8f4e")],
       ],
     };
     // The modelled sack when it's loaded (its base at y 0: units are placed by their centre).
@@ -979,7 +1001,7 @@ export class DepotView {
     }
   }
 
-  /** The dairy's, the bakery's and the orchard's buildings drawn from code, till their catalogue models load. */
+  /** The buildings of the industries dressed from the catalogue (`CATALOGUE_DRESSING`), drawn from code till its models load. */
   private foodStandIns(role: DepotRole, place: (g: BufferGeometry, t: number, l: number, y: number) => BufferGeometry, b: Pick<Batcher, "add">): void {
     const mats = this.mats;
     if (role === "orchard") {
@@ -989,6 +1011,13 @@ export class DepotView {
         b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(12, 12, 9), d.t, d.l, PAD_H + 28));
         for (const [dt, dl, dy] of [[8, -6, 30], [-6, 8, 26], [2, -10, 22]] as const) b.add(mats.lacquer("#c8442f"), place(new SphereGeometry(2.4, 8, 6), d.t + dt, d.l + dl, PAD_H + dy));
       }
+      return;
+    }
+    if (role === "juicer") {
+      // A stone press house with a blue water wheel on its side.
+      b.add(mats.lacquer("#cfc6b6"), place(new RoundedBoxGeometry(48, 30, 34, 2, 3), 160, 88, PAD_H + 15));
+      b.add(mats.lacquer("#7a4a2a"), place(new RoundedBoxGeometry(54, 5, 40, 1, 2), 160, 88, PAD_H + 32));
+      b.add(mats.lacquer("#2f6db5"), place(new CylinderGeometry(13, 13, 5, 18).rotateX(Math.PI / 2), 160, 68, PAD_H + 15));
       return;
     }
     // A shed at the far end: the dairy white with a red roof, the bakery cream with a brown one and a chimney.
