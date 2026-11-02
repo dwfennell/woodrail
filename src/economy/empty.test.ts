@@ -89,19 +89,19 @@ describe("Empty", () => {
 describe("Empty's toast", () => {
   const none = () => null;
   it("says what was tipped out", () => {
-    expect(emptyWords([{ kind: "planks", count: 6 }], none)).toBe("Tipped out 6 🪵");
+    expect(emptyWords([{ kind: "planks", count: 6 }], none)).toBe("Tipped out 6 \uE000");
   });
   it("adds up Empty all by goods, in the order met", () => {
     const t: Tipped[] = [];
     addTipped(t, { kind: "planks", count: 6 });
     addTipped(t, { kind: "grain", count: 4 });
     addTipped(t, { kind: "planks", count: 2 });
-    expect(emptyWords(t, none)).toBe("Tipped out 8 🪵 4 🌾");
+    expect(emptyWords(t, none)).toBe("Tipped out 8 \uE000 4 🌾");
   });
   it("names a place that takes the first good one does", () => {
     const takers = (k: string) => (k === "grain" ? { name: "Mill", town: false } : null);
-    expect(emptyWords([{ kind: "planks", count: 6 }, { kind: "grain", count: 4 }], takers)).toBe("Tipped out 6 🪵 4 🌾 · The Mill takes 🌾");
-    expect(emptyWords([{ kind: "planks", count: 6 }], () => ({ name: "Ashby", town: true }))).toBe("Tipped out 6 🪵 · Ashby takes 🪵");
+    expect(emptyWords([{ kind: "planks", count: 6 }, { kind: "grain", count: 4 }], takers)).toBe("Tipped out 6 \uE000 4 🌾 · The Mill takes 🌾");
+    expect(emptyWords([{ kind: "planks", count: 6 }], () => ({ name: "Ashby", town: true }))).toBe("Tipped out 6 \uE000 · Ashby takes \uE000");
   });
   it("says nothing when nothing went", () => {
     expect(emptyWords([], none)).toBe("");
