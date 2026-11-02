@@ -1055,7 +1055,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }
 .route-tools .route-move, .route-tools .route-remove { min-width: 44px; min-height: 44px; }
-.route-tools .route-pass { margin-left: auto; }
 /* Planning a route: the map wants the room. The engine card slims to its route, and the tray goes. */
 .planning .engine-card .card-title, .planning .engine-card .engine-status, .planning .engine-card .engine-controls,
 .planning .engine-card .corner, .planning .engine-card > .close { display: none; }

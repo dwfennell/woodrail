@@ -3302,8 +3302,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           ...(st.action === "drop"
             ? []
             : [
-                button(st.waitFill ? "Wait to fill: on" : "Wait to fill: off", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
-                  edit((l) => (l[k].waitFill = !l[k].waitFill)),
+                // (A toggle: green and pressed when on. Its words short, so the row fits a 360 px phone with ✕.)
+                Object.assign(
+                  button("Wait to fill", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
+                    edit((l) => (l[k].waitFill = !l[k].waitFill)),
+                  ),
+                  { ariaPressed: String(!!st.waitFill) },
                 ),
               ]),
           // (With three stops or more, and a piece on the map: the stop becomes a via point on the way, said on its button.)
@@ -3743,7 +3747,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const lead = way > 0 ? t.bogies[0] : tail;
     const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
-    const key = `${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}`;
+    // (Wide enough to see from far out, as planning frames a long line: as the Lines view's.)
+    const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);
+    const key = `${scale}|${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}`;
     if (key === ribbonKey) return;
     ribbonKey = key;
     if (!routeView || routeLayout !== game.layout) {
@@ -3825,7 +3831,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       line.stops.forEach((st, k) => {
         for (const v of st.via ?? []) if (!discs.has(v) && game.layout.getPiece(v)) discs.set(v, { pieceId: v, label: "", colour: line.colour, state: "stop", stop: k, via: true });
       });
-      routeView.show(ribbons, [...discs.values()], gaps);
+      routeView.show(ribbons, [...discs.values()], gaps, scale);
       // A stop just added pops in; the next stop pulses when it becomes the next (or the card opens).
       const now = performance.now() / 1000;
       if (wayChanged) {
