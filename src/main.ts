@@ -1413,7 +1413,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const goalsPanel = new GoalsPanel(
     hud.root,
     {
-      newGame: () => newGame(),
       showMe: () => showGoal(),
       fly: (place) => flyTo(place),
       stickersSeen: () => {
