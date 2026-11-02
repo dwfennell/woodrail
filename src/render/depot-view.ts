@@ -221,6 +221,16 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  brickworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      stone: { t: 38, l: 64, y: YARD, across: 3, axis: "t" },
+      coal: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      bricks: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   icecream: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -359,6 +369,8 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
     { asset: "bldg-red-barn", t: 160, l: 86 },
     { asset: "life-cow", t: 110, l: 98, turn: 0.9 },
   ],
+  // The brickworks: the catalogue's factory with its banded chimney (a brick works, its notes say).
+  brickworks: [{ asset: "bldg-factory", t: 156, l: 86 }],
   // The ice cream factory: the catalogue's kiosk (its cone turns in the catalogue; here it stands) and a seller.
   icecream: [
     { asset: "bldg-ice-cream-kiosk", t: 160, l: 88 },
@@ -578,7 +590,9 @@ export class DepotView {
         [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2.5, SACK_WIDTH, 1, 0.8).translate(0, -1.25, 0), mats.naturalWood],
         [new RoundedBoxGeometry(SACK_LENGTH - 2, 2.5, SACK_WIDTH - 2, 2, 1.2).translate(0, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer("#c8442f")],
       ],
-      // The next nodes' goods: a tub of ice cream (pink, a cream lid);
+      // The next nodes' goods: a stack of red bricks;
+      bricks: [[mergeGeometries([-1, 1].flatMap((i) => [-1, 1].flatMap((j) => [0, 1].map((h) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH / 2 - 0.6, STONE_HEIGHT / 2 - 0.4, SACK_WIDTH / 2 - 0.4, 1, 0.4).translate((i * SACK_LENGTH) / 4, -STONE_HEIGHT / 4 + h * (STONE_HEIGHT / 2), (j * SACK_WIDTH) / 4))))))!, mats.lacquer("#b5532f")]],
+      // a tub of ice cream (pink, a cream lid);
       icecream: [
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.4, SACK_WIDTH / 2 - 1.4, CRATE_HEIGHT - 2, 14).translate(0, -1, 0), mats.lacquer("#e98aa8")],
         [new CylinderGeometry(SACK_WIDTH / 2, SACK_WIDTH / 2, 2, 14).translate(0, CRATE_HEIGHT / 2 - 1, 0), mats.lacquer("#f6f3ec")],
@@ -1050,6 +1064,13 @@ export class DepotView {
         b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(12, 12, 9), d.t, d.l, PAD_H + 28));
         for (const [dt, dl, dy] of [[8, -6, 30], [-6, 8, 26], [2, -10, 22]] as const) b.add(mats.lacquer("#c8442f"), place(new SphereGeometry(2.4, 8, 6), d.t + dt, d.l + dl, PAD_H + dy));
       }
+      return;
+    }
+    if (role === "brickworks") {
+      // A brick shed with a tall banded chimney.
+      b.add(mats.lacquer("#9a4f3a"), place(new RoundedBoxGeometry(60, 30, 36, 2, 3), 160, 88, PAD_H + 15));
+      b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(66, 5, 42, 1, 2), 160, 88, PAD_H + 32));
+      b.add(mats.lacquer("#7a3f30"), place(new CylinderGeometry(4.5, 5.5, 70, 12), 182, 100, PAD_H + 35));
       return;
     }
     if (role === "icecream") {

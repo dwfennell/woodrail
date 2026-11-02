@@ -73,7 +73,7 @@ export function housesBy(level: number): number {
 }
 
 /** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
-export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13, icecream: 20 };
+export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13, icecream: 20, bricks: 12 };
 
 /**
  * Everyday food a town always wants (the dairy chain, the orchard, the juice works, the creamery and the ice cream factory): it takes all a train brings
@@ -86,7 +86,7 @@ export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit", 
  * Goods a town always buys at the full price, at any level, and never needs to grow: everyday food, and building goods
  * (bricks). The town card's "Always buys …" line, the News's first-of-a-good milestone and pay read this.
  */
-export const FULL_PAY: ReadonlySet<CargoKind> = new Set([...FOODS]);
+export const FULL_PAY: ReadonlySet<CargoKind> = new Set([...FOODS, "bricks"]);
 
 /** Goods a town always takes (and pays for), wanted for growth or not: made goods (treats) and the full-pay goods. */
 export const LUXURIES: ReadonlySet<CargoKind> = new Set(["furniture", "tools", ...FULL_PAY]);

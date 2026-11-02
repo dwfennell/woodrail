@@ -45,6 +45,7 @@ export const PILE_TAG: Record<CargoKind, string> = {
   juice: "#e6b52c",
   cheese: "#e2a12b",
   icecream: "#e98aa8",
+  bricks: "#b5532f",
 };
 
 const PAD = { t: 108, l: 72, w: 196, d: 84 };

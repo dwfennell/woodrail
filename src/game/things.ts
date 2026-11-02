@@ -77,6 +77,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-juicer": { label: "Juice works", cost: { planks: 8 }, coins: 200, tech: "juice" },
   "piece:depot-creamery": { label: "Creamery", cost: { planks: 10 }, coins: 240, tech: "creamery" },
   "piece:depot-icecream": { label: "Ice cream factory", cost: { planks: 12 }, coins: 360, tech: "ice-cream" },
+  "piece:depot-brickworks": { label: "Brickworks", cost: { planks: 10 }, coins: 320, tech: "brickworks" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 15 }, coins: 480, tech: "foundry" },

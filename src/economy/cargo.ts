@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -29,6 +29,8 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   cheese: { index: 14, label: "Cheese" },
   // Ice cream from an ice cream factory, of milk and fruit: tubs, in cold vans only.
   icecream: { index: 15, label: "Ice cream" },
+  // Bricks from a brickworks, fired of stone and coal: stacks on flatbeds.
+  bricks: { index: 16, label: "Bricks" },
 };
 
 /**
@@ -58,6 +60,7 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   juice: "🧃",
   cheese: "🧀",
   icecream: "🍦",
+  bricks: "🧱",
 };
 
 /** Coins, beside goods in a cost. */
@@ -65,8 +68,8 @@ export const COIN_ICON = "🪙";
 
 /** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
 export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
-  // Timber wagons are flatbeds: logs, planks, iron bars and crates of fruit.
-  timber: ["log", "planks", "iron", "fruit"],
+  // Timber wagons are flatbeds: logs, planks, iron bars, crates of fruit and stacks of bricks.
+  timber: ["log", "planks", "iron", "fruit", "bricks"],
   hopper: ["grain", "stone", "coal", "ore"],
   // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles, cheeses). Milk goes in a tank wagon.
   van: ["flour", "furniture", "tools", "bread", "juice", "cheese"],

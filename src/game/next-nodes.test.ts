@@ -155,3 +155,24 @@ describe("Ice cream factory", () => {
     expect(noColdVan.got("icecream")).toBe(0);
   }, 120_000);
 });
+
+describe("Brickworks", () => {
+  it("is built: tier 3 after Quarries and Mines, stone and coal fired into bricks", () => {
+    expect(bp("brickworks").plan).toBeUndefined();
+    expect(bp("brickworks")).toMatchObject({ needs: ["quarries", "mines"], tier: 3, research: { goods: { planks: 12 }, coins: 180 } });
+    expect(THING_RULES["piece:depot-brickworks"]).toMatchObject({ tech: "brickworks", coins: 320 });
+    expect(RECIPES.brickworks).toMatchObject({ takes: ["stone", "coal"], gives: ["bricks"], cycle: { uses: { stone: 1, coal: 1 }, makes: { bricks: 1 } } });
+    expect(CAR_KINDS.filter((k) => canCarry(k, "bricks"))).toEqual(["timber"]);
+    // Bricks aren't food, but towns buy them the same way, and the card says so once learned.
+    expect(FULL_PAY.has("bricks")).toBe(true);
+    expect(buysText(new Set(["brickworks"]))).toBe("Always buys 🧱 bricks at full pay");
+  });
+
+  it("(stone + coal) → bricks: hoppers bring both from a quarry and a mine, flatbeds take the bricks to town", () => {
+    const { closed, run, economy, got } = loop(["depot-quarry", "depot-mine", "depot-brickworks"], ["engine", "hopper", "hopper", "timber"]);
+    expect(closed).toBe(true);
+    run(20);
+    expect(economy.made[CARGO.bricks.index]).toBeGreaterThan(0);
+    expect(got("bricks")).toBeGreaterThan(0);
+  }, 120_000);
+});
