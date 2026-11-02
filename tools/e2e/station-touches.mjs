@@ -92,12 +92,19 @@ const findButton = () =>
     const r = el.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2, text: el.textContent.trim() };
   });
-await findButton();
-await p.waitForTimeout(400);
-const button = await findButton();
+// (The card may still be settling as it opens: tapped again, up to three times, until the station is upgraded.)
+let button = null;
+for (let k = 0; k < 3; k++) {
+  await findButton();
+  await p.waitForTimeout(600);
+  const at = await findButton();
+  button ??= at;
+  if (!at) break;
+  await p.touchscreen.tap(at.x, at.y);
+  await p.waitForTimeout(1500);
+  if (await p.evaluate((townId) => window.woodrail.world.layout.getPiece(window.woodrail.world.stations.get(townId)).type !== "station", townId)) break;
+}
 check("the town card offers the upgrade", !!button, JSON.stringify(button));
-if (button) await p.touchscreen.tap(button.x, button.y);
-await p.waitForTimeout(1500);
 await p.keyboard.press("Escape");
 const station = await p.evaluate((townId) => {
   const w = window.woodrail;
@@ -108,6 +115,11 @@ check("the station is a two-platform station now", station.type === "kit-two-pla
 await p.waitForTimeout(500);
 let s = await state();
 check("…with a guard and a departure board on it", s.bigs.some((x) => x.pieceId === station.id), JSON.stringify(s.bigs));
+if (!s.bigs.some((x) => x.pieceId === station.id)) {
+  await b.close();
+  await server.close();
+  process.exit(1);
+}
 const board0 = s.bigs.find((x) => x.pieceId === station.id);
 
 // 3. A coach train on a line between the two stations (as the engine card makes one), heading for the upgraded one.
