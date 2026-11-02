@@ -10,6 +10,7 @@ import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone } from "../routing/via";
+import { RoadVehicles } from "../roads/vehicles";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -404,6 +405,18 @@ export class Economy {
   readonly roadGot = new Map<number, Bag>();
   /** Is this town joined by road to another now (Game mode's towns: `TownLife`; null: never)? Asked per delivery. */
   joinedByRoad: ((townId: number) => boolean) | null = null;
+  /**
+   * Station depot id → goods in its yard for its delivery van (roads spec D5), those riding the van counted too until
+   * they're handed over. Saved (`vanYard`).
+   */
+  readonly vanYard = new Map<number, Bag>();
+  /**
+   * Does this unit, landing at a town's station, go on the van yard (for a town off the line) rather than to the town
+   * (Game mode: `TownLife`, with `DeliveryVans`; null: never)? Asked per unit as the crane lands it.
+   */
+  toVan: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
+  /** A unit went on a station's van yard (the van loads up and goes). */
+  onVanYard: ((d: DepotState) => void) | null = null;
   private readonly services = new Map<number, Service>();
   /** Each stop list's `Later`s (see `laterOf`), and the counters they're keyed on. */
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
@@ -425,6 +438,11 @@ export class Economy {
   private stationDrained: StationEvent[] = [];
   /** Trains stopping at kit pieces' stops (a platform's dwell: see `KitStops`). */
   readonly kitStops: KitStops;
+  /**
+   * Road vehicles (roads spec §3: vans and buses), ticked here with the trains' work so a headless run moves them too.
+   * Nothing at all while they're all parked.
+   */
+  readonly roadVehicles = new RoadVehicles();
 
   constructor(
     readonly layout: Layout,
@@ -1137,6 +1155,15 @@ export class Economy {
   private put(slot: CargoSlot, kind: CargoKind): void {
     if (slot.kind === "pile") {
       const d = this.depots[slot.depotId];
+      // Goods for a station's delivery van (roads spec D5): onto its yard, for a town off the line (not this one).
+      if (d.role === "town" && this.toVan?.(d, kind)) {
+        const yard = this.vanYard.get(d.id) ?? {};
+        yard[kind] = (yard[kind] ?? 0) + 1;
+        this.vanYard.set(d.id, yard);
+        this.wantsStamp++;
+        this.onVanYard?.(d);
+        return;
+      }
       if (RECIPES[d.role].sink) {
         if (this.intoSink) {
           this.intoSink(d, kind);
@@ -1150,19 +1177,30 @@ export class Economy {
       d.piles[CARGO[kind].index] = Math.min(capAt(d), d.piles[CARGO[kind].index] + 1);
       // Less is owed now: what routed lines plan to bring here may have changed.
       if (RECIPES[d.role].owed?.includes(kind)) this.wantsStamp++;
-      if (d.role === "town" && kind === "planks") this.delivered.set(d.townId, (this.delivered.get(d.townId) ?? 0) + 1);
-      if (d.role === "town") {
-        this.wantsStamp++;
-        const got = this.deliveredGoods.get(d.townId) ?? {};
-        got[kind] = (got[kind] ?? 0) + 1;
-        this.deliveredGoods.set(d.townId, got);
-        if (this.joinedByRoad?.(d.townId)) {
-          const road = this.roadGot.get(d.townId) ?? {};
-          road[kind] = (road[kind] ?? 0) + 1;
-          this.roadGot.set(d.townId, road);
-        }
-      }
+      if (d.role === "town") this.receive(d.townId, kind);
     } else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count + 1);
+  }
+
+  /**
+   * A unit of `kind` reaches town `townId` (by train at its station, or by van): counted toward its growth, and (joined
+   * by road to another town) toward its road's bonus.
+   */
+  receive(townId: number, kind: CargoKind): void {
+    if (kind === "planks") this.delivered.set(townId, (this.delivered.get(townId) ?? 0) + 1);
+    this.wantsStamp++;
+    const got = this.deliveredGoods.get(townId) ?? {};
+    got[kind] = (got[kind] ?? 0) + 1;
+    this.deliveredGoods.set(townId, got);
+    if (this.joinedByRoad?.(townId)) {
+      const road = this.roadGot.get(townId) ?? {};
+      road[kind] = (road[kind] ?? 0) + 1;
+      this.roadGot.set(townId, road);
+    }
+  }
+
+  /** How many of each good wait in station `depotId`'s van yard (or ride its van), as a bag (empty: none). */
+  vanGoods(depotId: number): Bag {
+    return this.vanYard.get(depotId) ?? {};
   }
 
   /** Unload one unit from a car onto a depot's input pile (crane work). */
@@ -2120,6 +2158,7 @@ export class Economy {
     this.stalls.tick();
     // (The invariants, where they're on: they only read.)
     this.checker?.check();
+    this.roadVehicles.tick(SIM_DT);
     // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
     for (const d of this.allDepots()) {
       if (!this.working(d)) {

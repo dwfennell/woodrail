@@ -59,6 +59,8 @@ const keyOf = (c: StyledCrossing) =>
 export class CrossingsView {
   readonly group = new Group();
   private crossings: Crossing[] = [];
+  /** Road square → its crossing (road vehicles ask `shutAt`). */
+  private bySquare = new Map<number, Crossing>();
   private readonly post: BufferGeometry;
   private readonly lamp: BufferGeometry;
   private readonly base: BufferGeometry;
@@ -131,6 +133,18 @@ export class CrossingsView {
     }
     for (const gone of had.values()) for (const post of gone.posts) this.group.remove(post);
     this.crossings = next;
+    this.bySquare = new Map();
+    for (const x of next) for (const i of x.c.squares) this.bySquare.set(i, x);
+  }
+
+  /**
+   * Is the crossing on road square `i` shut to road traffic: a train near (its barriers coming down), or any barrier
+   * not yet back up? The same answer the barriers show (road vehicles wait at its edge while it's true). False for a
+   * square that's no crossing's.
+   */
+  shutAt(i: number): boolean {
+    const x = this.bySquare.get(i);
+    return !!x && (x.near || x.barriers.some((b) => b.angle !== b.open));
   }
 
   /** The crossing prop (its id) whose style a raycast hit, or −1 (an unstyled crossing's posts, or anything else). */
@@ -280,6 +294,7 @@ export class CrossingsView {
   private clear(): void {
     this.group.clear();
     this.crossings = [];
+    this.bySquare.clear();
   }
 
   dispose(): void {

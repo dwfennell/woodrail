@@ -703,6 +703,377 @@ if (route && route.path.length <= 60) {
   check("N5 nine planks delivered to the joined town count as ten toward its growth", growth.after.got - growth.before.got === 9 && growth.after.growth - growth.before.growth === 10, JSON.stringify(growth));
 }
 
+// ---- V: a van that only drives (roads spec step 4) -------------------------------------------------------------------
+// The vehicle layer on the road just laid between the two towns. Setup shortcuts (named): in step 4 nothing in play
+// sends a van yet (D5 does), so the show van is sent by `vans.drive`; the game is ticked ahead in `evaluate` where only
+// the trip's end matters (software drawing runs the game slowly: the sim is capped at 0.1 s a frame).
+if (route && route.path.length <= 60) {
+  const ahead = (seconds) => p.evaluate((n) => { const w = window.woodrail; for (let k = 0; k < n; k++) { w.sim.tick(); w.economy.tick(); } }, Math.round(seconds * 120));
+  const van = () => p.evaluate(() => { const w = window.woodrail; const v = w.economy.roadVehicles.list[0]; return v ? { leg: v.leg, sq: w.landscape.grid.cellAtWorld(v.x, v.z), x: v.x, z: v.z, t: v.t } : null; });
+  const sent = await p.evaluate(({ a, b }) => window.woodrail.vans.drive(a, b), route);
+  const home = await p.evaluate((a) => window.woodrail.vans.homeOf(a), route.a);
+  // Drawn while it drives in view (frames come from the van alone: no train runs).
+  await p.evaluate(() => { const w = window.woodrail; const v = w.economy.roadVehicles.list[0]; const V = w.camera.position.constructor; w.director.focus(new V(v.x, v.y, v.z), 260); });
+  await settle().catch(() => {});
+  // (Up to 30 s for it to move and be drawn: software drawing manages about a frame a second here.)
+  const drawn = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const v = w.economy.roadVehicles.list[0];
+    const f = w.framesDrawn;
+    const t = v.t;
+    for (let k = 0; k < 300 && !(w.framesDrawn > f && v.t > t); k++) await new Promise((r) => setTimeout(r, 100));
+    return { frames: w.framesDrawn - f, moved: v.t - t, leg: v.leg };
+  });
+  // (The scene had settled: any frame drawn is the van's.)
+  check("V1 a van sent from the station drives out along the road, drawn as it goes", sent && drawn.frames >= 1 && drawn.moved > 0, `${JSON.stringify(drawn)}, sent ${sent}`);
+  await shot("V-van-driving");
+  // The payoff: it gets to the other town's streets, and back home, where it parks.
+  const there = await p.evaluate(({ b }) => {
+    const w = window.woodrail;
+    const v = w.economy.roadVehicles.list[0];
+    const cells = new Set(w.landscape.towns.find((t) => t.id === b).cells);
+    for (let k = 0; k < 120 * 120 && v.leg === "out"; k++) { w.sim.tick(); w.economy.tick(); }
+    return { leg: v.leg, inTown: cells.has(w.landscape.grid.cellAtWorld(v.x, v.z)) };
+  }, route);
+  await ahead(60);
+  const back = await van();
+  check(`V2 it reaches ${route.bName}'s streets, comes back and parks by the station`, there.leg === "there" && there.inTown && back.leg === "home" && back.sq === home, `${JSON.stringify(there)} → ${JSON.stringify(back)} (home ${home})`);
+  // Parked: a still instance, no frames.
+  await p.evaluate(() => Promise.race([window.woodrail.settled(30), new Promise((r) => setTimeout(r, 60000))]));
+  const idle = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const n = w.framesDrawn;
+    await new Promise((res) => setTimeout(res, 5000));
+    return w.framesDrawn - n;
+  });
+  check("V3 with the van parked, an idle scene draws (next to) no frames", idle <= 1, `${idle} frames drawn in 5 s`);
+  // Measured on a 360×740 phone view: eight vans on the move (seven more sent the same way: a measuring shortcut).
+  await p.setViewportSize({ width: 360, height: 740 });
+  await settle().catch(() => {});
+  const measured = await p.evaluate(async ({ a, b }) => {
+    const w = window.woodrail;
+    const rv = w.economy.roadVehicles;
+    const vans = w.vans;
+    const home = vans.homeOf(a);
+    const cells = new Set(w.landscape.towns.find((t) => t.id === b).cells);
+    const G = w.landscape.grid;
+    const extra = [];
+    vans.drive(a, b);
+    for (let k = 0; k < 7; k++) {
+      for (let j = 0; j < 40; j++) w.economy.tick();
+      const v = vans.park("van", home);
+      extra.push(v);
+      vans.send(v, { home, goalKey: `town${b}`, goal: (i) => cells.has(i) && G.surface[i] === 2, reach: 64, to: -1 });
+    }
+    const first = rv.list[0];
+    const V = w.camera.position.constructor;
+    w.director.focus(new V(first.x, first.y, first.z), 500);
+    await new Promise((r) => setTimeout(r, 1500));
+    let viewMs = 0;
+    let tickMs = 0;
+    let ticks = 0;
+    const view = w.roadVehiclesView;
+    const upd = view.update;
+    view.update = function (...args) { const t0 = performance.now(); const r = upd.apply(this, args); viewMs += performance.now() - t0; return r; };
+    const tick = rv.tick;
+    rv.tick = function (dt) { const t0 = performance.now(); tick.call(this, dt); tickMs += performance.now() - t0; ticks++; };
+    const f0 = w.framesDrawn;
+    const t0 = performance.now();
+    await new Promise((r) => setTimeout(r, 5000));
+    const frames = w.framesDrawn - f0;
+    const ms = performance.now() - t0;
+    const out = { moving: rv.moving, frames, msPerFrame: +(ms / Math.max(1, frames)).toFixed(1), vehiclesMsPerFrame: +((viewMs + tickMs) / Math.max(1, frames)).toFixed(3), tickUs: +((tickMs * 1000) / Math.max(1, ticks)).toFixed(2), drawCalls: view.drawCalls, shadowsCast: view.group.children.some((m) => m.castShadow) };
+    delete view.update;
+    delete rv.tick;
+    for (const v of extra) rv.remove(v);
+    return out;
+  }, route);
+  console.log(`(measured, 360×740, software drawing: ${JSON.stringify(measured)})`);
+  check("V4 eight vans moving: a few draw calls in all, no shadow casters, under a millisecond a frame for the vehicles", measured.moving === 8 && measured.drawCalls <= 6 && !measured.shadowsCast && measured.vehiclesMsPerFrame < 1, JSON.stringify(measured));
+  await shot("V-eight-vans-phone");
+  await p.setViewportSize({ width: 1200, height: 800 });
+  await ahead(90);
+  // A road taken up ahead of it (the player's path: Undo takes back the last square laid, the one beside Elderwick's
+  // street, with the game paused for it): it turns back and comes home. Redo lays it again.
+  await p.evaluate(({ a, b }) => window.woodrail.vans.drive(a, b), route);
+  await ahead(1);
+  const cut = route.path[route.path.length - 1];
+  await p.evaluate(() => {
+    window.woodrail.paused = true;
+    window.woodrail.interaction.undo();
+  });
+  await until((i) => T.g().road[i] === 0, cut);
+  const cutDone = await road(cut);
+  // (Unpaused, a tick at a time: the leg it takes once the edit is seen.)
+  const turned = await p.evaluate(() => {
+    const w = window.woodrail;
+    w.paused = false;
+    const v = w.economy.roadVehicles.list[0];
+    for (let k = 0; k < 120 && v.leg === "out"; k++) {
+      w.sim.tick();
+      w.economy.tick();
+    }
+    return { leg: v.leg, sq: w.landscape.grid.cellAtWorld(v.x, v.z), t: v.t };
+  });
+  await ahead(60);
+  const home2 = await van();
+  check("V5 the road ahead taken up mid-trip (Undo): the van turns back and comes home", cutDone === 0 && turned.leg === "back" && home2.leg === "home" && home2.sq === home, `cut ${cutDone}, ${JSON.stringify(turned)} → ${JSON.stringify(home2)}`);
+  await p.evaluate(() => window.woodrail.interaction.redo());
+  await until((i) => T.g().road[i] !== 0, cut);
+  check("V6 Redo lays it again: the towns are joined", (await road(cut)) !== 0 && (await p.evaluate(async ({ a, b }) => (await import("/src/roads/graph.ts")).townLinks(window.woodrail.landscape).get(a)?.includes(b), route)));
+}
+
+// ---- W: delivery vans (roads spec D5) ---------------------------------------------------------------------------------
+// The player's path for what's tested: Delivery vans learned, the station put on the line, a train's wagons unloaded at
+// it by the crane, the van taking the share for the town off the line there, and that town receiving it and growing.
+// Setup shortcuts (named, not what's tested): the blueprint learned through the game's own `learn` (the study skipped);
+// the step-4 show van taken away; the track to the forest laid by the player's own pathfinder (`play`, as the warehouse
+// e2e does); a train of planks put down by the station as the tray would, its wagons loaded as the sawmill's crane
+// loads them; the game ticked ahead in `evaluate` (software drawing is slow).
+if (route && route.path.length <= 60) {
+  const vanState = () => p.evaluate((a) => {
+    const w = window.woodrail;
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === a);
+    const v = w.economy.roadVehicles.list.find((x) => x.data?.depotId === d.id);
+    return { vans: w.economy.roadVehicles.list.length, leg: v?.leg ?? null, yard: w.economy.vanYard.get(d.id) ?? null, depot: d.id };
+  }, route.a);
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.economy.roadVehicles.clear();
+    w.learn("warehouses");
+    w.learn("vans");
+  });
+  // A second for the once-a-second update to look.
+  await p.waitForTimeout(1500);
+  const before = await vanState();
+  check(`W1 Delivery vans learned, but ${route.aName}'s station isn't on the line yet: no van`, before.vans === 0, JSON.stringify(before));
+  const laid = await p.evaluate(async (a) => {
+    const { play } = await import("/src/play/player.ts");
+    const { rulesFor } = await import("/src/play/rules.ts");
+    const { connectorRef } = await import("/src/track/layout.ts");
+    const w = window.woodrail;
+    const station = w.world.stations.get(a);
+    const forest = [...w.world.depots.values()].find((id) => w.layout.getPiece(id)?.type === "depot-forest");
+    for (const [i, j] of [[1, 0], [1, 1], [0, 0], [0, 1]]) {
+      const r = play(w.world.layout, w.editor(), connectorRef(station, i), connectorRef(forest, j), { blocked: rulesFor(w.world), maxPieces: 80, fiddle: 3 });
+      if (r.ok) return { ok: true, end: i };
+    }
+    return { ok: false };
+  }, route.a);
+  await until((a) => {
+    const w = window.woodrail;
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === a);
+    return w.economy.roadVehicles.list.some((x) => x.data?.depotId === d.id);
+  }, route.a);
+  const parked = await vanState();
+  check(`W2 its station on the line, a van parks by it (for ${route.bName}, off the line)`, laid.ok && parked.vans === 1 && parked.leg === "home", `${JSON.stringify(laid)} ${JSON.stringify(parked)}`);
+  await p.evaluate((id) => window.woodrail.interaction.openDepotCard(id), parked.depot);
+  await until((n) => [...document.querySelectorAll(".ledger-rows")].some((r) => r.textContent.includes(`Van to ${n}`)), route.bName);
+  const vanCard = await p.evaluate(() => [...document.querySelectorAll(".ledger-rows")].map((r) => r.textContent).join(" | "));
+  check(`W3 the station's card says "Van to ${route.bName} (off the line)"`, vanCard.includes(`Van to ${route.bName} (off the line)`), vanCard);
+  await p.keyboard.press("Escape");
+  // A train of planks stops at the station; the crane unloads it.
+  const fed = await p.evaluate(async ({ a, b, end }) => {
+    const { growthOf, receivedBy } = await import("/src/game/town-life.ts");
+    const { townStatus } = await import("/src/game/towns.ts");
+    const w = window.woodrail;
+    const station = w.world.stations.get(a);
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === a);
+    const lacks = (t) => { const s = townStatus(growthOf(w.world, t)); return { level: s.level, planks: (s.wants.planks ?? 0) - (s.got.planks ?? 0) }; };
+    const b0 = { ...lacks(b), got: receivedBy(w.world, b).planks ?? 0 };
+    let engine = -1;
+    for (const reversed of [false, true]) {
+      for (const s of [0, 20, 40, 60, 80]) {
+        const r = w.sim.addTrain(["engine", "timber", "timber", "timber"], { pieceId: station, pathIndex: 0, reversed, s });
+        if (r.kind !== "placed") continue;
+        const t = w.sim.getTrain(r.trainId);
+        for (const c of t.cars.slice(1)) w.economy.setCargo(c.id, "planks", 3);
+        engine = t.cars[0].id;
+        break;
+      }
+      if (engine !== -1) break;
+    }
+    // Off toward the forest: it passes the crane.
+    w.sim.setLever(engine, 1);
+    let left = 0;
+    const out = { unloaded: 0, vanLeft: false };
+    for (let k = 0; k < 120 * 90; k++) {
+      w.sim.tick();
+      w.economy.tick();
+      for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === d.id) out.unloaded++;
+      const v = w.economy.roadVehicles.list[0];
+      if (v && v.leg === "out") out.vanLeft = true;
+      if (out.vanLeft && v.leg === "home") break;
+    }
+    w.invalidate();
+    return { b0, engine, ...out, yard: w.economy.vanYard.get(d.id) ?? null };
+  }, { a: route.a, b: route.b, end: laid.end });
+  check(`W4 a train's planks unloaded at ${route.aName}: the van loads its share and drives off`, fed.unloaded > 0 && fed.vanLeft, JSON.stringify(fed));
+  await p.waitForTimeout(1500);
+  const after = await p.evaluate(async (b) => {
+    const { growthOf, receivedBy } = await import("/src/game/town-life.ts");
+    const { townStatus } = await import("/src/game/towns.ts");
+    const w = window.woodrail;
+    const s = townStatus(growthOf(w.world, b));
+    return { level: s.level, got: receivedBy(w.world, b).planks ?? 0, coins: w.progress().coins };
+  }, route.b);
+  const got = after.got - fed.b0.got;
+  check(`W5 ${route.bName}, off the line, receives the planks by van${fed.b0.planks <= got ? " and grows" : ""}`, got > 0 && got <= 8 && (fed.b0.planks > got || after.level > fed.b0.level), `${got} planks; level ${fed.b0.level} → ${after.level} (it lacked ${fed.b0.planks})`);
+  await shot("W-van-delivered");
+  await p.evaluate((b) => {
+    const w = window.woodrail;
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === b);
+    w.interaction.openDepotCard(d.id);
+  }, route.b);
+  await until((n) => [...document.querySelectorAll(".ledger-rows")].some((r) => r.textContent.includes(`Goods by van from ${n}`)), route.aName);
+  const bCard = await p.evaluate(() => [...document.querySelectorAll(".ledger-rows")].map((r) => r.textContent).join(" | "));
+  check(`W6 ${route.bName}'s card says "Goods by van from ${route.aName}"`, bCard.includes(`Goods by van from ${route.aName}`), bCard);
+  await p.keyboard.press("Escape");
+}
+
+// ---- X: buses (roads spec D6) -----------------------------------------------------------------------------------------
+// The player's path for what's tested: Buses learned, the bus stop dragged from the tray beside the station on the line,
+// the bus fetching the people waiting in the town off the line, and them waiting at the station for a train. Setup
+// shortcuts (named): Halts and Buses learned through `learn` (the study skipped); people turned up at the stations as the
+// once-a-second update has them (`peopleArrive` run for a minute's worth); the station's own people taken (as a coach
+// boards them) so there's room; the game ticked ahead in `evaluate`.
+if (route && route.path.length <= 60) {
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.learn("halts");
+    w.learn("buses");
+  });
+  // (The Industries tab shows its shelves as folders: the Lineside one opened, as a tap does.)
+  // (Pressed with the pointer, scrolled into view first: the Lineside shelf is the last on the tab, as kits-game does.)
+  const press = async (selector, text) => {
+    const at = await p.evaluate(
+      ({ selector, text }) => {
+        const el = [...document.querySelectorAll(selector)].find((e) => e.textContent.trim().startsWith(text) && e.getBoundingClientRect().width > 0);
+        if (!el) return null;
+        el.scrollIntoView({ inline: "center" });
+        const r = el.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      },
+      { selector, text },
+    );
+    if (at) await p.mouse.click(at.x, at.y);
+    return !!at;
+  };
+  const openLineside = async () => {
+    await p.evaluate(() => document.querySelector('.tab[data-tab="industries"]')?.click());
+    await p.locator(".tray-item.tray-group", { hasText: "Lineside" }).first().waitFor({ state: "attached", timeout: 20000 }).catch(() => {});
+    await press(".tray-item.tray-group", "Lineside");
+    await p.locator(".tray-item", { hasText: "Bus stop" }).first().waitFor({ state: "visible", timeout: 20000 }).catch(() => {});
+    await p.evaluate(() => [...document.querySelectorAll(".tray-item")].find((b) => b.textContent.includes("Bus stop"))?.scrollIntoView({ inline: "center" }));
+  };
+  // (W's Elderwick grew: its "grew! Pick one" sheet is up over the tray. Closed with its ✕, as a player does: the offer
+  // waits with a badge.)
+  const sheetClose = await p.evaluate(() => {
+    const b = document.querySelector(".growth-sheet:not([hidden]) .close");
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+  });
+  if (sheetClose) {
+    await p.mouse.click(sheetClose.x, sheetClose.y);
+    await p.waitForFunction(() => document.querySelector(".growth-sheet")?.hidden !== false, null, { timeout: 10000 }).catch(() => {});
+  }
+  await openLineside();
+  const shelf = await p.evaluate(() => [...document.querySelectorAll(".tray-item")].some((b) => b.offsetParent && b.textContent.includes("Bus stop")));
+  check("X1 Buses learned: the bus stop is on the Industries tab's Lineside shelf", shelf);
+  // Squares beside the station, nearest first, open grass (the prop's own rules say where it may go).
+  const spots = await p.evaluate((a) => {
+    const w = window.woodrail;
+    const G = T.g();
+    const pose = w.layout.getPiece(w.world.stations.get(a)).pose;
+    const out = [];
+    for (let i = 0; i < G.cellCount; i++) {
+      const d = Math.hypot(G.centreX(G.colOf(i)) - pose.x, G.centreZ(G.rowOf(i)) - pose.z);
+      if (d < 220 && G.surface[i] === 0 && G.feature[i] === 0 && G.road[i] === 0) out.push([d, i]);
+    }
+    return out.sort((x, y) => x[0] - y[0]).map((x) => x[1]).slice(0, 6);
+  }, route.a);
+  const propsNow = () => p.evaluate(() => [...window.woodrail.props.all()].filter((q) => q.asset === "scene-bus-stop").length);
+  let placed = false;
+  for (const i of spots) {
+    const n0 = await propsNow();
+    await focusOn(i, 600);
+    if (!(await p.evaluate(() => [...document.querySelectorAll(".tray-item")].some((b) => b.offsetParent && b.textContent.includes("Bus stop"))))) await openLineside();
+    const btn = p.locator(".tray-item", { hasText: "Bus stop" }).first();
+    const box = await btn.boundingBox({ timeout: 20000 }).catch(() => null);
+    if (!box) break;
+    const sx = box.x + box.width / 2;
+    const sy = box.y + box.height / 2;
+    // (As `trayDrag`: lifted off the tray, in hand, carried over, aimed again, let go.)
+    await p.mouse.move(sx, sy);
+    await p.mouse.down();
+    for (let k = 1; k <= 4; k++) {
+      await p.mouse.move(sx, sy - 20 * k);
+      await frame();
+    }
+    await until(() => window.woodrail.interaction.mode.kind.startsWith("drag"));
+    const [x, y] = await p.evaluate((i) => T.screen(i), i);
+    for (let k = 1; k <= 10; k++) {
+      await p.mouse.move(sx + ((x - sx) * k) / 10, sy - 80 + ((y - sy + 80) * k) / 10);
+      await frame();
+    }
+    for (let k = 0; k < 2; k++) {
+      await frame();
+      const [ax, ay] = await p.evaluate((i) => T.screen(i), i);
+      await p.mouse.move(ax, ay);
+      await frame();
+    }
+    await p.mouse.up();
+    await until((n0) => [...window.woodrail.props.all()].filter((q) => q.asset === "scene-bus-stop").length > n0, n0);
+    if ((await propsNow()) > n0) {
+      placed = true;
+      break;
+    }
+  }
+  await until((a) => {
+    const w = window.woodrail;
+    return w.economy.roadVehicles.list.some((v) => v.kind === "bus");
+  }, route.a);
+  const bus0 = await p.evaluate(() => window.woodrail.economy.roadVehicles.list.filter((v) => v.kind === "bus").map((v) => v.leg));
+  check(`X2 the bus stop dropped beside ${route.aName}'s station: a bus parks there`, placed && bus0.length === 1, `placed ${placed}, buses ${JSON.stringify(bus0)}`);
+  await shot("X-bus-stop");
+  const ready = await p.evaluate(async ({ a, b }) => {
+    const { peopleArrive } = await import("/src/game/passengers.ts");
+    const w = window.woodrail;
+    const st = (t) => w.economy.allDepots().find((d) => d.role === "town" && d.townId === t && w.world.stations.get(t) === d.pieceId);
+    peopleArrive(w.world, w.progress(), 60, new Map());
+    st(a).waiting = 0;
+    return { far: st(b).waiting, home: st(a).waiting };
+  }, route);
+  // The bus looks once a second (with people arriving): it gets ready and goes.
+  await until(() => window.woodrail.economy.roadVehicles.list.some((v) => v.kind === "bus" && v.leg !== "home"));
+  const fetched = await p.evaluate(({ a, b }) => {
+    const w = window.woodrail;
+    const st = (t) => w.economy.allDepots().find((d) => d.role === "town" && d.townId === t && w.world.stations.get(t) === d.pieceId);
+    const bus = w.economy.roadVehicles.list.find((v) => v.kind === "bus");
+    let wasOut = false;
+    for (let k = 0; k < 120 * 60; k++) {
+      w.sim.tick();
+      w.economy.tick();
+      if (bus.leg === "out") wasOut = true;
+      if (wasOut && (bus.leg === "home" || bus.leg === "loading")) break;
+    }
+    w.invalidate();
+    return { wasOut, leg: bus.leg, far: st(b).waiting, home: st(a).waiting };
+  }, route);
+  check(`X3 the bus brings ${route.bName}'s waiting people to ${route.aName}'s station, to wait for a train`, ready.far > 0 && fetched.wasOut && fetched.home > ready.home && fetched.far < ready.far, `${JSON.stringify(ready)} → ${JSON.stringify(fetched)}`);
+  await shot("X-bus-back");
+  await p.evaluate((a) => {
+    const w = window.woodrail;
+    const d = w.economy.allDepots().find((x) => x.role === "town" && x.townId === a && w.world.stations.get(a) === x.pieceId);
+    w.interaction.openDepotCard(d.id);
+  }, route.a);
+  await until((n) => [...document.querySelectorAll(".ledger-rows")].some((r) => r.textContent.includes(`Bus from ${n}`)), route.bName);
+  const busCard = await p.evaluate(() => [...document.querySelectorAll(".ledger-rows")].map((r) => r.textContent).join(" | "));
+  check(`X4 the station's card says "Bus from ${route.bName}: brings people to your trains"`, busCard.includes(`Bus from ${route.bName}: brings people to your trains`), busCard);
+  await p.keyboard.press("Escape");
+}
+
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

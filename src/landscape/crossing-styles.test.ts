@@ -12,7 +12,7 @@ const gates = (x: number) => [
   { x: x - 44, z: 30, y: 0, dx: 1, dz: 0, ax: 0, az: -1 },
   { x: x + 44, z: -30, y: 0, dx: -1, dz: 0, ax: 0, az: 1 },
 ];
-const crossing = (x: number): LevelCrossing => ({ x, z: 0, y: 0, gates: gates(x) });
+const crossing = (x: number): LevelCrossing => ({ x, z: 0, y: 0, gates: gates(x), squares: [] });
 const prop = (id: number, asset: string, x: number, z = 0) => ({ id, asset, x, z });
 
 describe("crossing styles", () => {
@@ -52,7 +52,7 @@ describe("crossing styles", () => {
   });
 
   it("a crossing with nowhere for a barrier (track all round) takes no style", () => {
-    const r = styleCrossings([{ x: 0, z: 0, y: 0, gates: [] }], [prop(1, "mech-level-crossing", 0, 0)]);
+    const r = styleCrossings([{ x: 0, z: 0, y: 0, gates: [], squares: [] }], [prop(1, "mech-level-crossing", 0, 0)]);
     expect(r.crossings[0].style).toBeUndefined();
     expect(r.linked.size).toBe(0);
   });

@@ -246,6 +246,7 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
       furniture("mech-lever-frame", "Lever frame"),
       furniture("mech-level-crossing", "Level crossing"),
       furniture("mech-gated-crossing", "Gated crossing"),
+      furniture("scene-bus-stop", "Bus stop"),
     ],
   },
 ];

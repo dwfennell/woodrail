@@ -40,6 +40,10 @@ export interface TownLedger {
   station: { waiting: number; room: number; carried: number } | null;
   /** "Joined by road to Fernby" (roads spec D2: it grows faster), or null when no road joins it to another town. */
   road: string | null;
+  /** Its delivery van's line (roads spec D5: "Van to Fernby (off the line): 3 🪵 waiting", "Goods by van from Ashby"), or null. */
+  van: string | null;
+  /** Its bus's line (roads spec D6: "Bus from Fernby: brings people to your trains", "Bus to Ashby station"), or null. */
+  bus: string | null;
   /** The lines that call at the town, with how many trains run on each (once Train routes is learned). */
   lines: { id: number; name: string; colour: string; trains: number }[];
   /**
@@ -56,6 +60,10 @@ export interface LedgerContext {
   room: number | null;
   /** People carried by coach, all game. */
   carried: number;
+  /** A station's delivery van line, and a key that changes with it (roads spec D5: `DeliveryVans`); none: no vans. */
+  van?: { line(d: DepotState): string | null; key(d: DepotState): number };
+  /** The same for a station's bus (roads spec D6: `Buses`). */
+  bus?: { line(d: DepotState): string | null; key(d: DepotState): number };
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
@@ -125,6 +133,8 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     school,
     market: townLandmarks(town).has("market") ? MARKET_BONUS : 1,
     road: roadLine(world, town.id),
+    van: ctx.van?.line(d) ?? null,
+    bus: ctx.bus?.line(d) ?? null,
     station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried },
     lines,
     buys: buysText(ctx.learned),
@@ -170,6 +180,8 @@ export function ledgerKey(world: World, d: DepotState, ctx: LedgerContext): numb
   h = mix(h, ctx.room ?? -1);
   h = mix(h, ctx.carried);
   h = mix(h, d.waiting);
+  if (ctx.van) h = mix(h, ctx.van.key(d));
+  if (ctx.bus) h = mix(h, ctx.bus.key(d));
   for (const l of world.economy.lines.values()) {
     h = mix(h, l.id);
     h = mixText(h, l.name);
