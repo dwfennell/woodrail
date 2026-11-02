@@ -3606,7 +3606,9 @@ async function routeUx(ctx, p) {
     const scratch = new Layout();
     const o = S.oval(scratch);
     const ids = o.ids;
-    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    // (Well inside the view's bounds, 1.8 m: framing the route above a card that covers two thirds of the screen puts
+    // the view's target well below it, and the bounds clamp a target near their edge.)
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500, margin: 1800 });
     if (!g) throw new Error("no open ground for the oval");
     const types = { 0: "depot-forest", 7: "depot-sawmill", 9: "depot-forest" };
     const placed = w.editor().placeRun(ids.map((i, k) => {
@@ -3767,7 +3769,9 @@ async function routeUx(ctx, p) {
       const c = new w.camera.position.constructor(mids.reduce((a, q) => a + q.x, 0) / mids.length, 0, mids.reduce((a, q) => a + q.z, 0) / mids.length).project(w.camera);
       const room = w.director.roomOf?.();
       const cards = [...document.querySelectorAll(".hud .card, .hud .tray")].filter((e) => e.getBoundingClientRect().height > 0).map((e) => { const r = e.getBoundingClientRect(); return `${e.className.split(" ").slice(0, 2).join(".")}@${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`; });
-      return { following: w.following, distance: Math.round(w.camera.position.distanceTo(w.controls.target)), max: Math.round(w.controls.maxDistance), middleY: Math.round(((1 - c.y) / 2) * innerHeight), room: room && [room.left, room.top, room.right, room.bottom].map(Math.round), cards };
+      const b = w.director.bounds;
+      const t = w.controls.target;
+      return { atBounds: [t.x - b.x0, b.x1 - t.x, t.z - b.z0, b.z1 - t.z].map(Math.round), following: w.following, distance: Math.round(w.camera.position.distanceTo(w.controls.target)), max: Math.round(w.controls.maxDistance), middleY: Math.round(((1 - c.y) / 2) * innerHeight), room: room && [room.left, room.top, room.right, room.bottom].map(Math.round), cards };
     }, setup)),
   };
   if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ux-done.png` });
