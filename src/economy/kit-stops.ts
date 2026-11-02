@@ -49,6 +49,8 @@ export class KitStops {
   private readonly served = new Map<number, number>();
   /** Counts trains halting at stops (for whatever wants to see one halt: a kit's moving parts, see `Economy.halts`). */
   halts = 0;
+  /** A train halted at a kit's stop, or set off from it (its dwell over, or it left or went): see `Economy.stationEvents`. */
+  onStop: ((kind: "halted" | "left", pieceId: number, trainId: number) => void) | null = null;
 
   constructor(
     private readonly layout: Layout,
@@ -136,7 +138,10 @@ export class KitStops {
     if (v && v.pieceId !== lead.pieceId) {
       // Its front is off the kit it visited. Turned round while standing there (the lever reversed: a new front): the
       // stop's over.
-      if (v.phase === HALTED) v.phase = DONE;
+      if (v.phase === HALTED) {
+        v.phase = DONE;
+        this.onStop?.("left", v.pieceId, train.id);
+      }
       if (!this.on(train, v.pieceId)) {
         // Left it: it may stop there again next time.
         this.visits.delete(train.id);
@@ -154,6 +159,7 @@ export class KitStops {
     if (v.phase === DONE) return Infinity;
     // Turned round on the kit (its lever reversed): it runs on, the other way.
     if (lead.reversed !== v.reversed) {
+      if (v.phase === HALTED) this.onStop?.("left", v.pieceId, train.id);
       v.phase = DONE;
       return Infinity;
     }
@@ -170,6 +176,7 @@ export class KitStops {
       v.phase = HALTED;
       v.ticks = 0;
       this.halts++;
+      this.onStop?.("halted", v.pieceId, train.id);
       return 0;
     }
     return Math.min(Math.max(Math.sqrt(2 * BRAKING * ahead), CREEP), ahead / SIM_DT);
@@ -184,11 +191,13 @@ export class KitStops {
       const stop = piece ? kitOf(piece.type)?.stop : undefined;
       if (!train || train.derailed || !stop) {
         this.visits.delete(trainId);
+        this.onStop?.("left", v.pieceId, trainId);
         continue;
       }
       if (train.speed !== 0 || !this.driven(train)) continue;
       if (++v.ticks < ticks(stop.seconds)) continue;
       v.phase = DONE;
+      this.onStop?.("left", v.pieceId, trainId);
       // A service taken: its engines run through services for a while.
       if (stop.cooldown) for (const car of train.cars) if (car.kind === "engine") this.served.set(car.id, this.sim.ticks);
     }

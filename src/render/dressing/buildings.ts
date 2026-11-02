@@ -342,13 +342,22 @@ function stationStaff(town: Town): number {
 /** Most peg dolls a platform has room for. */
 export const MAX_WAITING_DOLLS = 12;
 
+/** Where a waiting peg doll stands on its town's platform (`t` along the station, `lateral` across), and how it looks. */
+export interface WaitingSpot {
+  readonly t: number;
+  readonly lateral: number;
+  readonly look: PegLook;
+}
+
+/** Height of a station's platform top, where its people stand. */
+export const PLATFORM_Y = 14;
+
 /**
- * Peg-doll passengers waiting on a town's platform: `count` of them (up to `MAX_WAITING_DOLLS`), or null for the usual
- * few (two to four, the town's own). Each town's dolls keep their places and coats as the number changes: the first
- * ones are always the same. `after(k)` is called once the first k have been added. Returns the usual number.
+ * Where a town's waiting peg dolls stand, and their coats: `count` of them (up to `MAX_WAITING_DOLLS`), or null for
+ * the usual few (two to four, the town's own). Each town's dolls keep their places and coats as the number changes:
+ * the first ones are always the same. `usual` is the usual number.
  */
-export function buildWaiting(town: Town, count: number | null, mats: Materials, b: Batcher, after?: (k: number) => void): number {
-  const place = stationPlace(town);
+export function waitingSpots(town: Town, count: number | null): { spots: WaitingSpot[]; usual: number } {
   const side = TRACK_WIDTH / 2;
   const r = rng(town.id * 97 + 11);
   // (The socket end of the platform is the goods corner: crane and plank pile.)
@@ -357,30 +366,63 @@ export function buildWaiting(town: Town, count: number | null, mats: Materials, 
   const more = [70, 82, 108, 132, 146, 186, 62];
   const usual = 2 + Math.floor(r() * 3);
   const n = Math.min(count ?? usual, MAX_WAITING_DOLLS);
-  after?.(0);
+  const out: WaitingSpot[] = [];
   for (let k = 0; k < n; k++) {
     const pool = spots.length > 0 ? spots : more;
     const t = pool.splice(Math.floor(r() * pool.length), 1)[0];
     // (An upgraded station's people wait on its kit's first platform, on the other side of the line.)
     const lateral = (side + 10 + r() * 8) * (town.upgraded ? -1 : 1);
-    pegDoll(b, mats, (g) => place(g, t, lateral, 14), r);
-    after?.(k + 1);
+    out.push({ t, lateral, look: pegLook(r) });
   }
+  return { spots: out, usual };
+}
+
+/** A point on a town's station (`t` along its track, `lateral` across), in the world: x, z. */
+export function stationPoint(town: Town, t: number, lateral: number): { x: number; z: number } {
+  const s = town.station;
+  const dx = Math.cos(s.heading);
+  const dz = Math.sin(s.heading);
+  return { x: s.x + dx * t - dz * lateral, z: s.z + dz * t + dx * lateral };
+}
+
+/**
+ * Peg-doll passengers waiting on a town's platform (see `waitingSpots`). `after(k)` is called once the first k have
+ * been added. Returns the usual number.
+ */
+export function buildWaiting(town: Town, count: number | null, mats: Materials, b: Batcher, after?: (k: number) => void): number {
+  const place = stationPlace(town);
+  const { spots, usual } = waitingSpots(town, count);
+  after?.(0);
+  spots.forEach((s, k) => {
+    addPart(b, mats, s.look.part, (g) => place(g, s.t, s.lateral, PLATFORM_Y), { coat: s.look.coat, hat: s.look.hat });
+    after?.(k + 1);
+  });
   return usual;
 }
 
 const PEG_COATS = ["#c8442f", "#2f6db5", "#3c8f4e", "#e6b52c", "#6b4a8f", "#e98aa8"];
 const PEG_HATS = ["#2a2b2e", "#7a3b26", "#c8442f", "#2f6db5"];
 
-/** A turned peg doll (about 18 mm tall): painted coat, bare beech head, and sometimes a hat. */
-export function pegDoll(b: Batcher, mats: Materials, place: (g: BufferGeometry) => BufferGeometry, r: () => number): void {
-  const coat = PEG_COATS[Math.floor(r() * PEG_COATS.length)];
-  const hatted = r() < 0.6;
-  // (The same draws from r in either case, so the waiting passengers keep their places.)
-  const hat = hatted ? PEG_HATS[Math.floor(r() * PEG_HATS.length)] : "";
-  addPart(b, mats, hatted ? "peg-doll-hat" : "peg-doll", place, { coat, hat });
+/** A peg doll's part and paint. */
+export interface PegLook {
+  readonly part: "peg-doll" | "peg-doll-hat";
+  readonly coat: string;
+  readonly hat: string;
 }
 
+/** A peg doll's look, drawn from `r`: a painted coat, and sometimes a hat. */
+export function pegLook(r: () => number): PegLook {
+  const coat = PEG_COATS[Math.floor(r() * PEG_COATS.length)];
+  const hatted = r() < 0.6;
+  const hat = hatted ? PEG_HATS[Math.floor(r() * PEG_HATS.length)] : "";
+  return { part: hatted ? "peg-doll-hat" : "peg-doll", coat, hat };
+}
+
+/** A turned peg doll (about 18 mm tall): painted coat, bare beech head, and sometimes a hat. */
+export function pegDoll(b: Batcher, mats: Materials, place: (g: BufferGeometry) => BufferGeometry, r: () => number): void {
+  const look = pegLook(r);
+  addPart(b, mats, look.part, place, { coat: look.coat, hat: look.hat });
+}
 
 /** Arched door outline (w × h, round top), authored facing +z with its back on z = 0. */
 function archedDoor(w: number, h: number, depth: number): BufferGeometry {

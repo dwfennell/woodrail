@@ -16,6 +16,7 @@ Out of scope: music, and any per-frame audio work while idle.
   - `ping()`: a sine with an inharmonic partial, used for coins and metal goods.
   - `vary()`: a ±6% pitch spread.
   - `saw`, `bell` and `whistle` build their own nodes.
+  - `guardWhistle(volume, pan)`: a station guard's soft pea-whistle trill (a 2.4 kHz sine warbled at 26 Hz, 0.45 s, gain 0.045) as a train sets off from a big station (`Game.onGuardFlag`). One per `GUARD_WHISTLE_GAP_MS` 1500; silent below volume 0.05. Not yet judged by ear.
 - **Placement:** `listen(x, z)` in `main.ts` returns `[volume, pan]`. Volume comes from distance to the camera's focus (`500/(d+150)`, capped at 1) and pan from screen x. UI sounds and tunes are centred.
 - **Rate limits:**
   - `Gate(ms)` lets one sound through per window: switch clunks at `SOFT_CLUNK_GAP_MS` 700, coins at `COIN_GAP_MS` 1500.
