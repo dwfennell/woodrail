@@ -1024,12 +1024,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A stop's plan under its name: what it picks up (⬆) and drops (⬇), icons only (a tap on the stop says it in words). */
 .route-chip.has-goods { display: inline-block; text-align: left; white-space: nowrap; height: auto; min-height: 44px; line-height: 1.2; padding-block: 4px; }
 .route-goods { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; }
-/* (Its ⬆ and ⬇ say what Only drop or Only pick up does: the chip's own arrow would sit on a line of its own.) */
-.route-chip.has-goods[data-intent]::after { content: none; }
 .route-chip.lost { opacity: 0.55; text-decoration: line-through; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
-.route-chip[data-intent="drop"]::after { content: " ↓"; opacity: 0.7; }
-.route-chip[data-intent="pick"]::after { content: " ↑"; opacity: 0.7; }
+/* Only drop or Only pick up, on the chip beside its name (audit F2: the chip looked the same as one that does both). */
+.route-intent { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 999px; font-size: 11.5px; font-weight: 800; line-height: 1.5; background: rgba(58, 42, 28, 0.12); color: #3a2a1c; vertical-align: 1px; }
+/* What a picked stop does: three choices side by side, the one it does pressed (green, as a toggle that's on). */
+.route-modes { display: flex; gap: 4px; }
+.route-modes .route-mode { flex: 1 1 0; min-width: 0; min-height: 44px; height: auto; padding: 4px 6px; white-space: normal; line-height: 1.15; font-size: 13px; text-align: center; }
+.route-modes .route-mode.on { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(20, 60, 20, 0.3); }
 /* A via point (passed, not stopped at): a lighter chip, "via" and the line's dot. */
 .route-chip.route-via { border-left: none; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 2px var(--line, #888); font-weight: 700; font-size: 13px; padding-inline: 8px; display: inline-flex; align-items: center; }
 .route-via-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--line, #888); box-shadow: inset 0 0 0 3px #fff, 0 0 0 1px var(--line, #888); }
@@ -1038,6 +1040,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }
 .route-tools .route-move, .route-tools .route-remove { min-width: 44px; min-height: 44px; }
+.route-tools .route-pass { margin-left: auto; }
 /* Planning a route: the map wants the room. The engine card slims to its route, and the tray goes. */
 .planning .engine-card .card-title, .planning .engine-card .engine-status, .planning .engine-card .engine-controls,
 .planning .engine-card .corner, .planning .engine-card > .close { display: none; }
@@ -1048,7 +1051,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-chip[data-wait]::before { content: "⏳ "; }
 .route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
 /* The stops one row, scrolled sideways if they don't fit (the card stays short); planning, a picked stop's tools compact. */
-.planning .route-tools { flex-wrap: nowrap; }
+.planning .route-tools { flex-wrap: wrap; }
 .route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
 .route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
 .route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }

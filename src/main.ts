@@ -56,7 +56,7 @@ import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
 import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
-import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
+import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef } from "./economy";
 import type { Stuck } from "./economy/stalls";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
@@ -2655,13 +2655,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** "Tap the warehouse stop…" is shown on a line with a warehouse until a warehouse stop's chip is first tapped (remembered). */
   const STORE_HINT_KEY = "woodrail.hint.storeStop";
   let storeHintSeen = loadFlag(STORE_HINT_KEY);
-  const INTENTS: Record<StopAction, { label: string; tip: string }> = {
-    auto: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
-    both: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
-    drop: { label: "Only drop", tip: "Only drops goods off here" },
-    pick: { label: "Only pick up", tip: "Only picks goods up here" },
-  };
-  const NEXT_INTENT: Record<StopAction, StopAction> = { auto: "drop", both: "drop", drop: "pick", pick: "auto" };
+  /**
+   * What a stop does, the three choices shown side by side (audit F2: a button that cycled hid them, and its tap after
+   * "Only pick up" quietly made the stop a via point). "both" (old saves) is "auto".
+   */
+  const MODES: readonly { action: "auto" | "drop" | "pick"; label: string; tip: string }[] = [
+    { action: "auto", label: "Drop & pick up", tip: "Drops what this stop takes, and picks up what a later stop wants" },
+    { action: "drop", label: "Only drop", tip: "Only drops goods off here" },
+    { action: "pick", label: "Only pick up", tip: "Only picks goods up here" },
+  ];
   /** Is this depot a warehouse (it trades only with trains on a route: see warehouse-text.ts)? */
   const isStore = (depotId: number) => game.economy.depot(depotId)?.role === "warehouse";
   /**
@@ -3110,7 +3112,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         chip.classList.toggle("moved", r?.next === k && nextDrawn.carId === carId && nextDrawn.next !== -1 && nextDrawn.next !== k);
         chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
         chip.classList.toggle("picked", stopPicked === k);
-        if (st.action === "drop" || st.action === "pick") chip.dataset.intent = st.action;
+        // (Only drop or Only pick up: said on the chip itself, beside its name, so it shows without tapping it.)
+        if (st.action === "drop" || st.action === "pick") {
+          chip.dataset.intent = st.action;
+          chip.append(Object.assign(document.createElement("span"), { className: "route-intent", textContent: st.action === "drop" ? "only ⬇" : "only ⬆" }));
+        }
         if (st.waitFill) chip.dataset.wait = "1";
         const icons = plan[k] ? planIcons(plan[k]) : "";
         if (icons) {
@@ -3208,15 +3214,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
                 button("▶", "route-move", "Visit this stop later", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
               ]
             : []),
-          // (Round the intents, then (with three stops or more) "Pass by": the stop becomes a via point on the way.)
-          button(INTENTS[st.action].label, "route-action", INTENTS[st.action].tip, () =>
-            edit((l) => {
-              if (l[k].action === "pick" && l.length > 2) {
-                passBy(l, k);
-                stopPicked = -1;
-              } else l[k].action = NEXT_INTENT[l[k].action];
-            }),
-          ),
           // (Waiting to fill means nothing where it only drops.)
           ...(st.action === "drop"
             ? []
@@ -3225,6 +3222,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
                   edit((l) => (l[k].waitFill = !l[k].waitFill)),
                 ),
               ]),
+          // (With three stops or more, and a piece on the map: the stop becomes a via point on the way, said on its button.)
+          ...(line.stops.length > 2 && game.economy.depot(st.depotId) && game.layout.getPiece(game.economy.depot(st.depotId)!.pieceId)
+            ? [
+                button("Pass by", "route-pass", "Go by this place without stopping (a via point)", () => {
+                  edit((l) => {
+                    passBy(l, k);
+                    stopPicked = -1;
+                  });
+                  hud.toast(`Passes by ${nameOf(st.depotId)} now, without stopping`, false, 2500);
+                }),
+              ]
+            : []),
           button("✕", "route-remove", "Take this stop off the route", () =>
             edit((l) => {
               // (Its via points stay on the way, now from the stop before.)
@@ -3238,6 +3247,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             }),
           ),
         );
+        // What it does here: the three choices side by side, the one it does pressed.
+        const modes = document.createElement("div");
+        modes.className = "route-modes";
+        modes.setAttribute("role", "group");
+        modes.setAttribute("aria-label", "What the train does here");
+        const now = st.action === "both" ? "auto" : st.action;
+        for (const m of MODES) {
+          const b = button(m.label, "route-mode", m.tip, () => {
+            if (m.action !== now) edit((l) => (l[k].action = m.action));
+          });
+          b.dataset.mode = m.action;
+          b.setAttribute("aria-pressed", String(m.action === now));
+          b.classList.toggle("on", m.action === now);
+          modes.append(b);
+        }
         // (Nor where it would put the same place twice in a row: that's one visit.)
         const twiceAfter = (to: number) => {
           const ids = line.stops.map((x) => x.depotId);
@@ -3251,7 +3275,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           // Neither way: no arrows at all.
           if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
-        box.append(tools);
+        box.append(modes, tools);
         // What it picks up and drops here, in words.
         if (plan[k]) box.append(Object.assign(document.createElement("div"), { className: "route-hint route-plan-words", textContent: planWords(plan[k]) }));
         // At a warehouse, what this stop's action does there.

@@ -2,7 +2,7 @@
 // the forest yard and on to the sawmill, a warehouse on the way. A hand-run train standing at the warehouse: its card
 // and a toast say why nothing happens there ("Warehouses trade with trains on a route…"). Then its route planned by
 // taps (its engine, Plan a route, the forest, the sawmill, the warehouse, Done; the warehouse stop's chip tapped: its
-// options say what Automatic does there): it runs, and planks are dropped at the warehouse. Then a second train, its
+// options say what Drop & pick up does there): it runs, and planks are dropped at the warehouse. Then a second train, its
 // route warehouse → town by taps: planks are picked up there and delivered to the town. Goods counted by the crane's
 // own events.
 //
@@ -210,7 +210,7 @@ if (!setup.error && setup.engine !== -1) {
   await p.keyboard.press("Escape");
 
   // 5. Its route by taps: the forest, the sawmill, the warehouse. The card points to the warehouse stop's options; its
-  // chip tapped, they say what Automatic does there.
+  // chip tapped, they say what Drop & pick up does there.
   await planRoute(engine, [forest, sawmill, warehouse]);
   const stops1 = await routeStops(engine);
   check("route 1 planned by taps: forest, sawmill, warehouse", JSON.stringify(stops1) === JSON.stringify([forest, sawmill, warehouse]), JSON.stringify(stops1));
@@ -226,8 +226,8 @@ if (!setup.error && setup.engine !== -1) {
   const hint = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent));
   check("…the card points to the warehouse stop's options", hint.includes("Tap the warehouse stop to set Only drop or Only pick up"), JSON.stringify(hint));
   await tapButton(".engine-extra .route-chip:nth-child(3)");
-  const opts = await p.evaluate(() => ({ words: document.querySelector(".engine-extra .route-plan-words")?.textContent, action: document.querySelector(".engine-extra .route-action")?.textContent, what: document.querySelector(".engine-extra .route-store")?.textContent, hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) }));
-  check("…its chip tapped: \"Drops planks\", Automatic, and what that does at a warehouse", opts.words === "Drops planks" && opts.action === "Automatic" && opts.what === "Leaves goods no later stop wants, takes what a later stop wants" && !opts.hints.some((h) => /Tap the warehouse/.test(h)), JSON.stringify(opts));
+  const opts = await p.evaluate(() => ({ words: document.querySelector(".engine-extra .route-plan-words")?.textContent, action: document.querySelector(".engine-extra .route-mode.on")?.textContent, what: document.querySelector(".engine-extra .route-store")?.textContent, hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) }));
+  check("…its chip tapped: \"Drops planks\", Drop & pick up, and what that does at a warehouse", opts.words === "Drops planks" && opts.action === "Drop & pick up" && opts.what === "Leaves goods no later stop wants, takes what a later stop wants" && !opts.hints.some((h) => /Tap the warehouse/.test(h)), JSON.stringify(opts));
   await shot("4-route-1-stop-options");
   await p.keyboard.press("Escape");
 
