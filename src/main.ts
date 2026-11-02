@@ -3358,6 +3358,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
         box.append(modes, tools);
+        // Planning: where the next place tapped goes.
+        if (planning && k < line.stops.length - 1)
+          box.append(Object.assign(document.createElement("div"), { className: "route-hint route-insert-hint", textContent: `Places you tap now go after ${nameOf(st.depotId)}` }));
         // What it picks up and drops here, in words.
         if (plan[k]) box.append(Object.assign(document.createElement("div"), { className: "route-hint route-plan-words", textContent: planWords(plan[k]) }));
         // At a warehouse, what this stop's action does there.
@@ -3531,10 +3534,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       ? (depotId) => {
           const carId = interaction.openEngineCarId;
           if (carId === -1) return false;
+          // A stop's chip picked while planning: places tapped go in after it, in order (audit F13: new stops only went
+          // at the end, and a stop in the middle took moving it back step by step). Else at the end.
+          const after = stopPicked;
           routeEdit(() =>
             editLine(game.economy, carId, (l) => {
+              const at = after >= 0 && after < l.length ? after + 1 : l.length;
               // The same place twice in a row is one visit: not added again.
-              if (l.at(-1)?.depotId !== depotId) l.push({ depotId, action: "auto" });
+              if (l[at - 1]?.depotId === depotId || (at < l.length && l[at].depotId === depotId)) return;
+              l.splice(at, 0, { depotId, action: "auto" });
+              if (after >= 0 && after < l.length - 1) stopPicked = at;
             }),
           );
           showRoute();
