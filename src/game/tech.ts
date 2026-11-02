@@ -61,6 +61,6 @@ export function ready(p: Progress, id: string): boolean {
  */
 export function seenOf(p: Progress, offered: ReadonlySet<string> = new Set()): Map<string, "shown" | "hint" | "unseen"> {
   const all = p.learned.has("university");
-  const shown = new Set(TECHS.filter((t) => all || t.key || p.learned.has(t.id) || offered.has(t.id) || p.research.current === t.id || p.research.next === t.id || t.needs.some((n) => p.learned.has(n))).map((t) => t.id));
+  const shown = new Set(TECHS.filter((t) => all || t.key || p.learned.has(t.id) || offered.has(t.id) || p.research.current === t.id || p.research.next === t.id || p.research.later.includes(t.id) || t.needs.some((n) => p.learned.has(n))).map((t) => t.id));
   return new Map(TECHS.map((t) => [t.id, shown.has(t.id) ? "shown" : t.needs.some((n) => shown.has(n)) ? "hint" : "unseen"]));
 }

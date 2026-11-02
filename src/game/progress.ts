@@ -1,7 +1,7 @@
 import { CARGO_KINDS } from "../economy/cargo";
 import { RENAMED } from "./blueprints";
 import { offerFromJSON, offerToJSON, type Offer } from "./growth-cards";
-import { newResearch, researchFromJSON, researchToJSON, type Research, type ResearchData } from "./research";
+import { newResearch, repairQueue, researchFromJSON, researchToJSON, type Research, type ResearchData } from "./research";
 import { techOf } from "./tech";
 import { isFree, ruleOf, STARTING_BOX, THING_RULES, thingsFor, type ThingId } from "./things";
 import type { World } from "./world";
@@ -143,6 +143,8 @@ export class Progress {
     p.firstFlour = typeof d?.firstFlour === "boolean" ? d.firstFlour : (p.counts.get("delivered:flour") ?? 0) > 0;
     // Research: only blueprints still to learn.
     p.research = researchFromJSON(d?.research, (t) => (known(t) && !p.learned.has(known(t)!) ? known(t) : null), new Set(CARGO_KINDS));
+    // (The queue in order, prerequisites first: one out of order moves back behind them, one without them is dropped.)
+    repairQueue(p);
     if (d && Array.isArray(d.taken)) for (const t of d.taken) if (isTaken(t)) p.taken.push(t);
     return p;
   }

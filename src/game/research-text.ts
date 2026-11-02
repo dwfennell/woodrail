@@ -1,8 +1,8 @@
 import { CARGO, COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
-import { canResearch, coinsShort, costOf, lacks, QUEUE_MAX, queueOf, queuePlace, studying, studyLeft, studyTime } from "./research";
-import type { Need } from "./blueprints";
+import { describeNeed, type Need } from "./blueprints";
+import { canResearch, chainBlock, chainOf, coinsShort, costOf, lacks, missingNeeds, nowTarget, QUEUE_MAX, queueOf, queuePlace, studying, studyLeft, studyTime } from "./research";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./tech";
 import { ruleOf } from "./things";
 
@@ -201,14 +201,17 @@ export interface ResearchCardView {
 const ordinal = (n: number) => `${n}${n === 2 ? "nd" : n === 3 ? "rd" : "th"}`;
 
 /**
- * A card's research view (null for learned, locked and soon). A ready card: Research when nothing is under way or
- * waiting, else Add to queue (held back while the queue is full). One in the queue (#14): Remove, and Research now
- * (it swaps in for the one under way), held back while its coins are short; its line says where it waits ("Next up,
- * after Switches", "3rd in line, after Signals"). The one under way: live progress, no button. With no school placed
- * nothing can be picked: "Needs a school".
+ * A card's research view (null for learned and soon, and for locked ones held back by something besides blueprints). A
+ * ready card: Research when nothing is under way or waiting, else Add to queue (held back while the queue is full). One
+ * in the queue (#14): Remove, and Research now (it swaps in for the one under way), held back while its coins are
+ * short; its line says where it waits ("Next up, after Switches", "3rd in line, after Signals"). One that needs
+ * blueprints not learned yet never says Research now: "Research Farming now" starts the first of them (`nowTarget`),
+ * and none while that's under way already. The one under way: live progress, no button. A locked one that needs
+ * blueprints not learned yet: `chainCard`. With no school placed nothing can be picked: "Needs a school".
  */
 export function researchCard(p: Progress, id: string, school: string | null): ResearchCardView | null {
   const state = cardState(p, id);
+  if (state === "locked") return chainCard(p, id, school);
   if (state !== "ready" && state !== "researching" && state !== "next") return null;
   const r = p.research;
   const base = { chips: researchChips(p, id), study: `${Math.ceil(studyTime(id, p.learned) / p.research.speed)} s study` };
@@ -216,18 +219,73 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
   const q = queueOf(r);
   if (state === "next") {
     const place = queuePlace(r, id);
-    const short = place === 1 ? coinsShort(p) : r.held.has(id) ? 0 : Math.max(0, (costOf(id).coins ?? 0) - p.coins);
     const ahead = place === 1 ? r.current : q[place - 2];
     const where = place === 1 ? "Next up" : `${ordinal(place)} in line`;
     const after = ahead ? `${where}, after ${shortLabel(ahead)}` : where;
+    const first = nowTarget(p, id);
+    // What it needs is under way already: it waits for it (Remove only).
+    if (first === null) return { ...base, why: after, remove: true };
+    const action = first === id ? "Research now" : `Research ${shortLabel(first)} now`;
+    const short = place === 1 && first === id ? coinsShort(p) : r.held.has(first) ? 0 : Math.max(0, (costOf(first).coins ?? 0) - p.coins);
     const why = short === 0 ? after : place === 1 && !r.current ? `Waiting for ${coins(short)}` : `${after} · ${coins(short)} short`;
-    return short > 0 ? { ...base, why, action: "Research now", blocked: true, remove: true } : { ...base, why, action: "Research now", remove: true };
+    return short > 0 ? { ...base, why, action, blocked: true, remove: true } : { ...base, why, action, remove: true };
   }
   const queueing = r.current !== null || q.length > 0;
   const action = queueing ? "Add to queue" : "Research";
   if (!school) return { ...base, why: "Needs a school", action, blocked: true };
   if (queueing && q.length >= QUEUE_MAX) return { ...base, why: `The queue is full (${QUEUE_MAX})`, action, blocked: true };
   return { ...base, action };
+}
+
+/** The toast as taking one out of the queue takes the queued ones that need it too: "Removed Mills and Bakery too". */
+export function removedText(ids: readonly string[]): string {
+  const names = ids.map(shortLabel);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+  return `Removed ${list} too`;
+}
+
+/** "Farming, then Dairy, then Bakery". */
+const thenList = (ids: readonly string[]): string => ids.map(shortLabel).join(", then ");
+
+/**
+ * A locked card that needs blueprints not learned yet: one tap queues them, in order, then it (`chainOf`). With nothing
+ * under way or waiting it says "Research Farming now" ("Then Mills"): the first starts. Else "Queue Farming, then Mills"
+ * ("Queue Farming and 2 more" for a longer chain, its line saying the order), or "Add to queue" once what it needs is
+ * under way or queued ("After Farming"). Held back, saying why, where a blueprint in the chain can't be researched yet
+ * ("Farming II needs 60 grain grown first") or the queue hasn't room. Null if it waits on something besides blueprints
+ * (a town, a count: the card says what, as before).
+ */
+function chainCard(p: Progress, id: string, school: string | null): ResearchCardView | null {
+  const missing = missingNeeds(p, id);
+  const t = techOf(id);
+  if (missing.length === 0 || !t || t.requires.some((n) => !needMet(p, n))) return null;
+  const r = p.research;
+  const q = queueOf(r);
+  const chain = chainOf(p, id);
+  const base = { chips: researchChips(p, id), study: `${Math.ceil(studyTime(id, p.learned) / p.research.speed)} s study` };
+  const idle = r.current === null && q.length === 0;
+  let action: string;
+  let why: string | undefined;
+  if (chain.length === 1) {
+    action = "Add to queue";
+    why = `After ${shortLabel(missing[missing.length - 1])}`;
+  } else if (idle) {
+    action = `Research ${shortLabel(chain[0])} now`;
+    why = `Then ${thenList(chain.slice(1))}`;
+  } else {
+    action = chain.length === 2 ? `Queue ${shortLabel(chain[0])}, then ${shortLabel(id)}` : `Queue ${shortLabel(chain[0])} and ${chain.length - 1} more`;
+    if (chain.length > 2) why = thenList(chain);
+  }
+  const block = chainBlock(p, id);
+  if (block && "stuck" in block) {
+    const s = techOf(block.stuck);
+    const unmet = s?.requires.filter((n) => !needMet(p, n)) ?? [];
+    const words = s?.plan ? `${shortLabel(block.stuck)} isn't in the game yet` : `${shortLabel(block.stuck)} needs ${unmet.map(describeNeed).join(" and ")} first`;
+    return { ...base, why: words, action, blocked: true };
+  }
+  if (!school) return { ...base, why: "Needs a school", action, blocked: true };
+  if (block) return { ...base, why: q.length >= QUEUE_MAX ? `The queue is full (${QUEUE_MAX})` : `Needs ${block.full} places in the queue (${QUEUE_MAX - q.length} left)`, action, blocked: true };
+  return { ...base, ...(why ? { why } : {}), action };
 }
 
 /**
