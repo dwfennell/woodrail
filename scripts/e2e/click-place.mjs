@@ -492,9 +492,13 @@ try {
   const dropped = await route();
   check("desktop (F2): the stop's three modes, Only drop clicked; no Pass by with two stops", opts.modes.length === 3 && !opts.pass && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
   await clickButton(".engine-extra .route-leave");
-  const asked = await route();
-  const text = await p.evaluate(() => document.querySelector(".engine-extra .route-leave")?.textContent);
-  await clickButton(".engine-extra .route-leave.asking");
+  // (The second click at once, where it is: "Forget …?" waits 4 s, and on a busy page waiting for it to hold still
+  // takes longer. It doesn't move.)
+  const ask = await p.waitForFunction(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return { text: e.textContent, lines: window.woodrail.economy.lines.size, x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, null, { timeout: 30000 }).then((h) => h.jsonValue());
+  await p.mouse.click(ask.x, ask.y);
+  await frames(p);
+  const text = ask.text;
+  const asked = { lines: ask.lines };
   const gone = await route();
   check("desktop (F3): Leave asks first (\"Forget …?\"), the second click forgets the line", asked.lines === 1 && /^Forget/.test(text ?? "") && gone.lines === 0 && gone.stops.length === 0, JSON.stringify({ asked, text, gone }));
   await p.keyboard.press("Control+z");
