@@ -2774,8 +2774,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     emptyKey = key;
     const why = standing ? "" : "Stop the train first";
     const loaded = (id: number): boolean => game.economy.cargoOf(id).count > 0;
-    const anyLoaded = engineId !== -1 && found.train.cars.some((c) => loaded(c.id));
-    hud.setEmpty({ shown: engineId === -1 && loaded(carId), why }, { shown: anyLoaded, why });
+    const cars = found.train.cars;
+    const car = cars[found.index];
+    hud.setEmpty(
+      { room: engineId === -1 && !!CARRIES[car.kind], shown: engineId === -1 && loaded(carId), why },
+      { room: engineId !== -1 && cars.some((c) => !!CARRIES[c.kind]), shown: engineId !== -1 && cars.some((c) => loaded(c.id)), why },
+    );
   }
 
   /**

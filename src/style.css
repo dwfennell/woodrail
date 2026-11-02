@@ -187,6 +187,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .summary-load-row > .summary-load { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .car-load-row > .chip, .summary-load-row > .chip { flex: none; }
 .summary-load-row:has(> .chip:not([hidden])) { margin-top: 4px; }
+/* Nothing to tip out: its place kept (the card doesn't grow as a crane loads the train), not seen nor reached. */
+.car-load-row > .chip.unseen, .summary-load-row > .chip.unseen { visibility: hidden; }
 .engine-summary > .summary-load-row { overflow: visible; }
 /* Who's in the way (a waiting or stuck train): Show, and the fix for a train left there; a thumb tall, under the status. */
 .engine-blocker { display: flex; gap: 8px; justify-content: center; margin-top: -4px; }

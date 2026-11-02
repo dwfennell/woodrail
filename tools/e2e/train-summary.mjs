@@ -198,7 +198,7 @@ if (!setup.error) {
         clipped: lines.some((e) => e.scrollWidth > e.clientWidth + 1),
         height: Math.max(...lines.map((e) => e.getBoundingClientRect().height)),
         lineHeight: parseFloat(getComputedStyle(s).lineHeight),
-        emptyAll: !!all && !all.hidden,
+        emptyAll: !!all && !all.hidden && getComputedStyle(all).visibility === "visible",
         card: { left: box.left, right: box.right },
         small: buttons.filter((x) => x.w < 44 || x.h < 44),
       };
@@ -264,9 +264,9 @@ if (!setup.error) {
   // says what went.
   const ready = await p.evaluate(() => {
     const b = document.querySelector(".car-card .empty-car");
-    return { hidden: b?.hidden, disabled: b?.getAttribute("aria-disabled") ?? null };
+    return { hidden: b?.hidden, seen: !!b && getComputedStyle(b).visibility === "visible", disabled: b?.getAttribute("aria-disabled") ?? null };
   });
-  check("stopped: the wagon card has Empty, not greyed", ready.hidden === false && ready.disabled === null, JSON.stringify(ready));
+  check("stopped: the wagon card has Empty, not greyed", ready.hidden === false && ready.seen && ready.disabled === null, JSON.stringify(ready));
   await p.evaluate(() => {
     const w = window.woodrail;
     w.__toasts = [];
@@ -280,10 +280,10 @@ if (!setup.error) {
   const emptied = await p.evaluate((id) => {
     const w = window.woodrail;
     const b = document.querySelector(".car-card .empty-car");
-    return { count: w.economy.cargoOf(id).count, open: w.hud.carCardOpen, text: document.querySelector(".car-load")?.textContent, hidden: b?.hidden, toasts: w.__toasts };
+    return { count: w.economy.cargoOf(id).count, open: w.hud.carCardOpen, text: document.querySelector(".car-load")?.textContent, gone: !b || b.hidden || getComputedStyle(b).visibility === "hidden", toasts: w.__toasts };
   }, wagon);
   check("Empty tips the logs out", emptied.count === 0 && had > 0, JSON.stringify({ had, ...emptied }));
-  check("…the card says Empty, and Empty goes", emptied.open && /^Empty/.test(emptied.text ?? "") && emptied.hidden === true, JSON.stringify(emptied));
+  check("…the card says Empty, and Empty goes", emptied.open && /^Empty/.test(emptied.text ?? "") && emptied.gone, JSON.stringify(emptied));
   check("…a toast says what went", emptied.toasts.some((t) => t.startsWith(`Tipped out ${had} 🌲`)), JSON.stringify(emptied.toasts));
   await shot("3-wagon-emptied");
 }
