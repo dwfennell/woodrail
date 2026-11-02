@@ -676,9 +676,8 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
 
   it("come after the passing loop, before Connect every town; each needs its blueprint; Open a farm is where it was", () => {
     const ids = GOALS.map((g) => g.id);
-import { editLine } from "./lines";
-    expect(GOALS).toHaveLength(23);
-    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "open-quarry", "open-mine", "open-harbour", "join-all"]);
+    expect(GOALS).toHaveLength(24);
+    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "give-route", "open-quarry", "open-mine", "open-harbour", "join-all"]);
     for (const r of ROLES) expect(goal(r.id)).toMatchObject({ title: r.title, hint: r.hint, needs: [r.bp] });
     expect(goal("open-farm")).toMatchObject({ title: "Open a farm", hint: "Restore an old farm, or build a farm yard by some fields.", needs: ["farming"] });
     expect(OPEN_INDUSTRY_GOALS).toEqual(["open-farm", "open-quarry", "open-mine", "open-harbour"]);
