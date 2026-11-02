@@ -9,7 +9,10 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 
+// "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
+process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
 // Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
@@ -633,6 +636,24 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
     check(`tight curves (${hand ? "right" : "left"}, carried): clicked where it goes on a free end, the next joins there`, two.ids.length === 2 && two.open.length === 2, JSON.stringify({ one, two }));
     await p.keyboard.press("Escape");
     await takeUp(two.ids);
+  }
+  await ctx.close();
+}
+
+// ---- desktop: ☰ Report a bug or give feedback, with the mouse ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  const press = async (sel) => {
+    const e = await p.$(sel);
+    if (!e) throw new Error(`no ${sel}`);
+    await e.click();
+    await frames(p);
+  };
+  try {
+    await feedbackFlow(p, { press, check, label: "feedback (mouse)" });
+  } catch (e) {
+    check("feedback (mouse): ran to the end", false, String(e?.message ?? e).split("\n")[0]);
   }
   await ctx.close();
 }

@@ -658,6 +658,30 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 .report-status { font-size: 12.5px; color: #7a5a3c; min-height: 1em; }
 
+/* Report a bug or give feedback (src/ui/feedback-sheet.ts): a phone-first sheet, every target 44 px. */
+.feedback-sheet { gap: 8px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - 146px - max(10px, env(safe-area-inset-bottom))); overflow-y: auto; overscroll-behavior: contain; }
+.feedback-form, .feedback-done { display: flex; flex-direction: column; gap: 8px; }
+.feedback-form[hidden], .feedback-done[hidden] { display: none; }
+.feedback-sheet .feedback-kinds { justify-content: flex-start; gap: 8px; }
+.feedback-sheet .feedback-kind { flex: 1; }
+.feedback-sheet .card-row { flex-wrap: wrap; }
+.feedback-note { min-height: 72px; }
+.feedback-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; font-weight: 700; color: #3a2a1c; cursor: pointer; }
+.feedback-check input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: #5aa35a; }
+.feedback-check.locked { cursor: default; }
+.feedback-check.locked input { opacity: 0.7; }
+.feedback-thumb { height: 40px; width: auto; max-width: 72px; margin-left: auto; border-radius: 6px; box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25); object-fit: cover; }
+.feedback-small { margin: 0; font-size: 12.5px; line-height: 1.3; color: #7a5a3c; }
+.feedback-map + .feedback-small { margin-top: -6px; padding-left: 32px; }
+.feedback-status.error { color: #a3361f; font-weight: 700; }
+.feedback-thanks { margin: 4px 0 0; font-size: 18px; font-weight: 800; text-align: center; color: #2f6b2c; }
+.feedback-done .feedback-small { text-align: center; }
+.feedback-done .card-row { justify-content: center; }
+@media (max-height: 520px) {
+  .feedback-sheet { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); gap: 6px; }
+  .feedback-note { min-height: 52px; }
+}
+
 /* ---- Map view (Game mode): labels over towns and depots, seen from above ------------------------------------- */
 .map-view { position: absolute; inset: 0; pointer-events: none; }
 .map-view > * { pointer-events: auto; }

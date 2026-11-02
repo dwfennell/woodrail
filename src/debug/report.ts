@@ -21,6 +21,14 @@ export function note(kind: string, text: string): void {
   if (log.length > LOG_SIZE) log.shift();
 }
 
+/** The last few errors logged (not warnings), newest last, cut short: sent with a bug report. */
+export function recentErrors(n = 5): string[] {
+  return log
+    .filter((l) => l.kind === "error")
+    .slice(-n)
+    .map((l) => `error: ${l.text.split("\n")[0].slice(0, 200)}`);
+}
+
 /** Start keeping the log: console errors and warnings, uncaught errors and rejections. */
 export function startLog(): void {
   for (const level of ["error", "warn"] as const) {

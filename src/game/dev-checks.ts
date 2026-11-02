@@ -73,6 +73,12 @@ function badge(): { show(n: number, latest: string): void } {
   };
 }
 
+/** The latest invariant breaks the badge showed (dev builds), newest last: sent with a bug report. */
+const recent: string[] = [];
+export function recentBreaks(): string[] {
+  return [...recent];
+}
+
 /** What dev builds need of the game: its economy now (a load swaps it). */
 export interface DevGame {
   readonly economy: Economy;
@@ -96,6 +102,8 @@ export function installDevChecks(game: DevGame): { frame(): void } {
     said.add(key);
     const line = `${b.invariant}: ${b.what} (${(b.tick / 120).toFixed(1)} s)`;
     console.error(`[invariants] ${line}`);
+    recent.push(line);
+    if (recent.length > 5) recent.shift();
     shown.show(total, line);
   };
   const frame = () => {

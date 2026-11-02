@@ -373,6 +373,11 @@ export class Hud {
     this.openReport();
   }, "menu-item");
   private readonly reportCard = el("div", "card report-card");
+  /** The menu's "Copy map for a bug report" (with "Report a bug or give feedback" before it, in a build that can send). */
+  private readonly copyMapItem = button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
+    this.menu.hidden = true;
+    this.handlers.copyMap();
+  }, "menu-item");
   private readonly reportNote = document.createElement("textarea");
   private readonly sandboxItems: HTMLButtonElement[];
   private readonly gameItems: HTMLButtonElement[];
@@ -588,10 +593,7 @@ export class Hud {
       ...this.gameItems,
       sep(),
       this.reportItem,
-      button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
-        this.menu.hidden = true;
-        h.copyMap();
-      }, "menu-item"),
+      this.copyMapItem,
     );
     this.reportItem.hidden = true;
     this.buildReportCard();
@@ -1990,6 +1992,16 @@ export class Hud {
         this.menu.hidden = true;
         onTap();
       }, "menu-item"),
+    );
+  }
+
+  /** Offer "Report a bug or give feedback" in the menu, by Copy map (the build has somewhere to send it). */
+  addFeedbackItem(onTap: () => void): void {
+    this.copyMapItem.before(
+      button("Report a bug or give feedback", "Tell us what went wrong, or what you'd like, with your map and a picture", () => {
+        this.menu.hidden = true;
+        onTap();
+      }, "menu-item feedback-item"),
     );
   }
 

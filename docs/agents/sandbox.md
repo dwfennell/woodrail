@@ -14,13 +14,14 @@
   - the Worker and R2 in `cloud/`;
   - `src/persist/cloud.ts` (CloudSync) and `progress-merge.ts`;
   - the cloud card;
+  - feedback: `POST /feedback` in `cloud/src/feedback.ts`, the sheet `src/ui/feedback-sheet.ts` (`docs/feedback.md`);
   - `Progress.origin` and `Progress.taken` (`src/game/progress.ts`).
 
 ## 2. How to test
 
 **Gates:**
 - `npm run typecheck` and `npx vitest run`;
-- `cd cloud && npx tsc --noEmit && npx vitest run` (16 Worker tests, Miniflare).
+- `cd cloud && npx tsc --noEmit && npx vitest run` (30 Worker tests, Miniflare).
 
 **Running e2e suites:** run each one **alone**: they share the Worker port, and running several loads the machine. Never edit `src/` while an e2e runs, because Vite reloads the page.
 
