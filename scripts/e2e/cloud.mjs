@@ -94,8 +94,8 @@ const menu = (p, label) =>
   }, label);
 const tap = (p, label) =>
   p.evaluate((label) => {
-    const c = [...document.querySelectorAll(".cloud-card button")].find((b) => b.textContent.trim() === label);
-    if (!c) throw new Error(`no ${label} on the card: ${document.querySelector(".cloud-card")?.textContent}`);
+    const c = [...document.querySelectorAll(".cloud-card:not(.stats-card) button")].find((b) => b.textContent.trim() === label);
+    if (!c) throw new Error(`no ${label} on the card: ${document.querySelector(".cloud-card:not(.stats-card)")?.textContent}`);
     c.click();
   }, label);
 const seed = (p) => p.evaluate(() => window.woodrail.landscape.seed);
@@ -104,7 +104,8 @@ const autosaved = (p) => p.waitForFunction(() => (localStorage.getItem("woodrail
     console.log("autosave:", await p.evaluate(() => ({ seed: window.woodrail.landscape.seed, title: window.woodrail.title.shown, mode: window.woodrail.mode(), head: (localStorage.getItem("woodrail.autosave.v3") ?? "").slice(0, 80) })));
     throw e;
   });
-const card = (p) => p.evaluate(() => document.querySelector(".cloud-card")?.textContent ?? "");
+// (The cloud card, not the play-stats card, which wears its look: `card cloud-card stats-card`.)
+const card = (p) => p.evaluate(() => document.querySelector(".cloud-card:not(.stats-card)")?.textContent ?? "");
 const remote = async (code, mode = "sandbox") => {
   const res = await fetch(`${WORKER}/v1/saves/${mode}`, { method: "HEAD", headers: { "X-Woodrail-Code": code } });
   return { status: res.status, savedAt: Number(res.headers.get("X-Saved-At")), size: Number(res.headers.get("Content-Length")) };
