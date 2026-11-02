@@ -423,7 +423,8 @@ try {
     let v;
     if (what.engine !== undefined) {
       const t = w.sim.findCar(what.engine).train;
-      v = new V((t.world[0].x + t.world[1].x) / 2, t.world[0].y, (t.world[0].z + t.world[1].z) / 2);
+      // (Its body, 40 mm over the rails: at rail height a click takes the track under it.)
+      v = new V((t.world[0].x + t.world[1].x) / 2, t.world[0].y + 40, (t.world[0].z + t.world[1].z) / 2);
     } else {
       const q = w.layout.getPiece(what.piece);
       v = new V(q.pose.x + Math.cos(q.pose.heading) * 108, q.y, q.pose.z + Math.sin(q.pose.heading) * 108);
@@ -432,8 +433,19 @@ try {
     const r = w.canvas.getBoundingClientRect();
     return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
   }, what);
+  // A click as a player makes it: the view panned to the thing first (where it isn't well on screen), then a click
+  // where it's seen.
   const clickOn = async (what) => {
-    const [x, y] = await at(what);
+    let [x, y] = await at(what);
+    if (!(x > 80 && x < 1200 && y > 80 && y < 600)) {
+      await p.evaluate((what) => {
+        const w = window.woodrail;
+        const t = what.engine !== undefined ? w.sim.findCar(what.engine).train.world[0] : w.layout.getPiece(what.piece).pose;
+        w.director.glideTo(new w.controls.target.constructor(t.x, 0, t.z), 2000, { duration: 0.2 });
+      }, what);
+      await still();
+      [x, y] = await at(what);
+    }
     await p.mouse.click(x, y);
     await frames(p);
   };
