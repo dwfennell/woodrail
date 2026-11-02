@@ -3618,7 +3618,8 @@ async function routeUx(ctx, p) {
     const engine = w.sim.getTrain(r.trainId).cars[0].id;
     w.sim.setLever(engine, 0);
     w.invalidate();
-    return { engine, places, pieces: [placed[0], placed[7], placed[9]], track: placed[2], after: placed[8] };
+    // (`track`: a straight clear of the train, which stands on the third piece, and over 100 mm from any place's track.)
+    return { engine, places, pieces: [placed[0], placed[7], placed[9]], track: placed[8] };
   });
   const { tapOn, tapButton, still } = mapHelpers(p);
   await p.setViewportSize({ width: 360, height: 740 });
