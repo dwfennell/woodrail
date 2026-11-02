@@ -74,6 +74,8 @@ export class ClockView {
   /** The local minute of the day the hands show (−1: not set yet), and that time. */
   private minute = -1;
   private time = new Date();
+  /** The time the hands are held at, under the e2e test hook (see `start`); null: the real time. */
+  private pinned: Date | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopWatching: (() => void) | undefined;
 
@@ -161,9 +163,20 @@ export class ClockView {
    * timer's lateness doesn't add up), and at once whenever the page shows again (a hidden page's timers are held back,
    * so it has none). `show` is called when they moved and a clock is in view (draw a frame), with `camera` and the
    * drawing's height in pixels (`viewH`) as they are then. Started once; `dispose` stops it.
+   *
+   * Test hook: if the page set `window.__woodrailPinClocks = true` before the game started (an e2e's init script,
+   * `pinClocks` in scripts/e2e/pin-clocks.mjs), the hands are set once to the time then and never move: no timer, no
+   * visibilitychange, so an e2e counting idle frames can't catch the one-a-minute frame. e2e:station-clock doesn't set
+   * it: it tests the real tick.
    */
   start(camera: Camera, viewH: () => number, show: () => void, doc: Pick<Document, "hidden" | "addEventListener" | "removeEventListener"> = document): void {
     if (this.stopWatching) return;
+    if ((globalThis as { __woodrailPinClocks?: unknown }).__woodrailPinClocks) {
+      this.pinned = new Date();
+      this.stopWatching = () => {};
+      if (this.count > 0) this.tick(this.pinned, camera, viewH());
+      return;
+    }
     const now = () => {
       if (this.count > 0 && this.tick(new Date(), camera, viewH())) show();
     };
@@ -268,7 +281,7 @@ export class ClockView {
 
   /** If the minute's changed since the hands were last set, set every clock's to the time now. */
   private catchUp(): void {
-    const t = new Date();
+    const t = this.pinned ?? new Date();
     if (minuteOf(t) === this.minute) return;
     this.minute = minuteOf(t);
     this.time = t;

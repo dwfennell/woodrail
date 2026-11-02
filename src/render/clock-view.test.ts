@@ -147,6 +147,40 @@ describe("station clocks", () => {
     expect(listeners.size).toBe(0);
   });
 
+  it("pinned by the e2e hook, the hands are set once and never move: no timer, no listener, no frames", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 2, 14, 7, 40));
+    (globalThis as { __woodrailPinClocks?: boolean }).__woodrailPinClocks = true;
+    try {
+      const lib = new PropLibrary(stubMaterials());
+      await lib.load(CLOCK_ASSET);
+      const props = new PropStore();
+      props.add(CLOCK_ASSET, { x: 0, z: 0, heading: 0, y: 0 });
+      const view = new ClockView((k) => lib.clockHands(k));
+      view.sync(props);
+      const camera = new PerspectiveCamera(50, 1, 1, 5000);
+      camera.position.set(0, 300, 400);
+      camera.lookAt(0, 0, 0);
+      camera.updateMatrixWorld();
+      const listeners = new Map<string, () => void>();
+      const doc = { hidden: false, addEventListener: (k: string, f: () => void) => listeners.set(k, f), removeEventListener: (k: string) => listeners.delete(k) };
+      let frames = 0;
+      view.start(camera, () => 800, () => frames++, doc as unknown as Document);
+      expect(view.shown).toEqual(handAngles(14, 7));
+      expect(vi.getTimerCount()).toBe(0);
+      expect(listeners.size).toBe(0);
+      vi.advanceTimersByTime(5 * 60_000);
+      // (A clock put down later is set to the pinned time too.)
+      props.add(CLOCK_ASSET, { x: 100, z: 0, heading: 0, y: 0 });
+      view.sync(props);
+      expect(view.shown).toEqual(handAngles(14, 7));
+      expect(frames).toBe(0);
+      view.dispose();
+    } finally {
+      delete (globalThis as { __woodrailPinClocks?: boolean }).__woodrailPinClocks;
+    }
+  });
+
   it("put down after a while with none, a clock shows the time now (not the last the hands were set to)", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 10, 2, 10, 5));
