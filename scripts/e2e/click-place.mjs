@@ -449,11 +449,13 @@ try {
     await p.mouse.click(x, y);
     await frames(p);
   };
+  // (The card is rebuilt as it changes: the button found, a moment's settle, then found again where it is now.)
   const clickButton = async (sel) => {
-    await p.waitForFunction((sel) => { const e = document.querySelector(sel); return !!e && e.offsetParent !== null; }, sel, { timeout: 30000 });
+    const where = () => p.waitForFunction((sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel, { timeout: 30000 }).then((h) => h.jsonValue());
+    await where();
     await frames(p);
     await p.waitForTimeout(250);
-    const [x, y] = await p.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
+    const [x, y] = await where();
     await p.mouse.click(x, y);
     await frames(p);
   };

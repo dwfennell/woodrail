@@ -3654,6 +3654,9 @@ async function routeUx(ctx, p) {
     return { ok: out.length === 0, out, top: Math.round(top), bottom: Math.round(bottom) };
   }, { o: setup, extra });
 
+  // (Not following a train: a check before this one may have left Follow on, and a followed train's view isn't
+  // reframed for its route, by design. Reset here, as the state asserted on.)
+  await p.evaluate(() => window.woodrail.follow(-1));
   // Planning by taps: the engine, Plan a route, the first forest.
   await tapOn({ engine: setup.engine });
   await tapButton(".engine-extra .route-plan");
@@ -3754,7 +3757,7 @@ async function routeUx(ctx, p) {
   await frames(p);
   await p.waitForTimeout(300);
   await still();
-  const done = await inRoom();
+  const done = { ...(await inRoom()), following: await p.evaluate(() => window.woodrail.following) };
   if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ux-done.png` });
   check("route-ux (F5): after Done, the whole route shows above the card", done.ok && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify(done));
 
