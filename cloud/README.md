@@ -10,6 +10,7 @@ on another device. The game's side of it is `src/persist/cloud.ts`, and its card
 | `PUT /v1/saves/:mode` | Stores a bundle (the game gzips it). The copy it replaces is kept as `:mode.prev`. |
 | `GET /v1/saves/:mode` | Returns the bundle. With `?prev=1`, returns the one before it. |
 | `HEAD /v1/saves/:mode` | Returns the headers only: what's there, without the bytes. |
+| `POST /v1/stats` | Anonymous play stats from players who said yes, into Analytics Engine (see `docs/stats.md`). Any origin. |
 
 - `:mode` is `sandbox` or `game`.
 - **The sync code** goes in the `X-Woodrail-Code` header, never in the URL, so it stays out of logs. It's three words
@@ -74,13 +75,23 @@ Nothing deploys the Worker from CI. These are the steps to run once:
 6. Give the game the URL. In the GitHub repo, go to Settings → Secrets and variables → Actions → Variables, and add
    `WOODRAIL_CLOUD_URL` set to that URL. The Pages workflow builds with it as `VITE_CLOUD_URL`, and the next deploy of
    the game shows Cloud save in the menu. While the variable is unset, the game has no Cloud save. The claude.ai
-   artifact build (`npm run build:artifact`) never has it.
+   artifact build (`npm run build:artifact`) never has it. The same variable turns on play stats ("Help improve
+   Woodrail", `docs/stats.md`) in the Pages build and in itch releases.
+7. Check the stats endpoint. This should print `204`, and a minute or so later `npm run stats` (with an API token
+   that has Account Analytics: Read) shows one `start` from a `local` host. If the deploy said Analytics Engine isn't
+   enabled, turn it on at dash.cloudflare.com → Workers & Pages → Analytics Engine, and deploy again.
+   ```sh
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST https://woodrail-cloud.<subdomain>.workers.dev/v1/stats \
+     -d '{"id":"0000000000000000","build":"check","host":"local","device":"desktop","events":[{"e":"start","mode":"sandbox","fresh":false,"t":0}]}'
+   ```
 
 ### Before it goes wide
 
 These limits aren't in v1:
 - Rate limits on HEAD and GET per client, against guessing codes. Use the Workers rate-limiting binding, or a WAF
   rule on the route.
+- A rate limit on `POST /v1/stats`. Anyone can send made-up stats today (each batch is capped at 16 KB and 50
+  events); it costs only noise in the numbers.
 - A tighter limit on PUTs under codes with nothing saved yet. Today anyone can store 2 MB under a fresh code every
   10 s.
 

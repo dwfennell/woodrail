@@ -1717,6 +1717,16 @@ export class Hud {
     );
   }
 
+  /** Offer "Help improve Woodrail" in the menu (the build can send play stats: see stats/stats.ts). */
+  addStatsItem(onTap: () => void): void {
+    this.linesItem.after(
+      button("💛 Help improve Woodrail", "Share anonymous play stats, or stop sharing them", () => {
+        this.menu.hidden = true;
+        onTap();
+      }, "menu-item"),
+    );
+  }
+
   /** Show how tray pieces will come out: the Turn arrow points their way, and Flip lights up when mirroring. */
   /** Show "Send to Claude…" in the menu (the page can store reports). */
   enableReports(): void {
