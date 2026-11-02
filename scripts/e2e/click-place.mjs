@@ -976,12 +976,21 @@ try {
   await clickButton('.engine-extra .route-mode[data-mode="drop"]');
   const dropped = await route();
   check("desktop (F2): the stop's three modes, Only drop clicked; no Pass by with two stops", opts.modes.length === 3 && !opts.pass && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
-  await clickButton(".engine-extra .route-leave");
+  // (Clicked again, up to 3 times, until it asks: the card's tap guard rightly drops a click on a button that just
+  // moved, and the card's status line above can change its height at any moment.)
+  for (let k = 0; k < 3 && !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-leave.asking"))); k++) await clickButton(".engine-extra .route-leave:not(.asking)");
   // (The second click at once, where it is: "Forget …?" waits 4 s, and on a busy page waiting for it to hold still
   // takes longer. It doesn't move.)
   const ask = await p.waitForFunction(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return { text: e.textContent, lines: window.woodrail.economy.lines.size, x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, null, { timeout: 30000 }).then((h) => h.jsonValue());
-  await p.mouse.click(ask.x, ask.y);
-  await frames(p);
+  // (Not before 300 ms: the guard drops a click on a button that came into place within 150 ms, and Forget has just
+  // replaced Leave. Again, while it still asks, if a click didn't take.)
+  for (let k = 0; k < 3; k++) {
+    await p.waitForTimeout(300);
+    const at = await p.evaluate(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+    if (!at || (await p.evaluate(() => window.woodrail.economy.lines.size)) === 0) break;
+    await p.mouse.click(at[0], at[1]);
+    await frames(p);
+  }
   const text = ask.text;
   const asked = { lines: ask.lines };
   const gone = await route();
