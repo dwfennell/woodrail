@@ -1,10 +1,12 @@
-// End-to-end station clocks (`npm run e2e:station-clock`): a station clock's hands show the player's real local time,
-// in Game mode and in Sandbox, on a 390×844 phone. The page's clock is Playwright's (a mocked `Date`, timers and
-// frames): the hands match the time; between minutes, with nothing else going on, no frame is drawn; at the minute's
-// start the hands move on and one frame is drawn; and a page hidden and shown again ten minutes on sets them at once.
+// End-to-end clocks (`npm run e2e:station-clock`): every clock's hands show the player's real local time, in Game mode
+// and in Sandbox, on a 390×844 phone: a station clock prop, a town hall (a town's building), a grand terminus (a kit)
+// and, in Game, the town's station house. The page's clock is Playwright's (a mocked `Date`, timers and frames): the
+// hands drawn (read back from their instances) match the time on every clock; between minutes, with nothing else going
+// on, no frame is drawn; at the minute's start they all move on and one frame is drawn; and a page hidden and shown
+// again ten minutes on sets them at once. It also prints the frame's draw calls, with and without the hands.
 //
-// Setup shortcut (not the thing under test): the clock is put down with `props.add` (as e2e:kits does), not dragged
-// off the tray: what's tested is its hands, not placing it.
+// Setup shortcut (not the thing under test): the clocks are put down with `props.add` and `layout.addPiece` (as
+// e2e:kits does), not dragged off the tray: what's tested is their hands, not placing them.
 //
 // Usage: npm run e2e:station-clock [-- <out dir>]   (default out: e2e-out/station-clock)
 // Starts its own dev server (on 5362, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -52,43 +54,47 @@ async function run(mode) {
   await p.waitForFunction((mode) => window.woodrail?.mode?.() === mode && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), mode, { timeout: 180000 });
   await p.keyboard.press("Escape").catch(() => {});
 
-  // A clock beside the first town's station (Game) or the middle of the mat (Sandbox), the camera close on it, and
-  // the game paused (no trains: nothing else to draw).
+  // A clock beside the first town's station (Game) or the middle of the mat (Sandbox), a town hall and a terminus kit
+  // beside it, the camera close on them, and the game paused (no trains: nothing else to draw).
   const placed = await p.evaluate(async () => {
     const w = window.woodrail;
     w.hud.hideCards?.();
     const t = w.landscape.towns?.[0];
     const at = t ? { x: t.station.x - Math.sin(t.station.heading) * -120, z: t.station.z + Math.cos(t.station.heading) * -120 } : { x: 0, z: 0 };
-    const clock = w.props.add("bldg-station-clock", { x: at.x, z: at.z, heading: t ? t.station.heading : 0, y: 0 });
+    const heading = t ? t.station.heading : 0;
+    const clock = w.props.add("bldg-station-clock", { x: at.x, z: at.z, heading, y: 0 });
+    const hall = w.props.add("bldg-town-hall", { x: at.x + Math.cos(heading) * 120, z: at.z + Math.sin(heading) * 120, heading, y: 0 });
     w.propsChanged();
+    const kit = w.layout.addPiece("kit-grand-terminus", { x: at.x - Math.cos(heading) * 260 + Math.sin(heading) * 200, z: at.z - Math.sin(heading) * 260 - Math.cos(heading) * 200, heading });
+    w.trackChanged();
     w.paused = true;
-    w.director.glideTo(new w.camera.position.constructor(clock.x, 40, clock.z), 220, { duration: 0.1 });
-    return { id: clock.id };
+    w.director.glideTo(new w.camera.position.constructor(clock.x, 40, clock.z), 520, { duration: 0.1 });
+    return { clock: clock.id, hall: hall.id, kit };
   });
-  // Its model arrives (fetched and built), its hands with it.
-  await p.waitForFunction(() => window.woodrail.clockView.count >= 1, null, { timeout: 60000 }).catch(() => {});
+  // The models arrive (fetched and built), their hands with them.
+  const want = mode === "game" ? ["props", "kits", "stations"] : ["props", "kits"];
+  await p
+    .waitForFunction((want) => { const c = window.woodrail.clockView.counts(); return (c.props ?? 0) >= 2 && want.every((k) => (c[k] ?? 0) >= 1); }, want, { timeout: 90000 })
+    .catch(() => {});
   await p.evaluate(() => Promise.race([window.woodrail.settled(5), new Promise((r) => setTimeout(r, 30000))]));
-  check(`${mode}: the clock is drawn with hands of its own`, (await p.evaluate(() => window.woodrail.clockView.count)) >= 1, JSON.stringify(placed));
+  const counts = await p.evaluate(() => window.woodrail.clockView.counts());
+  check(`${mode}: the clocks are drawn with hands apart (${want.join(", ")})`, (counts.props ?? 0) >= 2 && want.every((k) => (counts[k] ?? 0) >= 1), JSON.stringify({ placed, counts }));
 
-  /** The page's local time, the angles the view says it shows, and each hand mesh's turn from rest (about its face's axis). */
+  /** The page's local time, the angles the view says it shows, and each drawn hand's angle (read from its instance), by source. */
   const read = () =>
     p.evaluate(() => {
       const w = window.woodrail;
-      const turns = { hour: [], minute: [] };
-      for (const c of w.clockView.clocks.values())
-        for (const name of ["hour", "minute"])
-          for (const h of c.parts.get(name)) {
-            const rest = h.userData.rest;
-            const q = rest ? rest.clone().invert().multiply(h.quaternion) : h.quaternion;
-            // A turn of −angle about x (see setHands): back to a clockwise angle.
-            turns[name].push(-2 * Math.atan2(q.x, q.w));
-          }
       const d = new Date();
-      return { h: d.getHours(), m: d.getMinutes(), s: d.getSeconds(), shown: w.clockView.shown, turns, frames: w.framesDrawn, inView: w.clockView.count };
+      return { h: d.getHours(), m: d.getMinutes(), s: d.getSeconds(), shown: w.clockView.shown, turns: w.clockView.drawnAngles(), frames: w.framesDrawn };
     });
   const handsMatch = (r) => {
     const e = expected(r.h, r.m);
-    return near(r.shown.hour, e.hour) && near(r.shown.minute, e.minute) && r.turns.hour.length > 0 && r.turns.minute.length > 0 && r.turns.hour.every((a) => near(a, e.hour)) && r.turns.minute.every((a) => near(a, e.minute));
+    return (
+      near(r.shown.hour, e.hour) &&
+      near(r.shown.minute, e.minute) &&
+      want.every((k) => r.turns[k] && r.turns[k].hour.length > 0 && r.turns[k].minute.length > 0) &&
+      Object.values(r.turns).every((t) => t.hour.every((a) => near(a, e.hour)) && t.minute.every((a) => near(a, e.minute)))
+    );
   };
 
   // What asks for a frame (for a failure's detail). And the tray's track pieces are carved in the background after the
@@ -113,8 +119,32 @@ async function run(mode) {
   await p.clock.pauseAt(into);
   await p.clock.runFor(1_000);
   await p.evaluate(() => (window.woodrail.__asked = []));
+  // The frame's draw calls (shadows and all), with the hands and without them.
+  const draws = async (hands) => {
+    await p.evaluate((hands) => {
+      const w = window.woodrail;
+      w.clockView.group.visible = hands;
+      w.renderer.info.autoReset = false;
+      w.renderer.info.reset();
+      w.renderer.shadowMap.needsUpdate = true;
+      w.invalidate();
+    }, hands);
+    await p.clock.runFor(100);
+    return p.evaluate(() => {
+      const w = window.woodrail;
+      const n = w.renderer.info.render.calls;
+      w.renderer.info.autoReset = true;
+      w.clockView.group.visible = true;
+      return n;
+    });
+  };
+  const withHands = await draws(true);
+  const without = await draws(false);
+  await draws(true);
+  console.log(`${mode}: a frame's draw calls: ${withHands} with the clocks' hands, ${without} without (the hands: ${withHands - without}; ${await p.evaluate(() => window.woodrail.clockView.drawCalls)} batch)`);
+  await p.evaluate(() => (window.woodrail.__asked = []));
   const before = await read();
-  check(`${mode}: the hands show the page's local time (${before.h}:${String(before.m).padStart(2, "0")})`, handsMatch(before), JSON.stringify(before));
+  check(`${mode}: every clock's hands show the page's local time (${before.h}:${String(before.m).padStart(2, "0")})`, handsMatch(before), JSON.stringify(before));
   await shot("1-clock");
   await p.clock.runFor(49_000);
   const quiet = await read();

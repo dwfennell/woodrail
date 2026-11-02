@@ -5,6 +5,7 @@ import {
   Color,
   CylinderGeometry,
   Group,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -57,7 +58,7 @@ import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
 import { HillCutsView } from "./dressing/hill-cuts";
-import { buildShed, buildStation, buildTown, buildWaiting, MAX_WAITING_DOLLS } from "./dressing/buildings";
+import { buildShed, buildStation, buildTown, buildWaiting, MAX_WAITING_DOLLS, stationClockAt } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltTiles, type FeltTiles } from "./dressing/felt";
 import { buildRoadTiles, roadMaterials, type RoadTiles } from "./dressing/roads";
@@ -167,6 +168,15 @@ export class LandscapeView {
   private treeAnim = { shown: [] as Required<TreeAt>[], from: [] as Required<TreeAt>[], to: [] as Required<TreeAt>[], progress: new Float32Array(0) };
   /** The animation moving trees, while any are on the move. */
   private treeHop: Flourish | null = null;
+  /**
+   * The station houses' clocks drawn (bare of their hands, which `ClockView` draws), by town id: each one's frame
+   * (`stationClockAt`). Kept as tiles are built again; `onClocks` is told when they change.
+   */
+  readonly stationClocks = new Map<number, Matrix4>();
+  /** The towns whose station clocks each tile drew, by tile key. */
+  private readonly clockTowns = new Map<number, number[]>();
+  /** Called when `stationClocks` changes (a tile built again: a station moved, upgraded or put back). */
+  onClocks: (() => void) | null = null;
 
   constructor(
     private readonly land: Landscape,
@@ -453,11 +463,17 @@ export class LandscapeView {
     const b = new Batcher(this.mats.paint, true);
     const here = (x: number, z: number) => tileAt(x, z) === key;
     const prints: Footprint[] = [];
+    for (const id of this.clockTowns.get(key) ?? []) this.stationClocks.delete(id);
+    const clocks: number[] = [];
     for (const town of land.towns) {
       if (!here(town.centre.x, town.centre.z)) continue;
       for (const h of buildTown(land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
       // (A station upgraded to a big station's kit: the kit's model is its house, sign and all.)
-      if (!town.upgraded) buildStation(town, this.mats, b);
+      if (!town.upgraded) {
+        buildStation(town, this.mats, b);
+        this.stationClocks.set(town.id, stationClockAt(town));
+        clocks.push(town.id);
+      }
       this.buildWaitingDolls(town);
       if (!town.upgraded) this.buildSign(town, b, things);
     }
@@ -471,6 +487,8 @@ export class LandscapeView {
     if (this.contactShadows && prints.length > 0) things.add(buildContactShadows(prints));
     tile.things = things;
     tile.group.add(things);
+    this.clockTowns.set(key, clocks);
+    this.onClocks?.();
     // Its blocks, towns and signs stand within its plots (station roofs and signs are the tallest things).
     setCullRects(tile.group, slots.map((slot) => plotRect(grid.plots[slot])), 500);
   }

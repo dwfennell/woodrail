@@ -1,54 +1,74 @@
-import { Frustum, Group, Matrix4, Quaternion, Sphere, Vector3, type Camera, type PerspectiveCamera } from "three";
+import { BatchedMesh, Frustum, Group, Matrix4, Quaternion, Sphere, Vector3, type BufferGeometry, type Camera, type Material, type PerspectiveCamera } from "three";
 import type { PropStore } from "../props/store";
-import { partsOf, type PropLibrary } from "./props/library";
+import { angleOf, CLOCK_ASSETS, handAngles, handMatrix, type ClockHand, type ClockHands } from "./clock-hands";
 import { modelKey } from "./props/library";
-import type { MotionParts } from "./kit-motions";
 
-/** The prop whose hands show the time: the player's own, real local time. */
+export { handAngles, msToNextMinute } from "./clock-hands";
+
+/** The prop whose hands show the time (the first clock that did; every model in `CLOCK_ASSETS` does now). */
 export const CLOCK_ASSET = "bldg-station-clock";
-
-/**
- * A clock's hands, as angles (radians, clockwise from twelve) for a local time of day: the minute hand on its minute,
- * the hour hand on its hour and the minutes past it (at half past two, halfway from two to three).
- */
-export function handAngles(hours: number, minutes: number): { hour: number; minute: number } {
-  const m = Math.floor(minutes) % 60;
-  return { hour: (((hours % 12) + m / 60) / 12) * Math.PI * 2, minute: (m / 60) * Math.PI * 2 };
-}
-
-/** How long (ms) from `now` to the start of the next minute (a whole minute when it's exactly on one). */
-export function msToNextMinute(now: Date): number {
-  return 60_000 - (now.getSeconds() * 1000 + now.getMilliseconds());
-}
 
 /** The local minute of the day a time is in (what the hands show), for telling when it's changed. */
 const minuteOf = (d: Date): number => d.getHours() * 60 + d.getMinutes();
 
-interface Clock {
-  readonly group: Group;
-  readonly parts: MotionParts;
+/** A clock to draw hands for: its model's hands (by key) and where its model stands (model frame to world). */
+export interface ClockAt {
+  /** Its hands' key: `handsOf(key)` gives them (a prop's `modelKey`, a kit's `kitModelKey(type)`, a map part's). */
+  readonly key: string;
+  readonly matrix: Matrix4;
+  /** False while it's hidden (a prop in the hand, drawn by the hand). */
+  readonly visible?: boolean;
 }
+
+/** A clock as drawn: its hands' instances. */
+interface Placed {
+  key: string;
+  readonly matrix: Matrix4;
+  visible: boolean;
+  readonly hands: readonly ClockHand[];
+  readonly instances: { batch: Batch; id: number; hand: ClockHand }[];
+  /** Where its first face's pivot is (world), and how far its minute hand's tip moves in a minute there (mm). */
+  readonly centre: Vector3;
+  tipMove: number;
+}
+
+/** Every hand part in one material: each hand shape stored once, an instance for each clock's hand. */
+interface Batch {
+  readonly mesh: BatchedMesh;
+  readonly geometryOf: Map<BufferGeometry, number>;
+  vertices: number;
+  count: number;
+}
+
+const START_INSTANCES = 32;
+const START_VERTICES = 1 << 12;
 
 const frustum = new Frustum();
 const viewProjection = new Matrix4();
 const sphere = new Sphere(new Vector3(), 40);
-/**
- * How far (mm) the minute hand's tip moves in a minute: a station clock's face is 8.6 mm across its radius, its
- * minute hand about 0.8 of that (tools/blender/bldg_parts.py `clock`), and a minute is a sixtieth of a turn.
- */
-const MINUTE_TIP_MOVE = (2 * Math.PI * 8.6 * 0.8) / 60;
-const X_AXIS = new Vector3(1, 0, 0);
-const turn = new Quaternion();
+const m = new Matrix4();
+const q = new Quaternion();
+const up = new Vector3(0, 1, 0);
+const pos = new Vector3();
+const scale = new Vector3();
+const tip = new Vector3();
 
 /**
- * The station clocks' hands, showing the player's real local time: each clock prop is drawn by `PropsView` bare of its
- * hands, and its hands here, a small group of their own. Nothing looks at them frame by frame: `start` sets a timer for
- * the next minute's start (and then each minute's after it), which turns the hands and asks for one frame if a clock
- * is in view; while the page is hidden there's no timer at all, and on its showing again the hands are set at once.
+ * Every clock's hands, showing the player's real local time: the props' (a station clock, a town hall, ...), the kits'
+ * (a terminus, a busy platform) and the map's (the station house's). Each clock's model is drawn bare of its hands by
+ * its own view; the hands are drawn here, all of them in one `BatchedMesh` per material (one, the paint: a single draw
+ * call however many clocks), each hand shape stored once and each clock's hand an instance of it.
+ *
+ * Each view hands its clocks over as they change (`setClocks`, keyed by its own ids: a diff, so moving one clock moves
+ * only its hands). Nothing looks at them frame by frame: `start` sets a timer for the next minute's start (and then each
+ * minute's after it), which turns the hands and asks for one frame if a clock is in view; while the page is hidden
+ * there's no timer at all, and on its showing again the hands are set at once.
  */
 export class ClockView {
   readonly group = new Group();
-  private readonly clocks = new Map<number, Clock>();
+  /** The clocks drawn, by source (`setClocks`) and the source's id. */
+  private readonly sources = new Map<string, Map<number | string, Placed>>();
+  private readonly batches = new Map<Material, Batch>();
   private propsVersion = -1;
   private hidden = -1;
   /** The local minute of the day the hands show (−1: not set yet), and that time. */
@@ -57,53 +77,83 @@ export class ClockView {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopWatching: (() => void) | undefined;
 
-  constructor(private readonly library: PropLibrary) {
+  /** `handsOf(key)`: a clock model's hands (null: none; undefined: not loaded yet, asked for: set the clocks again). */
+  constructor(private readonly handsOf: (key: string) => ClockHands | null | undefined) {
     this.group.name = "clocks";
   }
 
-  /** How many clocks there are (the frame loop looks at none while there are none). */
+  /** How many clocks there are (the timer looks at none while there are none). */
   get count(): number {
-    return this.clocks.size;
+    let n = 0;
+    for (const s of this.sources.values()) n += s.size;
+    return n;
   }
 
-  /** Bring the clocks up to date with the props (`hidden`: one being moved by hand, drawn by the hand). */
-  sync(props: PropStore, hidden = -1, force = false): void {
+  /** The props' clocks (`CLOCK_ASSETS`), up to date with the store (`hidden`: one being moved by hand, drawn by the hand). */
+  sync(props: Pick<PropStore, "version" | "all">, hidden = -1, force = false): void {
     if (props.version === this.propsVersion && hidden === this.hidden && !force) return;
     this.propsVersion = props.version;
     this.hidden = hidden;
-    const seen = new Set<number>();
+    const out: [number, ClockAt][] = [];
     for (const p of props.all()) {
-      if (p.asset !== CLOCK_ASSET) continue;
-      let c = this.clocks.get(p.id);
+      if (!CLOCK_ASSETS.has(p.asset)) continue;
+      const matrix = new Matrix4().compose(pos.set(p.x, p.y, p.z), q.setFromAxisAngle(up, -p.heading), scale.setScalar(p.scale ?? 1));
+      out.push([p.id, { key: modelKey(p.asset, p.variant, p.storeys), matrix, visible: p.id !== hidden }]);
+    }
+    this.setClocks("props", out);
+  }
+
+  /**
+   * A source's clocks are these now (all of them, by its own ids): new ones get hands, moved ones' hands follow, gone
+   * ones' go. One whose hands aren't loaded yet is left out (asked for: its source sets its clocks again once it's in).
+   * True if anything changed.
+   */
+  setClocks(source: string, clocks: Iterable<readonly [number | string, ClockAt]>): boolean {
+    let placed = this.sources.get(source);
+    if (!placed) this.sources.set(source, (placed = new Map()));
+    const seen = new Set<number | string>();
+    const touched = new Set<Batch>();
+    for (const [id, at] of clocks) {
+      let c = placed.get(id);
+      if (c && c.key !== at.key) {
+        this.remove(c, touched);
+        placed.delete(id);
+        c = undefined;
+      }
       if (!c) {
+        const hands = this.handsOf(at.key);
+        if (!hands) continue;
         // The time the hands show may be old (with no clocks, the timer sets none): a new one comes in at the time now.
         this.catchUp();
-        const key = modelKey(p.asset, p.variant);
-        const template = this.library.livePartsOf(key);
-        // Not built yet: asked for, and drawn once it is (the library's onLoaded syncs again, forced).
-        if (!template) {
-          this.library.load(key).catch(() => {});
-          continue;
+        c = { key: at.key, matrix: at.matrix.clone(), visible: true, hands: hands.hands, instances: [], centre: new Vector3(), tipMove: 0 };
+        for (const hand of hands.hands)
+          for (const part of hand.parts) {
+            const batch = this.batchFor(part.material);
+            c.instances.push({ batch, id: this.addInstance(batch, part.geometry), hand });
+          }
+        placed.set(id, c);
+        this.place(c, touched);
+      } else if (!c.matrix.equals(at.matrix)) {
+        c.matrix.copy(at.matrix);
+        this.place(c, touched);
+      }
+      seen.add(id);
+      const visible = at.visible ?? true;
+      if (visible !== c.visible) {
+        c.visible = visible;
+        for (const inst of c.instances) {
+          inst.batch.mesh.setVisibleAt(inst.id, visible);
+          touched.add(inst.batch);
         }
-        const group = template.clone(true);
-        // The hands cast no shadow: a millimetre off the face, theirs is only a grey smudge beside each hand that
-        // blurs the time at the usual zoom (and two fewer casters for the shadow map).
-        group.traverse((o) => (o.castShadow = false));
-        c = { group, parts: partsOf(group) };
-        this.clocks.set(p.id, c);
-        this.group.add(group);
-        this.setHands(c);
       }
-      seen.add(p.id);
-      c.group.position.set(p.x, p.y, p.z);
-      c.group.rotation.set(0, -p.heading, 0);
-      c.group.visible = p.id !== hidden;
     }
-    for (const [id, c] of this.clocks)
+    for (const [id, c] of placed)
       if (!seen.has(id)) {
-        this.group.remove(c.group);
-        this.clocks.delete(id);
+        this.remove(c, touched);
+        placed.delete(id);
       }
+    for (const b of touched) b.mesh.computeBoundingSphere();
+    return touched.size > 0;
   }
 
   /**
@@ -115,7 +165,7 @@ export class ClockView {
   start(camera: Camera, viewH: () => number, show: () => void, doc: Pick<Document, "hidden" | "addEventListener" | "removeEventListener"> = document): void {
     if (this.stopWatching) return;
     const now = () => {
-      if (this.clocks.size > 0 && this.tick(new Date(), camera, viewH())) show();
+      if (this.count > 0 && this.tick(new Date(), camera, viewH())) show();
     };
     const schedule = () => {
       clearTimeout(this.timer);
@@ -125,7 +175,7 @@ export class ClockView {
         now();
         schedule();
         // (A little past the minute's start: a timer may come a millisecond or two early by `Date`'s reckoning.)
-      }, msToNextMinute(new Date()) + 20);
+      }, msToNext(new Date()) + 20);
     };
     const onVisibility = () => {
       if (!doc.hidden) now();
@@ -151,44 +201,20 @@ export class ClockView {
     if (minute === this.minute) return false;
     this.minute = minute;
     this.time = time;
-    for (const c of this.clocks.values()) this.setHands(c);
+    this.setAll();
     camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    // Beyond this, a minute's move of the minute hand's tip is under half a pixel.
+    // Beyond `far`, a minute's move of a minute hand's tip is under half a pixel.
     const fov = (camera as PerspectiveCamera).isPerspectiveCamera ? (camera as PerspectiveCamera).fov : 45;
-    const far = (MINUTE_TIP_MOVE * viewH) / (2 * Math.tan((fov * Math.PI) / 360) * 0.5);
-    for (const c of this.clocks.values()) {
-      if (!c.group.visible) continue;
-      sphere.center.copy(c.group.position);
-      if (frustum.intersectsSphere(sphere) && camera.position.distanceTo(sphere.center) < far) return true;
-    }
-    return false;
-  }
-
-  /**
-   * Turn a clock's hands to the time. Each turns about its own face's axis (its local x, as `clock` in
-   * tools/blender/bldg_parts.py builds it, before the face is turned to look its way): its rest turn, then that.
-   */
-  /** If the minute's changed since the hands were last set, set every clock's to the time now. */
-  private catchUp(): void {
-    const t = new Date();
-    if (minuteOf(t) === this.minute) return;
-    this.minute = minuteOf(t);
-    this.time = t;
-    for (const c of this.clocks.values()) this.setHands(c);
-  }
-
-  private setHands(c: Clock): void {
-    const a = handAngles(this.time.getHours(), this.time.getMinutes());
-    for (const [name, angle] of [
-      ["hour", a.hour],
-      ["minute", a.minute],
-    ] as const) {
-      for (const h of c.parts.get(name)) {
-        const rest = (h.userData.rest ??= h.quaternion.clone()) as Quaternion;
-        h.quaternion.copy(rest).multiply(turn.setFromAxisAngle(X_AXIS, -angle));
+    const perMm = viewH / (2 * Math.tan((fov * Math.PI) / 360) * 0.5);
+    for (const s of this.sources.values())
+      for (const c of s.values()) {
+        if (!c.visible) continue;
+        sphere.center.copy(c.centre);
+        sphere.radius = Math.max(10, c.tipMove * 12);
+        if (frustum.intersectsSphere(sphere) && camera.position.distanceTo(c.centre) < c.tipMove * perMm) return true;
       }
-    }
+    return false;
   }
 
   /** The angles the hands show now (for tests and e2e checks). */
@@ -196,10 +222,128 @@ export class ClockView {
     return handAngles(this.time.getHours(), this.time.getMinutes());
   }
 
+  /**
+   * The angle each drawn hand shows (clockwise from twelve), read back from its instance's matrix, by source (for tests
+   * and e2e checks: what's drawn, not what was meant).
+   */
+  drawnAngles(): Record<string, { hour: number[]; minute: number[] }> {
+    const out: Record<string, { hour: number[]; minute: number[] }> = {};
+    const rest = new Matrix4();
+    const drawn = new Matrix4();
+    for (const [name, s] of this.sources) {
+      const r = (out[name] = { hour: [] as number[], minute: [] as number[] });
+      for (const c of s.values())
+        for (const inst of c.instances) {
+          inst.batch.mesh.getMatrixAt(inst.id, drawn);
+          // Its rest matrix's inverse, then the drawn: a turn about x by −angle.
+          rest.multiplyMatrices(c.matrix, inst.hand.base).invert().multiply(drawn);
+          const e = rest.elements;
+          r[inst.hand.kind].push(-Math.atan2(e[6], e[5]));
+        }
+    }
+    return out;
+  }
+
+  /** How many clocks each source has (for checks). */
+  counts(): Record<string, number> {
+    return Object.fromEntries([...this.sources].map(([k, s]) => [k, s.size]));
+  }
+
+  /** Draw calls: one per material with hands in it. */
+  get drawCalls(): number {
+    let n = 0;
+    for (const b of this.batches.values()) if (b.count > 0) n++;
+    return n;
+  }
+
   dispose(): void {
     this.stopWatching?.();
     this.stopWatching = undefined;
+    for (const b of this.batches.values()) b.mesh.dispose();
+    this.batches.clear();
+    this.sources.clear();
     this.group.clear();
-    this.clocks.clear();
+    this.propsVersion = -1;
   }
+
+  /** If the minute's changed since the hands were last set, set every clock's to the time now. */
+  private catchUp(): void {
+    const t = new Date();
+    if (minuteOf(t) === this.minute) return;
+    this.minute = minuteOf(t);
+    this.time = t;
+    this.setAll();
+  }
+
+  private setAll(): void {
+    const touched = new Set<Batch>();
+    for (const s of this.sources.values()) for (const c of s.values()) this.place(c, touched);
+    for (const b of touched) b.mesh.computeBoundingSphere();
+  }
+
+  /** Set a clock's hands where it stands, at the time shown. */
+  private place(c: Placed, touched: Set<Batch>): void {
+    const a = handAngles(this.time.getHours(), this.time.getMinutes());
+    for (const inst of c.instances) {
+      inst.batch.mesh.setMatrixAt(inst.id, handMatrix(c.matrix, inst.hand, angleOf(inst.hand.kind, a), m));
+      touched.add(inst.batch);
+    }
+    // Its first hand's pivot, and its minute hand's reach there (its rest frame's scale times the hand's length).
+    const first = c.hands[0];
+    m.multiplyMatrices(c.matrix, first.base);
+    c.centre.setFromMatrixPosition(m);
+    const minute = c.hands.find((h) => h.kind === "minute") ?? first;
+    m.multiplyMatrices(c.matrix, minute.base);
+    let reach = 0;
+    for (const p of minute.parts) {
+      if (!p.geometry.boundingBox) p.geometry.computeBoundingBox();
+      reach = Math.max(reach, p.geometry.boundingBox!.max.y);
+    }
+    c.tipMove = (2 * Math.PI * reach * tip.setFromMatrixScale(m).x) / 60;
+  }
+
+  private remove(c: Placed, touched: Set<Batch>): void {
+    for (const inst of c.instances) {
+      inst.batch.mesh.deleteInstance(inst.id);
+      inst.batch.count--;
+      touched.add(inst.batch);
+    }
+  }
+
+  private addInstance(batch: Batch, geometry: BufferGeometry): number {
+    const mesh = batch.mesh;
+    let gid = batch.geometryOf.get(geometry);
+    if (gid === undefined) {
+      const need = geometry.getAttribute("position").count;
+      if (mesh.unusedVertexCount < need) {
+        batch.vertices = Math.max(batch.vertices * 2, batch.vertices + need);
+        mesh.setGeometrySize(batch.vertices, batch.vertices * 2);
+      }
+      gid = mesh.addGeometry(geometry);
+      batch.geometryOf.set(geometry, gid);
+    }
+    if (mesh.instanceCount >= mesh.maxInstanceCount) mesh.setInstanceCount(mesh.maxInstanceCount * 2);
+    batch.count++;
+    return mesh.addInstance(gid);
+  }
+
+  private batchFor(material: Material): Batch {
+    let batch = this.batches.get(material);
+    if (!batch) {
+      const mesh = new BatchedMesh(START_INSTANCES, START_VERTICES, START_VERTICES * 2, material);
+      // The hands cast no shadow: a millimetre off the face, theirs is only a grey smudge beside each hand that blurs
+      // the time at the usual zoom.
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.name = "clock hands";
+      this.group.add(mesh);
+      batch = { mesh, geometryOf: new Map(), vertices: START_VERTICES, count: 0 };
+      this.batches.set(material, batch);
+    }
+    return batch;
+  }
+}
+
+function msToNext(now: Date): number {
+  return 60_000 - (now.getSeconds() * 1000 + now.getMilliseconds());
 }

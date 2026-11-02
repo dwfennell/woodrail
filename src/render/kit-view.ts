@@ -1,4 +1,6 @@
-import { Frustum, Group, Matrix4, Mesh, Sphere, type Camera, type Object3D } from "three";
+import { Frustum, Group, Matrix4, Mesh, Quaternion, Sphere, Vector3, type Camera, type Object3D } from "three";
+import { CLOCK_ASSETS, posedHands } from "./clock-hands";
+import type { ClockAt } from "./clock-view";
 import type { Prop } from "../props/store";
 import { DECK_GLIDE_S, kitOf, type KitDef, type Layout, type PieceTypeId } from "../track";
 import { motionOf, type KitMotion, type MotionParts } from "./kit-motions";
@@ -36,6 +38,11 @@ const KIT_REACH = 480;
 const frustum = new Frustum();
 const viewProjection = new Matrix4();
 const sphere = new Sphere();
+
+const clockPos = new Vector3();
+const clockTurn = new Quaternion();
+const UP = new Vector3(0, 1, 0);
+const ONE = new Vector3(1, 1, 1);
 
 /** Smoothstep, for easing a motion in and out. */
 const smooth = (u: number) => u * u * (3 - 2 * u);
@@ -90,6 +97,11 @@ export class KitView {
    * without its own, the river or the sea showing instead. Asked only as the layout changes (`sync`). Null: never.
    */
   onWater: ((pieceId: number) => boolean) | null = null;
+  /**
+   * Told the kit pieces' clocks (`CLOCK_ASSETS`: a terminus's, a busy platform's) whenever kits are drawn again or
+   * moved: their hands are drawn by `ClockView`, the kits' models bare of them.
+   */
+  onClocks: ((clocks: [number, ClockAt][]) => void) | null = null;
   /** The source the view draws from: the kit pieces shown. */
   private readonly source = {
     version: 0,
@@ -152,7 +164,21 @@ export class KitView {
         this.movers.delete(id);
       }
     this.source.version = ++this.version;
+    this.pushClocks(layout);
     return this.view.sync(this.source, -1, force);
+  }
+
+  /** The drawn kits' clocks, to `onClocks` (each at its piece's pose). */
+  private pushClocks(layout: Layout): void {
+    if (!this.onClocks) return;
+    const out: [number, ClockAt][] = [];
+    for (const d of this.drawn.values()) {
+      const p = layout.getPiece(d.id);
+      if (!p || !CLOCK_ASSETS.has(kitOf(p.type)?.asset ?? "")) continue;
+      const matrix = new Matrix4().compose(clockPos.set(d.x, d.y, d.z), clockTurn.setFromAxisAngle(UP, -d.heading), ONE);
+      out.push([d.id, { key: kitModelKey(p.type), matrix }]);
+    }
+    this.onClocks(out);
   }
 
   /**
@@ -172,6 +198,7 @@ export class KitView {
     }
     if (!moved) return;
     this.source.version = ++this.version;
+    this.pushClocks(layout);
     // (The key no longer matches: the next `sync` looks again.)
     this.key = "";
     this.view.sync(this.source);
@@ -386,6 +413,9 @@ export class KitView {
         mesh.userData.sharedGeometry = true;
         out.add(mesh);
       }
+      // A clock's hands (its model is bare of them), at the time now.
+      const hands = this.library.clockHands(key);
+      if (hands) out.add(...posedHands(hands, new Date()));
     };
     const model = this.library.model(key);
     // Not built yet: it fills in when it is (the piece in the hand shows it then).
