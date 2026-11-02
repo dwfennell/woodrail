@@ -5,6 +5,7 @@ import { note } from "../debug/report";
 import { blockWord } from "./blocks";
 import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
+import { fullscreenAvailable, onFullscreenChange, toggleFullscreen } from "./fullscreen";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
 import { crossingStyleOf } from "../landscape/crossing-styles";
@@ -264,6 +265,8 @@ export class Hud {
   private readonly landTitle = el("div", "card-title", "Add land");
   private landBtn!: HTMLButtonElement;
   private soundItem!: HTMLButtonElement;
+  private fullBtn!: HTMLButtonElement;
+  private fullItem!: HTMLButtonElement;
   private redoItem!: HTMLButtonElement;
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
@@ -416,8 +419,11 @@ export class Hud {
     this.boardBtn = button(uiIcon("blueprint"), "Research: learn new things", () => h.toggleBoard(), "chip research-btn");
     this.boardBtn.hidden = true;
     // On a phone the bar can't hold them all: these move into the menu (see `.narrow-menu`).
-    for (const b of [this.landBtn, this.redoBtn, this.soundBtn]) b.classList.add("wide-only");
-    actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
+    // Fullscreen, where the page may go fullscreen (not on an iPhone, nor in an iframe not allowed it): no button else.
+    this.fullBtn = button(uiIcon("fullscreen"), "Fullscreen", toggleFullscreen, "chip fullscreen-btn");
+    this.fullBtn.hidden = !fullscreenAvailable();
+    for (const b of [this.landBtn, this.redoBtn, this.soundBtn, this.fullBtn]) b.classList.add("wide-only");
+    actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn, this.fullBtn);
     this.menuBtn = button(uiIcon("menu"), "Menu", () => this.toggleMenu());
     actions.append(this.menuBtn);
     top.appendChild(actions);
@@ -498,7 +504,10 @@ export class Hud {
     this.soundItem = narrow(opts.muted ? "Sound: off" : "Sound: on", "Sound on or off", h.toggleSound);
     this.redoItem = narrow("Redo", "Redo what was undone", h.redo);
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
+    this.fullItem = narrow("Fullscreen", "Fill the screen with the game", toggleFullscreen);
+    this.fullItem.hidden = this.fullBtn.hidden;
     this.menu.append(this.redoItem, this.landItem);
+    onFullscreenChange((on) => this.setFullscreen(on));
     this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
       this.menu.hidden = true;
       h.openLines();
@@ -510,6 +519,7 @@ export class Hud {
     this.menu.append(
       this.linesItem,
       this.soundItem,
+      this.fullItem,
       quality,
       sep(),
       button("How to play", "Show help", () => {
@@ -1365,6 +1375,15 @@ export class Hud {
     this.pauseBtn.title = paused ? "Resume (Space)" : "Pause (Space)";
     this.pauseBtn.setAttribute("aria-label", this.pauseBtn.title);
     this.pauseBtn.classList.toggle("active", paused);
+  }
+
+  /** The fullscreen button's icon and words follow the page (the button, Esc, the browser's own controls). */
+  private setFullscreen(on: boolean): void {
+    this.fullBtn.innerHTML = uiIcon(on ? "exit-fullscreen" : "fullscreen");
+    this.fullBtn.title = on ? "Leave fullscreen" : "Fullscreen";
+    this.fullBtn.setAttribute("aria-label", this.fullBtn.title);
+    this.fullBtn.classList.toggle("active", on);
+    this.fullItem.textContent = on ? "Leave fullscreen" : "Fullscreen";
   }
 
   setMuted(muted: boolean): void {

@@ -112,6 +112,9 @@ const UI_PATHS = {
   play: `<path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.6-6.8a.8.8 0 0 0 0-1.4L9.2 4.5a.8.8 0 0 0-1.2.7Z" fill="currentColor" stroke="none"/>`,
   sound: `<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>`,
   mute: `<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="m16 9.5 5 5"/><path d="m21 9.5-5 5"/>`,
+  // Fullscreen: four corners out; leaving it: four corners in.
+  fullscreen: `<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/><path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>`,
+  "exit-fullscreen": `<path d="M9 4v3.5A1.5 1.5 0 0 1 7.5 9H4"/><path d="M20 9h-3.5A1.5 1.5 0 0 1 15 7.5V4"/><path d="M15 20v-3.5a1.5 1.5 0 0 1 1.5-1.5H20"/><path d="M4 15h3.5A1.5 1.5 0 0 1 9 16.5V20"/>`,
   menu: `<path d="M5 7h14"/><path d="M5 12h14"/><path d="M5 17h14"/>`,
   // A tree with arrows out to the sides (the Land tab's Move tool).
   move: `<path d="M12 4.5 7.5 12h9z" fill="#5aa35a" stroke="none"/><path d="M12 4.5 7.5 12h9zM12 12v4.5"/><path d="M3 18.5h18M5.5 16 3 18.5 5.5 21M18.5 16l2.5 2.5-2.5 2.5"/>`,
