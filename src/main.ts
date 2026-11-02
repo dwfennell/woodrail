@@ -48,7 +48,7 @@ import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, move
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
-import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
+import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { blockerOf, engineView, FOLLOW_TIP, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
@@ -3899,7 +3899,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const lines = [...game.economy.lines.values()];
     linesView.show(lines.map((l) => ({ id: l.id, name: l.name, colour: l.colour, trains: trainsOn(game.economy, l.id).length, stops: l.stops.length })));
-    const key = `${game.trackVersion}|${game.layout.switchesVersion}|${lines.map((l) => `${l.id}${l.colour}:${l.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}`).join("|")}`;
+    // (Ribbons at least 4 px wide however far out the view is: audit F9, at the Lines view's framing a 14 mm ribbon was
+    // under a pixel. In steps, so a zoom rebuilds them only when it crosses one.)
+    const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);
+    // (Discs that would overlap fan out as the view moves: cheap, and only when it has.)
+    if (allLines && allLinesKey !== "" && allLines.fan(game.camera, game.canvas.clientHeight)) game.invalidate();
+    const key = `${scale}|${game.trackVersion}|${game.layout.switchesVersion}|${lines.map((l) => `${l.id}${l.colour}:${l.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}`).join("|")}`;
     if (key === allLinesKey) return;
     allLinesKey = key;
     if (!allLines || allLinesLayout !== game.layout) {
@@ -3913,6 +3918,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       game.scene.add(allLines.group);
     }
     const ribbons: RibbonSpec[] = [];
+    // Each line's stops, numbered in its colour (one disc a place: a place two lines call at shows both, fanned out).
+    const discs: DiscSpec[] = [];
+    for (const l of lines)
+      l.stops.forEach((st, k) => {
+        const piece = game.economy.depot(st.depotId)?.pieceId ?? -1;
+        if (piece !== -1 && game.layout.getPiece(piece) && !discs.some((d) => d.pieceId === piece && d.colour === l.colour)) discs.push({ pieceId: piece, label: `${k + 1}`, colour: l.colour, state: "stop" });
+      });
     for (const l of lines) {
       // (By its via points, and the ways its trains keep.)
       const stops = l.stops.flatMap((st) => {
@@ -3921,7 +3933,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       });
       for (const leg of viaLegs(game.layout, stops, undefined, game.economy.router.ways.of(l.id))) if (leg) ribbons.push({ runs: leg, colour: l.colour });
     }
-    allLines.show(ribbons, []);
+    allLines.show(ribbons, discs, [], scale);
     game.invalidate();
   }
 

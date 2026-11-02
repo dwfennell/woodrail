@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import { aheadRuns, lineLegs, nearestAhead, stopCursors } from "../game/route-path";
 import type { Materials } from "./materials";
-import { discLabel, ribbonEdge, RIBBON_OPACITY, RouteView } from "./route-view";
+import { discLabel, ribbonEdge, RIBBON_OPACITY, ribbonScale, RouteView } from "./route-view";
 import { LINE_COLOURS } from "../game/lines";
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
@@ -201,5 +201,18 @@ describe("which way a ribbon runs (audit F8)", () => {
     }
     expect(between).toBeGreaterThanOrEqual(4);
     view.dispose();
+  });
+});
+
+describe("ribbons seen from far (audit F9)", () => {
+  it("are drawn wide enough to be 4 px on screen, in steps of √2; at the track's own width close up", () => {
+    // (A 390×844 phone's view, 30° high.)
+    const px = (scale: number, d: number) => (14 * scale * 844) / (2 * d * Math.tan(Math.PI / 12));
+    expect(ribbonScale(800, 844, 30)).toBe(1);
+    for (const d of [3000, 8000, 15000, 30000, 60000]) {
+      const s = ribbonScale(d, 844, 30);
+      expect(px(s, d), `${d} mm`).toBeGreaterThanOrEqual(4);
+      if (s > 1) expect(px(s / Math.SQRT2, d), `${d} mm, a step less`).toBeLessThan(4);
+    }
   });
 });

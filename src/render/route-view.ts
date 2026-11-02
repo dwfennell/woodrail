@@ -114,6 +114,8 @@ export class RouteView {
   private readonly postGeom = new CylinderGeometry(POST_RADIUS, POST_RADIUS, 1, 6).translate(0, 0.5, 0);
   private edgeAlpha: DataTexture | null = null;
   private arrowMat: MeshBasicMaterial | null = null;
+  /** How much wider than at the track's own size the solid ribbons are drawn (see `show`). */
+  private scale = 1;
   /** The discs drawn (sprites), each with its place over its stop (`userData.base`) and size (`userData.size`). */
   private discs: Sprite[] = [];
   /** Animation: the next stop's pulse until this time, and a disc (by stop) popping in since `popAt` (seconds). */
@@ -136,8 +138,10 @@ export class RouteView {
   }
 
   /** Draw these ribbons and discs (replacing what was drawn). Builds geometry once per call; nothing per frame. */
-  show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = []): void {
+  show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = [], scale = 1): void {
     this.clear();
+    // (Wider ribbons, arrows and edges, seen from far: the Lines view's. See `ribbonScale`.)
+    this.scale = scale;
     this.shown = ribbons;
     // One mesh per colour and kind: a handful of draw calls however long the route.
     const strips = new Map<string, { colour: string; dotted: boolean; pos: number[]; uv: number[] }>();
@@ -158,7 +162,7 @@ export class RouteView {
         // Under it, a wider strip in a dark shade of its colour: an edge that holds 3:1 against the beech track
         // (audit F10: yellow was 1.2:1). Drawn first; the ribbon over it.
         const e = stripOf(ribbonEdge(r.colour), false);
-        for (const run of r.runs) if (this.layout.getPiece(run.pieceId)) this.span(run, run.s0, run.s1, EDGE_LIFT, e.pos, e.uv, RIBBON_WIDTH + 2 * EDGE_WIDTH);
+        for (const run of r.runs) if (this.layout.getPiece(run.pieceId)) this.span(run, run.s0, run.s1, EDGE_LIFT, e.pos, e.uv, (RIBBON_WIDTH + 2 * EDGE_WIDTH) * this.scale);
       }
     }
     // Which way the train runs: small arrowheads along each solid ribbon, spaced by distance along it (audit F8: a
@@ -347,7 +351,7 @@ export class RouteView {
 
   private strip(run: PathRun, pos: number[], uv: number[]): void {
     if (!this.layout.getPiece(run.pieceId)) return;
-    this.span(run, run.s0, run.s1, RIBBON_LIFT, pos, uv);
+    this.span(run, run.s0, run.s1, RIBBON_LIFT, pos, uv, RIBBON_WIDTH * this.scale);
   }
 
   /**
@@ -357,20 +361,23 @@ export class RouteView {
   private chevrons(runs: readonly PathRun[], pos: number[]): void {
     let along = 0;
     const a: number[] = [];
+    const gap = CHEVRON_GAP * this.scale;
+    const len = CHEVRON_LENGTH * this.scale;
+    const wide = CHEVRON_WIDTH * this.scale;
     for (const run of runs) {
       if (!this.layout.getPiece(run.pieceId)) continue;
       const dir = run.s1 >= run.s0 ? 1 : -1;
       const n = Math.abs(run.s1 - run.s0);
-      for (let k = Math.ceil((along - CHEVRON_GAP / 2) / CHEVRON_GAP); ; k++) {
-        const d = k * CHEVRON_GAP + CHEVRON_GAP / 2 - along;
+      for (let k = Math.ceil((along - gap / 2) / gap); ; k++) {
+        const d = k * gap + gap / 2 - along;
         if (d > n) break;
         // (Whole on this run: an arrow straddling a joint is left for the next.)
-        if (d - CHEVRON_LENGTH / 2 < 0 || d + CHEVRON_LENGTH / 2 > n) continue;
+        if (d - len / 2 < 0 || d + len / 2 > n) continue;
         const s = run.s0 + dir * d;
         a.length = 0;
-        this.point(run, s + (dir * CHEVRON_LENGTH) / 2, 0, CHEVRON_LIFT, a);
-        this.point(run, s - (dir * CHEVRON_LENGTH) / 2, CHEVRON_WIDTH / 2, CHEVRON_LIFT, a);
-        this.point(run, s - (dir * CHEVRON_LENGTH) / 2, -CHEVRON_WIDTH / 2, CHEVRON_LIFT, a);
+        this.point(run, s + (dir * len) / 2, 0, CHEVRON_LIFT, a);
+        this.point(run, s - (dir * len) / 2, wide / 2, CHEVRON_LIFT, a);
+        this.point(run, s - (dir * len) / 2, -wide / 2, CHEVRON_LIFT, a);
         pos.push(...a);
       }
       along += n;
@@ -636,4 +643,15 @@ export function discLabel(label: string, r: number, width: (text: string, size: 
     if (width(text, r * 0.5) <= room) return { text, size: (size * room) / w2 };
   }
   return { text: `${parts[0]}+`, size: r * 0.5 };
+}
+
+/**
+ * How much wider to draw ribbons seen from `distance` mm (on a view `heightPx` tall, `fovDeg` vertical) so they're at
+ * least `minPx` on screen: 1 close up; in steps of √2, so a zoom rebuilds them only when it crosses a step.
+ */
+export function ribbonScale(distance: number, heightPx: number, fovDeg: number, minPx = 4): number {
+  const pxPerMm = heightPx / (2 * distance * Math.tan((fovDeg * Math.PI) / 360));
+  const want = minPx / pxPerMm / RIBBON_WIDTH;
+  if (want <= 1) return 1;
+  return Math.SQRT2 ** Math.ceil(Math.log(want) / Math.log(Math.SQRT2));
 }
