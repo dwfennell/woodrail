@@ -54,3 +54,35 @@ export function storeStopText(action: "auto" | "both" | "drop" | "pick"): string
   if (action === "pick") return "Picks up goods here, drops none";
   return "Leaves goods no later stop wants, takes what a later stop wants";
 }
+
+/** An industry giving several goods (`givesChoice`): its two choices per good, in words and pictures. */
+export const GIVES_MODES: readonly StoreMode[] = ["both", "off"];
+export const GIVES_MODE_WORDS: Partial<Record<StoreMode, string>> = { both: "Gives", off: "Doesn't give" };
+export const GIVES_MODE_ICON: Partial<Record<StoreMode, string>> = { both: "⬆", off: "🚫" };
+
+/** Its card's line over the choices. */
+export const GIVES_HELP = "Choose which goods trains load here. It keeps making both";
+
+/**
+ * Such an industry set not to give a good a route would pick up there ("Not picking up ore: the mine is set not to
+ * give it"), or set to give none of its goods (`all`: "Not loading: the mine is set to give nothing"). `name`: the
+ * industry's name, as its card has it ("Mine").
+ */
+export function givesBlockText(name: string, kind: CargoKind | null): string {
+  const n = name.toLowerCase();
+  return kind === null ? `Not loading: the ${n} is set to give nothing` : `Not picking up ${CARGO[kind].label.toLowerCase()}: the ${n} is set not to give it`;
+}
+
+/** A wagon's card: on or off for each good it can carry (all on to start), in words and pictures. */
+export const WAGON_MODES: readonly StoreMode[] = ["both", "off"];
+export const WAGON_MODE_WORDS: Partial<Record<StoreMode, string>> = { both: "Takes", off: "Off" };
+export const WAGON_MODE_ICON: Partial<Record<StoreMode, string>> = { both: "✓", off: "🚫" };
+
+/** A wagon set to carry none of its goods. */
+export const WAGON_NONE = "Carries nothing (all switched off)";
+
+/** One tap: every wagon of this kind on its train set the same as this one. */
+export const WAGON_SAME = "Same for all wagons like this on this train";
+
+/** Said once the wagons are set the same. */
+export const WAGON_SAME_DONE = "All wagons like this one on the train take the same goods now";

@@ -765,7 +765,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A warehouse's goods: a row each (name and count over what it's set to; four 44 px choices), "Any other goods", and
    "+ Add a good" with its picker. The chosen way is green, as any chip that's on. */
 .depot-stock:empty { display: none; }
-.depot-store { align-self: stretch; display: flex; flex-direction: column; gap: 6px; }
+/* (Never squeezed: the card scrolls instead, its buttons stay 44 px.) */
+.depot-store { align-self: stretch; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.store-row .chip, .store-add, .car-goods-same { flex-shrink: 0; }
 .depot-store[hidden] { display: none; }
 .store-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 2px solid rgba(176, 122, 68, 0.18); }
 .store-row:first-child { border-top: none; }
@@ -782,6 +784,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .store-add { align-self: center; height: 44px; font-size: 15px; }
 .store-pick { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .store-pick .chip { font-size: 15px; padding: 0 10px; }
+/* A wagon's goods on its card (the same rows): its "carries nothing" line, and Same for all wagons like this. */
+.car-goods { min-width: min(320px, 80vw); }
+.car-goods-none { font-size: 13.5px; font-weight: 700; color: #b0391f; text-align: center; }
+.car-goods-same { align-self: center; height: auto; min-height: 44px; padding: 6px 14px; font-size: 15px; white-space: normal; line-height: 1.15; }
 /* A town's card in Game mode: its ledger (src/ui/town-ledger.ts) in place of the piles, above the switches. */
 .depot-card:has(.depot-extra.ledger) > .depot-stock { display: none; }
 .depot-card:has(.depot-extra.ledger) > .card-title { font-size: 20px; font-weight: 900; color: #3a2a1c; }

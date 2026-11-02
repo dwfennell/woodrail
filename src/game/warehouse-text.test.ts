@@ -3,7 +3,7 @@ import { Economy, STORE_MODES } from "../economy";
 import { Sim } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { engineStatus } from "./engine-status";
-import { STORE_HELP, STORE_MODE_WORDS, STORE_NO_ROUTE, STORE_NOT_A_STOP, storeBlockText, storeSkipText, storeStock, storeStopText } from "./warehouse-text";
+import { STORE_HELP, STORE_MODE_WORDS, STORE_NO_ROUTE, STORE_NOT_A_STOP, givesBlockText, storeBlockText, storeSkipText, storeStock, storeStopText } from "./warehouse-text";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] } {
   const layout = new Layout();
@@ -24,6 +24,8 @@ describe("warehouse words", () => {
     expect(storeBlockText(true, "planks", "out")).toBe("Not dropping planks: the warehouse is set to Gives only");
     expect(storeBlockText(false, "iron", "in")).toBe("Not picking up iron: the warehouse is set to Takes only");
     expect(storeBlockText(false, "log", "off")).toBe("Not picking up logs: the warehouse is set to Closed");
+    expect(givesBlockText("Mine", null)).toBe("Not loading: the mine is set to give nothing");
+    expect(givesBlockText("Mine", "ore")).toBe("Not picking up ore: the mine is set not to give it");
   });
 
   it("the card lists only goods it holds, or Empty", () => {

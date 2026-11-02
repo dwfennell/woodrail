@@ -181,6 +181,15 @@ export function storeLetsOut(d: DepotState, kind: CargoKind): boolean {
   return m === "both" || m === "out";
 }
 
+/**
+ * An industry that gives more than one good (the mine: coal and ore): its card lets the player say which of them trains
+ * load there ("both": Gives, the default; "off": Doesn't give), in its depot's `modes`. What it takes stays automatic.
+ */
+export function givesChoice(role: DepotRole): boolean {
+  const r = RECIPES[role];
+  return r.gives.length > 1 && !r.routedOnly && !r.endless;
+}
+
 /** A good on a warehouse's own list (its card shows a row for it even while it holds none). */
 export function storeListed(d: DepotState, kind: CargoKind): boolean {
   return d.modes[CARGO[kind].index] !== null;
@@ -995,12 +1004,14 @@ export class Economy {
   }
 
   /**
-   * A warehouse's mode for one good (listing it on its card), or with `kind` null for any other good. What routed lines
-   * plan there may change: `wantsStamp` (so `laterOf` and `plansVersion`).
+   * A warehouse's mode for one good (listing it on its card), or with `kind` null for any other good; or an industry's
+   * Gives / Doesn't give for one of its goods (`givesChoice`). What routed lines plan there may change: `wantsStamp` (so `laterOf` and `plansVersion`).
    */
   setStoreMode(depotId: number, kind: CargoKind | null, mode: StoreMode): void {
     const d = this.depots[depotId];
-    if (!d || d.role !== "warehouse") return;
+    if (!d) return;
+    // An industry giving several goods: only Gives / Doesn't give, of each good it gives (`givesChoice`).
+    if (d.role !== "warehouse" && !(givesChoice(d.role) && kind !== null && RECIPES[d.role].gives.includes(kind) && (mode === "both" || mode === "off"))) return;
     if (kind === null) d.others = mode;
     else d.modes[CARGO[kind].index] = mode;
     this.wantsStamp++;
@@ -1042,7 +1053,7 @@ export class Economy {
   /** Can this car take one more unit of `kind`? */
   carAccepts(carId: number, kind: CargoKind): boolean {
     const found = this.sim.findCar(carId);
-    if (!found || !canCarry(found.train.cars[found.index].kind, kind)) return false;
+    if (!found || !canCarry(found.train.cars[found.index].kind, kind) || !this.carTakes(carId, kind)) return false;
     const c = this.cargoOf(carId);
     return c.count < this.wagonCapacity && (c.kind === null || c.kind === kind);
   }
@@ -1632,9 +1643,9 @@ export class Economy {
     let best: CargoKind | null = null;
     let fewest = Infinity;
     for (const k of this.givesAt(d)) {
-      if ((c.kind !== null && c.kind !== k) || !canCarry(car, k) || d.piles[CARGO[k].index] <= 0 || !storeLetsOut(d, k) || !this.picksUpAt(d, route, k, found.train)) continue;
+      if ((c.kind !== null && c.kind !== k) || !canCarry(car, k) || d.piles[CARGO[k].index] <= 0 || !storeLetsOut(d, k) || !this.carTakes(carId, k) || !this.picksUpAt(d, route, k, found.train)) continue;
       if (c.kind !== null) return k;
-      // An empty wagon takes the good its train carries least of: a train of hoppers at a mine takes coal and ore both.
+      // An empty wagon takes the good its train carries least of (of those it is switched on for): a train of hoppers at a mine takes coal and ore both.
       let n = 0;
       for (const other of found.train.cars) if (this.cargo.get(other.id)?.kind === k) n++;
       if (n < fewest) {
@@ -1666,7 +1677,7 @@ export class Economy {
     const done = this.services.get(found.train.id)?.done;
     if (found.train.cars.some((o) => o.id !== carId && !done?.has(o.id) && this.canUnload(d, o.id))) return false;
     const car = found.train.cars[found.index].kind;
-    const kind = RECIPES[d.role].gives.find((k) => (c.kind === null || c.kind === k) && canCarry(car, k) && storeLetsOut(d, k) && this.picksUpAt(d, route, k, found.train));
+    const kind = RECIPES[d.role].gives.find((k) => (c.kind === null || c.kind === k) && canCarry(car, k) && storeLetsOut(d, k) && this.carTakes(carId, k) && this.picksUpAt(d, route, k, found.train));
     if (kind === undefined) return false;
     return d.piles[CARGO[kind].index] > 0 || this.working(d);
   }
@@ -1952,7 +1963,7 @@ export class Economy {
       if (done?.has(car.id) || !canCarry(car.kind)) continue;
       const c = this.cargoOf(car.id);
       if (c.count >= this.wagonCapacity) continue;
-      for (const k of RECIPES[d.role].gives) if ((c.kind === null || c.kind === k) && canCarry(car.kind, k) && storeLetsOut(d, k) && this.picksAt(route, d, k)) return true;
+      for (const k of RECIPES[d.role].gives) if ((c.kind === null || c.kind === k) && canCarry(car.kind, k) && storeLetsOut(d, k) && this.carTakes(car.id, k) && this.picksAt(route, d, k)) return true;
     }
     return false;
   }
@@ -2300,8 +2311,39 @@ export class Economy {
     return e;
   }
 
+  /**
+   * Goods a wagon is switched off for (its card: on/off per good it can carry), a cargo bitmask by car id; none (the
+   * default): it takes every good it can carry. Saved per car. Among the goods it's on for, an empty wagon still takes
+   * the one its train carries least of (`loadKind`).
+   */
+  private readonly carOff = new Map<number, number>();
+  /** Bumped when a wagon's goods are switched (its card is drawn again). */
+  carGoodsVersion = 0;
+
+  /** Does this wagon take `kind` (not switched off on its card)? */
+  carTakes(carId: number, kind: CargoKind): boolean {
+    return !((this.carOff.get(carId) ?? 0) & (1 << CARGO[kind].index));
+  }
+
+  /** Switch a good on or off for a wagon. What it has on board stays (it's dropped as usual). */
+  setCarTakes(carId: number, kind: CargoKind, on: boolean): void {
+    const was = this.carOff.get(carId) ?? 0;
+    const off = on ? was & ~(1 << CARGO[kind].index) : was | (1 << CARGO[kind].index);
+    if (off === was) return;
+    if (off === 0) this.carOff.delete(carId);
+    else this.carOff.set(carId, off);
+    this.carGoodsVersion++;
+  }
+
+  /** The goods a wagon is switched off for (for its save). */
+  carOffKinds(carId: number): CargoKind[] {
+    const off = this.carOff.get(carId) ?? 0;
+    return off === 0 ? [] : CARGO_KINDS.filter((k) => off & (1 << CARGO[k].index));
+  }
+
   /** Forget cargo and destinations on cars, and visits of trains, that no longer exist. */
   prune(): void {
+    for (const id of this.carOff.keys()) if (!this.sim.findCar(id)) this.carOff.delete(id);
     for (const id of this.cargo.keys()) if (!this.sim.findCar(id)) this.cargo.delete(id);
     for (const id of this.riders.keys()) if (!this.sim.findCar(id)) this.riders.delete(id);
     for (const id of this.routes.keys()) if (!this.sim.findCar(id)) this.routes.delete(id);

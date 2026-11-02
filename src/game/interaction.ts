@@ -47,10 +47,10 @@ import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
-import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode } from "../economy";
+import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
-import { STORE_HELP, storeStock } from "./warehouse-text";
+import { givesBlockText, GIVES_HELP, STORE_HELP, storeStock } from "./warehouse-text";
 import { SHOP_HELP } from "./workshop-text";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
@@ -2931,7 +2931,7 @@ export class Interaction {
       this.townCard.show(d);
       return;
     }
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.role === "warehouse" ? storeKey(d) : d.sheds;
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.role === "warehouse" || givesChoice(d.role) ? storeKey(d) : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
     // this per-frame check.
@@ -2975,6 +2975,15 @@ export class Interaction {
       });
       return;
     }
+    // An industry that gives several goods (the mine): a row each, its count and Gives / Doesn't give. Production runs
+    // on whatever is set; trains load only what it gives.
+    if (givesChoice(d.role)) {
+      const gives = RECIPES[d.role].gives;
+      const none = gives.every((k) => storeModeOf(d, k) === "off");
+      this.hud.updateDepotCard([], d.auto, d.waitFull, none ? givesBlockText(DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES] ?? "industry", null) : "", false, GIVES_HELP);
+      this.hud.setStore({ gives: true, others: null, addable: [], rows: gives.map((k) => ({ kind: k, count: d.piles[CARGO[k].index], cap: capAt(d), mode: storeModeOf(d, k), listed: true })) });
+      return;
+    }
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     const note = d.role === "town" ? `Delivered ${delivered}` : d.role === "harbour" && piles.length === 0 ? "Nothing on the quay: drop goods here for the boats" : "";
     // A workshop: how its planks get there (a train on a route drops them only at its stops).
@@ -2993,7 +3002,7 @@ export class Interaction {
   /** The open warehouse's card: what it lets trains do with a good (listing it), or with `kind` null, any other good. */
   setStoreMode(kind: CargoKind | null, mode: StoreMode): void {
     const d = this.game.economy.depot(this.selectedDepot);
-    if (!d || d.role !== "warehouse") return;
+    if (!d || (d.role !== "warehouse" && !givesChoice(d.role))) return;
     this.game.economy.setStoreMode(d.id, kind, mode);
     this.refreshDepotCard();
     this.changed();

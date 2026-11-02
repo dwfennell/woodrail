@@ -274,6 +274,25 @@ describe("save format", () => {
     expect(deserializeWorld(data).ok).toBe(false);
   });
 
+  it("keeps a mine's Gives / Doesn't give per good; an older save's mine gives both", () => {
+    const world = worldWithTrain();
+    const end = appendPiece(world.layout, "depot-mine", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    const mine = world.economy.depotAtPiece(end)!;
+    expect(mine.role).toBe("mine");
+    world.economy.setStoreMode(mine.id, "ore", "off");
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const saved = data.depots.find((d) => d.role === "mine")!;
+    expect([saved.modes, saved.others]).toEqual([{ ore: "off" }, undefined]);
+    const r = deserializeWorld(data);
+    if (!r.ok) throw new Error(r.error);
+    expect([storeModeOf(r.value.economy.depotAtPiece(end)!, "ore"), storeModeOf(r.value.economy.depotAtPiece(end)!, "coal")]).toEqual(["off", "both"]);
+    delete saved.modes;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.depotAtPiece(end)!.modes.every((m) => m === null)).toBe(true);
+  });
+
   it("keeps lines: their colour, name and stops (wait to fill too), shared by the trains that run them", () => {
     const world = worldWithTrain();
     const engine = world.sim.getTrain(world.sim.trainIds()[0])!.cars[0];
@@ -689,6 +708,22 @@ describe("economy in saves", () => {
     const cargo = (x: World) => x.sim.trainIds().flatMap((id) => x.sim.getTrain(id)!.cars.map((c) => x.economy.cargoOf(c.id)));
     expect(cargo(w)).toEqual(cargo(world));
     expect(w.economy.delivered.get(1)).toBe(9);
+  });
+
+  it("round-trips the goods each wagon is switched off for; an older save's wagons take everything", () => {
+    const world = timberWorld();
+    const wagon = world.sim.getTrain(world.sim.trainIds()[0])!.cars.find((c) => c.kind === "timber")!;
+    world.economy.setCarTakes(wagon.id, "iron", false);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const saved = data.trains.flatMap((t) => t.cars).find((c) => c.id === wagon.id)!;
+    expect(saved.off).toEqual(["iron"]);
+    const w = deserializeWorld(data);
+    if (!w.ok) throw new Error(w.error);
+    expect([w.value.economy.carTakes(wagon.id, "iron"), w.value.economy.carTakes(wagon.id, "log")]).toEqual([false, true]);
+    delete saved.off;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.carOffKinds(wagon.id)).toEqual([]);
   });
 
   it("round-trips each car's look", () => {

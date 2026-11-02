@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
 import { Layout } from "../track";
 import { CARGO } from "./cargo";
-import { Economy, storeLetsIn, storeLetsOut, storeModeOf, type DepotRole, type DepotState, type RouteStopDef, type StoreMode } from "./economy";
+import { Economy, givesChoice, storeLetsIn, storeLetsOut, storeModeOf, type DepotRole, type DepotState, type RouteStopDef, type StoreMode } from "./economy";
 
 /**
  * A warehouse's own say per good (`StoreMode`: Takes and gives, Takes only, Gives only, Closed), and for any good it
@@ -197,5 +197,96 @@ describe("hand-run trains", () => {
     store.piles[CARGO.planks.index] = 6;
     w.economy.setCargo(w.wagon, "log", 2);
     expect(w.economy.needsService(store, w.wagon)).toBe(false);
+  });
+});
+
+describe("an industry that gives several goods (the mine): Gives / Doesn't give per good", () => {
+  it("only such an industry, only its own goods, only Gives or Doesn't give", () => {
+    expect([givesChoice("mine"), givesChoice("forest"), givesChoice("foundry"), givesChoice("warehouse")]).toEqual([true, false, false, false]);
+    const w = line(["mine", "forest"], ["engine", "hopper"]);
+    const [mine, forest] = w.depots;
+    w.economy.setStoreMode(mine.id, "ore", "in");
+    w.economy.setStoreMode(mine.id, "grain", "off");
+    w.economy.setStoreMode(mine.id, null, "off");
+    w.economy.setStoreMode(forest.id, "log", "off");
+    expect([storeModeOf(mine, "ore"), storeModeOf(mine, "grain"), mine.others, storeModeOf(forest, "log")]).toEqual(["both", "both", "both", "both"]);
+    w.economy.setStoreMode(mine.id, "ore", "off");
+    expect(storeModeOf(mine, "ore")).toBe("off");
+  });
+
+  for (const routed of [false, true])
+    it(`set to coal only, a hopper train ${routed ? "on a route" : "run by hand"} leaves with coal only (and production keeps on)`, () => {
+      const w = line(["mine", "foundry"], ["engine", "hopper", "hopper"]);
+      const [mine, foundry] = w.depots;
+      mine.rate = 1;
+      mine.piles[CARGO.coal.index] = 6;
+      mine.piles[CARGO.ore.index] = 6;
+      w.economy.setStoreMode(mine.id, "ore", "off");
+      if (routed) w.route([{ depotId: mine.id, action: "auto" }, { depotId: foundry.id, action: "auto" }]);
+      w.sim.setLever(w.engine, 1);
+      const loaded = new Set<string>();
+      for (let i = 0; i < 60 * SIM_HZ; i++) {
+        w.sim.tick();
+        w.economy.tick();
+        for (const ev of w.economy.drainEvents()) if (ev.kind === "loaded" && ev.depotId === mine.id) loaded.add(ev.cargo);
+      }
+      expect([...loaded]).toEqual(["coal"]);
+      // Ore piles up as the mine works (to its cap, as before).
+      expect(pile(mine, "ore")).toBeGreaterThan(6);
+      if (routed) expect(w.plan()[0]).toMatchObject({ picks: ["coal"], notPicks: ["ore"] });
+    });
+
+  it("set to give nothing: no loading there at all", () => {
+    const w = line(["mine", "foundry"], ["engine", "hopper"]);
+    const [mine, foundry] = w.depots;
+    mine.piles[CARGO.coal.index] = 6;
+    mine.piles[CARGO.ore.index] = 6;
+    w.economy.setStoreMode(mine.id, "coal", "off");
+    w.economy.setStoreMode(mine.id, "ore", "off");
+    w.route([{ depotId: mine.id, action: "pick" }, { depotId: foundry.id, action: "auto" }]);
+    expect(w.economy.needsService(mine, w.wagon)).toBe(false);
+    expect(w.plan()[0]).toMatchObject({ picks: [], notPicks: ["coal", "ore"] });
+  });
+});
+
+describe("a wagon's goods, on or off each (its card)", () => {
+  it("all on to start; a good switched off isn't loaded, by the crane or by hand", () => {
+    const w = line(["mine", "foundry"], ["engine", "hopper"]);
+    const [mine] = w.depots;
+    expect(["coal", "ore", "grain", "stone"].every((k) => w.economy.carTakes(w.wagon, k as "coal"))).toBe(true);
+    mine.piles[CARGO.coal.index] = 6;
+    w.economy.setCarTakes(w.wagon, "coal", false);
+    expect(w.economy.needsService(mine, w.wagon)).toBe(false);
+    expect(w.economy.carAccepts(w.wagon, "coal")).toBe(false);
+    expect(w.economy.carAccepts(w.wagon, "ore")).toBe(true);
+    mine.piles[CARGO.ore.index] = 6;
+    expect(w.economy.needsService(mine, w.wagon)).toBe(true);
+    expect(w.economy.carOffKinds(w.wagon)).toEqual(["coal"]);
+    w.economy.setCarTakes(w.wagon, "coal", true);
+    expect(w.economy.carOffKinds(w.wagon)).toEqual([]);
+  });
+
+  it("a hopper set to ore only, beside one set to everything, at a mine: ore on the first, the least-carried rule for the other", () => {
+    const w = line(["mine"], ["engine", "hopper", "hopper"]);
+    const [mine] = w.depots;
+    mine.piles[CARGO.coal.index] = 12;
+    mine.piles[CARGO.ore.index] = 12;
+    const [a, b] = w.train().cars.filter((c) => c.kind === "hopper").map((c) => c.id);
+    for (const k of ["coal", "grain", "stone"] as const) w.economy.setCarTakes(a, k, false);
+    w.sim.setLever(w.engine, 1);
+    for (let i = 0; i < 60 * SIM_HZ; i++) (w.sim.tick(), w.economy.tick());
+    expect(w.economy.cargoOf(a).kind).toBe("ore");
+    // (The other takes what the train has least of: coal, as the first has ore.)
+    expect(w.economy.cargoOf(b).kind).toBe("coal");
+  });
+
+  it("all switched off: it carries nothing, and a wait-to-fill stop doesn't hold it", () => {
+    const w = line(["mine", "foundry"], ["engine", "hopper"]);
+    const [mine, foundry] = w.depots;
+    mine.piles[CARGO.coal.index] = 6;
+    mine.piles[CARGO.ore.index] = 6;
+    for (const k of ["coal", "ore", "grain", "stone"] as const) w.economy.setCarTakes(w.wagon, k, false);
+    w.route([{ depotId: mine.id, action: "auto", waitFill: true }, { depotId: foundry.id, action: "auto" }]);
+    expect(w.economy.needsService(mine, w.wagon)).toBe(false);
   });
 });

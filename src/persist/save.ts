@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
@@ -70,6 +70,8 @@ const trainSchema = z.object({
         /** An engine's name (its plate and card title; optional: older saves' engines are given one as they load). */
         name: z.string().min(1).max(64).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(MAX_WAGON_CAPACITY) }).optional(),
+        /** Goods a wagon is switched off for on its card (optional: absent, an older save's, it takes all it can carry). */
+        off: z.array(z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]])).max(CARGO_KINDS.length).optional(),
         /** The harbour (economy depot id) its cargo was bought at: not unloaded back there. */
         landedFrom: z.number().int().min(0).optional(),
         /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
@@ -276,6 +278,7 @@ export function serializeWorld(world: World): SaveData {
         const riders = world.economy.ridersOf(c.id);
         const look = sim.lookOf(c.id);
         const line = lineSaved.get(c.id);
+        const off = world.economy.carOffKinds(c.id);
         return {
           id: c.id,
           kind: c.kind,
@@ -286,6 +289,7 @@ export function serializeWorld(world: World): SaveData {
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
+          ...(off.length > 0 ? { off } : {}),
           ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: { count: Math.min(riders.count, MAX_RIDERS), from: renumbered.get(riders.from)! } } : {}),
         };
       }),
@@ -485,6 +489,11 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       state.others = d.others ?? "both";
       for (const kind of CARGO_KINDS) state.modes[CARGO[kind].index] = d.modes?.[kind] ?? null;
     }
+    // An industry giving several goods: which it gives (Gives / Doesn't give; anything else is dropped).
+    if (givesChoice(d.role)) for (const kind of RECIPES[d.role].gives) {
+      const m = d.modes?.[kind];
+      if (m === "both" || m === "off") state.modes[CARGO[kind].index] = m;
+    }
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);
     for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capAt(state), d.piles[CARGO[kind].index] ?? 0) : 0;
@@ -548,6 +557,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
         const from = t.cars[i].landedFrom;
         if (from !== undefined && economy.depot(from)) economy.landedFrom.set(car.id, from);
       }
+      // A wagon's goods switched off on its card (only goods it can carry).
+      for (const kind of t.cars[i].off ?? []) if (canCarry(car.kind, kind)) economy.setCarTakes(car.id, kind, false);
       const riders = t.cars[i].riders;
       if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") economy.setRiders(car.id, riders.count, riders.from);
     });
