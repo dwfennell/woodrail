@@ -108,9 +108,9 @@ interface WaitingDolls {
   readonly usual: number;
 }
 
-/** Draw only the first `count` dolls (null: the usual few). */
-function showDolls(dolls: WaitingDolls, count: number | null): void {
-  const mark = dolls.marks[Math.min(count ?? dolls.usual, dolls.marks.length - 1)];
+/** Draw only the first `count` dolls (null: the usual few), and none from `held` on (their stand-ins move). */
+function showDolls(dolls: WaitingDolls, count: number | null, held = Infinity): void {
+  const mark = dolls.marks[Math.min(count ?? dolls.usual, held, dolls.marks.length - 1)];
   for (const o of dolls.group.children) {
     if (!(o instanceof Mesh)) continue;
     o.geometry.setDrawRange(0, mark.get(o.material as Material) ?? 0);
@@ -155,6 +155,8 @@ export class LandscapeView {
   /** People waiting on each town's platform (null: the town's usual few), and the peg dolls drawn for them. */
   private readonly waiting = new Map<number, number | null>();
   private readonly waitingGroups = new Map<number, WaitingDolls>();
+  /** Platforms whose dolls from this one on are held back (drawn apart, moving: `StationTouchesView`), by town id. */
+  private readonly heldFrom = new Map<number, number>();
   private placeTrees: PlaceTrees = () => {};
   private clearance!: TreeClearance;
   /** Hill blocks cut by ramps' cuttings. */
@@ -827,7 +829,26 @@ export class LandscapeView {
     if ((this.waiting.get(townId) ?? null) === count) return false;
     this.waiting.set(townId, count);
     const dolls = this.waitingGroups.get(townId);
-    if (dolls) showDolls(dolls, count);
+    if (dolls) showDolls(dolls, count, this.heldFrom.get(townId));
+    return true;
+  }
+
+  /** How many peg dolls a town's platform shows (as people waiting, or its usual few). */
+  waitingShown(townId: number): number {
+    const dolls = this.waitingGroups.get(townId);
+    return dolls ? Math.min(this.waiting.get(townId) ?? dolls.usual, MAX_WAITING_DOLLS) : 0;
+  }
+
+  /**
+   * Hold back a platform's dolls from the `from`th on (null: none): their stand-ins are moving (turning to a train,
+   * getting on: `StationTouchesView`). A draw range, so nothing is rebuilt. True if it changed (draw a frame).
+   */
+  holdWaiting(townId: number, from: number | null): boolean {
+    if ((this.heldFrom.get(townId) ?? null) === from) return false;
+    if (from === null) this.heldFrom.delete(townId);
+    else this.heldFrom.set(townId, from);
+    const dolls = this.waitingGroups.get(townId);
+    if (dolls) showDolls(dolls, this.waiting.get(townId) ?? null, from ?? Infinity);
     return true;
   }
 
@@ -847,7 +868,7 @@ export class LandscapeView {
     const usual = buildWaiting(town, MAX_WAITING_DOLLS, this.mats, b, () => marks.push(b.vertexCounts()));
     b.build(group);
     const dolls: WaitingDolls = { group, marks, usual };
-    showDolls(dolls, this.waiting.get(town.id) ?? null);
+    showDolls(dolls, this.waiting.get(town.id) ?? null, this.heldFrom.get(town.id));
     this.waitingGroups.set(town.id, dolls);
     this.group.add(group);
   }

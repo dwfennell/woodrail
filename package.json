@@ -32,6 +32,7 @@
     "e2e:big-stations": "node tools/e2e/big-stations.mjs",
     "e2e:landscaping": "node tools/e2e/landscaping.mjs",
     "e2e:station-upgrade": "node tools/e2e/station-upgrade.mjs",
+    "e2e:station-touches": "node tools/e2e/station-touches.mjs",
     "e2e:lift": "node tools/e2e/lift.mjs",
     "e2e:loop": "node tools/e2e/kit-loop.mjs",
     "e2e:research": "node tools/e2e/research-picker.mjs",

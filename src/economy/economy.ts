@@ -34,6 +34,8 @@ interface Service {
   still: number;
   /** Cars already served (or sent on) during this visit. */
   readonly done: Set<number>;
+  /** Has it halted at the depot this visit (a "halted" station event said so, and a "left" one is owed)? */
+  halted?: boolean;
 }
 
 export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | KitDepotRole;
@@ -269,6 +271,21 @@ export interface EconomyEvent {
   readonly cargo: CargoKind;
 }
 
+/**
+ * What happens at a stop, for the station's little touches (people turning to the train, stepping on and off, the
+ * guard's flag, `StationTouches`): a train halted at a depot or a kit's stop, someone got on or off a coach there, the
+ * train set off (its work there done, or it went). `pieceId` is the stop's piece; `carId` the coach (−1: none).
+ */
+export interface StationEvent {
+  readonly kind: "halted" | "on" | "off" | "left";
+  readonly pieceId: number;
+  readonly trainId: number;
+  readonly carId: number;
+}
+
+/** Most station events kept undrained (nothing drains them in tests or headless runs: the oldest go). */
+const STATION_LOG_MAX = 64;
+
 export type CargoSlot = { readonly kind: "pile"; readonly depotId: number; readonly cargo: CargoKind } | { readonly kind: "car"; readonly carId: number };
 
 /**
@@ -330,11 +347,20 @@ export class Economy {
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
   /** Bumped when a route is set (a line edited) or a depot's Automatic changes. */
   private stopsStamp = 0;
+  /** Bumped when a routed train's next stop changes (a route set, a stop left or skipped): departure boards redraw then. */
+  private nextStamp = 0;
+  /** Changes whenever a routed train's next stop may have: what a departure board shows (never read per frame). */
+  get nextVersion(): number {
+    return this.nextStamp + this.stopsStamp;
+  }
   /** Bumped when goods reach a town (what it still wants may change). */
   private wantsStamp = 0;
   private events: EconomyEvent[] = [];
   /** The other half of the event double buffer (no new array each drain). */
   private drained: EconomyEvent[] = [];
+  /** Station events since the last drain (see `StationEvent`), and the other half of their double buffer. */
+  private stationLog: StationEvent[] = [];
+  private stationDrained: StationEvent[] = [];
   /** Trains stopping at kit pieces' stops (a platform's dwell: see `KitStops`). */
   readonly kitStops: KitStops;
 
@@ -344,6 +370,7 @@ export class Economy {
   ) {
     // A kit with a depot on it (Game mode's halts) stops trains as the depot does, for its work: not for its dwell too.
     this.kitStops = new KitStops(layout, sim, (pieceId) => this.byPiece.has(pieceId));
+    this.kitStops.onStop = (kind, pieceId, trainId) => this.stationNote(kind, pieceId, trainId, -1);
     sim.speedCap = (train) => this.capFor(train);
     // (A train the router holds short of points claims nothing there: routing spec §13 step 7.)
     sim.waitsAt = (train) => this.router.waitsAt(train);
@@ -383,6 +410,7 @@ export class Economy {
         for (let k = 0; k < r.stops.length; k++) {
           const d = this.depots[r.stops[i].depotId];
           if (!d || !pieces.has(d.pieceId)) {
+            if (r.next !== i) this.nextStamp++;
             r.next = i;
             return;
           }
@@ -1683,6 +1711,8 @@ export class Economy {
       // But a routed train's "Wait here till full" stop never is: it crawls in (goods may yet come, and a wagon that can
       // take them stops under the crane), while a wagon could take some.
       if (!this.waitsHere(train, d)) {
+        // Its work here done after a halt: it sets off (the guard's flag).
+        if (s.halted) this.departed(s);
         s.phase = NONE;
         // Its work here done (or none): it waits a moment longer if another train of its line left here just now.
         return this.spacingCap(train, d);
@@ -1793,6 +1823,11 @@ export class Economy {
   /** Stop the train for the crane to work on this car. */
   private halt(s: Service, carId: number): number {
     if (s.phase !== HALTED) this.depotHalts++;
+    if (!s.halted) {
+      s.halted = true;
+      const d = this.depots[s.depotId];
+      if (d) this.stationNote("halted", d.pieceId, s.trainId, carId);
+    }
     s.phase = HALTED;
     s.carId = carId;
     s.ticks = 0;
@@ -1812,6 +1847,7 @@ export class Economy {
   }
 
   private endVisit(s: Service): void {
+    if (s.halted) this.departed(s);
     s.phase = NONE;
     s.depotId = -1;
     s.carId = -1;
@@ -1828,6 +1864,7 @@ export class Economy {
       const d = this.depots[s.depotId];
       if (!train) {
         // Gone (coupled into another train, or removed): forget its visit.
+        if (s.halted) this.departed(s);
         this.services.delete(s.trainId);
         continue;
       }
@@ -1851,9 +1888,11 @@ export class Economy {
           const from = this.depots[r!.from];
           this.setRiders(s.carId, r!.count - 1, r!.from);
           if (from) this.onAlight?.(from, d, s.carId);
+          this.stationNote("off", d.pieceId, s.trainId, s.carId);
         } else {
           d.waiting--;
           this.setRiders(s.carId, (r?.count ?? 0) + 1, r?.from ?? d.id);
+          this.stationNote("on", d.pieceId, s.trainId, s.carId);
         }
         continue;
       }
@@ -2024,6 +2063,7 @@ export class Economy {
       if (!d || !this.layout.getPiece(d.pieceId)) {
         // Its stop was taken up: on to the next.
         r.next = (r.next + 1) % r.stops.length;
+        this.nextStamp++;
         r.at = false;
         continue;
       }
@@ -2043,6 +2083,7 @@ export class Economy {
       } else if (r.at) {
         // Left it: on past it, and past any stops after it at the same depot (they were the same visit).
         r.at = false;
+        this.nextStamp++;
         if (line) this.spacing.departed(line.id, stopsKey(line), engine, r.next % r.stops.length, this.ticksRun);
         for (let k = 0; k < r.stops.length; k++) {
           r.next = (r.next + 1) % r.stops.length;
@@ -2051,6 +2092,27 @@ export class Economy {
         resetVias(r);
       }
     }
+  }
+
+  /** A train halted at a depot sets off: its "left" station event (once a halt). */
+  private departed(s: Service): void {
+    s.halted = false;
+    const d = this.depots[s.depotId];
+    if (d) this.stationNote("left", d.pieceId, s.trainId, -1);
+  }
+
+  private stationNote(kind: StationEvent["kind"], pieceId: number, trainId: number, carId: number): void {
+    if (this.stationLog.length >= STATION_LOG_MAX) this.stationLog.length = 0;
+    this.stationLog.push({ kind, pieceId, trainId, carId });
+  }
+
+  /** Station events since the last drain (see `StationEvent`). The returned array is reused: read it before the next. */
+  drainStationEvents(): readonly StationEvent[] {
+    const e = this.stationLog;
+    this.stationLog = this.stationDrained;
+    this.stationLog.length = 0;
+    this.stationDrained = e;
+    return e;
   }
 
   /** Events since the last drain. The returned array is reused: read it before the next drain. */

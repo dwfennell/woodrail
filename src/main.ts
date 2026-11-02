@@ -4125,6 +4125,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const pan = ((x - t.x) * right.x + (z - t.z) * right.z) / 900;
     return [volume, pan];
   };
+  // A big station's guard raises his flag as a train sets off: a soft whistle, heard from the camera as its trains are.
+  game.onGuardFlag = (x, z) => audio.guardWhistle(...listen(x, z));
+
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
   const whistles = new WhistlePosts();
   /**

@@ -25,6 +25,9 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
+import { BIG_STATIONS, StationTouchesView } from "../render/station-touches";
+import { departures } from "./departures";
+import { routeStops } from "./route-stops";
 import { pulseBeacons } from "../render/dressing/roads";
 import { createMaterials, type Materials } from "../render/materials";
 import { Flourishes } from "../render/flourishes";
@@ -175,6 +178,13 @@ export class Game {
   simSeconds = 0;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
+  /** A big station's guard raised his flag as a train set off, here (the host's soft whistle). */
+  onGuardFlag: ((x: number, z: number) => void) | null = null;
+  /** The stations' little touches: people turning to a train and getting on and off, guards' flags, departure boards. */
+  readonly touches: StationTouchesView;
+  /** The layout and routes the big stations' guards and boards were last set from (`syncStationTouches`). */
+  private touchesPieces = -1;
+  private touchesNext = -1;
   /** The camera moved since the last frame (called on such frames only: see `cameraMoved`). */
   onCameraMoved: (() => void) | null = null;
   /** Milliseconds spent simulating in the last frame (for the perf overlay). */
@@ -244,6 +254,25 @@ export class Game {
     });
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
+    this.touches = new StationTouchesView(this.mats, {
+      townAt: (pieceId) => {
+        for (const [townId, id] of this.stations) if (id === pieceId) return this.landscape.towns.find((t) => t.id === townId);
+        return undefined;
+      },
+      carPoint: (carId) => {
+        const found = this.sim.findCar(carId);
+        return found ? midpoint(found.train.world[2 * found.index], found.train.world[2 * found.index + 1]) : null;
+      },
+      trainPoint: (trainId) => {
+        const t = this.sim.getTrain(trainId);
+        return t && t.world.length > 1 ? midpoint(t.world[0], t.world[1]) : null;
+      },
+      waitingShown: (townId) => this.landscapeView.waitingShown(townId),
+      holdWaiting: (townId, from) => {
+        if (this.landscapeView.holdWaiting(townId, from)) this.invalidate();
+      },
+    });
+    this.scene.add(this.touches.group);
     syncCuttings(this.landscape, this.layout);
     this.landscapeView.syncTrees(this.layout);
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf, this.archFloorsOf);
@@ -331,6 +360,8 @@ export class Game {
   setWorld(world: GameWorld): void {
     this.invalidate();
     this.flourishes.clear();
+    this.touches.clear();
+    this.touchesPieces = this.touchesNext = -1;
     this.boats.clear();
     this.layout = world.layout;
     this.sim = world.sim;
@@ -802,6 +833,17 @@ export class Game {
       this.trackView.syncSwitches();
       this.invalidate();
     }
+    // The stations' touches: stepped only on a frame with station events (a halt, someone on or off, a train off) or
+    // while something of theirs moves; the big stations' guards and boards set again only when pieces or routes change.
+    this.syncStationTouches();
+    const stationEvents = this.economy.drainStationEvents();
+    if (!this.paused && (stationEvents.length > 0 || this.touches.busy)) {
+      for (const e of stationEvents) this.touches.event(e.kind, e.pieceId, e.trainId, e.carId);
+      const touched = this.touches.update(dt);
+      if (touched === "moving") this.touchesMoving = true;
+      else if (touched === "changed") this.invalidate();
+      for (const w of this.touches.drainWhistles()) this.onGuardFlag?.(w.x, w.z);
+    }
     this.events = this.sim.drainEvents();
     // A train turned back where the track just stops: that end's board shows (a gap is plain to see).
     for (const e of this.events) if (e.kind === "buffer" && this.markOpenEnd(e.trainId)) this.invalidate();
@@ -814,7 +856,8 @@ export class Game {
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
     const trainsMoved = this.trainsChanged();
-    if (trainsMoved || tipping || this.flourishes.count > 0) active = true;
+    if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
+    this.touchesMoving = false;
     // Kits' moving parts (doors, cranes, spouts, a turntable's deck, a signal's arm or lamps): looked at only on frames
     // where trains moved, one halted, a switch was thrown (a deck turns), a signal changed aspect or a ride moved on
     // (a lift's platform: only as the sim ticks, so never while paused), or while one is
@@ -1104,6 +1147,37 @@ export class Game {
     this.invalidate();
   }
 
+  private touchesMoving = false;
+
+  /**
+   * The big stations' guards and departure boards: put on (or taken off) as those pieces come, go or move, and their
+   * boards' rows worked out again when a routed train's next stop changes. Idle, two comparisons.
+   */
+  private syncStationTouches(): void {
+    const pieces = this.layout.revision;
+    const next = this.economy.nextVersion;
+    if (pieces === this.touchesPieces && next === this.touchesNext) return;
+    if (pieces !== this.touchesPieces) {
+      const bigs = [];
+      for (const id of this.layout.pieceIds()) {
+        const p = this.layout.getPiece(id)!;
+        if (BIG_STATIONS.has(p.type)) bigs.push({ id, type: p.type, flipped: p.flipped, pose: p.pose, y: p.y });
+      }
+      if (this.touches.syncBigs(bigs)) this.invalidate();
+    }
+    this.touchesPieces = pieces;
+    this.touchesNext = next;
+    const ids = this.touches.bigPieces();
+    if (ids.length === 0) return;
+    let names: Map<number, string> | null = null;
+    for (const id of ids) {
+      const d = this.economy.depotAtPiece(id);
+      if (d) names ??= new Map(routeStops(this.world).map((s) => [s.depotId, s.name]));
+      const rows = d ? departures(this.economy, d.id, (to) => names!.get(to) ?? "?") : [];
+      if (this.touches.setBoard(id, rows)) this.invalidate();
+    }
+  }
+
   /** How many people wait on a town's platform (Game mode's passengers; null: its usual few). Cheap when unchanged. */
   setWaiting(townId: number, count: number | null): void {
     if (this.landscapeView.setWaiting(townId, count)) this.invalidate();
@@ -1266,4 +1340,9 @@ export class Game {
     }
     return changed;
   }
+}
+
+/** Halfway between two points (a car's bogies). */
+function midpoint(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
 }
