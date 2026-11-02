@@ -137,11 +137,20 @@ export class StationTouchesView {
     private readonly calm: () => boolean = reducedMotion,
   ) {}
 
-  /** Anything moving, or a stop under way (`update` is asked each frame only then, or with station events). */
+  /** Did the last `update` move anything (a lean, a hop, a flag)? */
+  private moving = false;
+
+  /**
+   * Anything moving (`update` is asked each frame only then, or with station events). A stop where everyone has
+   * turned to the train and stands still isn't: nothing is asked of it until the next event.
+   */
   get busy(): boolean {
-    if (this.visits.size > 0) return true;
-    for (const b of this.bigs.values()) if (b.flagT >= 0) return true;
-    return false;
+    return this.moving;
+  }
+
+  /** A stop under way at any station (the people there are stand-ins). */
+  get visiting(): boolean {
+    return this.visits.size > 0;
   }
 
   /** Flags raised since last asked, where (the host's whistle). */
@@ -166,6 +175,11 @@ export class StationTouchesView {
     let v = this.visits.get(town.id);
     if (kind === "halted") {
       const at = (carId >= 0 ? this.host.carPoint(carId) : null) ?? this.host.trainPoint(trainId);
+      // Another train, or this one back after setting off: a fresh stop, from the people waiting now.
+      if (v && (v.leaving || v.trainId !== trainId)) {
+        this.endVisit(v);
+        v = undefined;
+      }
       if (!v) v = this.startVisit(town, pieceId, trainId);
       v.trainId = trainId;
       v.leaving = false;
@@ -189,7 +203,7 @@ export class StationTouchesView {
     let moving = false;
     let changed = false;
     const calm = this.calm();
-    for (const [townId, v] of this.visits) {
+    for (const v of [...this.visits.values()]) {
       let w = 0;
       for (const d of v.dolls) {
         const r = this.stepDoll(d, v, dt, calm);
@@ -205,12 +219,7 @@ export class StationTouchesView {
       v.dolls.length = w;
       // Set off, everyone settled (none hopping): the stand-ins go, the batch draws them again.
       if (v.leaving && !v.dolls.some((d) => d.mode !== "stand" || Math.abs(d.lean) > 0.002)) {
-        for (const d of v.dolls) {
-          d.root.removeFromParent();
-          disposeDoll(d.root);
-        }
-        this.host.holdWaiting(townId, null);
-        this.visits.delete(townId);
+        this.endVisit(v);
         changed = true;
       }
     }
@@ -235,7 +244,18 @@ export class StationTouchesView {
       }
       moving = true;
     }
+    this.moving = moving;
     return moving ? "moving" : changed ? "changed" : "idle";
+  }
+
+  /** A stop over: the stand-ins go, the batch draws its dolls again. */
+  private endVisit(v: Visit): void {
+    for (const d of v.dolls) {
+      d.root.removeFromParent();
+      disposeDoll(d.root);
+    }
+    this.host.holdWaiting(v.town.id, null);
+    this.visits.delete(v.town.id);
   }
 
   /** Put the big stations' guards and boards on these pieces (the rest go). Cheap when none changed. */
@@ -282,14 +302,8 @@ export class StationTouchesView {
 
   /** Everything back as it was at once (a new map, Sandbox ↔ Game). */
   clear(): void {
-    for (const [townId, v] of this.visits) {
-      for (const d of v.dolls) {
-        d.root.removeFromParent();
-        disposeDoll(d.root);
-      }
-      this.host.holdWaiting(townId, null);
-    }
-    this.visits.clear();
+    for (const v of [...this.visits.values()]) this.endVisit(v);
+    this.moving = false;
     for (const b of this.bigs.values()) this.dropBig(b);
     this.bigs.clear();
     this.whistles.length = 0;

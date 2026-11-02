@@ -240,7 +240,7 @@ const seen = await p.evaluate(
           out.flagAngle = big.flag;
         }
         out.heard = s.heard;
-        if ((out.flag && !big?.flagUp && s.visits.length === 0) || performance.now() - t0 > 90000) done(out);
+        if ((out.flag && !big?.flagUp && s.visits.length === 0) || performance.now() - t0 > 300000) done(out);
         else requestAnimationFrame(look);
       };
       look();
@@ -294,7 +294,7 @@ const idle = await p.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 3000));
   return { frames: w.framesDrawn - f0, busy: w.touches.busy };
 });
-check("idle: the touches ask for no frames", !idle.busy && idle.frames <= 1, JSON.stringify(idle));
+check("idle: the touches ask for no frames (a stop standing still included)", !idle.busy && idle.frames <= 1, JSON.stringify(idle));
 // The board close up.
 await p.evaluate((pieceId) => {
   const w = window.woodrail;

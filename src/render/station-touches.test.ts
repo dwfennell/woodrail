@@ -38,8 +38,9 @@ describe("station touches (the view)", () => {
     expect(held).toEqual([1]);
     expect(run(v, 1)).toBeGreaterThan(0);
     expect(v.state().visits[0].dolls.every((d) => d.lean > 0.15)).toBe(true);
-    // Still: no frames asked for.
+    // Still: no frames asked for, and not stepped again till the next event.
     expect(v.update(1 / 30)).toBe("idle");
+    expect(v.busy).toBe(false);
     v.event("off", 2, 1, 7);
     v.event("on", 2, 1, 7);
     const modes = v.state().visits[0].dolls.map((d) => d.mode);
@@ -64,6 +65,18 @@ describe("station touches (the view)", () => {
     v.update(1 / 30);
     expect(v.state().visits).toHaveLength(1);
     expect(v.state().visits[0].dolls.length).toBeGreaterThan(0);
+  });
+
+  it("the same train back after setting off (heard together): stand-ins again from the people waiting now", () => {
+    const { v } = view();
+    v.event("halted", 2, 1, 7);
+    for (let k = 0; k < 5; k++) v.event("on", 2, 1, 7);
+    v.event("left", 2, 1, -1);
+    v.event("halted", 2, 1, 7);
+    v.update(1 / 30);
+    const visit = v.state().visits[0];
+    expect(visit.leaving).toBe(false);
+    expect(visit.dolls.filter((d) => d.mode === "stand")).toHaveLength(4);
   });
 
   it("reduced motion: on board at once, no one shown getting off", () => {
