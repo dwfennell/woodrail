@@ -9,7 +9,7 @@
 //
 // Then chains: Mills (needs Farming) queued in one tap behind Farming, "Research Farming now" (never Research now while
 // Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through. Then the next
-// nodes: Juice works' ticket in words, and Cold van queued behind Creamery in one tap and researched through.
+// nodes: Juice works' ticket in words, and Creamery then Cold van researched by taps and deliveries.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
@@ -673,9 +673,8 @@ await p.waitForFunction(() => window.woodrail.progress().learned.has("mills"), n
 check("…and Mills is learned (the mill is unlocked)", await p.evaluate(() => window.woodrail.progress().learned.has("mills")), JSON.stringify(await queued()));
 
 // 11. The next nodes (tech-tree spec "Next nodes"): Orchards and Dairy farm learned (a setup shortcut: they need a city,
-// which isn't under test), then Juice works' ticket says what it unlocks and its cost in words; Cold van (needs
-// Creamery) queues as a chain in one tap, Creamery first, and the chain is researched through by deliveries to the
-// school: both learned, and the creamery and the cold van unlocked (the payoff).
+// which isn't under test), then Juice works' ticket says what it unlocks and its cost in words; Creamery, then the
+// Cold van (needs Creamery), researched by taps and deliveries to the school: both learned (the payoff).
 await p.evaluate(() => {
   const w = window.woodrail;
   for (const id of ["orchard", "dairy"]) w.learn(id);
@@ -691,25 +690,26 @@ check("Juice works: unlocks the juice works, costs 8 planks and 120 coins, in wo
 await shot("19-juice-works-360");
 await p.setViewportSize({ width: 390, height: 844 });
 await p.waitForTimeout(400);
-const ahead = await queued();
-await select("Cold van");
-t = await ticket();
-const coldBtn = queuedButtons(t);
-check("Cold van (needs Creamery): a chain button naming Creamery first", t?.state === "locked" && /Creamery/.test(coldBtn) && /Cold van/.test(`${coldBtn} ${t.foot}`), JSON.stringify(t));
-await tap(".board-sheet button[data-act=pick]", coldBtn.split("|")[0]);
-const q = await queued();
-check("…one tap queues Creamery, then Cold van", q.indexOf("creamery") >= 0 && q.indexOf("creamery") + 1 === q.indexOf("reefer"), JSON.stringify(q));
-await shot("20-cold-van-chain");
-// Whatever was under way before goes first (its goods brought too): then Creamery, then Cold van.
-if (ahead.length > 0) {
-  await tap(".board-sheet button[data-act=now]", "Research Creamery now").catch(() => null);
-}
 await tap(".board-head .close");
-for (const id of ["creamery", "reefer"]) {
-  await p.waitForFunction((id) => window.woodrail.progress().research.current === id, id, { timeout: 60000 }).catch(() => null);
+// Creamery (shown: Dairy farm is learned) by taps, Research now, its goods brought: learned. Only then is the Cold van
+// shown by name (a "?" while what it needs isn't learned), and it's researched the same way.
+const researchByTaps = async (name, id) => {
+  await tap(".research-pill");
+  await select(name);
+  const first = await ticket();
+  await tap(".board-sheet button[data-act=pick]", first?.buttons[0]?.text);
+  if ((await queued())[0] !== id) await tap(".board-sheet button[data-act=now]", "Research now");
+  const under = (await queued())[0];
+  await tap(".board-head .close");
   await deliverGoods({ planks: 12 });
   await p.waitForFunction((id) => window.woodrail.progress().learned.has(id), id, { timeout: 150000 }).catch(() => null);
-}
+  return { first, under };
+};
+const cream = await researchByTaps("Creamery", "creamery");
+check("Creamery: a tap and Research now start it", cream.first?.name === "Creamery" && cream.under === "creamery", JSON.stringify(cream));
+await shot("20-creamery-learned");
+const cold = await researchByTaps("Cold van", "reefer");
+check("…then the Cold van is shown, and taps start it", cold.first?.name === "Cold van" && cold.under === "reefer", JSON.stringify(cold));
 const payoff = await p.evaluate(() => {
   const w = window.woodrail;
   const learned = w.progress().learned;
