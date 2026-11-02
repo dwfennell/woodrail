@@ -3589,8 +3589,10 @@ async function tightCurves(ctx, p, tapSel) {
         break;
       }
       const n0 = (await laid()).ids.length;
+      // (A tap: lifted 0.1 s on, by its own stamp. Stamped as sent, the lift could read as a 1.2 s press on software GL,
+      // where the frame drawn on the touch holds up the next event: the ghost then went down on every other tap.)
       await touch("touchStart", g.at[0], g.at[1]);
-      await touch("touchEnd", g.at[0], g.at[1]);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [], timestamp: (stamp += 0.1) });
       await settled();
       await frames(p);
       waits.push({ snap: g.snap, blocked: g.blocked, at: g.at.map(Math.round), under: g.under, added: (await laid()).ids.length - n0 });
