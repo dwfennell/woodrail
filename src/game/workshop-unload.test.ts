@@ -57,12 +57,18 @@ function line(p: Progress, stops: readonly Stop[], opts: { branchSchool?: boolea
   sim.setLever(train().cars[0].id, 1);
   /** What its engine card said while passing a stop that takes planks and keeping them (`keptAt`). */
   const told = new Set<string>();
+  /** The places the card offered to add ("Add …": `engineView`'s `addStop`). */
+  const offered = new Set<number>();
   const names: Record<string, string> = { workshop: "the workshop", school: "the school", town: "Ashby", forest: "the forest", sawmill: "the sawmill" };
   const run = (seconds: number) => {
     for (let i = 0; i < seconds * SIM_HZ; i++) {
       sim.tick();
       economy.tick();
-      if (economy.keptAt(train().id)) told.add(engineView(sim, economy, train().cars[0].id, (id) => names[economy.depot(id)!.role]).status);
+      if (economy.keptAt(train().id)) {
+        const v = engineView(sim, economy, train().cars[0].id, (id) => names[economy.depot(id)!.role]);
+        told.add(v.status);
+        if (v.addStop !== undefined) offered.add(v.addStop);
+      }
     }
   };
   const at = (s: Stop) => depots[stops.indexOf(s)];
@@ -78,7 +84,7 @@ function line(p: Progress, stops: readonly Stop[], opts: { branchSchool?: boolea
         const g = economy.cargoOf(c.id);
         return g.kind && g.count > 0 ? `${g.kind} ${g.count}` : "empty";
       });
-  return { layout, economy, sim, train, run, at, planks, delivered, route, told, branchSchool, loads };
+  return { layout, economy, sim, train, run, at, planks, delivered, route, told, offered, branchSchool, loads };
 }
 
 /** Research picked that lacks more planks than the train carries (Bridges: 10). */
@@ -276,8 +282,10 @@ describe("a routed train and the workshop", () => {
     w.route([{ stop: w.at("town") }]);
     w.run(90);
     expect(w.planks(w.at("workshop"))).toBe(0);
-    expect(w.told.has("Not dropping planks: the workshop isn't on this route. Edit the route to add a stop here")).toBe(true);
-    expect(keptText("not-stop", "planks", "workshop", "the workshop")).toBe("Not dropping planks: the workshop isn't on this route. Edit the route to add a stop here");
+    expect(w.told.has("Not dropping planks: the workshop isn't on this line. Edit the line to add a stop here")).toBe(true);
+    expect(keptText("not-stop", "planks", "workshop", "the workshop")).toBe("Not dropping planks: the workshop isn't on this line. Edit the line to add a stop here");
+    // The card offers to add the workshop (one tap: audit F15), and only that place.
+    expect([...w.offered]).toEqual([w.at("workshop").id]);
   });
 
   it("keeps them for the stop it's heading for, the workshop a later stop: nothing said", () => {

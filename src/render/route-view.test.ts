@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import { aheadRuns, lineLegs, nearestAhead, stopCursors } from "../game/route-path";
 import type { Materials } from "./materials";
-import { discLabel, RouteView } from "./route-view";
+import { discLabel, ribbonEdge, RIBBON_OPACITY, ribbonScale, RouteView } from "./route-view";
+import { LINE_COLOURS } from "../game/lines";
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
 function stubMaterials(): Materials {
@@ -41,10 +42,11 @@ describe("RouteView", () => {
     );
     const meshes = view.group.children.filter((o) => (o as Mesh).isMesh && o.name.startsWith("route-"));
     // The dotted way: soft dashes, one mesh for its colour.
-    expect(meshes.map((m) => m.name).sort()).toEqual(["route-dots", "route-ribbon"]);
+    expect(meshes.map((m) => m.name).sort()).toEqual(["route-chevrons", "route-dots", "route-edge", "route-ribbon"]);
     const discs = view.group.children.filter((o) => (o as Sprite).isSprite);
     expect(discs.map((d) => d.userData)).toMatchObject(stops.map((pieceId, index) => ({ kind: "route-stop", pieceId, index })));
-    expect(view.group.children).toHaveLength(2 + 3 * 2);
+    // (The ribbon, its dark edge, its arrows, the dots, and a disc and post a stop.)
+    expect(view.group.children).toHaveLength(4 + 3 * 2);
     // The ribbon lies just over the track's top (all flat here).
     const ribbon = meshes.find((m) => m.name === "route-ribbon") as Mesh;
     ribbon.geometry.computeBoundingBox();
@@ -58,7 +60,8 @@ describe("RouteView", () => {
     ribbon.geometry.addEventListener("dispose", () => (disposed = true));
     view.show([{ runs: legs[0]!, colour: "#3a7bd5" }], []);
     expect(disposed).toBe(true);
-    expect(view.group.children).toHaveLength(1);
+    // (The ribbon, its edge and its arrows.)
+    expect(view.group.children).toHaveLength(3);
     view.clear();
     expect(view.group.children).toHaveLength(0);
     view.dispose();
@@ -180,5 +183,69 @@ describe("discLabel: a stop disc's number fits inside it (QA: a place visited fo
     view.highlight(legs[0]!.slice(1, 3), 30);
     view.clear();
     expect(lit()).toBeUndefined();
+  });
+});
+
+describe("ribbon edges against the track (audit F10)", () => {
+  /** WCAG contrast of two "#rrggbb" colours. */
+  const lum = (hex: string) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contrast = (a: string, b: string) => {
+    const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  };
+  /** `top` at `alpha` over `under`, mixed per channel as the screen does. */
+  const over = (top: string, under: string, alpha: number) =>
+    "#" + [1, 3, 5].map((i) => Math.round(parseInt(top.slice(i, i + 2), 16) * alpha + parseInt(under.slice(i, i + 2), 16) * (1 - alpha)).toString(16).padStart(2, "0")).join("");
+  it("every line colour's edge, drawn at the ribbon's opacity over beech, holds 3:1 against beech", () => {
+    const BEECH = "#e7c89a";
+    for (const { name, colour } of LINE_COLOURS) expect(contrast(over(ribbonEdge(colour), BEECH, RIBBON_OPACITY), BEECH), name).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("which way a ribbon runs (audit F8)", () => {
+  it("arrowheads along it, spaced, each pointing the way its run goes", () => {
+    // (A straight run, so "ahead" is one way all along it.)
+    const layout = new Layout();
+    const ids: number[] = [];
+    for (const t of ["depot-farm", "straight-216", "straight-216", "straight-216", "depot-mill"] as PieceTypeId[]) ids.push(ids.length ? appendPiece(layout, t, false, connectorRef(ids[ids.length - 1], 1)) : layout.addPiece(t, { x: 0, z: 0, heading: 0 }));
+    const view = new RouteView(layout, stubMaterials());
+    const legs = lineLegs(layout, [ids[0], ids[4]]);
+    view.show([{ runs: legs[0]!, colour: "#3a7bd5" }], []);
+    const arrows = view.group.children.find((o) => o.name === "route-chevrons") as Mesh;
+    const p = arrows.geometry.getAttribute("position");
+    const n = p.count / 3;
+    expect(n).toBeGreaterThanOrEqual(2);
+    // Each: its tip (the first point) ahead of its two back corners, the way the train goes from stop 1 to stop 2.
+    const from = layout.getPiece(ids[0])!.pose;
+    const to = layout.getPiece(ids[4])!.pose;
+    const way = { x: to.x - from.x, z: to.z - from.z };
+    // (The leg first runs back to the end of the farm's piece, where the train turns, and its arrows there point back:
+    // those on the straights between the stops are checked.)
+    let between = 0;
+    for (let i = 0; i < n; i++) {
+      const tip = { x: p.getX(3 * i), z: p.getZ(3 * i) };
+      if (tip.x < 216 || tip.x > 864) continue;
+      between++;
+      const back = { x: (p.getX(3 * i + 1) + p.getX(3 * i + 2)) / 2, z: (p.getZ(3 * i + 1) + p.getZ(3 * i + 2)) / 2 };
+      expect((tip.x - back.x) * way.x + (tip.z - back.z) * way.z).toBeGreaterThan(0);
+    }
+    expect(between).toBeGreaterThanOrEqual(4);
+    view.dispose();
+  });
+});
+
+describe("ribbons seen from far (audit F9)", () => {
+  it("are drawn wide enough to be 4 px on screen, in steps of √2; at the track's own width close up", () => {
+    // (A 390×844 phone's view, 30° high.)
+    const px = (scale: number, d: number) => (14 * scale * 844) / (2 * d * Math.tan(Math.PI / 12));
+    expect(ribbonScale(800, 844, 30)).toBe(1);
+    for (const d of [3000, 8000, 15000, 30000, 60000]) {
+      const s = ribbonScale(d, 844, 30);
+      expect(px(s, d), `${d} mm`).toBeGreaterThanOrEqual(4);
+      if (s > 1) expect(px(s / Math.SQRT2, d), `${d} mm, a step less`).toBeLessThan(4);
+    }
   });
 });
