@@ -19,6 +19,7 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run e2e:train-summary [-- <out>]`: end-to-end train summary and wagon loads on the cards, Game mode on a 360×740 phone, headless (about 8 min)
 - `npm run e2e:stickers [-- <out>]`: end-to-end stickers: one earned quietly by laying track, the dot, the last core goal, the toast and the Stickers tab, on a 390×844 phone, headless
 - `npm run e2e:stats [-- <out>]`: end-to-end "Help improve Woodrail" play stats on a 390×844 phone: asked after the first goal, a yes, the batch the Worker reads, Stop sharing (about 2 min; see `docs/stats.md`)
+- `npm run e2e:locked [-- <out>]`: locked tray tiles say how to unlock them and open Research there; Game's tray tabs fit at 360 px; the town card on a phone on its side in two columns (about 6 min)
 - `npm run e2e:warehouse [-- <out>]`: end-to-end warehouses in Game mode on a 390×844 phone: the hand-run explanation, a route dropping planks there and one taking them to a town, by taps, headless (about 3.5 min)
 
 Designs and plans are in `docs/superpowers/specs` and `docs/superpowers/plans`.

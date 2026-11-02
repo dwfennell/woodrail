@@ -58,7 +58,9 @@ export function installTooltips(root: HTMLElement): Tooltips {
     if ((!text && !name) || !el.isConnected) return;
     // A tray item with its place card up (Hud.showPlaceCard) says it all there.
     if (el.classList.contains("has-card")) return;
-    if (name) tip.replaceChildren(line("tip-name", name), line("tip-detail", el.dataset.tipDetail ?? ""), ...(withUse && text ? [line("tip-use", text)] : []));
+    // A locked tray item: how to unlock it, in place of how to use it.
+    const lock = el.dataset.tipLock;
+    if (name) tip.replaceChildren(line("tip-name", name), line("tip-detail", el.dataset.tipDetail ?? ""), ...(lock ? [line("tip-lock", lock)] : withUse && text ? [line("tip-use", text)] : []));
     else tip.textContent = text;
     tip.classList.toggle("details", !!name);
     tip.hidden = false;

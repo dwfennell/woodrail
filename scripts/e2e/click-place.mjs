@@ -3,7 +3,7 @@
 // for the next; a drag still pans, the wheel still zooms; R turns it; Esc, a right-click or the tray item again put it
 // away. On touch a tap in the tray carries nothing (as before). The place card (#12): while an item is ready to place
 // its card (name, what it does, a train's pulls and speed) sits above the tray taking no pointer, and goes once one is
-// put down or it's put away; Game mode's Engine and a locked engine; on touch a tap shows it a moment, a road made ready
+// put down or it's put away; Game mode's Engine, and a locked engine's lock note in its place; on touch a tap shows it a moment, a road made ready
 // keeps it, and a long press shows the details without a drag. Starts its own dev server on any free port. Chromium as
 // for e2e:roads.
 import { existsSync } from "node:fs";
@@ -395,10 +395,9 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   check("…Esc puts it away, and the card goes with it", !(await thing()) && (await placeCard(p)) === null, JSON.stringify(await placeCard(p)));
   const locked = await at(".scroller .tray-item.locked");
   await p.mouse.click(locked[0], locked[1]);
-  // (Read as soon as it's up: a headless frame can take longer than the moment it stays.)
-  await cardUp(p);
-  const c2 = await placeCard(p);
-  check("…a click on a locked engine carries nothing; its card says how to unlock it", !(await thing()) && !!c2 && c2.pointer === "none" && c2.text.some((t) => t.startsWith("🔒")), `${locked[2]}: ${JSON.stringify(c2)}`);
+  await p.waitForFunction(() => document.querySelector(".lock-note")?.hidden === false, null, { timeout: 5000 }).catch(() => {});
+  const note = await p.evaluate(() => { const n = document.querySelector(".lock-note"); return n && !n.hidden ? n.textContent : null; });
+  check("…a click on a locked engine carries nothing; its lock note (claude/locked-tiles) says how to unlock it, in place of a card", !(await thing()) && (await placeCard(p)) === null && !!note && /unlock|soon/i.test(note), `${locked[2]}: ${note}`);
   await ctx.close();
 
   async function thing() {

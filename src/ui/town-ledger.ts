@@ -36,18 +36,24 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
   box.innerHTML = "";
   box.classList.add("ledger");
 
+  // Two groups: how it grows (its level, goods and what holds it back), and what it has (school, market, station, lines).
+  // Upright they're one column, as before (`display: contents`); a phone on its side lays them side by side.
+  const main = el("div", "ledger-main");
+  const side = el("div", "ledger-side");
+  box.append(main, side);
+
   const head = el("div", "ledger-head");
   // A city grows on into a bigger one (City ★, City ★★…): say that, not the stars.
   const next = v.next.includes("★") ? "grow bigger" : `become a ${v.next.toLowerCase()}`;
   head.append(el("span", "ledger-level", v.level), el("span", "ledger-growing", `${v.have} of ${v.need} goods to ${next}`));
-  box.append(head);
+  main.append(head);
   // A bar for all its goods, over a bar for each, when there's more than one (one good: its own bar says it all).
   if (v.goods.length > 1) {
     const total = el("div", "ledger-bar total");
     const fill = el("div", "ledger-fill");
     fill.style.width = `${Math.round((100 * v.have) / Math.max(1, v.need))}%`;
     total.append(fill);
-    box.append(total);
+    main.append(total);
   }
 
   const goods = el("div", "ledger-goods");
@@ -61,8 +67,8 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
     r.append(el("span", "ledger-good-name", `${g.icon} ${g.label}`), bar, el("span", "ledger-good-count", done ? `${g.have}/${g.need} ✓` : `${g.have}/${g.need}`));
     goods.append(r);
   }
-  box.append(goods);
-  if (v.holding) box.append(el("p", "ledger-holding", v.holding));
+  main.append(goods);
+  if (v.holding) main.append(el("p", "ledger-holding", v.holding));
 
   const rows = el("div", "ledger-rows");
   if (v.school) {
@@ -71,7 +77,7 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
   }
   if (v.market > 1) rows.append(row("Market", "pays extra for goods"));
   if (v.station) rows.append(row("Station", `${v.station.waiting} of ${v.station.room} waiting · ${v.station.carried} carried in all`));
-  if (rows.childElementCount > 0) box.append(rows);
+  if (rows.childElementCount > 0) side.append(rows);
 
   if (v.lines.length > 0) {
     const chips = el("div", "ledger-lines");
@@ -84,7 +90,7 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
       c.addEventListener("click", () => on.lines());
       chips.append(c);
     }
-    box.append(chips);
+    side.append(chips);
   }
-  box.append(el("p", "ledger-pay", "Full pay for goods it needs, half for others."));
+  side.append(el("p", "ledger-pay", "Full pay for goods it needs, half for others."));
 }

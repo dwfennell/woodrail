@@ -27,6 +27,8 @@ export interface HudHandlers {
   /** A tray piece tapped (the ready one is put away). */
   /** A tap on a tray item (`pointerType`: what tapped it, a mouse, pen or finger). */
   trayTap(item: TrayItem, pointerType: string): void;
+  /** Open the Research picker on this blueprint (a locked tray tile's "Show in Research"). */
+  showResearch?(id: string): void;
   /** Another tray tab opened (the ready piece is put away). */
   trayTabChanged(): void;
   /** The Track tab opened or closed (building: free track ends show their end boards). */
@@ -869,6 +871,8 @@ export class Hud {
       this.handlers.trackTab?.(tab.id === "track");
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
       this.propsTab = tab.orient === "turn";
+      this.hideLockNote();
+      fitTabs();
       let groups = tab.groups;
       if (tab.props) {
         const loaded = loadedGroups.get(tab.id);
@@ -893,6 +897,29 @@ export class Hud {
       else if (open) showItems(groups, open);
       else showGroups(groups);
     };
+    /**
+     * Game mode on a narrow phone: the tabs share their row with the tools (Draw, Clear, Turn, Flip), and must all show
+     * without a sideways scroll. Tightened by CSS first (`max-width: 380px`); if they still don't fit (the Roads tab
+     * learned, or Turn and Flip beside Industries), the tabs not open show their picture only, then all of them do (the
+     * open one is still the lifted cream tab; each keeps its name for a screen reader and the tooltip). Measured only
+     * when a tab opens or the row's room changes (a shelf opens, the tools change, a turn of the phone), never per frame.
+     */
+    const fitTabs = () => {
+      tabs.classList.remove("short", "icons");
+      if (this.trayMode !== "game" || tabs.children.length === 0 || [...tabs.children].some((t) => !(t as HTMLElement).dataset.icon)) return;
+      for (const step of ["short", "icons"]) {
+        if (tabs.scrollWidth <= tabs.clientWidth + 1) return;
+        tabs.classList.add(step);
+      }
+    };
+    // (Watching the row and the tools, not the tabs: fitting changes the tabs, never these, so it can't loop.)
+    let fitKey = "";
+    const fitWatch = new ResizeObserver(() => {
+      const key = `${head.clientWidth} ${tools.offsetWidth}`;
+      if (key === fitKey) return;
+      fitKey = key;
+      fitTabs();
+    });
     let list: TrayTab[] = [];
     this.openTrayTab = (id, shelf) => {
       const tab = list.find((t) => t.id === id);
@@ -914,6 +941,7 @@ export class Hud {
           openTab(tab);
         }, "tab");
         t.dataset.tab = tab.id;
+        if (tab.icon) t.dataset.icon = tab.icon;
         tabs.appendChild(t);
       }
       // (Tabs shown again as one came or went (Roads, learned): the open one stays open. A new mode opens the first.)
@@ -947,6 +975,8 @@ export class Hud {
     tools.append(pens, orient);
     const head = el("div", "tray-head");
     head.append(tools, tabs);
+    fitWatch.observe(head);
+    fitWatch.observe(tools);
     this.tray.append(head, scroller);
     this.root.appendChild(this.tray);
 
@@ -1161,6 +1191,89 @@ export class Hud {
   trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null) | null = null;
   private trayButtons: [HTMLElement, TrayItem][] = [];
 
+  /**
+   * How a locked tray item is unlocked, in plain words ("Research Signals to unlock"), and the blueprint the Research
+   * picker can open on (null: none). Set by the game (Game mode).
+   */
+  trayLock: ((item: TrayItem) => { text: string; jump: string | null } | null) | null = null;
+  private lockNoteEl: HTMLElement | null = null;
+  private lockNoteTimer = 0;
+  private lockNoteOff: (() => void) | null = null;
+
+  /**
+   * A tap (or click) on a locked tray tile: a note over it says how to unlock it, with "Show in Research" to open the
+   * picker on that blueprint. Nothing is picked up. Returns false if the tile isn't locked (the tap goes on as usual).
+   */
+  private lockedTap(b: HTMLElement, item: TrayItem): boolean {
+    if (!b.classList.contains("locked")) return false;
+    const lock = this.trayLock?.(item);
+    if (!lock) return false;
+    this.showLockNote(b, item.label, lock);
+    return true;
+  }
+
+  private showLockNote(b: HTMLElement, name: string, lock: { text: string; jump: string | null }): void {
+    this.hideLockNote();
+    this.handlers.buttonTap();
+    const note = (this.lockNoteEl ??= el("div", "lock-note"));
+    note.setAttribute("role", "status");
+    note.innerHTML = "";
+    const title = el("div", "lock-note-name");
+    title.textContent = `🔒 ${name}`;
+    const how = el("div", "lock-note-how");
+    how.textContent = lock.text;
+    note.append(title, how);
+    if (lock.jump && this.handlers.showResearch) {
+      const id = lock.jump;
+      const go = button(`<span aria-hidden="true">📘</span> Show in Research`, "Open Research on what unlocks it", () => {
+        this.hideLockNote();
+        this.handlers.showResearch!(id);
+      }, "chip text primary lock-note-go");
+      note.appendChild(go);
+    }
+    document.body.appendChild(note);
+    note.hidden = false;
+    // Over the tile (the tray is at the bottom), its notch pointing at it, kept on the screen.
+    const r = b.getBoundingClientRect();
+    const w = note.offsetWidth;
+    const x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+    note.style.left = `${Math.round(x)}px`;
+    note.style.bottom = `${Math.round(window.innerHeight - r.top + 10)}px`;
+    note.style.setProperty("--notch", `${Math.round(Math.min(Math.max(16, r.left + r.width / 2 - x), w - 16))}px`);
+    note.classList.remove("in");
+    void note.offsetWidth;
+    note.classList.add("in");
+    // Gone with a tap anywhere else, the tray scrolled, a key, or after a while (long enough to read and tap).
+    const away = (e: Event) => {
+      if (e.target instanceof Node && (note.contains(e.target) || b.contains(e.target))) return;
+      this.hideLockNote();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") this.hideLockNote();
+    };
+    const scroll = () => this.hideLockNote();
+    const scroller = b.closest(".scroller");
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", key);
+    scroller?.addEventListener("scroll", scroll, { passive: true });
+    window.addEventListener("resize", scroll);
+    this.lockNoteOff = () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", key);
+      scroller?.removeEventListener("scroll", scroll);
+      window.removeEventListener("resize", scroll);
+    };
+    this.lockNoteTimer = window.setTimeout(() => this.hideLockNote(), 9000);
+  }
+
+  /** Take the locked tile's note away (if it's up). */
+  hideLockNote(): void {
+    clearTimeout(this.lockNoteTimer);
+    this.lockNoteOff?.();
+    this.lockNoteOff = null;
+    if (this.lockNoteEl) this.lockNoteEl.hidden = true;
+  }
+
   refreshTrayBadges(): void {
     for (const [b, item] of this.trayButtons) this.decorate(b, item);
   }
@@ -1171,8 +1284,11 @@ export class Hud {
     b.classList.toggle("attention", badge?.attention === true);
     // None left, but it can be made on the spot: its cost shows instead of a dead zero.
     b.classList.toggle("craft", badge?.craft === true);
-    // Not learned yet: says so in its corner (and no ★ to make it a favourite).
+    // Not learned yet: says so in its corner (and no ★ to make it a favourite), and how to unlock it in its tooltip.
     b.classList.toggle("locked", badge?.locked === true);
+    const lock = badge?.locked ? (this.trayLock?.(item) ?? null) : null;
+    if (lock) b.dataset.tipLock = `🔒 ${lock.text}`;
+    else delete b.dataset.tipLock;
     if (!badge) {
       tag?.remove();
       b.classList.remove("empty");
@@ -1920,16 +2036,10 @@ export class Hud {
   }
 
   /**
-   * How a locked tray item is unlocked, in plain words, and the blueprint Research can open on (null: none), or null if
-   * it isn't locked. Set by the game (Game mode). (The same shape as claude/locked-tiles' hook, which says it better.)
-   */
-  trayLock: ((item: TrayItem) => { text: string; jump: string | null } | null) | null = null;
-
-  /**
    * The place card: an item's name, what it does and what sets it apart (piece-info's `placeCardInfo`), docked above
    * the tray over the item while it's ready to place (clicked, or a road tapped), so the choice is explained without
    * covering the map's middle. On touch, a tap that makes nothing ready (a train, a piece) shows it a moment instead
-   * (`timed`), as does a tap on a locked tile, with how to unlock it. `pointer-events: none`: it never takes a drop or a
+   * (`timed`). A locked tile's tap shows its lock note instead (`lockedTap`). `pointer-events: none`: it never takes a drop or a
    * click. Built only when it's shown for a new item (a selection change), never per frame or pointer move.
    */
   private placeCard: { el: HTMLElement | null; key: string | null; timed: boolean; timer: number } = { el: null, key: null, timed: false, timer: 0 };
@@ -1939,11 +2049,8 @@ export class Hud {
     const key = b.dataset.key ?? null;
     // (Whatever card was up gives way to this tap's.)
     if (this.placeCard.key !== key) this.hidePlaceCard();
-    if (b.classList.contains("locked") && this.trayLock?.(item)) {
-      this.handlers.buttonTap();
-      this.showPlaceCard(b, item, true);
-      return;
-    }
+    // Locked: its note says how to unlock it, with Show in Research (and nothing is picked up).
+    if (this.lockedTap(b, item)) return;
     const before = this.armedKey;
     run();
     if (key && this.armedKey === key && before !== key) this.showPlaceCard(b, item, false);
@@ -1979,10 +2086,8 @@ export class Hud {
     const lines = [line("pc-name", info.name), line("pc-what", info.detail), ...info.facts.map((f) => line("pc-fact", f))];
     // What it does in Game mode (a caboose: makes its train a bit faster).
     if (item.kind === "train" && this.trayMode === "game" && item.gameDetail) lines.push(line("pc-fact", item.gameDetail));
-    const lock = b.classList.contains("locked") ? this.trayLock?.(item) : null;
-    if (lock) lines.push(line("pc-lock", `🔒 ${lock.text}`));
     card.el.replaceChildren(...lines);
-    card.el.classList.toggle("locked", !!lock);
+    this.hideLockNote();
     this.tray.querySelector(".tray-item.has-card")?.classList.remove("has-card");
     b.classList.add("has-card");
     card.key = b.dataset.key ?? null;
