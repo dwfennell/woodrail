@@ -653,6 +653,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.keysTaken = () => interaction.piecesTakeKeys;
   interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {
+    hud.trayPlaced();
     audio.putdown(snapped);
     if (snapped) hud.haptic("snap");
   };
@@ -1675,6 +1676,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let trainMade: Map<ThingId, number> | null = null;
   let trainSaid = "";
   interaction.onTrayTrainDropped = (placed) => {
+    if (placed) hud.trayPlaced();
     const made = trainMade;
     const said = trainSaid;
     trainMade = null;
@@ -1695,6 +1697,26 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.refreshTrayBadges();
     showWorkshop(true);
     scheduleSave();
+  }
+
+  /**
+   * How a locked tray item is unlocked, for its place card ("Learn Express trains in Research first"), or null if it
+   * isn't locked. The same rules as `trayAllowed`'s refusals.
+   */
+  function lockWords(item: ThingItem | TrayItem | { kind: string }): string | null {
+    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return null;
+    const look = lockedLook(item);
+    if (look) {
+      const t = techOf(look)!;
+      return t.plan ? "Coming soon." : `Learn ${t.label} in Research first${t.requires.length ? ` (${t.requires.map(describeNeed).join(", ")})` : ""}.`;
+    }
+    for (const id of thingsFor(item as ThingItem).keys()) {
+      if (progress.knows(id)) continue;
+      const tech = ruleOf(id)?.tech;
+      const t = tech ? techOf(tech) : null;
+      return t ? `Learn ${t.label} in Research first.` : "Not learned yet.";
+    }
+    return null;
   }
 
   /** A train item in a look whose blueprint isn't learned yet (a dining car, an express engine): that blueprint. */
@@ -4086,6 +4108,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       flourBefore(progress, game.world);
       syncLandmarks();
       hud.trayBadge = trayBadge;
+      hud.trayLock = (item) => {
+        const text = lockWords(item);
+        return text ? { text, jump: null } : null;
+      };
       hud.trayKnown = (item) => (item.kind === "road" ? progress.learned.has(ROAD_TECH[item.piece]) : item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id)));
       // A tab that needs a blueprint (Roads) shows once it's learned.
       hud.tabKnown = (tech) => progress.learned.has(tech);
@@ -4103,6 +4129,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWaiting();
       shownDelivered = new Map();
       hud.trayBadge = null;
+      hud.trayLock = null;
       hud.trayKnown = null;
       hud.tabKnown = null;
       hud.refreshTabs();

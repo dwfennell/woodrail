@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PIECE_TYPES } from "../track";
-import { DETAIL_MAX, hasOwnName, pieceInfo, trayInfo } from "./piece-info";
+import { DETAIL_MAX, hasOwnName, pieceInfo, placeCardInfo, recipeWords, trayInfo } from "./piece-info";
 import { TRAY_TABS, type TrayItem } from "./tray-catalogue";
 
 const trayItems = (): TrayItem[] => TRAY_TABS.flatMap((t) => t.groups.flatMap((g) => g.items));
@@ -45,5 +45,35 @@ describe("piece names", () => {
     expect(trayInfo(item("Electric")).detail).toBe("Pulls 6 cars, 1.4× as fast. Needs power on.");
     expect(trayInfo(item("Tank engine")).detail).toContain("Pulls 3 cars");
     expect(trayInfo(item("Hopper")).detail).toBe("Carries grain, stone, coal and ore.");
+  });
+});
+
+describe("the place card (a tray item ready to place)", () => {
+  const engine = (look: string): TrayItem => trayItems().find((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine" && (i.looks?.[0] ?? "classic") === look)!;
+
+  it("gives an engine's pulls and speed, and what sets it apart", () => {
+    expect(placeCardInfo(engine("classic"))).toEqual({ name: "Engine", detail: "Pulls a train of wagons and coaches.", facts: ["Pulls 4 cars · 40 km/h", "A good all-round engine."] });
+    expect(placeCardInfo(engine("tank")).facts).toEqual(["Pulls 3 cars · 40 km/h", "Starts and stops in half the time."]);
+    expect(placeCardInfo(engine("goods")).facts).toEqual(["Pulls 8 cars · 32 km/h", "Pulls the most cars, but slow to start."]);
+    expect(placeCardInfo(engine("express")).facts[1]).toBe("The fastest engine.");
+    expect(placeCardInfo(engine("electric")).facts[1]).toBe("Runs only while a power station has coal.");
+    expect(placeCardInfo(engine("diesel")).facts[1]).toBe("Pulls more than the Engine, and faster.");
+  });
+
+  it("says what an industry makes, from what", () => {
+    expect(recipeWords("sawmill")).toBe("Makes planks from logs · every 8 s");
+    expect(recipeWords("foundry")).toBe("Makes iron from coal and ore · every 10 s");
+    expect(recipeWords("carpenter")).toBe("Makes furniture from 3 planks · every 12 s");
+    expect(recipeWords("forest")).toBe("Makes logs · every 15 s");
+    expect(recipeWords("workshop")).toBe("");
+    expect(placeCardInfo({ kind: "piece", type: "depot-mill", label: "Mill" }).facts).toEqual(["Makes flour from grain · every 8 s"]);
+  });
+
+  it("says what track is for, and keeps every line short", () => {
+    expect(placeCardInfo({ kind: "piece", type: "switch", label: "Switch" })).toEqual({ ...pieceInfo("switch"), facts: [] });
+    for (const item of trayItems()) {
+      const c = placeCardInfo(item);
+      for (const line of [c.detail, ...c.facts]) expect(line.length, `${item.label}: ${line}`).toBeLessThanOrEqual(DETAIL_MAX);
+    }
   });
 });

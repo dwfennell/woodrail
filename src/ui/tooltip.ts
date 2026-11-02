@@ -56,6 +56,8 @@ export function installTooltips(root: HTMLElement): Tooltips {
     const text = el.dataset.tip ?? "";
     const name = el.dataset.tipName;
     if ((!text && !name) || !el.isConnected) return;
+    // A tray item with its place card up (Hud.showPlaceCard) says it all there.
+    if (el.classList.contains("has-card")) return;
     if (name) tip.replaceChildren(line("tip-name", name), line("tip-detail", el.dataset.tipDetail ?? ""), ...(withUse && text ? [line("tip-use", text)] : []));
     else tip.textContent = text;
     tip.classList.toggle("details", !!name);
