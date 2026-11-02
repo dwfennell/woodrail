@@ -64,17 +64,37 @@ const tilt = (p) => p.evaluate(() => { const w = window.woodrail; const d = w.ca
  * The place card (#12): shown, its name, all its lines, and where it sits: above the tray and its tools, taking no
  * pointer (the map under its middle is what a click there hits). Null if it isn't up.
  */
-const placeCard = (p) =>
-  p.evaluate(() => {
+function readCard() {
     const c = document.querySelector(".place-card");
     if (!c || c.hidden || getComputedStyle(c).display === "none") return null;
     const r = c.getBoundingClientRect();
     const tray = Math.min(...[document.querySelector(".tray"), ...document.querySelectorAll(".tray-tools > *")].map((e) => e.getBoundingClientRect()).filter((b) => b.height > 0).map((b) => b.top));
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return { name: c.querySelector(".pc-name")?.textContent ?? null, text: [...c.children].map((x) => x.textContent), pointer: getComputedStyle(c).pointerEvents, above: r.bottom <= tray + 1, onScreen: r.left >= 0 && r.right <= innerWidth && r.top >= 0, hitsMap: hit?.tagName === "CANVAS" };
-  });
+}
+const placeCard = (p) => p.evaluate(readCard);
+/**
+ * Catch the next place card the moment it shows (a card shown for a moment can be gone before a poll under load):
+ * `await catchCard(p)` before the tap, then `await caught(p)` after it.
+ */
+const catchCard = (p) =>
+  p.evaluate((src) => {
+    const read = new Function(`return (${src})()`);
+    window.__caught = null;
+    const obs = new MutationObserver(() => {
+      const c = document.querySelector(".place-card");
+      if (c && !c.hidden && !window.__caught) {
+        window.__caught = read();
+        obs.disconnect();
+      }
+    });
+    obs.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden"] });
+  }, readCard.toString());
+const caught = async (p) => {
+  await p.waitForFunction(() => window.__caught !== null, null, { timeout: 10000 }).catch(() => {});
+  return p.evaluate(() => window.__caught);
+};
 /** Wait (a few seconds at most) for the place card to be up. */
-const cardUp = (p) => p.waitForFunction(() => document.querySelector(".place-card")?.hidden === false, null, { timeout: 5000 }).catch(() => {});
 /** The card's place and lines are right for a ready item named `name`. */
 const cardOk = (c, name) => !!c && c.name === name && c.text.length >= 2 && c.pointer === "none" && c.above && c.onScreen && c.hitsMap;
 const frames = (p) => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -410,9 +430,9 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const p = await sandbox(ctx);
   const item = await firstItem(p);
+  await catchCard(p);
   await p.touchscreen.tap(item.x, item.y);
-  await cardUp(p);
-  const c1 = await placeCard(p);
+  const c1 = await caught(p);
   check("on touch, a tap on a tray piece doesn't carry it", !(await carried(p)) && !(await marked(p, item.key)));
   check("…but its card shows a moment, above the tray, taking no touch", cardOk(c1, "Medium straight"), JSON.stringify(c1));
   await p.waitForFunction(() => document.querySelector(".place-card")?.hidden === true, null, { timeout: 10000 }).catch(() => {});
