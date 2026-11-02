@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef } from "../track";
 import { buildStarterWorld, type World } from "./world";
-import { ownTrack, STICKERS, StickerTracker, TRACK_LAYER, type StickerContext } from "./stickers";
+import { ownTrack, SEA_TRADER, STICKERS, StickerTracker, TRACK_LAYER, type StickerContext } from "./stickers";
+import { CARGO } from "../economy";
+import { HarbourTrade, type HarbourEvent } from "./harbours";
+import { coastWorld, harbourSite } from "./harbours-testing";
+import { Progress } from "./progress";
+import { syncIndustries } from "./world";
+import harboursSrc from "./harbours.ts?raw";
 import mainSrc from "../main.ts?raw";
 import saveSrc from "../persist/save.ts?raw";
 import { gameMerger } from "../persist/progress-merge";
@@ -107,6 +113,99 @@ describe("StickerTracker", () => {
     const t = new StickerTracker(["rich", "no-such-sticker"]);
     expect(t.ids()).toEqual(["rich"]);
     expect(t.count).toBe(1);
+  });
+});
+
+describe("harbour stickers: Ahoy, seller! and Ahoy, buyer!", () => {
+  /** A harbour on the coast plot, its boats, and the progress the checks read (as `checkStickers` passes it). */
+  function harbour() {
+    const w = coastWorld();
+    const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+    syncIndustries(w);
+    const d = w.economy.depotAtPiece(id)!;
+    const p = Progress.fresh();
+    const trade = new HarbourTrade();
+    const c = () => ctx({ coins: p.coins, counts: p.counts });
+    /** Seconds of play till a boat event of this kind (once a second, as `main.ts` runs them). */
+    const until = (kind: HarbourEvent["kind"]) => {
+      for (let t = 0; t < 400; t++) if (trade.update(w, p).some((e) => e.kind === kind)) return;
+      throw new Error(`no ${kind}`);
+    };
+    return { w, d, p, trade, c, until };
+  }
+
+  it("a boat taking goods left on the quay earns Ahoy, seller! (and not the buyer's)", () => {
+    const { w, d, c, until } = harbour();
+    const t = new StickerTracker();
+    t.update(w, c(), 0);
+    expect(t.has("harbour-seller")).toBe(false);
+    d.piles[CARGO.planks.index] = 4;
+    until("sold");
+    expect(t.update(w, c(), 0).map((s) => s.id)).toEqual(["harbour-seller"]);
+    expect(t.has("harbour-buyer")).toBe(false);
+  });
+
+  it("goods ordered from the harbour's card and landed by a boat earn Ahoy, buyer!", () => {
+    const { w, d, p, trade, c, until } = harbour();
+    const t = new StickerTracker();
+    p.coins = 100;
+    t.update(w, c(), 0);
+    expect(trade.order(d.id, "planks")).toBe(true);
+    until("bought");
+    expect(p.counts.get("imported")).toBe(3);
+    // (The coins went down too: Piggy bank isn't near, and nothing was sold.)
+    expect(t.update(w, c(), 0).map((s) => s.id)).toEqual(["harbour-buyer"]);
+  });
+
+  it("an order that all went back (no coins) buys nothing: no sticker", () => {
+    const { w, d, p, trade, c, until } = harbour();
+    const t = new StickerTracker();
+    p.coins = 0;
+    trade.order(d.id, "planks");
+    until("bought");
+    expect(p.counts.get("imported") ?? 0).toBe(0);
+    expect(t.update(w, c(), 0).some((s) => s.id === "harbour-buyer")).toBe(false);
+  });
+
+  it("Sea trader (hidden) wants a hundred goods traded by sea, sold and bought together", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    const sea = (exported: number, imported: number) => ctx({ counts: new Map([["exported", exported], ["imported", imported]]) });
+    expect(t.update(w, sea(SEA_TRADER - 31, 30), 0).map((s) => s.id)).toEqual(["harbour-seller", "harbour-buyer"]);
+    expect(t.update(w, sea(SEA_TRADER - 30, 30), 0).map((s) => s.id)).toEqual(["sea-trader"]);
+    expect(STICKERS.find((s) => s.id === "sea-trader")!.hidden).toBe(true);
+  });
+
+  it("are checked only when a boat trades (the sea counts change), not on other counts or coins", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    const calls: string[] = [];
+    const sea = STICKERS.filter((s) => s.deps.includes("sea"));
+    expect(sea.map((s) => s.id).sort()).toEqual(["harbour-buyer", "harbour-seller", "sea-trader"]);
+    const spied = sea.map((s) => [s, s.check] as const);
+    for (const [s, check] of spied)
+      (s as { check: typeof check }).check = (...a) => {
+        calls.push(s.id);
+        return check(...a);
+      };
+    try {
+      const counts = new Map([["loadsMoved", 3]]);
+      t.update(w, ctx({ counts }), 0);
+      calls.length = 0;
+      counts.set("loadsMoved", 4);
+      t.update(w, ctx({ counts, coins: 7 }), 0);
+      expect(calls, "loads moved and coins: not a boat's trade").toEqual([]);
+      counts.set("exported", 2);
+      t.update(w, ctx({ counts, coins: 7 }), 0);
+      expect(calls.sort()).toEqual(["harbour-buyer", "harbour-seller", "sea-trader"]);
+    } finally {
+      for (const [s, check] of spied) (s as { check: typeof check }).check = check;
+    }
+  });
+
+  it("the counts are kept by the boats' trades only (HarbourTrade), as the player's sold and bought goods", () => {
+    expect(harboursSrc.match(/counts\.set\("exported"/g)?.length).toBe(1);
+    expect(harboursSrc.match(/counts\.set\("imported"/g)?.length).toBe(1);
   });
 });
 

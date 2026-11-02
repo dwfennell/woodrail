@@ -20,9 +20,10 @@ export interface StickerContext {
 /**
  * What a check depends on: it's run again only when one of these has changed since the last check (see
  * `depKeys`). "pieces": the track (`Layout.piecesVersion`); "towns": what the towns have received; "coins"; "counts";
- * "learned"; "goals" (how many are done).
+ * "learned"; "goals" (how many are done); "sea": goods sold to and bought from harbour boats (the counts "exported" and
+ * "imported", which change only when a boat trades).
  */
-export type StickerDep = "pieces" | "towns" | "coins" | "counts" | "learned" | "goals";
+export type StickerDep = "pieces" | "towns" | "coins" | "counts" | "learned" | "goals" | "sea";
 
 export type StickerTheme = "building" | "trains" | "towns" | "economy";
 
@@ -62,6 +63,13 @@ export const RICH = 1000;
 export const BUSY_LOADS = 500;
 export const SCHOLAR = 25;
 export const SAWDUST = 1000;
+/** Goods traded with harbour boats, sold and bought, for Sea trader. */
+export const SEA_TRADER = 100;
+
+/** Goods sold to harbour boats (`HarbourTrade`, on a "sold" event). */
+export const exported = (ctx: StickerContext) => count(ctx, "exported");
+/** Goods bought from harbour boats and landed on a quay (`HarbourTrade`, on a "bought" event with goods). */
+export const imported = (ctx: StickerContext) => count(ctx, "imported");
 
 export const STICKERS: readonly Sticker[] = [
   { id: "track-layer", title: "Track layer", how: `Lay ${TRACK_LAYER} pieces of track`, icon: "🛤️", theme: "building", deps: ["pieces"], check: (w) => ownTrack(w) >= TRACK_LAYER },
@@ -93,6 +101,19 @@ export const STICKERS: readonly Sticker[] = [
     deps: ["counts"],
     check: (_w, c) => count(c, "planksSawn") >= SAWDUST,
   },
+  { id: "harbour-seller", title: "Ahoy, seller!", how: "Sell goods to a boat at a harbour", icon: "⛵", theme: "economy", deps: ["sea"], check: (_w, c) => exported(c) >= 1 },
+  { id: "harbour-buyer", title: "Ahoy, buyer!", how: "Buy goods from a boat at a harbour", icon: "⚓", theme: "economy", deps: ["sea"], check: (_w, c) => imported(c) >= 1 },
+  {
+    id: "sea-trader",
+    title: "Sea trader",
+    how: `Trade ${SEA_TRADER} goods with harbour boats, sold or bought`,
+    icon: "🚢",
+    theme: "economy",
+    hidden: true,
+    hint: "The boats keep coming. Keep them busy.",
+    deps: ["sea"],
+    check: (_w, c) => exported(c) + imported(c) >= SEA_TRADER,
+  },
   { id: "scholar", title: "Scholar", how: `Learn ${SCHOLAR} blueprints`, icon: "🎓", theme: "economy", deps: ["learned"], check: (_w, c) => c.learned.size >= SCHOLAR },
 ];
 
@@ -109,6 +130,7 @@ export function depKeys(w: World, ctx: StickerContext, goalsDone: number): Recor
     counts: `${count(ctx, "loadsMoved")}:${count(ctx, "planksSawn")}`,
     learned: String(ctx.learned.size),
     goals: String(goalsDone),
+    sea: `${exported(ctx)}:${imported(ctx)}`,
   };
 }
 
