@@ -576,9 +576,8 @@ export class Hud {
     this.engineCard.appendChild(this.engineStatus);
     this.emptyTrainBtn = button("Empty all", EMPTY_TRAIN_TITLE, h.emptyTrain, "chip text empty-all");
     this.emptyTrainBtn.hidden = true;
-    const loadRow = el("div", "summary-load-row");
-    loadRow.append(this.summaryLoad, this.emptyTrainBtn);
-    this.engineSummary.append(this.summaryAbout, loadRow);
+    // (Beside both lines, not under them: the card doesn't grow as a crane loads the train. See style.css.)
+    this.engineSummary.append(this.summaryAbout, this.summaryLoad, this.emptyTrainBtn);
     this.engineSummary.hidden = true;
     this.engineCard.appendChild(this.engineSummary);
     this.putAwayBtn = button("Put away", "Put this line's extra train back in the box: then the others can run", h.putAway, "chip text put-away");

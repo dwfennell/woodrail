@@ -183,11 +183,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .planning .engine-card .engine-summary { display: none; }
 .car-load { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; margin-top: -4px; }
 /* Empty beside a wagon's load, Empty all beside the train's (shown only while there are goods on board). */
-.car-load-row, .summary-load-row { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
-.summary-load-row > .summary-load { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.car-load-row > .chip, .summary-load-row > .chip { flex: none; }
-.summary-load-row:has(> .chip:not([hidden])) { margin-top: 4px; }
-.engine-summary > .summary-load-row { overflow: visible; }
+.car-load-row { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
+.car-load-row > .chip { flex: none; }
+/* Empty all to the right of the summary's two lines, a finger's size but taking only their height (the card doesn't
+   grow when a load comes on: a phone on its side, a camera glide that framed the room above the card). */
+.engine-summary:has(> .empty-all:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center; }
+.engine-summary > div { grid-column: 1; }
+.engine-summary > .empty-all { grid-column: 2; grid-row: 1 / span 2; margin: -4px 0; }
 /* Who's in the way (a waiting or stuck train): Show, and the fix for a train left there; a thumb tall, under the status. */
 .engine-blocker { display: flex; gap: 8px; justify-content: center; margin-top: -4px; }
 .engine-blocker[hidden], .engine-blocker > [hidden] { display: none; }
