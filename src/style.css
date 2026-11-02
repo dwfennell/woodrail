@@ -1279,3 +1279,6 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 }
 /* The line's way changed under a track edit (audit F14): said for a few seconds, as its ribbon flashes. */
 .route-way-changed { font-weight: 800; color: var(--ink-soft); }
+/* "Add Foxley": the status's fix, one tap (audit F15). */
+.route-fix { display: flex; }
+.route-fix .route-add-stop { min-height: 44px; }

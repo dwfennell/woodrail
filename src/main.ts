@@ -2798,6 +2798,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const viewStatus = { shown: "", next: "", since: 0 };
   /** Who's in the open engine's way, with the status shown (and the latest, not shown yet): Show's and the fix's. */
   const viewBlocker: { shown: Blocker | null; next: Blocker | null } = { shown: null, next: null };
+  /** A place the status shown says isn't on the train's line (it keeps goods that place takes): "Add …" offers it. */
+  let viewAddStop = -1;
   function showEngineView(): void {
     const carId = interaction.openEngineCarId;
     if (carId === -1) {
@@ -2840,7 +2842,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (opened || latest === "Starting" || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
     const status = viewStatus.shown;
     // (Show and the fix go with the status they belong to: the blocker of the status shown.)
-    if (status === latest) viewBlocker.shown = view.blocker;
+    if (status === latest) {
+      viewBlocker.shown = view.blocker;
+      viewAddStop = view.addStop ?? -1;
+    }
     const b = viewBlocker.shown;
     hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
     // The engine's own front, as a screen direction (degrees clockwise from right).
@@ -2996,7 +3001,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     const riders = line ? trainsOn(game.economy, line.id).length : 0;
     const others = line ? "" : [...game.economy.lines.values()].map((l) => `${l.id}${l.colour}${l.name}`).join(",");
-    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}:${viaAsked}:${wayNote.carId === carId && performance.now() < wayNote.until}`;
+    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}:${viaAsked}:${wayNote.carId === carId && performance.now() < wayNote.until}:${viewAddStop}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -3370,6 +3375,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         warn.className = "route-warn route-lost";
         warn.textContent = lostStopWords(name);
         box.append(warn);
+      }
+      // The status says a place it passes isn't on its line: one tap adds it, before the stop it's heading for (it's
+      // on the way there now). Audit F15: the text said to Edit, then tap the place: three taps.
+      const addId = viewAddStop;
+      if (!planning && addId !== -1 && !line.stops.some((st) => st.depotId === addId) && game.economy.depot(addId)) {
+        const row = document.createElement("div");
+        row.className = "route-fix";
+        const add = button(`Add ${nameOf(addId)}`, "route-add-stop", `Make ${nameOf(addId)} a stop on this line`, () => {
+          edit((l) => {
+            const at = Math.min(r?.next ?? l.length, l.length);
+            // (Not the same place twice in a row: that's one visit.)
+            if (l[at - 1]?.depotId !== addId && l[at % l.length]?.depotId !== addId) l.splice(at, 0, { depotId: addId, action: "auto" });
+          });
+          viewAddStop = -1;
+        });
+        row.append(add);
+        box.append(row);
       }
       if (wayNote.carId === carId && performance.now() < wayNote.until) {
         box.append(Object.assign(document.createElement("div"), { className: "route-hint route-way-changed", textContent: "Goes another way now: the track changed" }));
