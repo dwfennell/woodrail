@@ -3009,7 +3009,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     head.append(
       planning
-        ? button("Done", "route-plan on", "Finish planning the route", () => setPlanning(false))
+        ? button("Done", "route-plan on", "Finish planning the route", () => donePlanning())
         : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)),
     );
     // On a line, this train can leave it (it goes anywhere again; the line stays for its other trains). The last train
@@ -3315,6 +3315,45 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
   }
 
+  /**
+   * Done: planning ends, and once the card has its full height again the view glides (once) to show the whole route
+   * above it (audit F5: the card came back over what the player had just made).
+   */
+  function donePlanning(): void {
+    const carId = interaction.openEngineCarId;
+    setPlanning(false);
+    // (Two frames: the card's new height laid out, and the director's room measured from it.)
+    requestAnimationFrame(() => requestAnimationFrame(() => frameRoute(carId)));
+  }
+
+  /** Where the open engine's route is on the map: the train, each stop (its disc's top too) and each via point. */
+  function routePoints(carId: number): Vector3[] {
+    const points: Vector3[] = [];
+    const train = trainSpot(carId);
+    if (train) points.push(train);
+    for (const st of lineOf(game.economy, carId)?.stops ?? []) {
+      const spot = pieceSpot(game.economy.depot(st.depotId)?.pieceId ?? -1);
+      if (spot) points.push(spot, spot.clone().setY(spot.y + 70));
+      for (const v of st.via ?? []) {
+        const at = pieceSpot(v);
+        if (at) points.push(at);
+      }
+    }
+    return points;
+  }
+
+  /**
+   * Show the open engine's whole route in the map's room (above the card or the planning bar): nothing moves if it's all
+   * there already; else the view glides (out, if it must) to frame it all, never closer in than now or 900 mm. Not while
+   * the camera follows the train (it keeps the train in the room itself).
+   */
+  function frameRoute(carId: number): void {
+    if (carId === -1 || carId !== interaction.openEngineCarId || game.following === carId) return;
+    const points = routePoints(carId);
+    if (points.length < 2 || inRoom(points)) return;
+    frameInRoom(points, Math.min(game.camera.position.distanceTo(game.controls.target), 900), game.controls.maxDistance, points.length);
+  }
+
   /** Plan the open engine's line by tapping places (on), or stop (off). */
   function setPlanning(on: boolean, frame = true): void {
     if (planning === on) return;
@@ -3375,6 +3414,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           showRoute();
           routeChanged();
           scheduleSave();
+          requestAnimationFrame(() => frameRoute(carId));
           return true;
         }
       : null;
@@ -3389,9 +3429,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           showRoute();
           routeChanged();
           scheduleSave();
-          // Its disc stays in view (the bar may have grown under it).
-          const spot = pieceSpot(game.economy.depot(depotId)?.pieceId ?? -1);
-          if (spot) requestAnimationFrame(() => keepInView([spot.clone().setY(spot.y + 70)]));
+          // The whole route stays in view, not just the place tapped (audit F5: gliding to each new stop left the first
+          // stop, the train and the ribbon between them off screen). Measured once the bar has grown.
+          requestAnimationFrame(() => frameRoute(carId));
           return true;
         }
       : null;
@@ -3459,13 +3499,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const y = ((1 - v.y) / 2) * room.height;
       return v.z < 1 && x >= room.left + margin && x <= room.right - margin && y >= room.top + margin && y <= room.bottom - margin;
     });
-  }
-
-  /** Keep these points in view: if any is off screen or under the card, glide just enough to show them all. */
-  function keepInView(points: Vector3[]): void {
-    if (points.length === 0 || inRoom(points)) return;
-    const d = game.camera.position.distanceTo(game.controls.target);
-    frameInRoom([...points, game.controls.target.clone()], Math.min(d, 900));
   }
 
   /** The open engine's card shows something on the map: the engine (both ends, and its top) and those points framed in the
