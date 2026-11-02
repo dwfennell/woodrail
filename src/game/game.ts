@@ -166,7 +166,7 @@ export class Game {
   readonly kitView: KitView;
   /** The loop-the-loops' shows: a toy copy of an engine crossing one runs its loop (see `LoopShowView`). */
   readonly loopShow = new LoopShowView();
-  /** Station clocks' hands, showing the game's time (see `ClockView`). */
+  /** Station clocks' hands, showing the player's real time (see `ClockView`: a timer a minute, nothing per frame). */
   readonly clockView: ClockView;
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
@@ -771,6 +771,8 @@ export class Game {
   }
 
   start(): void {
+    // Station clocks show the real time: their own timer sets the hands at each minute, a frame drawn if one's in view.
+    this.clockView.start(this.camera, () => this.canvas.height, () => this.invalidate());
     this.renderer.setAnimationLoop((time) => {
       if (time - this.lastFrameAt < FRAME_MS - FRAME_SLACK_MS) return;
       this.lastFrameAt = time;
@@ -794,8 +796,6 @@ export class Game {
       }
       if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
     }
-    // Station clocks show the game's time: their hands are set when its minute changes (drawn if one's in view).
-    if (this.clockView.count > 0 && this.clockView.tick(this.simSeconds, this.camera, this.canvas.height)) this.invalidate();
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     if (this.sim.signalsVersion !== this.signalsShown) {
       this.signalsShown = this.sim.signalsVersion;

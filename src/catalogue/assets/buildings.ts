@@ -148,7 +148,7 @@ export const ASSETS: Asset[] = [
     name: "Station clock",
     category: CAT,
     tags: ["clock", "post", "small", "time", "platform"],
-    notes: "A two-faced clock on a turned post. Could show the game's timetable clock, ticking faster when you speed up time.",
+    notes: "A two-faced clock on a turned post. Its hands show the player's real local time.",
     build: model("bldg-station-clock"),
     animate: animateClock,
   },
