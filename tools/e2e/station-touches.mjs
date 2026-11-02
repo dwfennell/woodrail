@@ -252,13 +252,16 @@ check("…someone hops on", seen.on > 0, JSON.stringify(seen));
 check("…someone from the other town hops off", seen.off > 0, JSON.stringify(seen));
 check("as it sets off, the guard raises his flag (and waves it)", seen.flag && seen.wave > 0.05, JSON.stringify(seen));
 const whistles = await p.evaluate(() => window.__whistles);
-check("…and his whistle is asked for, once", whistles === 1, `${whistles}`);
+// (One per train off from there heard: stops stepped while paused are heard together when it runs again.)
+check("…and his whistle is asked for, once a departure", whistles >= 1 && whistles <= seen.heard.left, `${whistles} for ${seen.heard.left} heard`);
 s = await state();
 check("afterwards: no stand-ins left, nothing moving", s.visits.length === 0 && !s.bigs.some((x) => x.flagUp), JSON.stringify(s));
 
 // 5. Pictures: the stop again (the board, the people leaning, someone hopping, the flag), by stepping to the next halt.
-const board2 = s.bigs.find((x) => x.pieceId === station.id);
-check("the board changed as the train's next stop did (not per frame)", board2.paints <= board1.paints + 4 && board2.paints > board1.paints, `${board1.paints} → ${board2.paints}: ${board2.rows}`);
+// (Its next stop moves on once it's clear of the station, a little after the flag: the board is painted then.)
+await p.waitForFunction(({ id, paints }) => window.woodrail.touches.state().bigs.some((b) => b.pieceId === id && b.paints > paints), { id: station.id, paints: board1.paints }, { timeout: 180000 }).catch(() => {});
+const board2 = (await state()).bigs.find((x) => x.pieceId === station.id);
+check("the board changed as the train's next stop did (not per frame)", board2.paints <= board1.paints + 4 && board2.paints > board1.paints && board2.rows === "", `${board1.paints} → ${board2.paints}: ${board2.rows}`);
 await p.evaluate(() => (window.woodrail.paused = true));
 const again = await runUntilHalted(900, 2);
 check("round again: the train halts there again", again.halted, JSON.stringify(again));
