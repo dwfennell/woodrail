@@ -770,6 +770,49 @@ export class Economy {
     } else this.cargo.set(carId, { kind, count: Math.min(count, this.wagonCapacity) });
   }
 
+  /**
+   * Why Empty (tip a wagon's goods out, thrown away) would be refused now: "moving" (its train isn't standing),
+   * "empty" (no goods on it: a coach's riders aren't goods, and stay), "none" (no such car, or off the rails), or null.
+   */
+  dumpRefusal(carId: number): "moving" | "empty" | "none" | null {
+    const found = this.sim.findCar(carId);
+    if (!found || found.train.derailed) return "none";
+    if (this.cargoOf(carId).count <= 0) return "empty";
+    return this.sim.standing(found.train) ? null : "moving";
+  }
+
+  /**
+   * Empty: tip a standing wagon's goods out, thrown away (onto no pile, so no town or school is credited). What it
+   * held, or null (nothing done: see `dumpRefusal`). What's held for a school is worked out from what's on board
+   * (`heldForSchool`), so nothing else is kept to clear but the pass's count of that good, which starts afresh at the
+   * next load once none is left on board.
+   */
+  dump(carId: number): { kind: CargoKind; count: number } | null {
+    if (this.dumpRefusal(carId) !== null) return null;
+    const train = this.sim.findCar(carId)!.train;
+    const c = this.cargoOf(carId);
+    const out = { kind: c.kind!, count: c.count };
+    this.setCargo(carId, null, 0);
+    const p = this.passes.get(train.id);
+    const i = CARGO[out.kind].index;
+    if (p && p.loaded[i] >= 0) {
+      if (this.onBoard(train, out.kind) === 0) {
+        p.loaded[i] = -1;
+        p.school[i] = 0;
+      } else p.loaded[i] = Math.max(0, p.loaded[i] - out.count);
+    }
+    return out;
+  }
+
+  /** A depot on the map that takes `kind` from trains (for Empty's hint: "The Mill takes 🌾"), or null. */
+  takerOf(kind: CargoKind): DepotState | null {
+    for (const d of this.depots) {
+      if (!d.auto || !this.onMap(d) || RECIPES[d.role].routedOnly) continue;
+      if (this.takesNow(d, kind) && (!this.accepts || this.accepts(d, kind))) return d;
+    }
+    return null;
+  }
+
   ridersOf(carId: number): Readonly<Riders> {
     return this.riders.get(carId) ?? NO_RIDERS;
   }

@@ -52,6 +52,10 @@ export interface HudHandlers {
   continueOn(): void;
   /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
   decouple(): void;
+  /** The wagon card's Empty: tip its goods out (thrown away), while its train stands. */
+  emptyCar(): void;
+  /** The engine card's Empty all: tip out every wagon of its train, while it stands. */
+  emptyTrain(): void;
   rotate(): void;
   flip(): void;
   deletePiece(): void;
@@ -147,9 +151,26 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
   b.setAttribute("aria-label", title);
   b.addEventListener("click", (e) => {
     e.stopPropagation();
+    // Greyed for now (see `setRefused`): it would only be refused.
+    if (b.getAttribute("aria-disabled") === "true") return;
     onClick();
   });
   return b;
+}
+
+const EMPTY_CAR_TITLE = "Tip this wagon's goods out (they're thrown away)";
+const EMPTY_TRAIN_TITLE = "Tip out every wagon's goods (they're thrown away)";
+
+/**
+ * Grey a button that would only be refused now (`why` says why, as its tooltip), or bring it back (`why` ""). It stays
+ * in the tab order and keeps its place; a tap does nothing. Set only when it changes.
+ */
+function setRefused(b: HTMLButtonElement, why: string, title: string): void {
+  const off = why !== "";
+  if ((b.getAttribute("aria-disabled") === "true") === off && (!off || b.title === why)) return;
+  if (off) b.setAttribute("aria-disabled", "true");
+  else b.removeAttribute("aria-disabled");
+  b.title = off ? why : title;
 }
 
 /** A switch: a label and a pill with a knob, on or off (role="switch"). Its name is its label; `title` is the tooltip. */
@@ -246,6 +267,9 @@ export class Hud {
   private readonly summaryLoad = el("div", "summary-load");
   /** A wagon's (or coach's) load, on its card. */
   private readonly carLoad = el("div", "car-load");
+  /** Empty (the wagon card, beside its load) and Empty all (the engine card, beside the train's): see `setEmpty`. */
+  private readonly emptyCarBtn: HTMLButtonElement;
+  private readonly emptyTrainBtn: HTMLButtonElement;
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
@@ -550,7 +574,11 @@ export class Hud {
     this.engineCard.append(this.followBtn);
     this.engineStatus.setAttribute("aria-live", "polite");
     this.engineCard.appendChild(this.engineStatus);
-    this.engineSummary.append(this.summaryAbout, this.summaryLoad);
+    this.emptyTrainBtn = button("Empty all", EMPTY_TRAIN_TITLE, h.emptyTrain, "chip text empty-all");
+    this.emptyTrainBtn.hidden = true;
+    const loadRow = el("div", "summary-load-row");
+    loadRow.append(this.summaryLoad, this.emptyTrainBtn);
+    this.engineSummary.append(this.summaryAbout, loadRow);
     this.engineSummary.hidden = true;
     this.engineCard.appendChild(this.engineSummary);
     this.putAwayBtn = button("Put away", "Put this line's extra train back in the box: then the others can run", h.putAway, "chip text put-away");
@@ -594,7 +622,11 @@ export class Hud {
     this.carCard.hidden = true;
     this.carCard.appendChild(el("div", "card-title", "Wagon"));
     this.carLoad.hidden = true;
-    this.carCard.appendChild(this.carLoad);
+    this.emptyCarBtn = button("Empty", EMPTY_CAR_TITLE, h.emptyCar, "chip text empty-car");
+    this.emptyCarBtn.hidden = true;
+    const carLoadRow = el("div", "car-load-row");
+    carLoadRow.append(this.carLoad, this.emptyCarBtn);
+    this.carCard.appendChild(carLoadRow);
     const carRow = el("div", "card-row");
     carRow.append(
       button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"),
@@ -1541,6 +1573,17 @@ export class Hud {
     if (this.summaryAbout.textContent !== about) this.summaryAbout.textContent = about;
     if (this.summaryLoad.textContent !== load) this.summaryLoad.textContent = load;
     this.summaryLoad.hidden = !load;
+  }
+
+  /**
+   * Empty (the wagon card) and Empty all (the engine card): shown while there are goods to tip out, greyed with `why`
+   * ("Stop the train first") while they'd be refused, "" for not. Main sets it only when that changes.
+   */
+  setEmpty(car: { shown: boolean; why: string }, train: { shown: boolean; why: string }): void {
+    if (this.emptyCarBtn.hidden === car.shown) this.emptyCarBtn.hidden = !car.shown;
+    if (this.emptyTrainBtn.hidden === train.shown) this.emptyTrainBtn.hidden = !train.shown;
+    setRefused(this.emptyCarBtn, car.why, EMPTY_CAR_TITLE);
+    setRefused(this.emptyTrainBtn, train.why, EMPTY_TRAIN_TITLE);
   }
 
   /** What the open wagon carries ("" hides it). */

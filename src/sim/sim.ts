@@ -993,6 +993,11 @@ export class Sim {
     return false;
   }
 
+  /** Is this train standing: not moving, nor riding a turning deck? (What a wagon card's Empty needs.) */
+  standing(train: Train): boolean {
+    return train.speed <= 0 && !(this.rides.size > 0 && this.riding(train));
+  }
+
   /** Is this train riding a turning deck (held still)? */
   private riding(train: Train): boolean {
     for (const r of this.rides.values()) if (r.trainIds.includes(train.id)) return true;
