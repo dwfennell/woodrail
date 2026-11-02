@@ -27,6 +27,10 @@
 **e2e:cloud** (`scripts/e2e/cloud.mjs`, about 25 min, 24 steps):
 - It starts a local Worker (wrangler dev) and runs two-device steps.
 - Run `npm --prefix cloud ci` first.
+- A running Game page sends its progress on its own every minute: a new game's forest cuts logs (`counts`, a progress edit every 15 s or so). A page that then finds the other device's later copy reloads onto it, by design. So "landed" means the cloud copy holds what was sent (the step 7a check decodes the bundle's coins), not just any new copy: the Worker turns an upload within 10 s of the last away (429), and the page keeps it for its next round. From 7b the test pauses both games and sends every upload itself (`quiesce`, `hideAndSettle`: a merge that takes the other's later copy reloads and sends its merged copy only on a second round).
+- A page's start-up check of the cloud is waited on for 3 s past loading, then cut off (`cutoff()`) and left for its next upload round. A page with nothing of its own to send has no such round, so it stays on its own copy until it next has an edit. Headless, the check is cut off now and then: the test's `restart` starts such a page again. Open question for the user/CoS: a clean Sandbox device whose check was late shows its older railway, and its next edit then outranks the newer one (kept as a backup, with a toast).
+- A copy taken while playing (`onTaken`, the page reloading) stops that page's sync (`reloading`): it used to go on and send the merged copy as it went, and landing after the new page's own round began, that copy was merged with it again, so coins were counted twice (e2e:cloud "one learns a blueprint while the other earns", 495 for 450; fixed 2026-11-01, `cloud.test.ts` "taken while playing").
+- A take-reload starts the page again from storage, so progress made in the last 5 s before the page's own upload round (since the last 5 s save) isn't in the copy it merges and reloads onto. Not fixed (2026-11-01); an e2e that earns must wait for the save (`earnOn` does).
 
 **e2e:ramps** (`scripts/e2e/ramps.mjs`, 10–25 min):
 - Runs on Sandbox #seed-24.
@@ -38,12 +42,14 @@
 - **e2e:kits and e2e:joints** don't touch ramps.
 - **e2e:draw and e2e:roads** use only the straight ramp.
 - **When `main.ts` or the cards change,** run touch, click and workshop.
+- **e2e:station-clock** (about 4 min): the station clock prop's hands show the real local time, in Game and Sandbox, under Playwright's mocked clock (`page.clock`). It waits for the tray's background carving to finish first: its batches each ask for a frame, which would read as a clock frame between minutes.
 
 **Known flakes under load:**
 - A card button tapped as soon as it's in the DOM is dropped by the card tap guard (mobile-ux.md §5). Wait `frames()` then 250 ms. To check, record `performance.now() - hud.buttonMovedAt.get(button)` on pointerdown: under 150 means dropped.
 - The sim runs slower than the wall clock. Bound waits by `w.simSeconds`, not wall time.
 - Reading straight after `reload()` can beat the device's start-up take. Wait for the expected value, or for the copy to be in.
 - A device's own 60 s timer can fire mid-step. Hold a device offline with `setOffline` while the other works.
+- Station clocks (`ClockView`) run on their own minute timer, not the frame loop: under `page.clock`, `pauseAt` past a minute's start leaves its frame to be drawn on the next `runFor`. Read the hands a moment after the minute (the timer fires 20 ms past it).
 - A direct `coins += n` is lost if an adopt happens before the 5 s autosave. Earn offline, wait for the local save, then go online.
 
 ## 3. Design rules
@@ -129,6 +135,7 @@ Before going wide: rate-limit HEAD/GET, and codes with nothing saved yet.
 - **Clicks:** a click puts a piece's *middle* where you click, at the view's heading. Read the real pose after placing.
 - **Snapping:** the snap loop tries several levels, so a click on a raised end can take a free end at the ground beneath it on screen.
 - **Snap reach is tight on purpose** (play-test: pieces put down near track jumped onto it). `SNAP_CAPTURE_RADIUS` 10 mm (was 30); `captureRadius` 10 px at the pointer, 10–40 mm (was 28 px, 30–120 mm); a tap's `TAP_REACH` 27 mm (was 80); `findSnapAhead` half the held piece plus 15 mm ahead (108 + 15 for a 216 straight: a finger in the middle of a gap still aims its piece in; e2e:touch stuck and route-keep), 15 mm aside (was 230 for any piece, 45); a picked group's `GROUP_SNAP_REACH` follows `SNAP_CAPTURE_RADIUS`. A test that misses a join should aim closer to the end, not loosen these.
+- **The waiting piece** (the next ready piece at the free end of the last one put down, `previewNextAt`) is worked out as a held piece is, aimed `waitAhead` beyond the end: 60 mm, or a short piece's seated middle (half its span: 34 for a tight curve, 27 for a 54). A flat 60 mm was out of a short piece's aim-ahead reach once that followed the piece, so a tight curve waited loose and unjoined (2026-11-01). Anything that aims a piece at an end from a fixed distance must stay inside `halfSpan + AHEAD_SLACK` (`src/game/waiting-piece.test.ts`).
 - **Placement:** `findOverlap` isn't the whole check. Risers (`checkSupport`) are added and checked too, and a riser refusal reads as "piece in the way".
 - **Lone engines:** a lone engine stops at an open end and doesn't come back.
 - **Empty codes:** `useCode` on an empty code returns "nothing". A first-PUT race happens in Game mode on a code that has only Sandbox saved.

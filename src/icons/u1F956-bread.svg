@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Bread</title>
+<g transform="rotate(-35 12 12)">
+<rect x="0.6" y="7" width="22.8" height="10" rx="5" fill="#7a4f12"/>
+<rect x="1.8" y="8.2" width="20.4" height="7.6" rx="3.8" fill="#d9a441"/>
+<rect x="3" y="8.6" width="17" height="2.4" rx="1.2" fill="#f3c766"/>
+<rect x="5.2" y="9.6" width="3.4" height="1.4" rx="0.7" transform="rotate(-25 6.9 10.3)" fill="#f6dfb4"/>
+<rect x="10.2" y="9.6" width="3.4" height="1.4" rx="0.7" transform="rotate(-25 11.9 10.3)" fill="#f6dfb4"/>
+<rect x="15.2" y="9.6" width="3.4" height="1.4" rx="0.7" transform="rotate(-25 16.9 10.3)" fill="#f6dfb4"/>
+</g></svg>

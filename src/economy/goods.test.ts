@@ -16,10 +16,10 @@ describe("bags of goods", () => {
   });
 
   it("read as words, each count with its icon", () => {
-    expect(describeBag({ planks: 1 })).toBe("1🪵 plank");
-    expect(describeBag({ log: 2, planks: 12 })).toBe("2🌲 logs + 12🪵 planks");
+    expect(describeBag({ planks: 1 })).toBe("1\uE000 plank");
+    expect(describeBag({ log: 2, planks: 12 })).toBe("2🪵 logs + 12\uE000 planks");
     expect(describeBag({})).toBe("nothing");
-    expect(iconCounts({ stone: 10, planks: 30 })).toBe("30🪵 10🪨");
+    expect(iconCounts({ stone: 10, planks: 30 })).toBe("30\uE000 10🪨");
     expect(iconCounts({})).toBe("");
   });
 });

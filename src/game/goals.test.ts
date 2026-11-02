@@ -4,7 +4,7 @@ import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } fro
 import { checkYard } from "./depot-footprint";
 import { siteWhy } from "./industries";
 import { editLine } from "./lines";
-import { BRIDGE_KNOWN_HINT, BUY_LAND_HINT, GOALS, plotsBought, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, OPEN_INDUSTRY_GOALS, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
+import { BRIDGE_KNOWN_HINT, BUY_LAND_COINS, BUY_LAND_HINT, goalTickTitle, GOALS, payGoal, plotsBought, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, OPEN_INDUSTRY_GOALS, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
 import mainSrc from "../main.ts?raw";
 import panelSrc from "../ui/workshop-panel.ts?raw";
 import { Crafting, keepsForOrder } from "./crafting";
@@ -15,6 +15,7 @@ import { restoredType } from "./map-sites";
 import { restoreRuin } from "./restore";
 import { CARGO } from "../economy/cargo";
 import { Progress } from "./progress";
+import { plotPrice } from "./towns";
 import { pick } from "./research";
 import { goalPick, showMePick } from "./research-text";
 import { deserializeWorld, serializeWorld } from "../persist/save";
@@ -675,8 +676,9 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
 
   it("come after the passing loop, before Connect every town; each needs its blueprint; Open a farm is where it was", () => {
     const ids = GOALS.map((g) => g.id);
-    expect(GOALS).toHaveLength(24);
-    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "give-route", "open-quarry", "open-mine", "open-harbour", "join-all", "buy-land"]);
+import { editLine } from "./lines";
+    expect(GOALS).toHaveLength(23);
+    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "open-quarry", "open-mine", "open-harbour", "join-all"]);
     for (const r of ROLES) expect(goal(r.id)).toMatchObject({ title: r.title, hint: r.hint, needs: [r.bp] });
     expect(goal("open-farm")).toMatchObject({ title: "Open a farm", hint: "Restore an old farm, or build a farm yard by some fields.", needs: ["farming"] });
     expect(OPEN_INDUSTRY_GOALS).toEqual(["open-farm", "open-quarry", "open-mine", "open-harbour"]);
@@ -742,8 +744,11 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
 });
 
 describe("Buy some land", () => {
-  it("is the last goal, an open one: ticked when a plot is bought (as the land card's Add this land does), and stays", () => {
-    expect(GOALS[GOALS.length - 1].id).toBe("buy-land");
+  it("comes after Connect three towns, an open one: ticked when a plot is bought (as the land card's Add this land does), and stays", () => {
+    const ids = GOALS.map((g) => g.id);
+    expect(ids.indexOf("buy-land")).toBe(ids.indexOf("join-three") + 1);
+    expect(ids.indexOf("buy-land")).toBeGreaterThan(ids.indexOf("build-bridge"));
+    expect(GOALS[GOALS.length - 1].id).toBe("join-all");
     expect(goal("buy-land").title).toBe("Buy some land");
     expect(goal("buy-land").hint).toBe(BUY_LAND_HINT);
     const w = buildStarterWorld();
@@ -763,6 +768,24 @@ describe("Buy some land", () => {
     expect(tracker.isDone("buy-land")).toBe(true);
     // Stays met: kept in the saved goals.
     expect(new GoalTracker(tracker.ids()).isDone("buy-land")).toBe(true);
+  });
+
+  it("pays a little back as it's ticked, said on its toast; other goals pay nothing", () => {
+    expect(goal("buy-land").coins).toBe(BUY_LAND_COINS);
+    expect(BUY_LAND_COINS).toBeGreaterThan(0);
+    expect(BUY_LAND_COINS).toBeLessThan(plotPrice(4));
+    const p = { coins: 10 };
+    expect(payGoal(p, goal("buy-land"))).toBe(BUY_LAND_COINS);
+    expect(p.coins).toBe(10 + BUY_LAND_COINS);
+    expect(goalTickTitle(goal("buy-land"))).toBe(`Buy some land (+${BUY_LAND_COINS} 🪙)`);
+    for (const g of GOALS.filter((x) => x.id !== "buy-land")) {
+      expect(payGoal(p, g), g.id).toBe(0);
+      expect(goalTickTitle(g)).toBe(g.title);
+    }
+    expect(p.coins).toBe(10 + BUY_LAND_COINS);
+    // The game pays it as it ticks a goal, and its toast names it.
+    expect(mainSrc).toContain("payGoal(progress, g)");
+    expect(mainSrc).toContain("fresh.map(goalTickTitle)");
   });
 
   it("an old save with land bought ticks it on load", () => {

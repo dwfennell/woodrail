@@ -3,7 +3,7 @@
 // going: earned quietly, a dot on the Journal's chip, no Stickers tab and no sticker toast. Then the last core goal
 // (Connect every town) is met by laying the last link: its toast, then "Stickers!", whose tap opens the Journal on the
 // new Stickers tab, with Track layer and Every town earned; a tile's tap shows its ticket; looking at the tab clears
-// the dot; the chip says "Goals ✓ · 🌟 n / 10"; New game is in the card; a reload keeps it all.
+// the dot; the chip says "Goals ✓ · 🌟 n / 11"; New game is in the card; a reload keeps it all.
 //
 // Usage: npm run e2e:stickers [-- <out dir>]   (default out: e2e-out/stickers)
 import { existsSync, mkdirSync } from "node:fs";
@@ -72,8 +72,8 @@ await p.evaluate(() => {
 });
 
 // 2. Setup shortcut (named; not what's tested): every core goal but "Connect every town" marked done, as if played
-// (the goals play-through reaches them the player's way). That includes "Buy some land", which in the goals' order
-// comes after Connect every town: marked done here so that the last link is the goal that completes the core. The stickers aren't touched.
+// (the goals play-through reaches them the player's way). That includes "Buy some land" (after Connect three towns):
+// Connect every town is the last goal in the goals' order, so the last link is the goal that completes the core. The stickers aren't touched.
 const towns = await p.evaluate(async () => {
   const { GOALS } = await import("/src/game/goals.ts");
   const w = window.woodrail;
@@ -170,6 +170,16 @@ await tap(".goals-close");
 await p.waitForFunction(() => document.querySelector(".goals").classList.contains("collapsed"), null, { timeout: 10000 }).catch(() => {});
 
 // 4. The last link: every town joined. The goal's toast, then the Stickers one.
+// Harness shortcut (named; not what's tested): the Stickers toast is kept up for a minute, not its 5.2 s. Headless,
+// SwiftShader takes 3–5 s to draw one frame of the map at this size, and a tap sent as the toast came on was handled
+// only after that frame, 8 s later, by when the toast had gone and the tap fell to the map (QA 2026-11-01: 7 fails;
+// traced with long-animation-frame entries: 27 ms of script, the rest the GPU). On a phone a frame is milliseconds. What
+// is tested is that the toast comes, after the goal's, and that a tap on it opens the Stickers tab, not how long it stays.
+await p.evaluate(() => {
+  const hud = window.woodrail.hud;
+  const toast = hud.toast.bind(hud);
+  hud.toast = (message, celebrate, ms, tap) => toast(message, celebrate, message.startsWith("🌟 Stickers!") ? 60000 : ms, tap);
+});
 const last = await link(joined.map((t) => t.id).reverse(), left[0].id);
 check(`the player lays the last link, to ${left[0].name}`, last.ok, `${await track()} pieces of track`);
 await p.waitForFunction(() => window.woodrail.goals().isDone("join-all"), null, { timeout: 60000, polling: 500 }).catch(() => {});
@@ -203,7 +213,7 @@ const pane = await p.evaluate(() => ({
 }));
 await shot("2-toast-tapped");
 check("a tap on the toast opens the Journal on the Stickers tab", tapped && pane.open && pane.tab === "Stickers", JSON.stringify(pane));
-check("…“🌟 2 / 10 stickers”, Track layer and Every town in colour", pane.count === "🌟 2 / 10 stickers" && pane.got.includes("track-layer") && pane.got.includes("all-towns") && pane.got.length === 2, JSON.stringify(pane));
+check("…“🌟 2 / 11 stickers”, Track layer and Every town in colour", pane.count === "🌟 2 / 11 stickers" && pane.got.includes("track-layer") && pane.got.includes("all-towns") && pane.got.length === 2, JSON.stringify(pane));
 check("…hidden ones as ???; tiles 64 px or more (44 px taps)", pane.hidden >= 1 && pane.tiles.every((w) => w >= 64), JSON.stringify(pane.tiles));
 await shot("3-stickers-tab");
 await tap('.sticker[data-id="track-layer"]');
@@ -219,7 +229,7 @@ check("the Goals tab: all done, with New game in the card", await shown(".goals-
 await tap(".goals-close");
 await p.waitForFunction(() => document.querySelector(".goals").classList.contains("collapsed"), null, { timeout: 10000 }).catch(() => {});
 const chip = await p.evaluate(() => document.querySelector(".goals-now")?.textContent);
-check("the folded chip: “Goals ✓ · 🌟 2 / 10”", chip === "Goals ✓ · 🌟 2 / 10", chip);
+check("the folded chip: “Goals ✓ · 🌟 2 / 11”", chip === "Goals ✓ · 🌟 2 / 11", chip);
 await shot("4-chip");
 
 // 5. A reload keeps the stickers (and the tab, with no toast this time).

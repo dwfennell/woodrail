@@ -104,6 +104,16 @@ const OTHERS: Case[] = [
   { scenario: S.stopBeforePoints(false), checks: { "payoff: at both its stops": arrivals(1) } },
   { scenario: S.stopBeforePoints(true), checks: { "payoff: both at their stops": arrivals(1) } },
   { scenario: S.stopBeforePoints(true, true), checks: { "payoff: the routed one at its stops": (r) => expect(r.arrivals[1]).toBeGreaterThanOrEqual(1) } },
+  // (A train still at a stop, its tail on it, its front past the next stop and onto points: it heads for the stop after
+  // that, the one it's at as soon as its tail is off. Before (the goals play-through from minute 223): it headed for the
+  // stop under it, asked for nothing, and took the points as they lay: into the spur, or toward C by a wrong road.)
+  ...[true, false].map((spur) => ({
+    scenario: S.ranThroughStop(spur),
+    checks: {
+      "payoff: round its four stops, laps on": arrivals(8),
+      "never onto the spur": (r: Report) => expect(r.onWatched).toBe(0),
+    },
+  })),
   {
     scenario: S.twoRoadsOneSwitch,
     checks: {

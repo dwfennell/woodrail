@@ -24,7 +24,7 @@ export interface MapMarker {
   detail: string;
   /** 0–1 toward a town's next level. */
   fill?: number;
-  /** A depot's or industry's goods as icons ("🌲"): beside its name on a compact label (a short band: on its side). */
+  /** A depot's or industry's goods as icons ("🪵"): beside its name on a compact label (a short band: on its side). */
   glyph?: string;
 }
 

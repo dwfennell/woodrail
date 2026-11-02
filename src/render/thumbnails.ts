@@ -31,7 +31,8 @@ function trainModel(cars: readonly CarKind[], mats: Materials, looks: readonly C
   let x = 0;
   cars.forEach((kind, i) => {
     const spec = CAR_SPECS[kind];
-    const model = buildCarModel(kind, mats, i, looks[i]).root;
+    // (A hopper keeps its modelled coal here: the icon says "a wagon for bulk goods"; on the track it starts empty.)
+    const model = buildCarModel(kind, mats, i, looks[i], true).root;
     x -= (i === 0 ? 0 : COUPLER_GAP) + spec.length / 2;
     model.position.x = x;
     x -= spec.length / 2;

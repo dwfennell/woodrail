@@ -1,3 +1,4 @@
+import { growthOf } from "./town-life";
 import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { capOf, RECIPES } from "../economy/economy";
 import { kindsOf, total, type Bag } from "../economy/goods";
@@ -148,7 +149,7 @@ function schoolPlaced(world: World): boolean {
 /**
  * What a research boost of `share` puts into the current research now: that share of each good it lacks (rounded up),
  * at least `BOOST_FLOOR` of it, but no more than it lacks. A good that would come to fewer than the floor (it lacks
- * only a few) is left out, so every good a card shows is the floor or more (QA N2: "+1🪵 2🌾"). Empty if none is.
+ * only a few) is left out, so every good a card shows is the floor or more (QA N2: "+1\uE000 2🌾"). Empty if none is.
  */
 export function boostGoods(p: Progress, share: number): Bag {
   const out: Bag = {};
@@ -270,7 +271,7 @@ export function redrawOldOffers(p: Progress, world: World, random: () => number)
   if (p.oldOffers.length === 0) return false;
   for (const from of p.oldOffers.splice(0)) {
     const town = world.landscape.towns.find((t) => t.name === from);
-    const level = town ? townStatus({ ...world.economy.deliveredGoods.get(town.id), planks: world.economy.delivered.get(town.id) ?? 0 }).level : 0;
+    const level = town ? townStatus(growthOf(world, town.id)).level : 0;
     offerOnGrowth(p, world, from, Math.max(1, level), random);
   }
   return true;
@@ -284,7 +285,7 @@ export interface CardView {
   line: string;
   ok: boolean;
   why?: string;
-  /** What the toast says once it's taken, where that's more than the amount: "+3🪵 to Bridges" (QA: where it went). */
+  /** What the toast says once it's taken, where that's more than the amount: "+3\uE000 to Bridges" (QA: where it went). */
   taken?: string;
 }
 
@@ -293,7 +294,7 @@ export function carIcon(id: ThingId): string {
   return `<span class="gs-car">${trainIcon([id.slice(4) as CarKind])}</span>`;
 }
 
-/** "4🪵 3🌾". */
+/** "4\uE000 3🌾". */
 const goodsLine = (bag: Bag) =>
   kindsOf(bag)
     .map((k) => `${bag[k]}${GOODS_ICON[k]}`)

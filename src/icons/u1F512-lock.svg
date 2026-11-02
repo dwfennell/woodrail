@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Locked</title>
+<path d="M6 11 L6 8 C6 1.6 18 1.6 18 8 L18 11 L15.4 11 L15.4 8 C15.4 4.6 8.6 4.6 8.6 8 L8.6 11 Z" fill="#2e3338"/>
+<path d="M7.2 11 L7.2 8 C7.2 3 16.8 3 16.8 8 L16.8 11 L16.2 11 L16.2 8 C16.2 3.8 7.8 3.8 7.8 8 L7.8 11 Z" fill="#c4ccd4"/>
+<rect x="2.8" y="9.2" width="18.4" height="13.4" rx="2.8" fill="#7a4f12"/>
+<rect x="4" y="10.4" width="16" height="11" rx="1.6" fill="#f0b847"/>
+<rect x="4" y="10.4" width="16" height="1.6" rx="1" fill="#f3c766"/>
+<circle cx="12" cy="14.6" r="1.8" fill="#7a4f12"/>
+<rect x="11.2" y="15" width="1.6" height="3.6" rx="0.6" fill="#7a4f12"/>
+</svg>

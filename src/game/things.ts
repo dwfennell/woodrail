@@ -61,12 +61,17 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:passenger": { label: "Coach", cost: { planks: 4 }, tech: "passengers" },
   "car:caboose": { label: "Caboose", cost: { planks: 2 }, tech: "brake-vans" },
   "car:van": { label: "Van", cost: { planks: 3 }, tech: "mills" },
+  "car:tanker": { label: "Milk tank wagon", cost: { planks: 3 }, tech: "dairy" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 10 }, coins: 300, tech: "sawmills" },
   "piece:depot-forest": { label: "Harvester", cost: { planks: 5 }, coins: 150, tech: "harvesters" },
   "piece:depot-farm": { label: "Farm yard", cost: { planks: 6 }, coins: 90, tech: "farming" },
   "piece:depot-mill": { label: "Mill", cost: { planks: 8 }, coins: 400, tech: "mills" },
+  // The dairy chain and the orchard (tech-tree I3, I4): mostly coins, as the spec asks of new nodes.
+  "piece:depot-dairy": { label: "Dairy farm", cost: { planks: 8 }, coins: 180, tech: "dairy" },
+  "piece:depot-bakery": { label: "Bakery", cost: { planks: 10 }, coins: 260, tech: "bakery" },
+  "piece:depot-orchard": { label: "Orchard", cost: { planks: 6 }, coins: 150, tech: "orchard" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 15 }, coins: 480, tech: "foundry" },
@@ -143,7 +148,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
  */
 export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine" };
 
-/** A thing's whole price, for cards, by icon as tickets show it: "12🪵 30🪙" ("free" if nothing). */
+/** A thing's whole price, for cards, by icon as tickets show it: "12\uE000 30🪙" ("free" if nothing). */
 export function costText(rule: ThingRule): string {
   return [iconCounts(rule.cost), rule.coins ? `${rule.coins}${COIN_ICON}` : ""].filter(Boolean).join(" ") || "free";
 }

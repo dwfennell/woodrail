@@ -216,7 +216,7 @@ if (!setup.error && setup.engine !== -1) {
   check("route 1 planned by taps: forest, sawmill, warehouse", JSON.stringify(stops1) === JSON.stringify([forest, sawmill, warehouse]), JSON.stringify(stops1));
   // Under each stop's chip, what it picks up and drops (the economy's own plan).
   const goods1 = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.querySelector(".route-goods")?.textContent ?? ""));
-  check("…each stop shows what it picks up and drops: forest ⬆🌲, sawmill ⬆🪵 ⬇🌲, warehouse ⬇🪵", JSON.stringify(goods1) === JSON.stringify(["⬆🌲", "⬆🪵 ⬇🌲", "⬇🪵"]), JSON.stringify(goods1));
+  check("…each stop shows what it picks up and drops: forest ⬆🪵, sawmill ⬆\uE000 ⬇🪵, warehouse ⬇\uE000", JSON.stringify(goods1) === JSON.stringify(["⬆🪵", "⬆\uE000 ⬇🪵", "⬇\uE000"]), JSON.stringify(goods1));
   const fits = await p.evaluate(() => {
     const card = document.querySelector(".engine-card").getBoundingClientRect();
     const chips = [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.getBoundingClientRect().height);
@@ -258,7 +258,7 @@ if (!setup.error && setup.engine !== -1) {
   const stops2 = await routeStops(engine2);
   check("route 2 planned by taps: warehouse, town", JSON.stringify(stops2) === JSON.stringify([warehouse, town]), JSON.stringify(stops2));
   const goods2 = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.querySelector(".route-goods")?.textContent ?? ""));
-  check("…its stops show it: warehouse ⬆🪵, town ⬇🪵", JSON.stringify(goods2) === JSON.stringify(["⬆🪵", "⬇🪵"]), JSON.stringify(goods2));
+  check("…its stops show it: warehouse ⬆\uE000, town ⬇\uE000", JSON.stringify(goods2) === JSON.stringify(["⬆\uE000", "⬇\uE000"]), JSON.stringify(goods2));
   await shot("6-route-2-plan");
   await p.keyboard.press("Escape");
   const before = await planks(warehouse);

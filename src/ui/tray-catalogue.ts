@@ -84,6 +84,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Flatbed wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
+  // (Game mode's once Dairy farm is learned.)
+  { kind: "train", cars: ["tanker"], label: "Milk tank wagon", unlearned: "hide" },
   // (Game mode's once Scenery kit is learned.)
   { kind: "train", cars: ["cleaner"], label: "Track cleaner", unlearned: "hide" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
@@ -119,7 +121,7 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   // ready-made set picks the cars for the player.
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2), modes: ["sandbox"] },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "cleaner")) },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
@@ -160,6 +162,9 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-forest", label: "Harvester" },
       { kind: "piece", type: "depot-farm", label: "Farm yard" },
       { kind: "piece", type: "depot-mill", label: "Mill" },
+      { kind: "piece", type: "depot-dairy", label: "Dairy farm" },
+      { kind: "piece", type: "depot-bakery", label: "Bakery" },
+      { kind: "piece", type: "depot-orchard", label: "Orchard" },
       { kind: "piece", type: "depot-quarry", label: "Quarry" },
       { kind: "piece", type: "depot-mine", label: "Mine" },
       { kind: "piece", type: "depot-foundry", label: "Foundry" },
@@ -272,6 +277,8 @@ export interface TrayTab {
   favourites?: boolean;
   /** In Game mode, shown only once this blueprint is learned (the Roads tab: Roads). */
   gameTech?: string;
+  /** Game mode's tabs: its picture, shown in place of the word only when the tabs don't fit beside the tools (a 360 px phone). */
+  icon?: string;
 }
 
 const BOTH: readonly GameMode[] = ["sandbox", "game"];
@@ -279,12 +286,12 @@ const SANDBOX: readonly GameMode[] = ["sandbox"];
 const GAME: readonly GameMode[] = ["game"];
 
 export const TRAY_TABS: TrayTab[] = [
-  { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS, GAME_TRACK_KITS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
-  { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
-  { id: "industries", label: "Industries", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
+  { id: "track", label: "Track", icon: "🛤️", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS, GAME_TRACK_KITS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
+  { id: "trains", label: "Trains", icon: "🚂", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
+  { id: "industries", label: "Industries", icon: "🏭", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
   // (Game mode's once Roads is learned: spec 2026-10-31-roads.md. Its zebra, bridge and ramps wait for their blueprints.)
-  { id: "roads", label: "Roads", modes: BOTH, groups: ROAD_GROUPS, orient: "turn", gameTech: "roads" },
+  { id: "roads", label: "Roads", icon: "🛣️", modes: BOTH, groups: ROAD_GROUPS, orient: "turn", gameTech: "roads" },
   // Opening the Land tab switches land editing on; the tools act on the land itself.
   {
     id: "land",

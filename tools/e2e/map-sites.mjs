@@ -3,13 +3,13 @@
 // - a new game: an old ruin is in view near the start (the starter map's old farm);
 // - tapping it opens its locked card (Old farm, its fields, "Learn Farming at a school…", "Or build your own…");
 // - Farming learned: a toast names the old farm ("Old farm by …"), tapped it frames it; Show me for "Open a farm" points
-//   at it; its card offers Restore · 3🪵 45🪙 (no workshop: says so); Restore makes the stub a farm yard in place (its
+//   at it; its card offers Restore · 3\uE000 45🪙 (no workshop: says so); Restore makes the stub a farm yard in place (its
 //   depot, rate, crane and card), 3 planks from the workshop and 45 coins; Undo brings the ruin back and the price,
 //   Redo restores it again; a reload keeps it restored;
 // - Clear the ruin (one on the land bought) takes 10 coins, the ruin and its stub; Undo brings them back with the coins;
 // - the land around shows its ruins before it's bought; a coastal plot's land card lists its towns by the sea and its
 //   old sites; bought (by tapping Add this land), it brings them (the ruins' stubs become track pieces, fixed), its
-//   price is paid and the goal "Buy some land" ticks;
+//   price is paid and the goal "Buy some land" ticks, paying its reward;
 // - idle: no frames drawn in 30 s (the ruins cost nothing while nothing changes).
 // - a phone on its side (667×375): the ruin card's Restore and Clear fully in view above the tray, and tappable.
 // - the map view (390×844, step 3): the old farm's marker (🌾, a lock), none over a town's or station's label; idle
@@ -239,7 +239,7 @@ const card2 = await p.evaluate(() => {
   const c = document.querySelector(".ruin-card");
   return c && !c.hidden ? { status: c.querySelector(".ruin-status").textContent, own: c.querySelector(".ruin-own").textContent, buttons: [...c.querySelectorAll(".card-row button")].filter((b) => !b.hidden).map((b) => b.textContent) } : null;
 });
-check("the learned ruin's card: Restore · 3🪵 45🪙, and you may still build your own", card2?.status === "🔧 Half the price of a new farm yard" && card2.buttons[0] === "Restore · 3🪵 45🪙" && card2.own === "Or build your own anywhere from the Industries tab.", JSON.stringify(card2));
+check("the learned ruin's card: Restore · 3\uE000 45🪙, and you may still build your own", card2?.status === "🔧 Half the price of a new farm yard" && card2.buttons[0] === "Restore · 3\uE000 45🪙" && card2.own === "Or build your own anywhere from the Industries tab.", JSON.stringify(card2));
 await tap(".ruin-card .ruin-restore");
 const noShop = await p.evaluate(() => document.querySelector(".toast")?.textContent);
 check("…with no workshop: it says where the planks come from", noShop === "Restoring takes planks from your workshop. Place it first", noShop);
@@ -425,8 +425,9 @@ await shot("06-land-card-coast");
 // "Buy some land" ticked.
 const beforeBuy = await p.evaluate(async () => {
   const { plotPrice } = await import("/src/game/towns.ts");
+  const { BUY_LAND_COINS } = await import("/src/game/goals.ts");
   const w = window.woodrail;
-  return { coins: w.progress().coins, price: plotPrice(w.world.landscape.grid.plots.length), goal: w.goals().isDone("buy-land") };
+  return { coins: w.progress().coins, price: plotPrice(w.world.landscape.grid.plots.length), reward: BUY_LAND_COINS, goal: w.goals().isDone("buy-land") };
 });
 check("before buying: \"Buy some land\" not ticked", !beforeBuy.goal, JSON.stringify(beforeBuy));
 await tap(".land-card button", "Add this land");
@@ -437,7 +438,7 @@ const landGoal = await p
   .then(() => true)
   .catch(() => false);
 const paid = await p.evaluate(() => window.woodrail.progress().coins);
-check("bought by tapping: its price paid, \"Buy some land\" ticked", landGoal && paid === beforeBuy.coins - beforeBuy.price, JSON.stringify({ ...beforeBuy, after: paid, landGoal }));
+check("bought by tapping: its price paid, \"Buy some land\" ticked and its reward paid", landGoal && paid === beforeBuy.coins - beforeBuy.price + beforeBuy.reward, JSON.stringify({ ...beforeBuy, after: paid, landGoal }));
 const bought = await p.evaluate(([px, pz]) => {
   const w = window.woodrail;
   const land = w.world.landscape;
@@ -783,7 +784,7 @@ const mCard = await M.evaluate(() => {
   const c = document.querySelector(".ruin-card");
   return { map: !document.querySelector(".map-view").hidden, card: c && !c.hidden ? { title: c.querySelector(".card-title").textContent, buttons: [...c.querySelectorAll(".card-row button")].filter((b) => !b.hidden).map((b) => b.textContent) } : null };
 });
-check("…tapped: the map closes and the old farm's card opens, Restore on it", !mCard.map && mCard.card?.title === "Old farm" && mCard.card.buttons[0] === "Restore · 3🪵 45🪙", JSON.stringify(mCard));
+check("…tapped: the map closes and the old farm's card opens, Restore on it", !mCard.map && mCard.card?.title === "Old farm" && mCard.card.buttons[0] === "Restore · 3\uE000 45🪙", JSON.stringify(mCard));
 await M.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 15000))]));
 await M.screenshot({ path: `${OUT}/15-marker-card.png` }).catch(() => {});
 // Restore it: back on the map, its marker is gone.

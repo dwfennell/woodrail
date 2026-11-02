@@ -215,7 +215,7 @@ describe("the research pill", () => {
     deliver(p, "planks", 6);
     hud.setResearchPill(pillView(p, true));
     expect(writes).toContain("name=Bridges");
-    expect(writes).toContain("count=🪵6/10");
+    expect(writes).toContain("count=\uE0006/10");
     expect(writes).toContain("--fill=60%");
     expect(idle()).toBe(false);
     hud.setResearchPill(null);
@@ -247,8 +247,8 @@ describe("the research pill", () => {
       deliver(p, "planks", 6);
       deliver(p, "grain", 1);
       hud.setResearchPill(pillView(p, true));
-      expect(count).toBe("🪵✓ 🌾1/6 🔩0/10");
-      expect(pill.title).toBe("Mills: 6 of 6 🪵 planks, 1 of 6 🌾 grain, 0 of 10 🔩 iron. Tap for Research");
+      expect(count).toBe("\uE000✓ 🌾1/6 🔩0/10");
+      expect(pill.title).toBe("Mills: 6 of 6 \uE000 planks, 1 of 6 🌾 grain, 0 of 10 🔩 iron. Tap for Research");
       room = 11;
       (hud as unknown as { fitPill(): void }).fitPill();
       expect(count).toBe("🌾1/6 🔩0/10");
@@ -263,7 +263,7 @@ describe("the research pill", () => {
       expect(count).toBe("🔩0/10 +1");
       room = 99;
       (hud as unknown as { fitPill(): void }).fitPill();
-      expect(count).toBe("🪵✓ 🌾1/6 🔩0/10");
+      expect(count).toBe("\uE000✓ 🌾1/6 🔩0/10");
       expect(classes.has("rp-goods")).toBe(false);
     } finally {
       delete goods.iron;

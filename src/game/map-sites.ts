@@ -90,7 +90,7 @@ export const RESTORE_SHARE = 0.5;
 /** The industry's piece a ruin of this kind is restored to. */
 export const restoredType = (role: SiteRole): PieceTypeId => `depot-${role}` as PieceTypeId;
 
-/** What restoring a ruin of this kind costs (Game mode): about half its new industry's price (3🪵 45🪙 for a farm). */
+/** What restoring a ruin of this kind costs (Game mode): about half its new industry's price (3\uE000 45🪙 for a farm). */
 export function restorePrice(role: SiteRole): { goods: Bag; coins: number } {
   const rule = THING_RULES[`piece:${restoredType(role)}`];
   const goods: Bag = {};
@@ -647,7 +647,7 @@ export interface RuinCard {
   status: string;
   /** Learned (or Sandbox): it can be restored. */
   open: boolean;
-  /** The restore button, once it's open: "Restore · 3🪵 45🪙" ("Restore" in Sandbox); null while locked, or a harbour's boats can't reach it. */
+  /** The restore button, once it's open: "Restore · 3\uE000 45🪙" ("Restore" in Sandbox); null while locked, or a harbour's boats can't reach it. */
   restore: string | null;
   /** "Or build your own anywhere from the Industries tab." (Game mode.) */
   own: string | null;

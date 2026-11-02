@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -18,16 +18,24 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   // Made goods: furniture from a carpenter's yard, tools from a smithy (towns pay well for them).
   furniture: { index: 8, label: "Furniture" },
   tools: { index: 9, label: "Tools" },
+  // The dairy chain (tech-tree I3, I4): milk from a dairy farm; a bakery makes bread of flour and milk. Fruit from an
+  // orchard (towns eat it as it comes; juice and jam come later).
+  milk: { index: 10, label: "Milk" },
+  bread: { index: 11, label: "Bread" },
+  fruit: { index: 12, label: "Fruit" },
 };
 
 /**
- * One icon per kind of goods, used wherever goods are counted (tray costs, cards, needs, the journal): "30🪵 10🪨".
+ * One icon per kind of goods, used wherever goods are counted (tray costs, cards, needs, the journal): "30🪵 10🪨" (logs and stone).
  * Each is one glyph (a single code point, at most with a variation selector; no joined sequences that older phones
- * draw as two), and no two kinds share one. Planks are 🪵 (as they always were); logs are a tree.
+ * draw as two), and no two kinds share one. Logs are 🪵 (it's a log: raw wood). On screen each is the game's own
+ * drawing, not the emoji (src/icons/*.svg, compiled into the "Woodrail Icons" font: see style.css). Planks have no
+ * emoji, so they're U+E000 (private use), three sawn boards with a strap. Where that font isn't used (a screen
+ * reader, a copied text) it's silent or a box, so a line meant to be read without the picture says "planks" too.
  */
 export const GOODS_ICON: Record<CargoKind, string> = {
-  log: "🌲",
-  planks: "🪵",
+  log: "🪵",
+  planks: "\uE000",
   grain: "🌾",
   flour: "🍞",
   stone: "🪨",
@@ -36,6 +44,10 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   iron: "🔩",
   furniture: "🪑",
   tools: "🧰",
+  // The dairy chain's goods: drawn in the icon font (src/icons/u1F95B-milk, u1F956-bread, u1F34E-fruit).
+  milk: "🥛",
+  bread: "🥖",
+  fruit: "🍎",
 };
 
 /** Coins, beside goods in a cost. */
@@ -43,10 +55,12 @@ export const COIN_ICON = "🪙";
 
 /** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
 export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
-  // Timber wagons are flatbeds: logs, planks and iron bars.
-  timber: ["log", "planks", "iron"],
+  // Timber wagons are flatbeds: logs, planks, iron bars and crates of fruit.
+  timber: ["log", "planks", "iron", "fruit"],
   hopper: ["grain", "stone", "coal", "ore"],
-  van: ["flour", "furniture", "tools"],
+  // Vans: sacks and crates (flour, made goods, bread). Milk goes in a tank wagon.
+  van: ["flour", "furniture", "tools", "bread"],
+  tanker: ["milk"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

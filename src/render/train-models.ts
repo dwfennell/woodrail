@@ -3,6 +3,7 @@ import type { CarKind, CarLook } from "../sim";
 import { TRACK_THICKNESS } from "../track";
 import { Kit } from "../catalogue/kit";
 import { buildTrackCleaner, trackCleanerBogies, trackCleanerBrushes } from "../catalogue/assets/track-cleaner";
+import { buildMilkTanker, milkTankerBogies } from "../catalogue/assets/milk-tanker";
 import { blenderCar } from "./blender-models";
 import type { Materials } from "./materials";
 import { GROOVE_DEPTH } from "./track-geometry";
@@ -32,13 +33,26 @@ const SECOND_SCHEME: Readonly<Record<string, string>> = { [ENGINE_BODY]: "#b8432
 const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { body: "#2f6db5" } };
 
 /** Car facing +x, centred on its two axles, y = 0 at the track base. The models must be loaded (loadBlenderModels). */
-export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic"): CarModel {
+export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic", loaded = false): CarModel {
   if (kind === "cleaner") return cleanerModel(mats);
+  if (kind === "tanker") return tankerModel(mats);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
   const recolor = variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
   const model = blenderCar(kind, look, mats, lamp, recolor, CAR_SLOTS[kind]);
   model.root.traverse((o) => (o.userData.carKind = kind));
+  if (kind === "hopper" && !loaded) hideModelledLoad(model.root);
   return model;
+}
+
+/**
+ * A hopper is modelled heaped with coal (its `coal…` nodes). On the track it starts empty, its open bin showing: the
+ * load it carries is drawn by DepotView as a heap of its goods (`hopperLook`), so the coal is hidden once, here, and
+ * nothing toggles it per frame. Only a picture of the car (a tray icon: `loaded`) keeps it.
+ */
+function hideModelledLoad(root: Object3D): void {
+  root.traverse((o) => {
+    if (o !== root && o.name.startsWith("coal")) o.visible = false;
+  });
 }
 
 /**
@@ -61,6 +75,21 @@ function cleanerModel(mats: Materials): CarModel {
       mesh.castShadow = true;
       // (Its geometry is its own: freed with it, see `disposeObject`.)
     }
+  });
+  return { root, wheels };
+}
+
+/** The milk tank wagon: a code model (no Blender one), lifted onto the rails as the cleaner is. */
+function tankerModel(mats: Materials): CarModel {
+  const kit = new Kit(mats, 0.5);
+  const body = buildMilkTanker(kit);
+  body.position.y = AXLE_HEIGHT - 7.5;
+  const root = new Group();
+  root.add(body);
+  const wheels: Object3D[] = [...milkTankerBogies(body).children];
+  root.traverse((o) => {
+    o.userData.carKind = "tanker";
+    if ((o as Mesh).isMesh) (o as Mesh).castShadow = true;
   });
   return { root, wheels };
 }

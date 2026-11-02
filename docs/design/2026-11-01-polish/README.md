@@ -41,9 +41,10 @@ An Impeccable pass (`critique` and `audit`, then `polish`, then `delight`) on Ga
 - **No backdrop blur:** removed from the cards, menu and logo.
 - **Delight:** a coin flip, the goal chip rocking, a toast stamped down, stickers pressed on, and tabs that give under a finger. Each is a one-off animation, and all are off under reduced motion.
 
-## Left for later
+## Left for later (done, 2026-11-01, branch `claude/locked-tiles`)
 
-- **The landscape town card:** about 146 px tall, with a scrolling ledger and the ✕ in its footer. This layout was tuned by QA. A two-column layout (the ledger beside the switches) needs its own pass with `e2e:station-upgrade`.
-- **Locked tiles:** say how to unlock ("Learn it in Research", "after the goal …"), and fold the run of locked industries into one tile.
-- **The ☰ menu's bug-report items:** could move to a submenu.
-- **At 360 px:** the tray tabs still scroll beside Turn and Flip on the Industries tab.
+- **Locked tiles:** a tap (or click) on a locked tile shows a note over it saying how to unlock it in plain words ("Research Switches to unlock", "Research Switches, then Signals", "Reach a town, then research Big stations", "Coming soon (Tunnels)"), with **📘 Show in Research**, which opens the picker on that blueprint (or the nearest one before it that the picker shows). Nothing is picked up. Hover shows the same words in the tooltip; a drag out of a locked tile toasts them (a tap on the toast opens Research there). Words from `unlockHow` (`src/game/research-text.ts`). Still open: folding a run of locked industries into one tile.
+- **Tray tabs at 360 px:** Game's tabs fit beside the four tools without a sideways scroll: tighter below 380 px (tabs 12.5px, 5 px padding; tool chips 32 px drawn with their reach), and if they still don't fit (Roads learned, Industries open with Turn and Flip) the tabs not open show their picture only (🛤️ 🚂 🏭 🛣️), then all of them (`fitTabs` in hud.ts, measured when a tab opens or the row's room changes).
+- **The landscape town card:** two columns (how it grows at the left; school, market, station, lines, Automatic and the station's upgrades at the right), the ✕ at the top right, and down over the tray as the engine card is, so the ledger shows whole on a 390 px tall phone. Checked by `e2e:locked` (844×390, 740×360) and `e2e:station-upgrade`.
+
+Pictures (360×640, 390×844, 844×390; before and after): `leftovers/`.

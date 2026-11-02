@@ -16,7 +16,7 @@ import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSe
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { reporter, startLog, type Reporter } from "./debug/report";
-import { GoalTracker, secondEngineTip, trayRing } from "./game/goals";
+import { GoalTracker, goalTickTitle, payGoal, secondEngineTip, trayRing } from "./game/goals";
 import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
@@ -28,6 +28,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
+import { firstFoodNews } from "./game/food-text";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
@@ -50,6 +51,7 @@ import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
 import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
+import { addTipped, emptyWords, type Tipped } from "./game/empty-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { blockerOf, engineView, FOLLOW_TIP, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
@@ -62,10 +64,10 @@ import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlocksWords } from "./game/research-text";
+import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
-import { carLoadWords, CLASSIC_KMH, trainSummary, type SummaryCar } from "./game/train-summary";
+import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
@@ -84,6 +86,7 @@ import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
+import { installSwipeGuard } from "./ui/swipe-guard";
 import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
@@ -95,10 +98,15 @@ import { loadMuted, saveMuted } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
+import { installFocusRing } from "./ui/focus-ring";
 import { CloudCard } from "./ui/cloud-card";
 import { StatsCard } from "./ui/stats-card";
 import { pageStats } from "./stats/stats";
 import "./style.css";
+// The icon font (style.css) loads with the game, not on the first card that shows an icon.
+void document.fonts?.load('16px "Woodrail Icons"', GOODS_ICON.planks).catch(() => undefined);
+
+installFocusRing(window, document.documentElement);
 
 /** A blueprint's requirement in words, a count of goods with its icon: "20🪨 stone delivered". */
 function describeNeed(n: Need): string {
@@ -383,6 +391,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // A tap that opens a card (or a tray shelf) under the finger mustn't also press what opened there.
   installClickShield(canvas);
+  // A sideways swipe or wheel never goes Back a page.
+  installSwipeGuard();
   const hud = new Hud(
     document.body,
     {
@@ -412,6 +422,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           interaction.tapTrayPiece(item);
         } else if (trayAllowed(item, item.kind !== "train")) interaction.tapTrayPiece(item);
       },
+      showResearch: (id) => setBoardOpen(true, id),
       trayTabChanged: () => interaction.arm(null),
       trayDraw: (on) => interaction.setDrawing(on),
       trayErase: (on) => interaction.setErasing(on),
@@ -440,6 +451,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
       decouple: () => decouple(),
+      emptyCar: () => emptyCars(false),
+      emptyTrain: () => emptyCars(true),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
@@ -667,6 +680,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.keysTaken = () => interaction.piecesTakeKeys;
   interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {
+    hud.trayPlaced();
     audio.putdown(snapped);
     if (snapped) hud.haptic("snap");
   };
@@ -1461,6 +1475,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
       if (firstFlour && progress.firstFlour) note({ kind: "milestone", text: `First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus`, place: { x: town.station.x, z: town.station.z } }, 3600);
+      // The first milk, bread or fruit any town has had (the dairy chain, the orchard): a milestone, once a game.
+      let total = 0;
+      for (const bag of game.economy.deliveredGoods.values()) total += bag[kind] ?? 0;
+      const food = firstFoodNews(kind, n, total, town.name);
+      if (food) note({ kind: "milestone", text: food, place: { x: town.station.x, z: town.station.z } }, 3600);
       // (A routine delivery isn't news: the coins and the town's card show it. The News keeps what changes things.)
     },
     grew: (town, status, built) => {
@@ -1562,6 +1581,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const ctx = { learned: progress.learned, owned: progress.owned, orders: progress.orders };
     const fresh = goals.update(game.world, ctx);
     if (fresh.length > 0) {
+      // (A goal that pays coins pays them as it's ticked: "Buy some land".)
+      if (fresh.reduce((n, g) => n + payGoal(progress, g), 0) > 0) {
+        hud.setCoins(progress.coins);
+        scheduleSave("progress");
+      }
       // (A goal done: its guide's markers no longer hold a piece, and the tray rings what the next one asks for.)
       interaction.guideSpots = [];
       hud.refreshTrayBadges();
@@ -1571,7 +1595,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         for (const g of fresh) stats.record({ e: "goal", id: g.id, n: goals.doneCount });
         // The first goal ticked: a moment later (after its toast), the one-time "Help improve" question.
         if (stats.shouldAsk) statsAskTimer = window.setTimeout(askStats, 3600);
-        const titles = fresh.map((g) => g.title);
+        const titles = fresh.map(goalTickTitle);
         const tick = goalsDoneText(titles, TOAST_TITLES);
         if (growth && joins(growth, game.simSeconds, performance.now(), GROWTH_JOIN_S)) {
           // Right after a growth milestone: a toast of its own after the growth's. (Goals done aren't News: the Goals
@@ -1614,26 +1638,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
   function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {
-    // (A signal mark is free once Signals is learned: it's no piece from the toy box, signals spec §4.)
-    if (mode === "game" && item.kind === "signal" && !progress.knows("piece:signal")) {
-      hud.toast("Signal: not learned yet");
+    // Not learned yet: how to unlock it, in plain words ("Switch: Research Switches to unlock"); a tap on the toast
+    // opens Research there. (A tap on a locked tile shows its note instead: Hud.lockedTap. This is a drag out of it.)
+    // A signal mark too, till Signals is learned (then it's free: no piece from the toy box, signals spec §4).
+    const lock = lockOf(item);
+    if (lock) {
+      const how = unlockHow(progress, lock.tech);
+      const jump = how.jump;
+      hud.toast(`${lock.label}: ${how.text}`, false, 3600, jump ? () => setBoardOpen(true, jump) : undefined);
       return false;
     }
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
     // (A new take: whatever an earlier one made is settled, or never was.)
     if (make) trainMade = pieceMade = null;
-    const look = lockedLook(item);
-    if (look) {
-      const t = techOf(look)!;
-      hud.toast(t.plan ? `${t.label}: coming soon` : `${t.label}: learn its blueprint first${t.requires.length ? ` (${t.requires.map(describeNeed).join(", ")})` : ""}`, false, 3600);
-      return false;
-    }
     const needs = thingsFor(item as ThingItem);
-    for (const id of needs.keys()) {
-      if (progress.knows(id)) continue;
-      hud.toast(`${ruleOf(id)!.label}: not learned yet`);
-      return false;
-    }
     // None left of something it takes: all of what's missing is made on the spot from the workshop's yard, or none.
     const lack = lacking(game.world, progress, needs);
     if (lack.size === 0) return true;
@@ -1673,7 +1691,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** What was made for the piece in hand (taken from the tray), until it's put down. */
   let pieceMade: Map<ThingId, number> | null = null;
   let pieceSaid = "";
-  /** ...and what's said if it's given back ("Switch back in the box, 3🪵 returned"). */
+  /** ...and what's said if it's given back ("Switch back in the box, 3\uE000 returned"). */
   let pieceRefund = "";
   interaction.onTrayPieceDropped = (placed) => {
     const made = pieceMade;
@@ -1694,6 +1712,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let trainMade: Map<ThingId, number> | null = null;
   let trainSaid = "";
   interaction.onTrayTrainDropped = (placed) => {
+    if (placed) hud.trayPlaced();
     const made = trainMade;
     const said = trainSaid;
     trainMade = null;
@@ -1714,6 +1733,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.refreshTrayBadges();
     showWorkshop(true);
     scheduleSave();
+  }
+
+  /**
+   * What keeps a tray item locked (Game mode): the blueprint to learn, and the name to say it by (the train's look, or
+   * the thing not known yet: "Switch"), or null if it isn't locked.
+   */
+  function lockOf(item: ThingItem | TrayItem | { kind: string }): { tech: string; label: string } | null {
+    // (A signal mark: locked till Signals is learned, as its tray badge says; its note and toast open Research there.)
+    if (mode === "game" && item.kind === "signal") return progress.knows("piece:signal") ? null : { tech: ruleOf("piece:signal")!.tech!, label: ruleOf("piece:signal")!.label };
+    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return null;
+    const look = lockedLook(item);
+    if (look) return { tech: look, label: "label" in item && typeof item.label === "string" ? item.label : techOf(look)!.label };
+    for (const id of thingsFor(item as ThingItem).keys()) {
+      const tech = ruleOf(id)?.tech;
+      if (tech && !progress.knows(id)) return { tech, label: ruleOf(id)!.label };
+    }
+    return null;
   }
 
   /** A train item in a look whose blueprint isn't learned yet (a dining car, an express engine): that blueprint. */
@@ -1804,6 +1840,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return m && { parts: m.parts, scale };
   }
 
+  /**
+   * A catalogue model for an industry's yard (the dairy's, the bakery's, the orchard's trees): loaded on first use, then
+   * the yards are drawn again once (never per frame).
+   */
+  function yardModel(asset: string): { parts: PropModel["parts"] } | null | undefined {
+    const m = game.propLibrary.model(asset);
+    if (m === undefined)
+      void game.propLibrary.load(asset).then(
+        () => {
+          game.depotView.setWorld(game.economy, game.layout);
+          game.invalidate();
+        },
+        () => {},
+      );
+    return m;
+  }
+
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
   function industriesChanged(): void {
@@ -1819,7 +1872,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     key += `#${mode === "game" ? schoolGradesKey(game.world, progress.learned) : ""}`;
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     game.depotView.building = schoolHouse;
+    game.depotView.catalogueModel = yardModel;
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
+    // A town's station upgraded in place (or back, by undo): only its goods corner drawn again.
+    else if (game.depotView.syncStations(game.economy, game.layout)) game.invalidate();
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
     const rateKey = `${key}#${game.landscape.grid.revision}#${mode === "game" ? upgradeKey(progress) : ""}`;
@@ -2758,6 +2814,66 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
+   * Empty (the wagon card) or Empty all (the engine card, `all`): tip the goods out where the train stands, thrown away
+   * (`Economy.dump`). Not undoable: undo is the track's and the land's, and no train action (Decouple, Swap ends) or
+   * crane work is in it. A coach's riders stay on. The toast says what went, and a place on the map that takes it.
+   */
+  function emptyCars(all: boolean): void {
+    const carId = all ? interaction.openEngineCarId : interaction.openCarCardId;
+    const found = carId === -1 ? null : game.sim.findCar(carId);
+    if (!found) return;
+    const tipped: Tipped[] = [];
+    let moving = false;
+    for (const car of all ? found.train.cars : [found.train.cars[found.index]]) {
+      const why = game.economy.dumpRefusal(car.id);
+      if (why === "moving") moving = true;
+      if (why !== null) continue;
+      const t = game.economy.dump(car.id);
+      if (t) addTipped(tipped, t);
+    }
+    if (tipped.length === 0) {
+      if (moving) hud.toast("Stop the train first", false, 2500);
+      return;
+    }
+    audio.clunk(0.5, 0);
+    hud.toast(
+      emptyWords(tipped, (kind) => {
+        const d = game.economy.takerOf(kind);
+        return d ? { name: depotName(game.world, d), town: d.role === "town" } : null;
+      }),
+      false,
+      3000,
+    );
+    showSummary();
+    showEmpty();
+    game.invalidate();
+    onChange();
+  }
+
+  /**
+   * Empty and Empty all on the open card: shown while there are goods to tip out, greyed while the train moves. Keyed
+   * by the car, the loads' stamp and whether it stands: the buttons are touched only when one changes.
+   */
+  let emptyKey = "";
+  function showEmpty(): void {
+    const engineId = interaction.openEngineCarId;
+    const carId = engineId !== -1 ? engineId : interaction.openCarCardId;
+    const found = carId === -1 ? null : game.sim.findCar(carId);
+    if (!found) {
+      emptyKey = "";
+      return;
+    }
+    const standing = game.sim.standing(found.train);
+    const key = `${engineId}:${carId}:${game.economy.loadsVersion}:${standing}:${found.train.cars.length}`;
+    if (key === emptyKey) return;
+    emptyKey = key;
+    const why = standing ? "" : "Stop the train first";
+    const loaded = (id: number): boolean => game.economy.cargoOf(id).count > 0;
+    const anyLoaded = engineId !== -1 && found.train.cars.some((c) => loaded(c.id));
+    hud.setEmpty({ shown: engineId === -1 && loaded(carId), why }, { shown: anyLoaded, why });
+  }
+
+  /**
    * The engine has run round to the other end of its train: if that's off screen or under the card, glide just far
    * enough to show it.
    */
@@ -2941,7 +3057,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRoute();
     showEngineView();
     showSummary();
+    showRefusals();
+    showEmpty();
   };
+
+  /**
+   * Swap ends and Decouple greyed on the open card where they'd only be refused (moving, or nothing to uncouple), with
+   * why. Its key changes only as the train starts or stops, or its make-up changes: the buttons are touched only then.
+   */
+  let refusalsKey = "";
+  const REFUSED_WHY = { moving: "Stop the train first", alone: "Nothing coupled to uncouple", none: "" } as const;
+  function showRefusals(): void {
+    const engineId = interaction.openEngineCarId;
+    const carId = engineId !== -1 ? engineId : interaction.openCarCardId;
+    if (carId === -1) {
+      refusalsKey = "";
+      return;
+    }
+    const swap = engineId !== -1 ? game.sim.runAroundRefusal(engineId) : null;
+    const dec = game.sim.decoupleRefusal(carId);
+    const key = `${carId}:${swap}:${dec}`;
+    if (key === refusalsKey) return;
+    refusalsKey = key;
+    hud.setCardRefusals(swap ? REFUSED_WHY[swap] : "", dec ? REFUSED_WHY[dec] : "");
+  }
 
   /**
    * The engine card's train summary and the wagon card's load (#9): redrawn only when what they say could have changed
@@ -2968,10 +3107,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (key === summaryKey) return;
     summaryKey = key;
     if (engineId !== -1) {
-      // Its top speed by its engines (Sandbox's are all the classic's); too heavy to move, none said.
+      // Its top speed by its engines, against the classic's (Sandbox's are all the classic's); too heavy to move, none said.
       const l = engineLoad(game.world, found.train);
-      const kmh = mode !== "game" ? CLASSIC_KMH : l.cars > l.pulls || l.engines.length === 0 ? 0 : CLASSIC_KMH * Math.min(...l.engines.map((e) => e.speed));
-      const s = trainSummary(cars.map(summaryCar), kmh, line?.name ?? "");
+      const speed = mode !== "game" ? 1 : l.cars > l.pulls || l.engines.length === 0 ? 0 : Math.min(...l.engines.map((e) => e.speed));
+      const s = trainSummary(cars.map(summaryCar), speed, line?.name ?? "");
       hud.setEngineSummary(s.about, s.load);
     } else {
       const car = cars[found.index];
@@ -4450,6 +4589,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       flourBefore(progress, game.world);
       syncLandmarks();
       hud.trayBadge = trayBadge;
+      hud.trayLock = (item) => {
+        const lock = lockOf(item);
+        return lock && unlockHow(progress, lock.tech);
+      };
       hud.trayKnown = (item) => (item.kind === "road" ? progress.learned.has(ROAD_TECH[item.piece]) : item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id)));
       // A tab that needs a blueprint (Roads) shows once it's learned.
       hud.tabKnown = (tech) => progress.learned.has(tech);
@@ -4467,6 +4610,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWaiting();
       shownDelivered = new Map();
       hud.trayBadge = null;
+      hud.trayLock = null;
+      hud.hideLockNote();
       hud.trayKnown = null;
       hud.tabKnown = null;
       hud.refreshTabs();
@@ -4892,6 +5037,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     lookForFollowers();
     showEngineView();
     showSummary();
+    showRefusals();
+    showEmpty();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);

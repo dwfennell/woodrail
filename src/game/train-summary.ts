@@ -4,10 +4,22 @@ import { CARGO, CARGO_KINDS, GOODS_ICON, type CargoKind } from "../economy/cargo
 export const RIDER_ICON = "🧑";
 
 /**
- * Speeds as the card says them: the classic engine's top speed is called 40 km/h (a toy's, made up; the others go by
- * their speed against it, so an express says 60).
+ * Speeds as the card says them, in words on one scale by the engine's speed against the classic engine's (1):
+ * under it "slow" (the goods engine, 0.8), about it "steady" (classic, tank), over it "quick" (diesel 1.2, electric
+ * 1.4), and from 1.5 "fast" (the express). Each word is the least speed it starts at.
  */
-export const CLASSIC_KMH = 40;
+export const SPEED_WORDS: readonly { from: number; word: string }[] = [
+  { from: 1.45, word: "fast" },
+  { from: 1.1, word: "quick" },
+  { from: 0.95, word: "steady" },
+  { from: 0, word: "slow" },
+];
+
+/** A train's top speed (against the classic engine's) in a word: "slow", "steady", "quick" or "fast"; "" when 0. */
+export function speedWord(speed: number): string {
+  if (!(speed > 0)) return "";
+  return SPEED_WORDS.find((w) => speed >= w.from)!.word;
+}
 
 /** At most this many kinds of goods are named in the load line; more say "+2 more" (two lines at 360 px). */
 export const LOAD_KINDS_SHOWN = 4;
@@ -26,19 +38,19 @@ export interface SummaryCar {
 
 /**
  * The engine card's train summary, two short lines:
- * - `about`: "4 cars · 40 km/h · Red line" (cars past the engines; the speed left out while it can't move; the line
+ * - `about`: "4 cars · steady · Red line" (cars past the engines; the speed as a word (`speedWord`), left out while it can't move; the line
  *   left out when there's none, or its name is too long);
- * - `load`: what's on board, by good in cargo order then riders: "🌲 12 · 🪵 4 · 🧑 3", or "Empty" (no cars: "").
+ * - `load`: what's on board, by good in cargo order then riders: "🪵 12 · \uE000 4 · 🧑 3", or "Empty" (no cars: "").
  */
-export function trainSummary(cars: readonly SummaryCar[], topKmh: number, line: string): { about: string; load: string } {
+export function trainSummary(cars: readonly SummaryCar[], speed: number, line: string): { about: string; load: string } {
   const n = cars.filter((c) => c.kind !== "engine").length;
   const about = [n === 1 ? "1 car" : `${n} cars`];
-  if (topKmh > 0) about.push(`${Math.round(topKmh)} km/h`);
+  if (speed > 0) about.push(speedWord(speed));
   if (line && line.length <= SUMMARY_LINE_NAME) about.push(line);
   return { about: about.join(" · "), load: n === 0 ? "" : loadWords(cars) };
 }
 
-/** What a train carries: "🌲 12 · 🪵 4 · 🧑 3", at most `LOAD_KINDS_SHOWN` kinds then "+n more"; "Empty". */
+/** What a train carries: "🪵 12 · \uE000 4 · 🧑 3", at most `LOAD_KINDS_SHOWN` kinds then "+n more"; "Empty". */
 export function loadWords(cars: readonly SummaryCar[]): string {
   const goods = new Map<CargoKind, number>();
   let riders = 0;
@@ -53,7 +65,7 @@ export function loadWords(cars: readonly SummaryCar[]): string {
   return `${parts.slice(0, LOAD_KINDS_SHOWN - 1).join(" · ")} · +${parts.length - LOAD_KINDS_SHOWN + 1} more`;
 }
 
-/** A wagon's card: "🌲 Logs: 6 of 8", "Empty (carries logs, planks, iron)"; a coach: "🧑 3 of 6 seats". */
+/** A wagon's card: "🪵 Logs: 6 of 8", "Empty (carries logs, planks, iron)"; a coach: "🧑 3 of 6 seats". */
 export function carLoadWords(car: SummaryCar, room: number, carries: readonly CargoKind[] = []): string {
   if (car.kind === "coach") return `${RIDER_ICON} ${car.count ?? 0} of ${room} seats`;
   if (!car.cargo || !car.count) {

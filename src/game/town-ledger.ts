@@ -3,9 +3,10 @@ import { kindsOf } from "../economy/goods";
 import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
 import { ruleOf, type ThingId } from "./things";
-import { receivedBy } from "./town-life";
-import { townLevel, townStatus } from "./towns";
+import { growthOf } from "./town-life";
+import { FOODS, townLevel, townStatus } from "./towns";
 import { DEPOT_NAMES, depotName, type World } from "./world";
+import { townLinks } from "../roads/graph";
 
 /**
  * A town's card in Game mode (the town ledger): where it stands and what it's growing into, what it still needs, its
@@ -37,8 +38,15 @@ export interface TownLedger {
   market: number;
   /** People waiting at the station whose card is open, its room, and the riders carried by all trains all game (once Passengers is learned), or null. */
   station: { waiting: number; room: number; carried: number } | null;
+  /** "Joined by road to Fernby" (roads spec D2: it grows faster), or null when no road joins it to another town. */
+  road: string | null;
   /** The lines that call at the town, with how many trains run on each (once Train routes is learned). */
   lines: { id: number; name: string; colour: string; trains: number }[];
+  /**
+   * The everyday food it always buys at full pay, of what's learned (`FOODS`: milk once Dairy farm is, bread once
+   * Bakery is, fruit once Orchards is): "Always buys 🥛 milk and 🥖 bread at full pay", or null.
+   */
+  buys: string | null;
 }
 
 /** What the ledger needs of the game beyond the world: what's learned, and the station's room for waiting people. */
@@ -51,7 +59,22 @@ export interface LedgerContext {
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
-const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest"];
+const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard"];
+
+/** The everyday food a town always buys, by the blueprint that brings its maker, in cargo order. */
+const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
+  ["milk", "dairy"],
+  ["bread", "bakery"],
+  ["fruit", "orchard"],
+];
+
+/** "Always buys 🥛 milk, 🥖 bread and 🍎 fruit at full pay" for the foods whose blueprint is learned, or null. */
+export function buysText(learned: ReadonlySet<string>): string | null {
+  const foods = FOOD_TECH.filter(([k, tech]) => FOODS.has(k) && learned.has(tech)).map(([k]) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
+  if (foods.length === 0) return null;
+  const list = foods.length === 1 ? foods[0] : `${foods.slice(0, -1).join(", ")} and ${foods[foods.length - 1]}`;
+  return `Always buys ${list} at full pay`;
+}
 const makerOf = (kind: CargoKind): Exclude<DepotRole, "town"> | undefined => MAKERS.find((r) => RECIPES[r].gives.includes(kind));
 
 /**
@@ -71,7 +94,7 @@ function howToGet(kind: CargoKind, learned: ReadonlySet<string>): string {
 export function townLedger(world: World, d: DepotState, ctx: LedgerContext): TownLedger | null {
   const town = world.landscape.towns.find((t) => t.id === d.townId);
   if (!town) return null;
-  const status = townStatus(receivedBy(world, town.id));
+  const status = townStatus(growthOf(world, town.id));
   const goods = kindsOf(status.wants).map((kind) => ({ kind, icon: GOODS_ICON[kind], label: CARGO[kind].label, have: status.got[kind] ?? 0, need: status.wants[kind]! }));
   const have = goods.reduce((t, g) => t + g.have, 0);
   const need = goods.reduce((t, g) => t + g.need, 0);
@@ -101,9 +124,19 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     holding,
     school,
     market: townLandmarks(town).has("market") ? MARKET_BONUS : 1,
+    road: roadLine(world, town.id),
     station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried },
     lines,
+    buys: buysText(ctx.learned),
   };
+}
+
+/** "Joined by road to Fernby" ("to Fernby and Ashby"; "to Fernby, Ashby and 2 more"), or null if no road joins it. */
+export function roadLine(world: World, townId: number): string | null {
+  const names = (townLinks(world.landscape).get(townId) ?? []).map((id) => world.landscape.towns.find((t) => t.id === id)?.name ?? "").filter(Boolean);
+  if (names.length === 0) return null;
+  const shown = names.length <= 3 ? names : [...names.slice(0, 2), `${names.length - 2} more`];
+  return `Joined by road to ${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`}`;
 }
 
 /** Mix `v` into hash `h`. */
@@ -125,6 +158,10 @@ export function ledgerKey(world: World, d: DepotState, ctx: LedgerContext): numb
   h = mix(h, world.economy.delivered.get(d.townId) ?? 0);
   const bag = world.economy.deliveredGoods.get(d.townId);
   if (bag) for (const k in bag) h = mix(h, (bag as Record<string, number>)[k] ?? 0);
+  const road = world.economy.roadGot.get(d.townId);
+  if (road) for (const k in road) h = mix(h, (road as Record<string, number>)[k] ?? 0);
+  // (The land, roads among it: a road laid or taken up may join or part the town.)
+  h = mix(h, world.landscape.grid.revision);
   const town = world.landscape.towns.find((t) => t.id === d.townId);
   h = mix(h, town?.buildings.length ?? -1);
   h = mix(h, world.economy.allDepots().length);

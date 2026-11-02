@@ -1,8 +1,8 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Plane, Quaternion, Vector3, type Ray, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
-import type { Layout, Pose } from "../track";
+import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
+import type { Layout, PieceTypeId, Pose } from "../track";
 import { kitOf, TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
 import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
@@ -13,6 +13,7 @@ import type { Materials } from "./materials";
 import { TIMBER_DECK } from "./train-models";
 import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
 import { nonIndexed } from "./non-indexed";
+import { HEAP_COLORS, HEAP_KINDS, HEAP_PROFILE, HOPPER_HEAP, hopperLook, type HeapKind } from "./hopper-load";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
 interface PileSpot {
@@ -38,7 +39,7 @@ interface CraneSpec {
   height: number;
 }
 
-interface DepotLayout {
+export interface DepotLayout {
   pad: { t: number; l: number; w: number; d: number } | null;
   crane: CraneSpec;
   piles: Partial<Record<CargoKind, PileSpot>>;
@@ -179,7 +180,33 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   harbour: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
-    piles: Object.fromEntries(CARGO_KINDS.map((k, i) => [k, { t: 22 + i * 17.5, l: 62, y: YARD, across: 1, axis: "l", show: 4 }])),
+    // (Spread along the quay's 180 mm, however many kinds of goods there are: 15 mm apart for 13.)
+    piles: Object.fromEntries(CARGO_KINDS.map((k, i) => [k, { t: 18 + i * Math.min(17.5, 180 / (CARGO_KINDS.length - 1)), l: 62, y: YARD, across: 1, axis: "l", show: 4 }])),
+    trackT: 60,
+  },
+  // The dairy chain and the orchard: the dairy's churns and the bakery's flour, milk and bread under a jib, at the near
+  // end; their buildings (the catalogue's models, `building`) at the far end. The orchard's apple trees stand in rows
+  // along the yard's back, its crates by the track.
+  dairy: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { milk: { t: 60, l: 70, y: YARD, across: 3, rows: 2, axis: "t" } },
+    trackT: 60,
+  },
+  bakery: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      flour: { t: 38, l: 64, y: YARD, across: 3, axis: "t" },
+      milk: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      bread: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
+  orchard: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { fruit: { t: 60, l: 66, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 60,
   },
   mill: {
@@ -214,16 +241,42 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   unloader: KIT_DEPOT,
 };
 
+/** A layout turned across its track (l → −l): its crane and piles on the other side of the line. */
+function acrossTheLine(layout: DepotLayout): DepotLayout {
+  const piles: Partial<Record<CargoKind, PileSpot>> = {};
+  for (const kind of CARGO_KINDS) {
+    const spot = layout.piles[kind];
+    if (spot) piles[kind] = { ...spot, l: -spot.l };
+  }
+  return { ...layout, pad: layout.pad && { ...layout.pad, l: -layout.pad.l }, crane: { ...layout.crane, l: -layout.crane.l }, piles };
+}
+
+/**
+ * A town's station upgraded in place to a big station's kit (`Town.upgraded`, `Layout.retype`): still the town's goods
+ * station, so it keeps the plain station's goods corner (the jib crane and the plank, flour and stone piles), at the
+ * same place along the track (wagons still stop at `STATION_CRANE_AT`), but on the kit's first platform: across the
+ * line, where its people wait too (`buildWaiting`). Its kit's model draws the rest. A big station built as one is a
+ * halt (passengers only): it has no goods corner.
+ */
+const UPGRADED_STATION: Readonly<Record<string, DepotLayout>> = {
+  "kit-two-platform-station": acrossTheLine(DEPOT_LAYOUT.town),
+  "kit-grand-terminus": acrossTheLine(DEPOT_LAYOUT.town),
+};
+
+/**
+ * How a depot on a piece of `type` is drawn here: its role's yard, an upgraded town station's goods corner, or null for
+ * one this view doesn't draw (a kit piece's own: a Sandbox loader, or a halt; its kit's model does the drawing).
+ */
+export function siteLayout(role: DepotRole, type: PieceTypeId, station: boolean): DepotLayout | null {
+  if (!kitOf(type)) return DEPOT_LAYOUT[role];
+  return role === "town" && station ? (UPGRADED_STATION[type] ?? null) : null;
+}
+
 /** Each industry's buildings as a Blender part (tools/blender/dressing.py), with its colours. */
 /**
  * Where an upgrade's machine stands in its yard (depot frame: t along the track, l out from it), for Game mode's
  * upgrades (Harvesters II and the like; models in dressing.glb, from Asset Gen).
  */
-/** Goods a hopper carries as a heap in its bin. */
-const HEAP_KINDS = ["grain", "stone", "coal", "ore"] as const;
-type HeapKind = (typeof HEAP_KINDS)[number];
-const isHeap = (k: CargoKind | null): k is HeapKind => (HEAP_KINDS as readonly string[]).includes(k ?? "");
-
 const UPGRADE_SPOTS: Record<string, { t: number; l: number; turn?: number }> = {
   // Forest yard: the free end beyond the hut's far side, booms reaching away from the track (turned so the model's +x
   // runs out across the yard), clear of the log pile and the jib.
@@ -257,8 +310,30 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   foundry: { part: "industry-foundry", slots: {} },
 };
 
-/** Where a hopper's grain heap sits (car-local y): the top of its bin (Asset Gen: hopper-classic). */
-const HOPPER_HEAP = 43;
+/**
+ * Industries dressed with the catalogue's own models (no Blender part of their own): each model, where it stands in the
+ * yard (depot frame), turned by `turn` (default a quarter turn: a building's front, +z, to the track) and scaled by
+ * `scale`. Loaded on first use (`catalogueModel`); till then, and in unit tests, stand-ins are drawn from code.
+ */
+const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t: number; l: number; turn?: number; scale?: number }[]>> = {
+  // The dairy at the far end, cows grazing between it and the churns.
+  dairy: [
+    { asset: "bldg-dairy", t: 160, l: 84 },
+    { asset: "life-cow", t: 104, l: 98, turn: 0.4 },
+    { asset: "life-cow", t: 122, l: 80, turn: 2.6 },
+  ],
+  bakery: [{ asset: "bldg-bakery", t: 156, l: 84 }],
+  // Two rows of apple trees beyond the crates.
+  orchard: [
+    { asset: "scene-apple-tree", t: 112, l: 70, turn: 0 },
+    { asset: "scene-apple-tree", t: 148, l: 72, turn: 1.3 },
+    { asset: "scene-apple-tree", t: 184, l: 70, turn: 2.1 },
+    { asset: "scene-apple-tree", t: 96, l: 100, turn: 0.7 },
+    { asset: "scene-apple-tree", t: 132, l: 102, turn: 2.9 },
+    { asset: "scene-apple-tree", t: 168, l: 100, turn: 1.8 },
+  ],
+};
+
 /** A unit of grain lifted to or from a hopper is held about here (car-local y). */
 const HOPPER_LOAD = HOPPER_HEAP + 2;
 
@@ -320,6 +395,11 @@ interface Site {
   depot: DepotState;
   pose: SitePose;
   layout: DepotLayout;
+  /** The piece's type it was drawn for (a town's station is drawn again when it changes: `syncStations`). */
+  drawn: PieceTypeId;
+  /** Its tile (`tileAt`, at its track's crane stop), whose static parts hold its own, and that stop's ground point. */
+  tile: number;
+  at: { x: number; z: number };
   crane: CraneParts;
   /** What turns while it works: a sawmill's saw, a mill's sails. */
   blade: Object3D | null;
@@ -424,6 +504,20 @@ export class DepotView {
         [sack, mats.lacquer("#f1ebdd")],
         [tie, mats.lacquer("#2f6db5")],
       ],
+      // The dairy chain and the orchard (stand-ins of turned and boxed shapes; no models yet): a churn with a blue lid,
+      // a tray of three loaves, a crate of apples.
+      milk: [
+        [new CylinderGeometry(3.6, 4.2, CRATE_HEIGHT - 2, 14), mats.lacquer("#d8dadc")],
+        [new CylinderGeometry(2.4, 2.4, 2, 12).translate(0, CRATE_HEIGHT / 2 - 1, 0), mats.lacquer("#2f6db5")],
+      ],
+      bread: [
+        [new RoundedBoxGeometry(SACK_LENGTH, 3, SACK_WIDTH, 1, 0.8).translate(0, -CRATE_HEIGHT / 2 + 1.5, 0), mats.naturalWood],
+        [mergeGeometries([-1, 0, 1].map((k) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH / 3 - 0.4, 5, SACK_WIDTH - 1.5, 2, 1.8).translate((k * SACK_LENGTH) / 3, 0.5, 0))))!, mats.lacquer("#c98a3e")],
+      ],
+      fruit: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2.5, SACK_WIDTH, 1, 0.8).translate(0, -1.25, 0), mats.naturalWood],
+        [new RoundedBoxGeometry(SACK_LENGTH - 2, 2.5, SACK_WIDTH - 2, 2, 1.2).translate(0, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer("#c8442f")],
+      ],
     };
     // The modelled sack when it's loaded (its base at y 0: units are placed by their centre).
     if (hasPart("load-flour-sack")) looks.flour = partPieces(mats, "load-flour-sack").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]);
@@ -431,19 +525,25 @@ export class DepotView {
     looks.stone = hasPart("load-stone-block")
       ? partPieces(mats, "load-stone-block").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m])
       : [[new RoundedBoxGeometry(SACK_LENGTH, STONE_HEIGHT, SACK_WIDTH, 2, 1.6), mats.lacquer("#b9b4aa")]];
-    // A hopper's load: one heap filling its bin, raised by how full it is (in place of the coal it's modelled with).
-    const heapOf = (part: string, color: string): [BufferGeometry, Material][] =>
-      hasPart(part) ? partPieces(mats, part) : [[new RoundedBoxGeometry(59, 8, 25, 2, 3).translate(0, 4, 0), mats.lacquer(color)]];
+    // A hopper's load: one heap of its goods in its bin, sunk by how empty it is (`hopperLook`; its modelled coal is
+    // hidden when the car is built, so an empty hopper shows its open bin).
+    // (Sandbox never loads Game mode's parts: a plain mound of the goods' colour stands in, the modelled heap's shape.)
+    const mound = new LatheGeometry(HEAP_PROFILE.map(([r, y]) => new Vector2(r, y)), 20).scale(29.5, 7, 12.5);
+    const heapOf = (part: string, kind: HeapKind): [BufferGeometry, Material][] => {
+      if (!hasPart(part)) return [[mound, mats.lacquer(HEAP_COLORS[kind])]];
+      const pieces = partPieces(mats, part);
+      return kind === "grain" ? pieces.map(([g]) => [g, mats.lacquer(HEAP_COLORS.grain)]) : pieces;
+    };
     const heapUnit = (looksOf: [BufferGeometry, Material][]): UnitMeshes => {
       const parts = looksOf.map(([g, m]) => this.instanced(g, m));
       this.group.add(...parts);
       return { parts, owners: [], carried: new Group(), n: 0 };
     };
     this.heaps = {
-      grain: heapUnit(heapOf("load-grain-heap", "#d9a441")),
-      stone: heapUnit(heapOf("load-stone-heap", "#a9a49a")),
-      coal: heapUnit(heapOf("load-coal-heap", "#2a2b2e")),
-      ore: heapUnit(heapOf("load-ore-heap", "#9a4f2c")),
+      grain: heapUnit(heapOf("load-grain-heap", "grain")),
+      stone: heapUnit(heapOf("load-stone-heap", "stone")),
+      coal: heapUnit(heapOf("load-coal-heap", "coal")),
+      ore: heapUnit(heapOf("load-ore-heap", "ore")),
     };
     const units = {} as Record<CargoKind, UnitMeshes>;
     for (const kind of CARGO_KINDS) {
@@ -482,7 +582,15 @@ export class DepotView {
    * town), as baked parts in its own frame, drawn at `scale` (1 if none) so it fits the yard; null or none: a stand-in
    * is drawn. `depot` is the yard's (only `role` for the held piece's model). Set it, then `setWorld` to draw it.
    */
+  /**
+   * A catalogue model's parts by asset id (for `CATALOGUE_DRESSING`): null if there's none, undefined while it loads
+   * (the caller redraws the yards once it has: `setWorld`).
+   */
+  catalogueModel: ((asset: string) => { parts: readonly { geometry: BufferGeometry; material: Material }[] } | null | undefined) | null = null;
   building: ((role: DepotRole, depot?: DepotState) => { parts: readonly { geometry: BufferGeometry; material: Material }[]; scale?: number } | null | undefined) | null = null;
+
+  /** Each tile's static parts (yards, sheds, crane masts: batched), by `tileAt` key. */
+  private readonly tiles = new Map<number, Group>();
 
   /** Rebuild for a world: one site per economy depot. */
   setWorld(economy: Economy, layout: Layout): void {
@@ -494,55 +602,130 @@ export class DepotView {
       });
     }
     this.sites = [];
+    this.tiles.clear();
     this.carOwners.clear();
-    // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped.
-    const tiles = new Map<number, { b: Batcher; at: { x: number; z: number }[] }>();
     for (const depot of economy.allDepots()) {
+      const site = this.makeSite(depot, economy, layout);
+      if (site) this.sites.push(site);
+    }
+    for (const key of new Set(this.sites.map((s) => s.tile))) this.buildTile(key);
+  }
+
+  /**
+   * Draw again only the town stations whose piece changed type since they were drawn (`Layout.retype`: upgraded in
+   * place to a big station's kit, or back by undo): each one's crane and piles, and the static parts of its tile. No
+   * other site is touched. Cheap when nothing changed (a look at each depot's piece). True if any was drawn again.
+   */
+  syncStations(economy: Economy, layout: Layout): boolean {
+    let changed = false;
+    for (const depot of economy.allDepots()) {
+      if (depot.role !== "town" || !economy.stationPieces.has(depot.pieceId)) continue;
       const piece = layout.getPiece(depot.pieceId);
-      // A depot piece being carried shows its buildings in the hand instead (see `model`). A kit piece's depot (a
-      // Sandbox loader or unloader) is drawn by its kit's model, its own crane working (KitView).
-      if (!piece || layout.isLifted(depot.pieceId) || kitOf(piece.type)) continue;
-      const spec = DEPOT_LAYOUT[depot.role];
-      const pose: SitePose = { ...piece.pose, y: piece.y };
-      const site: Site = {
-        depot,
-        pose: pose,
-        layout: spec,
-        crane: this.buildCrane(pose, spec.crane),
-        blade: null,
-        move: { kind: "log", toPile: false, carId: -1, phase: 0 },
-        moving: false,
-        piles: -1,
-        pileOwners: Object.fromEntries(CARGO_KINDS.map((k) => [k, { kind: "pile", depotId: depot.id, cargo: k }])) as Record<CargoKind, CargoSlot>,
-      };
-      const at = toWorld(pose, spec.trackT, 0, 0, new Vector3());
-      const key = tileAt(at.x, at.z);
-      let tile = tiles.get(key);
-      if (!tile) tiles.set(key, (tile = { b: new Batcher(this.mats.paint), at: [] }));
-      tile.at.push({ x: at.x, z: at.z });
-      this.buildStatic(site, tile.b);
-      if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
-      if (depot.role === "mill") site.blade = this.buildSails(pose);
-      if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
-      if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
-      // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
-      for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
-        if (!o) continue;
-        setCullBox(o, [{ x: at.x, z: at.z }], 160);
-        o.userData.maxDistance = CRANE_REACH;
+      const k = this.sites.findIndex((s) => s.depot === depot);
+      const was = k === -1 ? null : this.sites[k];
+      if ((was?.drawn ?? null) === (piece && !layout.isLifted(depot.pieceId) ? piece.type : null)) continue;
+      // (A station never drawn and still not drawable: nothing to do.)
+      if (!was && (!piece || !siteLayout("town", piece.type, true))) continue;
+      const tiles = new Set<number>();
+      if (was) {
+        tiles.add(was.tile);
+        this.dropSite(was);
+        this.sites.splice(k, 1);
       }
-      // Park the hook over the track.
-      toWorld(pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
-      this.sites.push(site);
+      const site = this.makeSite(depot, economy, layout);
+      if (site) {
+        tiles.add(site.tile);
+        this.sites.push(site);
+      }
+      for (const key of tiles) this.buildTile(key);
+      changed = true;
     }
-    for (const { b, at } of tiles.values()) {
-      const statics = new Group();
-      statics.userData.depotStatic = true;
-      b.build(statics);
-      // Yards reach about 250 mm from their track's middle.
-      setCullBox(statics, at.flatMap((p) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
-      this.group.add(statics);
+    return changed;
+  }
+
+  /**
+   * Depot `depotId`'s crane as drawn (for checks): the piece type it was drawn for, its mast or beam in the depot's
+   * frame (t along the track, l across), and its trolley (the same object until that site is drawn again). Null if
+   * this view doesn't draw that depot.
+   */
+  craneOf(depotId: number): { drawn: PieceTypeId; t: number; l: number; trolley: Object3D } | null {
+    const site = this.sites.find((s) => s.depot.id === depotId);
+    return site ? { drawn: site.drawn, t: site.layout.crane.t, l: site.layout.crane.l, trolley: site.crane.trolley } : null;
+  }
+
+  /** A site for `depot` (its crane's moving parts added to the group), or null if this view doesn't draw it. */
+  private makeSite(depot: DepotState, economy: Economy, layout: Layout): Site | null {
+    const piece = layout.getPiece(depot.pieceId);
+    // A depot piece being carried shows its buildings in the hand instead (see `model`). A kit piece's depot (a
+    // Sandbox loader or unloader, a halt) is drawn by its kit's model, its own crane working (KitView); a town's station
+    // upgraded to a kit keeps its goods corner (`siteLayout`).
+    if (!piece || layout.isLifted(depot.pieceId)) return null;
+    const spec = siteLayout(depot.role, piece.type, economy.stationPieces.has(depot.pieceId));
+    if (!spec) return null;
+    const pose: SitePose = { ...piece.pose, y: piece.y };
+    const at = toWorld(pose, spec.trackT, 0, 0, new Vector3());
+    const site: Site = {
+      depot,
+      pose: pose,
+      layout: spec,
+      drawn: piece.type,
+      tile: tileAt(at.x, at.z),
+      at: { x: at.x, z: at.z },
+      crane: this.buildCrane(pose, spec.crane),
+      blade: null,
+      move: { kind: "log", toPile: false, carId: -1, phase: 0 },
+      moving: false,
+      piles: -1,
+      pileOwners: Object.fromEntries(CARGO_KINDS.map((k) => [k, { kind: "pile", depotId: depot.id, cargo: k }])) as Record<CargoKind, CargoSlot>,
+    };
+    if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
+    if (depot.role === "mill") site.blade = this.buildSails(pose);
+    if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
+    if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
+    // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
+    for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
+      if (!o) continue;
+      setCullBox(o, [site.at], 160);
+      o.userData.maxDistance = CRANE_REACH;
     }
+    // Park the hook over the track.
+    toWorld(pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
+    return site;
+  }
+
+  /** Take a site's moving parts out of the group (its statics go with its tile's rebuild). */
+  private dropSite(site: Site): void {
+    for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
+      if (!o) continue;
+      this.group.remove(o);
+      o.traverse((m) => {
+        if (m instanceof Mesh) m.geometry.dispose();
+      });
+    }
+  }
+
+  /** (Re)build one tile's static parts, batched, from the sites standing in it. */
+  private buildTile(key: number): void {
+    const old = this.tiles.get(key);
+    if (old) {
+      this.group.remove(old);
+      old.traverse((o) => {
+        if (o instanceof Mesh) o.geometry.dispose();
+      });
+      this.tiles.delete(key);
+    }
+    const sites = this.sites.filter((s) => s.tile === key);
+    if (sites.length === 0) return;
+    // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped.
+    const b = new Batcher(this.mats.paint);
+    for (const site of sites) this.buildStatic(site, b);
+    const statics = new Group();
+    statics.userData.depotStatic = true;
+    b.build(statics);
+    // Yards reach about 250 mm from their track's middle.
+    setCullBox(statics, sites.flatMap(({ at: p }) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
+    this.group.add(statics);
+    this.tiles.set(key, statics);
   }
 
   /**
@@ -634,6 +817,20 @@ export class DepotView {
       }
       b.add(mats.blockWood, place(new RoundedBoxGeometry(12, 14, 12, 1, 1.5), 150, 84, PAD_H + 52));
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(14, 22, 3, 1, 1), 150, 63.5, PAD_H + 11));
+      return;
+    }
+    const dressing = CATALOGUE_DRESSING[site.depot.role];
+    if (dressing) {
+      // The catalogue's models once they're all loaded (one of them missing: the stand-ins, drawn whole).
+      const models = dressing.map((d) => this.catalogueModel?.(d.asset));
+      if (models.every((m) => !!m)) {
+        dressing.forEach((d, i) => {
+          const k = d.scale ?? 1;
+          for (const p of models[i]!.parts) b.add(p.material, place(p.geometry.clone().scale(k, k, k).rotateY(d.turn ?? Math.PI / 2), d.t, d.l, PAD_H));
+        });
+        return;
+      }
+      this.foodStandIns(site.depot.role, place, b);
       return;
     }
     const model = INDUSTRY_MODELS[site.depot.role];
@@ -756,6 +953,26 @@ export class DepotView {
     }
   }
 
+  /** The dairy's, the bakery's and the orchard's buildings drawn from code, till their catalogue models load. */
+  private foodStandIns(role: DepotRole, place: (g: BufferGeometry, t: number, l: number, y: number) => BufferGeometry, b: Pick<Batcher, "add">): void {
+    const mats = this.mats;
+    if (role === "orchard") {
+      // Apple trees: a beech trunk, a round green crown, a few red apples.
+      for (const d of CATALOGUE_DRESSING.orchard!) {
+        b.add(mats.naturalWood, place(new CylinderGeometry(2.4, 3, 20, 8), d.t, d.l, PAD_H + 10));
+        b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(12, 12, 9), d.t, d.l, PAD_H + 28));
+        for (const [dt, dl, dy] of [[8, -6, 30], [-6, 8, 26], [2, -10, 22]] as const) b.add(mats.lacquer("#c8442f"), place(new SphereGeometry(2.4, 8, 6), d.t + dt, d.l + dl, PAD_H + dy));
+      }
+      return;
+    }
+    // A shed at the far end: the dairy white with a red roof, the bakery cream with a brown one and a chimney.
+    const [wall, roof] = role === "dairy" ? ["#f6f3ec", "#c8442f"] : ["#efd9a7", "#7a4a2a"];
+    b.add(mats.lacquer(wall), place(new RoundedBoxGeometry(56, 30, 36, 2, 3), 158, 88, PAD_H + 15));
+    b.add(mats.lacquer(roof), place(new RoundedBoxGeometry(62, 5, 42, 1, 2), 158, 88, PAD_H + 32));
+    if (role === "bakery") b.add(mats.lacquer("#9a4f3a"), place(new CylinderGeometry(3.5, 4, 18, 10), 174, 100, PAD_H + 40));
+    else for (const t of [110, 128]) b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(22, 12, 10, 2, 3), t, 92, PAD_H + 8));
+  }
+
   private buildCrane(pose: SitePose, c: CraneSpec): CraneParts {
     const mats = this.mats;
     const trolley = new Group();
@@ -853,28 +1070,12 @@ export class DepotView {
     u.n++;
   }
 
-  /** Show or hide a hopper model's coal (its `coal…` nodes, found once per model). */
-  private showCoal(car: Object3D, on: boolean): void {
-    let coal = this.coalOf.get(car);
-    if (!coal) {
-      coal = [];
-      car.traverse((o) => {
-        if (o.name.startsWith("coal")) coal!.push(o);
-      });
-      this.coalOf.set(car, coal);
-    }
-    for (const o of coal) o.visible = on;
-  }
-  private readonly coalOf = new WeakMap<Object3D, Object3D[]>();
-
-  /** A hopper's heap (grain or stone), in the top of its bin, as high as it is full. */
-  private putHeap(kind: HeapKind, car: Object3D, count: number, owner: CargoSlot): void {
+  /** A hopper's heap (its goods' colour), in its bin, its base at `y` (car-local): one instance, no draw call of its own. */
+  private putHeap(kind: HeapKind, car: Object3D, y: number, owner: CargoSlot): void {
     const u = this.heaps[kind];
     if (u.n >= DepotView.MAX_UNITS) return;
     car.updateWorldMatrix(true, false);
-    _s.set(1, Math.min(1, Math.max(0.25, count / WAGON_CAPACITY)), 1);
-    _m.compose(_v.set(0, HOPPER_HEAP, 0), _q.identity(), _s).premultiply(car.matrixWorld);
-    _s.set(1, 1, 1);
+    _m.makeTranslation(0, y, 0).premultiply(car.matrixWorld);
     u.owners[u.n] = owner;
     for (const part of u.parts) part.setMatrixAt(u.n, _m);
     u.n++;
@@ -955,15 +1156,14 @@ export class DepotView {
       const cargo = economy.cargoOf(id);
       const car = carObject(id);
       wagons = (Math.imul(wagons, 31) + id * 977 + (cargo.kind ? CARGO[cargo.kind].index + 1 : 0) * 61 + cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0)) | 0;
-      // A hopper is modelled with coal in it: hidden while it carries a load (its heap fills the bin instead).
-      if (car && car.userData.carKind === "hopper") this.showCoal(car, !cargo.kind || cargo.count === 0);
       if (!cargo.kind || cargo.count === 0) continue;
       if (!car) continue;
       const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
       const owner = this.carOwner(id);
-      if (isHeap(cargo.kind) && car.userData.carKind === "hopper") {
-        if (count > 0) this.putHeap(cargo.kind, car, count, owner);
-        continue;
+      if (car.userData.carKind === "hopper") {
+        const look = hopperLook(cargo.kind, count, economy.wagonCapacity);
+        if (look) this.putHeap(look.heap, car, look.y, owner);
+        if (look || count <= 0) continue;
       }
       for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
     }

@@ -160,3 +160,5 @@ Wrap `w.audio` methods to log `[time, name, args, return, framesDrawn]`. A trust
 - Re-read the latest e2e before blaming its framing.
 - Reload checks matter: in-memory "said once" or "newest" state often doesn't survive.
 - Keep context lean. A small harness per check is about 100 lines.
+- Run e2e suites from a worktree of their own when you also edit code: a suite's vite serves its tree, and an edit there reloads the page mid-run ("Execution context was destroyed").
+- The fuzz's "trains deliver" counts a run of only hand-run trains (no stops) once one has turned at an end: such a train never comes to a stop (seeds 9, 41, 106, 140).

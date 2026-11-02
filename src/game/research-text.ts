@@ -2,7 +2,8 @@ import { CARGO, COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
 import { canResearch, coinsShort, costOf, lacks, QUEUE_MAX, queueOf, queuePlace, studying, studyLeft, studyTime } from "./research";
-import { needMet, TECHS, techOf, unlocksOf } from "./tech";
+import type { Need } from "./blueprints";
+import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./tech";
 import { ruleOf } from "./things";
 
 /**
@@ -32,7 +33,7 @@ export function cardState(p: Progress, id: string): CardState {
   return canResearch(p, id) ? "ready" : "locked";
 }
 
-/** One chip of a card's cost: "🪵 6/10" (got of needed), or "🪙 20"; `short` when the coins aren't in hand. */
+/** One chip of a card's cost: "\uE000 6/10" (got of needed), or "🪙 20"; `short` when the coins aren't in hand. */
 export interface Chip {
   text: string;
   short?: boolean;
@@ -47,7 +48,7 @@ const goodName = (k: CargoKind, n: number): string => {
 };
 
 /**
- * Everything a research costs, in words with each icon, so no symbol needs learning: "10 🪵 planks, 6 🌾 grain,
+ * Everything a research costs, in words with each icon, so no symbol needs learning: "10 \uE000 planks, 6 🌾 grain,
  * 40 🪙 coins" ("nothing" when free). Coins already paid (under way, or set aside) say so: "40 🪙 coins (paid)".
  */
 export function costWords(p: Progress, id: string): string {
@@ -68,6 +69,69 @@ export function unlocksWords(id: string): string {
   const names = unlocksOf(id).map((x) => ruleOf(x)!.label);
   if (t.feature) names.push(t.feature.label);
   return names.length ? names.join(", ") : t.brings;
+}
+
+/** A requirement as something to do, for a locked tray tile: "reach a town", "carry 100 people (40 so far)". */
+function needToDo(p: Progress, n: Need): string {
+  switch (n.kind) {
+    case "count": {
+      const got = n.stat === "riders" ? p.riders : n.stat === "blueprints" ? p.learned.size : (p.counts.get(n.stat) ?? 0);
+      const what: Record<string, string> = { riders: `carry ${n.n} people`, blueprints: `learn ${n.n} things`, loadsMoved: `move ${n.n} loads`, logsCut: `cut ${n.n} logs`, planksSawn: `saw ${n.n} planks`, stoneCut: `cut ${n.n} stone`, grainGrown: `grow ${n.n} grain`, flourGround: `grind ${n.n} flour` };
+      return `${what[n.stat] ?? `${n.n} ${n.stat}`} (${got} so far)`;
+    }
+    case "delivered":
+      return `deliver ${n.n} ${n.good}`;
+    case "level": {
+      const names = n.towns && n.towns > 1 ? ["", "villages", "towns", "cities", "cities ★"] : ["", "a village", "a town", "a city", "a city ★"];
+      return `reach ${n.towns && n.towns > 1 ? `${n.towns} ${names[n.level]}` : names[n.level]}`;
+    }
+    case "landmark":
+      return `get ${n.label}`;
+    case "place":
+      return `have ${n.text}`;
+  }
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const and = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+/**
+ * How a locked tray tile is unlocked, in plain words, and the research to open the picker on (null if none can show
+ * there): "Research Signals to unlock"; "Research Switches, then Signals"; "Reach a town, then research Big stations"; "Coming
+ * soon". `jump` is the blueprint itself if the picker shows its card, else the nearest blueprint before it that shows
+ * (one a "?" or not shown yet can't be opened on).
+ */
+export function unlockHow(p: Progress, id: string): { text: string; jump: string | null } {
+  const t = techOf(id);
+  if (!t) return { text: "Not learned yet", jump: null };
+  const seen = seenOf(p);
+  const shows = (x: string) => seen.get(x) === "shown";
+  // The nearest blueprint on the way that the picker shows: this one, else what it needs first (breadth first).
+  const jumpOf = (): string | null => {
+    const queue = [id];
+    const been = new Set<string>();
+    while (queue.length) {
+      const x = queue.shift()!;
+      if (been.has(x)) continue;
+      been.add(x);
+      if (shows(x)) return x;
+      for (const n of techOf(x)?.needs ?? []) if (!p.learned.has(n)) queue.push(n);
+    }
+    return null;
+  };
+  const name = shortLabel(id);
+  if (p.learned.has(id)) return { text: `${name}: learned`, jump: null };
+  if (t.plan) return { text: `Coming soon (${name})`, jump: shows(id) ? id : null };
+  const r = p.research;
+  if (r.current === id) return { text: `Researching ${name} now: it unlocks then`, jump: id };
+  if (queuePlace(r, id) > 0) return { text: `${name} is next in Research: it unlocks then`, jump: id };
+  if (canResearch(p, id)) return { text: `Research ${name} to unlock`, jump: id };
+  const missing = t.needs.filter((n) => !p.learned.has(n)).map(shortLabel);
+  const unmet = t.requires.filter((n) => !needMet(p, n)).map((n) => needToDo(p, n));
+  const first = [...(missing.length ? [`research ${and(missing)}`] : []), ...unmet];
+  if (first.length === 0) return { text: `Research ${name} to unlock`, jump: jumpOf() };
+  if (unmet.length === 0) return { text: `Research ${and(missing)}, then ${name}`, jump: jumpOf() };
+  return { text: `${cap(first.join(", "))}, then research ${name}`, jump: jumpOf() };
 }
 
 /** Goods got so far toward a research: the current one's, or what a set-aside one kept (none otherwise). */
@@ -93,7 +157,7 @@ export function researchChips(p: Progress, id: string): Chip[] {
   return chips;
 }
 
-/** The chips as one line: "🪵 6/10 · 🌾 0/6 · 🪙 20". */
+/** The chips as one line: "\uE000 6/10 · 🌾 0/6 · 🪙 20". */
 export const chipsText = (chips: readonly Chip[]): string => chips.map((c) => c.text).join(" · ");
 
 /** How far a research's goods are in (0–1), or its study once they are. */
@@ -110,7 +174,7 @@ export function researchFill(p: Progress, id: string): number {
   return need > 0 ? have / need : 0;
 }
 
-/** What the current research waits for: "bring 4🪵 to Larkfield school", "studying: 12 s", "place a school by a town". */
+/** What the current research waits for: "bring 4\uE000 to Larkfield school", "studying: 12 s", "place a school by a town". */
 export function researchWants(p: Progress, school: string | null): string {
   if (studying(p)) return `studying: ${Math.ceil(studyLeft(p))} s`;
   return school ? `bring ${iconCounts(lacks(p))} to ${school}` : "place a school by a town";
@@ -121,7 +185,7 @@ export interface ResearchCardView {
   chips: Chip[];
   /** "20 s study". */
   study: string;
-  /** How it stands, in a short line ("bring 4🪵 to Larkfield school", "Next up, after Switches", "Needs a school"). */
+  /** How it stands, in a short line ("bring 4\uE000 to Larkfield school", "Next up, after Switches", "Needs a school"). */
   why?: string;
   /** Its button: "Research", "Add to queue" or "Research now" (the swap); none while it's the research under way. */
   action?: string;
@@ -168,7 +232,7 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
 
 /**
  * One part of the pill's count: a good the research needs (or the coins the one up next waits for), got of needed.
- * Shown "🪵2/6", or "🪵✓" once it's all in.
+ * Shown "\uE0002/6", or "\uE000✓" once it's all in.
  */
 export interface PillPart {
   icon: string;
@@ -176,14 +240,14 @@ export interface PillPart {
   need: number;
 }
 
-/** The pill on the HUD: a name and a count (shown as "📘 Mills 🪵0/6 🌾0/6"), how far along, and whether to pick one. */
+/** The pill on the HUD: a name and a count (shown as "📘 Mills \uE0000/6 🌾0/6"), how far along, and whether to pick one. */
 export interface PillView {
   name: string;
-  /** The count in full: every part ("🪵✓ 🌾2/6"), the study time left ("⏱ 12 s"), or "research" (Pick research). */
+  /** The count in full: every part ("\uE000✓ 🌾2/6"), the study time left ("⏱ 12 s"), or "research" (Pick research). */
   count: string;
   /** Every good the research needs (or the coins it waits for), in cargo order; empty while studying or idle. */
   parts: PillPart[];
-  /** The cost in words, for the pill's tooltip and its name for a screen reader ("0 of 6 🪵 planks, 0 of 6 🌾 grain"). */
+  /** The cost in words, for the pill's tooltip and its name for a screen reader ("0 of 6 \uE000 planks, 0 of 6 🌾 grain"). */
   words: string;
   fill: number;
   /** Nothing picked: "Pick research". */
@@ -195,7 +259,7 @@ export interface PillView {
 const partText = (x: PillPart): string => (x.got >= x.need ? `${x.icon}✓` : `${x.icon}${x.got}/${x.need}`);
 
 /**
- * The pill's count, as much as fits: `fit` 0 is every part, a ticked one for a good all in ("🪵✓ 🌾2/6 🔩0/10"); 1
+ * The pill's count, as much as fits: `fit` 0 is every part, a ticked one for a good all in ("\uE000✓ 🌾2/6 🔩0/10"); 1
  * leaves the ticked ones out ("🌾2/6 🔩0/10"); 2 is the good most lacking (the most of it still to come, as a share)
  * and how many more ("🔩0/10 +1"). Never a good cut off unsaid: what's left out is all in, or counted in the "+N".
  * Only parts with a count; the study time and "research" are the count as is.
@@ -211,7 +275,7 @@ export function pillCount(v: PillView, fit: 0 | 1 | 2 = 0): string {
 }
 
 /**
- * The HUD's research pill: the research under way and every good it needs, each got of needed ("Mills", "🪵0/6 🌾0/6";
+ * The HUD's research pill: the research under way and every good it needs, each got of needed ("Mills", "\uE0000/6 🌾0/6";
  * a good all in ticked), its study time left once the goods are in ("⏱ 12 s"), the one waiting for coins ("Routes",
  * "🪙5/20"), or "Pick research" with nothing picked. Coins paid (as a research starts) aren't shown. Hidden (null) with
  * nothing picked and no school placed.
@@ -250,7 +314,7 @@ export function pillResearch(p: Progress): string | null {
   return r.next && coinsShort(p) > 0 ? r.next : null;
 }
 
-/** The pill in one line, in full: "📘 Mills 🪵0/6 🌾0/6", "📘 Pick research" ("" when it's hidden). */
+/** The pill in one line, in full: "📘 Mills \uE0000/6 🌾0/6", "📘 Pick research" ("" when it's hidden). */
 export const pillText = (v: PillView | null): string => (v ? `📘 ${v.name} ${v.count}${v.more > 0 ? ` +${v.more}` : ""}` : "");
 
 /**

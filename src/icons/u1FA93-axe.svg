@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Axe</title>
+<g transform="rotate(35 12 12)">
+<rect x="10.6" y="2.6" width="3" height="20" rx="1.4" fill="#5a3a20"/>
+<rect x="11.4" y="3.4" width="1.4" height="18.4" fill="#e3bf8c"/>
+<path d="M10 3.2 L5.4 2.2 C3.2 4.4 3 8.4 4.6 10.6 L10 9.4 Z" fill="#2e3338"/>
+<path d="M9.2 4.2 L5.8 3.6 C4.4 5.2 4.3 8 5.2 9.4 L9.2 8.6 Z" fill="#c4ccd4"/>
+<rect x="9.6" y="3" width="4.8" height="6.6" rx="0.8" fill="#2e3338"/>
+<rect x="10.6" y="3.8" width="2.8" height="5" fill="#8a96a3"/>
+</g>
+</svg>

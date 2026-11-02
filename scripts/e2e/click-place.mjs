@@ -1,7 +1,10 @@
 // End-to-end click-to-place on a desktop (`npm run e2e:click`): a tray piece (a model, a train) clicked with the mouse is carried, its
 // ghost following the mouse over the map; each click puts one down there (joined to a track end it's shown at), ready
 // for the next; a drag still pans, the wheel still zooms; R turns it; Esc, a right-click or the tray item again put it
-// away. On touch a tap in the tray carries nothing (as before). Starts its own dev server on any free port. Chromium as
+// away. On touch a tap in the tray carries nothing (as before). The place card (#12): while an item is ready to place
+// its card (name, what it does, a train's pulls and speed) sits above the tray taking no pointer, and goes once one is
+// put down or it's put away; Game mode's Engine, and a locked engine's lock note in its place; on touch a tap shows it a moment, a road made ready
+// keeps it, and a long press shows the details without a drag. Starts its own dev server on any free port. Chromium as
 // for e2e:roads.
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
@@ -57,6 +60,43 @@ const press = async (p, key) => {
 };
 /** The view's tilt (radians from straight down). */
 const tilt = (p) => p.evaluate(() => { const w = window.woodrail; const d = w.camera.position.clone().sub(w.controls.target); return Math.acos(d.y / d.length()); });
+/**
+ * The place card (#12): shown, its name, all its lines, and where it sits: above the tray and its tools, taking no
+ * pointer (the map under its middle is what a click there hits). Null if it isn't up.
+ */
+function readCard() {
+    const c = document.querySelector(".place-card");
+    if (!c || c.hidden || getComputedStyle(c).display === "none") return null;
+    const r = c.getBoundingClientRect();
+    const tray = Math.min(...[document.querySelector(".tray"), ...document.querySelectorAll(".tray-tools > *")].map((e) => e.getBoundingClientRect()).filter((b) => b.height > 0).map((b) => b.top));
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { name: c.querySelector(".pc-name")?.textContent ?? null, text: [...c.children].map((x) => x.textContent), pointer: getComputedStyle(c).pointerEvents, above: r.bottom <= tray + 1, onScreen: r.left >= 0 && r.right <= innerWidth && r.top >= 0, hitsMap: hit?.tagName === "CANVAS" };
+}
+const placeCard = (p) => p.evaluate(readCard);
+/**
+ * Catch the next place card the moment it shows (a card shown for a moment can be gone before a poll under load):
+ * `await catchCard(p)` before the tap, then `await caught(p)` after it.
+ */
+const catchCard = (p) =>
+  p.evaluate((src) => {
+    const read = new Function(`return (${src})()`);
+    window.__caught = null;
+    const obs = new MutationObserver(() => {
+      const c = document.querySelector(".place-card");
+      if (c && !c.hidden && !window.__caught) {
+        window.__caught = read();
+        obs.disconnect();
+      }
+    });
+    obs.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden"] });
+  }, readCard.toString());
+const caught = async (p) => {
+  await p.waitForFunction(() => window.__caught !== null, null, { timeout: 10000 }).catch(() => {});
+  return p.evaluate(() => window.__caught);
+};
+/** Wait (a few seconds at most) for the place card to be up. */
+/** The card's place and lines are right for a ready item named `name`. */
+const cardOk = (c, name) => !!c && c.name === name && c.text.length >= 2 && c.pointer === "none" && c.above && c.onScreen && c.hitsMap;
 const frames = (p) => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 /** Points on open map: on the canvas, nothing there to pick, ground under it, in the middle of the view. */
@@ -95,6 +135,8 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const toast = await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
   check("a click on a tray piece carries it (marked in the tray)", (await carried(p)) && (await marked(p, item.key)), `carried ${await carried(p)}; marked ${await marked(p, item.key)}`);
   check("…and says how: “Click to place · Esc to stop”", /Click to place · Esc to stop/.test(toast), toast);
+  const card1 = await placeCard(p);
+  check("…and its card shows above the tray: its name and what it's for, never taking a click (#12)", cardOk(card1, "Medium straight"), JSON.stringify(card1));
   const look = await p.evaluate((key) => ({ placing: document.querySelector(`.scroller .tray-item[data-key="${key}"]`)?.classList.contains("carried"), cursor: window.woodrail.canvas.style.cursor }), item.key);
   check("carried is marked apart from ready in the tray (“placing”), and the cursor over the map says so", look.placing && look.cursor === "copy", JSON.stringify(look));
 
@@ -121,6 +163,7 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const n1 = await pieces(p);
   const placed = await p.evaluate(() => Math.max(...window.woodrail.layout.pieceIds()));
   check("a click on the map puts one down, and it's still carried for the next", n1 === n0 + 1 && (await carried(p)) && (await marked(p, item.key)), `pieces ${n0} → ${n1}; carried ${await carried(p)}; ghost ${JSON.stringify(g0)}; said ${await p.evaluate(() => [...document.querySelectorAll(".toast, .refusal")].map((t) => t.textContent).join(" | "))}`);
+  check("…and its card has gone (it's said its piece)", n1 === n0 + 1 && (await placeCard(p)) === null, JSON.stringify(await placeCard(p)));
 
   // 4. At a free end, the ghost snaps to it, and a click there puts the next one down joined. (The piece just put
   // down's, or, if both of its run into something, a house or a hill, another's put down in the open.)
@@ -343,19 +386,412 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await frames(p);
   const n1 = await trains();
   check("over track its ghost sits on it, and a click puts the train down there, still carried", g?.visible && g.target === true && n1 === n0 + 1 && (await thing())?.kind === "drag-train", `ghost ${JSON.stringify(g)}; trains ${n0} → ${n1}; said ${await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "))}`);
+  // Which way it faces: the way the mouse came along the track. The station's track's way on screen (unit, px), and
+  // the newest train's engine: the way it faces on screen, and as world headings the ghost's and the train's.
+  const along = await p.evaluate(() => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece([...w.stations.values()][0]);
+    const V = w.camera.position.constructor;
+    const a = new V(q.pose.x, q.y, q.pose.z).project(w.camera);
+    const b = new V(q.pose.x + 30 * Math.cos(q.pose.heading), q.y, q.pose.z + 30 * Math.sin(q.pose.heading)).project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    const dx = ((b.x - a.x) * r.width) / 2;
+    const dy = (-(b.y - a.y) * r.height) / 2;
+    const l = Math.hypot(dx, dy);
+    return [dx / l, dy / l];
+  });
+  const engineWay = () =>
+    p.evaluate(async () => {
+      const w = window.woodrail;
+      const { cursorWorld, createWorldSample } = await import("/src/sim/index.ts");
+      const t = w.sim.getTrain(Math.max(...w.sim.trainIds()));
+      const e = t.cars.find((c) => c.kind === "engine");
+      const a = cursorWorld(w.layout, t.bogies[0], createWorldSample());
+      const b = cursorWorld(w.layout, t.bogies[t.bogies.length - 1], createWorldSample());
+      const V = w.camera.position.constructor;
+      const pa = new V(a.x, a.y, a.z).project(w.camera);
+      const pb = new V(b.x, b.y, b.z).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      const dx = ((pa.x - pb.x) * r.width) / 2;
+      const dy = (-(pa.y - pb.y) * r.height) / 2;
+      const l = Math.hypot(dx, dy);
+      return { id: t.id, carId: e.id, facing: e.facing, x: (dx / l) * e.facing, y: (dy / l) * e.facing, lead: a.heading };
+    });
+  const ghostWay = () => p.evaluate(() => { const c = window.woodrail.interaction.carriedThing; return c ? { lead: -c.m.ghost.rotation.y, target: !!c.m.target, said: c.m.facing !== null } : null; });
+  const turn = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  // (Taken off between the drags: harness shortcut, setup only. A train put down has no undo of its own.)
+  const takeOff = () => p.evaluate(() => { const w = window.woodrail; w.sim.removeTrain(Math.max(...w.sim.trainIds())); w.economy.prune(); w.invalidate(); });
+  await takeOff();
+  for (const [name, dir] of [["right", 1], ["left", -1]]) {
+    // (Along the track's way on screen, `dir`: "right" is whichever way the station's track runs, drawn first.)
+    const from = [onTrack[0] - dir * 110 * along[0], onTrack[1] - dir * 110 * along[1]];
+    await p.mouse.move(from[0], from[1], { steps: 3 });
+    await p.mouse.move(onTrack[0], onTrack[1], { steps: 10 });
+    const gw = await ghostWay();
+    await p.mouse.click(onTrack[0], onTrack[1]);
+    await frames(p);
+    const e = await engineWay();
+    const dot = e.x * dir * along[0] + e.y * dir * along[1];
+    check(`moved ${name} along the track, the train put down faces that way, as its ghost did`, gw?.target && gw.said && dot > 0.9 && turn(gw.lead, e.lead) < 0.1, JSON.stringify({ along, gw, e, dot }));
+    // (The first taken up again; the second, facing left, stays for the pickup below.)
+    if (dir === 1) await takeOff();
+  }
+  // The one put down facing left, picked up and dragged right along the track: re-placed facing right.
+  const e0 = await engineWay();
+  const dot0 = e0.x * along[0] + e0.y * along[1];
   await p.mouse.click(onTrack[0], onTrack[1], { button: "right" });
   check("a right-click puts it away", !(await thing()) && !(await marked(p, train.key)));
+  // (The train put down last: where it is on screen.)
+  const engineAt = () =>
+    p.evaluate(async (id) => {
+      const w = window.woodrail;
+      const { cursorWorld, createWorldSample } = await import("/src/sim/index.ts");
+      const t = w.sim.findCar(id).train;
+      const a = cursorWorld(w.layout, t.bogies[0], createWorldSample());
+      const b = cursorWorld(w.layout, t.bogies[t.bogies.length - 1], createWorldSample());
+      const v = new w.camera.position.constructor((a.x + b.x) / 2, (a.y + b.y) / 2 + 20, (a.z + b.z) / 2).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    }, e0.carId);
+  /** Pick the train up (selected by a click first) and drag it `dir` along the track by `px`, letting go there. */
+  const pickUpAndDrag = async (dir, px) => {
+    const at = await engineAt();
+    await p.mouse.click(at[0], at[1]);
+    await frames(p);
+    await p.mouse.move(at[0], at[1]);
+    await p.mouse.down();
+    await new Promise((r) => setTimeout(r, 450));
+    const steps = 14;
+    let lifted = null;
+    for (let k = 1; k <= steps; k++) {
+      await p.mouse.move(at[0] + (dir * px * along[0] * k) / steps, at[1] + (dir * px * along[1] * k) / steps);
+      if (k === 4) lifted = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+    }
+    await p.mouse.up();
+    await frames(p);
+    await p.keyboard.press("Escape");
+    return lifted;
+  };
+  const back = -Math.sign(dot0) || -1;
+  const lifted = await pickUpAndDrag(back, 60);
+  const e1 = await engineWay();
+  const dot1 = e1.x * back * along[0] + e1.y * back * along[1];
+  check("a train picked up and dragged along the track the other way is put down facing that way", lifted === "drag-train" && dot1 > 0.9, JSON.stringify({ lifted, dot0, back, e1, dot1 }));
+  // Swap ends (the engine card) still turns it; picked up again and dragged the way it now faces, it keeps facing it.
+  const at1 = await engineAt();
+  await p.mouse.click(at1[0], at1[1]);
+  await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 30000 });
+  await p.evaluate(() => [...document.querySelectorAll(".engine-card button")].find((b) => b.textContent.trim() === "Swap ends").click());
+  await frames(p);
+  await p.keyboard.press("Escape");
+  const e2 = await engineWay();
+  const dot2 = e2.x * back * along[0] + e2.y * back * along[1];
+  check("Swap ends turns the engine put down by the drag", e2.facing === -1 && dot2 < -0.9, JSON.stringify({ e2, dot2 }));
+  const lifted2 = await pickUpAndDrag(-back, 60);
+  const e3 = await engineWay();
+  const dot3 = e3.x * -back * along[0] + e3.y * -back * along[1];
+  check("…and picked up again (turned) and dragged the way it faces, it's put down still facing the way it was dragged", lifted2 === "drag-train" && dot3 > 0.9, JSON.stringify({ lifted2, e3, dot3 }));
+  // Put away: picked up and let go over the tray, it's back in the box.
+  const n2 = await trains();
+  const at3 = await engineAt();
+  await p.mouse.click(at3[0], at3[1]);
+  await frames(p);
+  await p.keyboard.press("Escape");
+  const trayAt = await p.evaluate(() => { const r = document.querySelector(".tray").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  await p.mouse.move(at3[0], at3[1]);
+  await p.mouse.down();
+  await new Promise((r) => setTimeout(r, 450));
+  for (let k = 1; k <= 14; k++) await p.mouse.move(at3[0] + ((trayAt[0] - at3[0]) * k) / 14, at3[1] + ((trayAt[1] - at3[1]) * k) / 14);
+  await p.mouse.up();
+  await frames(p);
+  check("…and put away over the tray, it's back in the box", (await trains()) === n2 - 1, `trains ${n2} → ${await trains()}`);
   await ctx.close();
 }
 
-// ---- touch: a tap in the tray carries nothing (as before) ----
+// ---- tight curves with the mouse (the user: the next tight curve waited loose, unjoined, by a station's track) ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    w.director.glideTo(w.interaction.groundAt(innerWidth / 2, innerHeight / 2), frameDistance(700, w.camera.fov, w.camera.aspect), { duration: 0.2 });
+  });
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  // The tight curve: among the favourites, else on the Curve shelf.
+  const tight = async () => {
+    const find = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
+    let at = await find();
+    if (!at) {
+      const shelf = await p.evaluate(() => { const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Curve"); if (!g) return null; g.scrollIntoView({ inline: "center" }); const q = g.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
+      if (shelf) await p.mouse.click(shelf[0], shelf[1]);
+      await frames(p);
+      at = await find();
+    }
+    if (!at) throw new Error("no tight curve in the tray");
+    return at;
+  };
+  const curves = (before) => p.evaluate((before) => {
+    const w = window.woodrail;
+    const ids = [...w.layout.pieceIds()].filter((i) => !before.includes(i) && w.layout.getPiece(i).type === "curve-small");
+    return { ids, open: ids.flatMap((id) => [0, 1].filter((c) => w.layout.joinedConnector(id * 8 + c) === -1).map((c) => `${id}.${c}`)) };
+  }, before);
+  const screenOf = (v) => p.evaluate((v) => { const w = window.woodrail; const c = new w.camera.position.constructor(v.x, v.y ?? 0, v.z).project(w.camera); return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight]; }, v);
+  /**
+   * Open ground for a ring of tight curves (within 260 mm of its first), on screen: no track or model near, and a straight
+   * clear there either way round (the game's own placement check). Glided to, and its spot on screen returned.
+   */
+  const ringSpot = async () => {
+    const spot = await p.evaluate(async () => {
+      const w = window.woodrail;
+      const { checkPlacement } = await import("/src/landscape/clearance.ts");
+      const t = w.controls.target;
+      const clear = (x, z) => w.landscape.grid.cellAtWorld(x, z) !== -1 && [0, Math.PI / 2].every((h) => checkPlacement(w.landscape, "straight-216", false, { x: x - 108 * Math.cos(h), z: z - 108 * Math.sin(h), heading: h }, 0).kind === "clear");
+      for (let d = 0; d < 6000; d += 72)
+        for (let a = 0, n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 72)); a < n; a++) {
+          const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+          const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+          if ([...w.layout.pieceIds()].some((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) < 500; })) continue;
+          if (w.props.all().some((q) => Math.hypot(q.x - x, q.z - z) < 450)) continue;
+          const pts = [[0, 0]];
+          for (const r of [100, 200, 260]) for (let k = 0; k < 16; k++) pts.push([r * Math.cos((k * Math.PI) / 8), r * Math.sin((k * Math.PI) / 8)]);
+          if (pts.every(([dx, dz]) => clear(x + dx, z + dz))) return { x, z };
+        }
+      return null;
+    });
+    if (!spot) throw new Error("no open ground for a ring of tight curves");
+    await p.evaluate((s) => { const w = window.woodrail; w.director.glideTo(w.controls.target.clone().set(s.x, 0, s.z), w.camera.position.distanceTo(w.controls.target), { duration: 0.1 }); }, spot);
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+    await frames(p);
+    return screenOf(spot);
+  };
+  const takeUp = (ids) => p.evaluate((ids) => { const w = window.woodrail; for (const id of ids) if (w.layout.getPiece(id)) w.editor().remove(id); w.invalidate(); }, ids);
+
+  // 1. Dragged out with the mouse onto open ground; then the next waits at its free end, seated: seven clicks on it
+  // close a ring of eight, every joint joined.
+  {
+    const item = await tight();
+    const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    const drop = await ringSpot();
+    await p.mouse.move(item[0], item[1]);
+    await p.mouse.down();
+    await p.mouse.move(item[0], item[1] - 60, { steps: 4 });
+    await p.mouse.move(drop[0], drop[1], { steps: 12 });
+    await p.mouse.up();
+    await frames(p);
+    const waits = [];
+    for (let k = 0; k < 7; k++) {
+      // (The view on where it waits, as a player pans to it: the ring runs out of view.)
+      await p.evaluate(() => { const w = window.woodrail; const a = w.interaction.previewAt; if (a) w.director.glideTo(w.controls.target.clone().set(a.x, 0, a.z), w.camera.position.distanceTo(w.controls.target), { duration: 0.1 }); });
+      await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+      await frames(p);
+      const g = await p.evaluate(() => {
+        const w = window.woodrail;
+        const m = w.interaction.preview;
+        if (!m || !w.interaction.previewAt) return null;
+        const v = w.interaction.previewAt.clone().project(w.camera);
+        return { visible: m.ghost.visible, snap: m.snap.kind, blocked: m.blocked ?? null, at: [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight] };
+      });
+      waits.push(g && { snap: g.snap, blocked: g.blocked });
+      if (!g?.visible) break;
+      await p.mouse.click(g.at[0], g.at[1]);
+      await frames(p);
+    }
+    const ring = await curves(before);
+    check("tight curves: the next waits at the free end seated there (not loose), each time", waits.length === 7 && waits.every((g) => g?.snap === "snapped" && !g.blocked), JSON.stringify(waits));
+    check("tight curves: seven clicks on it close a ring of eight, every joint joined", ring.ids.length === 8 && ring.open.length === 0, JSON.stringify(ring));
+    await p.keyboard.press("Escape");
+    await takeUp(ring.ids);
+  }
+
+  // 2. Carried (clicked in the tray), each hand: one clicked down on open ground, then one clicked with the mouse where
+  // it would go on that one's free end (its middle there): it joins, turning on round.
+  for (const hand of [false, true]) {
+    if (hand !== (await p.evaluate(() => window.woodrail.interaction.trayFlipped))) await p.evaluate(() => document.querySelector(".tray-flip").click());
+    const item = await tight();
+    const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    const drop = await ringSpot();
+    await p.mouse.click(item[0], item[1]);
+    await p.mouse.move(drop[0], drop[1], { steps: 4 });
+    await p.mouse.click(drop[0], drop[1]);
+    await frames(p);
+    const one = await curves(before);
+    const aim = one.ids.length === 1 && (await p.evaluate((id) => {
+      const w = window.woodrail;
+      const c = { x: 0, z: 0, y: 0, heading: 0 };
+      w.layout.worldConnector(id * 8 + 1, c);
+      return { x: c.x + 34 * Math.cos(c.heading), z: c.z + 34 * Math.sin(c.heading) };
+    }, one.ids[0]));
+    let two = one;
+    if (aim) {
+      const at = await screenOf(aim);
+      await p.mouse.move(at[0], at[1], { steps: 4 });
+      await p.mouse.click(at[0], at[1]);
+      await frames(p);
+      two = await curves(before);
+    }
+    check(`tight curves (${hand ? "right" : "left"}, carried): clicked where it goes on a free end, the next joins there`, two.ids.length === 2 && two.open.length === 2, JSON.stringify({ one, two }));
+    await p.keyboard.press("Escape");
+    await takeUp(two.ids);
+  }
+  await ctx.close();
+}
+
+// ---- fullscreen, and a sideways wheel never goes Back a page ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  await p.waitForFunction(() => window.woodrail.settled?.() ?? true, null, { timeout: 60000 }).catch(() => {});
+  const fs = () => p.evaluate(() => {
+    const btn = document.querySelector(".actions .fullscreen-btn");
+    const r = btn?.getBoundingClientRect();
+    return { on: document.fullscreenElement === document.documentElement, shown: !!btn && !btn.hidden && getComputedStyle(btn).display !== "none", title: btn?.getAttribute("aria-label") ?? "", w: r?.width ?? 0, h: r?.height ?? 0 };
+  });
+  const before = await fs();
+  check("the Fullscreen button shows in the top bar (Chromium allows fullscreen), 44 px or more", before.shown && !before.on && before.w >= 44 && before.h >= 44, JSON.stringify(before));
+  await p.click(".actions .fullscreen-btn");
+  await p.waitForFunction(() => document.fullscreenElement === document.documentElement, null, { timeout: 10000 }).catch(() => {});
+  await frames(p);
+  const inFs = await fs();
+  check("tapped, it puts the page fullscreen and its icon becomes Leave fullscreen", inFs.on && inFs.title === "Leave fullscreen", JSON.stringify(inFs));
+  // The canvas follows its box (the ResizeObserver), and the game goes still again: no frame drawn on and on.
+  const sized = await p.evaluate(() => { const c = window.woodrail.canvas; return Math.abs(c.width / devicePixelRatio - c.clientWidth) <= 2 && Math.abs(c.height / devicePixelRatio - c.clientHeight) <= 2; });
+  check("in fullscreen the canvas is drawn at its box's size", sized);
+  await p.click(".actions .fullscreen-btn");
+  await p.waitForFunction(() => !document.fullscreenElement, null, { timeout: 10000 }).catch(() => {});
+  await frames(p);
+  const out = await fs();
+  check("tapped again, it leaves fullscreen and its icon is Fullscreen again", !out.on && out.title === "Fullscreen", JSON.stringify(out));
+  await new Promise((r) => setTimeout(r, 1500));
+  const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
+  await new Promise((r) => setTimeout(r, 3000));
+  const f1 = await p.evaluate(() => window.woodrail.framesDrawn);
+  check("after fullscreen and back, a still game draws no more frames", f1 - f0 <= 1, `${f1 - f0} frames in 3 s`);
+
+  // A sideways wheel (a trackpad swipe) on the canvas is cancelled: the browser takes no Back from it.
+  const wheel = (sel, dx, dy) => p.evaluate(([sel, dx, dy]) => {
+    const t = sel === "canvas" ? window.woodrail.canvas : document.querySelector(sel);
+    const r = t.getBoundingClientRect();
+    const e = new WheelEvent("wheel", { deltaX: dx, deltaY: dy, bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+    t.dispatchEvent(e);
+    return e.defaultPrevented;
+  }, [sel, dx, dy]);
+  check("a horizontal wheel on the canvas has defaultPrevented", await wheel("canvas", 120, 0));
+  check("a horizontal wheel on the top bar has defaultPrevented", await wheel(".topbar", -120, 4));
+  // A real one, sent as the mouse does: the view doesn't move and the page stays.
+  const url = p.url();
+  const v0 = await view(p);
+  const box = await p.evaluate(() => ({ x: innerWidth / 2, y: innerHeight / 2 }));
+  await p.mouse.move(box.x, box.y);
+  for (let i = 0; i < 5; i++) await p.mouse.wheel(-200, 0);
+  await frames(p);
+  const v1 = await view(p);
+  check("a real sideways wheel on the map neither zooms the view nor leaves the page", p.url() === url && v0.d === v1.d, `${JSON.stringify(v0)} → ${JSON.stringify(v1)}`);
+  await ctx.close();
+}
+
+// ---- Game mode: the Engine clicked (the user's screenshot, #12), and a locked engine ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await ctx.newPage();
+  p.on("pageerror", (e) => errors.push(String(e)));
+  await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await p.goto(URL);
+  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game button.primary") !== null, null, { timeout: 180000 });
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  // (The Trains tab's Engines shelf, opened as a tap on them would: the tray's tabs aren't what's tested here.)
+  await p.evaluate(() => window.woodrail.hud.openTray("trains", "Engines"));
+  await p.waitForFunction(() => !!document.querySelector('.scroller .tray-item[data-key="train:Engine"]'), null, { timeout: 30000 });
+  const at = (sel) => p.evaluate((sel) => { const e = document.querySelector(sel); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2, e.dataset.key]; }, sel);
+  const engine = await at('.scroller .tray-item[data-key="train:Engine"]');
+  await p.mouse.click(engine[0], engine[1]);
+  await frames(p);
+  const c1 = await placeCard(p);
+  check("Game mode: a click on the Engine carries it, and its card says what it is, pulls and how fast", (await thing())?.kind === "drag-train" && cardOk(c1, "Engine") && c1.text.includes("Pulls 4 cars · steady"), JSON.stringify(c1));
+  await p.keyboard.press("Escape");
+  await frames(p);
+  check("…Esc puts it away, and the card goes with it", !(await thing()) && (await placeCard(p)) === null, JSON.stringify(await placeCard(p)));
+  const locked = await at(".scroller .tray-item.locked");
+  await p.mouse.click(locked[0], locked[1]);
+  await p.waitForFunction(() => document.querySelector(".lock-note")?.hidden === false, null, { timeout: 5000 }).catch(() => {});
+  const note = await p.evaluate(() => { const n = document.querySelector(".lock-note"); return n && !n.hidden ? n.textContent : null; });
+  check("…a click on a locked engine carries nothing; its lock note (claude/locked-tiles) says how to unlock it, in place of a card", !(await thing()) && (await placeCard(p)) === null && !!note && /unlock|soon/i.test(note), `${locked[2]}: ${note}`);
+  await ctx.close();
+
+  async function thing() {
+    return p.evaluate(() => { const c = window.woodrail.interaction.carriedThing; return c ? { kind: c.m.kind } : null; });
+  }
+}
+
+// ---- touch: a tap in the tray carries nothing (as before); its card shows a moment; a long press shows details ----
 {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const p = await sandbox(ctx);
   const item = await firstItem(p);
+  await catchCard(p);
   await p.touchscreen.tap(item.x, item.y);
-  await frames(p);
+  const c1 = await caught(p);
   check("on touch, a tap on a tray piece doesn't carry it", !(await carried(p)) && !(await marked(p, item.key)));
+  check("…but its card shows a moment, above the tray, taking no touch", cardOk(c1, "Medium straight"), JSON.stringify(c1));
+  await p.waitForFunction(() => document.querySelector(".place-card")?.hidden === true, null, { timeout: 10000 }).catch(() => {});
+  check("…and goes by itself", (await placeCard(p)) === null);
+
+  // A long press (held 450 ms or more, by event time): its details, and no drag.
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const t0 = Date.now() / 1000;
+  const before = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, mode: window.woodrail.interaction.mode.kind }));
+  await touch("touchStart", item.x, item.y, t0);
+  await p.waitForFunction(() => window.woodrail.hud.lastTrayDetails > 0, null, { timeout: 10000 }).catch(() => {});
+  await touch("touchMove", item.x + 2, item.y - 2, t0 + 0.6);
+  const held = await p.evaluate(() => { const t = document.querySelector(".tooltip"); return { tip: t && !t.hidden ? t.querySelector(".tip-name")?.textContent : null, mode: window.woodrail.interaction.mode.kind, ghost: !!window.woodrail.interaction.preview?.ghost.visible }; });
+  await touch("touchEnd", item.x + 2, item.y - 2, t0 + 0.7);
+  await frames(p);
+  const after = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, mode: window.woodrail.interaction.mode.kind }));
+  check("a long press on a tray piece shows its details, and starts no drag", held.tip === "Medium straight" && held.mode === before.mode && !held.ghost && after.pieces === before.pieces && after.mode === before.mode && !(await carried(p)), JSON.stringify({ held, before, after }));
+
+  // A road tapped is made ready (touch's tap-to-select): its card shows while it's ready, and goes when put away.
+  await p.evaluate(() => window.woodrail.hud.openTray("roads"));
+  await p.waitForFunction(() => !!document.querySelector('.scroller .tray-item[data-key^="road"]'), null, { timeout: 30000 }).catch(() => {});
+  const road = await p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key^="road"]'); if (!e) return null; e.scrollIntoView(); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, key: e.dataset.key, name: e.dataset.tipName }; });
+  if (!road) check("a road on the Roads tab", false);
+  else {
+    await p.touchscreen.tap(road.x, road.y);
+    await frames(p);
+    const c2 = await placeCard(p);
+    check("on touch, a tap on a road makes it ready, and its card shows while it is", (await marked(p, road.key)) && cardOk(c2, road.name), JSON.stringify(c2));
+    await new Promise((r) => setTimeout(r, 4000));
+    check("…(still up after the moment a plain tap's card stays)", (await placeCard(p))?.name === road.name);
+    await p.touchscreen.tap(road.x, road.y);
+    await frames(p);
+    check("…tapped again it's put away, and the card goes", !(await marked(p, road.key)) && (await placeCard(p)) === null, JSON.stringify(await placeCard(p)));
+  }
+  // A sideways wheel on the tray is cancelled (no Back a page) and scrolls the tray by hand instead.
+  const tray = await p.evaluate(() => {
+    const s = document.querySelector(".tray .scroller");
+    s.scrollLeft = 0;
+    const t = s.querySelector(".tray-item");
+    const e = new WheelEvent("wheel", { deltaX: 120, deltaY: 0, bubbles: true, cancelable: true });
+    t.dispatchEvent(e);
+    return { prevented: e.defaultPrevented, left: s.scrollLeft, room: s.scrollWidth - s.clientWidth, overscroll: getComputedStyle(s).overscrollBehaviorX, page: getComputedStyle(document.documentElement).overscrollBehaviorX };
+  });
+  check("a horizontal wheel on the tray has defaultPrevented and scrolls the tray sideways", tray.prevented && (tray.room <= 0 || tray.left > 0), JSON.stringify(tray));
+  // On a phone the bar is full: Fullscreen is in the menu (Chromium on Android allows it), and does its job there.
+  await p.tap(".actions .chip[aria-label='Menu']");
+  await frames(p);
+  const menuFs = await p.evaluate(() => {
+    const it = [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent === "Fullscreen");
+    const bar = document.querySelector(".actions .fullscreen-btn");
+    return { item: !!it && getComputedStyle(it).display !== "none" && it.offsetHeight >= 44, bar: !!bar && getComputedStyle(bar).display !== "none" };
+  });
+  check("on a phone, Fullscreen is a menu item (44 px tall), not in the full top bar", menuFs.item && !menuFs.bar, JSON.stringify(menuFs));
+  await p.locator(".menu .menu-item", { hasText: /^Fullscreen$/ }).tap();
+  // (fullscreenchange comes with the next rendering update, a moment after fullscreenElement is set.)
+  await p.waitForFunction(() => !!document.fullscreenElement && [...document.querySelectorAll(".menu .menu-item")].some((b) => b.textContent === "Leave fullscreen"), null, { timeout: 10000 }).catch(() => {});
+  const phoneFs = await p.evaluate(() => ({ on: !!document.fullscreenElement, menuHidden: document.querySelector(".menu").hidden, label: [...document.querySelectorAll(".menu .menu-item")].some((b) => b.textContent === "Leave fullscreen") }));
+  check("…tapped, it puts the page fullscreen, closes the menu, and then reads Leave fullscreen", phoneFs.on && phoneFs.menuHidden && phoneFs.label, JSON.stringify(phoneFs));
+  check("the page and the tray never overscroll into a Back", tray.overscroll === "none" && tray.page === "none", JSON.stringify(tray));
   await ctx.close();
 }
 

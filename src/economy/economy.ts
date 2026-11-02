@@ -9,7 +9,7 @@ import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
-import { aimOf, passVias, resetVias, skipVias } from "../routing/via";
+import { aimOf, passVias, ranOnto, resetVias, skipVias } from "../routing/via";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -36,7 +36,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -93,7 +93,7 @@ export const SCHOOL_SHARE = 0.6;
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
@@ -101,6 +101,11 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
   farm: { takes: [], gives: ["grain"], cycle: { uses: {}, makes: { grain: 1 }, seconds: 12 } },
   mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },
+  // The dairy chain (tech-tree I3, I4): a dairy farm's cows give milk; a bakery bakes bread of flour and milk, the
+  // first recipe of two goods brought from two chains. An orchard's trees give fruit. Towns take all three.
+  dairy: { takes: [], gives: ["milk"], cycle: { uses: {}, makes: { milk: 1 }, seconds: 12 } },
+  bakery: { takes: ["flour", "milk"], gives: ["bread"], cycle: { uses: { flour: 1, milk: 1 }, makes: { bread: 1 }, seconds: 10 } },
+  orchard: { takes: [], gives: ["fruit"], cycle: { uses: {}, makes: { fruit: 1 }, seconds: 14 } },
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
   // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.
@@ -325,6 +330,14 @@ export class Economy {
   readonly delivered = new Map<number, number>();
   /** Town id → everything delivered there, by kind (planks are counted in `delivered` too). */
   readonly deliveredGoods = new Map<number, Bag>();
+  /**
+   * Town id → what was delivered there while it was joined by road to another town (roads spec D2), by kind: a part
+   * of it counts again toward the town's growth (`roadBonus`, town-life.ts). Only ever goes up, so a road taken up
+   * later never takes a level away.
+   */
+  readonly roadGot = new Map<number, Bag>();
+  /** Is this town joined by road to another now (Game mode's towns: `TownLife`; null: never)? Asked per delivery. */
+  joinedByRoad: ((townId: number) => boolean) | null = null;
   private readonly services = new Map<number, Service>();
   /** Each stop list's `Later`s (see `laterOf`), and the counters they're keyed on. */
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
@@ -438,10 +451,21 @@ export class Economy {
     const r = this.routes.get(engine);
     if (!r || r.stops.length === 0) return -1;
     let i = r.next % r.stops.length;
-    // (At its stop: the stop after, a different depot.)
+    // (At its stop: the stop after, a different depot; past any it has run onto already, between its front and this
+    // one: it comes to them as soon as it's off this one. Aimed at one behind its front, the router would ask for
+    // nothing, or for the way back round to it, and it would run over the points ahead as they lie.)
     if (r.at) {
       const here = r.stops[i].depotId;
-      for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+      const hereAt = this.depots[here]?.pieceId ?? -1;
+      const train = this.sim.findCar(engine)?.train;
+      for (let k = 0; k < r.stops.length; k++) {
+        const id = r.stops[i].depotId;
+        if (id !== here) {
+          const d = this.depots[id];
+          if (!train || !d || !this.onMap(d) || !ranOnto(train.bogies, this.drive(train), hereAt, d.pieceId)) break;
+        }
+        i = (i + 1) % r.stops.length;
+      }
     }
     return this.aim(r, i, skip);
   }
@@ -773,6 +797,49 @@ export class Economy {
     } else this.cargo.set(carId, { kind, count: Math.min(count, this.wagonCapacity) });
   }
 
+  /**
+   * Why Empty (tip a wagon's goods out, thrown away) would be refused now: "moving" (its train isn't standing),
+   * "empty" (no goods on it: a coach's riders aren't goods, and stay), "none" (no such car, or off the rails), or null.
+   */
+  dumpRefusal(carId: number): "moving" | "empty" | "none" | null {
+    const found = this.sim.findCar(carId);
+    if (!found || found.train.derailed) return "none";
+    if (this.cargoOf(carId).count <= 0) return "empty";
+    return this.sim.standing(found.train) ? null : "moving";
+  }
+
+  /**
+   * Empty: tip a standing wagon's goods out, thrown away (onto no pile, so no town or school is credited). What it
+   * held, or null (nothing done: see `dumpRefusal`). What's held for a school is worked out from what's on board
+   * (`heldForSchool`), so nothing else is kept to clear but the pass's count of that good, which starts afresh at the
+   * next load once none is left on board.
+   */
+  dump(carId: number): { kind: CargoKind; count: number } | null {
+    if (this.dumpRefusal(carId) !== null) return null;
+    const train = this.sim.findCar(carId)!.train;
+    const c = this.cargoOf(carId);
+    const out = { kind: c.kind!, count: c.count };
+    this.setCargo(carId, null, 0);
+    const p = this.passes.get(train.id);
+    const i = CARGO[out.kind].index;
+    if (p && p.loaded[i] >= 0) {
+      if (this.onBoard(train, out.kind) === 0) {
+        p.loaded[i] = -1;
+        p.school[i] = 0;
+      } else p.loaded[i] = Math.max(0, p.loaded[i] - out.count);
+    }
+    return out;
+  }
+
+  /** A depot on the map that takes `kind` from trains (for Empty's hint: "The Mill takes 🌾"), or null. */
+  takerOf(kind: CargoKind): DepotState | null {
+    for (const d of this.depots) {
+      if (!d.auto || !this.onMap(d) || RECIPES[d.role].routedOnly) continue;
+      if (this.takesNow(d, kind) && (!this.accepts || this.accepts(d, kind))) return d;
+    }
+    return null;
+  }
+
   ridersOf(carId: number): Readonly<Riders> {
     return this.riders.get(carId) ?? NO_RIDERS;
   }
@@ -972,6 +1039,11 @@ export class Economy {
         const got = this.deliveredGoods.get(d.townId) ?? {};
         got[kind] = (got[kind] ?? 0) + 1;
         this.deliveredGoods.set(d.townId, got);
+        if (this.joinedByRoad?.(d.townId)) {
+          const road = this.roadGot.get(d.townId) ?? {};
+          road[kind] = (road[kind] ?? 0) + 1;
+          this.roadGot.set(d.townId, road);
+        }
       }
     } else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count + 1);
   }

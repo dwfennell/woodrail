@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Road</title>
+<rect x="0.8" y="2.4" width="22.4" height="19.6" rx="2.4" fill="#1f4d26"/>
+<rect x="2" y="3.6" width="20" height="17.2" rx="1.6" fill="#3f8f4a"/>
+<polygon points="9.6,3.6 14.4,3.6 21.2,20.8 2.8,20.8" fill="#4f4a44"/>
+<polygon points="10.4,3.6 13.6,3.6 19.4,20.8 4.6,20.8" fill="#8f897f"/>
+<polygon points="11.6,4.6 12.4,4.6 12.5,7.6 11.5,7.6" fill="#fbf3e4"/>
+<polygon points="11.4,10 12.6,10 12.8,13.6 11.2,13.6" fill="#fbf3e4"/>
+<polygon points="11.1,16.2 12.9,16.2 13.1,20.8 10.9,20.8" fill="#fbf3e4"/>
+</svg>
