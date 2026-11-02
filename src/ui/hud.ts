@@ -1,5 +1,7 @@
 import { installTooltips, type Tooltips } from "./tooltip";
 import { trayInfo } from "./piece-info";
+import { storeHtml, type StoreView } from "./store-rows";
+import type { CargoKind, StoreMode } from "../economy";
 import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
 import { blockWord } from "./blocks";
@@ -101,6 +103,10 @@ export interface HudHandlers {
   depotAuto(): void;
   /** Depot card: trains wait for a full load, or not. */
   depotWaitFull(): void;
+  /** A warehouse's card: what it lets trains do with a good (listing it), or with `kind` null, any good not listed. */
+  storeMode(kind: CargoKind | null, mode: StoreMode): void;
+  /** A warehouse's card: a good taken off its list (it follows "Any other goods" again). */
+  storeUnlist(kind: CargoKind): void;
   toggleSound(): void;
   /** Any HUD button pressed (for a soft click). */
   buttonTap(): void;
@@ -270,6 +276,12 @@ export class Hud {
   private readonly depotStock = el("div", "depot-stock");
   /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
   private readonly depotHelp = el("div", "card-hint depot-help");
+  /** A warehouse's goods, each with what it lets trains do with it (`StoreView`), or hidden. */
+  private readonly depotStore = el("div", "depot-store");
+  /** What the warehouse rows show now (drawn again only when it changes), and its "+ Add a good" picker open. */
+  private storeShown = "";
+  private storeView: StoreView | null = null;
+  private storeAdding = false;
   /** A school's card with nothing under way or up next: a button for the Research picker. */
   private readonly depotPickBtn: HTMLButtonElement;
   private depotAutoBtn!: HTMLButtonElement;
@@ -631,7 +643,9 @@ export class Hud {
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
     this.depotYard.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotStock, this.depotHelp, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotStore.hidden = true;
+    this.depotStore.addEventListener("click", (e) => this.storeClick(e));
+    this.depotCard.append(this.depotTitle, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -1824,6 +1838,8 @@ export class Hud {
     this.depotExtra.innerHTML = "";
     this.depotYard.hidden = true;
     this.depotYard.innerHTML = "";
+    this.setStore(null);
+    this.storeAdding = false;
     // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
     this.depotExtra.className = "depot-extra";
     this.depotCard.hidden = false;
@@ -1848,6 +1864,39 @@ export class Hud {
     this.depotWaitBtn.hidden = waitFull === null;
     setToggle(this.depotWaitBtn, !!waitFull);
     this.depotWaitBtn.disabled = !auto;
+  }
+
+  /**
+   * A warehouse's goods on its card (null: hide them): a row per good it lists or holds, its count and a four-way choice
+   * (Takes and gives, Takes only, Gives only, Closed); "Any other goods"; and "+ Add a good" with the goods to list.
+   * Drawn again only when what it shows changes (cheap to call every frame the card is open).
+   */
+  setStore(view: StoreView | null): void {
+    const key = view ? JSON.stringify(view) + this.storeAdding : "";
+    if (key === this.storeShown) return;
+    this.storeShown = key;
+    this.storeView = view;
+    this.depotStore.hidden = !view;
+    this.depotStore.innerHTML = view ? storeHtml(view, this.storeAdding) : "";
+    if (view) this.onCardResize?.();
+  }
+
+  private storeClick(e: MouseEvent): void {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
+    if (!b || !this.storeView) return;
+    e.stopPropagation();
+    const kind = (b.dataset.kind || null) as CargoKind | null;
+    if (b.dataset.mode) {
+      if (b.getAttribute("aria-pressed") !== "true") this.handlers.storeMode(kind, b.dataset.mode as StoreMode);
+    } else if (b.dataset.add !== undefined) {
+      this.storeAdding = !this.storeAdding;
+      const v = this.storeView;
+      this.storeShown = "";
+      this.setStore(v);
+    } else if (b.dataset.list) {
+      this.storeAdding = false;
+      this.handlers.storeMode(b.dataset.list as CargoKind, "both");
+    } else if (b.dataset.unlist) this.handlers.storeUnlist(b.dataset.unlist as CargoKind);
   }
 
   /**

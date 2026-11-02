@@ -52,11 +52,11 @@ import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./rende
 import { decoupleWords } from "./game/decouple-words";
 import { canContinue, continueOn } from "./game/continue-on";
 import { blockerOf, engineView, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
-import { STORE_NO_ROUTE, storeStopText } from "./game/warehouse-text";
+import { STORE_NO_ROUTE, storeBlockText, storeStopText } from "./game/warehouse-text";
 import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
-import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
+import { capAt, MAX_SHEDS, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import type { Stuck } from "./economy/stalls";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
@@ -487,6 +487,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         hud.setTrayOrientation(interaction.trayFlipped);
       },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
+      storeMode: (kind, mode) => interaction.setStoreMode(kind, mode),
+      storeUnlist: (kind) => interaction.unlistStore(kind),
       needThumbnails: (items) => wantPictures(items, "tray"),
       kitsShown: (items) => interaction.warmKits(items),
       landTool: (tool) => setLandTool(tool),
@@ -3249,6 +3251,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           box.append(what);
         }
       }
+      // A warehouse stop where the route would drop or pick up a good but the warehouse's own setting says no (the
+      // stricter wins): said, so the plan's missing ⬆ or ⬇ isn't a mystery.
+      const blocked = new Set<string>();
+      line.stops.forEach((st, k) => {
+        const d = plan[k] && (plan[k].notDrops.length || plan[k].notPicks.length) ? game.economy.depot(st.depotId) : undefined;
+        if (!d) return;
+        for (const g of plan[k].notDrops) blocked.add(storeBlockText(true, g, storeModeOf(d, g)));
+        for (const g of plan[k].notPicks) blocked.add(storeBlockText(false, g, storeModeOf(d, g)));
+      });
+      for (const text of blocked) box.append(Object.assign(document.createElement("div"), { className: "route-warn route-store-block", textContent: text }));
       // A stop whose place was taken up: said, by name (the train runs on past it; undo brings it back).
       const lost = [...new Set(line.stops.filter((st) => !stops.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
       for (const name of lost) {

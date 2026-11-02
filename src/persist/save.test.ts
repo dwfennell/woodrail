@@ -7,7 +7,7 @@ import { SIM_DT, SIM_HZ } from "../sim";
 import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, MIGRATES_FROM, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { Journal } from "../game/journal";
 import { editLine, lineOf } from "../game/lines";
-import { CARGO_KINDS } from "../economy";
+import { CARGO_KINDS, storeListed, storeModeOf } from "../economy";
 
 /** The starter map with its first two towns joined by a line and a train running on it. */
 function worldWithTrain(): World {
@@ -239,6 +239,38 @@ describe("save format", () => {
     if (!r.ok) return;
     expect(r.value.economy.depotAtPiece(end)).toMatchObject({ role: "school", townId: town.id });
     data.depots.find((d) => d.role === "school")!.townId = 99;
+    expect(deserializeWorld(data).ok).toBe(false);
+  });
+
+  it("keeps a warehouse's modes per good and for any other; an older save's warehouse takes and gives everything", () => {
+    const world = worldWithTrain();
+    const end = appendPiece(world.layout, "depot-warehouse", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    const store = world.economy.depotAtPiece(end)!;
+    expect(store.role).toBe("warehouse");
+    world.economy.setStoreMode(store.id, "planks", "in");
+    world.economy.setStoreMode(store.id, "log", "both");
+    world.economy.setStoreMode(store.id, null, "off");
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const saved = data.depots.find((d) => d.role === "warehouse")!;
+    expect([saved.modes, saved.others]).toEqual([{ log: "both", planks: "in" }, "off"]);
+    // Other depots save nothing for it.
+    expect(data.depots.filter((d) => d.role !== "warehouse").every((d) => d.modes === undefined && d.others === undefined)).toBe(true);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const back = r.value.economy.depotAtPiece(end)!;
+    expect([storeModeOf(back, "planks"), storeModeOf(back, "log"), storeModeOf(back, "iron"), storeListed(back, "log"), storeListed(back, "iron")]).toEqual(["in", "both", "off", true, false]);
+    // A save from before warehouse modes (neither field): everything Takes and gives, nothing listed.
+    delete saved.modes;
+    delete saved.others;
+    const old = deserializeWorld(data);
+    expect(old.ok).toBe(true);
+    if (!old.ok) return;
+    const was = old.value.economy.depotAtPiece(end)!;
+    expect([was.others, was.modes.every((m) => m === null)]).toEqual(["both", true]);
+    // A mode it doesn't know is turned away.
+    (saved as { others?: string }).others = "sometimes";
     expect(deserializeWorld(data).ok).toBe(false);
   });
 

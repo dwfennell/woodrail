@@ -4,7 +4,9 @@
 // taps (its engine, Plan a route, the forest, the sawmill, the warehouse, Done; the warehouse stop's chip tapped: its
 // options say what Automatic does there): it runs, and planks are dropped at the warehouse. Then a second train, its
 // route warehouse → town by taps: planks are picked up there and delivered to the town. Goods counted by the crane's
-// own events.
+// own events. The warehouse's own setting per good, by taps: before anything arrives, planks listed ("+ Add a good")
+// and set to Takes only: route 1 still drops them, route 2 picks none up and its card says why ("Not picking up
+// planks: the warehouse is set to Takes only"); set back to Takes and gives, route 2 takes them to the town.
 //
 // Usage: npm run e2e:warehouse [-- <out dir>]   (default out: e2e-out/warehouse)
 import { existsSync, mkdirSync } from "node:fs";
@@ -159,6 +161,7 @@ const setup = await p.evaluate(async () => {
     return -1;
   };
   window.__put = put;
+  window.__store = ids.warehouse;
   // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's few
   // frames a second; the forest kept stocked (its logs aren't what's tested). The crane's events counted by depot.
   const { PILE_CAP } = await import("/src/economy/constants.ts");
@@ -207,6 +210,31 @@ if (!setup.error && setup.engine !== -1) {
   const storeCard = await p.evaluate(() => ({ open: window.woodrail.hud.depotCardOpen, stock: document.querySelector(".depot-stock")?.textContent, help: document.querySelector(".depot-help")?.textContent }));
   check("the warehouse's card: Empty, and how to use it", storeCard.open && storeCard.stock === "Empty" && /^Drop goods here to keep them for later/.test(storeCard.help ?? ""), JSON.stringify(storeCard));
   await shot("3-warehouse-card");
+
+  // 4b. Its goods, by taps before any arrive: "+ Add a good", Planks, then planks' Takes only.
+  const others = await p.evaluate(() => [...document.querySelectorAll(".depot-store .store-row")].map((r) => r.textContent));
+  check("…a row for Any other goods, set to Takes and gives", others.length === 1 && /Any other goods/.test(others[0]) && /Takes and gives/.test(others[0]), JSON.stringify(others));
+  await tapButton(".depot-store .store-add");
+  await tapButton('.depot-store [data-list="planks"]');
+  await tapButton('.depot-store [data-kind="planks"][data-mode="in"]');
+  const set = await p.evaluate(() => {
+    const card = document.querySelector(".depot-card").getBoundingClientRect();
+    const btns = [...document.querySelectorAll(".depot-store button:not(.store-unlist)")].filter((b) => b.getBoundingClientRect().width > 0).map((b) => b.getBoundingClientRect());
+    // The small ✕ (take planks off the list) is drawn 22 px with an invisible 44 px reach: a tap 18 px off its middle finds it.
+    const x = document.querySelector(".depot-store .store-unlist")?.getBoundingClientRect();
+    const reach = !!x && [[18, 0], [-18, 0], [0, 18], [0, -18]].every(([dx, dy]) => document.elementFromPoint(x.left + x.width / 2 + dx, x.top + x.height / 2 + dy)?.closest(".store-unlist"));
+    return {
+      rows: [...document.querySelectorAll(".depot-store .store-row")].map((r) => r.querySelector(".store-what").textContent),
+      pressed: document.querySelector('.depot-store [data-kind="planks"][aria-pressed="true"]')?.dataset.mode,
+      mode: window.woodrail.economy.depot(window.__store).modes,
+      inside: card.left >= 0 && card.right <= 390,
+      small: Math.min(...btns.map((r) => Math.min(r.width, r.height))),
+      reach,
+    };
+  });
+  check("…planks listed by taps and set to Takes only (before any arrive)", set.pressed === "in" && /Planks.*0\/24 · Takes only/.test(set.rows[0] ?? ""), JSON.stringify(set));
+  check("…the card inside a 390 px screen, its choices 44 px (the ✕'s reach too)", set.inside && set.small >= 44 && set.reach, JSON.stringify(set));
+  await shot("3b-warehouse-planks-takes-only");
   await p.keyboard.press("Escape");
 
   // 5. Its route by taps: the forest, the sawmill, the warehouse. The card points to the warehouse stop's options; its
@@ -236,7 +264,7 @@ if (!setup.error && setup.engine !== -1) {
   const run1 = await p.evaluate(() => window.__run(420));
   const dropped = run1.unloaded[`${warehouse}:planks`] ?? 0;
   const held = await planks(warehouse);
-  check("route 1: planks dropped at the warehouse", dropped >= 4 && held >= 4, JSON.stringify({ dropped, held, run1 }));
+  check("route 1: planks dropped at the warehouse (Takes only lets them in)", dropped >= 4 && held >= 4, JSON.stringify({ dropped, held, run1 }));
   check("…and logs taken to the sawmill, planks loaded there", (run1.unloaded[`${sawmill}:log`] ?? 0) > 0 && (run1.loaded[`${sawmill}:planks`] ?? 0) > 0, JSON.stringify(run1));
   await p.evaluate((e) => window.woodrail.sim.setLever(e, 0), engine);
   await p.evaluate(() => window.__run(20));
@@ -245,7 +273,8 @@ if (!setup.error && setup.engine !== -1) {
   await settle();
   const stockNow = await p.evaluate(() => document.querySelector(".depot-stock")?.textContent);
   const heldNow = await planks(warehouse);
-  check("…the warehouse's card lists the planks it holds", stockNow?.includes(`Planks ${heldNow}/24`), JSON.stringify(stockNow));
+  const rowNow = await p.evaluate(() => document.querySelector(".depot-store .store-row")?.textContent);
+  check("…the warehouse's card lists the planks it holds", rowNow?.includes(`Planks`) && rowNow.includes(`${heldNow}/24 · Takes only`) && stockNow === "", JSON.stringify({ rowNow, stockNow }));
   await shot("5-warehouse-card-planks");
   await p.keyboard.press("Escape");
 
@@ -257,8 +286,31 @@ if (!setup.error && setup.engine !== -1) {
   await planRoute(engine2, [warehouse, town]);
   const stops2 = await routeStops(engine2);
   check("route 2 planned by taps: warehouse, town", JSON.stringify(stops2) === JSON.stringify([warehouse, town]), JSON.stringify(stops2));
-  const goods2 = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.querySelector(".route-goods")?.textContent ?? ""));
-  check("…its stops show it: warehouse ⬆🪵, town ⬇🪵", JSON.stringify(goods2) === JSON.stringify(["⬆🪵", "⬇🪵"]), JSON.stringify(goods2));
+  const routeCard = () => p.evaluate(() => ({ goods: [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.querySelector(".route-goods")?.textContent ?? ""), warn: [...document.querySelectorAll(".engine-extra .route-store-block")].map((e) => e.textContent) }));
+  const held2 = await routeCard();
+  check("…planks Takes only: nothing to pick up at the warehouse, and the card says why", JSON.stringify(held2.goods) === JSON.stringify(["", ""]) && JSON.stringify(held2.warn) === JSON.stringify(["Not picking up planks: the warehouse is set to Takes only"]), JSON.stringify(held2));
+  await shot("6a-route-2-takes-only");
+  await p.keyboard.press("Escape");
+  const kept = await planks(warehouse);
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), engine2);
+  const run0 = await p.evaluate(() => window.__run(120));
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 0), engine2);
+  await p.evaluate(() => window.__run(10));
+  check("route 2 with planks Takes only: none picked up, none delivered", (run0.loaded[`${warehouse}:planks`] ?? 0) === 0 && (run0.unloaded[`${town}:planks`] ?? 0) === 0 && (await planks(warehouse)) === kept, JSON.stringify({ kept, run0 }));
+
+  // Planks set back to Takes and gives, by taps on the warehouse's card.
+  await tapOn({ depot: warehouse });
+  await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 20000 }).catch(() => {});
+  await tapButton('.depot-store [data-kind="planks"][data-mode="both"]');
+  const back = await p.evaluate(() => document.querySelector('.depot-store [data-kind="planks"][aria-pressed="true"]')?.dataset.mode);
+  check("…planks set back to Takes and gives by a tap", back === "both", JSON.stringify(back));
+  await p.keyboard.press("Escape");
+  await tapOn({ engine: engine2 });
+  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
+  if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine: engine2 });
+  await settle();
+  const goods2 = await routeCard();
+  check("…its stops show it: warehouse ⬆🪵, town ⬇🪵, and no warning", JSON.stringify(goods2.goods) === JSON.stringify(["⬆🪵", "⬇🪵"]) && goods2.warn.length === 0, JSON.stringify(goods2));
   await shot("6-route-2-plan");
   await p.keyboard.press("Escape");
   const before = await planks(warehouse);

@@ -1,3 +1,5 @@
+import { CARGO, type CargoKind, type StoreMode } from "../economy";
+
 /**
  * What the game says about warehouses: they trade only with trains on a route (`routedOnly` in RECIPES), and a player
  * whose hand-run train stands beside one sees nothing happen. Short and kid-clear.
@@ -15,7 +17,27 @@ export function storeSkipText(routed: boolean): string {
 }
 
 /** The warehouse's card: how to use it, under what it holds. */
-export const STORE_HELP = "Drop goods here to keep them for later. On a route, set its stop to Only drop or Only pick up";
+export const STORE_HELP = "Drop goods here to keep them for later. Choose below what it takes and gives; on a route, set its stop to Only drop or Only pick up";
+
+/** What each store mode is called on the warehouse's card (`StoreMode`). */
+export const STORE_MODE_WORDS: Record<StoreMode, string> = { both: "Takes and gives", in: "Takes only", out: "Gives only", off: "Closed" };
+
+/** Each store mode's picture, on its button: goods coming down off a train, going up onto one, both, or neither. */
+export const STORE_MODE_ICON: Record<StoreMode, string> = { both: "⬇⬆", in: "⬇", out: "⬆", off: "🚫" };
+
+/** The warehouse's card, the row for goods it doesn't list. */
+export const STORE_OTHERS = "Any other goods";
+
+/** The warehouse's card: its button for listing another good (before any arrives). */
+export const STORE_ADD = "+ Add a good";
+
+/**
+ * The route card, for a warehouse stop the route would drop or pick up a good at but for the warehouse's own setting
+ * (the stricter rule wins): "Not dropping planks: the warehouse is set to Gives only".
+ */
+export function storeBlockText(drop: boolean, kind: CargoKind, mode: StoreMode): string {
+  return `Not ${drop ? "dropping" : "picking up"} ${CARGO[kind].label.toLowerCase()}: the warehouse is set to ${STORE_MODE_WORDS[mode]}`;
+}
 
 /** The warehouse's card, its goods line: what it holds (only goods it has some of), or that it's empty. */
 export function storeStock(held: readonly { label: string; count: number; cap: number }[]): string {

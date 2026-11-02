@@ -43,7 +43,7 @@ import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { putAway, type PutAway } from "./put-away";
-import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
+import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 import { STORE_HELP, storeStock } from "./warehouse-text";
@@ -2476,7 +2476,7 @@ export class Interaction {
       this.townCard.show(d);
       return;
     }
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.sheds;
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.role === "warehouse" ? storeKey(d) : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
     // this per-frame check.
@@ -2501,9 +2501,23 @@ export class Interaction {
       .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
-    // A warehouse: only what it holds (not a row for every good), and how to use it.
+    // A warehouse: how to use it, and a row for each good it holds or lists (its count, and what it lets trains do with
+    // it), "Any other goods", and "+ Add a good" (goods the map makes, not shown yet). "Empty" while it holds nothing.
     if (d.role === "warehouse") {
-      this.hud.updateDepotCard([], d.auto, d.waitFull, storeStock(piles), false, STORE_HELP);
+      const stock = storeStock(piles);
+      this.hud.updateDepotCard([], d.auto, d.waitFull, stock === "Empty" ? stock : "", false, STORE_HELP);
+      const shown = CARGO_KINDS.filter((k) => d.piles[CARGO[k].index] > 0 || storeListed(d, k));
+      const made = new Set<CargoKind>();
+      for (const o of economy.allDepots()) {
+        const r = RECIPES[o.role];
+        if (r.routedOnly || o.role === "harbour") for (const k of CARGO_KINDS) if (o.piles[CARGO[k].index] > 0) made.add(k);
+        if (!r.routedOnly && o.role !== "harbour") for (const k of r.gives) made.add(k);
+      }
+      this.hud.setStore({
+        rows: shown.map((k) => ({ kind: k, count: d.piles[CARGO[k].index], cap: capAt(d), mode: storeModeOf(d, k), listed: storeListed(d, k) })),
+        others: d.others,
+        addable: CARGO_KINDS.filter((k) => made.has(k) && !shown.includes(k)),
+      });
       return;
     }
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
@@ -2517,6 +2531,24 @@ export class Interaction {
     if (!d) return;
     this.game.economy.setAuto(d.id, !d.auto);
     this.hud.toast(d.auto ? "The crane works trains by itself" : "Trains run straight through; move cargo by hand");
+    this.refreshDepotCard();
+    this.changed();
+  }
+
+  /** The open warehouse's card: what it lets trains do with a good (listing it), or with `kind` null, any other good. */
+  setStoreMode(kind: CargoKind | null, mode: StoreMode): void {
+    const d = this.game.economy.depot(this.selectedDepot);
+    if (!d || d.role !== "warehouse") return;
+    this.game.economy.setStoreMode(d.id, kind, mode);
+    this.refreshDepotCard();
+    this.changed();
+  }
+
+  /** The open warehouse's card: a good taken off its list. */
+  unlistStore(kind: CargoKind): void {
+    const d = this.game.economy.depot(this.selectedDepot);
+    if (!d || d.role !== "warehouse") return;
+    this.game.economy.unlistStore(d.id, kind);
     this.refreshDepotCard();
     this.changed();
   }
@@ -5378,4 +5410,11 @@ function shownInTree(o: Object3D | null): boolean {
 function coalesced(e: PointerEvent): readonly PointerEvent[] {
   const list = e.getCoalescedEvents?.();
   return list?.length ? list : [e];
+}
+
+/** A warehouse's store settings as one number, for its card's change check (no allocation: called every frame). */
+function storeKey(d: DepotState): number {
+  let key = STORE_MODES.indexOf(d.others) + 1;
+  for (const m of d.modes) key = key * 5 + (m === null ? 0 : STORE_MODES.indexOf(m) + 1);
+  return key;
 }
