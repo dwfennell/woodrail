@@ -3,8 +3,8 @@
 // Once the forest's crane has loaded logs onto the flatbed, a tap on the train opens its engine card: the summary says
 // "1 car · 40 km/h" and the logs on board, in two lines that fit the card at 360 px, its buttons 44 px or more; it
 // follows the load as it changes, and is set only then (not per frame). A second tap, on the wagon, opens its card with
-// its load ("🌲 Logs: 3 of 3"). Empty: while the train moves the engine card's Empty all is greyed ("Stop the train
-// first") and a tap tips nothing out; stopped, the wagon card's Empty tips its logs out ("Tipped out 3 🌲"), the card
+// its load ("🌲 Logs: 3 of 3"). Empty: the engine card has Empty all beside the load; while the train moves the wagon
+// card's Empty is greyed ("Stop the train first") and a tap tips nothing out; stopped, the wagon card's Empty tips its logs out ("Tipped out 3 🌲"), the card
 // says "Empty" and the button goes.
 //
 // Usage: npm run e2e:train-summary [-- <out dir>]   (default out: e2e-out/train-summary)
@@ -213,22 +213,6 @@ if (!setup.error) {
   check("…its buttons 44 px or more", card.small.length === 0, JSON.stringify(card.small));
   await shot("1-engine-card-loaded");
 
-  // 6. Moving, Empty all is greyed with why, and a tap on it tips nothing out.
-  await p.waitForFunction((e) => window.woodrail.sim.findCar(e)?.train.speed > 0, engine, { timeout: 120000 }).catch(() => {});
-  await p.waitForFunction(() => document.querySelector(".engine-card .empty-all")?.getAttribute("aria-disabled") === "true", null, { timeout: 5000 }).catch(() => {});
-  const greyed = await p.evaluate(
-    ({ engine, wagon }) => {
-      const b = document.querySelector(".engine-card .empty-all");
-      return { moving: window.woodrail.sim.findCar(engine)?.train.speed > 0, hidden: b?.hidden, disabled: b?.getAttribute("aria-disabled"), title: b?.title, count: window.woodrail.economy.cargoOf(wagon).count };
-    },
-    { engine, wagon },
-  );
-  check("moving: Empty all greyed, \"Stop the train first\"", greyed.moving && !greyed.hidden && greyed.disabled === "true" && greyed.title === "Stop the train first", JSON.stringify(greyed));
-  await tapButton(".engine-card .empty-all");
-  await p.waitForTimeout(300);
-  const kept = await p.evaluate((id) => window.woodrail.economy.cargoOf(id).count, wagon);
-  check("…a tap on it tips nothing out", kept === greyed.count && kept > 0, JSON.stringify({ kept, was: greyed.count }));
-
   // 7. A second tap, on the wagon: its own card, with its load. (The engine's card is open: the wagon's framed above
   // it, where a player sees it, not in the middle of the screen, which the card covers.)
   await lookAt(wagon, 420, true);
@@ -255,7 +239,28 @@ if (!setup.error) {
   check("a tap on the wagon opens its card, with its load", wagonCard.open && (wagonCard.count > 0 ? wagonCard.text === `🌲 Logs: ${wagonCard.count} of ${wagonCard.room}` : /^Empty/.test(wagonCard.text ?? "")), JSON.stringify(wagonCard));
   await shot("2-wagon-card");
 
-  // 8. Stopped: the wagon card's Empty tips its logs out, thrown away. The card says "Empty", the button goes, a toast
+  // 8. Moving: the wagon card's Empty is greyed with why, and a tap on it tips nothing out. (The train is set going by
+  // its lever: a harness shortcut, as step 7's stop is; the wagon card has no Go. What's tested is the button.)
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), engine);
+  await p.waitForFunction((e) => window.woodrail.sim.findCar(e)?.train.speed > 0, engine, { timeout: 30000 }).catch(() => {});
+  await p.waitForFunction(() => document.querySelector(".car-card .empty-car")?.getAttribute("aria-disabled") === "true", null, { timeout: 5000 }).catch(() => {});
+  const greyed = await p.evaluate(
+    ({ engine, wagon }) => {
+      const b = document.querySelector(".car-card .empty-car");
+      return { open: window.woodrail.hud.carCardOpen, moving: window.woodrail.sim.findCar(engine)?.train.speed > 0, hidden: b?.hidden, disabled: b?.getAttribute("aria-disabled"), title: b?.title, count: window.woodrail.economy.cargoOf(wagon).count };
+    },
+    { engine, wagon },
+  );
+  check("moving: Empty greyed, \"Stop the train first\"", greyed.open && greyed.moving && !greyed.hidden && greyed.disabled === "true" && greyed.title === "Stop the train first", JSON.stringify(greyed));
+  await tapButton(".car-card .empty-car");
+  await p.waitForTimeout(300);
+  const kept = await p.evaluate((id) => window.woodrail.economy.cargoOf(id).count, wagon);
+  check("…a tap on it tips nothing out", kept === greyed.count && kept > 0, JSON.stringify({ kept, was: greyed.count }));
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 0), engine);
+  await p.waitForFunction((e) => Math.abs(window.woodrail.sim.findCar(e)?.train.speed ?? 1) < 1e-6, engine, { timeout: 30000 }).catch(() => {});
+  await p.waitForFunction(() => document.querySelector(".car-card .empty-car")?.getAttribute("aria-disabled") === null, null, { timeout: 5000 }).catch(() => {});
+
+  // 9. Stopped: the wagon card's Empty tips its logs out, thrown away. The card says "Empty", the button goes, a toast
   // says what went.
   const ready = await p.evaluate(() => {
     const b = document.querySelector(".car-card .empty-car");
