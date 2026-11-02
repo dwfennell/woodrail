@@ -203,7 +203,10 @@ no line there, asks for its moves among them all, so they meet only at passing l
    Trains of one line never contend for points, so a line's own rules are untouched.
 3. **Every wait names its blocker.** Stalls (`stalls.ts`, step 5b) follow a points wait like any other, with sections'
    waits and the sim's (`Sim.heldBy`). A blocker not on the line is a foreign occupant, as today.
-4. **First asked, first served,** but a later request that needs none of the head's locks may go first.
+4. **First asked, first served,** but a later request that needs none of the head's locks may go first. For sections'
+   loops too (2026-11-02, `Sections.firstCome`): a train that has waited 10 s at a loop road's end keeps the loop it
+   waits for from a later ask from another loop road, unless it waits on the asker by way of others or needs the
+   asker's road. A wait that lasts 120 s on a train under way is said stuck (`STARVED_S`).
 5. **No early release:** a lock holds until the last axle clears.
 6. **Nothing breaks a wait** (§16 Q3, step 5b): no train turns back short of the end of the track. A wait that can't end
    (a ring, a line's held train in the way, a parked train) is a stall: the trains stand, and their cards say what to do.

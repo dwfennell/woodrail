@@ -256,6 +256,12 @@ const SHARED: Case[] = [
     checks: { "payoff: each train 40+ stops in 30 min": arrivals(40), "they pass at the loop: never stuck": noStall },
   },
   {
+    // (Two lines round a ring with two loops, Red's two one way, Blue's the other: first come, first served at the loops,
+    // and a loop takes Red's second beside its first when they wait on each other. Red's two stood for good before.)
+    scenario: S.ringLinesBothWays,
+    checks: { "payoff: each train 40+ stops in 30 min": arrivals(40), "nobody kept waiting: never stuck": noStall },
+  },
+  {
     // (Three, one going the other way, one loop: a train too many, as before; said stuck, the fix a loop.)
     scenario: S.ringLineBothWays(true),
     checks: {
@@ -396,18 +402,26 @@ describe("stalls", () => {
 });
 
 /**
- * Known, found on this branch and on its base alike (the same trajectory with following and the circuit room off): two
- * lines round a ring with two loops, Red's two trains one way and Blue's one the other. Red's two follow nobody
- * (`oneWay` false: Blue could meet them head on), and each waits in its loop for a road of the other's loop; Blue, going
- * round non-stop, has a move to that road every time one is asked for (slots have no first-come order), so Red's two
- * stand for good, never said stuck (Blue moves). A fix takes this off (open items in rail-road.md).
+ * Kept waiting by a train going round non-stop (`ringLinesBothWays` with `Sections.fair` off: no first-come order, and a
+ * wait names whichever train it last looked at, as before 2026-11-02). Red's two stand from the start, each wanting the
+ * road Blue's takes every time it comes by; their waits name Blue's, under way, so no ring is seen. Now said stuck all
+ * the same once they've stood `STARVED_S` (stalls.ts), on their cards.
  */
-describe("known: a train going round the other way starves a line's two (slot waits have no order)", () => {
-  it("Red's two stand from the start while Blue's runs; the 60 s check sees it", () => {
-    const r = runScenario(new Layout(), S.ringLinesBothWays);
+describe("a train kept waiting by one going round non-stop is said stuck (fair off, as before)", () => {
+  it("Red's two stand while Blue's runs, and are said stuck in its way after 2 minutes", () => {
+    const scenario: Scenario = {
+      ...S.ringLinesBothWays,
+      seconds: 300,
+      build: (layout) => {
+        const b = S.ringLinesBothWays.build(layout);
+        return { ...b, events: [...(b.events ?? []), { at: 0, do: (run) => void (run.sections.fair = false) }] };
+      },
+    };
+    const r = runScenario(new Layout(), scenario);
     expect(r.arrivals.slice(0, 2)).toEqual([0, 0]);
-    expect(r.arrivals[2]).toBeGreaterThan(60);
-    expect(r.broke.deadlock.count).toBeGreaterThan(0);
+    expect(r.arrivals[2]).toBeGreaterThan(10);
+    expect(r.stalls.why.slice(0, 2)).toEqual(["in-way", "in-way"]);
+    expect(r.stalls.stuck[0] / 120).toBeGreaterThan(100);
   }, 60_000);
 });
 

@@ -552,7 +552,9 @@ export function ringLineBothWays(three: boolean): Scenario {
 /**
  * Two lines on `ringTwoLoops`: Red, two trains going round one way, and Blue, one going round the other way. Blue's
  * could meet Red's head on, so Red's two don't follow each other (`LineInfo.oneWay` false): single-line working, as
- * before. Known: Blue's starves Red's two (harness.test.ts "known: …").
+ * before. Red's two each stand in a loop wanting the other's, and Blue's takes a free road each time it comes by: they
+ * stood for good till first come, first served (`Sections.firstCome`) and a loop taking the second of two trains going
+ * the same way when they wait on each other.
  */
 export const ringLinesBothWays: Scenario = {
   name: "two lines round a ring with two loops: two trains one way, one the other",
