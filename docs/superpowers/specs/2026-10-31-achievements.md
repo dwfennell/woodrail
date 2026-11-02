@@ -21,8 +21,8 @@ How they work and show:
   Signals to unlock a goal").
 - **The goals card** (`src/ui/goals-panel.ts`) is the Journal under the logo. Folded on a phone, it is a chip: "Goals
   16 / 22", a bell for unread news, the current goal's title and a Show me button. Open, it is a bottom sheet with two
-  tabs, Goals (current goal, its progress, what's next) and News. With everything done, the chip reads "All done!" and
-  offers New game.
+  tabs, Goals (current goal, its progress, what's next) and News. With everything done, the chip reads "All done!" and the card
+  says to keep building and collect stickers (See stickers). New game is only in the ☰ menu.
 - A tick is a toast plus a News milestone (`goalsDoneText`, merged with a growth if close in time).
 - Saved as a list of ids under `woodrail.game.goals.v1` (`saveGoals`), apart from the world save.
 - Every goal is reached by the player's path in `src/play/balance.test.ts` (fast part 19/22, long part 22/22).
@@ -113,8 +113,9 @@ All of these read world state or counters we already keep, or one small new coun
 - **When one is earned:** one toast, "🏅 Figure-eight!" (tap opens the Badges tab on it), a News milestone, and the
   chip's dot. Never more than one toast a check (as goals). Achievements never interrupt a goal toast or a growth: they
   queue behind them (`GoalTicks`'s join rule).
-- **On the folded chip, after the core:** "Goals ✓ · 🏅 12 / 38" in place of "All done!". New game moves into the
-  card, below the Goals tab's "All done" line.
+- **On the folded chip, after the core:** "Goals ✓ · 🏅 12 / 38" in place of "All done!". The card's Goals tab says
+  "All goals done! Keep building, and collect stickers." with a See stickers button; no New game there (2026-11-02:
+  the user, "let's not push people to the new game once all goals are done"). New game stays in the ☰ menu.
 
 ## 5. Rewards
 
@@ -185,4 +186,4 @@ AGENTS.md. Achievements aren't in the goals play-through (they're optional), so 
 2. Call them **Stickers**.
 3. Rewards are looks only, no coins.
 4. A few hidden ones, each with a hint.
-5. After the core, New game moves into the card.
+5. After the core, New game moves into the card. (Since 2026-11-02: taken out of the card; only the ☰ menu has it.)

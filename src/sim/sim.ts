@@ -14,6 +14,7 @@ import {
   type WorldSample,
 } from "./cursor";
 import { nearestCursor } from "./nearest";
+import { cleanEngineName, pickEngineName } from "./engine-names";
 
 export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
@@ -420,6 +421,7 @@ export class Sim {
       world: bogies.map(() => createWorldSample()),
     };
     this.trains.set(train.id, train);
+    for (const car of train.cars) if (car.kind === "engine" && !this.names.has(car.id)) this.nameEngine(car.id);
     // Put down straddling a switch on the road its points aren't set for (its front out along a branch, its back on
     // the trunk): the rest follow its road onto the switch, not the points, or the train splits across both roads.
     this.rememberStraddledSwitches(train);
@@ -505,6 +507,36 @@ export class Sim {
 
   lookOf(carId: number): CarLook {
     return this.looks.get(carId) ?? "classic";
+  }
+
+  /** Each engine's name, by car id (given as it's first put down: `pickEngineName`; it follows the car, as looks do). */
+  private readonly names = new Map<number, string>();
+  /** Goes up whenever an engine's name changes (its plate is painted again). */
+  namesVersion = 0;
+
+  /** An engine's name ("" for a car that has none: not an engine, or not on the track). */
+  nameOf(carId: number): string {
+    return this.names.get(carId) ?? "";
+  }
+
+  /** Name an engine (as the player typed it: `cleanEngineName`). False when nothing's left of it, or no such engine. */
+  setName(carId: number, raw: string): boolean {
+    const name = cleanEngineName(raw);
+    const found = this.findCar(carId);
+    if (!name || !found || found.train.cars[found.index].kind !== "engine") return false;
+    if (this.names.get(carId) !== name) {
+      this.names.set(carId, name);
+      this.namesVersion++;
+    }
+    return true;
+  }
+
+  /** Give a new engine a name no other engine on the track has. */
+  private nameEngine(carId: number): void {
+    const taken = new Set<string>();
+    for (const t of this.trains.values()) for (const c of t.cars) if (c.kind === "engine" && c.id !== carId && this.names.has(c.id)) taken.add(this.names.get(c.id)!);
+    this.names.set(carId, pickEngineName(carId, taken));
+    this.namesVersion++;
   }
 
   setLever(carId: number, lever: -1 | 0 | 1): boolean {

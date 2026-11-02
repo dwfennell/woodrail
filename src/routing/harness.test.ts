@@ -252,6 +252,33 @@ const SHARED: Case[] = [
     },
   },
   {
+    // (The user, 2026-11-02: held "too many" before, though they could just follow round.)
+    scenario: S.ringLineOfThree,
+    checks: {
+      "payoff: each train 40+ stops in 30 min": arrivals(40),
+      "they follow each other round, none held for room: never stuck": noStall,
+      "nobody turns back (a ring has no end)": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
+    },
+  },
+  {
+    // (One going the other way could meet the others head on: single-line working stays, they pass at the loop.)
+    scenario: S.ringLineBothWays(false),
+    checks: { "payoff: each train 40+ stops in 30 min": arrivals(40), "they pass at the loop: never stuck": noStall },
+  },
+  {
+    // (Two lines round a ring with two loops, Red's two one way, Blue's the other: first come, first served at the loops,
+    // and a loop takes Red's second beside its first when they wait on each other. Red's two stood for good before.)
+    scenario: S.ringLinesBothWays,
+    checks: { "payoff: each train 40+ stops in 30 min": arrivals(40), "nobody kept waiting: never stuck": noStall },
+  },
+  {
+    // (Three, one going the other way, one loop: a train too many, as before; said stuck, the fix a loop.)
+    scenario: S.ringLineBothWays(true),
+    checks: {
+      "the room rule stays: one held, said stuck too-many": (r) => expect(r.stalls.why.filter((w) => w === "too-many").length).toBeGreaterThan(0),
+    },
+  },
+  {
     scenario: S.twoLinesNoLoop,
     // (No passing place: each stands where it is, waiting for the other's end of the line, stuck in its way; the card
     // says to add a passing loop, engine-status.ts.)
@@ -382,6 +409,30 @@ describe("stalls", () => {
     expect(before).toBe("in-way");
     expect(after).toBeNull();
   });
+});
+
+/**
+ * Kept waiting by a train going round non-stop (`ringLinesBothWays` with `Sections.fair` off: no first-come order, and a
+ * wait names whichever train it last looked at, as before 2026-11-02). Red's two stand from the start, each wanting the
+ * road Blue's takes every time it comes by; their waits name Blue's, under way, so no ring is seen. Now said stuck all
+ * the same once they've stood `STARVED_S` (stalls.ts), on their cards.
+ */
+describe("a train kept waiting by one going round non-stop is said stuck (fair off, as before)", () => {
+  it("Red's two stand while Blue's runs, and are said stuck in its way after 2 minutes", () => {
+    const scenario: Scenario = {
+      ...S.ringLinesBothWays,
+      seconds: 300,
+      build: (layout) => {
+        const b = S.ringLinesBothWays.build(layout);
+        return { ...b, events: [...(b.events ?? []), { at: 0, do: (run) => void (run.sections.fair = false) }] };
+      },
+    };
+    const r = runScenario(new Layout(), scenario);
+    expect(r.arrivals.slice(0, 2)).toEqual([0, 0]);
+    expect(r.arrivals[2]).toBeGreaterThan(10);
+    expect(r.stalls.why.slice(0, 2)).toEqual(["in-way", "in-way"]);
+    expect(r.stalls.stuck[0] / 120).toBeGreaterThan(100);
+  }, 60_000);
 });
 
 describe("every expected failure names a step", () => {

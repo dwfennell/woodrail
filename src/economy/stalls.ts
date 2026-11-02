@@ -16,7 +16,8 @@ import { CHECK_TICKS, type Sections } from "./sections";
  * the router's (points held for another train), or the sim's (`Sim.heldBy`: short of a crossing or switch another is on,
  * close behind it, nose to nose or against its side), or a lineless train's short of one ahead (`Sections.clearWait`).
  * A chain that ends anywhere else (a train under way, one at a stop, a signal held by hand) isn't a stall: it ends on
- * its own, or is the player's. One through a red signal goes on to the train in its block (`heldBy` "signal").
+ * its own, or is the player's. Unless it doesn't: a train that has stood waiting `STARVED_S`, on a train under way, is
+ * stuck "in the way" of that one (kept waiting by trains that come and go). One through a red signal goes on to the train in its block (`heldBy` "signal").
  *
  * Cost: nothing per frame. Every `CHECK_TICKS`, with two or more trains, each standing train's chain is followed (each
  * waits on at most one, so O(trains)). A stall must hold `STUCK_S` before it's said, so ordinary meets never are.
@@ -24,6 +25,11 @@ import { CHECK_TICKS, type Sections } from "./sections";
 
 /** A wait that can't end must hold this long (s) before its trains are said to be stuck. */
 export const STUCK_S = 5;
+/**
+ * A train standing waiting this long (s), though the train it waits for is under way, is said to be stuck too: kept
+ * waiting by trains that come and go (one going round non-stop, taking what it waits for each time it comes by).
+ */
+export const STARVED_S = 120;
 
 /** Why a train is stuck. */
 export type Stuck =
@@ -68,6 +74,8 @@ export class Stalls {
   private stuck = new Map<number, Stuck>();
   /** Trains in a wait that can't end, by engine: since when (tick) it has held, and why. */
   private readonly since = new Map<number, { tick: number; why: Stuck }>();
+  /** Standing trains with a wait, by train id: since when (tick) they have stood waiting, whoever on. */
+  private readonly waiting = new Map<number, number>();
   /** Stalls begun (each a set of trains newly stuck at one check), for tests and the play-through. */
   begun = 0;
   /** Told when trains come to be stuck (once a stall): their engines, and why the first is. */
@@ -133,6 +141,8 @@ export class Stalls {
       if (by !== null && by !== id) on.set(id, by);
     }
     const now = sim.ticks;
+    for (const id of this.waiting.keys()) if (!on.has(id)) this.waiting.delete(id);
+    for (const id of on.keys()) if (!this.waiting.has(id)) this.waiting.set(id, now);
     const found = new Map<number, Stuck>();
     for (const start of on.keys()) {
       const chain: number[] = [];
@@ -164,7 +174,14 @@ export class Stalls {
         }
         x = y;
       }
-      if (why === null) continue;
+      if (why === null) {
+        // (Kept waiting `STARVED_S` on a train under way: stuck in its way all the same.)
+        const by = sim.getTrain(on.get(start)!);
+        const t = sim.getTrain(start)!;
+        const engine = this.lineEngine(t);
+        if (by && engine >= 0 && now - (this.waiting.get(start) ?? now) >= STARVED_S * 120) found.set(engine, { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) });
+        continue;
+      }
       // (A ring with a red signal in it: too many trains for the signals.)
       const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
       for (const id of chain) {

@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
@@ -67,7 +67,11 @@ const trainSchema = z.object({
         facing: z.union([z.literal(1), z.literal(-1)]),
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
         look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
+        /** An engine's name (its plate and card title; optional: older saves' engines are given one as they load). */
+        name: z.string().min(1).max(64).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(MAX_WAGON_CAPACITY) }).optional(),
+        /** Goods a wagon is switched off for on its card (optional: absent, an older save's, it takes all it can carry). */
+        off: z.array(z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]])).max(CARGO_KINDS.length).optional(),
         /** The harbour (economy depot id) its cargo was bought at: not unloaded back there. */
         landedFrom: z.number().int().min(0).optional(),
         /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
@@ -139,6 +143,12 @@ const saveSchema = z.object({
       waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
       /** A harbour's dock sheds. */
       sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
+      /**
+       * A warehouse's listed goods and what it lets trains do with each (`StoreMode`), and with goods not listed
+       * (`others`). Optional: absent (saves from before them, and a warehouse never set), it takes and gives everything.
+       */
+      modes: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.enum(STORE_MODES as [StoreMode, ...StoreMode[]])).optional(),
+      others: z.enum(STORE_MODES as [StoreMode, ...StoreMode[]]).optional(),
       /** Of its piles, what's landed there for trains to take away (a harbour's bought goods), in cargo order. */
       landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_KINDS.length).optional(),
     }),
@@ -194,6 +204,20 @@ const saveSchema = z.object({
 export type SaveData = z.infer<typeof saveSchema>;
 
 /** A depot's landed goods, for its save entry (none: nothing). */
+/** A warehouse's store settings for its save: only what isn't the default (nothing listed, everything taken and given). */
+function storeOf(d: DepotState): { modes?: Partial<Record<CargoKind, StoreMode>>; others?: StoreMode } {
+  const modes: Partial<Record<CargoKind, StoreMode>> = {};
+  let any = false;
+  for (const kind of CARGO_KINDS) {
+    const m = d.modes[CARGO[kind].index];
+    if (m !== null) {
+      modes[kind] = m;
+      any = true;
+    }
+  }
+  return { ...(any ? { modes } : {}), ...(d.others !== "both" ? { others: d.others } : {}) };
+}
+
 function landedOf(world: World, depotId: number): { landed?: number[] } {
   const l = world.economy.landed.get(depotId);
   return l && l.some((n) => n > 0) ? { landed: [...l] } : {};
@@ -254,15 +278,18 @@ export function serializeWorld(world: World): SaveData {
         const riders = world.economy.ridersOf(c.id);
         const look = sim.lookOf(c.id);
         const line = lineSaved.get(c.id);
+        const off = world.economy.carOffKinds(c.id);
         return {
           id: c.id,
           kind: c.kind,
           facing: c.facing,
           lever: c.lever,
           ...(look !== "classic" ? { look } : {}),
+          ...(c.kind === "engine" && sim.nameOf(c.id) ? { name: sim.nameOf(c.id) } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
+          ...(off.length > 0 ? { off } : {}),
           ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: { count: Math.min(riders.count, MAX_RIDERS), from: renumbered.get(riders.from)! } } : {}),
         };
       }),
@@ -283,7 +310,7 @@ export function serializeWorld(world: World): SaveData {
     wyeLevers: 3,
     trains,
     ids: sim.idCounters(),
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...storeOf(d), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
@@ -382,6 +409,9 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   const land = deserializeLandscape(save.landscape);
   if (!land.ok) return err(`invalid save: ${land.error}`);
   const landscape = land.value;
+  // A map saved before the first train's marker, with an engine on it already: its first train ran long ago, somewhere
+  // else, so none is put down (null), rather than one wherever a train happens to run next.
+  if (landscape.firstTrain === undefined && save.trains.some((t) => t.cars.some((c) => c.kind === "engine"))) landscape.firstTrain = null;
   const stations = new Map<number, number>();
   for (const town of landscape.towns) {
     const saved = save.towns.find((t) => t.id === town.id);
@@ -454,6 +484,16 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     state.waitFull = d.waitFull;
     state.takesAll = (d.role === "workshop" || d.role === "school") && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
+    // A warehouse's store settings (older saves have none: it takes and gives everything).
+    if (d.role === "warehouse") {
+      state.others = d.others ?? "both";
+      for (const kind of CARGO_KINDS) state.modes[CARGO[kind].index] = d.modes?.[kind] ?? null;
+    }
+    // An industry giving several goods: which it gives (Gives / Doesn't give; anything else is dropped).
+    if (givesChoice(d.role)) for (const kind of RECIPES[d.role].gives) {
+      const m = d.modes?.[kind];
+      if (m === "both" || m === "off") state.modes[CARGO[kind].index] = m;
+    }
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);
     for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capAt(state), d.piles[CARGO[kind].index] ?? 0) : 0;
@@ -504,6 +544,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       const look = t.cars[i].look;
       if (look && CAR_LOOKS[car.kind].includes(look)) sim.setLook(car.id, look);
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
+      const name = t.cars[i].name;
+      if (car.kind === "engine" && name) sim.setName(car.id, name);
       const on = t.cars[i].line;
       if (car.kind === "engine" && on) {
         joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next, on.via);
@@ -515,6 +557,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
         const from = t.cars[i].landedFrom;
         if (from !== undefined && economy.depot(from)) economy.landedFrom.set(car.id, from);
       }
+      // A wagon's goods switched off on its card (only goods it can carry).
+      for (const kind of t.cars[i].off ?? []) if (canCarry(car.kind, kind)) economy.setCarTakes(car.id, kind, false);
       const riders = t.cars[i].riders;
       if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") economy.setRiders(car.id, riders.count, riders.from);
     });

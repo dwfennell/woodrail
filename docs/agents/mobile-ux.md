@@ -85,6 +85,16 @@ Not in scope: the economy, the sim, or drawing logic, beyond the gestures that s
 - Can't be prevented: iOS Safari's edge swipe and Android's system back gesture belong to the browser or OS. On a top-level page the guard keeps the game there; in an iframe nothing does.
 - Fullscreen: a wide-only top-bar chip (`.fullscreen-btn`, 44 px) and a narrow-only menu item ("Fullscreen" / "Leave fullscreen"), both shown only if `fullscreenAvailable()` (`fullscreenEnabled`, or the webkit one): hidden on iPhone Safari and in an iframe without allow="fullscreen". The claude.ai Artifact iframe has `allow="fullscreen"` and `allowfullscreen` (checked in the viewer), with no `allow-popups`, so "open in its own tab" isn't possible there. Icons follow `fullscreenchange` (Esc too). The canvas resizes through its ResizeObserver: no frames after it settles. e2e: `npm run e2e:click` ("fullscreen, and a sideways wheel" and the touch section).
 
+**The route card (audit docs/design/2026-11-02-route-ux, F1–F7 done; F4's goal and F8–F19 open):**
+- **A picked stop** shows three choices side by side (`.route-modes`: "Drop & pick up", "Only drop", "Only pick up"; the one it does pressed, `aria-pressed`), then the tools row: ← → (move), Wait, **Pass by** (three stops or more: the stop becomes a via point, said in a toast), ✕. Never a button that cycles: the old one's tap after Only pick up quietly made the stop a via. Only drop / Only pick up show on the chip (`.route-intent`, "only ⬇" / "only ⬆").
+- **Chips keep their numbers** (`.route-num`, a ring in the line's colour); the stop the train's heading for has it filled and `aria-current="step"`. ▶ is used nowhere on the card (it meant both "next" and "later").
+- **Leave on a line's last train always asks** ("Forget “Blue line”?" and "Tap again to forget … and its stops"), whatever the line's name.
+- **Framing:** a stop or via added while planning frames the whole route (`frameRoute`: the train, every stop and its disc, every via) only if some of it is out of the room, never closer in than the view was; Done waits two frames for the card's full height, then glides once. Not while following the train.
+- **Via points:** planning with a stop, the hint "Tap places to add stops, or track to go that way"; a dashed "+ via" chip (tapped: "Now tap the track to go by"); via chips numbered when the line has more than one; picking one glides to it if needed and pops its disc (`RouteView.popViaAt`). A planning tap on plain track or ground within 24 px (12 for a mouse) of a place's track on screen takes the place (`Interaction.placeNear`, once a press).
+- **Undo:** every route edit (`routeEdit` in main: editLine, joinLine, stopLine) is one undo step (`Editor.recordRoutes`, a `routes` command; `snapshotLines` / `restoreLines` in lines.ts put back the very line and stop objects). A train that hasn't run on since heads where it did before. Undo works while planning.
+- **Learned Train routes** says "Tap a train, then Plan a route" (`Blueprint.how`), in the "Next:" toast too.
+- e2e: `E2E_ONLY=route-ux npm run e2e:touch` (360×740 by taps, about 6 min) and the desktop block at the end of `npm run e2e:click` (Ctrl+Z, Only drop, Leave).
+
 **Pin hints:** `undoPin` restores PinHint's state and withdraws its toast.
 
 **Names and details** (`src/ui/piece-info.ts`, #10 and #12):

@@ -40,6 +40,8 @@ interface Command {
   props?: boolean;
   /** Changes only signal marks on joints (no track): undo and redo skip the track's work and tell `onSignalsChange`. */
   signals?: boolean;
+  /** Changes only trains' lines and routes (no track): undo and redo skip the track's work and tell `onRoutesChange`. */
+  routes?: boolean;
   /** Changes the land (squares' heights): undo and redo tell `onLandChange` the plots to redraw. */
   land?: () => number[];
   /** Changes only road pieces: done, undone and redone, it tells `onRoadsChange` the plots (and whether trees went). */
@@ -158,6 +160,18 @@ export class Editor {
 
   /** Called after a land edit is undone or redone, with the plots it changed (the editor redraws its own edits). */
   onLandChange: ((slots: number[]) => void) | null = null;
+
+  /** Called after a route edit is undone or redone (instead of `onChange`: no track changed). */
+  onRoutesChange: (() => void) | null = null;
+
+  /**
+   * Record a route edit (lines, stops, which train runs which), already done by the caller, as one undo step: `undo`
+   * puts it back, `redo` makes it again. Nothing is told now (the caller has shown it); undone or redone,
+   * `onRoutesChange`.
+   */
+  recordRoutes(c: { redo(): void; undo(): void }): void {
+    this.push({ do: c.redo, undo: c.undo, routes: true });
+  }
 
   /** Record a land edit, already done (by the caller, who redrew it), as one undo step. `slots` gives its plots. */
   recordLand(c: { do(): void; undo(): void; slots: () => number[] }): void {
@@ -656,7 +670,7 @@ export class Editor {
    * train is on (QA: undoing a line a train had rolled onto derailed it, cargo spilt).
    */
   private step(c: Command, go: () => void, back: () => void): boolean {
-    const track = c.parts ? c.parts.some((p) => !(p.props || p.land || p.roads || p.signals)) : !(c.props || c.land || c.roads || c.signals);
+    const track = c.parts ? c.parts.some((p) => !(p.props || p.land || p.roads || p.signals || p.routes)) : !(c.props || c.land || c.roads || c.signals || c.routes);
     const held = track ? this.held() : null;
     const under = track ? this.underTrains() : null;
     go();
@@ -696,7 +710,7 @@ export class Editor {
    * so no edit, however it's asked for (Delete, Rotate, Flip, a group's), takes track from under a train.
    */
   private run(c: Command): boolean {
-    const track = !(c.props || c.land || c.roads || c.signals);
+    const track = !(c.props || c.land || c.roads || c.signals || c.routes);
     const held = track ? this.held() : null;
     const under = track ? this.underTrains() : null;
     c.do();
@@ -740,6 +754,10 @@ export class Editor {
     }
     if (c.signals) {
       this.onSignalsChange?.();
+      return;
+    }
+    if (c.routes) {
+      this.onRoutesChange?.();
       return;
     }
     this.sim.trackChanged(c.moves ?? []);

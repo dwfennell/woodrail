@@ -98,6 +98,8 @@ export interface Blueprint {
    * rows, and the ending's (the goal to aim for): a key tag a child can never learn is a promise the board can't keep.
    */
   readonly key?: boolean;
+  /** How to start using it, said when it's learned ("Tap a train, then Plan a route"): where it isn't a thing to make. */
+  readonly how?: string;
   /** What it lets you do that isn't a thing to make (train routes), with an icon for the board. */
   readonly feature?: { readonly label: string; readonly icon: string };
   /** What researching it at a school takes (see `ResearchCost`). */
@@ -175,7 +177,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "circus-train", label: "Circus train", branch: "trains", tier: 3, plan: "later", needs: ["circus"], price: { planks: 20, coins: 80 }, blurb: "The circus tours your towns: crowds wherever it stops.", brings: "Circus train" }),
 
   // Logistics
-  row({ id: "routes", label: "Train routes", branch: "logistics", tier: 2, key: true, needs: ["switches"], price: { planks: 5, coins: 40 }, blurb: "Give a train its stops: it sets the switches on its way.", brings: "Routes on the engine card", feature: { label: "Routes on the engine card", icon: "🗺️" } }),
+  row({ id: "routes", label: "Train routes", branch: "logistics", tier: 2, key: true, needs: ["switches"], price: { planks: 5, coins: 40 }, blurb: "Give a train its stops: it sets the switches on its way.", brings: "Routes on the engine card", how: "Tap a train, then Plan a route", feature: { label: "Routes on the engine card", icon: "🗺️" } }),
   row({ id: "warehouses", label: "Warehouses", branch: "logistics", tier: 2, key: true, needs: ["routes"], price: { planks: 8, coins: 80 }, blurb: "Keep goods for later: routed trains drop them off and pick them up.", brings: "Warehouse" }),
   row({ id: "cranes1", label: "Quicker cranes", branch: "logistics", tier: 1, key: true, needs: [], price: { planks: 4 }, blurb: "Every crane moves a load in 0.45 s instead of 0.6 s.", brings: "Faster cranes", feature: { label: "Cranes load in 0.45 s", icon: "🏗️" } }),
   row({ id: "cranes2", label: "Two-arm cranes", branch: "logistics", tier: 2, needs: ["cranes1"], price: { planks: 7, coins: 80 }, requires: [count("loadsMoved", 200)], blurb: "Cranes move a load in 0.3 s.", brings: "A second arm on every crane", feature: { label: "Cranes load in 0.3 s", icon: "🏗️" } }),

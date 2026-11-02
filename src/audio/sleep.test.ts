@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IDLE_SUSPEND_MS, ToyAudio } from "./audio";
+import { GUARD_WHISTLE_GAP_MS, IDLE_SUSPEND_MS, ToyAudio } from "./audio";
 
 /** Any node or param the synth asks for: every method returns another such stub (connect() chains). */
 const stub = (): unknown =>
@@ -117,5 +117,28 @@ describe("the audio context sleeps when nothing's heard (and wakes for the next 
     listeners.pointerdown();
     expect(ctx.resumes).toBe(1);
     expect(ctx.state).toBe("running");
+  });
+
+  it("a station guard's whistle: heard (waking it), not when muted, one per gap", () => {
+    vi.advanceTimersByTime(IDLE_SUSPEND_MS * 2);
+    expect(ctx.state).toBe("suspended");
+    // (Its gap is timed by performance.now: moved on with the fake clock.)
+    const t0 = performance.now();
+    const start = Date.now();
+    vi.spyOn(performance, "now").mockImplementation(() => t0 + Date.now() - start);
+    expect(audio.guardWhistle(0.8, 0)).toBe(true);
+    expect(ctx.state).toBe("running");
+    // Another train off just after: no chorus.
+    vi.advanceTimersByTime(GUARD_WHISTLE_GAP_MS / 2);
+    expect(audio.guardWhistle(0.8, 0)).toBe(false);
+    vi.advanceTimersByTime(GUARD_WHISTLE_GAP_MS);
+    // The sound toggle off: nothing.
+    audio.setMuted(true);
+    expect(audio.guardWhistle(0.8, 0)).toBe(false);
+    audio.setMuted(false);
+    expect(audio.guardWhistle(0.8, 0)).toBe(true);
+    // Far off the camera: too faint to bother.
+    vi.advanceTimersByTime(GUARD_WHISTLE_GAP_MS * 2);
+    expect(audio.guardWhistle(0.02, 0)).toBe(false);
   });
 });

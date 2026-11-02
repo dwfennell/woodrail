@@ -188,6 +188,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (As every card's ✕: a faint wood hover; the Follow camera too, unless it's on.) */
 .engine-card > .close:hover, .engine-card .corner:not(.active):hover { background: rgba(150, 100, 50, 0.1); }
 .engine-card .corner.follow.active { background: #6cbf5c; color: #fff; }
+/* Its title is the engine's name, painted on its cab too: a tap renames it (a little text box in its place, 14 letters). */
+/* (44 px to tap, but no taller in the card than a plain title: its margins give back what its height adds.) */
+.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto; height: 44px; line-height: 20px; max-width: calc(100% - 96px); border-radius: 10px; cursor: text; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.engine-card .engine-name::after { content: "✎"; font-size: 12px; font-weight: 700; color: #a8865e; margin-left: 5px; }
+.engine-card .engine-name:hover, .engine-card .engine-name:focus-visible { background: rgba(150, 100, 50, 0.1); }
+.engine-card .engine-name-input { margin: -12px auto; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid #c9a274; border-radius: 10px; background: #fffaf0; text-align: center; font-family: inherit; font-size: 16px; }
+.engine-card .engine-name-input:focus { outline: none; border-color: #8a5a2c; }
 .engine-status { min-height: 18px; font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; max-width: 260px; margin-top: -4px; }
 /* The train summary: two lines at most (each one line, cut with "…"), so the card's height stays put (#9). */
 .engine-summary { font-size: 13px; font-weight: 700; color: #7a5a3a; text-align: center; max-width: 100%; min-width: 0; align-self: stretch; line-height: 18px; margin-top: -6px; }
@@ -561,7 +568,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes goal-arrive { from { opacity: 0; transform: translateY(14px); } }
 .goals.ticked .goals-count { animation: goal-pop 0.6s ease-out; }
 @keyframes goal-pop { 30% { transform: scale(1.35); background: #8fd08a; } }
-.goals-new { align-self: flex-start; }
+.goals-stickers { align-self: flex-start; }
 @media (prefers-reduced-motion: reduce) { .goal.arrive, .goals.ticked .goals-count { animation: none; } }
 /* The Journal: Goals and News tabs, the unread bell on the chip, and the news list. */
 .goals-pane { display: flex; flex-direction: column; gap: 6px; }
@@ -651,6 +658,30 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 .report-status { font-size: 12.5px; color: #7a5a3c; min-height: 1em; }
 
+/* Report a bug or give feedback (src/ui/feedback-sheet.ts): a phone-first sheet, every target 44 px. */
+.feedback-sheet { gap: 8px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - 146px - max(10px, env(safe-area-inset-bottom))); overflow-y: auto; overscroll-behavior: contain; }
+.feedback-form, .feedback-done { display: flex; flex-direction: column; gap: 8px; }
+.feedback-form[hidden], .feedback-done[hidden] { display: none; }
+.feedback-sheet .feedback-kinds { justify-content: flex-start; gap: 8px; }
+.feedback-sheet .feedback-kind { flex: 1; }
+.feedback-sheet .card-row { flex-wrap: wrap; }
+.feedback-note { min-height: 72px; }
+.feedback-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; font-weight: 700; color: #3a2a1c; cursor: pointer; }
+.feedback-check input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: #5aa35a; }
+.feedback-check.locked { cursor: default; }
+.feedback-check.locked input { opacity: 0.7; }
+.feedback-thumb { height: 40px; width: auto; max-width: 72px; margin-left: auto; border-radius: 6px; box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25); object-fit: cover; }
+.feedback-small { margin: 0; font-size: 12.5px; line-height: 1.3; color: #7a5a3c; }
+.feedback-map + .feedback-small { margin-top: -6px; padding-left: 32px; }
+.feedback-status.error { color: #a3361f; font-weight: 700; }
+.feedback-thanks { margin: 4px 0 0; font-size: 18px; font-weight: 800; text-align: center; color: #2f6b2c; }
+.feedback-done .feedback-small { text-align: center; }
+.feedback-done .card-row { justify-content: center; }
+@media (max-height: 520px) {
+  .feedback-sheet { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); gap: 6px; }
+  .feedback-note { min-height: 52px; }
+}
+
 /* ---- Map view (Game mode): labels over towns and depots, seen from above ------------------------------------- */
 .map-view { position: absolute; inset: 0; pointer-events: none; }
 .map-view > * { pointer-events: auto; }
@@ -731,6 +762,32 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-yard { align-self: stretch; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; text-wrap: balance; }
+/* A warehouse's goods: a row each (name and count over what it's set to; four 44 px choices), "Any other goods", and
+   "+ Add a good" with its picker. The chosen way is green, as any chip that's on. */
+.depot-stock:empty { display: none; }
+/* (Never squeezed: the card scrolls instead, its buttons stay 44 px.) */
+.depot-store { align-self: stretch; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.store-row .chip, .store-add, .car-goods-same { flex-shrink: 0; }
+.depot-store[hidden] { display: none; }
+.store-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 2px solid rgba(176, 122, 68, 0.18); }
+.store-row:first-child { border-top: none; }
+.store-what { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.store-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.store-name { font-size: 14px; font-weight: 800; color: #3a2a1c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.store-sub { font-size: 12px; font-weight: 700; color: #5e4128; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.store-row.closed .store-sub { color: #b0391f; }
+.store-modes { flex: none; display: flex; gap: 4px; }
+.store-modes .store-mode { width: 44px; min-width: 44px; padding: 0; font-size: 16px; letter-spacing: -0.12em; }
+.store-unlist { position: relative; flex: none; width: 22px; height: 22px; padding: 0; border: none; background: transparent; color: #6a4a2c; font: inherit; font-size: 14px; font-weight: 900; cursor: pointer; border-radius: 8px; }
+/* (A 44 px reach round the small ✕.) */
+.store-unlist::after { content: ""; position: absolute; inset: -11px; }
+.store-add { align-self: center; height: 44px; font-size: 15px; }
+.store-pick { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.store-pick .chip { font-size: 15px; padding: 0 10px; }
+/* A wagon's goods on its card (the same rows): its "carries nothing" line, and Same for all wagons like this. */
+.car-goods { min-width: min(320px, 80vw); }
+.car-goods-none { font-size: 13.5px; font-weight: 700; color: #b0391f; text-align: center; }
+.car-goods-same { align-self: center; height: auto; min-height: 44px; padding: 6px 14px; font-size: 15px; white-space: normal; line-height: 1.15; }
 /* A town's card in Game mode: its ledger (src/ui/town-ledger.ts) in place of the piles, above the switches. */
 .depot-card:has(.depot-extra.ledger) > .depot-stock { display: none; }
 .depot-card:has(.depot-extra.ledger) > .card-title { font-size: 20px; font-weight: 900; color: #3a2a1c; }
@@ -1088,6 +1145,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops::-webkit-scrollbar { display: none; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
+/* The stop's number, in a ring of the line's colour; the stop the train's heading for has it filled (audit F7). */
+.route-num { display: inline-block; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 4px; margin-right: 5px; border-radius: 999px; font-size: 12px; font-weight: 900; line-height: 20px; text-align: center; vertical-align: 1px; box-shadow: inset 0 0 0 2px var(--line, #888); }
+.route-chip.next .route-num { background: var(--line, #888); color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7), 0 0 1px rgba(0, 0, 0, 0.9); }
 /* The ▶ come to this stop while the card is open (the train heads here now): a short pop, so the move is seen. */
 .route-chip.next.moved { animation: next-moved 0.7s ease-out; }
 @keyframes next-moved { 0% { transform: scale(1); box-shadow: 0 0 0 0 var(--line, #888); } 35% { transform: scale(1.12); box-shadow: 0 0 0 4px var(--line, #888); } 100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; } }
@@ -1095,20 +1155,26 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A stop's plan under its name: what it picks up (⬆) and drops (⬇), icons only (a tap on the stop says it in words). */
 .route-chip.has-goods { display: inline-block; text-align: left; white-space: nowrap; height: auto; min-height: 44px; line-height: 1.2; padding-block: 4px; }
 .route-goods { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; }
-/* (Its ⬆ and ⬇ say what Only drop or Only pick up does: the chip's own arrow would sit on a line of its own.) */
-.route-chip.has-goods[data-intent]::after { content: none; }
 .route-chip.lost { opacity: 0.55; text-decoration: line-through; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
-.route-chip[data-intent="drop"]::after { content: " ↓"; opacity: 0.7; }
-.route-chip[data-intent="pick"]::after { content: " ↑"; opacity: 0.7; }
+/* Only drop or Only pick up, on the chip beside its name (audit F2: the chip looked the same as one that does both). */
+.route-intent { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 999px; font-size: 11.5px; font-weight: 800; line-height: 1.5; background: rgba(58, 42, 28, 0.12); color: #3a2a1c; vertical-align: 1px; }
+/* What a picked stop does: three choices side by side, the one it does pressed (green, as a toggle that's on). */
+.route-modes { display: flex; gap: 4px; }
+.route-modes .route-mode { flex: 1 1 0; min-width: 0; min-height: 44px; height: auto; padding: 4px 6px; white-space: normal; line-height: 1.15; font-size: 13px; text-align: center; }
+.route-modes .route-mode.on { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(20, 60, 20, 0.3); }
 /* A via point (passed, not stopped at): a lighter chip, "via" and the line's dot. */
 .route-chip.route-via { border-left: none; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 2px var(--line, #888); font-weight: 700; font-size: 13px; padding-inline: 8px; display: inline-flex; align-items: center; }
 .route-via-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--line, #888); box-shadow: inset 0 0 0 3px #fff, 0 0 0 1px var(--line, #888); }
 .route-via-what { align-self: center; white-space: nowrap; }
+/* Planning: "+ via", after the last stop (audit F6): dashed, as something to add; pressed while it waits for a track tap. */
+.route-chip.route-add-via { border-left: none; background: transparent; box-shadow: none; outline: 2px dashed var(--line, #888); outline-offset: -4px; font-weight: 800; font-size: 13px; padding-inline: 10px; }
+.route-chip.route-add-via.on { background: rgba(255, 255, 255, 0.7); outline-style: solid; }
 .route-tools { display: flex; gap: 4px; }
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }
 .route-tools .route-move, .route-tools .route-remove { min-width: 44px; min-height: 44px; }
+.route-tools .route-pass { margin-left: auto; }
 /* Planning a route: the map wants the room. The engine card slims to its route, and the tray goes. */
 .planning .engine-card .card-title, .planning .engine-card .engine-status, .planning .engine-card .engine-controls,
 .planning .engine-card .corner, .planning .engine-card > .close { display: none; }
@@ -1119,7 +1185,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-chip[data-wait]::before { content: "⏳ "; }
 .route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
 /* The stops one row, scrolled sideways if they don't fit (the card stays short); planning, a picked stop's tools compact. */
-.planning .route-tools { flex-wrap: nowrap; }
+.planning .route-tools { flex-wrap: wrap; }
 .route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
 .route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
 .route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
@@ -1168,7 +1234,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A long name ends in "…" rather than wrapping the card's head. */
 .route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
-.route-leave.asking, .goals-new.asking { background: #b0391f; color: #fff; }
+.route-leave.asking { background: #b0391f; color: #fff; }
 .route-join-line:disabled { opacity: 0.45; }
 .route-riders { font-weight: 600; opacity: 0.7; }
 .route-head .route-leave { padding-inline: 10px; }

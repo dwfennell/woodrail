@@ -47,4 +47,26 @@ describe("level crossings view", () => {
     expect(v.group.children.length).toBe(2);
     for (const p of posts) expect(v.group.children).not.toContain(p);
   });
+
+  it("a crossing is listed as closing once, as a train first comes near (not when laid under one standing)", () => {
+    const v = new CrossingsView(mats);
+    const gates = [
+      { x: -44, z: 30, y: 0, dx: 1, dz: 0, ax: 0, az: -1 },
+      { x: 44, z: -30, y: 0, dx: -1, dz: 0, ax: 0, az: 1 },
+    ];
+    v.setCrossings([{ x: 0, z: 0, y: 0, gates }]);
+    v.update(carAt(2000, 0), 0.1);
+    expect(v.closing).toHaveLength(0);
+    v.update(carAt(0, 0), 0.1);
+    expect(v.closing.map((c) => c.x)).toEqual([0]);
+    v.update(carAt(10, 0), 0.1);
+    expect(v.closing).toHaveLength(0);
+    v.update(carAt(2000, 0), 0.1);
+    v.update(carAt(0, 0), 0.1);
+    expect(v.closing).toHaveLength(1);
+    // Laid with a train already on it: no bell.
+    v.setCrossings([{ x: 0, z: 0, y: 0, gates }, { x: 5, z: 0, y: 0, gates }]);
+    v.update(carAt(0, 0), 0.1);
+    expect(v.closing).toHaveLength(0);
+  });
 });

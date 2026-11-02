@@ -4,7 +4,10 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 
+// "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
+process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
 // Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
@@ -1211,7 +1214,9 @@ async function wyeLevers(ctx, p, tapOn) {
 // follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
 // lines' routes kept through track laid at a stop, undo and redo, the stop taken up), blocker (a card's Show and Put
 // it away for an engine left in a line train's way), place-facing (an engine dragged right or left along the track by
-// touch faces that way).)
+// touch faces that way), feedback (☰ Report a bug or give feedback: the sheet, a failed send's Copy instead, a send to
+// a mocked Worker whose map loads as the same railway), route-ux (the route card's UX fixes, F1–F7,
+// by taps at 360 px).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -3802,6 +3807,252 @@ async function routeKeep(ctx, p, tapSel) {
   check("route-keep: Undo brings the sawmill back; both trains run on, both lines delivering logs to the sawmill", after.back && after.run.goods >= 4 && setup.E.every((e) => (after.run.came[e] ?? 0) >= 1) && JSON.stringify(after.lines) === JSON.stringify(lines0), JSON.stringify(after));
 }
 
+/**
+ * The route card's UX fixes (docs/design/2026-11-02-route-ux, F1–F7), by the player's path on a 360×740 phone: an oval
+ * with a forest, a sawmill and a second forest, its train's route planned by taps (its engine, Plan a route, the
+ * places, Done). Checked: the planning hint and "+ via" (F6); the whole route framed above the bar after the third stop
+ * and above the card after Done (F5); Undo enabled while planning, a stop added undone and the train heading where it
+ * did (F1); a tap just beside the sawmill adds it as a stop, not a via point (F6); a via chip picked shows its via on
+ * the map (F6); the stop's three modes side by side, tapped many times, never take the stop off (F2), and Only drop at
+ * the sawmill delivers there and loads nothing; the chips keep their numbers, the next filled, and ← → move a stop
+ * (F7); Pass by makes it a via point, and Undo brings the stop back; Leave asks before it forgets the line, and Undo
+ * brings the line back (F3, F1). (Setup only, not what's tested: the oval and the train put down in code; the run
+ * that delivers is the game's own sim and economy ticks, run ahead of SwiftShader's frames.)
+ */
+async function routeUx(ctx, p) {
+  await p.keyboard.press("Escape");
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const o = S.oval(scratch);
+    const ids = o.ids;
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    if (!g) throw new Error("no open ground for the oval");
+    const types = { 0: "depot-forest", 7: "depot-sawmill", 9: "depot-forest" };
+    const placed = w.editor().placeRun(ids.map((i, k) => {
+      const q = scratch.getPiece(i);
+      return { type: types[k] ?? q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = [depot(placed[0], "forest").id, depot(placed[7], "sawmill").id, depot(placed[9], "forest").id];
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: placed[2], pathIndex: 0, s: 150, reversed: false });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(engine, 0);
+    w.invalidate();
+    // (`track`: a straight clear of the train, which stands on the third piece, and over 100 mm from any place's track.)
+    return { engine, places, pieces: [placed[0], placed[7], placed[9]], track: placed[8] };
+  });
+  const { tapOn, tapButton, still, showing } = mapHelpers(p);
+  await p.setViewportSize({ width: 360, height: 740 });
+  const route = () => p.evaluate((e) => {
+    const w = window.woodrail;
+    const r = w.economy.routeOf(e);
+    return { stops: r?.stops.map((s) => ({ d: s.depotId, a: s.action, via: s.via ?? [] })) ?? [], next: r?.next ?? -1, lines: w.economy.lines.size };
+  }, setup.engine);
+  const texts = (sel) => p.evaluate((sel) => [...document.querySelectorAll(sel)].map((e) => e.textContent), sel);
+  const undoOn = () => p.evaluate(() => !document.querySelector('button[aria-label="Undo (Ctrl+Z)"]').disabled);
+  const tapUndo = async () => {
+    await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
+    await frames(p);
+  };
+  // Every point (each place's middle and its disc, the train, and `extra` pieces) inside the map's room: on screen,
+  // below the top bar and goals, above the card (or the planning bar).
+  const inRoom = (extra = []) => p.evaluate(({ o, extra }) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    const mid = (id) => { const q = w.layout.getPiece(id); return q && new V(q.pose.x + Math.cos(q.pose.heading) * 108, q.y, q.pose.z + Math.sin(q.pose.heading) * 108); };
+    const pts = [...o.pieces.flatMap((id) => [mid(id), mid(id).clone().setY(70)]), ...extra.map(mid)];
+    const t = w.sim.findCar(o.engine).train.world[0];
+    pts.push(new V(t.x, t.y, t.z));
+    const shown = (e) => e && getComputedStyle(e).display !== "none" && getComputedStyle(e).visibility !== "hidden" && e.getBoundingClientRect().height > 0;
+    const top = Math.max(0, ...[...document.querySelectorAll(".hud .actions, .hud .brand, .hud .goals")].filter(shown).map((e) => e.getBoundingClientRect().bottom));
+    const card = document.querySelector(".engine-card");
+    const bottom = shown(card) ? card.getBoundingClientRect().top : innerHeight;
+    const r = w.canvas.getBoundingClientRect();
+    const out = pts.map((v) => { const c = v.clone().project(w.camera); return [Math.round(r.left + ((c.x + 1) / 2) * r.width), Math.round(r.top + ((1 - c.y) / 2) * r.height)]; }).filter(([x, y]) => !(x >= 0 && x <= innerWidth && y >= top && y <= bottom));
+    return { ok: out.length === 0, out, top: Math.round(top), bottom: Math.round(bottom) };
+  }, { o: setup, extra });
+
+  // Planning by taps: the engine, Plan a route, the first forest.
+  await tapOn({ engine: setup.engine });
+  await tapButton(".engine-extra .route-plan");
+  const empty = await texts(".engine-extra .route-hint");
+  check("route-ux: planning, no stops yet: \"Tap stations and depots, in order\"", empty.includes("Tap stations and depots, in order"), JSON.stringify(empty));
+  await tapOn({ depot: setup.places[0] });
+  const one = await p.evaluate(() => ({ hint: document.querySelector(".engine-extra .route-plan-hint")?.textContent, via: document.querySelector(".engine-extra .route-add-via")?.getBoundingClientRect().height ?? 0 }));
+  check("route-ux (F6): with a stop, the hint says track goes that way, and a \"+ via\" chip 44 px or more", one.hint === "Tap places to add stops, or track to go that way" && one.via >= 44, JSON.stringify(one));
+  await tapOn({ depot: setup.places[1] });
+  const two = await route();
+  // F5: the view close in on the second forest, then it's tapped: the whole route is framed above the bar.
+  await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id).pose;
+    w.director.glideTo(new w.controls.target.constructor(q.x + Math.cos(q.heading) * 108, 0, q.z + Math.sin(q.heading) * 108), 380, { duration: 0.2 });
+  }, setup.pieces[2]);
+  await still();
+  const closeIn = await inRoom();
+  const third = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id);
+    const c = new w.camera.position.constructor(q.pose.x + Math.cos(q.pose.heading) * 108, q.y, q.pose.z + Math.sin(q.pose.heading) * 108).project(w.camera);
+    return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
+  }, setup.pieces[2]);
+  await tapped(p, () => p.touchscreen.tap(third[0], third[1]));
+  await frames(p);
+  await still();
+  const framed = await inRoom();
+  const three = await route();
+  check("route-ux (F5): close in on the third place and tapped, the whole route is framed above the planning bar", !closeIn.ok && three.stops.length === 3 && framed.ok, JSON.stringify({ closeIn, framed, stops: three.stops.length }));
+  // F1: Undo while planning takes the stop off, and the train heads where it did.
+  check("route-ux (F1): Undo is enabled while planning", await undoOn());
+  await tapUndo();
+  const undone = await route();
+  check("route-ux (F1): Undo after adding a stop puts the route back, the train heading where it did", undone.stops.length === 2 && JSON.stringify(undone) === JSON.stringify(two), JSON.stringify({ undone, two }));
+  await tapOn({ depot: setup.places[2] });
+  await still();
+  check("route-ux: the third stop tapped again", (await route()).stops.length === 3);
+  // F6: a tap on the track just past the sawmill's end (about 20 mm on) adds the sawmill, not a via point there. (The
+  // view only panned there, not tapped: a tap would add it.)
+  await showing({ depot: setup.places[1] });
+  const beside = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id);
+    const c = new w.camera.position.constructor(q.pose.x + Math.cos(q.pose.heading) * 236, q.y, q.pose.z + Math.sin(q.pose.heading) * 236).project(w.camera);
+    return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
+  }, setup.pieces[1]);
+  await tapped(p, () => p.touchscreen.tap(beside[0], beside[1]));
+  await frames(p);
+  const stray = await route();
+  check("route-ux (F6): a tap on the track just beside the sawmill adds the sawmill as a stop, not a via point", stray.stops.length === 4 && stray.stops[3].d === setup.places[1] && stray.stops.every((s) => s.via.length === 0), JSON.stringify(stray));
+  await tapUndo();
+  check("route-ux (F1): …and Undo takes it off again", (await route()).stops.length === 3);
+  // F6: "+ via", then a tap on the track: a via point.
+  await tapButton(".engine-extra .route-add-via");
+  const asked = await p.evaluate(() => ({ hint: document.querySelector(".engine-extra .route-plan-hint")?.textContent, on: document.querySelector(".engine-extra .route-add-via")?.getAttribute("aria-pressed") }));
+  check("route-ux (F6): \"+ via\" tapped: \"Now tap the track to go by\"", asked.hint === "Now tap the track to go by" && asked.on === "true", JSON.stringify(asked));
+  await tapOn({ piece: setup.track });
+  const withVia = await route();
+  check("route-ux (F6): the track tapped: a via point after the last stop", withVia.stops[2].via.includes(setup.track), JSON.stringify(withVia));
+  // F6: its chip picked with the view elsewhere: the view goes to it.
+  await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id).pose;
+    w.director.glideTo(new w.controls.target.constructor(q.x + Math.cos(q.heading) * 108, 0, q.z + Math.sin(q.heading) * 108), 300, { duration: 0.2 });
+  }, setup.pieces[1]);
+  await still();
+  const viaOff = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id).pose;
+    const c = new w.camera.position.constructor(q.x + Math.cos(q.heading) * 108, 0, q.z + Math.sin(q.heading) * 108).project(w.camera);
+    const y = ((1 - c.y) / 2) * innerHeight;
+    const bar = document.querySelector(".engine-card").getBoundingClientRect().top;
+    return !(c.x > -1 && c.x < 1 && y > 0 && y < bar);
+  }, setup.track);
+  await tapButton(".engine-extra .route-via");
+  await frames(p);
+  await still();
+  const viaShown = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id).pose;
+    const c = new w.camera.position.constructor(q.x + Math.cos(q.heading) * 108, 0, q.z + Math.sin(q.heading) * 108).project(w.camera);
+    const y = ((1 - c.y) / 2) * innerHeight;
+    const bar = document.querySelector(".engine-card").getBoundingClientRect().top;
+    return { on: c.x > -1 && c.x < 1 && y > 0 && y < bar, picked: !!document.querySelector(".engine-extra .route-via.picked") };
+  }, setup.track);
+  check("route-ux (F6): a via chip picked with its via off screen: the view goes to it", viaOff && viaShown.on && viaShown.picked, JSON.stringify({ viaOff, ...viaShown }));
+  // The via off again (its ✕): the route the delivery check runs.
+  await tapButton(".engine-extra .route-tools .route-remove");
+  // F5: Done, the card back at full height: the route shown above it.
+  await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id).pose;
+    w.director.glideTo(new w.controls.target.constructor(q.x, 0, q.z), 380, { duration: 0.2 });
+  }, setup.pieces[2]);
+  await still();
+  await tapButton(".engine-extra .route-plan.on");
+  await frames(p);
+  await p.waitForTimeout(300);
+  await still();
+  const done = await inRoom();
+  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ux-done.png` });
+  check("route-ux (F5): after Done, the whole route shows above the card", done.ok && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify(done));
+
+  // F7: the chips keep their numbers; the next stop's filled; no ▶ anywhere on the card.
+  const chips = await p.evaluate(() => ({
+    nums: [...document.querySelectorAll(".engine-extra .route-chip .route-num")].map((e) => e.textContent),
+    next: [...document.querySelectorAll(".engine-extra .route-chip.next")].map((e) => e.getAttribute("aria-current")),
+    arrows: document.querySelector(".engine-extra").textContent.includes("▶"),
+  }));
+  check("route-ux (F7): the chips show 1 2 3, the next one marked (aria-current), no ▶", JSON.stringify(chips.nums) === '["1","2","3"]' && chips.next.length === 1 && chips.next[0] === "step" && !chips.arrows, JSON.stringify(chips));
+  // F2: the sawmill's chip: three choices side by side, a finger's size, inside the card at 360 px.
+  await tapButton('.engine-extra .route-chip[data-stop="1"]');
+  const modes = await p.evaluate(() => {
+    const card = document.querySelector(".engine-card").getBoundingClientRect();
+    return {
+      modes: [...document.querySelectorAll(".engine-extra .route-modes .route-mode")].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent, on: b.getAttribute("aria-pressed"), h: Math.round(r.height), w: Math.round(r.width), inside: r.left >= card.left && r.right <= card.right + 0.5, clipped: b.scrollWidth > b.clientWidth + 1 }; }),
+      moves: [...document.querySelectorAll(".engine-extra .route-move")].map((b) => b.textContent),
+      pass: !!document.querySelector(".engine-extra .route-pass"),
+    };
+  });
+  check("route-ux (F2): a stop picked shows Drop & pick up · Only drop · Only pick up (the first pressed), 44 px or more, inside the card at 360 px, unclipped, and Pass by on its own", JSON.stringify(modes.modes.map((m) => m.t)) === '["Drop & pick up","Only drop","Only pick up"]' && modes.modes[0].on === "true" && modes.modes.every((m) => m.h >= 44 && m.w >= 44 && m.inside && !m.clipped) && modes.pass, JSON.stringify(modes));
+  check("route-ux (F7): its moves are ← and →", modes.moves.length === 2 && modes.moves.every((m) => m === "←" || m === "→"), JSON.stringify(modes.moves));
+  // Tapped many times, round and round: the stop never leaves the route.
+  for (const m of ["pick", "pick", "drop", "auto", "pick", "pick", "drop", "drop"]) await tapButton(`.engine-extra .route-mode[data-mode="${m}"]`);
+  const after = await route();
+  const tag = await texts('.engine-extra .route-chip[data-stop="1"] .route-intent');
+  check("route-ux (F2): the mode tapped many times never takes the stop off (3 stops, no via points); Only drop says \"only ⬇\" on its chip", after.stops.length === 3 && after.stops.every((s) => s.via.length === 0) && after.stops[1].a === "drop" && JSON.stringify(tag) === '["only ⬇"]', JSON.stringify({ after, tag }));
+  // The payoff: Only drop at the sawmill delivers logs there and loads nothing there.
+  await p.keyboard.press("Escape");
+  const run = await p.evaluate(async (o) => {
+    const w = window.woodrail;
+    const { PILE_CAP } = await import("/src/economy/constants.ts");
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    w.sim.setLever(o.engine, 1);
+    let dropped = 0;
+    let loaded = 0;
+    for (let i = 0; i < 240 * 120; i++) {
+      if (i % 120 === 0) for (const d of w.economy.allDepots()) if (d.role === "forest") d.piles[CARGO.log.index] = PILE_CAP;
+      w.sim.tick();
+      w.economy.tick();
+      for (const ev of w.economy.drainEvents()) {
+        if (ev.depotId !== o.places[1]) continue;
+        if (ev.kind === "unloaded") dropped++;
+        if (ev.kind === "loaded") loaded++;
+      }
+    }
+    w.sim.setLever(o.engine, 0);
+    for (let i = 0; i < 20 * 120; i++) (w.sim.tick(), w.economy.tick(), w.economy.drainEvents());
+    w.invalidate();
+    return { dropped, loaded };
+  }, setup);
+  check("route-ux (F2): Only drop at the sawmill: logs delivered there, nothing loaded there", run.dropped >= 2 && run.loaded === 0, JSON.stringify(run));
+  // Pass by, on its own button: the sawmill becomes a via point (said); Undo brings the stop back as it was.
+  await tapOn({ engine: setup.engine });
+  await tapButton('.engine-extra .route-chip[data-stop="1"]');
+  await tapButton(".engine-extra .route-pass");
+  const passed = await route();
+  check("route-ux (F2): Pass by makes the sawmill a via point on the way", passed.stops.length === 2 && passed.stops[0].via.includes(setup.pieces[1]), JSON.stringify(passed));
+  await tapUndo();
+  const back = await route();
+  check("route-ux (F1): Undo brings the sawmill back as a stop, Only drop", back.stops.length === 3 && back.stops[1].d === setup.places[1] && back.stops[1].a === "drop" && back.stops.every((s) => s.via.length === 0), JSON.stringify(back));
+  // F3: Leave asks first (a default-named line too); the second tap forgets it; Undo brings it back.
+  await tapButton(".engine-extra .route-leave");
+  const ask = await p.evaluate(() => ({ text: document.querySelector(".engine-extra .route-leave")?.textContent, asking: document.querySelector(".engine-extra .route-leave")?.classList.contains("asking"), says: document.querySelector(".engine-extra .route-leave-ask")?.textContent }));
+  const still1 = await route();
+  check("route-ux (F3): Leave on the line's only train asks first (\"Forget …?\"), the line kept", /^Forget “.+ line”\?$/.test(ask.text ?? "") && ask.asking && /^Tap again to forget .+ line and its stops$/.test(ask.says ?? "") && still1.stops.length === 3 && still1.lines === 1, JSON.stringify({ ask, still1 }));
+  await tapButton(".engine-extra .route-leave.asking");
+  const gone = await route();
+  check("route-ux (F3): the second tap forgets it", gone.stops.length === 0 && gone.lines === 0, JSON.stringify(gone));
+  await tapUndo();
+  const restored = await route();
+  check("route-ux (F1): Undo brings the line back, its three stops and the train on it", restored.lines === 1 && restored.stops.length === 3 && restored.stops[1].a === "drop", JSON.stringify(restored));
+  await p.keyboard.press("Escape");
+  await p.setViewportSize({ width: 390, height: 844 });
+}
+
 async function runMode(mode) {
   const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -3875,7 +4126,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

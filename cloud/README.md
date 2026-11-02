@@ -11,6 +11,9 @@ on another device. The game's side of it is `src/persist/cloud.ts`, and its card
 | `GET /v1/saves/:mode` | Returns the bundle. With `?prev=1`, returns the one before it. |
 | `HEAD /v1/saves/:mode` | Returns the headers only: what's there, without the bytes. |
 | `POST /v1/stats` | Anonymous play stats from players who said yes, into Analytics Engine (see `docs/stats.md`). Any origin. |
+| `POST /feedback` | "Report a bug or give feedback": stored under `feedback/<id>/`, and a GitHub issue opened if `GITHUB_TOKEN` is set (see `docs/feedback.md`). |
+| `GET /feedback/:id`, `/map`, `/shot.jpg` | A report, its map, its picture (the id is unguessable). |
+| `GET /feedback` | The latest reports, with `Authorization: Bearer <ADMIN_KEY>`. |
 
 - `:mode` is `sandbox` or `game`.
 - **The sync code** goes in the `X-Woodrail-Code` header, never in the URL, so it stays out of logs. It's three words
@@ -77,7 +80,10 @@ Nothing deploys the Worker from CI. These are the steps to run once:
    the game shows Cloud save in the menu. While the variable is unset, the game has no Cloud save. The claude.ai
    artifact build (`npm run build:artifact`) never has it. The same variable turns on play stats ("Help improve
    Woodrail", `docs/stats.md`) in the Pages build and in itch releases.
-7. Check the stats endpoint. This should print `204`, and a minute or so later `npm run stats` (with an API token
+7. Feedback (optional; see `docs/feedback.md` for the token): `npx wrangler secret put GITHUB_TOKEN` (a fine-grained
+   token, Issues: Read and write on `dwfennell/woodrail` only) and `npx wrangler secret put ADMIN_KEY`, then deploy
+   again. Without them, reports are stored and nothing more.
+8. Check the stats endpoint. This should print `204`, and a minute or so later `npm run stats` (with an API token
    that has Account Analytics: Read) shows one `start` from a `local` host. If the deploy said Analytics Engine isn't
    enabled, turn it on at dash.cloudflare.com → Workers & Pages → Analytics Engine, and deploy again.
    ```sh
