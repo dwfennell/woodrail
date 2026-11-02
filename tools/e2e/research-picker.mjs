@@ -72,6 +72,24 @@ const tap = async (selector, text) => {
   await p.waitForTimeout(400);
   return true;
 };
+/**
+ * Open the picker with the pill, or close it with its ✕, and wait till it is: a tap lost to a long task (seconds, under
+ * SwiftShader) is tried again, so the next tap doesn't toggle the picker the wrong way. (The pill toggles it.)
+ */
+const board = async (open) => {
+  const is = () => p.evaluate(() => !!document.querySelector(".board-open"));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if ((await is()) === open) return true;
+    if (!(await tap(open ? ".research-pill" : ".board-head .close"))) return false;
+    const done = await p
+      .waitForFunction((o) => !!document.querySelector(".board-open") === o, open, { timeout: 5000, polling: 200 })
+      .then(() => true)
+      .catch(() => false);
+    if (done) return true;
+  }
+  console.log(`(board: not ${open ? "open" : "closed"} after 3 taps)`);
+  return false;
+};
 const pill = () => p.evaluate(() => {
   const el = document.querySelector(".research-pill");
   return el && !el.hidden ? `📘 ${el.querySelector(".rp-name").textContent} ${el.querySelector(".rp-count").textContent}` : null;
@@ -162,9 +180,9 @@ let t = await ticket();
 check("Show me opens the picker on Switches, Research ringed for the goal", t?.name === "Switches" && t.buttons.length === 1 && t.buttons[0].text === "Research" && t.buttons[0].goal && t.buttons[0].h >= 44, JSON.stringify(t));
 check("…and nothing is picked", (await p.evaluate(() => window.woodrail.progress().research.current)) === null);
 await shot("02-show-me-opens-switches");
-await tap(".board-head .close");
+await board(false);
 // The pill opens it on the goal's research too (the school is idle).
-await tap(".research-pill");
+await board(true);
 t = await ticket();
 check("the pill opens the picker on the goal's research while the school is idle", t?.name === "Switches", JSON.stringify(t));
 await shot("03-ready-card");
@@ -208,7 +226,7 @@ const swapped = await p.evaluate(() => ({ ...window.woodrail.progress().research
 check("Research now swaps the two, the rest of the queue kept", swapped.current === "bridges" && swapped.next === "switches" && JSON.stringify(swapped.later) === `["farming"]`, JSON.stringify(swapped));
 await select("Switches");
 await tap(".board-sheet button[data-act=now]", "Research now");
-await tap(".board-head .close");
+await board(false);
 
 // 5. Deliveries move the pill (planks into the school, as a train's crane brings them).
 const deliver = (n) =>
@@ -253,14 +271,14 @@ const saved = await p
   .catch(() => p.evaluate(() => JSON.parse(localStorage.getItem("woodrail.game.progress.v1") ?? "null")?.research ?? null));
 check("…saved with its queue", saved?.current === "bridges" && saved?.next === "farming", JSON.stringify(saved));
 // (Farming out again: the rest of the run checks one up next at a time.)
-await tap(".research-pill");
+await board(true);
 await select("Farming");
 await tap(".board-sheet button[data-act=pick]", "✕ Remove");
 check("…Farming removed with a tap", JSON.stringify(await queued()) === JSON.stringify(["bridges"]), JSON.stringify(await queued()));
-await tap(".board-head .close");
+await board(false);
 
 // 6. Every card state's ticket: learned, researching, next (with its coins short), ready, locked, soon.
-await tap(".research-pill");
+await board(true);
 await select("Train routes");
 await tap(".board-sheet button[data-act=pick]", "Add to queue");
 const states = {};
@@ -351,7 +369,7 @@ const rebuilt = await p.evaluate(async () => {
 });
 check("open, coins and loads coming in: the picker isn't rebuilt", rebuilt.web === 0 && rebuilt.sheet === 0, JSON.stringify(rebuilt));
 await shot("10-picker-web");
-await tap(".board-head .close");
+await board(false);
 
 // 6b. Nothing under way, the one up next waiting for coins: the pill shows it, and a tap opens the picker on it, not on
 // the goal's research nor the card shown last (QA P5: "…10/40🪙" opened on another research).
@@ -370,14 +388,14 @@ await p.evaluate(() => {
 });
 await p.waitForTimeout(700);
 check("nothing under way, Train routes waiting for coins: the pill shows them", (await pill()) === "📘 Train routes 🪙10/40", String(await pill()));
-await tap(".research-pill");
+await board(true);
 await select("Signals");
-await tap(".board-head .close");
-await tap(".research-pill");
+await board(false);
+await board(true);
 t = await ticket();
 check("…and a tap on it opens the picker on Train routes", t?.name === "Train routes" && t.state === "next", JSON.stringify(t));
 await shot("10a-pill-waiting-for-coins");
-await tap(".board-head .close");
+await board(false);
 await p.evaluate(() => {
   const w = window.woodrail;
   const pr = w.progress();
