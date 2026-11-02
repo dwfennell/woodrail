@@ -3765,7 +3765,9 @@ async function routeUx(ctx, p) {
       const w = window.woodrail;
       const mids = o.pieces.map((id) => w.layout.getPiece(id).pose);
       const c = new w.camera.position.constructor(mids.reduce((a, q) => a + q.x, 0) / mids.length, 0, mids.reduce((a, q) => a + q.z, 0) / mids.length).project(w.camera);
-      return { following: w.following, distance: Math.round(w.camera.position.distanceTo(w.controls.target)), max: Math.round(w.controls.maxDistance), middleY: Math.round(((1 - c.y) / 2) * innerHeight) };
+      const room = w.director.roomOf?.();
+      const cards = [...document.querySelectorAll(".hud .card, .hud .tray")].filter((e) => e.getBoundingClientRect().height > 0).map((e) => { const r = e.getBoundingClientRect(); return `${e.className.split(" ").slice(0, 2).join(".")}@${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`; });
+      return { following: w.following, distance: Math.round(w.camera.position.distanceTo(w.controls.target)), max: Math.round(w.controls.maxDistance), middleY: Math.round(((1 - c.y) / 2) * innerHeight), room: room && [room.left, room.top, room.right, room.bottom].map(Math.round), cards };
     }, setup)),
   };
   if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ux-done.png` });
@@ -4012,10 +4014,14 @@ async function routeUxMore(ctx, p) {
   const after = await runs();
   check("route-ux-more (B6): the road its line ran by taken up, the card says it goes another way now (and it does)", gone && said === "Goes another way now: the track changed" && !after.includes(road) && after.length > 0, JSON.stringify({ road, gone, said, before: before.length, after: after.length }));
   await p.waitForFunction(() => !document.querySelector(".engine-extra .route-way-changed"), null, { timeout: 30000 }).catch(() => {});
+  // (Counted paused: other trains on the shared Sandbox map may still be running. The flash runs on real time.)
+  await p.evaluate(() => (window.woodrail.paused = true));
   await frames(p);
+  await p.waitForTimeout(300);
   const fA = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.waitForTimeout(1500);
   const fB = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.evaluate(() => (window.woodrail.paused = false));
   check("route-ux-more (B6): the note goes after a few seconds, and the flash ends (no frames after)", !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-way-changed"))) && fB - fA <= 1 && fA > f0, JSON.stringify({ f0, fA, fB }));
   await p.keyboard.press("Escape");
 }
