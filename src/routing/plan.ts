@@ -324,11 +324,12 @@ export function sticks(kept: number, best: number): boolean {
  * stickiness keeps. Written only by the router as it sets its trains' way (deterministic: sim-driven, nothing per frame);
  * sections and the drawn line read it, so the map, the card and the train agree.
  *
- * Each kept way carries what it cost when taken: after a track edit it's kept while it still costs no more than that
- * (its old way is still there, however much shorter a new one is), so a route keeps its way across edits (the user,
- * 2026-11-02: "more predictable if it tries to follow the route … also across those kinds of changes"); only a leg
- * the edit made dearer (a road on it cut) is planned again. And per target, the pieces the line's walks have run toward
- * it (its trail): at points it has no way kept for (points laid since, as a shortcut's), the option back onto its trail.
+ * Each kept way carries what it cost when taken, and what the best cost then: after a track edit it's kept while it
+ * still costs no more than that (its old way is still there), so a route keeps its way across edits (the user,
+ * 2026-11-02: "more predictable if it tries to follow the route … also across those kinds of changes"), unless the edit
+ * made a way that clearly saves on it (`clearlyBetter`: a shortcut). A leg the edit made dearer (a road on it cut) is
+ * planned again. And per target, the pieces the line's walks have run toward it (its trail): at points it has no way
+ * kept for (points laid since), the option back onto its trail, unless the best way on clearly saves on it.
  */
 export class WayMemory {
   private readonly kept = new Map<number, Map<number, { at: Map<number, KeptWay>; trail: Set<number>; pieces: Set<number>; note?: { ran(pieceId: number, entry: number): void } }>>();
@@ -343,9 +344,9 @@ export class WayMemory {
     if (!t) byTarget.set(target, (t = { at: new Map(), trail: new Set(), pieces: new Set() }));
     return t;
   }
-  /** The line took `option` at these points toward `target`, costing `cost` (mm) to get there by it. */
-  set(owner: number, pieceId: number, entry: number, target: number, option: number, cost = NaN): void {
-    this.of_(owner, target).at.set(pieceId * MAX_CONNECTORS + entry, { option, cost });
+  /** The line took `option` at these points toward `target`, costing `cost` (mm) to get there by it, the best `best`. */
+  set(owner: number, pieceId: number, entry: number, target: number, option: number, cost = NaN, best = NaN): void {
+    this.of_(owner, target).at.set(pieceId * MAX_CONNECTORS + entry, { option, cost, best });
   }
   /** Its walk toward `target` ran onto this piece by `entry` (its trail). */
   ran(owner: number, pieceId: number, entry: number, target: number): void {
@@ -366,10 +367,11 @@ export class WayMemory {
   }
 }
 
-/** The option a line last took at points toward a target, and what it cost then (mm; NaN: not known). */
+/** The option a line last took at points toward a target, what it cost then and what the best cost then (mm; NaN: not known). */
 export interface KeptWay {
   option: number;
   cost: number;
+  best?: number;
 }
 
 /**
@@ -389,12 +391,29 @@ export type KeepTest = (pieceId: number, entry: number, target: number) => Keep 
 const KEPT_SAME = 0.5;
 
 /**
+ * A way laid since that saves this share of a kept way's cost, or `SHORTCUT_MM` (about a train's length: an engine and
+ * two wagons are 280 mm), is clearly better: a route takes it (the user, 2026-11-02: "allow shortcuts to improve
+ * routing, that's one case where predictability isn't everything"). Smaller gains don't flip a route.
+ */
+export const SHORTCUT = 0.2;
+export const SHORTCUT_MM = 300;
+
+/** Does a way costing `best` clearly save on one costing `kept` (`SHORTCUT`, `SHORTCUT_MM`)? */
+export function clearlyBetter(best: number, kept: number): boolean {
+  if (!Number.isFinite(best)) return false;
+  if (!Number.isFinite(kept)) return true;
+  const gain = kept - best;
+  return gain >= kept * SHORTCUT || gain >= (ROUTE_FORWARD ? SHORTCUT_MM : 1);
+}
+
+/**
  * The plan's choice at points (`pieceId`, come in by `entry`, `ways` out from `waysFrom` with the same `pinned`): the
  * option whose way to `target` costs least (`ROUTE_COSTS`: in mm since step 6), the earlier on a tie; −1 if none reaches it.
  * `keep` (stickiness): the option the line last took here (a number: that option, cost not known) is kept while it costs
- * nearly the best (`sticks`), or no more than when it was taken (its way is still there: a track edit since made another
- * way shorter). With no way kept here and these points nowhere on the line's trail (points laid since), the cheapest option
- * that runs back onto its trail, if any reaches the target. The one choice at points for everything that decides (the
+ * nearly the best (`sticks`), or no more than when it was taken (its way is still there) unless a track edit since made
+ * a way that clearly saves on it (`clearlyBetter`). With no way kept here and these points nowhere on the line's trail
+ * (points laid since), the cheapest option that runs back onto its trail, if any reaches the target, unless the best
+ * clearly saves on it. The one choice at points for everything that decides (the
  * router, sections, the drawn line). Cached per layout by the track, the pins and the decks (a throw of unpinned points
  * changes nothing a plan sees); a caller's own `pinned` test isn't cached. `out.cost`: what the choice costs.
  */
@@ -406,7 +425,7 @@ export function planWay(
   target: number,
   pinned?: PinnedTest,
   keep?: Keep | number,
-  out?: { cost: number },
+  out?: { cost: number; best?: number },
 ): number {
   let best: number;
   let costs: number[];
@@ -432,7 +451,10 @@ export function planWay(
     const k = typeof keep === "number" ? { option: keep, cost: NaN } : keep.way;
     if (k) {
       const kc = costs[k.option];
-      if (k.option !== best && ways.some((w) => w.option === k.option) && Number.isFinite(kc) && (kc <= k.cost + KEPT_SAME || sticks(kc, costs[best]))) choice = k.option;
+      // (Still there, no dearer than when taken; and unless a track edit since made a way that clearly saves on it.)
+      const edited = k.best !== undefined && costs[best] < k.best - KEPT_SAME;
+      const still = kc <= k.cost + KEPT_SAME && !(edited && clearlyBetter(costs[best], kc));
+      if (k.option !== best && ways.some((w) => w.option === k.option) && Number.isFinite(kc) && (still || sticks(kc, costs[best]))) choice = k.option;
     } else if (typeof keep !== "number" && keep.trail && keep.trail.size > 0 && !keep.pieces?.has(pieceId)) {
       let on = -1;
       for (const w of ways) {
@@ -441,10 +463,14 @@ export function planWay(
         const n = next(layout, pieceId, w.exit);
         if (n && keep.trail.has(n.pieceId * MAX_CONNECTORS + n.entry)) on = w.option;
       }
-      if (on !== -1) choice = on;
+      // (Back onto its trail, unless the best way on from these new points clearly saves on it.)
+      if (on !== -1 && !clearlyBetter(costs[best], costs[on])) choice = on;
     }
   }
-  if (out) out.cost = choice === -1 ? Infinity : costs[choice];
+  if (out) {
+    out.cost = choice === -1 ? Infinity : costs[choice];
+    out.best = best === -1 ? Infinity : costs[best];
+  }
   return choice;
 }
 

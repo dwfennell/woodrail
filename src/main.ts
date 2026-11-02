@@ -3619,6 +3619,26 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       routeView.show(ribbons, [...discs.values()], gaps);
       // A stop just added pops in; the next stop pulses when it becomes the next (or the card opens).
       const now = performance.now() / 1000;
+      // (A track edit changed its way round: the new stretch lit up a moment, and, shorter, a toast once an edit.)
+      const lap = new Set<number>();
+      let lapMm = 0;
+      for (const leg of legs) for (const run of leg ?? []) {
+        lap.add(run.pieceId);
+        lapMm += Math.abs(run.s1 - run.s0);
+      }
+      const stopsNow = line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",");
+      const was = lapFor;
+      lapFor = { carId, track: game.trackVersion, stops: stopsNow, pieces: lap, mm: lapMm };
+      if (was.carId === carId && was.track !== game.trackVersion && was.stops === stopsNow && was.pieces.size > 0 && !legs.includes(null)) {
+        const changed = legs.flatMap((leg) => (leg ?? []).filter((run) => !was.pieces.has(run.pieceId)));
+        if (changed.length > 0) {
+          routeView.highlight(changed, now, !matchMedia("(prefers-reduced-motion: reduce)").matches);
+          if (lapMm < was.mm - 1 && toldShortcut !== game.trackVersion) {
+            toldShortcut = game.trackVersion;
+            hud.toast(`${line.name} line found a shortcut`);
+          }
+        }
+      }
       const stopsKey = line.stops.map((st) => st.depotId).join(",");
       if (ribbonFor.carId === carId && stopsKey.startsWith(ribbonFor.stops) && line.stops.length === ribbonFor.stops.split(",").filter(Boolean).length + 1) routeView.pop(line.stops.length - 1, now);
       if (ribbonFor.carId !== carId || ribbonFor.next !== next) routeView.pulse(now);
@@ -3648,6 +3668,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.invalidate();
   }
 
+  /**
+   * The open engine's line's way round as last drawn (its pieces and length, for the track and stops then): a track edit
+   * that changes it lights the new stretch, and one that shortens it says so, once an edit (`toldShortcut`).
+   */
+  let lapFor: { carId: number; track: number; stops: string; pieces: ReadonlySet<number>; mm: number } = { carId: -1, track: -1, stops: "", pieces: new Set(), mm: 0 };
+  let toldShortcut = -1;
   /** What the ribbon last showed (to tell a stop just added, and a new next stop). */
   let ribbonFor = { carId: -1, stops: "", next: -1 };
   /** The engine whose card last nudged the view to show a stop it can't reach, or its way ahead (once per opening). */

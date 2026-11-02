@@ -144,7 +144,7 @@ interface Want {
 export class Router {
   /** The way each line last took at points (stickiness, §3.1): written as its trains' points are set, read by all who plan. */
   readonly ways = new WayMemory();
-  private readonly costOut = { cost: 0 };
+  private readonly costOut = { cost: 0, best: 0 };
   /** Called when routing has set a switch, or put one back (its piece id: the game swings its lever, with a soft click). */
   onSwitch: ((pieceId: number) => void) | null = null;
   /** Time in the router's looks and locks (ms) and the looks made, when `timing` is on. */
@@ -965,7 +965,7 @@ export class Router {
         const best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost);
         // (No way on leads there: nothing set, and nothing further asked for.)
         if (best === -1) break;
-        if (followed.length !== 1) this.ways.set(owner, n.pieceId, n.entry, target, best, cost.cost);
+        if (followed.length !== 1) this.ways.set(owner, n.pieceId, n.entry, target, best, cost.cost, cost.best);
         want.push({ pieceId: n.pieceId, state: best, ways: ways.length, entry: n.entry, d });
         w = ways[best];
         clear = 0;

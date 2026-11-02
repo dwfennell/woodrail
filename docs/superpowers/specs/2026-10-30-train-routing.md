@@ -159,6 +159,11 @@ or sections' free road gave: both the same one, or each by turns.
   the trail (laid since: a shortcut's points put in where a straight was), the cheapest option back onto the trail.
   Without an edit nothing changes: costs move only with the track, the pins and the decks. A via on the new track, or
   the old way cut, is what takes a route onto it ("unless a stop needs it"). Tests: `src/routing/route-edit.test.ts`.
+- **Shortcuts** (the user, after: "allow shortcuts to improve routing, that's one case where predictability isn't
+  everything"): a way an edit made that clearly saves on the kept one (20% of its cost, or about a train's length,
+  300 mm: `clearlyBetter`) is taken; a smaller gain isn't. A via still pins the way. The card's route ribbon redraws at
+  once, the changed stretch lit up for 1.6 s (steady under reduced motion), and a shorter way toasts "Red line found a
+  shortcut", once an edit.
 - **Harness:** `twoWays` (scenarios.ts; via.test.ts): two lines A ⇄ B and A ⇄ E over a loop's two roads, 30 min. With
   no vias each train ran both roads (Red top 6 / bottom 88, Blue 88 / 6); with a via on each line's road, Red 96 / 0 and
   Blue 0 / 96, no invariant broken (0 wrong roads), never stuck. One train alone: the shorter road every lap without a
