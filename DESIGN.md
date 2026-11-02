@@ -154,6 +154,8 @@ Cream, 18px corners, 12–14px padding, a bold `✕` (18px/900, `#6a4a2c`) in a 
 
 ### Tray tiles
 84×90px cream tiles with the piece's picture, a two-line label, and corner badges: a green count, a brown "Locked", a gold ★ favourite. Ready: a green ring and a "ready" tag; carried: a blue ring and "placing".
+- **A locked tile, tapped:** a cream note over it (14px corners, a notch pointing at the tile): 🔒 and the name, how to unlock it in plain words, and a green **📘 Show in Research** (44px). Gone with a tap elsewhere. Hover says the same in the tooltip.
+- **Tabs on a narrow phone:** they always fit beside the tools, never scroll: tighter below 380px, then the tabs not open show only their picture, then all do (40×44px each).
 
 ### Research board
 A web of wooden tickets on squared paper, banded by subject, with a lacquer rail on each node's left. The picked node is lifted with a wood ring; its ticket sits under the web (upright) or beside it (a phone on its side).

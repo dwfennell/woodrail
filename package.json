@@ -50,6 +50,7 @@
     "e2e:warehouse": "node tools/e2e/warehouse.mjs",
     "e2e:focus-ring": "node tools/e2e/focus-ring.mjs",
     "e2e:hopper-load": "node tools/e2e/hopper-load.mjs",
+    "e2e:locked": "node tools/e2e/locked-tiles.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "build:itch": "node scripts/itch-build.mjs",
     "blueprints:page": "node scripts/blueprint-page.mjs"

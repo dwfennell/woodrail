@@ -2,7 +2,8 @@ import { CARGO, COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
 import { canResearch, coinsShort, costOf, lacks, QUEUE_MAX, queueOf, queuePlace, studying, studyLeft, studyTime } from "./research";
-import { needMet, TECHS, techOf, unlocksOf } from "./tech";
+import type { Need } from "./blueprints";
+import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./tech";
 import { ruleOf } from "./things";
 
 /**
@@ -68,6 +69,69 @@ export function unlocksWords(id: string): string {
   const names = unlocksOf(id).map((x) => ruleOf(x)!.label);
   if (t.feature) names.push(t.feature.label);
   return names.length ? names.join(", ") : t.brings;
+}
+
+/** A requirement as something to do, for a locked tray tile: "reach a town", "carry 100 people (40 so far)". */
+function needToDo(p: Progress, n: Need): string {
+  switch (n.kind) {
+    case "count": {
+      const got = n.stat === "riders" ? p.riders : n.stat === "blueprints" ? p.learned.size : (p.counts.get(n.stat) ?? 0);
+      const what: Record<string, string> = { riders: `carry ${n.n} people`, blueprints: `learn ${n.n} things`, loadsMoved: `move ${n.n} loads`, logsCut: `cut ${n.n} logs`, planksSawn: `saw ${n.n} planks`, stoneCut: `cut ${n.n} stone`, grainGrown: `grow ${n.n} grain`, flourGround: `grind ${n.n} flour` };
+      return `${what[n.stat] ?? `${n.n} ${n.stat}`} (${got} so far)`;
+    }
+    case "delivered":
+      return `deliver ${n.n} ${n.good}`;
+    case "level": {
+      const names = n.towns && n.towns > 1 ? ["", "villages", "towns", "cities", "cities ★"] : ["", "a village", "a town", "a city", "a city ★"];
+      return `reach ${n.towns && n.towns > 1 ? `${n.towns} ${names[n.level]}` : names[n.level]}`;
+    }
+    case "landmark":
+      return `get ${n.label}`;
+    case "place":
+      return `have ${n.text}`;
+  }
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const and = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+/**
+ * How a locked tray tile is unlocked, in plain words, and the research to open the picker on (null if none can show
+ * there): "Research Signals to unlock"; "Research Switches, then Signals"; "Reach a town, then research Big stations"; "Coming
+ * soon". `jump` is the blueprint itself if the picker shows its card, else the nearest blueprint before it that shows
+ * (one a "?" or not shown yet can't be opened on).
+ */
+export function unlockHow(p: Progress, id: string): { text: string; jump: string | null } {
+  const t = techOf(id);
+  if (!t) return { text: "Not learned yet", jump: null };
+  const seen = seenOf(p);
+  const shows = (x: string) => seen.get(x) === "shown";
+  // The nearest blueprint on the way that the picker shows: this one, else what it needs first (breadth first).
+  const jumpOf = (): string | null => {
+    const queue = [id];
+    const been = new Set<string>();
+    while (queue.length) {
+      const x = queue.shift()!;
+      if (been.has(x)) continue;
+      been.add(x);
+      if (shows(x)) return x;
+      for (const n of techOf(x)?.needs ?? []) if (!p.learned.has(n)) queue.push(n);
+    }
+    return null;
+  };
+  const name = shortLabel(id);
+  if (p.learned.has(id)) return { text: `${name}: learned`, jump: null };
+  if (t.plan) return { text: `Coming soon (${name})`, jump: shows(id) ? id : null };
+  const r = p.research;
+  if (r.current === id) return { text: `Researching ${name} now: it unlocks then`, jump: id };
+  if (queuePlace(r, id) > 0) return { text: `${name} is next in Research: it unlocks then`, jump: id };
+  if (canResearch(p, id)) return { text: `Research ${name} to unlock`, jump: id };
+  const missing = t.needs.filter((n) => !p.learned.has(n)).map(shortLabel);
+  const unmet = t.requires.filter((n) => !needMet(p, n)).map((n) => needToDo(p, n));
+  const first = [...(missing.length ? [`research ${and(missing)}`] : []), ...unmet];
+  if (first.length === 0) return { text: `Research ${name} to unlock`, jump: jumpOf() };
+  if (unmet.length === 0) return { text: `Research ${and(missing)}, then ${name}`, jump: jumpOf() };
+  return { text: `${cap(first.join(", "))}, then research ${name}`, jump: jumpOf() };
 }
 
 /** Goods got so far toward a research: the current one's, or what a set-aside one kept (none otherwise). */

@@ -266,6 +266,8 @@ export interface TrayTab {
   favourites?: boolean;
   /** In Game mode, shown only once this blueprint is learned (the Roads tab: Roads). */
   gameTech?: string;
+  /** Game mode's tabs: its picture, shown in place of the word only when the tabs don't fit beside the tools (a 360 px phone). */
+  icon?: string;
 }
 
 const BOTH: readonly GameMode[] = ["sandbox", "game"];
@@ -273,12 +275,12 @@ const SANDBOX: readonly GameMode[] = ["sandbox"];
 const GAME: readonly GameMode[] = ["game"];
 
 export const TRAY_TABS: TrayTab[] = [
-  { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS, GAME_TRACK_KITS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
-  { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
-  { id: "industries", label: "Industries", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
+  { id: "track", label: "Track", icon: "🛤️", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS, GAME_TRACK_KITS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
+  { id: "trains", label: "Trains", icon: "🚂", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
+  { id: "industries", label: "Industries", icon: "🏭", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
   // (Game mode's once Roads is learned: spec 2026-10-31-roads.md. Its zebra, bridge and ramps wait for their blueprints.)
-  { id: "roads", label: "Roads", modes: BOTH, groups: ROAD_GROUPS, orient: "turn", gameTech: "roads" },
+  { id: "roads", label: "Roads", icon: "🛣️", modes: BOTH, groups: ROAD_GROUPS, orient: "turn", gameTech: "roads" },
   // Opening the Land tab switches land editing on; the tools act on the land itself.
   {
     id: "land",

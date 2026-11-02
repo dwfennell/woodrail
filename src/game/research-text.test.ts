@@ -3,7 +3,7 @@ import { Progress } from "./progress";
 import { costOf, deliver, pick, tick, toggleQueue } from "./research";
 import * as text from "./research-text";
 import { cardState, chipsText, costWords, unlocksWords, goalPick, IdleNotice, idleText, pickerKey, pillCount, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
-import { TECHS } from "./tech";
+import { seenOf, TECHS } from "./tech";
 
 const SCHOOL = "Larkfield school";
 
@@ -452,5 +452,42 @@ describe("the research queue in words (#14)", () => {
     toggleQueue(p, "signals");
     expect(cardState(p, "signals")).toBe("ready");
     expect(researchCard(p, "routes", SCHOOL)?.why).toBe("Next up, after Bridges · 30🪙 short");
+  });
+});
+
+describe("a locked tray tile says how to unlock it (unlockHow)", () => {
+  it("one to research now: its name, and the picker opens on it", () => {
+    const p = Progress.fresh();
+    expect(text.unlockHow(p, "switches")).toEqual({ text: "Research Switches to unlock", jump: "switches" });
+  });
+  it("what it needs first, then it; the picker opens on the nearest one it shows", () => {
+    const p = Progress.fresh();
+    const how = text.unlockHow(p, "signals");
+    expect(how.text).toBe("Research Switches, then Signals");
+    // Signals is a key blueprint: its card shows already.
+    expect(how.jump).toBe("signals");
+  });
+  it("a town to reach first, in the player's words", () => {
+    const p = Progress.fresh();
+    for (const id of ["switches", "stations"]) p.learned.add(id);
+    expect(text.unlockHow(p, "big-stations").text).toBe("Reach a town, then research Big stations");
+    p.bestLevel = 2;
+    expect(text.unlockHow(p, "big-stations").text).toBe("Research Big stations to unlock");
+  });
+  it("under way, or up next, says so", () => {
+    const p = Progress.fresh();
+    pick(p, "switches");
+    pick(p, "bridges");
+    expect(text.unlockHow(p, "switches").text).toBe("Researching Switches now: it unlocks then");
+    expect(text.unlockHow(p, "bridges").text).toBe("Bridges is next in Research: it unlocks then");
+  });
+  it("a jump only to a card the picker shows (never a ? or one not found yet)", () => {
+    const p = Progress.fresh();
+    for (const t of TECHS) {
+      const how = text.unlockHow(p, t.id);
+      expect(how.text.length, t.id).toBeGreaterThan(0);
+      expect(how.text.length, `${t.id}: ${how.text}`).toBeLessThanOrEqual(110);
+      if (how.jump) expect(seenOf(p).get(how.jump), t.id).toBe("shown");
+    }
   });
 });
