@@ -379,6 +379,9 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   const land = deserializeLandscape(save.landscape);
   if (!land.ok) return err(`invalid save: ${land.error}`);
   const landscape = land.value;
+  // A map saved before the first train's marker, with an engine on it already: its first train ran long ago, somewhere
+  // else, so none is put down (null), rather than one wherever a train happens to run next.
+  if (landscape.firstTrain === undefined && save.trains.some((t) => t.cars.some((c) => c.kind === "engine"))) landscape.firstTrain = null;
   const stations = new Map<number, number>();
   for (const town of landscape.towns) {
     const saved = save.towns.find((t) => t.id === town.id);

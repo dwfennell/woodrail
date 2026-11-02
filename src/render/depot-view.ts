@@ -13,6 +13,7 @@ import type { Materials } from "./materials";
 import { TIMBER_DECK } from "./train-models";
 import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
 import { nonIndexed } from "./non-indexed";
+import { bakeMotes, IndustryMotes, moteStatics, type MoteHandle } from "./industry-motes";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
 interface PileSpot {
@@ -323,6 +324,8 @@ interface Site {
   crane: CraneParts;
   /** What turns while it works: a sawmill's saw, a mill's sails. */
   blade: Object3D | null;
+  /** Its little things that move while it works (pigs, an axe, a tub wagon: `industry-motes.ts`). */
+  motes: MoteHandle[];
   /** This frame's crane move (scratch, reused), and whether there is one. */
   readonly move: CraneMove;
   moving: boolean;
@@ -375,8 +378,20 @@ export class DepotView {
   /** The wagon loads as last drawn (a signature: cars, kinds, counts). */
   private wagonsSeen = -1;
 
+  /** Every industry's motes, instanced across the map. */
+  private readonly motes: IndustryMotes;
+
+  /**
+   * The player asks for less motion (`prefers-reduced-motion`): what loops while an industry works (the saw, sails,
+   * wheels, motes) stands still. Cranes still carry goods (that's play, not decoration).
+   */
+  calm = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   constructor(private readonly mats: Materials) {
     this.rebuildUnits();
+    this.motes = new IndustryMotes(mats);
+    this.group.add(this.motes.group);
+    if (typeof matchMedia === "function") matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", (e) => (this.calm = e.matches));
   }
 
   /**
@@ -510,6 +525,7 @@ export class DepotView {
         layout: spec,
         crane: this.buildCrane(pose, spec.crane),
         blade: null,
+        motes: [],
         move: { kind: "log", toPile: false, carId: -1, phase: 0 },
         moving: false,
         piles: -1,
@@ -520,7 +536,7 @@ export class DepotView {
       let tile = tiles.get(key);
       if (!tile) tiles.set(key, (tile = { b: new Batcher(this.mats.paint), at: [] }));
       tile.at.push({ x: at.x, z: at.z });
-      this.buildStatic(site, tile.b);
+      this.buildStatic(site, tile.b, true, "instanced");
       if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
       if (depot.role === "mill") site.blade = this.buildSails(pose);
       if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
@@ -535,6 +551,8 @@ export class DepotView {
       toWorld(pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
       this.sites.push(site);
     }
+    const handles = this.motes.place(this.sites.map((s) => ({ role: s.depot.role, x: s.pose.x, y: s.pose.y ?? 0, z: s.pose.z, heading: s.pose.heading })));
+    this.sites.forEach((s, k) => (s.motes = handles[k]));
     for (const { b, at } of tiles.values()) {
       const statics = new Group();
       statics.userData.depotStatic = true;
@@ -564,11 +582,15 @@ export class DepotView {
    */
   staticParts(role: DepotRole, pose: SitePose, add: (m: Material, g: BufferGeometry) => void): void {
     const site = { depot: { role, sheds: 0 }, pose, layout: DEPOT_LAYOUT[role] } as unknown as Site;
-    this.buildStatic(site, { add }, false);
+    this.buildStatic(site, { add }, false, "machines");
   }
 
-  /** Static parts: yard pad, crane mast or gantry frame, and the sawmill's shed and saw table. */
-  private buildStatic(site: Site, b: Pick<Batcher, "add">, upgrades = true): void {
+  /**
+   * Static parts: yard pad, crane mast or gantry frame, and the sawmill's shed and saw table. Its motes (pigs, a tub
+   * wagon) are "instanced" (only what stands still beside them is drawn here: `IndustryMotes` draws them), or drawn
+   * here at rest: all of them, or an old industry's ruin's "machines" only.
+   */
+  private buildStatic(site: Site, b: Pick<Batcher, "add">, upgrades = true, motes: "instanced" | "baked" | "machines" = "baked"): void {
     const { pose, layout } = site;
     const mats = this.mats;
     const place = (g: BufferGeometry, t: number, l: number, y: number) => {
@@ -589,6 +611,10 @@ export class DepotView {
         if (spot.axis === "t") pallet(add, mats, kind, spot.t, spot.l, len, wide);
         else pallet(add, mats, kind, spot.t, spot.l, wide, len);
       }
+    }
+    if (layout.pad) {
+      moteStatics(site.depot.role, add, mats, motes !== "machines");
+      if (motes !== "instanced") bakeMotes(site.depot.role, add, mats, motes !== "machines");
     }
     const c = layout.crane;
     const base = layout.pad ? PAD_H : 14;
@@ -976,14 +1002,22 @@ export class DepotView {
       changed = true;
     }
 
-    // The saw spins while the sawmill is cutting (by the game's time: paused, it stops where it is).
-    if (ran > 0)
+    // The saw spins while the sawmill is cutting (by the game's time: paused, it stops where it is), and the other
+    // industries' motes move while they work: only those in view (out of view, they stand where they were; a camera
+    // move bringing one into view draws, and the next frame poses it). Asked for less motion, all stand still.
+    if (ran > 0 && !this.calm)
       for (const site of this.sites) {
-        if (site.blade && economy.working(site.depot)) {
+        if ((!site.blade && site.motes.length === 0) || !economy.working(site.depot)) continue;
+        if (site.blade) {
           site.blade.rotateZ(ran * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
           if (site.blade.visible) busy = true;
         }
+        if (site.motes.length > 0 && site.crane.trolley.visible) {
+          for (const m of site.motes) this.motes.pose(m, simSeconds);
+          busy = true;
+        }
       }
+    this.motes.flush();
 
     for (const u of this.allUnits) for (const part of u.parts) part.count = u.n;
     for (const m of this.cargoMeshes) {

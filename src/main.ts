@@ -26,8 +26,8 @@ import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from ".
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
-import { TownLife } from "./game/town-life";
-import { plotPrice } from "./game/towns";
+import { receivedBy, TownLife } from "./game/town-life";
+import { plotPrice, townStatus } from "./game/towns";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
@@ -1451,6 +1451,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     },
     grew: (town, status, built) => {
       const here = { x: town.station.x, z: town.station.z };
+      // More touches of life in it.
+      game.touchLevelsVersion++;
       // Its new houses may have felled trees a harvester counted.
       industriesChanged();
       // A landmark may have gone up (a school, a market, a library): what it opens comes with it.
@@ -1797,6 +1799,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Schools wear what they've grown into (a college, a library wing): drawn again only when that changes.
     key += `#${mode === "game" ? schoolGradesKey(game.world, progress.learned) : ""}`;
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
+    // A town's touches of life grow in number with its level (Game mode's; Sandbox's towns go by their size).
+    if ((game.touchLevel !== null) !== (mode === "game")) {
+      game.touchLevel = mode === "game" ? (town) => townStatus(receivedBy(game.world, town.id)).level : null;
+      game.touchLevelsVersion++;
+    }
     game.depotView.building = schoolHouse;
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
     industryKey = key;
