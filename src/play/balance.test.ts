@@ -314,6 +314,7 @@ const FAMINE_STOPS = 20;
  * BALANCE_LOOP_PIN=1, they don't, and the line deadlocks: spec §5 REPRO). Off by default (spec §5).
  */
 const SECOND_GOODS_STOPS = Number(ENV.BALANCE_SECOND_GOODS ?? 0) || Infinity;
+// (BALANCE_SECOND_STARVED=1: also on any line, for planks, while a town on it starves of them: `starvedFor`.)
 /**
  * With the second goods train on, the line is jammed (and it is picked up) when one of its goods trains has made no
  * progress (not moved, nor loaded at a stop, nor had its wait change) for this many minutes (BALANCE_JAM_MINUTES).
@@ -2522,8 +2523,9 @@ class Playthrough {
     // cars for what's short (`secondGoodsCars`), and only once the line runs nothing but its goods train (the people
     // train, on no line, is in the way of both).
     const stops = this.lineId >= 0 ? (w.economy.lines.get(this.lineId)?.stops.length ?? 0) : 0;
-    const longLine = this.lines && stops >= SECOND_GOODS_STOPS && s.learned.has("signals");
+    const longLine = this.lines && (stops >= SECOND_GOODS_STOPS || this.starvedNow) && s.learned.has("signals");
     const short = longLine ? this.goodsShort() : [];
+    if (longLine && this.starvedNow && !short.includes("planks")) short.push("planks");
     const wantsSecond = longLine && this.goods2At < 0 && this.goods2Cut === 0 && this.trains.size === 1 && short.length > 0;
     if (wantsSecond && !this.loop && P.minute - this.loopTry >= 10) {
       this.loopTry = P.minute;
@@ -3068,7 +3070,10 @@ class Playthrough {
     if (!line || !found || ENV.BALANCE_NOUNSTICK) return;
     const takers = line.stops.map((s) => w.economy.depot(s.depotId)).filter((d) => !!d);
     this.shopThrough(takers.filter((d) => d!.role === "town").map((d) => d!.townId));
-    this.schoolThrough([...new Set(takers.filter((d) => d!.role === "town").map((d) => d!.townId))]);
+    const towns = [...new Set(takers.filter((d) => d!.role === "town").map((d) => d!.townId))];
+    this.trackEmpty(towns);
+    this.schoolThrough(towns);
+    this.starvedFor(towns);
     // (Wanted by a town or the research, not only by an industry: the stone a city waits on.)
     const wantedHere = (k: CargoKind) => takers.some((d) => (d!.role === "town" || d!.role === "school") && RECIPES[d!.role].takes.includes(k) && (!w.economy.accepts || w.economy.accepts(d!, k)));
     // Or what an industry on the line makes such a good from, while it has none of either (seed 2027 since 03c7711: the
@@ -3191,11 +3196,6 @@ class Playthrough {
     const w = P.w;
     const school = w.economy.depotAtPiece(this.school);
     if (!school || ENV.BALANCE_SCHOOL === "share" || ENV.BALANCE_SCHOOL === "first") return;
-    for (const t of towns) {
-      const st = P.town.status(t);
-      const empty = P.town.wants(t, "planks") && (st.got.planks ?? 0) === 0;
-      this.emptyFor.set(t, empty ? (this.emptyFor.get(t) ?? 0) + 1 : 0);
-    }
     const starving = towns.filter((t) => (this.emptyFor.get(t) ?? 0) >= SCHOOL_STARVED);
     // (What the player sees on the engine card: "Keeping n planks for the school".)
     const found = w.sim.findCar(this.timber);
@@ -3215,6 +3215,39 @@ class Playthrough {
       P.note(`the school back to Research first (${P.minute - this.sharedAt} min after)`);
     }
   }
+  /** Counts the minutes in a row each town on the line has sat at 0 of the planks it wants (once a minute). */
+  trackEmpty(towns: number[]): void {
+    const P = this.p;
+    for (const t of towns) {
+      const empty = P.town.wants(t, "planks") && (P.town.status(t).got.planks ?? 0) === 0;
+      this.emptyFor.set(t, empty ? (this.emptyFor.get(t) ?? 0) + 1 : 0);
+    }
+  }
+
+  /**
+   * A town on the line at 0 of the planks it wants for `SCHOOL_STARVED` minutes in a row while there are planks to be had
+   * (logs at a forest on the line, planks at its sawmill or in the workshop's yard), as the player sees it on the town's
+   * and the depots' cards (issue #20: one goods train's two flatbeds sawed too few planks for a new city 16-20 stops round
+   * the line, which sat at 0/22 for 50 min). Sets `starvedNow`, which calls for a second goods train (`decide`): an A/B,
+   * off unless asked for (BALANCE_SECOND_STARVED=1). Tried for #20, it made no gap pass: the second train (at minute
+   * 83-91) jammed with the first and was picked up, and seed 2's gap went to 48 min. (A third flatbed in its place, on a
+   * plain engine's 4 cars, put out the hopper or the van: 18 of 19 seeds failed, most with no City.)
+   */
+  starvedFor(towns: number[]): void {
+    const P = this.p;
+    const w = P.w;
+    if (!ENV.BALANCE_SECOND_STARVED) return;
+    const starving = towns.filter((t) => (this.emptyFor.get(t) ?? 0) >= SCHOOL_STARVED);
+    const line = w.economy.lines.get(this.lineId);
+    const depots = line ? [...new Set(line.stops.map((st) => st.depotId))].map((id) => w.economy.depot(id)).filter((d) => !!d) : [];
+    const stock = P.planks() > 0 || depots.some((d) => (d!.role === "forest" && d!.piles[CARGO.log.index] > 0) || (d!.role === "sawmill" && d!.piles[CARGO.planks.index] > 0));
+    const now = starving.length > 0 && stock;
+    if (now && !this.starvedNow) P.note(`no planks for ${SCHOOL_STARVED} min at ${starving.map((t) => w.landscape.towns.find((x) => x.id === t)?.name ?? "?").join(", ")}, with planks to be had`);
+    this.starvedNow = now;
+  }
+  /** A town on the line starved of planks with planks to be had, this minute (`starvedFor`). */
+  starvedNow = false;
+
   /** The towns the school was last set to share for (`schoolThrough`). */
   private sharedFor: number[] = [];
   private sharedAt = 0;
