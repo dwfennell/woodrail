@@ -185,8 +185,8 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
 
 /**
  * Sandbox's industries (free, as everything there): the goods chains' makers and users, and a warehouse. Not the
- * workshop or school (Game mode's research and building), nor the harbour (Game mode's boats). Each one placed works at
- * its recipe's speed wherever it stands.
+ * workshop or school (Game mode's research and building), nor the harbour (Game mode's boats). Each works from what's
+ * around it, as in Game mode (a harvester by trees, a farm yard by a field); its card says what it lacks.
  */
 export const SANDBOX_INDUSTRY_GROUPS: TrayGroup[] = [
   {

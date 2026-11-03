@@ -240,8 +240,12 @@ try {
   await shot("1-industries-tab");
 
   // 3. Somewhere open near a town, framed; a Harvester and a Sawmill dragged out there by touch.
-  const findArea = (skip) => p.evaluate((skip) => {
+  // (`trees`: a harvester works only by trees, as in Game mode: the spot must have them in its reach, by the game's own
+  // `siteWhy`.)
+  const findArea = (skip, trees = false) => p.evaluate(async ({ skip, trees }) => {
     const w = window.woodrail;
+    const { siteWhy } = await import("/src/game/industries.ts");
+    const wooded = (x, z) => [0, Math.PI / 2, Math.PI, -Math.PI / 2].some((h) => siteWhy(w.landscape, "depot-forest", { x, z, heading: h }) === null && !w.interaction.placement("depot-forest", false, { x, z, heading: h }, 0, -1).reason);
     for (const t of w.landscape.towns) {
       if (t.id === skip) continue;
       const st = w.layout.getPiece(w.stations.get(t.id)).pose;
@@ -252,22 +256,24 @@ try {
           const z = Math.round((st.z + Math.sin(a) * ring * 120) / 18) * 18;
           // Room for two yards side by side, a few hundred mm apart.
           const ok = [-300, 0, 300].every((dx) => [-200, 0, 200].every((dz) => [0, Math.PI / 2, Math.PI, -Math.PI / 2].some((h) => !w.interaction.placement("depot-sawmill", false, { x: x + dx, z: z + dz, heading: h }, 0, -1).reason)));
-          if (ok) return { x, z, town: t.id };
+          if (ok && (!trees || wooded(x, z))) return { x, z, town: t.id };
         }
     }
     return null;
-  }, skip);
-  const area = await findArea(-1);
-  check("an open spot near a town for two industries", !!area, JSON.stringify(area));
+  }, { skip, trees });
+  const area = await findArea(-1, true);
+  check("an open spot by trees near a town for two industries", !!area, JSON.stringify(area));
   await glide({ x: area.x, y: 0, z: area.z }, 1500);
   const [cx, cy] = await onScreen({ x: area.x, y: 0, z: area.z });
     // (One ahead of the other along the view's heading, as the tray turns them: track joins them end to end.)
   /** A clear pose for `type` at the held heading: the area itself, or (`ahead`) straight on from a depot's piece. */
   const spotFor = (type, ahead = -1) => (heading) =>
     p.evaluate(
-      ({ type, ahead, heading, area }) => {
+      async ({ type, ahead, heading, area }) => {
         const w = window.woodrail;
-        const ok = (q) => !w.interaction.placement(type, false, q, 0, -1).reason;
+        const { siteWhy } = await import("/src/game/industries.ts");
+        // (Clear to put down, and where it works: a harvester by trees.)
+        const ok = (q) => !w.interaction.placement(type, false, q, 0, -1).reason && siteWhy(w.landscape, type, q) === null;
         const snap = (v) => Math.round(v / 18) * 18;
         if (ahead >= 0) {
           const from = w.layout.getPiece(w.economy.depot(ahead).pieceId).pose;
@@ -289,6 +295,8 @@ try {
     );
   const forest = await dragFromTray("piece:depot-forest", [cx, cy - 160], spotFor("depot-forest"));
   check("a Harvester dragged from the tray is put down (a forest yard)", forest.added?.some((d) => d.role === "forest"), JSON.stringify(forest));
+  const forestRate = await p.evaluate((id) => window.woodrail.economy.depot(id)?.rate ?? -1, forest.added?.find((d) => d.role === "forest")?.id ?? -1);
+  check("…by trees, it works", forestRate > 0, `rate ${forestRate}`);
   check("…held, nothing it needs (it makes logs from nothing): only green rings round where logs go", /oout/.test(forest.hints) && !/oin/.test(forest.hints), forest.hints);
   // (The next piece waits at its end: a tap on open ground puts it away.)
   const open1 = await openPoint(0.3);

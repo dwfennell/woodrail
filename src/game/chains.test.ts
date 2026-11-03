@@ -5,7 +5,7 @@ import { SIM_HZ } from "../sim/sim";
 import type { PieceTypeId } from "../track";
 import { chainOf, chainRows, loadHint, loadHintText, makerOf, partnersOf, stateWords, wagonFor, type PlaceOf } from "./chains";
 import { engineView } from "./engine-status";
-import { updateRates } from "./industries";
+import { siteWhy, updateRates } from "./industries";
 import { buildStarterWorld, depotName, syncIndustries, type World } from "./world";
 
 /** Sandbox's starter map (no Game sites), with industries put down where the test says (as the tray would). */
@@ -102,17 +102,21 @@ describe("chains: what an industry makes, where its goods come from and go", () 
   });
 });
 
-describe("Sandbox's industries work wherever they stand", () => {
-  it("a farm yard with no fields makes grain in Sandbox (in Game mode it needs fields)", () => {
+describe("Sandbox's industries work from what's around them, as in Game mode", () => {
+  it("a harvester with no trees makes nothing (no work, so nothing to animate) and its site says why; by trees it works", () => {
     const { w, place } = sandbox();
-    const farm = place("depot-farm", 9000, 9000);
+    const bare = place("depot-forest", 9000, 9000);
     updateRates(w);
-    expect(farm.rate).toBe(0);
-    updateRates(w, undefined, true);
-    expect(farm.rate).toBe(1);
-    // Twelve seconds of the economy: a sack of grain.
-    for (let i = 0; i < 13 * SIM_HZ; i++) w.economy.tick();
-    expect(farm.piles[CARGO.grain.index]).toBeGreaterThan(0);
+    expect(bare.rate).toBe(0);
+    expect(w.economy.working(bare)).toBe(false);
+    for (let i = 0; i < 20 * SIM_HZ; i++) w.economy.tick();
+    expect(bare.piles[CARGO.log.index]).toBe(0);
+    // (What its card says: Game mode's words for a site short of its resource.)
+    const piece = w.layout.getPiece(bare.pieceId)!;
+    expect(siteWhy(w.landscape, piece.type, piece.pose)).toMatch(/^Needs trees nearby: 0 of \d+$/);
+    // The map's own forest yard works at its recipe's speed.
+    const own = w.economy.allDepots().find((d) => d.role === "forest" && d !== bare)!;
+    expect(own.rate).toBe(1);
   });
 });
 

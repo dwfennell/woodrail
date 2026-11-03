@@ -779,7 +779,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The open card's chain (its block, and chevrons from its suppliers and to its customers on the map). */
   function showDepotChain(d: DepotState): void {
     const view = chainOf(d, game.economy.allDepots(), placeOfDepot);
-    hud.setDepotChain({ status: stateWords(view), tone: view.state, rows: chainRows(view, (o) => depotName(game.world, o), (k) => GOODS_ICON[k]) });
+    // (One placed short of what it works from, trees for a harvester or a farm field for a farm yard, works slowly or
+    // not at all, as in Game mode, which won't let it be placed so: the card says so in Game mode's words.)
+    const piece = game.layout.getPiece(d.pieceId);
+    const site = piece && view.state !== null && ![...game.world.depots.values()].includes(d.pieceId) ? siteWhy(game.landscape, piece.type, piece.pose) : null;
+    hud.setDepotChain({ status: site ?? stateWords(view), tone: site ? "waiting" : view.state, rows: chainRows(view, (o) => depotName(game.world, o), (k) => GOODS_ICON[k]) });
     const at = placeOfDepot(d);
     const lines: HintLine[] = [];
     const rings: HintRing[] = [];
@@ -2034,8 +2038,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const rateKey = `${key}#${game.landscape.grid.revision}#${mode === "game" ? upgradeKey(progress) : ""}`;
     if (rateKey !== rateKeyShown) {
       rateKeyShown = rateKey;
-      // (Sandbox's industries work at their recipe's speed wherever they stand: it's free play.)
-      if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined, mode === "sandbox")) game.invalidate();
+      if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
     }
     hud.refreshTrayBadges();
     // A school placed (or taken up), or grown with its town: tier 3 may open, study may go faster, and the pill shows
