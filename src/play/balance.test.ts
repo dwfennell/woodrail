@@ -1,8 +1,6 @@
-import { beforeAll, describe, expect, it } from "vitest";
-import { writeFileSync } from "node:fs";
-import { gzipSync } from "node:zlib";
-import { MAP_TAG } from "../persist/bug-map";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { serializeWorld } from "../persist/save";
+import { writeMapFile } from "./perf-map-file";
 import { Editor } from "../editor/editor";
 import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
@@ -1543,6 +1541,8 @@ export function invariantsAgainst(checks: Invariants, known: Partial<Record<Inva
 }
 
 /** The player's world, progress, goals and stickers as a copied map (the keys `mapText` copies), to a file. */
+let perfMapWritten: Promise<void> = Promise.resolve();
+afterAll(() => perfMapWritten);
 function writePerfMap(file: string, p: Player): void {
   const keys: Record<string, string> = {
     "woodrail.game.v2": JSON.stringify(serializeWorld(p.w)),
@@ -1551,7 +1551,7 @@ function writePerfMap(file: string, p: Player): void {
     "woodrail.game.stickers.v1": JSON.stringify(p.stickers.ids()),
     "woodrail.game.started": "1",
   };
-  writeFileSync(file, MAP_TAG + gzipSync(JSON.stringify({ mode: "game", keys })).toString("base64") + "\n");
+  perfMapWritten = writeMapFile(file, "game", keys);
 }
 
 function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, part: string): Playthrough {

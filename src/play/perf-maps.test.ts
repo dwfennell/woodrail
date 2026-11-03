@@ -8,22 +8,20 @@
  * (A generator, not a test of the game: skipped unless asked for. The game's own rules decide where a piece may go:
  * `checkPlacement` and `looseHeight`, as a drop in the tray does.)
  */
-import { writeFileSync } from "node:fs";
-import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { createWorld, plotsForSale, unlockPlot } from "../game/world";
 import { checkPlacement, looseHeight } from "../landscape";
-import { MAP_TAG } from "../persist/bug-map";
 import { serializeWorld } from "../persist/save";
 import type { CarKind } from "../sim";
 import { appendPiece, connectorRef, type PieceTypeId } from "../track";
+import { writeMapFile } from "./perf-map-file";
 
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const OVAL: readonly PieceTypeId[] = ["curve-large", "curve-large", "curve-large", "straight-216", "curve-large", "curve-large", "curve-large", "curve-large", "straight-216"];
 const TRAIN: CarKind[] = ["engine", "passenger", "van", "hopper"];
 
 describe.skipIf(!ENV.PERF_MAPS)("perf maps", () => {
-  it("writes the big Sandbox map", () => {
+  it("writes the big Sandbox map", async () => {
     const seed = Number(ENV.PERF_SEED ?? 7);
     const trains = Number(ENV.PERF_TRAINS ?? 16);
     const world = createWorld(seed, false, true, false);
@@ -71,7 +69,7 @@ describe.skipIf(!ENV.PERF_MAPS)("perf maps", () => {
     for (const id of sim.trainIds()) for (const c of sim.getTrain(id)!.cars) if (c.kind === "engine") sim.setLever(c.id, 1);
     const keys = { "woodrail.autosave.v3": JSON.stringify(serializeWorld(world)) };
     const file = ENV.PERF_MAP_OUT ?? "tools/perf/maps/big-sandbox.txt";
-    writeFileSync(file, MAP_TAG + gzipSync(JSON.stringify({ mode: "sandbox", keys })).toString("base64") + "\n");
+    await writeMapFile(file, "sandbox", keys);
     console.log(`big sandbox: seed ${seed}, ${ovals} ovals, ${layout.pieceCount} pieces, ${placed} trains → ${file}`);
     expect(ovals).toBeGreaterThan(10);
   });
