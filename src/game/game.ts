@@ -1020,10 +1020,10 @@ export class Game {
     // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
     if (this.marksView.animate(dt)) active = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
-    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused);
+    const trainsMoved = this.trainsChanged();
+    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, trainsMoved || tipping);
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
-    const trainsMoved = this.trainsChanged();
     if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
     this.touchesMoving = false;
     // Small touches: placed again only when what they stand beside changed (a few comparisons a frame); the children

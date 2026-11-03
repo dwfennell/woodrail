@@ -238,3 +238,29 @@ describe("DepotView: a town's station upgraded in place keeps its goods crane (t
     expect(siteLayout("town", "kit-two-platform-station", true)).not.toBeNull();
   });
 });
+
+describe("DepotView: piles, loads and cranes are placed again only when something they follow changed", () => {
+  it("idle, nothing is placed; a pile that grows is placed and drawn; with trains moving, placed every update", () => {
+    const w = world();
+    const clock = { sim: 0 };
+    w.view.update(w.economy, [], 0, () => undefined, clock.sim, true, false);
+    const logs = w.view.group.children.find((o) => (o as { isInstancedMesh?: boolean }).isInstancedMesh && (o as { count: number }).count > 0) as unknown as {
+      count: number;
+      instanceMatrix: { version: number };
+    };
+    expect(logs.count).toBe(6);
+    const version = logs.instanceMatrix.version;
+    // Paused, nothing moving: no unit placed again (the matrices' version stays).
+    for (let k = 0; k < 10; k++) expect(w.view.update(w.economy, [], 0, () => undefined, clock.sim, true, false)).toBe("still");
+    expect(logs.instanceMatrix.version).toBe(version);
+    // A pile grows (a delivery): placed again, and a frame asked for.
+    w.saw.piles[CARGO.log.index] = 7;
+    expect(w.view.update(w.economy, [], 0, () => undefined, clock.sim, true, false)).toBe("changed");
+    expect(logs.count).toBe(7);
+    expect(logs.instanceMatrix.version).toBeGreaterThan(version);
+    // Trains moving: placed every update (loads ride on them).
+    const v2 = logs.instanceMatrix.version;
+    w.view.update(w.economy, [], 0, () => undefined, clock.sim, true, true);
+    expect(logs.instanceMatrix.version).toBeGreaterThan(v2);
+  });
+});

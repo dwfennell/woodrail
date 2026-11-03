@@ -9,6 +9,11 @@ interface CarEntry {
   model: CarModel;
   lastX: number;
   lastZ: number;
+  /** The rest of the pose it was last placed at, and its lever (−9: not placed yet): unchanged, it isn't touched. */
+  lastY: number;
+  lastHeading: number;
+  lastPitch: number;
+  lastLever: number;
   spin: number;
   tip: number;
   /**
@@ -112,11 +117,19 @@ export class TrainView {
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
-        entry = { model, lastX: x, lastZ: z, spin: 0, tip: 0, shells: null, shown: 0 };
+        entry = { model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, shells: null, shown: 0 };
         this.cars.set(id, entry);
       }
       const heading = snap.transforms[o + 3];
       const pitch = snap.transforms[o + 4];
+      const lever = snap.levers[i];
+      // A car standing as it was last placed (paused, waiting, parked), its lamp as it was, not toppling: left as it is.
+      // (Each rotation set works its quaternion out again: 64 cars a tick, all for nothing, while a Sandbox map waits.)
+      const targetTip = snap.derailed[i] ? 1 : 0;
+      if (lever === entry.lastLever && x === entry.lastX && y === entry.lastY && z === entry.lastZ && heading === entry.lastHeading && pitch === entry.lastPitch && entry.tip === targetTip) continue;
+      entry.lastY = y;
+      entry.lastHeading = heading;
+      entry.lastPitch = pitch;
       const root = entry.model.root;
       root.position.set(x, y, z);
       root.rotation.order = "YZX";
@@ -133,19 +146,19 @@ export class TrainView {
       entry.lastZ = z;
 
       // A derailed car topples onto its side where it is.
-      const targetTip = snap.derailed[i] ? 1 : 0;
       entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
       if (Math.abs(targetTip - entry.tip) < 0.002) entry.tip = targetTip;
       else tipping = true;
       root.rotation.x = entry.tip * (Math.PI / 2) * (id % 2 ? 1 : -1);
       root.position.y = y + entry.tip * 12;
 
-      if (entry.model.lamp) {
+      if (entry.model.lamp && lever !== entry.lastLever) {
         const [color, intensity] = LAMP_COLORS[snap.levers[i]] ?? LAMP_COLORS[0];
         const m = entry.model.lamp.material as MeshStandardMaterial;
         m.emissive.copy(color);
         m.emissiveIntensity = intensity;
       }
+      entry.lastLever = lever;
     }
     this.syncSelection(snap);
     for (const [id, entry] of this.cars) {
