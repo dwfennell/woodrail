@@ -75,7 +75,7 @@ import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summar
 import { CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
-import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
+import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
@@ -2214,7 +2214,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           : unmet.length > 0
             ? `Needs ${unmet.map(needHow).join(" and ")}`
             : "Later";
-      return { ...base, state: "locked" as const, waits };
+      // Locked till you have the school it's studied at (tech tree 3): its tag says which.
+      const gate = t.school && unmet.includes(SCHOOL_NEED[t.school]) ? (t.school === "university" ? "University" : "College") : undefined;
+      return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : {}) };
     });
     const focus = goalPick(progress, goalTech, school !== null);
     board.show({

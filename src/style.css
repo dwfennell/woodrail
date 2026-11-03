@@ -880,6 +880,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-node.hint .bp-name { font-size: 17px; font-weight: 900; color: #74522f; text-align: center; }
 .bp-node.hint .bp-dot { display: none; }
 .bp-tag.soon { color: #5e4128; background: transparent; border: 1.5px dashed #a08a6c; padding: 0 6px; }
+/* Locked till you have a College or a University (tech tree 3): the Learning branch's purple, as Soon's dashed tag. */
+.bp-tag.school { color: #5b3a7a; background: #efe6f6; border: 1.5px dashed #7b4fa0; padding: 0 6px; }
 .bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; }
 .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
 /* The tag slot on a card: one height, one shape, whatever it says. */

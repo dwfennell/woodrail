@@ -771,6 +771,18 @@ const openOn = async (name) => {
 await openOn("Car carrier");
 t = await ticket();
 check("beside a village, the Car carrier is locked: it needs a College in a city, and says to grow the town", t?.state === "locked" && /a College in a city: grow \w+ into a city/.test(t.foot) && t.buttons.length === 0, JSON.stringify(t));
+// …and in the web its tag says so in place of its price, inside its node.
+const nodeTagOf = (name) =>
+  p.evaluate((name) => {
+    const n = [...document.querySelectorAll(".board-body .bp-node")].find((x) => x.querySelector(".bp-name")?.textContent === name);
+    const tag = n?.querySelector(".bp-tag");
+    if (!n || !tag) return null;
+    const a = n.getBoundingClientRect();
+    const b = tag.getBoundingClientRect();
+    return { text: tag.textContent, school: tag.classList.contains("school"), inside: b.left >= a.left - 0.5 && b.right <= a.right + 0.5 };
+  }, name);
+const carTag = await nodeTagOf("Car carrier");
+check("…its node's tag says 🎓 College in place of its price, inside the node", carTag?.school && carTag.text === "🎓 College" && carTag.inside, JSON.stringify(carTag));
 await shot("21-gated-needs-a-college");
 await board(false);
 await growSchoolTown(26, 6);
@@ -793,6 +805,8 @@ await board(true);
 await select("Car factory");
 t = await ticket();
 check("…the Car factory waits for a University", t?.state === "locked" && /a University: learn University/.test(t.foot) && t.buttons.length === 0, JSON.stringify(t));
+const factoryTag = await nodeTagOf("Car factory");
+check("…its node's tag says 🏛️ University, inside the node", factoryTag?.school && factoryTag.text === "🏛️ University" && factoryTag.inside, JSON.stringify(factoryTag));
 await shot("21b-gated-needs-a-university");
 // (Unseen blueprints aren't drawn at all; a "?" is drawn as a hint.)
 const hints = () => p.evaluate(() => ({ nodes: document.querySelectorAll(".board-body .bp-node").length, hints: document.querySelectorAll(".board-body .bp-node.hint").length }));
@@ -810,6 +824,8 @@ check("…every hard lesson needs a third fewer goods (Fishing boats' planks)", 
 await select("Car factory");
 t = await ticket();
 check("…the College is a University now: the Car factory opens", t?.state === "ready" && t.buttons.length === 1, JSON.stringify(t));
+const openTag = await nodeTagOf("Car factory");
+check("…and its tag is its price again", openTag && !openTag.school && /220/.test(openTag.text), JSON.stringify(openTag));
 const hintsAfter = await hints();
 check("…and the board shows every blueprint: more on it, no \"?\" left", hintsAfter.nodes > hintsBefore.nodes && hintsAfter.hints === 0, `${JSON.stringify(hintsBefore)} → ${JSON.stringify(hintsAfter)}`);
 await shot("21c-tech-tree-3-board");

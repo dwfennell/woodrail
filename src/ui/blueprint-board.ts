@@ -37,6 +37,11 @@ export interface Station {
   requires: { text: string; met: boolean }[];
   /** For `locked`: what it waits for. For `soon`: when (next, coming soon, someday). */
   waits?: string;
+  /**
+   * For `locked`: the school it must be studied at, while you have none (tech tree 3): its tag in the web says so, in
+   * place of its price, so it doesn't look like any other node you could buy.
+   */
+  school?: "College" | "University";
 }
 
 export interface BoardView {
@@ -254,9 +259,11 @@ const NODE_TAG: Partial<Record<CardState, (s: Station) => string>> = {
   researching: () => `<span class="bp-tag now">📘 Researching</span>`,
   next: (s) => `<span class="bp-tag next">${s.queued && s.queued > 1 ? `In line: ${s.queued}` : "Next up"}</span>`,
   ready: (s) => `<span class="bp-tag price">${esc(s.price)}</span>`,
-  locked: (s) => `<span class="bp-tag price later">${esc(s.price)}</span>`,
+  locked: (s) => (s.school ? `<span class="bp-tag school">${s.school === "University" ? "🏛️" : "🎓"} ${s.school}</span>` : `<span class="bp-tag price later">${esc(s.price)}</span>`),
   soon: () => `<span class="bp-tag soon">Soon</span>`,
 };
+/** A card's tag in the web (empty for a learned one). */
+export const nodeTag = (s: Station): string => NODE_TAG[s.state]?.(s) ?? "";
 /** How a card stands, in words, for a screen reader (its tag and dot say it on screen). */
 const STATE_WORDS: Record<CardState, string> = { learned: "learned", researching: "researching now", next: "in the queue", ready: "can research", locked: "later", soon: "coming soon" };
 
@@ -474,14 +481,14 @@ export class BlueprintBoard {
     const opened = new Set(drawn.filter((s) => s.needs.some((n) => fresh.has(n)) && s.state !== "learned").map((s) => s.id));
     const node = (s: Station, p: { x: number; y: number } | null) => {
       const hint = hintOf(s);
-      const tag = hint ? "" : (NODE_TAG[s.state]?.(s) ?? "");
+      const tag = hint ? "" : nodeTag(s);
       const cls = `bp-node ${hint ? "hint" : s.state}${s.id === this.selected ? " selected" : ""}${fresh.has(s.id) ? " fresh" : ""}${opened.has(s.id) && !hint ? " opened" : ""}`;
       // (A "?" centred in its slot, both ways.)
       const inset = slotInset(hint ? HINT_W : TAG_W);
       const at = p ? `left:${p.x + inset.x}px;top:${p.y + inset.y}px;` : "";
       const fill = s.state === "researching" && s.research?.fill !== undefined ? `--fill:${Math.round(s.research.fill * 100)}%;` : "";
       const gauge = s.state === "researching" && !hint ? `<span class="bp-node-gauge" aria-hidden="true"></span>` : "";
-      const label = hint ? `Not found yet, in ${v.branches.find((b) => b.id === s.branch)?.label ?? "this branch"}` : `${s.label}, ${STATE_WORDS[s.state]}`;
+      const label = hint ? `Not found yet, in ${v.branches.find((b) => b.id === s.branch)?.label ?? "this branch"}` : `${s.label}, ${s.state === "locked" && s.school ? `needs a ${s.school}` : STATE_WORDS[s.state]}`;
       return `<button class="${cls}" style="${at}${fill}--c:${color.get(s.branch)}" data-act="select" data-id="${s.id}" aria-label="${esc(label)}"${s.id === this.selected ? ` aria-current="true"` : ""} title="${hint ? "Not found yet" : esc(tagTitle(s))}"><span class="bp-dot">${s.state === "learned" && !hint ? "✓" : ""}</span><span class="bp-name">${hint ? "?" : esc(s.label)}</span>${tag}${gauge}</button>`;
     };
     let html = "";
