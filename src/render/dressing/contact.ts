@@ -1,4 +1,5 @@
 import { CanvasTexture, InstancedMesh, Matrix4, MeshBasicMaterial, PlaneGeometry, Quaternion, Vector3 } from "three";
+import { shadowLook } from "../shadow-strength";
 
 export interface Footprint {
   x: number;
@@ -35,7 +36,7 @@ function blobTexture(): CanvasTexture {
 export function buildContactShadows(prints: readonly Footprint[]): InstancedMesh {
   const plane = new PlaneGeometry(2, 2);
   plane.rotateX(-Math.PI / 2);
-  const material = new MeshBasicMaterial({ color: 0x000000, alphaMap: blobTexture(), transparent: true, opacity: 0.38, depthWrite: false });
+  const material = new MeshBasicMaterial({ color: 0x000000, alphaMap: blobTexture(), transparent: true, opacity: 0.38 * shadowLook().contact, depthWrite: false });
   const mesh = new InstancedMesh(plane, material, Math.max(1, prints.length));
   mesh.count = prints.length;
   mesh.renderOrder = 1;
