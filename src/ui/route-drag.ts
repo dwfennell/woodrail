@@ -51,7 +51,7 @@ export interface StopDragHooks {
 
 /** Make the stop chips (`.route-chip[data-stop]`) in `strip` draggable. Listeners go with the strip. */
 export function stopDrag(strip: HTMLElement, hooks: StopDragHooks): void {
-  let press: { id: number; chip: HTMLElement; from: number; x0: number; y0: number; touch: boolean; timer: number } | null = null;
+  let press: { id: number; chip: HTMLElement; from: number; x0: number; y0: number; t0: number; touch: boolean; timer: number } | null = null;
   let lifted: {
     middles: number[];
     slots: number[];
@@ -157,7 +157,7 @@ export function stopDrag(strip: HTMLElement, hooks: StopDragHooks): void {
     const chip = (e.target as Element).closest<HTMLElement>(".route-chip[data-stop]");
     if (!chip || hooks.places.length < 2) return;
     const touch = e.pointerType !== "mouse";
-    press = { id: e.pointerId, chip, from: Number(chip.dataset.stop), x0: e.clientX, y0: e.clientY, touch, timer: 0 };
+    press = { id: e.pointerId, chip, from: Number(chip.dataset.stop), x0: e.clientX, y0: e.clientY, t0: e.timeStamp, touch, timer: 0 };
     if (touch) press.timer = window.setTimeout(lift, HOLD_MS);
   });
   strip.addEventListener("pointermove", (e) => {
@@ -168,6 +168,9 @@ export function stopDrag(strip: HTMLElement, hooks: StopDragHooks): void {
       if (press.touch) return finish(false);
       lift();
     }
+    // (A finger that moved before the hold was up, its move only handled late (a busy frame let the hold's timer run
+    // first): a swipe, by the move's own time. Put back; nothing moves.)
+    if (press.touch && !lifted!.moved && e.timeStamp - press.t0 < HOLD_MS && Math.hypot(e.clientX - press.x0, e.clientY - press.y0) > SLOP_PX) return finish(false);
     const L = lifted!;
     L.x = e.clientX;
     if (Math.abs(e.clientX - press.x0) > SLOP_PX) L.moved = true;

@@ -4317,13 +4317,16 @@ async function routeReorder(ctx, p) {
     const c = document.querySelector(`.engine-extra .route-chip[data-stop="${k}"]`);
     const s = c.closest(".route-stops").getBoundingClientRect();
     const r = c.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, right: r.right, h: r.height, w: r.width, inStrip: r.left >= s.left - 1 && r.right <= s.right + 1 };
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, right: r.right, h: r.height, w: r.width, inStrip: r.left >= s.left - 1 && r.right <= s.right + 1, stripRight: s.right };
   }, k);
-  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  // (Each event stamped with when it happens: a loaded machine handles them late, and a swipe mustn't look like a hold.)
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: Date.now() / 1000, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   /** A finger on stop `from`'s chip, held `hold` ms (0: a swipe), moved to `toX` in steps; `mid` runs before it lifts. */
   const drag = async (from, toX, hold, mid) => {
     await p.waitForTimeout(300);
-    const a = await chipAt(from);
+    const c = await chipAt(from);
+    // (On what of the chip shows in the strip: the last may run on past its edge, scrolled sideways.)
+    const a = { x: (c.left + Math.min(c.right, c.stripRight)) / 2, y: c.y };
     await touch("touchStart", a.x, a.y);
     if (hold) await p.waitForTimeout(hold);
     for (let k = 1; k <= 10; k++) {
@@ -4338,7 +4341,8 @@ async function routeReorder(ctx, p) {
     return seen;
   };
   const sizes = await Promise.all([0, 1, 2].map(chipAt));
-  check("route-reorder: the stops' chips are a finger's size (44 px) and in the strip at 390 px", sizes.every((c) => c.h >= 44 && c.w >= 44 && c.inStrip), JSON.stringify(sizes));
+  // (The strip scrolls sideways: a chip past its edge shows at least a finger's width of itself.)
+  check("route-reorder: the stops' chips are a finger's size (44 px), each showing 44 px or more in the strip at 390 px", sizes.every((c) => c.h >= 44 && c.w >= 44 && Math.min(c.right, c.stripRight) - c.left >= 44), JSON.stringify(sizes));
   // A swipe across the chips, no hold: no stop moves.
   await drag(2, sizes[0].left + 4, 0);
   check("route-reorder: a swipe across the chips (no hold) moves no stop", JSON.stringify((await route()).stops) === JSON.stringify(setup.places), JSON.stringify(await route()));
