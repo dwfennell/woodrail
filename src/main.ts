@@ -5354,6 +5354,8 @@ const toys = ((): LoadingToys | null => {
 if (toys) {
   // One after another: the train, then the platform's folk, then the street's furniture.
   const pop = async (models: Map<string, Object3D>, shelf: Shelf, list: [string, Record<string, string>?][]) => {
+    // (After the kept textures are read: the first toy makes the materials.)
+    await texturesKept;
     for (const [id, slots] of list) {
       const model = models.get(id);
       if (model) toys.add(model, shelf, slots);
