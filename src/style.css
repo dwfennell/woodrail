@@ -1155,12 +1155,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .research-pill .rp-icon { grid-area: icon; font-size: 11px; }
   .research-pill .rp-name { grid-area: name; }
   .research-pill .rp-count { grid-area: count; }
+  /* Nothing picked: "Pick research" over two lines with the book beside both, read as one ("Pick / 📘 research" read
+     as two things: QA 2026-11-03). */
+  .research-pill.idle .rp-text { grid-template-areas: "icon name" "icon count"; column-gap: 4px; }
+  .research-pill.idle .rp-icon { align-self: center; font-size: 16px; }
 }
 /* At 360 px the pill has about 76 px: the book gives way so the count stays whole (QA: "13/14\uE000" lost its log); the
    pill's place, its bar and its colours say what it is. */
 @media (max-width: 370px) {
   .research-pill .rp-text { grid-template-columns: minmax(0, max-content); grid-template-areas: "name" "count"; }
   .research-pill .rp-icon { display: none; }
+  .research-pill.idle .rp-text { grid-template-columns: minmax(0, max-content); grid-template-areas: "name" "count"; }
 }
 
 /* Tooltips for the HUD's controls (see ui/tooltip.ts). */
