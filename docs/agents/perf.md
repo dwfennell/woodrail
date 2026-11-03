@@ -9,6 +9,7 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 |---|---|
 | `npm run perf -- [options]` (`tools/perf/run.mjs`) | Loads representative maps in a 390×844 phone page (DPR 2, CPU throttled 4×) and measures what a player pays for. Writes `perf.json` and `perf.md` (a table) to `--out` (default `perf-out/<time>`). |
 | `npm run perf:check` (`tools/perf/check.mjs`) | A short run checked against `tools/perf/budgets.json`: `--quick` with the options in `budgets.json`'s `run` (the fresh and Sandbox maps, CPU 2×, DPR 1, a first visit only, short stretches). Exit 1 when a measure is over budget by more than its margin. About 5 min. |
+| `node tools/perf/compare.mjs <before.json> <after.json>` | Two runs side by side, the main measures per map with the change: for a commit message. |
 | `node tools/perf/profile-top.mjs <file.cpuprofile> [<regex>]` | The top functions of a `--profile` CPU profile, by total and self time. |
 | `node tools/perf/threads.mjs [<s>]` | Which Chromium threads are busy while the game sits idle (a worker, the GPU process, audio). |
 | `node tools/perf/idle-frames.mjs`, `idle-cpu.mjs` | Older, narrower checks: frames drawn and CPU over 20 s idle; audio threads. |
@@ -84,3 +85,29 @@ too, so the saving is kept.
 - Does it draw? A new mesh is a draw call (and a shadow-pass draw call if it casts): batch or instance many small
   things, merge static ones, and share materials (a new material can be a new shader program to compile).
 - Then measure: `npm run perf -- --maps fresh,late` before and after, and put the numbers in the commit.
+
+## Known costs and leads (November 2026)
+
+Measured with the harness (4× CPU, DPR 2 unless said); fixed ones are in the branch history (`git log -- tools/perf`).
+Open ones, biggest first:
+
+- **Shader programs at load.** 50–65 programs; three checks each on first use, which waits for its compile on the main
+  thread, one after another: about 31 s of a 77–88 s reload at 4× in SwiftShader (a phone's driver is faster, but
+  it's still the largest block). 15 of them are the shadow pass's depth variants (16 s). Tried: `compileAsync` before
+  the first frame: it built ~30 programs the frames then didn't use (some parameter differs at that point) and can't
+  reach the shadow pass's depth materials. Leads: fewer material variants (25 `MeshPhysicalMaterial` programs), or
+  warming the depth variants.
+- **Building the map at load.** The `Game` constructor is ~20 s of the reload at 4× on the big Sandbox map:
+  `LandscapeView`'s dressing (`addPart`, `mergeGeometries`), the procedural beech textures (2.2 s). Leads: keep the
+  procedural textures per build (as the tray pictures are), or make them in a worker; build far tiles' dressing later.
+- **Tray and research pictures** (first visit, or a new build): each drawn and read back with a synchronous
+  `readPixels`, which waits for the GPU; the research board's first open waited on them. Lead:
+  `readRenderTargetPixelsAsync`.
+- **The first tray drag** compiles the ghost's material (3.6 s at 4× here): warm it after load.
+- **Triangles.** A curved track piece is ~3.1k triangles; the big Sandbox map draws 1.6 M a full frame. Lead: a
+  simpler piece far out (where the carving can't be seen).
+- **Research board** refresh: ~110–290 ms of tap handler at 4× on the late map.
+- **Bundle**: the entry is 1.8 MB; the CSG libraries (three-bvh-csg, three-mesh-bvh, polygon-clipping) are in it as
+  well as in the carving worker, for the main thread's fallback carving; zod too. Lead: load them lazily.
+- **Idle tick**: `Game.frame` and `onFrame` cost ~1.3 ms a tick at 4× when nothing draws (~4% of the main thread),
+  many small checks; nothing large left.
