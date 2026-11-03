@@ -35,6 +35,8 @@ const ROOT = opt("root", process.cwd());
 const TRACE = flag("trace");
 /** CPU profiles of the idle and pan stretches (best with an unminified build: `vite build --minify false`). */
 const PROFILE = flag("profile");
+/** A reload after the first visit, measured too (and everything after it measured on the reloaded page). Not in --quick. */
+const RELOAD = !QUICK && !flag("no-reload");
 mkdirSync(OUT, { recursive: true });
 
 /** The maps: how each opens. `load` is a copied map (tools/perf/maps), opened with the dev-only `?dev#load=`. */
@@ -391,21 +393,23 @@ async function runMap(id) {
   const cold = await open(() => page.goto(url));
   // The first visit's own work after it's ready (tray pictures drawn and kept, track carved), timed to its end.
   const bg0 = Date.now();
-  await page.evaluate(() => window.woodrail.trayThumbnailsSaved());
-  await settle(page, 60000);
+  await page.evaluate((ms) => Promise.race([window.woodrail.trayThumbnailsSaved(), new Promise((r) => setTimeout(r, ms))]), RELOAD ? 300000 : 20000);
+  await settle(page, RELOAD ? 60000 : 10000);
   cold.backgroundMs = Date.now() - bg0;
-  await page.evaluate(() => window.woodrail.save?.());
-  await page.waitForTimeout(5500); // (an autosave: the map kept for the reload)
-  if (PROFILE) {
-    await cdp.send("Profiler.enable");
-    await cdp.send("Profiler.setSamplingInterval", { interval: 500 });
-    await cdp.send("Profiler.start");
-  }
-  const warm = await open(() => page.reload());
-  if (PROFILE) {
-    const { profile } = await cdp.send("Profiler.stop");
-    writeFileSync(`${OUT}/${id}-reload.cpuprofile`, JSON.stringify(profile));
-    warm.profile = topOf(profile);
+  let warm = null;
+  if (RELOAD) {
+    await page.waitForTimeout(5500); // (an autosave: the map kept for the reload)
+    if (PROFILE) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 500 });
+      await cdp.send("Profiler.start");
+    }
+    warm = await open(() => page.reload());
+    if (PROFILE) {
+      const { profile } = await cdp.send("Profiler.stop");
+      writeFileSync(`${OUT}/${id}-reload.cpuprofile`, JSON.stringify(profile));
+      warm.profile = topOf(profile);
+    }
   }
   result.load = { cold, warm };
   await page.keyboard.press("Escape");
@@ -467,7 +471,17 @@ async function runMap(id) {
   await closeCards(page);
   // The research board (Game).
   if (def.mode === "game") {
+    if (PROFILE) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+      await cdp.send("Profiler.start");
+    }
     ops.researchBoard = await tapToPaint(page, "button.research-btn");
+    if (PROFILE) {
+      const { profile } = await cdp.send("Profiler.stop");
+      writeFileSync(`${OUT}/${id}-research.cpuprofile`, JSON.stringify(profile));
+      ops.researchBoard.profile = topOf(profile);
+    }
     await closeCards(page);
   }
   // A train's card: a tap on its engine (as a player taps it).
