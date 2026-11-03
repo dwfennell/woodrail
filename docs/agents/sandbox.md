@@ -129,6 +129,7 @@ Before going wide: rate-limit HEAD/GET, and codes with nothing saved yet.
   - **Tips, once each on a device** (`hintSeen`): the Industries tab first opened ("Industries make goods, some from other goods. Pick one up: gold rings show where its goods come from, green rings where they go"), the first industry put down ("Tap it to see what it needs…"); with the old "Try a flatbed train" toast, three at most.
   - **☰ Chain hints: on/off** (Sandbox only, `woodrail.chainHints`): off, no chain block, map hints, load hints or tips. Free play stays free: no goals.
   - Not built: a Chains panel (the goods graph) and badges over every industry on the map; the card's status and the hints covered what the investigation found.
+- **Pictures** (390×844, #seed-24; `node tools/shots/sandbox-chains.mjs [<out>]`): `docs/agents/shots/sandbox-chains-1-sawmill-card.jpg` (the card and its chevrons), `-2-held-sawmill-rings.jpg` (rings while held), `-3-harvester-needs-trees.jpg`, `-4-farm-needs-field.jpg`, `-5-bakery-waiting.jpg`.
 - **Checks:** `chains.test.ts`, `chain-hints-view.test.ts`, `tray-catalogue.test.ts` (Sandbox's tabs), `npm run e2e:sandbox-chains` (390×844: the tab and its tip, a Harvester and a Sawmill dragged out by touch with rings while held, track by the pathfinder, the sawmill's card and chevrons, Show, idle frames, coaches at the forest, a flatbed train routed by taps carrying logs in and planks to a town, a bakery's card, ☰ off and on; then the card at 1440×900).
 
 ## 4. Open items
