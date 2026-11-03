@@ -17,6 +17,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
 import { HAZE_COLOR, hazeFog, installHaze } from "./haze";
 import type { QualitySettings } from "./quality";
+import { shadowLook } from "./shadow-strength";
 
 /** Pale blue high overhead; the horizon is the haze colour so hazed ground meets the sky without a seam. */
 export const SKY_ZENITH = "#a9c6db";
@@ -70,14 +71,16 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   const sky = buildSky();
   group.add(sky);
 
-  // Light: warm afternoon sun, soft sky fill.
-  const sun = new DirectionalLight(new Color("#ffd2a1"), 5.4);
+  // Light: warm afternoon sun, soft sky fill. How dark its shadows are is set in `shadow-strength.ts`.
+  const shades = shadowLook();
+  const sun = new DirectionalLight(new Color("#ffd2a1"), shades.sun);
   sun.castShadow = true;
   sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
   sun.shadow.bias = -0.00015;
   sun.shadow.normalBias = 0.6;
   sun.shadow.radius = 2.5;
   sun.shadow.blurSamples = 12;
+  sun.shadow.intensity = shades.sunShadow;
   // The shadow camera also sees the shadow-only stand-ins (see SHADOW_PROXY_LAYER).
   sun.shadow.camera.layers.enable(SHADOW_PROXY_LAYER);
   // three tests a caster's layers against the view's camera, not the shadow camera: during the shadow pass only, the
@@ -94,7 +97,7 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   };
   scene.add(sun);
   scene.add(sun.target);
-  scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), 0.12));
+  scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), shades.fill));
 
   // From the same side as ever (its bearing over the ground: 0.72, 0.48), 55° up: shadows about 0.7× a thing's height
   // (it was 30°, 1.7×: trees' shadows reached well past them), long enough that depth still reads.
