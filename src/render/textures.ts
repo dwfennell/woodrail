@@ -39,6 +39,30 @@ const hex = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+/**
+ * Generated pixels kept between visits (per build, in the browser's cache: see `piece-cache.ts`), by name: the beech's
+ * three maps and the felt's fibres. Given by `useTextureCache` before the materials are made; what was made afresh
+ * comes back from `texturesMade`, to be kept. (Making the beech took ~0.5 s of a load on a desktop, ~2 s on a phone.)
+ */
+let cached: Map<string, Uint8ClampedArray[]> = new Map();
+const made = new Map<string, Uint8ClampedArray[]>();
+/** Names made afresh (not from the cache) since `texturesMade` last said so. */
+const fresh = new Set<string>();
+
+/** The pixels kept from an earlier visit (or none), for the textures made from now on. */
+export function useTextureCache(pixels: Map<string, Uint8ClampedArray[]> | null): void {
+  cached = pixels ?? new Map();
+}
+
+/** Everything kept and made so far (to keep for next time), or null when nothing was made afresh. */
+export function texturesMade(): Map<string, Uint8ClampedArray[]> | null {
+  if (fresh.size === 0) return null;
+  fresh.clear();
+  const all = new Map(cached);
+  for (const [k, v] of made) all.set(k, v);
+  return all;
+}
+
 interface Canvases {
   color: HTMLCanvasElement;
   rough: HTMLCanvasElement;
@@ -73,9 +97,16 @@ function toTextures(c: Canvases, repeatX: number, repeatY: number, anisotropy: n
   return { map: tex(c.color, true), roughnessMap: tex(c.rough, false), bumpMap: tex(c.bump, false) };
 }
 
-function fill(c: Canvases, w: number, h: number, pixel: (x: number, y: number) => [RGB, number, number]): void {
+function fill(c: Canvases, w: number, h: number, name: string, pixel: (x: number, y: number) => [RGB, number, number]): void {
   const ctxs = [c.color, c.rough, c.bump].map((cv) => cv.getContext("2d")!);
   const imgs = ctxs.map((ctx) => ctx.createImageData(w, h));
+  // (Made already on this page, as the loading screen's toys made it, or kept from an earlier visit.)
+  const kept = made.get(name) ?? cached.get(name);
+  if (kept && kept.length === 3 && kept.every((d) => d.length === w * h * 4)) {
+    imgs.forEach((img, k) => img.data.set(kept[k]));
+    ctxs.forEach((ctx, k) => ctx.putImageData(imgs[k], 0, 0));
+    return;
+  }
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const [rgb, rough, bump] = pixel(x, y);
@@ -93,6 +124,8 @@ function fill(c: Canvases, w: number, h: number, pixel: (x: number, y: number) =
     }
   }
   ctxs.forEach((ctx, k) => ctx.putImageData(imgs[k], 0, 0));
+  made.set(name, imgs.map((img) => img.data.slice()));
+  fresh.add(name);
 }
 
 /**
@@ -108,7 +141,7 @@ export function beechTextures(anisotropy: number): SurfaceTextures {
   const light = hex("#e9c896");
   const dark = hex("#c08c55");
   const fleck = hex("#a8743f");
-  fill(c, W, H, (x, y) => {
+  fill(c, W, H, `beech-${W}x${H}`, (x, y) => {
     const u = x / W;
     const v = y / H;
     const warp = fbm(n1, u * 8, v * 4, 4) * 3.2;
@@ -135,6 +168,14 @@ function feltFibres(): { bump: HTMLCanvasElement; pixels: ImageData } {
   bump.width = bump.height = N;
   // (Read back once drawn: kept on the CPU, so the read doesn't wait on the GPU for 9,000 strokes.)
   const bc = bump.getContext("2d", { willReadFrequently: true })!;
+  const kept = cached.get("felt-fibres")?.[0];
+  if (kept && kept.length === N * N * 4) {
+    const img = bc.createImageData(N, N);
+    img.data.set(kept);
+    bc.putImageData(img, 0, 0);
+    fibres = { bump, pixels: img };
+    return fibres;
+  }
   bc.fillStyle = "#808080";
   bc.fillRect(0, 0, N, N);
   const r = rng(91);
@@ -163,6 +204,8 @@ function feltFibres(): { bump: HTMLCanvasElement; pixels: ImageData } {
     }
   }
   fibres = { bump, pixels: bc.getImageData(0, 0, N, N) };
+  made.set("felt-fibres", [fibres.pixels.data]);
+  fresh.add("felt-fibres");
   return fibres;
 }
 

@@ -86,6 +86,7 @@ import { drawnKey, modelKey, type PropModel } from "./render/props/library";
 import { CLOCK_ASSETS } from "./render/clock-hands";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
+import { texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
@@ -5337,6 +5338,9 @@ const loadBar = (() => {
 })();
 
 /** Toys hopping onto the loading screen as their models arrive (none if WebGL won't start for it). */
+// The wood's and felt's generated textures, as an earlier visit to this build made them: read first thing, so the
+// loading screen's toys and the map use them (what's made afresh is kept after the map's built).
+const texturesKept = loadCached<Map<string, Uint8ClampedArray[]>>("textures", __BUILD_ID__).then((t) => useTextureCache(t));
 const toys = ((): LoadingToys | null => {
   const canvas = loading?.querySelector<HTMLCanvasElement>(".loading-toys");
   if (!canvas) return null;
@@ -5417,6 +5421,7 @@ requestAnimationFrame(() =>
       TrackView.carveInBackground(PIECE_TYPES),
       loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (loadBar.set("thumbnails", 1), t)),
       models(),
+      texturesKept,
     ]).then(async ([, thumbs]) => {
       // The cloud check, under way all this while: waited for only a little longer than the rest took.
       const cloudNotes = { ...takeCloudNote(), ...((await Promise.race([cloudStarted, sleep(CLOUD_WAIT_MS).then(() => ({}))])) as CloudNotes) };
@@ -5439,6 +5444,8 @@ requestAnimationFrame(() =>
       await Promise.all(wanted.map((t) => TrackView.whenBuilt(t).then(() => loadBar.set("pieces", ++ready / wanted.length))));
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms (${wanted.length} kinds; the rest in the background)`);
       boot(thumbs, opening, cloudNotes);
+      const madeTextures = texturesMade();
+      if (madeTextures) void saveCached("textures", __BUILD_ID__, madeTextures);
     });
   }, 30),
 );
