@@ -133,7 +133,8 @@ function feltFibres(): { bump: HTMLCanvasElement; pixels: ImageData } {
   const N = FELT_N;
   const bump = document.createElement("canvas");
   bump.width = bump.height = N;
-  const bc = bump.getContext("2d")!;
+  // (Read back once drawn: kept on the CPU, so the read doesn't wait on the GPU for 9,000 strokes.)
+  const bc = bump.getContext("2d", { willReadFrequently: true })!;
   bc.fillStyle = "#808080";
   bc.fillRect(0, 0, N, N);
   const r = rng(91);

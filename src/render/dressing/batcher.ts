@@ -82,7 +82,12 @@ export class Batcher {
       const c = this.color.set(paintColor);
       const n = g.getAttribute("position").count;
       const colors = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) colors.set([c.r, c.g, c.b], i * 3);
+      // (Written in place: an array a vertex made a town's load churn garbage.)
+      for (let i = 0; i < n * 3; i += 3) {
+        colors[i] = c.r;
+        colors[i + 1] = c.g;
+        colors[i + 2] = c.b;
+      }
       g.setAttribute("color", new BufferAttribute(colors, 3));
     }
     list.push(g);
