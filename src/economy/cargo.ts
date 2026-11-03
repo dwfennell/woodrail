@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -23,6 +23,14 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   milk: { index: 10, label: "Milk" },
   bread: { index: 11, label: "Bread" },
   fruit: { index: 12, label: "Fruit" },
+  // Juice from a juice works, pressed from an orchard's fruit (next nodes, 2026-11-02): bottles by the crate.
+  juice: { index: 13, label: "Juice" },
+  // Cheese from a creamery, made of a dairy's milk: round cheeses on a board.
+  cheese: { index: 14, label: "Cheese" },
+  // Ice cream from an ice cream factory, of milk and fruit: tubs, in cold vans only.
+  icecream: { index: 15, label: "Ice cream" },
+  // Bricks from a brickworks, fired of stone and coal: stacks on flatbeds.
+  bricks: { index: 16, label: "Bricks" },
 };
 
 /**
@@ -48,6 +56,11 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   milk: "🥛",
   bread: "🥖",
   fruit: "🍎",
+  // The next nodes' goods (src/icons/u1F9C3-juice).
+  juice: "🧃",
+  cheese: "🧀",
+  icecream: "🍦",
+  bricks: "🧱",
 };
 
 /** Coins, beside goods in a cost. */
@@ -55,12 +68,14 @@ export const COIN_ICON = "🪙";
 
 /** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
 export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
-  // Timber wagons are flatbeds: logs, planks, iron bars and crates of fruit.
-  timber: ["log", "planks", "iron", "fruit"],
+  // Timber wagons are flatbeds: logs, planks, iron bars, crates of fruit and stacks of bricks.
+  timber: ["log", "planks", "iron", "fruit", "bricks"],
   hopper: ["grain", "stone", "coal", "ore"],
-  // Vans: sacks and crates (flour, made goods, bread). Milk goes in a tank wagon.
-  van: ["flour", "furniture", "tools", "bread"],
+  // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles, cheeses). Milk goes in a tank wagon.
+  van: ["flour", "furniture", "tools", "bread", "juice", "cheese"],
   tanker: ["milk"],
+  // The cold van: cheese (which a van carries too) and, the only wagon it rides in, ice cream.
+  reefer: ["cheese", "icecream"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

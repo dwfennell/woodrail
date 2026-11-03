@@ -246,7 +246,7 @@ function measure(set: (typeof SETS)[number], reps: number) {
   }
   for (let i = 0; i < reps; i++) for (const k of set.strokes) drawStroke(k, times);
   times.sort((a, b) => a - b);
-  return { steps, mixed, asShown: asShown / set.strokes.length, perMetre: n / metres, share: standard / n, staircases: staircases / set.strokes.length, off, reached, p50: quantile(times, 0.5), p99: quantile(times, 0.99), p999: quantile(times, 0.999), lines };
+  return { steps, mixed, asShown: asShown / set.strokes.length, pieces: n, perMetre: n / metres, share: standard / n, staircases: staircases / set.strokes.length, off, reached, p50: quantile(times, 0.5), p99: quantile(times, 0.99), p999: quantile(times, 0.999), lines };
 }
 
 /** DRAW_BENCH=1 prints the table (and times more runs). */
@@ -275,15 +275,19 @@ describe("drawing long and standard pieces (hand-like strokes)", () => {
     "slant half way": [0, 0.63, 0.9],
     "gentle S": [5.8, 0.62, 1],
     "90° turn": [5.86, 0.83, 1],
-    // (Standard share 0.60 on main 830322eb, from 0.62: rebaselined so releases aren't blocked; not yet traced.)
-    "long sweep": [6.66, 0.61, 1],
+    // (0.62 on Node 22 on Linux, here and in CI, at a0cd584, 830322e and since; 0.60 on the machine PR #21 ran on: one
+    // piece in 50 laid otherwise, a near tie. The share's slack is one piece of the set: see the check below.)
+    "long sweep": [6.66, 0.62, 1],
   };
 
   it("no set takes more pieces a metre, or fewer standard ones, than before; none strays further from the finger", () => {
     for (const [name, r] of results) {
       const [perMetre, share] = BEFORE[name];
       if (perMetre) expect(r.perMetre, name).toBeLessThanOrEqual(perMetre + 0.15);
-      if (share) expect(r.share, name).toBeGreaterThanOrEqual(share - 0.01);
+      // (Less a piece of the set, or 0.01 if that's less: a set of 50 pieces moves its share by 0.02 a piece, and one
+      // piece laid otherwise by a near tie in the floats (it differs by machine and Node) once failed npm test: the long
+      // sweep at 0.60 for 0.62, PR #21. A real loss is a piece in many strokes, more than one in the set.)
+      if (share) expect(r.share, name).toBeGreaterThanOrEqual(share - Math.max(0.01, 1 / r.pieces) - 1e-9);
       expect(r.off, name).toBeLessThan(65);
     }
   });

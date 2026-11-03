@@ -11,6 +11,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { pinClocksIn } from "../../scripts/e2e/pin-clocks.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/loop";
@@ -25,6 +26,8 @@ await server.listen();
 const PAGE = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-${process.env.SEED ?? 7}`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
+pinClocksIn(b);
 const p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
 // CPU_THROTTLE=4: run the page 4× slower (as a slow phone, or a loaded machine), to shake out timing flakes.
 if (Number(process.env.CPU_THROTTLE) > 1) await (await p.context().newCDPSession(p)).send("Emulation.setCPUThrottlingRate", { rate: Number(process.env.CPU_THROTTLE) });

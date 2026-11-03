@@ -8,7 +8,8 @@
 // card saying Idle with a Research button, and no frames in 30 s with the dot pulsing (a few pulses, then it rests).
 //
 // Then chains: Mills (needs Farming) queued in one tap behind Farming, "Research Farming now" (never Research now while
-// Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through.
+// Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through. Then the next
+// nodes: Juice works' ticket in words, and Creamery then Cold van researched by taps and deliveries.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
@@ -19,6 +20,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { pinClocksIn } from "../../scripts/e2e/pin-clocks.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/research";
@@ -28,6 +30,8 @@ await server.listen();
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
+pinClocksIn(b);
 const p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
@@ -670,6 +674,51 @@ await tap(".board-head .close");
 await deliverGoods({ planks: 6, grain: 6 });
 await p.waitForFunction(() => window.woodrail.progress().learned.has("mills"), null, { timeout: 150000 }).catch(() => null);
 check("…and Mills is learned (the mill is unlocked)", await p.evaluate(() => window.woodrail.progress().learned.has("mills")), JSON.stringify(await queued()));
+
+// 11. The next nodes (tech-tree spec "Next nodes"): Orchards and Dairy farm learned (a setup shortcut: they need a city,
+// which isn't under test), then Juice works' ticket says what it unlocks and its cost in words; Creamery, then the
+// Cold van (needs Creamery), researched by taps and deliveries to the school: both learned (the payoff).
+await p.evaluate(() => {
+  const w = window.woodrail;
+  for (const id of ["orchard", "dairy"]) w.learn(id);
+  const pr = w.progress();
+  pr.coins = 1000;
+  w.hud.setCoins(pr.coins);
+});
+await tap(".research-pill");
+await p.setViewportSize({ width: 360, height: 780 });
+await p.waitForTimeout(400);
+const juiceWords = await words("Juice works");
+check("Juice works: unlocks the juice works, costs 8 planks and 120 coins, in words, fitting 360 px", /^Unlocks: Juice works/.test(juiceWords?.unlocks ?? "") && /^Costs: 8 \uE000 planks, 120 🪙 coins$/.test(juiceWords?.cost ?? "") && chipsInWords(juiceWords) && juiceWords.fits, JSON.stringify(juiceWords));
+await shot("19-juice-works-360");
+await p.setViewportSize({ width: 390, height: 844 });
+await p.waitForTimeout(400);
+await tap(".board-head .close");
+// Creamery (shown: Dairy farm is learned) by taps, Research now, its goods brought: learned. Only then is the Cold van
+// shown by name (a "?" while what it needs isn't learned), and it's researched the same way.
+const researchByTaps = async (name, id) => {
+  await tap(".research-pill");
+  await select(name);
+  const first = await ticket();
+  await tap(".board-sheet button[data-act=pick]", first?.buttons[0]?.text);
+  if ((await queued())[0] !== id) await tap(".board-sheet button[data-act=now]", "Research now");
+  const under = (await queued())[0];
+  await tap(".board-head .close");
+  await deliverGoods({ planks: 12 });
+  await p.waitForFunction((id) => window.woodrail.progress().learned.has(id), id, { timeout: 150000 }).catch(() => null);
+  return { first, under };
+};
+const cream = await researchByTaps("Creamery", "creamery");
+check("Creamery: a tap and Research now start it", cream.first?.name === "Creamery" && cream.under === "creamery", JSON.stringify(cream));
+await shot("20-creamery-learned");
+const cold = await researchByTaps("Cold van", "reefer");
+check("…then the Cold van is shown, and taps start it", cold.first?.name === "Cold van" && cold.under === "reefer", JSON.stringify(cold));
+const payoff = await p.evaluate(() => {
+  const w = window.woodrail;
+  const learned = w.progress().learned;
+  return { creamery: learned.has("creamery"), reefer: learned.has("reefer") };
+});
+check("…Creamery and then Cold van researched and learned (the creamery and the cold van unlocked)", payoff.creamery && payoff.reefer, JSON.stringify([payoff, await queued()]));
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

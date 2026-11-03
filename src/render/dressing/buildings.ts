@@ -1,4 +1,4 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, ExtrudeGeometry, Shape, SphereGeometry, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, ConeGeometry, Matrix4, CylinderGeometry, ExtrudeGeometry, Shape, SphereGeometry, type BufferGeometry, type Material } from "three";
 import { rng } from "../../lib/rng";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, SURF_TOWN, type Landscape, type Shed, type Town } from "../../landscape";
@@ -313,8 +313,9 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
     b.add(mats.lacquer("#fbf6ec"), face(new BoxGeometry(16, 14, 1.6), -0.4));
     printedPane(b, mats, 12, 10, face);
   }
-  // Clock over the door, facing the platform.
-  addPart(b, mats, "station-clock", (g) => place(g.rotateY(Math.PI), 108, side + 43, 14 + 36));
+  // Clock over the door, facing the platform (bare of its hands: `ClockView` draws them, at the real time, where
+  // `stationClockAt` says).
+  addPart(b, mats, "station-clock", (g) => place(g.rotateY(Math.PI), ...STATION_CLOCK_AT));
 
   // Benches facing the track, between the canopy posts.
   for (const t of [72, 144]) addPart(b, mats, "station-bench", (g) => place(g, t, side + 27, 14));
@@ -328,6 +329,23 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   if (who & 2) porter(b, mats, facing(124, 36.5));
   if (who & 4) traveller(b, mats, facing(170, 27));
   // (The peg-doll passengers waiting on the platform are drawn apart, by `buildWaiting`: their number can change.)
+}
+
+/** Where the station house's clock is: along the station, across, and up (its face's centre). */
+const STATION_CLOCK_AT = [108, TRACK_WIDTH / 2 + 43, 14 + 36] as const;
+
+/** The map part with the station house's clock (its hands drawn apart: see `flatClockHands`). */
+export const STATION_CLOCK_PART = "station-clock";
+
+/** The station house's clock's frame in the world (the part's own space to the world's), as `buildStation` places it. */
+export function stationClockAt(town: Town, out = new Matrix4()): Matrix4 {
+  const s = town.station;
+  const [t, lateral, y] = STATION_CLOCK_AT;
+  const dx = Math.cos(s.heading);
+  const dz = Math.sin(s.heading);
+  out.makeRotationY(-s.heading + Math.PI);
+  out.setPosition(s.x + dx * t - dz * lateral, y, s.z + dz * t + dx * lateral);
+  return out;
 }
 
 /** Place geometry authored at a station's origin: `t` mm along its track, `lateral` mm across, `y` up. */

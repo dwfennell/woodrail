@@ -2,7 +2,7 @@ import { CARGO, type CargoKind } from "../economy/cargo";
 import { RECIPES, type DepotRole } from "../economy/economy";
 import { kindsOf, minus, total } from "../economy/goods";
 import { CELL, FEAT_NONE, FEAT_RUIN, plotSlotOf, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_SAND, type Landscape, type MapSite, type SiteRole } from "../landscape";
-import { getPieceDef, pathLength } from "../track";
+import { getPieceDef, pathLength, type PieceTypeId } from "../track";
 import type { Footprint } from "../props/placement";
 import type { Editor } from "../editor/editor";
 import { costTag } from "../ui/cost-tag";
@@ -11,8 +11,8 @@ import { checkYard, yardMessage } from "./depot-footprint";
 import { siteWhy } from "./industries";
 import { CLEAR_PRICE, harbourStranded, restorePrice, restoredType, SITE_NAMES } from "./map-sites";
 import type { Progress } from "./progress";
-import { pieceThing } from "./things";
-import { DEPOT_NAMES, type World } from "./world";
+import { pieceThing, THING_RULES } from "./things";
+import { DEPOT_NAMES, INDUSTRY_ROLE, type World } from "./world";
 
 /**
  * Restoring an old industry's ruin (map sites, step 2: spec 2026-10-21-map-sites-design.md §7): its stub of track
@@ -262,23 +262,38 @@ const listed = (items: readonly string[], last: string) => (items.length <= 1 ? 
 
 /**
  * Where a good goes, from the recipes: the industries whose work uses it ("the mill" for grain), and "a town" if towns
- * take it. Not the depots that take anything (a harbour, a warehouse, a school's research, Sandbox's unloader).
+ * take it. Not the depots that take anything (a harbour, a warehouse, a school's research, Sandbox's unloader). With
+ * `knows`, only the industries the player knows (learned, or one on the map: `knowsRole`), so it never names one
+ * still to find (a quarry's stone and the brickworks).
  */
-export function goodsGoTo(kind: CargoKind): string[] {
+export function goodsGoTo(kind: CargoKind, knows: (role: DepotRole) => boolean = () => true): string[] {
   const out: string[] = [];
   for (const role of Object.keys(RECIPES) as DepotRole[]) {
     const r = RECIPES[role];
-    if (role === "town" ? r.takes.includes(kind) : (r.cycle?.uses[kind] ?? 0) > 0) out.push(role === "town" ? "a town" : `the ${DEPOT_NAMES[role].toLowerCase()}`);
+    if (role === "town" ? r.takes.includes(kind) : (r.cycle?.uses[kind] ?? 0) > 0 && knows(role)) out.push(role === "town" ? "a town" : `the ${DEPOT_NAMES[role].toLowerCase()}`);
   }
   return out;
 }
 
 /**
+ * Does the player know this industry: its blueprint learned (or it needs none), or one of it on the map (a restored
+ * ruin, the map's own)? For `restoredText`.
+ */
+export function knowsRole(role: DepotRole, learned: ReadonlySet<string>, onMap: (role: DepotRole) => boolean): boolean {
+  if (onMap(role)) return true;
+  return Object.entries(INDUSTRY_ROLE).some(([type, r]) => {
+    if (r !== role) return false;
+    const tech = THING_RULES[pieceThing(type as PieceTypeId)]?.tech;
+    return !tech || learned.has(tech);
+  });
+}
+
+/**
  * Said once, as a ruin is restored: what it makes, what to do next and where its goods go, from the recipes ("The farm
  * is working! It grows grain. Lay track to its siding and a train will take it to the mill."). A harbour makes
- * nothing: trains bring it goods and boats take them away.
+ * nothing: trains bring it goods and boats take them away. `knows`: which industries to name (see `goodsGoTo`).
  */
-export function restoredText(role: SiteRole): string {
+export function restoredText(role: SiteRole, knows: (role: DepotRole) => boolean = () => true): string {
   const name = SITE_NAMES[role];
   const gives = RECIPES[role].gives;
   if (gives.length === 0) return `The ${name} is working! Lay track to its siding and bring it goods by train. Boats take them away.`;
@@ -286,8 +301,12 @@ export function restoredText(role: SiteRole): string {
     gives.map((k) => CARGO[k].label.toLowerCase()),
     "and",
   );
-  const to = listed([...new Set(gives.flatMap(goodsGoTo))], "or");
-  return `The ${name} is working! It ${MAKES[role]} ${goods}. Lay track to its siding and a train will take ${gives.length > 1 ? "them" : "it"} to ${to}.`;
+  // (Only takers the player knows. None known (a farm before Mills, a mine before Foundry: towns take neither grain nor
+  // coal), the school is where to find one: "a town" would send a train where nothing takes them.)
+  const takers = [...new Set(gives.flatMap((k) => goodsGoTo(k, knows)))];
+  const it = gives.length > 1 ? "them" : "it";
+  if (takers.length === 0) return `The ${name} is working! It ${MAKES[role]} ${goods}. Lay track to its siding, and learn at your school what uses ${it}.`;
+  return `The ${name} is working! It ${MAKES[role]} ${goods}. Lay track to its siding and a train will take ${it} to ${listed(takers, "or")}.`;
 }
 
 /** Said on a ruin's card when no track can be laid to it from the line (`trackCanReach`). */

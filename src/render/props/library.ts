@@ -9,6 +9,7 @@ import type { Materials } from "../materials";
 import { catalogueModel, loadModelSet, modelOf } from "../blender-models";
 import { scaleOf } from "../../catalogue/scale";
 import { stackOf } from "../../props/storeys";
+import { CLOCK_ASSETS, HAND_NAMES, type ClockHand, type ClockHands } from "../clock-hands";
 
 /** A catalogue model baked for drawing many copies: a few merged parts, and its size on the ground. */
 export interface PropModel {
@@ -31,8 +32,8 @@ export class PropLibrary {
   /** Footprints by asset (the same for all its colour variants). */
   private readonly footprints = new Map<string, Footprint>();
   private readonly pending = new Map<string, Promise<PropModel | null>>();
-  /** A prop's live parts (a clock's hands), by model key: the template each prop's copy is cloned from. */
-  private readonly propParts = new Map<string, Group>();
+  /** A clock model's hands (see `CLOCK_ASSETS`), by model key (a kit's: `kitModelKey(type)`). */
+  private readonly hands = new Map<string, ClockHands>();
   /** A moving kit's moving parts, by kit type: the template its live copies are cloned from (see `bakeMovers`). */
   private readonly movers = new Map<PieceTypeId, Group>();
   /** Called when a model finishes loading (to draw props that were waiting for it). */
@@ -54,7 +55,7 @@ export class PropLibrary {
     const done = this.models.get(key);
     if (done !== undefined) return Promise.resolve(done);
     // A kit's models (whole, and bare of its moving parts) are built together: wait for the whole one's. So are a
-    // prop's with live parts (a clock's hands: see `PROP_LIVE_PARTS`).
+    // clock's (whole, and bare of its hands: see `CLOCK_ASSETS`).
     const kitType = key.startsWith(KIT_KEY) ? kitTypeOfKey(key) : undefined;
     if (kitType && key !== kitModelKey(kitType)) return this.load(kitModelKey(kitType)).then(() => this.models.get(key) ?? null);
     if (!kitType && key.endsWith(BARE)) return this.load(key.slice(0, -BARE.length)).then(() => this.models.get(key) ?? null);
@@ -69,17 +70,15 @@ export class PropLibrary {
       p = Promise.all([loadAsset(assetId), storeys > 0 ? loadModelSet("floors", true) : undefined]).then(([asset, floors]) => {
         let model: PropModel | null = null;
         if (kit && asset) model = this.loadKit(kitType!, asset.name, placedForKit(asset.build(this.kitFor(0)), kitPlace(kit)));
-        else if (asset && floors) model = { name: asset.name, ...bake(stackedModel(floors, assetId, storeys, this.kitFor(variant)), this.mats) };
         else if (asset) {
-          const built = asset.build(this.kitFor(variant));
+          const built = floors ? stackedModel(floors, assetId, storeys, this.kitFor(variant)) : asset.build(this.kitFor(variant));
           model = { name: asset.name, ...bake(built, this.mats) };
-          this.footprints.set(assetId, model.footprint);
-          // A prop with live parts: also baked bare of them (what's drawn under them), and the parts on their own.
-          const live = PROP_LIVE_PARTS[assetId];
-          const parts = live && bakeMovers(built, live, this.mats);
-          if (parts) {
-            this.models.set(key + BARE, { name: asset.name, ...bake(built, this.mats, { without: live }) });
-            this.propParts.set(key, parts);
+          if (!floors) this.footprints.set(assetId, model.footprint);
+          // A clock: also baked bare of its hands (what's drawn, its hands by `ClockView`), and its hands on their own.
+          const hands = CLOCK_ASSETS.has(assetId) ? clockHandsOf(built, this.mats) : null;
+          if (hands) {
+            this.models.set(key + BARE, { name: asset.name, ...bake(built, this.mats, { without: HAND_NAMES }) });
+            this.hands.set(key, hands);
           }
         }
         this.models.set(key, model);
@@ -103,8 +102,10 @@ export class PropLibrary {
     const kit = kitOf(type)!;
     const motion = motionOf(kit.asset);
     if (motion) motion.pose(partsOf(built), 0, 0);
-    // (Parts the kit leaves out of its model: `KitDef.without`.)
-    const left = kit.without ? new Set(kit.without) : undefined;
+    // (Parts the kit leaves out of its model: `KitDef.without`; and a clock's hands, drawn by `ClockView`.)
+    const hands = CLOCK_ASSETS.has(kit.asset) ? clockHandsOf(built, this.mats) : null;
+    if (hands) this.hands.set(kitModelKey(type), hands);
+    const left = kit.without || hands ? new Set([...(kit.without ?? []), ...(hands ? HAND_NAMES : [])]) : undefined;
     const whole = { name, ...bake(built, this.mats, { slabs: false, without: left }) };
     // A harbour's: also without its own water, for one that stands with that on the river or the sea (`KitDef.wetFrom`).
     if (kit.wetFrom !== undefined) this.models.set(kitModelKey(type, false, true), { name, ...bake(built, this.mats, { slabs: false, without: left, dry: true }) });
@@ -125,9 +126,14 @@ export class PropLibrary {
     return this.movers.get(type);
   }
 
-  /** A prop's live parts (see `PROP_LIVE_PARTS`) at rest, by model key; undefined if none or not loaded yet. */
-  livePartsOf(key: string): Group | undefined {
-    return this.propParts.get(key);
+  /**
+   * A clock model's hands (see `CLOCK_ASSETS`), by its model key (`modelKey`, or a kit's `kitModelKey(type)`): null if
+   * it has none, undefined while it isn't loaded yet.
+   */
+  clockHands(key: string): ClockHands | null | undefined {
+    const h = this.hands.get(key);
+    if (h) return h;
+    return this.models.has(key) ? null : undefined;
   }
 
   private kitFor(variant: number): Kit {
@@ -205,17 +211,9 @@ function stackedModel(floors: ReadonlyMap<string, Object3D>, asset: string, stor
   return root;
 }
 
-/**
- * Props drawn with parts of their own, live (`ClockView`): the station clock's hands, which show the real time. The
- * prop itself is drawn bare of them (`drawnKey`).
- */
-export const PROP_LIVE_PARTS: Readonly<Record<string, ReadonlySet<string>>> = {
-  "bldg-station-clock": new Set(["hour", "minute"]),
-};
-
-/** The model a placed prop is drawn with: its own, or for a prop with live parts, its model bare of them. */
+/** The model a placed prop is drawn with: its own, or for a clock (`CLOCK_ASSETS`), its model bare of its hands. */
 export function drawnKey(asset: string, variant?: number, storeys?: number): string {
-  return PROP_LIVE_PARTS[asset] ? modelKey(asset, variant) + BARE : modelKey(asset, variant, storeys);
+  return CLOCK_ASSETS.has(asset) ? modelKey(asset, variant, storeys) + BARE : modelKey(asset, variant, storeys);
 }
 
 /** How many colour variants there are (besides the model's own colours): towns pick among them. */
@@ -368,4 +366,35 @@ export function bakeMovers(root: Object3D, names: ReadonlySet<string>, mats: Mat
   };
   top(root);
   return out.children.length > 0 ? out : null;
+}
+
+/**
+ * A clock model's hands (the nodes named "hour" and "minute", as tools/blender/bldg_parts.py `clock` names them; not
+ * one inside another), each merged by material in its own frame, with that frame in the model's (`base`): turned about
+ * its x (the face's axis) by the time's angle, it shows the time. Null if the model has none.
+ */
+export function clockHandsOf(root: Object3D, mats: Materials): ClockHands | null {
+  root.updateMatrixWorld(true);
+  const hands: ClockHand[] = [];
+  const visit = (o: Object3D) => {
+    if (HAND_NAMES.has(o.name)) {
+      const toLocal = o.matrixWorld.clone().invert();
+      const b = new Batcher(mats.paint);
+      o.traverse((c) => {
+        const mesh = c as Mesh;
+        if (!mesh.isMesh || isSlab(mesh)) return;
+        const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        b.add(material, mesh.geometry.clone().applyMatrix4(tmp.multiplyMatrices(toLocal, mesh.matrixWorld)));
+      });
+      const parts = [...b.merged()].map(([material, geometry]) => {
+        if (!geometry.getAttribute("uv")) geometry.setAttribute("uv", new BufferAttribute(new Float32Array(geometry.getAttribute("position").count * 2), 2));
+        return { material, geometry };
+      });
+      if (parts.length > 0) hands.push({ kind: o.name as "hour" | "minute", base: o.matrixWorld.clone(), parts });
+      return;
+    }
+    for (const c of o.children) visit(c);
+  };
+  visit(root);
+  return hands.length > 0 ? { hands } : null;
 }

@@ -15,6 +15,7 @@ import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
 import { nonIndexed } from "./non-indexed";
 import { HEAP_COLORS, HEAP_KINDS, HEAP_PROFILE, HOPPER_HEAP, hopperLook, type HeapKind } from "./hopper-load";
 import { bakeMotes, IndustryMotes, moteStatics, type MoteHandle } from "./industry-motes";
+import type { ClockAt } from "./clock-view";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
 interface PileSpot {
@@ -210,6 +211,46 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: { fruit: { t: 60, l: 66, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 60,
   },
+  // The next nodes (tech-tree spec, 2026-11-02): one good in, one out (two in for the ice cream factory and the
+  // brickworks), under a jib at the near end, as the bakery's; their buildings at the far end.
+  creamery: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      milk: { t: 46, l: 64, y: YARD, across: 3, axis: "t" },
+      cheese: { t: 74, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
+  brickworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      stone: { t: 38, l: 64, y: YARD, across: 3, axis: "t" },
+      coal: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      bricks: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
+  icecream: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      milk: { t: 38, l: 64, y: YARD, across: 3, axis: "t" },
+      fruit: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      icecream: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
+  juicer: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      fruit: { t: 46, l: 64, y: YARD, across: 3, axis: "t" },
+      juice: { t: 74, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
@@ -324,6 +365,23 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
     { asset: "life-cow", t: 122, l: 80, turn: 2.6 },
   ],
   bakery: [{ asset: "bldg-bakery", t: 156, l: 84 }],
+  // The creamery: the catalogue's red barn, a cow at its door.
+  creamery: [
+    { asset: "bldg-red-barn", t: 160, l: 86 },
+    { asset: "life-cow", t: 110, l: 98, turn: 0.9 },
+  ],
+  // The brickworks: the catalogue's factory with its banded chimney (a brick works, its notes say).
+  brickworks: [{ asset: "bldg-factory", t: 156, l: 86 }],
+  // The ice cream factory: the catalogue's kiosk (its cone turns in the catalogue; here it stands) and a seller.
+  icecream: [
+    { asset: "bldg-ice-cream-kiosk", t: 160, l: 88 },
+    { asset: "life-ice-cream-seller", t: 118, l: 100, turn: 0.6 },
+  ],
+  // The juice works: the catalogue's watermill as its cider press, and an apple tree by it.
+  juicer: [
+    { asset: "bldg-watermill", t: 160, l: 86 },
+    { asset: "scene-apple-tree", t: 112, l: 96, turn: 1.1 },
+  ],
   // Two rows of apple trees beyond the crates.
   orchard: [
     { asset: "scene-apple-tree", t: 112, l: 70, turn: 0 },
@@ -533,6 +591,24 @@ export class DepotView {
         [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2.5, SACK_WIDTH, 1, 0.8).translate(0, -1.25, 0), mats.naturalWood],
         [new RoundedBoxGeometry(SACK_LENGTH - 2, 2.5, SACK_WIDTH - 2, 2, 1.2).translate(0, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer("#c8442f")],
       ],
+      // The next nodes' goods: a stack of red bricks;
+      bricks: [[mergeGeometries([-1, 1].flatMap((i) => [-1, 1].flatMap((j) => [0, 1].map((h) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH / 2 - 0.6, STONE_HEIGHT / 2 - 0.4, SACK_WIDTH / 2 - 0.4, 1, 0.4).translate((i * SACK_LENGTH) / 4, -STONE_HEIGHT / 4 + h * (STONE_HEIGHT / 2), (j * SACK_WIDTH) / 4))))))!, mats.lacquer("#b5532f")]],
+      // a tub of ice cream (pink, a cream lid);
+      icecream: [
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.4, SACK_WIDTH / 2 - 1.4, CRATE_HEIGHT - 2, 14).translate(0, -1, 0), mats.lacquer("#e98aa8")],
+        [new CylinderGeometry(SACK_WIDTH / 2, SACK_WIDTH / 2, 2, 14).translate(0, CRATE_HEIGHT / 2 - 1, 0), mats.lacquer("#f6f3ec")],
+      ],
+      // a round cheese on a board; a crate of juice bottles (amber, green caps).
+      cheese: [
+        [new RoundedBoxGeometry(SACK_LENGTH, 2, SACK_WIDTH, 1, 0.6).translate(0, -CRATE_HEIGHT / 2 + 1, 0), mats.naturalWood],
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.3, SACK_WIDTH / 2 - 0.3, CRATE_HEIGHT - 3, 16).translate(0, 0.5, 0), mats.lacquer("#f1c446")],
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.1, SACK_WIDTH / 2 - 0.1, 1.2, 16).translate(0, CRATE_HEIGHT / 2 - 2.2, 0), mats.lacquer("#c8442f")],
+      ],
+      juice: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 4, SACK_WIDTH, 1, 0.8).translate(0, -2, 0), mats.naturalWood],
+        [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(1.5, 1.5, 5, 8).translate((i * SACK_LENGTH) / 3.4, 1.5, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#e6a52c")],
+        [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(0.9, 0.9, 1.2, 8).translate((i * SACK_LENGTH) / 3.4, 4.4, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#3c8f4e")],
+      ],
     };
     // The modelled sack when it's loaded (its base at y 0: units are placed by their centre).
     if (hasPart("load-flour-sack")) looks.flour = partPieces(mats, "load-flour-sack").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]);
@@ -602,7 +678,18 @@ export class DepotView {
    * (the caller redraws the yards once it has: `setWorld`).
    */
   catalogueModel: ((asset: string) => { parts: readonly { geometry: BufferGeometry; material: Material }[] } | null | undefined) | null = null;
-  building: ((role: DepotRole, depot?: DepotState) => { parts: readonly { geometry: BufferGeometry; material: Material }[]; scale?: number } | null | undefined) | null = null;
+  building: ((role: DepotRole, depot?: DepotState) => { parts: readonly { geometry: BufferGeometry; material: Material }[]; scale?: number; clock?: string } | null | undefined) | null = null;
+
+  /**
+   * The yards' clocks (a college's, a library's: a building with `clock`, its hands' key, drawn bare of them), by depot
+   * id: their hands are drawn by `ClockView`. Kept as tiles are built again; `onClocks` is told when they change.
+   */
+  readonly yardClocks = new Map<number, ClockAt>();
+  onClocks: (() => void) | null = null;
+  /** The depots whose yard clocks each tile drew, by tile key. */
+  private readonly clockDepots = new Map<number, number[]>();
+  /** While a tile is built: where its yards' clocks go. */
+  private clockSink: ((depotId: number, at: ClockAt) => void) | null = null;
 
   /** Each tile's static parts (yards, sheds, crane masts: batched), by `tileAt` key. */
   private readonly tiles = new Map<number, Group>();
@@ -618,6 +705,11 @@ export class DepotView {
     }
     this.sites = [];
     this.tiles.clear();
+    this.clockDepots.clear();
+    if (this.yardClocks.size > 0) {
+      this.yardClocks.clear();
+      this.onClocks?.();
+    }
     this.carOwners.clear();
     for (const depot of economy.allDepots()) {
       const site = this.makeSite(depot, economy, layout);
@@ -733,10 +825,24 @@ export class DepotView {
       this.tiles.delete(key);
     }
     const sites = this.sites.filter((s) => s.tile === key);
-    if (sites.length === 0) return;
+    const hadClocks = this.clockDepots.get(key) ?? [];
+    for (const id of hadClocks) this.yardClocks.delete(id);
+    this.clockDepots.delete(key);
+    if (sites.length === 0) {
+      if (hadClocks.length > 0) this.onClocks?.();
+      return;
+    }
     // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped.
     const b = new Batcher(this.mats.paint);
+    const clocks: number[] = [];
+    this.clockSink = (id, at) => {
+      this.yardClocks.set(id, at);
+      clocks.push(id);
+    };
     for (const site of sites) this.buildStatic(site, b, true, "instanced");
+    this.clockSink = null;
+    this.clockDepots.set(key, clocks);
+    if (clocks.length > 0 || hadClocks.length > 0) this.onClocks?.();
     const statics = new Group();
     statics.userData.depotStatic = true;
     b.build(statics);
@@ -832,6 +938,12 @@ export class DepotView {
       if (house) {
         const k = house.scale ?? 1;
         for (const p of house.parts) b.add(p.material, place(p.geometry.clone().scale(k, k, k).rotateY(Math.PI / 2), 150, 80, PAD_H));
+        // Its clock's hands, drawn apart (the model is bare of them), where the model stands.
+        if (house.clock && this.clockSink && site.depot.id !== undefined) {
+          toWorld(pose, 150, 80, PAD_H, _v);
+          const matrix = new Matrix4().makeRotationY(-pose.heading + Math.PI / 2).scale(new Vector3(k, k, k)).setPosition(_v);
+          this.clockSink(site.depot.id, { key: house.clock, matrix });
+        }
         return;
       }
       b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(70, 34, 40, 2, 3), 150, 84, PAD_H + 17));
@@ -979,7 +1091,7 @@ export class DepotView {
     }
   }
 
-  /** The dairy's, the bakery's and the orchard's buildings drawn from code, till their catalogue models load. */
+  /** The buildings of the industries dressed from the catalogue (`CATALOGUE_DRESSING`), drawn from code till its models load. */
   private foodStandIns(role: DepotRole, place: (g: BufferGeometry, t: number, l: number, y: number) => BufferGeometry, b: Pick<Batcher, "add">): void {
     const mats = this.mats;
     if (role === "orchard") {
@@ -989,6 +1101,33 @@ export class DepotView {
         b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(12, 12, 9), d.t, d.l, PAD_H + 28));
         for (const [dt, dl, dy] of [[8, -6, 30], [-6, 8, 26], [2, -10, 22]] as const) b.add(mats.lacquer("#c8442f"), place(new SphereGeometry(2.4, 8, 6), d.t + dt, d.l + dl, PAD_H + dy));
       }
+      return;
+    }
+    if (role === "brickworks") {
+      // A brick shed with a tall banded chimney.
+      b.add(mats.lacquer("#9a4f3a"), place(new RoundedBoxGeometry(60, 30, 36, 2, 3), 160, 88, PAD_H + 15));
+      b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(66, 5, 42, 1, 2), 160, 88, PAD_H + 32));
+      b.add(mats.lacquer("#7a3f30"), place(new CylinderGeometry(4.5, 5.5, 70, 12), 182, 100, PAD_H + 35));
+      return;
+    }
+    if (role === "icecream") {
+      // A round pink kiosk with a striped roof and a cone on top.
+      b.add(mats.lacquer("#e98aa8"), place(new CylinderGeometry(20, 20, 30, 20), 160, 88, PAD_H + 15));
+      b.add(mats.lacquer("#f6f3ec"), place(new ConeGeometry(26, 14, 20), 160, 88, PAD_H + 37));
+      b.add(mats.lacquer("#d9a441"), place(new ConeGeometry(5, 14, 12).rotateX(Math.PI), 160, 88, PAD_H + 50));
+      return;
+    }
+    if (role === "creamery") {
+      // A red barn with a white roof.
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(50, 34, 36, 2, 3), 160, 88, PAD_H + 17));
+      b.add(mats.lacquer("#f6f3ec"), place(new RoundedBoxGeometry(56, 5, 42, 1, 2), 160, 88, PAD_H + 36));
+      return;
+    }
+    if (role === "juicer") {
+      // A stone press house with a blue water wheel on its side.
+      b.add(mats.lacquer("#cfc6b6"), place(new RoundedBoxGeometry(48, 30, 34, 2, 3), 160, 88, PAD_H + 15));
+      b.add(mats.lacquer("#7a4a2a"), place(new RoundedBoxGeometry(54, 5, 40, 1, 2), 160, 88, PAD_H + 32));
+      b.add(mats.lacquer("#2f6db5"), place(new CylinderGeometry(13, 13, 5, 18).rotateX(Math.PI / 2), 160, 68, PAD_H + 15));
       return;
     }
     // A shed at the far end: the dairy white with a red roof, the bakery cream with a brown one and a chimney.

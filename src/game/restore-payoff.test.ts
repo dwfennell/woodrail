@@ -1,3 +1,4 @@
+import type { DepotRole } from "../economy/economy";
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { RECIPES } from "../economy/economy";
@@ -8,7 +9,7 @@ import { GOALS, GoalTracker } from "./goals";
 import { amountText, FARM_FIELD_FAR, FARM_NO_FIELD, resourceAt, siteWhy, updateRates } from "./industries";
 import { restorePrice, ruinCard } from "./map-sites";
 import { Progress } from "./progress";
-import { clearRuinEdit, gamePayment, goodsGoTo, nearestRuin, restoredText, restoreRuin, restoreWhy, RUIN_NO_WAY, trackCanReach } from "./restore";
+import { clearRuinEdit, gamePayment, goodsGoTo, knowsRole, nearestRuin, restoredText, restoreRuin, restoreWhy, RUIN_NO_WAY, trackCanReach } from "./restore";
 import { buildStarterWorld, createWorld, fixedPieces, plotsForSale, syncIndustries, unlockPlot, type World } from "./world";
 import { deliverByTrain, owesAsTheGameDoes } from "./workshop-testing";
 
@@ -204,9 +205,21 @@ describe("a restored old industry works (QA: \"that old farm isn't really a farm
 describe("restoring says what it's for", () => {
   it("what it makes, to lay track to its siding, and where its goods go, from the recipes", () => {
     expect(restoredText("farm")).toBe("The farm is working! It grows grain. Lay track to its siding and a train will take it to the mill.");
-    expect(restoredText("quarry")).toBe("The quarry is working! It cuts stone. Lay track to its siding and a train will take it to a town.");
-    expect(restoredText("mine")).toBe("The mine is working! It digs up coal and ore. Lay track to its siding and a train will take them to the foundry or the power station.");
+    expect(restoredText("quarry")).toBe("The quarry is working! It cuts stone. Lay track to its siding and a train will take it to a town or the brickworks.");
+    expect(restoredText("mine")).toBe("The mine is working! It digs up coal and ore. Lay track to its siding and a train will take them to the foundry, the brickworks or the power station.");
     expect(restoredText("harbour")).toBe("The harbour is working! Lay track to its siding and bring it goods by train. Boats take them away.");
+    // Only the industries the player knows: never the brickworks before Brickworks is learned (a spoiler); a town
+    // where towns take the good; and where it knows nothing that uses it, the school.
+    const none = new Set<string>();
+    const knows = (learned: ReadonlySet<string>, map: readonly string[] = []) => (r: DepotRole) => knowsRole(r, learned, (role) => map.includes(role));
+    expect(restoredText("quarry", knows(none))).toBe("The quarry is working! It cuts stone. Lay track to its siding and a train will take it to a town.");
+    expect(restoredText("mine", knows(new Set(["mines", "foundry"])))).toBe("The mine is working! It digs up coal and ore. Lay track to its siding and a train will take them to the foundry.");
+    expect(restoredText("mine", knows(none))).toBe("The mine is working! It digs up coal and ore. Lay track to its siding, and learn at your school what uses them.");
+    // A power station on the map counts as known; Brickworks learned names it.
+    expect(restoredText("mine", knows(new Set(["brickworks"]), ["power"]))).toBe("The mine is working! It digs up coal and ore. Lay track to its siding and a train will take them to the brickworks or the power station.");
+    expect(restoredText("quarry", knows(new Set(["brickworks"])))).toBe("The quarry is working! It cuts stone. Lay track to its siding and a train will take it to a town or the brickworks.");
+    expect(restoredText("farm", knows(none))).toBe("The farm is working! It grows grain. Lay track to its siding, and learn at your school what uses it.");
+    expect(restoredText("farm", knows(new Set(["mills"])))).toBe("The farm is working! It grows grain. Lay track to its siding and a train will take it to the mill.");
     expect(goodsGoTo("grain")).toEqual(["the mill"]);
   });
 

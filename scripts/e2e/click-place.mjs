@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
+import { pinClocksIn } from "./pin-clocks.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -26,6 +27,8 @@ const check = (name, ok, detail = "") => {
 };
 
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
+pinClocksIn(b);
 const errors = [];
 
 /** A page on the title, into Sandbox (the Track tab's favourites showing). */

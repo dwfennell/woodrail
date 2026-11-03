@@ -6,7 +6,7 @@ import { getPieceDef, isBridge, isJoin, isKit, PIECE_TYPES, type PieceTypeId } f
 import type { Asset } from "../types";
 
 /** The game's own track pieces and cars, for reference beside the new ideas. */
-const CAR_NAMES: Record<CarKind, string> = { engine: "Engine", hopper: "Hopper wagon", passenger: "Passenger coach", caboose: "Caboose", timber: "Flatbed wagon", van: "Goods van", cleaner: "Track cleaner", tanker: "Milk tank wagon" };
+const CAR_NAMES: Record<CarKind, string> = { engine: "Engine", hopper: "Hopper wagon", passenger: "Passenger coach", caboose: "Caboose", timber: "Flatbed wagon", van: "Goods van", cleaner: "Track cleaner", tanker: "Milk tank wagon", reefer: "Cold van" };
 
 const pieces: Asset[] = PIECE_TYPES.filter((type) => !isJoin(type) && !isKit(type)).map((type: PieceTypeId) => ({
   id: `game-${type}`,
