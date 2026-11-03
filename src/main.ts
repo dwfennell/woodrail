@@ -4640,6 +4640,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** Start playing a mode on the world now loaded. */
+  let heldWarmed = false;
   function enter(next: GameMode, fresh = false): void {
     closeLines();
     mode = next;
@@ -4671,6 +4672,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.townCard = mode === "game" ? townCard : null;
     hud.setVisible(true);
     playing = true;
+    // The tray's held piece's shaders, compiled ahead of the first drag (once, a moment after play starts).
+    if (!heldWarmed) {
+      heldWarmed = true;
+      setTimeout(() => void interaction.warmHeld(), 1500);
+    }
     stats.record({ e: "start", mode, fresh });
     stretchFrom = performance.now();
     clearTimeout(statsAskTimer);

@@ -20,6 +20,7 @@ import {
   Frustum,
   Matrix4,
   type Fog,
+  type Object3D,
   PCFShadowMap,
   PerspectiveCamera,
   Scene,
@@ -28,6 +29,7 @@ import {
   Spherical,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
@@ -956,6 +958,27 @@ export class Game {
       w.done();
       return false;
     });
+  }
+
+  /**
+   * Compile the shaders of things not on the map yet (a held piece's ghost) as the map's lights and surroundings will
+   * draw them, without blocking: three's `compileAsync` against this scene. Drawn first otherwise, each new program
+   * waits for its compile on the main thread (the first tray drag: 3.6 s at 4× CPU in the perf harness).
+   */
+  warmShaders(objects: readonly Object3D[]): Promise<void> {
+    const side = new Scene();
+    for (const o of objects) side.add(o);
+    // Compiled for a render target, as the scene is drawn (into the post-processing's target: linear, no tone
+    // mapping); compiled for the screen, they'd be other programs (sRGB, ACES) the frames never use.
+    const target = new WebGLRenderTarget(1, 1);
+    const was = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(target);
+    const compiling = this.renderer.compileAsync(side, this.camera, this.scene);
+    this.renderer.setRenderTarget(was);
+    return compiling.then(
+      () => target.dispose(),
+      () => target.dispose(),
+    );
   }
 
   start(): void {
