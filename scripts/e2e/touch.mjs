@@ -1219,7 +1219,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
 // lines' routes kept through track laid at a stop, undo and redo, the stop taken up), blocker (a card's Show and Put
 // it away for an engine left in a line train's way), place-facing (an engine dragged right or left along the track by
-// touch faces that way), feedback (☰ Report a bug or give feedback: the sheet, a failed send's Copy instead, a send to
+// touch faces that way), front-join (a wagon dropped on the front of an engine at a line end coupled on behind), feedback (☰ Report a bug or give feedback: the sheet, a failed send's Copy instead, a send to
 // a mocked Worker whose map loads as the same railway), route-ux (the route card's UX fixes, F1–F7,
 // by taps at 360 px), route-ux-more (the roadmap's phases B and C: a route from a place's card, a stop put in the
 // middle, the ribbon's edge and arrows, tools in view on a phone on its side, the Lines view's actions, a line sent
@@ -2994,6 +2994,82 @@ async function placeFacing(ctx, p, tapSel) {
   await tapSel(".tray .tab[data-tab]");
 }
 
+/**
+ * A wagon dropped on the front of an engine standing at the end of the line is coupled on behind it (QA 2026-11-03:
+ * it said "Not enough track there", as only the engine's nearer end was tried). A straight is laid and an engine put
+ * on it with its front at the straight's end (harness setup, not what's tested); then a Flatbed wagon is dragged out of
+ * the Trains tab by touch and let go over the engine's front half. The payoff: one train, the engine and the flatbed.
+ */
+async function frontJoin(ctx, p, tapSel) {
+  await p.keyboard.press("Escape");
+  const cdp = await ctx.newCDPSession(p);
+  let stamp = Date.now() / 1000;
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp += 0.016) });
+  const spot = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const h = w.interaction.cameraHeading() + Math.PI / 2;
+    const pts = [-108, 0, 108].map((d) => [d * Math.cos(h), d * Math.sin(h)]);
+    const o = await window.__openGround(pts, { pieceGap: 400 });
+    if (!o) return null;
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const sim = await import("/src/sim/index.ts");
+    w.editor().place("straight-216", poseForCentre("straight-216", false, o.x, o.z, h), 0, false);
+    // An engine with its front at the straight's end: no room ahead of it.
+    for (const d of [-80, -60, -40, 40, 60, 80]) {
+      const near = sim.nearestCursor(w.layout, o.x + d * Math.cos(h), o.z + d * Math.sin(h), 30, 0);
+      const r = near && w.sim.addTrainAround(["engine"], near.cursor);
+      if (r?.kind !== "placed") continue;
+      const t = w.sim.getTrain(r.trainId);
+      const ahead = { ...t.bogies[0] };
+      if (sim.advanceCursor(w.layout, ahead, 40, null, sim.createAdvance()).status !== sim.ADV_OK) {
+        w.director.glideTo(w.controls.target.clone().set(o.x, 0, o.z), frameDistance(420, w.camera.fov, w.camera.aspect), { duration: 0.2 });
+        w.invalidate();
+        return { id: r.trainId };
+      }
+      w.sim.removeTrain(r.trainId);
+    }
+    return null;
+  });
+  if (!spot) throw new Error("front-join: no engine at a line's end");
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await frames(p);
+  await tapSel('.tray .tab[data-tab="trains"]');
+  const wagonItem = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="train:Flatbed wagon"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  for (let k = 0; k < 8 && !(await wagonItem()); k++) {
+    if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await tapSel(".scroller .tray-back");
+    const n = await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length);
+    await tapSel(`.scroller .tray-group:nth-child(${k + 1 + n})`);
+  }
+  await frames(p);
+  const item = await wagonItem();
+  if (!item) throw new Error("front-join: no Flatbed wagon in the Trains tab");
+  // The engine's front half on screen: its lead axle, a held wagon riding 56 px above the finger.
+  const front = await p.evaluate(async (id) => {
+    const w = window.woodrail;
+    const { cursorWorld, createWorldSample } = await import("/src/sim/index.ts");
+    const t = w.sim.getTrain(id);
+    const a = cursorWorld(w.layout, t.bogies[0], createWorldSample());
+    const v = new (w.camera.position.constructor)(a.x, 34, a.z).project(w.camera);
+    return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight + 56];
+  }, spot.id);
+  const trains0 = await p.evaluate(() => window.woodrail.sim.trainIds().length);
+  await touch("touchStart", item[0], item[1]);
+  for (let k = 1; k <= 16; k++) await touch("touchMove", item[0] + ((front[0] - item[0]) * k) / 16, item[1] + ((front[1] - item[1]) * k) / 16);
+  await frames(p);
+  await touch("touchMove", front[0], front[1]);
+  await frames(p);
+  await touch("touchEnd", 0, 0);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 30000))]));
+  const after = await p.evaluate(() => {
+    const w = window.woodrail;
+    const joined = [...w.sim.trainIds()].map((i) => w.sim.getTrain(i).cars.map((c) => c.kind).join("+")).find((k) => k === "engine+timber" || k === "timber+engine");
+    return { trains: w.sim.trainIds().length, joined, said: [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | ") };
+  });
+  check("front-join: a Flatbed wagon dropped on the front of an engine at the line's end is coupled on behind it", after.joined === "engine+timber" && after.trains === trains0 && !/Not enough track/.test(after.said), JSON.stringify({ trains0, ...after }));
+  await tapSel(".tray .tab[data-tab]");
+}
+
 async function showBlocker(ctx, p) {
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 360, height: 740 });
@@ -4331,7 +4407,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), "front-join": () => frontJoin(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

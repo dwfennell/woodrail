@@ -4863,7 +4863,20 @@ export class Interaction {
     }
     if (!best) return false;
     const { id, front } = best;
-    const t = sim.getTrain(id)!;
+    const t0car = sim.getTrain(id)!.cars[0].id;
+    // The nearer end first; then the train's other end (QA 2026-11-03: a wagon dropped on the front of an engine standing
+    // at a buffer found no room there, and was refused, though its rear was free).
+    if (this.joinAt(cars, id, front)) return true;
+    // (A try that lifted their train and put it back gave it a new id: found again by a car of it.)
+    const again = sim.findCar(t0car)?.train.id;
+    return again !== undefined && this.joinAt(cars, again, !front);
+  }
+
+  /** Couple `cars` on to train `id`'s front or rear end, if there's track for them there. */
+  private joinAt(cars: HeldCar[], id: number, front: boolean): boolean {
+    const sim = this.game.sim;
+    const t = sim.getTrain(id);
+    if (!t) return false;
     const theirs: HeldCar[] = t.cars.map((c) => {
       const cargo = this.game.economy.cargoOf(c.id);
       return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, look: sim.lookOf(c.id), ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
