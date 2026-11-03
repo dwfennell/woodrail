@@ -164,8 +164,9 @@ async function selectThenDrag(ctx, p) {
         const id = w.editor().place("straight-216", poseForCentre("straight-216", false, x, z, 0), 0, false);
         if (typeof id !== "number" || id < 0) continue;
         // (Close enough that the piece is a good size on screen: zoomed out, its middle is near enough an end that a
-        // press there, drawing, draws from the end.)
-        w.director.glideTo(t.clone().set(x, 0, z), Math.min(w.camera.position.distanceTo(t), frameDistance(700, w.camera.fov, w.camera.aspect)), { duration: 0.3 });
+        // press there, drawing, draws from the end. And within reach to take hold of it (`withinReach`): as close as
+        // map-taps leaves the view in a full run, so this runs the same alone, from the opening view, which isn't.)
+        w.director.glideTo(t.clone().set(x, 0, z), Math.min(w.camera.position.distanceTo(t), frameDistance(320, w.camera.fov, w.camera.aspect)), { duration: 0.3 });
         return id;
       }
     throw new Error("no open ground for the straight");
