@@ -14,6 +14,23 @@ All heights from the track's base (y = 0 under the wheels' track), mm.
 - **The rule now** (`findLowCrossing`, the "headroom" refusal in `trackBlock`): track over track needs `TRAIN_CLEARANCE` = 96 (two levels) between their bases; any gap between 2 and 94 is refused. Bridge viaducts are also solid but for their arch openings (`findOverlap` with `arches`).
 - **How short one level falls:** 48 against 72.5 is **24.5 short** at the deck (28 with a few mm to spare), and 36.5 short under a one-level arch (36). Two levels leave 23.5 at the deck and 11.5 under the arch. So 1.5 levels (72) would still be 0.5 short.
 
+## With and without the double-deckers
+
+The user would cut the double-decker coaches if that helps. They're the tallest, but only just: the electric engine's pantograph is 71.6, 0.9 lower. Headroom needed is the tallest car plus about 3.5:
+
+| Stock | Tallest | Headroom | Dip under a one-level deck (48) | 1.5 levels (72) with a girder deck |
+|---|---|---|---|---|
+| All (today) | 72.5 double-decker | 76 | 28 (prototype: 30) | 0.5 short |
+| No double-deckers | 71.6 electric pantograph | 75 | 27 | 0.4 to spare: not enough |
+| No double-deckers, pantograph folded down to the roof (or the electric capped at 68) | 68.0 caboose | 71.5 | **24, half a level** | 4 to spare |
+
+So cutting the double-deckers alone buys about 1 mm and makes nothing easy. The pantograph is the next limit. Cut the double-deckers and lower the pantograph (a toy pantograph folded flat, about 4 mm lower), and:
+
+- **A gets neater:** the dip is exactly half a level (24). The underpass can be 216 long, a bridge's length: eased over 72 at each end (steepest slope 0.50, a ramp's own) and flat for 72. The trench is shallower too.
+- **C becomes possible on clearance** (72 against 71.5), but only with a girder deck, and it still puts track halfway between levels. Not recommended either way.
+- **A girder bridge alone at one level** never works (48 against 68).
+- **D is unchanged** (it never needed the cut).
+
 ## Options
 
 ### A. Underpass: the lower line dips into the board, the bridge over it is a girder span (recommended)
@@ -45,7 +62,7 @@ No new piece in the tray, but a placed piece's shape (and its path, joints and s
 
 ## Recommendation
 
-**A.** The prototype has the underpass piece, the dip in the path, the trench, the felt hole, the girder span and the 76 mm rule (`tools/shots/low-bridge.mjs`). Pictures:
+**A.** With all stock kept, the dip is 30 and the underpass 288 long, as prototyped. If the double-deckers go and the electric's pantograph folds down, make it **half a level (24) and 216 long** (a bridge's length), with `TRAIN_HEADROOM` 72 and the headroom test guarding 68.5. Cutting only the double-deckers isn't worth it (about 1 mm). The prototype has the underpass piece, the dip in the path, the trench, the felt hole, the girder span and the 76 mm rule (`tools/shots/low-bridge.mjs`). Pictures:
 
 - `docs/agents/shots/low-bridge-wide.jpg`: the crossing, a train with the electric engine and two double-deckers under it.
 - `docs/agents/shots/low-bridge-under.jpg`: looking along the lower line, the pantograph under the girder.
