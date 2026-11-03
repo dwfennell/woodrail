@@ -30,6 +30,7 @@ import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { growthOf, TownLife } from "./game/town-life";
 import { DeliveryVans } from "./game/delivery-vans";
 import { Buses } from "./game/buses";
+import { TownCars } from "./game/town-cars";
 import { plotPrice, townStatus } from "./game/towns";
 import { firstFoodNews } from "./game/food-text";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
@@ -1492,6 +1493,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const deliveryVans = new DeliveryVans({ world: game, vans: game.vans, knows: () => mode === "game" && progress.learned.has("vans"), lacks: (t, k) => townLife.lacks(t, k) });
   // Buses (roads spec D6): a bus stop beside a station brings people from a town off the line (src/game/buses.ts).
   const buses = new Buses({ world: game, vans: game.vans, knows: () => mode === "game" && progress.learned.has("buses"), room: () => waitingCap(progress) });
+  // A town's own cars (tech tree 3): the cars brought to it by car carrier drive about its streets (src/game/town-cars.ts).
+  const townCars = new TownCars({ world: game, vans: game.vans, knows: () => mode === "game" });
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
     knows: (tech) => progress.learned.has(tech),
@@ -2424,6 +2427,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     peopleArrive(game.world, progress, 1, peopleClock);
     // A bus at a station's stop goes for the people waiting in its town off the line.
     if (mode === "game" && !game.paused) buses.update();
+    // (Placed again only when what the towns have had or the land changed: a key compared, else nothing.)
+    townCars.sync();
     // (Nothing else may be drawing: new arrivals redraw their platform themselves.)
     showWaiting();
   }, 1000);

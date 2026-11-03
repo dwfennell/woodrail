@@ -1,5 +1,5 @@
 // Pictures of tech tree 3's pieces on a phone (390×844): the car factory's yard with a loaded car carrier beside it,
-// and a harbour's quay with its catch of fish. A Game, the yards put down by the editor and stocked by hand (a harness
+// a town's own cars on its streets, and a harbour's quay with its catch of fish and a boat in. A Game, the yards put down by the editor and stocked by hand (a harness
 // shortcut: it's for looking, not for testing; next-nodes.test.ts and e2e:research test the player's path).
 //
 // Usage: node tools/shots/tech-tree-3.mjs [<out dir>]   (default out: e2e-out/tech-tree-3)
@@ -91,6 +91,81 @@ await look(carriers.x, carriers.z, Number(process.env.CLOSE ?? 300), Number(proc
 await p.waitForTimeout(1200);
 await settle();
 await snap("car-carrier-close");
+
+// A town's own cars: cars delivered to the first town (shortcut: its totals written, as a car carrier's delivery adds
+// them), and the town's cars drive its streets (main.ts's TownCars, once a second).
+const town = await p.evaluate(() => {
+  const w = window.woodrail;
+  const t = w.world.landscape.towns[0];
+  w.economy.deliveredGoods.set(t.id, { ...(w.economy.deliveredGoods.get(t.id) ?? {}), autos: 12 });
+  return { x: t.centre.x, z: t.centre.z };
+});
+await p.waitForFunction(() => window.woodrail.economy.roadVehicles.list.filter((v) => v.kind === "car" && v.leg === "out").length > 0, null, { timeout: 30000 }).catch(() => console.log("(no car out)"));
+const carAt = await p.evaluate(() => {
+  const v = window.woodrail.economy.roadVehicles.list.find((x) => x.kind === "car");
+  return v ? { x: v.x, z: v.z } : null;
+});
+console.log("town car:", JSON.stringify(carAt));
+await look(carAt?.x ?? town.x, carAt?.z ?? town.z, Number(process.env.TOWN ?? 420), 0.95);
+await p.waitForTimeout(700);
+await snap("town-cars");
+
+// A harbour on the coast with its catch: the coast plot bought, a harbour put down where boats reach its quay, Fishing
+// boats learned, a boat in and its catch landed (shortcut: landed as a boat lands it, `Economy.land`).
+const quay = await p.evaluate(async () => {
+  const w = window.woodrail;
+  const { plotsForSale, landForSale } = await import("/src/game/world.ts");
+  const { SURF_SEA, isWater } = await import("/src/landscape/index.ts");
+  const { QUAY, waterWay } = await import("/src/game/harbours.ts");
+  const { siteWhy } = await import("/src/game/industries.ts");
+  const plot = plotsForSale(w.world.landscape).find((q) => {
+    const g = landForSale(w.world.landscape, q.px, q.pz).grid;
+    let sea = false;
+    g.forEachCell((i) => {
+      if (g.surface[i] === SURF_SEA) sea = true;
+    });
+    return sea;
+  });
+  if (!plot || !w.unlockPlot(plot.px, plot.pz)) return { error: "no coast plot" };
+  for (const id of ["harbours", "fishing"]) w.learn(id);
+  const g = w.world.landscape.grid;
+  let pose = null;
+  g.forEachCell((i, col, row) => {
+    if (pose || g.surface[i] !== SURF_SEA) return;
+    for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const c = Math.cos(heading);
+      const s = Math.sin(heading);
+      const qx = g.centreX(col);
+      const qz = g.centreZ(row);
+      const at = { x: qx - c * QUAY.t + s * QUAY.l, z: qz - s * QUAY.t - c * QUAY.l, heading };
+      const under = g.cellAtWorld(at.x + c * 108, at.z + s * 108);
+      if (under === -1 || isWater(g.surface[under])) continue;
+      if (siteWhy(w.world.landscape, "depot-harbour", at) === null && waterWay(w.world.landscape, at)) {
+        pose = at;
+        return;
+      }
+    }
+  });
+  if (!pose) return { error: "no harbour site" };
+  const y = g.groundY(g.cellAtWorld(pose.x + Math.cos(pose.heading) * 108, pose.z + Math.sin(pose.heading) * 108));
+  const id = w.editor().place("depot-harbour", pose, y, false);
+  const d = w.economy.depotAtPiece(id) ?? w.economy.addDepot("harbour", id);
+  w.economy.land(d, "fish", 4);
+  w.boats.arrive(d.id, waterWay(w.world.landscape, pose), 0.5);
+  w.depotView.setWorld(w.economy, w.layout);
+  w.invalidate();
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  return { x: pose.x + c * 108 - s * 100, z: pose.z + s * 108 + c * 100 };
+});
+console.log("harbour:", JSON.stringify(quay));
+if (!quay.error) {
+  await p.waitForTimeout(2500);
+  await look(quay.x, quay.z, Number(process.env.HARBOUR ?? 520), 0.95);
+  await p.waitForTimeout(1500);
+  await settle();
+  await snap("fishing-harbour");
+}
 console.log(errors.length ? errors.join("\n") : "no errors");
 await b.close();
 await server.close();
