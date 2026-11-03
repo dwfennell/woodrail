@@ -2401,6 +2401,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // (A full order is routine, not news: only one cut short is, as a problem to see to.)
         else if (e.short) note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: () => `${got} (the rest went back: ${why})` });
         scheduleSave("progress");
+      } else if (e.kind === "caught") {
+        // (A catch is routine, as a delivery is: the fish on the quay show it.)
+        scheduleSave("progress");
       } else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
         // (Goods sold to a boat are routine, as deliveries are: the coins show it, the News doesn't.)
@@ -2601,7 +2604,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const d = game.economy.depot(id)!;
     const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
-    const text = harbourTrade.describe(id);
+    const text = harbourTrade.describe(id, progress.learned.has("fishing"));
     const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
     // Goods the boats sell you (what you already make), and what's on order for the next one.
     const forSale = goodsForSale(game.world);

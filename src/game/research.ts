@@ -63,11 +63,13 @@ export function setSpeed(p: Progress, speed: number): void {
 /** Seconds of study a blueprint takes (at speed 1). */
 export function studyTime(id: string, learned?: ReadonlySet<string>): number {
   const tier = techOf(id)?.tier ?? 1;
-  return STUDY_SECONDS[tier] / (tier === 1 && learned?.has("study-hall") ? STUDY_HALL : 1);
+  return STUDY_SECONDS[tier] / (tier === 1 && learned?.has("study-hall") ? STUDY_HALL : tier === 3 && learned?.has("university") ? UNIVERSITY : 1);
 }
 
 /** Study hall (research, tech-tree Q1): tier-1 lessons go this much faster at any school. */
 export const STUDY_HALL = 2;
+/** University (tech tree 3): tier-3 lessons go this much faster at any school. */
+export const UNIVERSITY = 2;
 
 /** Can it be researched now: built, not learned, what it needs learned and what it requires done? */
 export function canResearch(p: Progress, id: string): boolean {

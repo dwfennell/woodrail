@@ -5,7 +5,7 @@ import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, typ
 import type { Layout, PieceTypeId, Pose } from "../track";
 import { kitOf, TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
-import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
+import { AUTO_HEIGHT, AUTO_LENGTH, AUTO_WIDTH, BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
 import { setCullBox, tileAt } from "./dressing/tiles";
@@ -232,6 +232,16 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  carworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      iron: { t: 38, l: 64, y: YARD, across: 2, axis: "t" },
+      planks: { t: 60, l: 64, y: YARD, across: 2, axis: "t" },
+      autos: { t: 84, l: 64, y: YARD, across: 2, axis: "t" },
+    },
+    trackT: 60,
+  },
   icecream: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -372,6 +382,11 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
   ],
   // The brickworks: the catalogue's factory with its banded chimney (a brick works, its notes say).
   brickworks: [{ asset: "bldg-factory", t: 156, l: 86 }],
+  // The car factory: the catalogue's goods shed as its assembly hall, and a new car waiting by the door.
+  carworks: [
+    { asset: "bldg-goods-shed", t: 162, l: 86 },
+    { asset: "veh-family-car", t: 116, l: 100, turn: 0.4, scale: 0.6 },
+  ],
   // The ice cream factory: the catalogue's kiosk (its cone turns in the catalogue; here it stands) and a seller.
   icecream: [
     { asset: "bldg-ice-cream-kiosk", t: 160, l: 88 },
@@ -593,6 +608,17 @@ export class DepotView {
       ],
       // The next nodes' goods: a stack of red bricks;
       bricks: [[mergeGeometries([-1, 1].flatMap((i) => [-1, 1].flatMap((j) => [0, 1].map((h) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH / 2 - 0.6, STONE_HEIGHT / 2 - 0.4, SACK_WIDTH / 2 - 0.4, 1, 0.4).translate((i * SACK_LENGTH) / 4, -STONE_HEIGHT / 4 + h * (STONE_HEIGHT / 2), (j * SACK_WIDTH) / 4))))))!, mats.lacquer("#b5532f")]],
+      // a little red toy car (body, a sky-blue cabin, four black wheels: a car factory's), and a crate of fish on ice;
+      autos: [
+        [new RoundedBoxGeometry(AUTO_LENGTH, 4.6, AUTO_WIDTH, 1, 1.6).translate(0, -1.2, 0), mats.lacquer("#c8442f")],
+        [new RoundedBoxGeometry(AUTO_LENGTH * 0.52, 3.8, AUTO_WIDTH - 1.6, 1, 1.4).translate(-1, 2.6, 0), mats.lacquer("#bfe0f2")],
+        [mergeGeometries([-1, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(2.3, 2.3, 1.6, 10).rotateX(Math.PI / 2).translate(i * (AUTO_LENGTH / 2 - 4.5), -AUTO_HEIGHT / 2 + 2.3, j * (AUTO_WIDTH / 2 - 0.4))))))!, mats.lacquer("#2a2a2a")],
+      ],
+      fish: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 3, SACK_WIDTH, 1, 0.8).translate(0, -1.5, 0), mats.naturalWood],
+        [new RoundedBoxGeometry(SACK_LENGTH - 2, 1.4, SACK_WIDTH - 2, 1, 0.6).translate(0, CRATE_HEIGHT / 2 - 3.2, 0), mats.lacquer("#e4f1f7")],
+        [mergeGeometries([-1, 0, 1].map((i) => nonIndexed(new SphereGeometry(1, 10, 6).scale(5, 1.3, 1.9).translate(i * 0.8, CRATE_HEIGHT / 2 - 2, i * 2.4))))!, mats.lacquer("#7d93a6")],
+      ],
       // a tub of ice cream (pink, a cream lid);
       icecream: [
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.4, SACK_WIDTH / 2 - 1.4, CRATE_HEIGHT - 2, 14).translate(0, -1, 0), mats.lacquer("#e98aa8")],
@@ -1108,6 +1134,13 @@ export class DepotView {
       b.add(mats.lacquer("#9a4f3a"), place(new RoundedBoxGeometry(60, 30, 36, 2, 3), 160, 88, PAD_H + 15));
       b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(66, 5, 42, 1, 2), 160, 88, PAD_H + 32));
       b.add(mats.lacquer("#7a3f30"), place(new CylinderGeometry(4.5, 5.5, 70, 12), 182, 100, PAD_H + 35));
+      return;
+    }
+    if (role === "carworks") {
+      // A long blue assembly hall with a saw-tooth roof, and a red car by its door.
+      b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(62, 28, 36, 2, 3), 162, 88, PAD_H + 14));
+      for (const t of [144, 162, 180]) b.add(mats.lacquer("#cfc6b6"), place(new RoundedBoxGeometry(16, 8, 40, 1, 1.5), t, 88, PAD_H + 31));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(20, 7, 11, 1, 2), 116, 100, PAD_H + 5));
       return;
     }
     if (role === "icecream") {

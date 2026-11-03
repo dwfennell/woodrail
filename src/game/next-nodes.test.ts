@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCarry, CARGO, CARGO_KINDS, Economy, RECIPES, type CargoKind } from "../economy";
+import { canCarry, CARGO, CARGO_KINDS, CARRIES, Economy, RECIPES, type CargoKind } from "../economy";
 import { CAR_KINDS, CAR_SPECS, Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
@@ -9,7 +9,12 @@ import { FULL_PAY, LUXURIES, payFor, PRICES, townStatus } from "./towns";
 import { STICKERS, type StickerContext } from "./stickers";
 import { THING_RULES } from "./things";
 import type { World } from "./world";
-import { INDUSTRY_ROLE } from "./world";
+import { INDUSTRY_ROLE, syncIndustries } from "./world";
+import { BOAT_DOCKED, BOAT_EVERY, BOAT_SAIL, FISH_CATCH, HarbourTrade, type HarbourEvent } from "./harbours";
+import { coastWorld, harbourSite } from "./harbours-testing";
+import { Progress } from "./progress";
+import { studyTime, UNIVERSITY } from "./research";
+import { seenOf } from "./tech";
 
 /**
  * The tech tree's next nodes (spec "Next nodes", 2026-11-02) by train: a closed oval of the game's own depot pieces,
@@ -175,4 +180,117 @@ describe("Brickworks", () => {
     expect(economy.made[CARGO.bricks.index]).toBeGreaterThan(0);
     expect(got("bricks")).toBeGreaterThan(0);
   }, 120_000);
+});
+
+// Tech tree 3 (2026-11-03): the car carrier and the car factory (iron's chain gets an end), fishing boats (a harbour's
+// catch), and the university.
+describe("Car carrier", () => {
+  it("is built: tier 3 after the Foundry, a wagon of its own (planks and iron) that carries cars and nothing else", () => {
+    expect(bp("car-carrier").plan).toBeUndefined();
+    expect(bp("car-carrier")).toMatchObject({ needs: ["foundry"], tier: 3, research: { goods: { planks: 6 }, coins: 160 } });
+    expect(THING_RULES["car:carrier"]).toMatchObject({ tech: "car-carrier", cost: { planks: 3, iron: 2 } });
+    expect(CARRIES.carrier).toEqual(["autos"]);
+    expect(CAR_SPECS.carrier).toMatchObject({ length: 84, powered: false });
+  });
+});
+
+describe("Car factory", () => {
+  it("is built: tier 3 after the Car carrier, once towns have had 20 iron; iron and planks make cars", () => {
+    expect(bp("car-factory").plan).toBeUndefined();
+    expect(bp("car-factory")).toMatchObject({ needs: ["car-carrier"], tier: 3, research: { goods: { planks: 12 }, coins: 220 } });
+    expect(bp("car-factory").requires).toContainEqual({ kind: "delivered", good: "iron", n: 20 });
+    expect(THING_RULES["piece:depot-carworks"]).toMatchObject({ tech: "car-factory", coins: 420, cost: { planks: 12, iron: 4 } });
+    expect(RECIPES.carworks).toMatchObject({ takes: ["iron", "planks"], gives: ["autos"], cycle: { uses: { iron: 1, planks: 1 }, makes: { autos: 1 } } });
+    // Cars ride on a car carrier and nothing else; towns pay the most for them, at any level.
+    expect(CAR_KINDS.filter((k) => canCarry(k, "autos"))).toEqual(["carrier"]);
+    expect(FULL_PAY.has("autos")).toBe(true);
+    expect(Math.max(...CARGO_KINDS.map((k) => PRICES[k] ?? 0))).toBe(PRICES.autos);
+    expect(buysText(new Set(["car-factory"]))).toBe("Always buys 🚗 cars at full pay");
+    expect(firstFoodNews("autos", 1, 1, "Ashby")).toBe("First cars! 🚗 Ashby buys them at full pay");
+  });
+
+  it("(iron + planks) → cars: the train brings both, and a car carrier takes the cars to town", () => {
+    const { closed, run, economy, got } = loop(["depot-mine", "depot-foundry", "depot-forest", "depot-sawmill", "depot-carworks"], ["engine", "hopper", "timber", "timber", "carrier"]);
+    expect(closed).toBe(true);
+    run(30);
+    expect(economy.made[CARGO.iron.index]).toBeGreaterThan(0);
+    expect(economy.made[CARGO.autos.index]).toBeGreaterThan(0);
+    expect(got("autos")).toBeGreaterThan(0);
+    // The hidden sticker for it, earned by the delivery itself.
+    const sticker = STICKERS.find((s) => s.id === "showroom")!;
+    expect(sticker.hidden).toBe(true);
+    expect(sticker.check({ economy } as unknown as World, {} as StickerContext)).toBe(true);
+  }, 240_000);
+
+  it("without a car carrier the cars stay at the factory", () => {
+    const { run, economy, got } = loop(["depot-mine", "depot-foundry", "depot-forest", "depot-sawmill", "depot-carworks"], ["engine", "hopper", "timber", "timber", "van"]);
+    run(20);
+    expect(economy.made[CARGO.autos.index]).toBeGreaterThan(0);
+    expect(got("autos")).toBe(0);
+  }, 240_000);
+});
+
+describe("Fishing boats", () => {
+  it("is built: tier 3 after Harbours, mostly coins; fish ride in vans or cold vans, and towns buy them at full pay", () => {
+    expect(bp("fishing").plan).toBeUndefined();
+    expect(bp("fishing")).toMatchObject({ needs: ["harbours"], tier: 3, research: { goods: { planks: 8 }, coins: 160 } });
+    expect(CAR_KINDS.filter((k) => canCarry(k, "fish"))).toEqual(["van", "reefer"]);
+    expect(FULL_PAY.has("fish")).toBe(true);
+    expect(buysText(new Set(["fishing"]))).toBe("Always buys 🐟 fish at full pay");
+  });
+
+  it("each boat in lands a catch of fish on the quay, once it's learned, and the boats don't take it back", () => {
+    const run = (learned: boolean) => {
+      const w = coastWorld();
+      const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+      syncIndustries(w);
+      const d = w.economy.depotAtPiece(id)!;
+      const p = Progress.fresh();
+      if (learned) p.learned.add("fishing"); // (Setup: what the research gives; the boats are under test.)
+      const trade = new HarbourTrade();
+      const caught: HarbourEvent[] = [];
+      // Two boats (the second must leave the first's catch on the quay), or as long as two would take.
+      for (let t = 1; t <= 2 * (BOAT_EVERY + 2 * BOAT_SAIL + BOAT_DOCKED) + 60 && caught.length < 2; t++) for (const e of trade.update(w, p)) if (e.kind === "caught") caught.push(e);
+      return { d, caught, landed: w.economy.landed.get(d.id)?.[CARGO.fish.index] ?? 0, describe: new HarbourTrade().describe(d.id, learned) };
+    };
+    const yes = run(true);
+    expect(yes.caught).toHaveLength(2);
+    expect(yes.d.piles[CARGO.fish.index]).toBe(2 * FISH_CATCH);
+    expect(yes.landed).toBe(2 * FISH_CATCH);
+    expect(yes.describe).toContain(`lands ${FISH_CATCH} fish`);
+    const no = run(false);
+    expect(no.caught).toHaveLength(0);
+    expect(no.d.piles[CARGO.fish.index]).toBe(0);
+  });
+
+  it("a van takes a harbour's landed fish to town", () => {
+    const { run, economy, depots, got } = loop(["depot-harbour"], ["engine", "van"]);
+    // (Landed as a boat lands it: `Economy.land`, the boat's own call, tested above.)
+    economy.land(depots[0], "fish", 6);
+    run(6);
+    expect(got("fish")).toBeGreaterThan(0);
+    const sticker = STICKERS.find((s) => s.id === "fish-supper")!;
+    expect(sticker.hidden).toBe(true);
+    expect(sticker.check({ economy } as unknown as World, {} as StickerContext)).toBe(true);
+  }, 120_000);
+});
+
+describe("University", () => {
+  it("is built: tier 3 after the College and 20 blueprints, mostly coins", () => {
+    expect(bp("university").plan).toBeUndefined();
+    expect(bp("university")).toMatchObject({ needs: ["college"], tier: 3, research: { goods: { planks: 14 }, coins: 300 } });
+    expect(bp("university").requires).toContainEqual({ kind: "count", stat: "blueprints", n: 20 });
+  });
+
+  it("hard (tier-3) lessons go twice as fast, and the board shows every blueprint", () => {
+    const p = Progress.fresh();
+    const hard = BLUEPRINTS.find((b) => b.tier === 3 && !b.plan)!.id;
+    const easy = BLUEPRINTS.find((b) => (b.tier ?? 1) === 2 && !b.plan)!.id;
+    const before = { hard: studyTime(hard, p.learned), easy: studyTime(easy, p.learned) };
+    expect([...seenOf(p).values()].some((s) => s !== "shown")).toBe(true);
+    p.learned.add("university");
+    expect(studyTime(hard, p.learned)).toBe(before.hard / UNIVERSITY);
+    expect(studyTime(easy, p.learned)).toBe(before.easy);
+    expect([...seenOf(p).values()].every((s) => s === "shown")).toBe(true);
+  });
 });
