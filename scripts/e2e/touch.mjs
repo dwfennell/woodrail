@@ -4327,11 +4327,17 @@ async function routeReorder(ctx, p) {
     const c = await chipAt(from);
     // (On what of the chip shows in the strip: the last may run on past its edge, scrolled sideways.)
     const a = { x: (c.left + Math.min(c.right, c.stripRight)) / 2, y: c.y };
-    await touch("touchStart", a.x, a.y);
-    if (hold) await p.waitForTimeout(hold);
-    for (let k = 1; k <= 10; k++) {
-      await touch("touchMove", a.x + ((toX - a.x) * k) / 10, a.y + 2);
-      await p.waitForTimeout(16);
+    if (hold) {
+      await touch("touchStart", a.x, a.y);
+      await p.waitForTimeout(hold);
+      for (let k = 1; k <= 10; k++) {
+        await touch("touchMove", a.x + ((toX - a.x) * k) / 10, a.y + 2);
+        await p.waitForTimeout(16);
+      }
+    } else {
+      // A swipe: sent at once, not each awaited (CDP waits for the page to take each event: on SwiftShader's slow frames
+      // an awaited start and first move would be a finger held still for longer than a hold).
+      await Promise.all([touch("touchStart", a.x, a.y), ...Array.from({ length: 10 }, (_, k) => touch("touchMove", a.x + ((toX - a.x) * (k + 1)) / 10, a.y + 2))]);
     }
     await frames(p);
     const seen = mid ? await mid() : null;
