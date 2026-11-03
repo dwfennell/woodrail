@@ -31,7 +31,9 @@ import {
   type PieceTypeId,
   type SwapPiece,
   type Pose,
+  isBridge,
 } from "../track";
+import { DIG_MESSAGES, type DigPlan } from "./underpass-dig";
 import type { Game } from "./game";
 import { DrawNotice, TOO_SHARP } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
@@ -90,6 +92,8 @@ export interface DrawHooks {
   onGrow(): void;
   /** One of the drawn pieces went down (a click; `i` counts from the line's start). */
   onPlaced(i: number): void;
+  /** The underpass a bridge put down here would dig under it, if any (see `planUnderpass`). */
+  dig?(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore?: ReadonlySet<number>): DigPlan | null;
 }
 
 /**
@@ -425,6 +429,10 @@ export class DrawHand {
     const g = this.game;
     const branch = this.branch;
     const plan = linePlan(branch, pieces, merge, this.crossed);
+    // The underpasses its bridges dig (after the line's own pieces: their ghosts are the line's).
+    const dug = this.digsFor(pieces.slice(0, merge ? merge.keep : pieces.length));
+    plan.covers.push(...dug.covers);
+    plan.pieces.push(...dug.pieces);
     const ghosts = this.ghosts.splice(0, merge ? merge.keep : pieces.length);
     // A train come onto the straights a switch would take the place of meanwhile: nothing goes down.
     const busy = plan.covers.some((id) => this.hooks.occupied(id));
@@ -458,6 +466,7 @@ export class DrawHand {
       const left = this.unjoined(ids[lastAt], pieces[lastAt - plan.line].exit, line.tip);
       if (left) say = this.notice.unjoined(left);
     }
+    if (dug.pieces.length > 0) this.hooks.toast("Dug an underpass so trains fit under");
     if (say) this.hooks.toast(say);
     plan.pieces.forEach((p, i) => {
       const id = ids[i];
@@ -730,7 +739,36 @@ export class DrawHand {
     if (why) return { reason: why.reason, message: drawMessage(why.reason, why.levels, this.hooks.message), levels: why.levels };
     this.syncOwn(line);
     if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) return { reason: "self", message: "The line would cross itself" };
+    // A bridge one level up over a line digs an underpass under it: not in straights another of the line's swaps (or
+    // an earlier bridge's underpass) takes up already.
+    if (isBridge(c.type)) {
+      const plan = this.digOf(c);
+      if (plan) {
+        const used = new Set([...this.taken(), ...this.digsFor(line).covers]);
+        if (plan.covers.some((id) => used.has(id))) return { reason: "piece", message: DIG_MESSAGES.lines };
+      }
+    }
     return null;
+  }
+
+  /** The underpass a drawn bridge digs, or null (none, or it isn't one: see `planUnderpass`). */
+  private digOf(p: { type: PieceTypeId; flipped: boolean; pose: Pose; y: number }): Extract<DigPlan, { kind: "dig" }> | null {
+    if (!isBridge(p.type) || !this.hooks.dig) return null;
+    const plan = this.hooks.dig(p.type, p.flipped, p.pose, p.y, this.branchCovers.size ? this.branchCovers : undefined);
+    return plan?.kind === "dig" ? plan : null;
+  }
+
+  /** The underpasses a line's bridges dig, together: the straights they take up and the pieces they put down. */
+  private digsFor(line: readonly { type: PieceTypeId; flipped: boolean; pose: Pose; y: number }[]): { covers: number[]; pieces: SwapPiece[] } {
+    const covers: number[] = [];
+    const pieces: SwapPiece[] = [];
+    for (const p of line) {
+      const plan = this.digOf(p);
+      if (!plan || plan.covers.some((id) => covers.includes(id))) continue;
+      covers.push(...plan.covers);
+      pieces.push(...plan.pieces);
+    }
+    return { covers, pieces };
   }
 
   /**

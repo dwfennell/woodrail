@@ -3,10 +3,12 @@
 // make way for an underpass (one undo step, a toast), the bridge is drawn as a girder span, and a train with the
 // tallest cars runs along the line under it, down into the dip and out again. Cases: square on, at 45°, a curved
 // bridge over the line under its middle; refused for a curved bridge crossing near its end, over a curve and over
-// points, saying why.
+// points, with a train or a signal on the straights, saying why. A Long straight laid on under a bridge already
+// standing digs one too, and so does Draw, across a line from a ramp's top.
 //
-// Harness shortcuts (named, setup only): the ground line and the ramp are put down by the editor (laying track is not
-// what's tested here); the train is put down by `sim.addTrain` and run by `sim.setLever` and the sim's own ticks.
+// Harness shortcuts (named, setup only): the ground line, the ramp (and in case 8 the standing bridge) are put down by
+// the editor (laying them is not what's tested); trains are put down by the sim and run by `sim.setLever` and the
+// sim's own ticks; the signal in case 7 is put down by the editor.
 //
 // Usage: node tools/e2e/low-bridge.mjs [<out dir>]   (default out: e2e-out/low-bridge; pictures there too)
 import { existsSync, mkdirSync } from "node:fs";
@@ -105,9 +107,9 @@ const snap = async (name) => {
  * A place for a case: where the game's own track rules clear the ground line and the ramp (a setup shortcut: where
  * to build). `lower`: the ground line's pieces relative to (X, Z); `ramp`: the ramp's pose relative to (X, Z).
  */
-const build = (lower, ramp) =>
+const build = (lower, ramp, extra = [], clear = []) =>
   p.evaluate(
-    async ([lower, ramp]) => {
+    async ([lower, ramp, extra, clear]) => {
       const w = window.woodrail;
       const { trackBlock } = await import("/src/game/track-rules.ts");
       const rules = w.interaction.rules;
@@ -119,16 +121,19 @@ const build = (lower, ramp) =>
           const Z = Math.round((t.z + d * Math.sin(a)) / 18) * 18;
           const all = [...lower.map((q) => at(q, X, Z)), at(ramp, X, Z)];
           if (all.some((q) => trackBlock(rules, q.type, q.flipped, q.pose, q.y, -1) !== null)) continue;
+          // (And where pieces the case expects to go down will go: clear too, for now.)
+          if (clear.some((q) => trackBlock(rules, q.type, false, at(q, X, Z).pose, 0, -1) !== null)) continue;
           // (Room round it too: nothing within 300 mm of the line's middle a level up, so the bridge has the sky.)
           if (trackBlock(rules, "straight-216", false, { x: X - 108, z: Z + 300, heading: 0 }, 0, -1) !== null) continue;
           const lo = w.editor().placeRun(all.slice(0, -1));
           const r = w.editor().place(ramp.type, at(ramp, X, Z).pose, 0, ramp.flipped ?? false);
-          return { X, Z, lo, ramp: r };
+          const more = extra.map((q) => w.editor().place(q.type, at(q, X, Z).pose, q.y ?? 0, q.flipped ?? false));
+          return { X, Z, lo, ramp: r, more };
         }
       }
       return null;
     },
-    [lower, ramp],
+    [lower, ramp, extra, clear],
   );
 
 /** The ramp's top end, in the world. */
@@ -187,7 +192,7 @@ const LINE = [0, 216, 432, 648, 864].map((x) => ({ type: "straight-216", pose: {
  * One case: the line, a ramp up to where the bridge goes, the bridge from the tray onto the ramp's top. `ramp` is the
  * ramp's pose relative to the line's start; the crossing is near (X + 540, Z).
  */
-async function crossing(name, key, lower, ramp) {
+async function crossing(name, key, lower, ramp, before = async () => {}) {
   const at = await build(lower, ramp);
   if (!at) {
     check(`${name}: room for it`, false, "no open ground");
@@ -196,14 +201,15 @@ async function crossing(name, key, lower, ramp) {
   const top = await rampTop(at.ramp);
   await look(at.X + 540, at.Z, [0.15, 1, 0.55], 900);
   await settle();
-  const before = await state(null);
+  await before(at);
+  const was = await state(null);
   await said();
   const where = await screen(top.x - 6 * Math.cos(top.heading), top.y, top.z - 6 * Math.sin(top.heading));
   const t0 = Date.now();
   const r = await lay(key, where);
   const msgs = await said();
   const after = await state(r.id);
-  return { at, top, before, after, r, msgs, ms: Date.now() - t0 };
+  return { at, top, before: was, after, r, msgs, ms: Date.now() - t0 };
 }
 
 // 1. Square on: a Bridge onto a ramp up across the line.
@@ -340,6 +346,120 @@ async function crossing(name, key, lower, ramp) {
     check("points under: no underpass dug", c.after.underpasses.length === c.before.underpasses.length);
     check("points under: it says points can't go in an underpass", c.msgs.some((m) => /Points can't go in an underpass/.test(m)), JSON.stringify(c.msgs));
     await look(c.at.X + 500, c.at.Z, [0.2, 1, 0.7], 620, 10);
+  }
+}
+
+// 6. A train standing on the straights the underpass would take up: refused, saying so; moved off, it digs.
+{
+  const c = await crossing("train on it", "piece:bridge", LINE, { type: "ramp", pose: { x: 540, z: -252, heading: Math.PI / 2 } }, async (at) => {
+    // (Harness shortcut: the train put down by the sim, standing on the middle straight.)
+    await p.evaluate((lo) => {
+      const w = window.woodrail;
+      const t = w.sim.addTrainAround(["engine", "hopper"], { pieceId: lo, pathIndex: 0, s: 108, reversed: false });
+      window.__standing = t.kind === "placed" ? t.trainId : null;
+    }, at.lo[2]);
+  });
+  if (c) {
+    check("train on it: no underpass dug, no bridge put down over the line", c.after.underpasses.length === c.before.underpasses.length && c.r.id === null, JSON.stringify({ id: c.r.id, ghost: c.r.ghost }));
+    check("train on it: it says a train's on the track under the bridge", c.msgs.some((m) => /A train's on the track under the bridge/.test(m)), JSON.stringify(c.msgs));
+    await p.evaluate(() => window.woodrail.sim.removeTrain(window.__standing));
+    const top = await rampTop(c.at.ramp);
+    const r = await lay("piece:bridge", await screen(top.x - 6 * Math.cos(top.heading), top.y, top.z - 6 * Math.sin(top.heading)));
+    const after = await state(r.id);
+    check("train on it: moved off, the same bridge digs its underpass", r.id !== null && after.underpasses.length === c.before.underpasses.length + 1 && after.girder === true);
+  }
+}
+
+// 7. A signal on a joint of the straights it would take up: refused, saying to move it.
+{
+  const c = await crossing("signal on it", "piece:bridge", LINE, { type: "ramp", pose: { x: 540, z: -252, heading: Math.PI / 2 } }, async (at) => {
+    // (Harness shortcut: the signal put down by the editor, on the joint between the 2nd and 3rd straights.)
+    await p.evaluate(async (lo) => {
+      const { connectorRef } = await import("/src/track/layout.ts");
+      window.woodrail.editor().addSignal(connectorRef(lo, 0));
+    }, at.lo[2]);
+  });
+  if (c) {
+    check("signal on it: no underpass dug", c.after.underpasses.length === c.before.underpasses.length && c.r.id === null, JSON.stringify({ id: c.r.id }));
+    check("signal on it: it says to move the signal off", c.msgs.some((m) => /A signal is on the track under the bridge/.test(m)), JSON.stringify(c.msgs));
+  }
+}
+
+// 8. A bridge already standing one level up; a Long straight laid on from the line's end under it: straights on to
+// an underpass under the bridge go down in its place.
+{
+  const lower = LINE.slice(0, 2);
+  const at = await build(lower, { type: "ramp", pose: { x: 576, z: -252, heading: Math.PI / 2 } }, [{ type: "bridge", pose: { x: 576, z: -108, heading: Math.PI / 2 }, y: 48 }], [
+    { type: "underpass", pose: { x: 432, z: 0, heading: 0 } },
+  ]);
+  if (!at) check("straight under a bridge: room for it", false);
+  else {
+    await look(at.X + 520, at.Z, [0.15, 1, 0.55], 900);
+    await settle();
+    const was = await state(null);
+    await said();
+    const r = await lay("piece:straight-216", await screen(at.X + 432 - 4, 0, at.Z));
+    const msgs = await said();
+    const after = await state(at.more[0]);
+    const joined = await p.evaluate(async () => {
+      const w = window.woodrail;
+      const { connectorRef } = await import("/src/track/layout.ts");
+      const u = [...w.layout.pieceIds()].filter((i) => w.layout.getPiece(i).type === "underpass").pop();
+      return [0, 1].map((k) => w.layout.joinedConnector(connectorRef(u, k)) !== -1);
+    });
+    check("straight under a bridge: an underpass goes down under it, on from the line's end", after.underpasses.length === was.underpasses.length + 1 && joined[0], JSON.stringify({ msgs, joined, ghost: r.ghost }));
+    check("straight under a bridge: the bridge is now a girder span", after.girder === true);
+    check("straight under a bridge: the toast says so", msgs.includes("Dug an underpass under the bridge"), JSON.stringify(msgs));
+    await look(at.X + 560, at.Z, [0.7, 0.9, 0.9], 620, 10);
+    await snap("low-bridge-phone-laid-under.jpg");
+  }
+}
+
+// 9. Draw: from a ramp's top end, a stroke on across a line on the ground: the line lays a bridge over it one level
+// up and digs an underpass under it (no longer red, "go two levels up").
+{
+  const at = await build(LINE, { type: "ramp", pose: { x: 540, z: -252, heading: Math.PI / 2 } });
+  if (!at) check("draw: room for it", false);
+  else {
+    const top = await rampTop(at.ramp);
+    await look(at.X + 540, at.Z + 60, [0.1, 1, 0.45], 1100);
+    await settle();
+    const was = await state(null);
+    await said();
+    await p.evaluate(() => document.querySelector(".tray-draw")?.click());
+    await frames();
+    const pts = [
+      [top.x, top.z - 4, 48],
+      [top.x, top.z + 120, 48],
+      [top.x, top.z + 300, 48],
+      [top.x, top.z + 520, 0],
+      [top.x, top.z + 640, 0],
+    ];
+    const sc = [];
+    for (const [x, z, y] of pts) sc.push(await screen(x, y, z));
+    await p.mouse.move(sc[0][0], sc[0][1]);
+    await p.mouse.down();
+    for (let i = 1; i < sc.length; i++) {
+      const [ax, ay] = sc[i - 1];
+      const [bx, by] = sc[i];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 12));
+      for (let k = 1; k <= n; k++) await p.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    }
+    const drawn = await p.evaluate(() => (window.woodrail.interaction.draw.line?.pieces ?? []).map((q) => `${q.type}${q.blocked ? "(red)" : ""}`));
+    await p.mouse.up();
+    await settle();
+    await p.keyboard.press("Escape");
+    const msgs = await said();
+    const after = await p.evaluate(() => {
+      const w = window.woodrail;
+      const ps = [...w.layout.pieceIds()].map((i) => ({ id: i, ...w.layout.getPiece(i) }));
+      const bridges = ps.filter((q) => q.type === "bridge" && Math.abs(q.y - 48) < 1);
+      return { underpasses: ps.filter((q) => q.type === "underpass").length, girders: bridges.filter((q) => JSON.stringify(w.archFloorsOf(q)) === "[-1]").length };
+    });
+    check("draw: across a line from a ramp's top, a bridge one level up digs an underpass under it", after.underpasses === was.underpasses.length + 1 && after.girders >= 1, JSON.stringify({ drawn, msgs, after }));
+    check("draw: the toast says so", msgs.includes("Dug an underpass so trains fit under"), JSON.stringify(msgs));
+    await look(at.X + 540, at.Z, [0.6, 0.9, 0.8], 700, 10);
+    await snap("low-bridge-phone-drawn.jpg");
   }
 }
 

@@ -101,12 +101,16 @@ The user liked the girder look. The CoS chose all stock kept: a 30 dip and a 288
 | Under 288 of straight track to dig in | Refused: "Not enough straight track here for an underpass: it needs two long straights' worth" |
 | A bridge over an underpass laid by hand, off its middle | Refused: "Put the bridge over the middle of the underpass" |
 | Anything else under it (a ramp, a signal piece, a station) | Refused: "Something's in the way of an underpass under this bridge" |
-| A train on the straights to be dug | Refused at the drop: "A train's on the track under the bridge: move it first" (the editor's train check; not covered by a test yet) |
+| A train on the straights to be dug | Refused while held (the ghost shows red): "A train's on the track under the bridge: move it first". Moved off, the same bridge digs (e2e). |
+| A signal on a joint of the straights to be dug (either side) | Refused: "A signal is on the track under the bridge: move it off before an underpass can go in". A signal clear of them doesn't matter. |
 
 **Costs** (e2e, headless, software GL): a plan on a pointer move 0.32 ms. The felt sheet cut again for 3 underpasses 0.36 ms, only when the set of underpasses changes. 0 frames drawn idle with underpasses and girder spans standing.
 
-**Not done yet:**
-- Draw still crosses a line two levels up. Teaching it "one level up and dig" is the next step.
-- An underpass in a hill or under a road is refused, not cut.
-- A straight laid by hand under an existing one-level bridge isn't swapped (use the Underpass from the shelf).
-- Signals on the dug straights' joints aren't carried over (the swap is refused only for trains).
+**Follow-ups (phase 3), done:**
+- **Draw.** Draw never crossed a line two levels up. On the ground it swaps in a flat crossing piece (`crossingAt`); that's unchanged. A line already one level up (from a ramp's top end, or on bridges over the river) that met a line on the ground used to stop red: "Trains won't fit under — go two levels up". Now it lays a bridge there (`DrawLine.special`, "headroom") and digs an underpass under it. The digs go in the line's single undo step (`DrawHand.digsFor`, added to `linePlan`'s covers and pieces), with the toast. Two bridges of one line can't dig into the same straights (the second shows red). Draw's own straights under a bridge stay refused.
+  - Fixed on the way: since d3cc450, Draw's check accepted a bridge that could dig, but its commit didn't dig, so a drawn bridge could go down over plain straights. The commit now digs.
+- **A straight laid by hand under a bridge already standing one level up.** A new plain straight (from the tray) whose ground run passes under the bridge is replaced by straights on from its joined end up to an underpass centred under the bridge (`planUnderpassAhead`). Toast: "Dug an underpass under the bridge". An Underpass laid by hand off-centre under a bridge says "Put the underpass's middle under the bridge" (it used to say "go two levels up"). A moved straight isn't swapped.
+- **Signals.** Refused, not carried over (see the table). **Trains** are now caught while the bridge is still held (the ghost goes red), not only at the drop.
+- e2e:low-bridge is now 30 checks, with cases for a train on the line, a signal on it, a Long straight laid on under a standing bridge, and Draw from a ramp's top across a line. New pictures: `low-bridge-phone-laid-under.jpg`, `low-bridge-phone-drawn.jpg`.
+
+**Not done yet:** an underpass in a hill or under a road (refused, not cut); a drawn line on the ground meeting a line under a one-level bridge (still refused there).

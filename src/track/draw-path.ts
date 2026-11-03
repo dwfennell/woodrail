@@ -1495,6 +1495,9 @@ export class DrawLine {
     // shorter pieces. QA N5, terrace 2: read where it was drawn, the stroke ran straight on into it.)
     if (why.reason === "hill") return levels === 1 ? this.rampUp(false) : levels > 1 && (this.rampUp(false, true) || this.climbBack());
     if (why.reason === "river") return levels >= 1 ? this.bridge() : (this.startCrossing() && this.cross()) || this.rampUp(true);
+    // A level up over a line on the ground (too low for trains to pass under): a bridge, which digs an underpass under
+    // it where it can (the check says if not: it shows red, and why).
+    if (why.reason === "headroom" && this.end.y >= RISER_HEIGHT - 1) return this.bridge();
     if (why.reason !== "unsupported" || levels < 1) return false;
     // Just climbed to cross the river (the ramp's top end in the air, short of the water): on over it, not straight
     // back down. (Up on a hill too short to run on, it comes down again.)

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { gridWithPlots, type Landscape } from "../landscape";
 import { connectorRef, getPieceDef, Layout, overUnderpass, pathLength, RISER_HEIGHT, UNDERPASS_LENGTH, type PieceTypeId, type Pose } from "../track";
 import { trackBlock, type TrackRules } from "./track-rules";
-import { DIG_MESSAGES, planUnderpass, type DigPlan } from "./underpass-dig";
+import { DIG_MESSAGES, planUnderpass, planUnderpassAhead, type DigPlan } from "./underpass-dig";
 
 /** Open flat ground, a few plots each way round the origin. */
 function flat(): Landscape {
@@ -146,5 +146,61 @@ describe("an underpass dug under a bridge one level up", () => {
     const plan = planUnderpass(rules, "bridge", false, bridgeAt(0, 0, Math.PI / 2), ONE, -1)!;
     dig(layout, plan);
     expect(planUnderpass(rules, "bridge", false, bridgeAt(0, 0, Math.PI / 2), ONE, -1)).toBe(null);
+  });
+
+  it("a signal on the straights it would take up: refused, saying to move it", () => {
+    const layout = new Layout();
+    const ids = line(layout);
+    // On the joint between the 2nd and 3rd straights (under the bridge's dig), facing either way.
+    for (const at of [connectorRef(ids[1], 1), connectorRef(ids[2], 0)]) {
+      const l = new Layout();
+      const ls = line(l);
+      const ref = at === connectorRef(ids[1], 1) ? connectorRef(ls[1], 1) : connectorRef(ls[2], 0);
+      expect(l.addSignal(ref)).not.toBe(-1);
+      const plan = planUnderpass(rulesFor(l), "bridge", false, bridgeAt(0, 0, Math.PI / 2), ONE, -1);
+      expect(plan).toEqual({ kind: "refused", why: "signal" });
+    }
+    expect(DIG_MESSAGES.signal).toMatch(/signal/i);
+    // A signal on the line's far joints, clear of the dig: dug as usual.
+    const far = new Layout();
+    const fl = line(far);
+    const sixth = far.addPiece("straight-216", { x: 540, z: 0, heading: 0 }, 0);
+    expect(far.addSignal(connectorRef(sixth, 0))).not.toBe(-1);
+    void fl;
+    expect(planUnderpass(rulesFor(far), "bridge", false, bridgeAt(0, 0, Math.PI / 2), ONE, -1)?.kind).toBe("dig");
+  });
+
+  it("a straight laid on under a bridge already there: straights on to an underpass under it go down in its place", () => {
+    for (const back of [false, true]) {
+      const layout = new Layout();
+      // The bridge one level up across x = 0; a line coming from the left to x = −144 (or from the right, to +144).
+      const b = layout.addPiece("bridge", bridgeAt(0, 0, Math.PI / 2), ONE);
+      if (!back) layout.addPiece("straight-216", { x: -360, z: 0, heading: 0 }, 0);
+      else layout.addPiece("straight-216", { x: 144, z: 0, heading: 0 }, 0);
+      const rules = rulesFor(layout);
+      // The next straight on from its end, under the bridge: refused by itself.
+      const pose: Pose = back ? { x: -72, z: 0, heading: 0 } : { x: -144, z: 0, heading: 0 };
+      expect(["headroom", "piece"]).toContain(trackBlock(rules, "straight-216", false, pose, 0, -1));
+      const plan = planUnderpassAhead(rules, "straight-216", false, pose, 0, -1)!;
+      expect(plan?.kind, `back ${back}: ${plan?.kind === "refused" ? plan.why : ""}`).toBe("dig");
+      if (plan.kind !== "dig") continue;
+      expect(plan.covers).toEqual([]);
+      for (const p of plan.pieces) {
+        expect(trackBlock(rules, p.type, p.flipped, p.pose, p.y, -1)).toBe(null);
+        layout.addPiece(p.type, p.pose, p.y, p.flipped);
+      }
+      // Laid on from the line's end: joined to it, the underpass's middle under the bridge.
+      const u = [...layout.pieceIds()].map((id) => layout.getPiece(id)!).find((q) => q.type === "underpass")!;
+      const mid = u.pose.x + (UNDERPASS_LENGTH / 2) * Math.cos(u.pose.heading);
+      expect(Math.abs(mid)).toBeLessThanOrEqual(27);
+      expect(overUnderpass(layout, layout.getPiece(b)!)).toBe(true);
+    }
+  });
+
+  it("a straight under a bridge two levels up, or nothing over it: not its business", () => {
+    const layout = new Layout();
+    layout.addPiece("bridge", bridgeAt(0, 0, Math.PI / 2), 2 * ONE);
+    expect(planUnderpassAhead(rulesFor(layout), "straight-216", false, { x: -108, z: 0, heading: 0 }, 0, -1)).toBe(null);
+    expect(planUnderpassAhead(rulesFor(new Layout()), "straight-216", false, { x: -108, z: 0, heading: 0 }, 0, -1)).toBe(null);
   });
 });

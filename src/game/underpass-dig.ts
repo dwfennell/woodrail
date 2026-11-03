@@ -30,7 +30,10 @@ export interface DigPiece {
 }
 
 /** Why a bridge one level up over track can't have an underpass dug under it. */
-export type DigRefusal = "curve" | "points" | "lines" | "short" | "angle" | "centre" | "pier" | "ground" | "busy";
+export type DigRefusal = "curve" | "points" | "lines" | "short" | "angle" | "centre" | "pier" | "signal" | "ground" | "busy";
+
+/** Said when a train stands on the straights an underpass would take up (the caller knows the trains, not the plan). */
+export const DIG_TRAIN = "A train's on the track under the bridge: move it first";
 
 export const DIG_MESSAGES: Record<DigRefusal, string> = {
   curve: "An underpass needs straight track under the bridge: this is a curve",
@@ -40,6 +43,7 @@ export const DIG_MESSAGES: Record<DigRefusal, string> = {
   angle: "Cross the line more squarely for an underpass to fit under",
   centre: "Put the bridge over the middle of the underpass",
   pier: "The bridge's end would stand in the underpass: cross the line nearer the bridge's middle",
+  signal: "A signal is on the track under the bridge: move it off before an underpass can go in",
   ground: "An underpass needs flat open ground under the bridge",
   busy: "Something's in the way of an underpass under this bridge",
 };
@@ -144,6 +148,8 @@ export function planUnderpass(rules: TrackRules, type: PieceTypeId, flipped: boo
     const s1 = s0 + UNDERPASS_LENGTH;
     if (s0 < start - 0.5 || s1 > end + 0.5) continue;
     const covered = pieces.filter((p) => p.b > s0 + 0.5 && p.a < s1 - 0.5);
+    // A signal on any joint of the straights taken up would go with them: the player moves it first.
+    if (covered.some((p) => signalOn(layout, p.id))) return { kind: "refused", why: "signal" };
     const forward = covered[0].forward;
     if (covered.some((p) => p.forward !== forward)) continue;
     const a = covered[0].a;
@@ -169,6 +175,18 @@ export function planUnderpass(rules: TrackRules, type: PieceTypeId, flipped: boo
   return { kind: "refused", why: !fitted ? "short" : pier ? "pier" : "angle" };
 }
 
+/** Is there a signal on either side of either of this straight's joints? */
+function signalOn(layout: TrackRules["layout"], id: number): boolean {
+  if (layout.signalCount === 0) return false;
+  for (let k = 0; k < 2; k++) {
+    const ref = connectorRef(id, k);
+    if (layout.signalAt(ref)) return true;
+    const j = layout.joinedConnector(ref);
+    if (j !== -1 && layout.signalAt(j)) return true;
+  }
+  return false;
+}
+
 /** Would the bridge and the pieces dug under it all go down (the covered straights taken up)? Why not, or null. */
 function check(rules: TrackRules, bridge: DigPiece, covers: readonly number[], pieces: readonly DigPiece[], ignore: Ignore): DigRefusal | null {
   const without = new Set<number>(covers);
@@ -182,6 +200,105 @@ function check(rules: TrackRules, bridge: DigPiece, covers: readonly number[], p
   if (trackBlock(rules, bridge.type, bridge.flipped, bridge.pose, bridge.y, without) !== null) return "busy";
   for (const p of pieces) {
     const why = trackBlock(rules, p.type, p.flipped, p.pose, p.y, without);
+    if (why !== null) return p.type === "underpass" ? "ground" : "busy";
+  }
+  return null;
+}
+
+/**
+ * A plain straight put down on the ground under a bridge already standing one level up: in its place, straights from
+ * its end up to an underpass whose middle is under the bridge (see `planUnderpass`, the other way about). Laid from
+ * whichever of its ends joins track already there (else from its first end), along its line. Null when it doesn't
+ * apply (not a plain straight, or nothing a level up over it but a bridge).
+ */
+export function planUnderpassAhead(rules: TrackRules, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore): DigPlan | null {
+  if (!isPlainStraight(type)) return null;
+  const layout = rules.layout;
+  const lows = lowCrossings(layout, type, flipped, pose, y, ignore);
+  if (lows.length === 0) return null;
+  const bridges = lows.map((id) => layout.getPiece(id)!).filter((q) => isBridge(q.type) && Math.abs(q.y - y - RISER_HEIGHT) < 1);
+  if (bridges.length !== 1 || lows.length !== 1) return null;
+  const bridge = bridges[0];
+  const len = straightLength(type, flipped);
+  const h = pose.heading;
+  const ux = Math.cos(h);
+  const uz = Math.sin(h);
+  // Where the bridge's track crosses this straight's line, along it from its first end.
+  const t = crossingAlong(bridge, pose.x, pose.z, h);
+  if (t === null) return { kind: "refused", why: "angle" };
+  // The two ways to lay it: on from its first end, or back from its far end. The end joined to track first.
+  const ends = [
+    { x: pose.x, z: pose.z, way: 1 },
+    { x: pose.x + len * ux, z: pose.z + len * uz, way: -1 },
+  ];
+  const joined = (e: { x: number; z: number }) => hasEndAt(layout, e.x, e.z, y, ignore);
+  ends.sort((a, b) => Number(joined(b)) - Number(joined(a)));
+  let why: DigRefusal = "short";
+  for (const e of ends) {
+    // Distance from this end to the crossing, the way the pieces go.
+    const d = e.way === 1 ? t : len - t;
+    for (const k of [0, -1, 1]) {
+      const s0 = Math.round((d - UNDERPASS_LENGTH / 2) / LATTICE) * LATTICE + k * LATTICE;
+      if (s0 < -0.5) continue;
+      const fill = s0 < 0.5 ? [] : straightsFor(s0);
+      if (!fill) continue;
+      const heading = e.way === 1 ? h : h + Math.PI;
+      const out: DigPiece[] = [];
+      let s = 0;
+      for (const p of [...fill, "underpass" as PieceTypeId]) {
+        out.push({ type: p, pose: { x: e.x + e.way * s * ux, z: e.z + e.way * s * uz, heading }, y, flipped: false });
+        s += p === "underpass" ? UNDERPASS_LENGTH : straightLength(p, false);
+      }
+      const verdict = checkAhead(rules, bridge, out, ignore);
+      if (verdict === null) return { kind: "dig", covers: [], pieces: out };
+      why = verdict;
+    }
+  }
+  return { kind: "refused", why };
+}
+
+/** Along a line from (x, z) going `heading`, where a bridge's track crosses it (from 4 mm steps), or null. */
+function crossingAlong(bridge: DigPiece, x0: number, z0: number, heading: number): number | null {
+  const ux = Math.cos(heading);
+  const uz = Math.sin(heading);
+  const g = getPieceDef(bridge.type, bridge.flipped).paths[0].geom;
+  const len = pathLength(g);
+  const c = Math.cos(bridge.pose.heading);
+  const sn = Math.sin(bridge.pose.heading);
+  let last = 0;
+  for (let i = 0, n = Math.ceil(len / 4); i <= n; i++) {
+    samplePath(g, (len * i) / n, sample);
+    const x = bridge.pose.x + sample.x * c - sample.z * sn - x0;
+    const z = bridge.pose.z + sample.x * sn + sample.z * c - z0;
+    const d = -x * uz + z * ux;
+    if (i > 0 && Math.sign(d) !== Math.sign(last)) return x * ux + z * uz;
+    last = d;
+  }
+  return null;
+}
+
+/** Is there an end of track (a connector of a piece not ignored) at this point and height? */
+function hasEndAt(layout: TrackRules["layout"], x: number, z: number, y: number, ignore: Ignore): boolean {
+  for (const id of layout.pieceIds()) {
+    if (ignores(ignore, id) || layout.isLifted(id)) continue;
+    const p = layout.getPiece(id)!;
+    if (Math.abs(p.pose.x - x) > 400 || Math.abs(p.pose.z - z) > 400) continue;
+    const def = getPieceDef(p.type, p.flipped);
+    for (let k = 0; k < def.connectors.length; k++) {
+      const w = layout.worldConnector(connectorRef(id, k), end);
+      if (Math.abs(w.x - x) < 2 && Math.abs(w.z - z) < 2 && Math.abs(w.y - y) < 2) return true;
+    }
+  }
+  return false;
+}
+const end = { x: 0, z: 0, heading: 0, y: 0, kind: "peg" as const };
+
+/** Would these pieces all go down, and the bridge already there clear them? Why not, or null. */
+function checkAhead(rules: TrackRules, bridge: DigPiece, pieces: readonly DigPiece[], ignore: Ignore): DigRefusal | null {
+  for (const p of pieces) if (crossesLow(bridge, p)) return "angle";
+  for (const p of pieces) if (supportInTrench(bridge, p)) return "pier";
+  for (const p of pieces) {
+    const why = trackBlock(rules, p.type, p.flipped, p.pose, p.y, ignore);
     if (why !== null) return p.type === "underpass" ? "ground" : "busy";
   }
   return null;
