@@ -30,6 +30,8 @@ interface ArchDisc {
 }
 
 const RADIUS = TRACK_WIDTH / 2 - 6;
+/** Half a deck's width and half a car's (32 wide): track lines closer than this, one over an underpass, overlap. */
+const UNDER_REACH = TRACK_WIDTH / 2 + 16;
 /** Far enough in that a piece pushed 9 mm into its neighbour (the joint's play) still clears it. */
 const END_INSET = 20;
 const STEP = 14;
@@ -177,29 +179,45 @@ export function findOverlap(layout: Layout, type: PieceTypeId, flipped: boolean,
 
 /**
  * Would track at this pose cross over (or under) other track too closely for a train to fit between them? Returns the
- * first such piece, or −1. Track over track needs `TRAIN_HEADROOM` between their bases (two levels, or one over an underpass); track at the
- * same height is `findOverlap`'s. Risers and joiners carry no trains. Called on every pointer move while dragging.
+ * first such piece, or −1. Track over track needs `TRAIN_HEADROOM` between their bases: two levels, or one over an
+ * underpass's dip. Track at the same height is `findOverlap`'s. Risers and joiners carry no trains. Called on every
+ * pointer move while dragging.
  */
 export function findLowCrossing(layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): number {
-  if (getPieceDef(type, flipped).paths.length === 0 || type === "joiner") return -1;
-  const mine = footprint(type, flipped);
-  toWorld(mine.discs, pose, y, placed);
-  const limit = (2 * RADIUS) ** 2;
+  return lowCrossings(layout, type, flipped, pose, y, ignoreId, true)[0] ?? -1;
+}
+
+/** Every piece `findLowCrossing` would find (or only the first, with `first`). */
+export function lowCrossings(layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore, first = false): number[] {
+  const found: number[] = [];
+  if (getPieceDef(type, flipped).paths.length === 0 || type === "joiner") return found;
   for (const id of layout.pieceIds()) {
     if (ignores(ignoreId, id) || layout.isLifted(id)) continue;
-    const other = layout.getPiece(id)!;
-    if (getPieceDef(other.type, other.flipped).paths.length === 0 || other.type === "joiner") continue;
-    const theirs = footprint(other.type, other.flipped);
-    if (Math.hypot(other.pose.x - pose.x, other.pose.z - pose.z) > mine.reach + theirs.reach) continue;
-    toWorld(theirs.discs, other.pose, other.y, theirDeck);
-    for (const p of placed) {
-      for (const q of theirDeck) {
-        const dx = p.x - q.x;
-        const dz = p.z - q.z;
-        const gap = Math.abs(p.y0 - q.y0);
-        if (dx * dx + dz * dz < limit && gap > SLACK && gap < TRAIN_HEADROOM - SLACK) return id;
-      }
+    if (crossesLow({ type, flipped, pose, y }, layout.getPiece(id)!)) {
+      found.push(id);
+      if (first) break;
     }
   }
-  return -1;
+  return found;
+}
+
+/** Do these two pieces (placed, or where they'd go) cross too close, one over the other, for a train to fit under? */
+export function crossesLow(a: Pick<PlacedPiece, "type" | "flipped" | "pose" | "y">, b: Pick<PlacedPiece, "type" | "flipped" | "pose" | "y">): boolean {
+  for (const q of [a, b]) if (getPieceDef(q.type, q.flipped).paths.length === 0 || q.type === "joiner") return false;
+  const mine = footprint(a.type, a.flipped);
+  const theirs = footprint(b.type, b.flipped);
+  if (Math.hypot(b.pose.x - a.pose.x, b.pose.z - a.pose.z) > mine.reach + theirs.reach) return false;
+  toWorld(mine.discs, a.pose, a.y, placed);
+  toWorld(theirs.discs, b.pose, b.y, theirDeck);
+  // Over an underpass, the deck must clear the whole car under it: half a deck and half a car between their lines.
+  const limit = (a.type === "underpass" || b.type === "underpass" ? UNDER_REACH : 2 * RADIUS) ** 2;
+  for (const p of placed) {
+    for (const q of theirDeck) {
+      const dx = p.x - q.x;
+      const dz = p.z - q.z;
+      const gap = Math.abs(p.y0 - q.y0);
+      if (dx * dx + dz * dz < limit && gap > SLACK && gap < TRAIN_HEADROOM - SLACK) return true;
+    }
+  }
+  return false;
 }

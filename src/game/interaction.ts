@@ -41,6 +41,7 @@ import { eraseRefusal, sweepLooks, type EraseRefusal } from "./erase";
 import { branchesOff } from "./draw-junctions";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
+import { DIG_MESSAGES, planUnderpass, type DigPlan } from "./underpass-dig";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { PinHint, type PinHintState } from "./switch-pin";
@@ -164,7 +165,7 @@ const TRAIN_DROP_RANGE = 70;
  * a train on it; "splice-onto": over other track, not a straight), or no room for a depot's yard beside its track
  * (`YardBlock`: something on the ground there, a hill, or water), or track run into a player's depot's yard ("in-yard").
  */
-type PlaceBlock = BlockReason | YardBlock | "in-yard" | "site" | "splice-fit" | "splice-busy" | "splice-onto";
+type PlaceBlock = BlockReason | YardBlock | "in-yard" | "site" | "splice-fit" | "splice-busy" | "splice-onto" | "dig";
 
 /** A crossing prop dropped this near a level crossing's middle (mm) goes onto it (see `styleCrossings`). */
 const CROSSING_DROP_REACH = 2 * STYLE_REACH;
@@ -3218,7 +3219,16 @@ export class Interaction {
    * landscape, another piece, nothing under an end, or no room for its risers).
    */
   private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): { reason: PlaceBlock | null; risers: RiserAt[] } {
-    const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
+    let reason: PlaceBlock | null = this.blockedBy(type, flipped, pose, y, ignoreId);
+    // A bridge one level up over track: an underpass dug under it lets the trains through (`planUnderpass`).
+    if ((reason === "headroom" || reason === "piece") && isBridge(type)) {
+      const plan = this.digPlan(type, flipped, pose, y, ignoreId);
+      if (plan?.kind === "dig") reason = null;
+      else if (plan?.kind === "refused") {
+        this.digWhy = DIG_MESSAGES[plan.why];
+        reason = "dig";
+      }
+    }
     // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
     // A depot is told it's the depot (its name, as its yard's messages say), not the track, that keeps out of town.
@@ -3238,6 +3248,20 @@ export class Interaction {
     }
     return { reason: null, risers: s.risers };
   }
+
+  /**
+   * The underpass a bridge put down here would dig (see `planUnderpass`), worked out once per spot and edit (it's asked
+   * on every move while a bridge is held over track).
+   */
+  digPlan(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): DigPlan | null {
+    const ignore = typeof ignoreId === "number" ? String(ignoreId) : [...ignoreId].join(",");
+    const key = `${type}|${flipped}|${pose.x.toFixed(2)}|${pose.z.toFixed(2)}|${pose.heading.toFixed(4)}|${y}|${ignore}|${this.game.trackVersion}`;
+    if (this.digFor?.key !== key) this.digFor = { key, plan: planUnderpass(this.rules, type, flipped, pose, y, ignoreId) };
+    return this.digFor.plan;
+  }
+  private digFor: { key: string; plan: DigPlan | null } | null = null;
+  /** The message for the last "dig" refusal (why no underpass can go under the bridge). */
+  private digWhy = DIG_MESSAGES.busy;
 
   /**
    * A mode's own rule for where a piece may go, beyond the track's (Game mode: an industry stands near its resource),
@@ -3480,6 +3504,7 @@ export class Interaction {
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
     if (isYardBlock(reason)) return this.yardWhy;
     if (reason === "in-yard") return this.inYardWhy;
+    if (reason === "dig") return this.digWhy;
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
   }
 
@@ -4387,8 +4412,10 @@ export class Interaction {
         const up = heldAt(m.looseY);
         if (up) m.pose = loose(up);
       }
-      // A bridge held over track stands high enough for trains to pass under it (two levels over that track).
-      for (let k = 0; k < 4 && isBridge(holdType) && findLowCrossing(this.game.layout, holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId) !== -1; k++) {
+      // A bridge held over track stands high enough for trains to pass under it: one level up where an underpass can be
+      // dug under it (`planUnderpass`), else two levels over that track.
+      const clears = () => findLowCrossing(this.game.layout, holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId) === -1 || this.digPlan(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId)?.kind === "dig";
+      for (let k = 0; k < 4 && isBridge(holdType) && !clears(); k++) {
         m.looseY += RISER_HEIGHT;
         const up = heldAt(m.looseY);
         if (up) m.pose = loose(up);
@@ -4692,11 +4719,29 @@ export class Interaction {
         if (covers) for (const c of covers) this.shrinkStandIn(c);
         // A depot moved off a line: straights close the gap it leaves (in the same undo step).
         const fill = [...this.fillFor(m, pose, y), ...(m.rest ?? [])];
-        const id = covers
-          ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! }, fill)
-          : isNew
-            ? ed.place(m.type, pose, y, m.flipped, risers)
-            : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped, fill), m.pieceId);
+        // A bridge one level up over a line: the straights under it make way for an underpass, in the same undo step.
+        const dug = !covers && isBridge(m.type) ? this.digPlan(m.type, m.flipped, pose, y, this.ignoreFor(m)) : null;
+        const lay = () =>
+          covers
+            ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! }, fill)
+            : isNew
+              ? ed.place(m.type, pose, y, m.flipped, risers)
+              : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped, fill), m.pieceId);
+        let id = -1;
+        if (dug?.kind === "dig") {
+          ed.group(() => {
+            const ids = ed.replaceRun(dug.covers, dug.pieces);
+            // (Refused, a train on those straights: the bridge doesn't go down over them either.)
+            if (ids.length > 0 && g.layout.getPiece(ids[0])) id = lay();
+          });
+          if (id === -1 || !g.layout.getPiece(id)) {
+            this.hud.refuse("A train's on the track under the bridge: move it first");
+            discard();
+            this.onRefused?.();
+            return;
+          }
+          this.hud.toast("Dug an underpass so trains fit under");
+        } else id = lay();
         // (The next one from the tray turns on with the curve it meets again, till Flip's pressed for it.)
         if (isNew) this.flipPressed = false;
         if (covers) this.hud.toast(covers.length === 1 ? "Straight back in the box" : `${covers.length} straights back in the box`);

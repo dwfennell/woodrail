@@ -67,3 +67,46 @@ No new piece in the tray, but a placed piece's shape (and its path, joints and s
 - `docs/agents/shots/low-bridge-wide.jpg`: the crossing, a train with the electric engine and two double-deckers under it.
 - `docs/agents/shots/low-bridge-under.jpg`: looking along the lower line, the pantograph under the girder.
 - `docs/agents/shots/low-bridge-trench.jpg`: the trench and the girder span with no train.
+
+## Built (phase 2): option A, all stock kept
+
+The user liked the girder look. The CoS chose all stock kept: a 30 dip and a 288-long underpass.
+
+**Which look a bridge gets.** Only a Bridge or Curved bridge exactly one level above an underpass, with its track within the trench's width of the underpass's deep middle (`girderOver`), is a girder span. Every other bridge keeps its arches: two or more levels up, over a river or a road, a one-level bridge between raised track, or one beside an underpass rather than across it. It's worked out from the layout each time it's drawn (`Game.archFloorsOf`). Lift a girder span off its underpass and it has arches again.
+
+**Placing.**
+- A Bridge (or Curved bridge) put down one level up across a line on the ground swaps the straights under it for an underpass, in one undo step, and says "Dug an underpass so trains fit under".
+- `planUnderpass` (`src/game/underpass-dig.ts`) walks the run of plain straights under the bridge and puts the underpass's middle under the crossing, on the 18 mm lattice, or a step either side when the straights left over can't be made (18 can't). It fills each side with one or two straights (`straightsFor`) and checks every new piece and the bridge with the game's own track rules.
+- A loose bridge held over track stays one level up where it can dig; elsewhere it rises to two levels as before.
+- The Underpass is also on the Bridges shelf, for laying by hand.
+- In Game mode it's free once Bridges is learned (it's dug, not made).
+
+**Rules.**
+- Track over track needs `TRAIN_HEADROOM` (76) between bases. Over an underpass, track lines closer than half a deck plus half a car (36, not the usual 28) count as crossing.
+- A bridge's supports may not stand in an underpass's trench (`trenchClash`, the "trench" refusal). A girder span's piers (14 long) must stand clear, and so must an arched bridge's viaduct (so no two-level bridge over an underpass).
+- An underpass goes only on flat ground level with its ends (the "dip" refusal: "An underpass needs flat open ground, level with its ends").
+
+**Supported and refused, as tested** (unit: `underpass-dig.test.ts`; e2e: `npm run e2e:low-bridge`, 20 checks on a 390×844 phone):
+
+| Case | Result |
+|---|---|
+| Straight bridge square across a straight line, either way round, either line direction | Dug, girder span; one undo takes both back; a train with the electric and two double-deckers runs under at −30 |
+| Straight bridge at 45° | Dug. Anything from 30° up digs. |
+| Shallower than about 25° | Refused: "Cross the line more squarely for an underpass to fit under" (the deck would reach the underpass's slopes) |
+| Curved bridge with the line under the middle of its curve | Dug, girder span. Two of the 18 mm steps along it fit: a curved bridge is only 141 long. |
+| Curved bridge crossing near its end | Refused: "The bridge's end would stand in the underpass: cross the line nearer the bridge's middle" |
+| A curve in the line under the bridge | Refused: "An underpass needs straight track under the bridge: this is a curve" |
+| Points (or a crossing, wye, double track) under the bridge | Refused: "Points can't go in an underpass: put the bridge over plain straight track" |
+| Two lines under one bridge | Refused: "Only one line can go under a bridge one level up" |
+| Under 288 of straight track to dig in | Refused: "Not enough straight track here for an underpass: it needs two long straights' worth" |
+| A bridge over an underpass laid by hand, off its middle | Refused: "Put the bridge over the middle of the underpass" |
+| Anything else under it (a ramp, a signal piece, a station) | Refused: "Something's in the way of an underpass under this bridge" |
+| A train on the straights to be dug | Refused at the drop: "A train's on the track under the bridge: move it first" (the editor's train check; not covered by a test yet) |
+
+**Costs** (e2e, headless, software GL): a plan on a pointer move 0.32 ms. The felt sheet cut again for 3 underpasses 0.36 ms, only when the set of underpasses changes. 0 frames drawn idle with underpasses and girder spans standing.
+
+**Not done yet:**
+- Draw still crosses a line two levels up. Teaching it "one level up and dig" is the next step.
+- An underpass in a hill or under a road is refused, not cut.
+- A straight laid by hand under an existing one-level bridge isn't swapped (use the Underpass from the shelf).
+- Signals on the dug straights' joints aren't carried over (the swap is refused only for trains).

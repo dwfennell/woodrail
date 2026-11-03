@@ -29,10 +29,12 @@ export const UNDERPASS_DIP = 30;
 export const UNDERPASS_LENGTH = 288;
 export const UNDERPASS_EASE = 96;
 /** Inner half-width of an underpass's trench, and its walls' thickness (mm). */
-export const TRENCH_HALF = TRACK_WIDTH / 2 + 7;
-export const TRENCH_WALL = 5;
+export const TRENCH_HALF = TRACK_WIDTH / 2 + 4;
+export const TRENCH_WALL = 4;
 /** How far an underpass's trench starts in from each end (the dip is too shallow there to need one). */
 export const TRENCH_INSET = 10;
+/** A girder span's pier at each end: this long along its track (mm). */
+export const GIRDER_PIER = 14;
 export const BUFFER_LENGTH = 54;
 export const ADAPTER_LENGTH = 54;
 /** Double track: its two lines this far apart (a square), as the S-curve shifts a line. */

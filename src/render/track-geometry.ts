@@ -35,6 +35,7 @@ import {
   type ConnectorDef,
   type PathGeom,
   type PieceDef,
+  GIRDER_PIER,
   TRENCH_HALF,
   TRENCH_INSET,
   TRENCH_WALL,
@@ -377,7 +378,7 @@ export const GIRDER_FLOORS: readonly number[] = [-1];
 export const isGirder = (floors: readonly number[] | null | undefined): boolean => floors?.length === 1 && floors[0] === -1;
 
 /** Pier length at each end of a girder span, and its side plates' thickness (mm). */
-const PIER = 22;
+const PIER = GIRDER_PIER;
 const GIRDER_PLATE = 4;
 /** How far the side plates stand above the deck's top. */
 const GIRDER_RISE = 5;

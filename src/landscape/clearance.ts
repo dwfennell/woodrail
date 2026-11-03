@@ -6,7 +6,7 @@ import { cutsHills, hillsOf } from "./hill-shape";
 import { pieceOf, turnOf } from "../roads/pieces";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom";
+export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -26,6 +26,8 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   unsupported: "Needs something under that end",
   prop: "Something's in the way — move it first",
   headroom: "Trains won't fit under — go two levels up",
+  dip: "An underpass needs flat open ground, level with its ends",
+  trench: "A bridge can't stand in an underpass's trench: put the line under the middle of a bridge one level up",
 };
 
 const CLEAR: Clearance = { kind: "clear" };
@@ -45,6 +47,8 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   unsupported: { kind: "blocked", reason: "unsupported" },
   undercut: { kind: "blocked", reason: "undercut" },
   headroom: { kind: "blocked", reason: "headroom" },
+  trench: { kind: "blocked", reason: "trench" },
+  dip: { kind: "blocked", reason: "dip" },
   prop: { kind: "blocked", reason: "prop" },
 };
 
@@ -335,7 +339,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         const ground = hillsOf(g).groundAt(x, z);
         // An underpass sinks into the board itself: on level ground at its ends' height (its dip is its own trench).
         if (type === "underpass") {
-          if (Math.abs(ground - y) > 0.5) result = BLOCKED.hill;
+          if (Math.abs(ground - y) > 0.5) result = BLOCKED.dip;
         } else if (y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
       }
     }
