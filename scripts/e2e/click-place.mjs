@@ -11,14 +11,29 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 import { pinClocksIn } from "./pin-clocks.mjs";
+import { groups } from "./lib/groups.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
-const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
-await server.listen();
-// Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
-await server.warmupRequest("/src/main.ts");
-const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+// (Started only when a group will run: `--list`, and a run whose groups all passed already, need no browser.)
+let server = null;
+let URL = "";
+let b = null;
+async function boot() {
+  if (b) return;
+  server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
+  await server.listen();
+  // Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
+  await server.warmupRequest("/src/main.ts");
+  URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
+  pinClocksIn(b);
+  // (Each context a group opens, so one that threw doesn't leave its page running into the next: see the run below.)
+  const newContext = b.newContext.bind(b);
+  b.newContext = async (...a) => { const c = await newContext(...a); open.add(c); c.on("close", () => open.delete(c)); return c; };
+}
+const open = new Set();
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -26,10 +41,9 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 };
 
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
-pinClocksIn(b);
 const errors = [];
+// Groups (E2E_ONLY, `-- --list`, resume: scripts/e2e/lib/groups.mjs), in the full run's order; each on pages of its own.
+const suite = groups("click", { results, errors, check });
 
 /** A page on the title, into Sandbox (the Track tab's favourites showing). */
 async function sandbox(ctx) {
@@ -148,7 +162,7 @@ const openPoints = (p, avoid = []) =>
 const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? null;
 
 // ---- desktop ----
-{
+suite.add("desktop", async () => {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await sandbox(ctx);
   // Close in, so a piece is a good size on screen.
@@ -336,10 +350,10 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   check("a mouse move while carrying costs a few ms at most", ms < 8, `${ms.toFixed(2)} ms a move (headless, software GL)`);
   await p.keyboard.press("Escape");
   await ctx.close();
-}
+});
 
 // ---- a model and a train, carried as a piece is ----
-{
+suite.add("model-train", async () => {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await sandbox(ctx);
   const thing = () => p.evaluate(() => { const c = window.woodrail.interaction.carriedThing; return c ? { kind: c.m.kind, visible: c.m.ghost.visible, blocked: c.m.blocked ?? null, target: c.m.target === undefined ? undefined : !!c.m.target, heading: c.m.heading } : null; });
@@ -537,10 +551,10 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await frames(p);
   check("…and put away over the tray, it's back in the box", (await trains()) === n2 - 1, `trains ${n2} → ${await trains()}`);
   await ctx.close();
-}
+});
 
 // ---- tight curves with the mouse (the user: the next tight curve waited loose, unjoined, by a station's track) ----
-{
+suite.add("tight-curves", async () => {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await sandbox(ctx);
   await p.evaluate(async () => {
@@ -666,10 +680,10 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
     await takeUp(two.ids);
   }
   await ctx.close();
-}
+});
 
 // ---- desktop: ☰ Report a bug or give feedback, with the mouse ----
-{
+suite.add("feedback", async () => {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await sandbox(ctx);
   const press = async (sel) => {
@@ -684,10 +698,10 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
     check("feedback (mouse): ran to the end", false, String(e?.message ?? e).split("\n")[0]);
   }
   await ctx.close();
-}
+});
 
 // ---- fullscreen, and a sideways wheel never goes Back a page ----
-{
+suite.add("fullscreen", async () => {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await sandbox(ctx);
   await p.waitForFunction(() => window.woodrail.settled?.() ?? true, null, { timeout: 60000 }).catch(() => {});
@@ -737,10 +751,10 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const v1 = await view(p);
   check("a real sideways wheel on the map neither zooms the view nor leaves the page", p.url() === url && v0.d === v1.d, `${JSON.stringify(v0)} → ${JSON.stringify(v1)}`);
   await ctx.close();
-}
+});
 
 // ---- Game mode: the Engine clicked (the user's screenshot, #12), and a locked engine ----
-{
+suite.add("game-engine", async () => {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await ctx.newPage();
   p.on("pageerror", (e) => errors.push(String(e)));
@@ -771,10 +785,10 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   async function thing() {
     return p.evaluate(() => { const c = window.woodrail.interaction.carriedThing; return c ? { kind: c.m.kind } : null; });
   }
-}
+});
 
 // ---- touch: a tap in the tray carries nothing (as before); its card shows a moment; a long press shows details ----
-{
+suite.add("touch-tray", async () => {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const p = await sandbox(ctx);
   // (The tray's pictures made first: see `quiet`.)
@@ -845,12 +859,13 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   check("…tapped, it puts the page fullscreen, closes the menu, and then reads Leave fullscreen", phoneFs.on && phoneFs.menuHidden && phoneFs.label, JSON.stringify(phoneFs));
   check("the page and the tray never overscroll into a Back", tray.overscroll === "none" && tray.page === "none", JSON.stringify(tray));
   await ctx.close();
-}
+});
 
 // ---- desktop: a route planned by clicks; Ctrl+Z undoes a stop while planning; a stop's mode; Leave asks; Ctrl+Z ----
 // (The route card's UX fixes, docs/design/2026-11-02-route-ux F1–F3, with a mouse. Setup only, not what's tested: an
 // oval of track with a forest and a sawmill on it, and a train, put down in code past the land's edge on the flat
 // table, where the view can go.)
+suite.add("routes", async () => {
 try {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await sandbox(ctx);
@@ -1006,10 +1021,17 @@ try {
 } catch (e) {
   check("desktop routes: ran to the end", false, String(e?.message ?? e).split("\n")[0]);
 }
+});
 
+await suite.run(async (g, go) => {
+  await boot();
+  try {
+    await go();
+  } finally {
+    for (const c of [...open]) await c.close().catch(() => {});
+  }
+});
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
-await b.close();
-await server.close();
-const failed = results.filter((r) => !r.ok).length;
-console.log(`\n${results.length - failed}/${results.length} passed`);
-process.exit(failed ? 1 : 0);
+await b?.close();
+await server?.close();
+suite.finish();

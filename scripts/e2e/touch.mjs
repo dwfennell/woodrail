@@ -6,24 +6,31 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 import { pinClocksIn } from "./pin-clocks.mjs";
+import { groups } from "./lib/groups.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
-const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
-await server.listen();
-// Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
-await server.warmupRequest("/src/main.ts");
-const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+// (Started only when a group will run: `--list`, and a run whose groups all passed already, need no browser.)
+let server = null;
+let URL = "";
+let b = null;
+async function boot() {
+  if (b) return;
+  server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
+  await server.listen();
+  // Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
+  await server.warmupRequest("/src/main.ts");
+  URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
+  pinClocksIn(b);
+}
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];
 const check = (name, ok, detail = "") => {
   results.push({ name, ok, detail });
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 };
-
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
-pinClocksIn(b);
 const errors = [];
 
 /** Two frames from now (a layout and a paint): what a tap did has been drawn. */
@@ -1207,7 +1214,8 @@ async function wyeLevers(ctx, p, tapOn) {
   check("wye: no frames drawn once settled (with no train moving)", idle.moving > 0 || idle.f === f0, JSON.stringify({ f0, ...idle }));
 }
 
-// (E2E_ONLY: Sandbox's checks by name, one or a comma list, in the full run's order: map-taps, select-drag, redrawn,
+// (Groups, for E2E_ONLY (one or a comma list, run in the full run's order; `-- --list` lists them): sandbox-shelves and
+// game-shelves (a touch tap on each shelf and Back, in each mode), and Sandbox's checks by name: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
 // wait (a train waiting at points set for another), wye (a wye's three levers, #15), stuck (two trains of a line head
@@ -1222,7 +1230,6 @@ async function wyeLevers(ctx, p, tapOn) {
 // by taps at 360 px), route-ux-more (the roadmap's phases B and C: a route from a place's card, a stop put in the
 // middle, the ribbon's edge and arrows, tools in view on a phone on its side, the Lines view's actions, a line sent
 // another way).)
-const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
 /**
@@ -1284,18 +1291,6 @@ function openGroundScript() {
   };
   // A run's footprint: points every 108 mm from (0, 0) to (length, 0), on each of the rows `dz`.
   window.__runFootprint = (length, rows = [0]) => rows.flatMap((dz) => Array.from({ length: Math.floor(length / 108) + 1 }, (_, k) => [k * 108, dz]));
-}
-
-for (const mode of ONLY ? ["sandbox"] : ["sandbox", "game"]) {
-  try {
-    await runMode(mode);
-  } catch (e) {
-    check(`${mode}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
-  } finally {
-    // (A mode that threw leaves its page running, a sim and a renderer the next mode's load would share the CPU with.)
-    await openContext?.close().catch(() => {});
-    openContext = null;
-  }
 }
 
 /**
@@ -4256,7 +4251,9 @@ async function routeUxMore(ctx, p) {
   await p.keyboard.press("Escape");
 }
 
-async function runMode(mode) {
+/** A phone's page in `mode`, on the map past the title and the first visit's help: what every group starts from. */
+async function openMode(mode) {
+  await boot();
   const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
   await ctx.addInitScript(() => localStorage.setItem("woodrail.favourites", "[]"));
@@ -4280,7 +4277,6 @@ async function runMode(mode) {
     document.querySelector(".coach:not([hidden]) .coach-skip")?.click();
   });
   await p.waitForFunction(() => { const h = document.querySelector(".help"); return !h || h.hidden || getComputedStyle(h).display === "none"; }, null, { timeout: 60000 });
-  const inGroup = () => p.evaluate(() => document.querySelector(".tray").classList.contains("in-group"));
   const tapOn = async (selector) => {
     // (On a phone the favourites come first: a shelf may be scrolled out of view.)
     await p.evaluate((sel) => document.querySelector(sel)?.scrollIntoView({ inline: "center" }), selector);
@@ -4290,6 +4286,12 @@ async function runMode(mode) {
     const box = await el.boundingBox();
     await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
   };
+  return { mode, ctx, p, tapOn };
+}
+
+/** A touch tap on each shelf opens it, and on Back goes back (each stays). */
+async function shelves({ mode, p, tapOn }) {
+  const inGroup = () => p.evaluate(() => document.querySelector(".tray").classList.contains("in-group"));
   for (const shelf of ["Straight", "Curve", "Switch"]) {
     const index = await p.evaluate((name) => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === name), shelf);
     await tapOn(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
@@ -4299,48 +4301,100 @@ async function runMode(mode) {
     await tapOn(".scroller .tray-back");
     check(`${mode}: a touch tap on Back goes back to the shelves (and stays there)`, !(await inGroup()));
   }
-  /**
-   * Each check on its own: one that can't set up, or throws, fails only itself ("<name>: ran to the end") and the run
-   * goes on. Then what it laid is taken up (harness shortcut, setup only: the trains on it, then its pieces, places
-   * with them), so the small Sandbox map has room for the next, whatever the checks before did.
-   */
-  const step = async (name, fn) => {
-    // (Pieces by type and where they lie: a reload, as some checks make, gives out piece and car ids afresh.)
-    const pieceKeys = () => p.evaluate(() => [...window.woodrail.layout.pieceIds()].map((i) => { const q = window.woodrail.layout.getPiece(i); return `${q.type}@${Math.round(q.pose.x)},${Math.round(q.pose.z)}`; }));
-    const before = await pieceKeys();
-    try {
-      await fn();
-    } catch (e) {
-      check(`${name}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
-    }
-    await p.keyboard.press("Escape");
-    const left = await p.evaluate((before) => {
-      const w = window.woodrail;
-      w.paused = false;
-      const key = (i) => { const q = w.layout.getPiece(i); return `${q.type}@${Math.round(q.pose.x)},${Math.round(q.pose.z)}`; };
-      const ids = [...w.layout.pieceIds()].filter((i) => !before.includes(key(i))).reverse();
-      // Trains standing on what's taken up go first (a train put down on the seed's own track stays).
-      for (const id of w.sim.trainIds()) if (w.sim.getTrain(id).bogies.some((b) => ids.includes(b.pieceId))) w.sim.removeTrain(id);
-      w.economy.prune();
-      // (A piece may hold up another, as points hold their roads: taken up over a few passes.)
-      for (let pass = 0; pass < 4; pass++) for (const id of ids) if (w.layout.getPiece(id)) w.editor().remove(id);
-      w.invalidate();
-      return ids.filter((id) => w.layout.getPiece(id)).length;
-    }, before);
-    if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
-  };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
-  // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
-  if (mode === "sandbox") {
-    const only = ONLY ? ONLY.split(",") : null;
-    for (const name of Object.keys(SANDBOX)) if (!only || only.includes(name)) await step(name, SANDBOX[name]);
-  }
-  await ctx.close();
-  openContext = null;
 }
+
+/**
+ * Each Sandbox check on its own: one that can't set up, or throws, fails only itself ("<name>: ran to the end") and the
+ * run goes on. Then what it laid is taken up (harness shortcut, setup only: the trains on it, then its pieces, places
+ * with them), so the small Sandbox map has room for the next, whatever the checks before did.
+ */
+async function step(name, p, fn) {
+  // (Pieces by type and where they lie: a reload, as some checks make, gives out piece and car ids afresh.)
+  const pieceKeys = () => p.evaluate(() => [...window.woodrail.layout.pieceIds()].map((i) => { const q = window.woodrail.layout.getPiece(i); return `${q.type}@${Math.round(q.pose.x)},${Math.round(q.pose.z)}`; }));
+  const before = await pieceKeys();
+  try {
+    await fn();
+  } catch (e) {
+    check(`${name}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
+  }
+  await p.keyboard.press("Escape");
+  const left = await p.evaluate((before) => {
+    const w = window.woodrail;
+    w.paused = false;
+    const key = (i) => { const q = w.layout.getPiece(i); return `${q.type}@${Math.round(q.pose.x)},${Math.round(q.pose.z)}`; };
+    const ids = [...w.layout.pieceIds()].filter((i) => !before.includes(key(i))).reverse();
+    // Trains standing on what's taken up go first (a train put down on the seed's own track stays).
+    for (const id of w.sim.trainIds()) if (w.sim.getTrain(id).bogies.some((b) => ids.includes(b.pieceId))) w.sim.removeTrain(id);
+    w.economy.prune();
+    // (A piece may hold up another, as points hold their roads: taken up over a few passes.)
+    for (let pass = 0; pass < 4; pass++) for (const id of ids) if (w.layout.getPiece(id)) w.editor().remove(id);
+    w.invalidate();
+    return ids.filter((id) => w.layout.getPiece(id)).length;
+  }, before);
+  if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
+}
+
+// The groups, in the full run's order: Sandbox's shelves and checks on one page, then Game's shelves on another.
+// (E2E_FRESH=1: each group on a page of its own, as when it runs alone.)
+const suite = groups("touch", { results, errors, check });
+const SANDBOX = {
+  "map-taps": (f) => mapTaps(f.p),
+  "select-drag": (f) => selectThenDrag(f.ctx, f.p),
+  redrawn: (f) => redrawnControl(f.ctx, f.p),
+  flick: (f) => flickOut(f.ctx, f.p, f.tapOn),
+  "lever-pins": (f) => leverPins(f.ctx, f.p),
+  "under-car": (f) => shortUnderCar(f.ctx, f.p),
+  "toast-through": (f) => toastTapsThrough(f.p),
+  trap: (f) => putAwayButton(f.p),
+  "dead-end": (f) => deadEndContinue(f.p),
+  routes: (f) => twoRoutes(f.ctx, f.p),
+  defaults: (f) => leverDefault(f.ctx, f.p),
+  restore: (f) => routeRestore(f.ctx, f.p),
+  wait: (f) => routeWait(f.ctx, f.p),
+  wye: (f) => wyeLevers(f.ctx, f.p, f.tapOn),
+  stuck: (f) => stuckHeadOn(f.ctx, f.p, f.tapOn),
+  "stuck-lines": (f) => stuckHeadOn(f.ctx, f.p, f.tapOn, true),
+  forward: (f) => forwardRoute(f.ctx, f.p),
+  "hand-wait": (f) => handWait(f.ctx, f.p),
+  via: (f) => viaRoute(f.ctx, f.p),
+  follow: (f) => followGap(f.ctx, f.p, f.tapOn),
+  "route-keep": (f) => routeKeep(f.ctx, f.p, f.tapOn),
+  "tight-curves": (f) => tightCurves(f.ctx, f.p, f.tapOn),
+  blocker: (f) => showBlocker(f.ctx, f.p),
+  "train-card": (f) => trainCardAll(f.p),
+  "place-facing": (f) => placeFacing(f.ctx, f.p, f.tapOn),
+  feedback: (f) => feedbackFlow(f.p, { press: f.tapOn, check, label: "feedback" }),
+  "route-ux": (f) => routeUx(f.ctx, f.p),
+  "route-ux-more": (f) => routeUxMore(f.ctx, f.p),
+};
+let fixture = null;
+const FRESH = process.env.E2E_FRESH === "1";
+const closeFixture = async () => {
+  // (A mode that threw leaves its page running, a sim and a renderer the next mode's load would share the CPU with.)
+  await openContext?.close().catch(() => {});
+  openContext = null;
+  fixture = null;
+};
+const inMode = (mode, fn) => async () => {
+  if (!fixture || fixture.mode !== mode || FRESH) {
+    await closeFixture();
+    try {
+      fixture = await openMode(mode);
+    } catch (e) {
+      // (As before the groups: a page that can't open fails "<mode>: ran to the end".)
+      await closeFixture();
+      check(`${mode}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
+      return;
+    }
+  }
+  await fn(fixture);
+};
+suite.add("sandbox-shelves", inMode("sandbox", (f) => shelves(f)));
+for (const [name, fn] of Object.entries(SANDBOX)) suite.add(name, inMode("sandbox", (f) => step(name, f.p, () => fn(f))));
+suite.add("game-shelves", inMode("game", (f) => shelves(f)));
+await suite.run();
+await closeFixture();
 check("no page errors", errors.length === 0, errors.join(" | "));
-await b.close();
-await server.close();
-const failed = results.filter((r) => !r.ok).length;
-console.log(`\n${results.length - failed}/${results.length} passed`);
-process.exit(failed ? 1 : 0);
+await b?.close();
+await server?.close();
+suite.finish();

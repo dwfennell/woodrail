@@ -28,30 +28,36 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { groups } from "../../scripts/e2e/lib/groups.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/sites";
+const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out/sites";
 mkdirSync(OUT, { recursive: true });
-const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5384, strictPort: false }, logLevel: "error" });
-await server.listen();
-const PAGE = server.resolvedUrls.local[0];
-const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
-pinClocksIn(b);
-const p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+// (Started only when a group will run: `--list`, and a run whose groups all passed already, need no browser.)
+let server = null;
+let PAGE = "";
+let b = null;
+/** The page steps 1–12 share (group "ruins"). */
+let p = null;
 const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-  if (m.type() === "info" && (m.text().includes("ruins built") || m.text().includes("ruin restored"))) console.log(`  (${m.text()})`);
-});
-await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
-let failures = 0;
+async function boot() {
+  if (b) return;
+  server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5384, strictPort: false }, logLevel: "error" });
+  await server.listen();
+  PAGE = server.resolvedUrls.local[0];
+  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
+  pinClocksIn(b);
+}
+const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
+const results = [];
 const check = (what, ok, detail = "") => {
-  if (!ok) failures++;
+  results.push({ name: what, ok });
   console.log(ok ? "PASS" : "FAIL", what, detail);
 };
+// Groups (E2E_ONLY, `-- --list`, resume: scripts/e2e/lib/groups.mjs): steps 1–12 on one page ("ruins"), then 13–17, each
+// on fresh pages of its own.
+const suite = groups("sites", { results, errors, check });
 const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
 const settle = (ticks = 3) => p.evaluate((t) => Promise.race([window.woodrail.settled(t), new Promise((r) => setTimeout(r, 20000))]), ticks);
 /** A tap on the page, stamped (see `stampedTap`): every tap here is one (QA: an unstamped toast tap was flaky). */
@@ -118,6 +124,14 @@ const look = (x, z, dist, phi = 0.8) =>
   );
 
 // 1. A new game: the starter map's ruins, the old farm in view from the start (or a short pull back).
+suite.add("ruins", async () => {
+  p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  p.on("pageerror", (e) => errors.push(e.message));
+  p.on("console", (m) => {
+    if (m.type() === "error") errors.push(`console: ${m.text()}`);
+    if (m.type() === "info" && (m.text().includes("ruins built") || m.text().includes("ruin restored"))) console.log(`  (${m.text()})`);
+  });
+  await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
 await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
@@ -536,8 +550,10 @@ const reloaded = await p.evaluate(([id, pose]) => {
 check("reloaded: still restored, the farm yard where it was", reloaded.restored && !reloaded.ruin && reloaded.farm !== null && reloaded.farm < 0.5 && reloaded.depot === "farm", JSON.stringify(reloaded));
 await look(yard.x, yard.z, 1300);
 await shot("r4-reloaded-farm");
+});
 
 // 13. Sandbox (a fresh browser, its starter map): no sites, no ruins, none in the opening view or on the land for sale.
+suite.add("sandbox", async () => {
 const q = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
 q.on("pageerror", (e) => errors.push(e.message));
 await q.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
@@ -557,9 +573,11 @@ const sandbox = await q.evaluate(async () => {
 });
 check("Sandbox: no sites or ruins (none drawn in the opening view, none on the land for sale)", sandbox.siteless && sandbox.sites === 0 && sandbox.ruins === 0 && sandbox.meshes === 0 && sandbox.forSale === 0, JSON.stringify(sandbox));
 await q.screenshot({ path: `${OUT}/08-sandbox-start.png` }).catch(() => {});
+});
 
 // 14. A phone on its side (667×375, a fresh game): the ruin card's Restore and Clear stay in view, pinned at its foot
 // above the tray, and a tap on them lands (QA: they sat under the tray).
+suite.add("phone-side", async () => {
 const L = await b.newPage({ viewport: { width: 667, height: 375 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
 L.on("pageerror", (e) => errors.push(e.message));
 await L.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
@@ -638,23 +656,9 @@ const lToast = await L.evaluate(async () => {
   return document.querySelector(".toast")?.textContent;
 });
 check("667×375: a tap on Restore lands", lToast === "Restoring takes planks from your workshop. Place it first", lToast);
+});
 
-// 15. The map view (390×844, a fresh game): the old farm's marker, locked; idle there costs nothing; Farming learned,
-// the lock goes; tapped, the ruin's card opens; restored, the marker goes.
-const M = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
-M.on("pageerror", (e) => errors.push(e.message));
-M.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
-await M.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
-await M.goto(PAGE);
-await M.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await M.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
-await M.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-await M.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-await M.keyboard.press("Escape");
-// (The land around made ready, its ruins with it.)
-await M.waitForFunction(() => window.woodrail.ruinsShown.some((r) => r.around), null, { timeout: 120000, polling: 500 }).catch(() => {});
-await M.waitForTimeout(2000);
-const openMapView = () => openMapOn(M);
+/** Open the map view on page M (its button tapped) and wait till its glide up has ended. (Steps 15 and 16.) */
 async function openMapOn(M) {
   const r = await M.evaluate(() => {
     // (Its title is its tooltip's, `data-tip`, after the first tap on it.)
@@ -677,9 +681,7 @@ async function openMapOn(M) {
     }
   });
 }
-const mFarm = await M.evaluate(() => window.woodrail.world.landscape.sites.find((s) => s.role === "farm").id);
-/** The map's markers as shown: each ruin's badge (shown or not, locked or not) and the labels, with their boxes. */
-const mapState = () => mapStateOn(M);
+/** The map's markers as shown on page M: each ruin's badge (shown or not, locked or not) and the labels, with their boxes. */
 const mapStateOn = (M) =>
   M.evaluate(() => {
     const box = (e) => {
@@ -709,6 +711,27 @@ const mapStateOn = (M) =>
     };
   });
 const overlaps = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
+
+// 15. The map view (390×844, a fresh game): the old farm's marker, locked; idle there costs nothing; Farming learned,
+// the lock goes; tapped, the ruin's card opens; restored, the marker goes.
+suite.add("map-view", async () => {
+const M = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+M.on("pageerror", (e) => errors.push(e.message));
+M.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
+await M.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+await M.goto(PAGE);
+await M.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+await M.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await M.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+await M.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+await M.keyboard.press("Escape");
+// (The land around made ready, its ruins with it.)
+await M.waitForFunction(() => window.woodrail.ruinsShown.some((r) => r.around), null, { timeout: 120000, polling: 500 }).catch(() => {});
+await M.waitForTimeout(2000);
+const openMapView = () => openMapOn(M);
+const mFarm = await M.evaluate(() => window.woodrail.world.landscape.sites.find((s) => s.role === "farm").id);
+/** The map's markers as shown: each ruin's badge (shown or not, locked or not) and the labels, with their boxes. */
+const mapState = () => mapStateOn(M);
 await openMapView();
 const map1 = await mapState();
 // Upright, the band is tall: the full labels (name, the line under it, a town's bar), not the compact ones.
@@ -798,10 +821,12 @@ await openMapView();
 const map4 = await mapState();
 check("…restored: its marker is gone from the map (the others stay)", mRestored && map4.open && map4.ruins.length > 0 && !map4.ruins.some((r) => r.key === `ruin:${mFarm}`), JSON.stringify({ mRestored, open: map4.open, ruins: map4.ruins.map((r) => r.key) }));
 await M.screenshot({ path: `${OUT}/15-map-restored.png` }).catch(() => {});
+});
 
 // 16. The map view on a phone on its side (667×375 and 844×390, a fresh game): no ruin's badge under a label and no
 // label over another (QA: a slide back between the bars after the declutter put them back over each other), and a tap
 // on a badge, at its middle or its edge, goes to its ruin (its card, on the player's land), not to a town.
+suite.add("map-side", async () => {
 for (const [W, H] of [
   [667, 375],
   [844, 390],
@@ -862,10 +887,12 @@ for (const [W, H] of [
   check(`${W}×${H} map view: a badge tapped goes to its ruin${own ? " (its card opens)" : ""}`, !!pick && !went.map && went.off !== null && went.off < 600 && (!own || !!went.card?.startsWith("Old ")), JSON.stringify({ pick: pick?.key, ...went }));
   await S.close();
 }
+});
 
 // 17. A big map (seed 7's, 22 plots bought), upright (390×844): the map view frames the places on the player's land
 // between its bars, as far out as the camera goes; too big to show whole, a one-finger drag pans to the rest, and every
 // ruin on the land gets its badge on screen (QA: none of the harbours on the coast could be seen).
+suite.add("big-map", async () => {
 {
   const G = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
   G.on("pageerror", (e) => errors.push(e.message));
@@ -952,9 +979,19 @@ for (const [W, H] of [
   await G.screenshot({ path: `${OUT}/17-map-big-panned-390x844.png` }).catch(() => {});
   await G.close();
 }
+});
 
+await suite.run(async (g, go) => {
+  await boot();
+  // (Each group's pages closed after it, so none runs on beside the next.)
+  const before = new Set(b.contexts().flatMap((c) => c.pages()));
+  try {
+    await go();
+  } finally {
+    for (const page of b.contexts().flatMap((c) => c.pages())) if (!before.has(page)) await page.close().catch(() => {});
+  }
+});
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
-await b.close();
-await server.close();
-process.exit(failures === 0 ? 0 : 1);
+await b?.close();
+await server?.close();
+suite.finish();
