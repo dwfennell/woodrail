@@ -1221,7 +1221,8 @@ async function wyeLevers(ctx, p, tapOn) {
 // a mocked Worker whose map loads as the same railway), route-ux (the route card's UX fixes, F1–F7,
 // by taps at 360 px), route-ux-more (the roadmap's phases B and C: a route from a place's card, a stop put in the
 // middle, the ribbon's edge and arrows, tools in view on a phone on its side, the Lines view's actions, a line sent
-// another way).)
+// another way), route-reorder (a stop's chip held and dragged to another place in the order, Undo, the train running
+// the new order; a shuttle's legs as two lanes).)
 const ONLY = process.env.E2E_ONLY ?? "";
 let openContext = null;
 
@@ -4256,6 +4257,161 @@ async function routeUxMore(ctx, p) {
   await p.keyboard.press("Escape");
 }
 
+/**
+ * Drag to reorder a route's stops, and two-way legs drawn as two lanes (the route UX audit's leftovers: heuristic 7,
+ * F8), by the player's path on a 390×844 phone. An oval with a forest, a sawmill and a second forest, its train's route
+ * planned by taps (its engine, Plan a route, the places, Done): a finger held on stop 3's chip lifts it, a bar shows
+ * where it goes, and let go before stop 1 it's first; the train heads where it did, and Undo puts the order back. A
+ * swipe (no hold) only scrolls. Dragged again: the train runs the stops in the new order (the payoff). Then a shuttle
+ * planned by taps draws its legs as two lanes (the oval's, one way round, none), and nothing is drawn at rest. (Setup
+ * only, not what's tested: the track and the trains put down in code; the run is the game's own sim and economy ticks,
+ * ahead of SwiftShader's frames.)
+ */
+async function routeReorder(ctx, p) {
+  await p.keyboard.press("Escape");
+  const cdp = await ctx.newCDPSession(p);
+  const build = (shape) => p.evaluate(async (shape) => {
+    const w = window.woodrail;
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const ids = shape === "oval" ? S.oval(scratch).ids : S.shuttleLine(scratch, 4);
+    const all = [...scratch.pieceIds()];
+    const g = await window.__openGround(all.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    if (!g) throw new Error(`no open ground for the ${shape}`);
+    const types = shape === "oval" ? { [ids[0]]: "depot-forest", [ids[7]]: "depot-sawmill", [ids[9]]: "depot-forest" } : { [ids[0]]: "depot-forest", [ids[ids.length - 1]]: "depot-sawmill" };
+    const placed = w.editor().placeRun(all.map((i) => {
+      const q = scratch.getPiece(i);
+      return { type: types[i] ?? q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const at = (i) => placed[all.indexOf(i)];
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = shape === "oval" ? [depot(at(ids[0]), "forest").id, depot(at(ids[7]), "sawmill").id, depot(at(ids[9]), "forest").id] : [depot(at(ids[0]), "forest").id, depot(at(ids[ids.length - 1]), "sawmill").id];
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: at(ids[2]), pathIndex: 0, s: 150, reversed: false });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(engine, 0);
+    w.invalidate();
+    return { engine, places };
+  }, shape);
+  const setup = await build("oval");
+  const { tapOn, tapButton, still } = mapHelpers(p);
+  await p.setViewportSize({ width: 390, height: 844 });
+  await p.evaluate(() => window.woodrail.follow(-1));
+  const route = () => p.evaluate((e) => {
+    const r = window.woodrail.economy.routeOf(e);
+    return { stops: r?.stops.map((s) => s.depotId) ?? [], heading: r ? r.stops[r.next].depotId : -1 };
+  }, setup.engine);
+  const plan = async (o) => {
+    await tapOn({ engine: o.engine });
+    await tapButton(".engine-extra .route-plan");
+    for (const d of o.places) await tapOn({ depot: d });
+    await tapButton(".engine-extra .route-plan.on");
+    await still();
+  };
+  await plan(setup);
+  const planned = await route();
+  check("route-reorder: a three-stop route planned by taps", JSON.stringify(planned.stops) === JSON.stringify(setup.places), JSON.stringify(planned));
+  const lanesOval = await p.evaluate(() => window.woodrail.routeLanes());
+  const chipAt = (k) => p.evaluate((k) => {
+    const c = document.querySelector(`.engine-extra .route-chip[data-stop="${k}"]`);
+    const s = c.closest(".route-stops").getBoundingClientRect();
+    const r = c.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, right: r.right, h: r.height, w: r.width, inStrip: r.left >= s.left - 1 && r.right <= s.right + 1 };
+  }, k);
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  /** A finger on stop `from`'s chip, held `hold` ms (0: a swipe), moved to `toX` in steps; `mid` runs before it lifts. */
+  const drag = async (from, toX, hold, mid) => {
+    await p.waitForTimeout(300);
+    const a = await chipAt(from);
+    await touch("touchStart", a.x, a.y);
+    if (hold) await p.waitForTimeout(hold);
+    for (let k = 1; k <= 10; k++) {
+      await touch("touchMove", a.x + ((toX - a.x) * k) / 10, a.y + 2);
+      await p.waitForTimeout(16);
+    }
+    await frames(p);
+    const seen = mid ? await mid() : null;
+    await touch("touchEnd", 0, 0);
+    await frames(p);
+    await p.waitForTimeout(300);
+    return seen;
+  };
+  const sizes = await Promise.all([0, 1, 2].map(chipAt));
+  check("route-reorder: the stops' chips are a finger's size (44 px) and in the strip at 390 px", sizes.every((c) => c.h >= 44 && c.w >= 44 && c.inStrip), JSON.stringify(sizes));
+  // A swipe across the chips, no hold: no stop moves.
+  await drag(2, sizes[0].left + 4, 0);
+  check("route-reorder: a swipe across the chips (no hold) moves no stop", JSON.stringify((await route()).stops) === JSON.stringify(setup.places), JSON.stringify(await route()));
+  // Held, stop 3's chip lifts; dragged before stop 1, the bar shows there; let go, it's first.
+  const target = (await chipAt(0)).left + 4;
+  const mid = await drag(2, target, 600, async () => {
+    if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-drag.jpg`, type: "jpeg", quality: 80 });
+    return p.evaluate(() => {
+      const mark = document.querySelector(".engine-extra .route-drop-mark");
+      const first = document.querySelector('.engine-extra .route-chip[data-stop="0"]').getBoundingClientRect();
+      const m = mark?.getBoundingClientRect();
+      return { lifted: document.querySelector(".engine-extra .route-chip.lifted")?.dataset.stop, mark: !!mark && !mark.hidden, blocked: mark?.classList.contains("blocked"), markX: m && Math.round(m.left + m.width / 2), firstLeft: Math.round(first.left) };
+    });
+  });
+  const moved = await route();
+  check("route-reorder: held, stop 3's chip lifts and a bar shows it going before stop 1", mid.lifted === "2" && mid.mark && !mid.blocked && Math.abs(mid.markX - mid.firstLeft) <= 8, JSON.stringify(mid));
+  check("route-reorder: let go, it's stop 1 now, and the train heads where it did", JSON.stringify(moved.stops) === JSON.stringify([setup.places[2], setup.places[0], setup.places[1]]) && moved.heading === planned.heading, JSON.stringify({ moved, planned }));
+  const chips = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip[data-stop]")].map((c) => `${c.querySelector(".route-num").textContent}${c.classList.contains("picked") ? "*" : ""}`));
+  check("route-reorder: the chips read 1 2 3, the dropped one picked", JSON.stringify(chips) === '["1*","2","3"]', JSON.stringify(chips));
+  await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
+  await frames(p);
+  const undone = await route();
+  check("route-reorder: Undo puts the order back, the train heading where it did", JSON.stringify(undone.stops) === JSON.stringify(setup.places) && undone.heading === planned.heading, JSON.stringify(undone));
+  // Again, and the payoff: the train runs the stops in the new order.
+  await drag(2, (await chipAt(0)).left + 4, 600);
+  const order = (await route()).stops;
+  await p.keyboard.press("Escape");
+  const run = await p.evaluate((o) => {
+    const w = window.woodrail;
+    w.sim.setLever(o.engine, 1);
+    const came = [];
+    let was = w.economy.routeOf(o.engine).next;
+    for (let i = 0; i < 300 * 120 && came.length < 5; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      w.economy.drainEvents();
+      const r = w.economy.routeOf(o.engine);
+      if (r.next !== was) came.push(r.stops[was].depotId);
+      was = r.next;
+    }
+    w.sim.setLever(o.engine, 0);
+    for (let i = 0; i < 20 * 120; i++) (w.sim.tick(), w.economy.tick(), w.economy.drainEvents());
+    w.invalidate();
+    return came;
+  }, setup);
+  const k0 = order.indexOf(run[0]);
+  const inOrder = run.length >= 4 && k0 !== -1 && run.every((d, i) => d === order[(k0 + i) % order.length]);
+  check("route-reorder: the train comes to its stops in the new order", inOrder, JSON.stringify({ order, run }));
+  // Two lanes: a shuttle's legs (there and back over the same track) drawn as two lanes; the oval's, one way, aren't.
+  const shuttle = await build("shuttle");
+  await plan(shuttle);
+  const lanes = await p.evaluate(() => window.woodrail.routeLanes());
+  if (process.env.E2E_SHOTS) {
+    await p.evaluate(async (e) => {
+      const w = window.woodrail;
+      const t = w.sim.findCar(e).train.world[0];
+      w.director.glideTo(new w.controls.target.constructor(t.x, t.y, t.z), 700, { duration: 0.2 });
+    }, shuttle.engine);
+    await still();
+    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-lanes.jpg`, type: "jpeg", quality: 80 });
+  }
+  check("route-reorder (F8): a shuttle's legs are two lanes between its stops; the oval's one-way legs, at most a turn at a stop", lanes >= 2 * 4 * 216 * 0.9 && lanesOval <= 2 * 216, JSON.stringify({ lanes, lanesOval }));
+  await p.evaluate(() => (window.woodrail.paused = true));
+  await frames(p);
+  await p.waitForTimeout(300);
+  const fA = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.waitForTimeout(1200);
+  const fB = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.evaluate(() => (window.woodrail.paused = false));
+  check("route-reorder (F8): nothing drawn at rest with the lanes shown", fB - fA <= 1, JSON.stringify({ fA, fB }));
+  await p.keyboard.press("Escape");
+}
+
 async function runMode(mode) {
   const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -4329,7 +4485,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p), "route-reorder": () => routeReorder(ctx, p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

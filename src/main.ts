@@ -5,6 +5,7 @@ import { CrossingBells } from "./audio/crossing-bell";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
+import { stopDrag } from "./ui/route-drag";
 import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
@@ -3186,6 +3187,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let scrolledFor = "";
   /** The stop the open card's next mark was last drawn on (its engine): a mark that moves pops, so the player sees it go. */
   let nextDrawn = { carId: -1, next: -1 };
+  /** A stop's chip lifted to drag (`stopDrag`): the card holds still till it's let go. */
+  let stopDragging = false;
+  /** The stop just dropped by a drag: its chip pops once, where it went (−1: none). */
+  let stopDropped = -1;
+  const DRAG_HINT_KEY = "woodrail.hint.stopDrag";
+  let dragHintSeen = loadFlag(DRAG_HINT_KEY);
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
@@ -3198,8 +3205,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       stopPicked = -1;
       viaPicked = null;
       leaveAsked = -1;
+      stopDragging = false;
       return;
     }
+    // (A chip held up: rebuilt when it's let go, not under the finger.)
+    if (stopDragging) return;
     const stops = routeStops(game.world);
     const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
@@ -3375,6 +3385,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         chip.classList.toggle("moved", r?.next === k && nextDrawn.carId === carId && nextDrawn.next !== -1 && nextDrawn.next !== k);
         chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
         chip.classList.toggle("picked", stopPicked === k);
+        chip.classList.toggle("dropped", stopDropped === k);
         // (Only drop or Only pick up: said on the chip itself, beside its name, so it shows without tapping it.)
         if (st.action === "drop" || st.action === "pick") {
           chip.dataset.intent = st.action;
@@ -3421,6 +3432,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         strip.append(add);
       }
       box.append(strip);
+      stopDropped = -1;
+      // Held, a stop's chip lifts and drags along the strip to another place in the order (the card's own edit: Undo
+      // takes it back, and each train keeps heading for the stop it was).
+      stopDrag(strip, {
+        places: line.stops.map((st) => st.depotId),
+        start: () => (stopDragging = true),
+        move: (from, to) => {
+          if (!dragHintSeen) {
+            dragHintSeen = true;
+            saveFlag(DRAG_HINT_KEY);
+          }
+          stopDropped = to;
+          edit((l) => {
+            moveStop(l, from, to);
+            stopPicked = to;
+          });
+        },
+        refused: () => hud.toast("Not there: the same place twice in a row is one stop", false, 2500),
+        // (Rebuilt only if something changed: a slow tap, let go where it was, is a tap, and its click picks the stop.)
+        end: () => {
+          stopDragging = false;
+          showRoute();
+        },
+      });
       nextDrawn = { carId, next: r?.next ?? -1 };
       // Stops beyond the edge (scrolled sideways): the edge fades, as the tray's does.
       const edges = () => {
@@ -3566,6 +3601,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
         box.append(modes, tools);
+        // The first times: stops can be dragged too (till one has been).
+        if (!dragHintSeen && line.stops.length > 2) box.append(Object.assign(document.createElement("div"), { className: "route-hint route-drag-hint", textContent: "Or hold a stop and drag it to its place" }));
         // Planning: where the next place tapped goes.
         if (planning && k < line.stops.length - 1)
           box.append(Object.assign(document.createElement("div"), { className: "route-hint route-insert-hint", textContent: `Places you tap now go after ${nameOf(st.depotId)}` }));
@@ -5173,7 +5210,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [] });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0 });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
