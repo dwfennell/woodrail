@@ -1,4 +1,4 @@
-import { ARCH_CENTRES, ARCH_CROWN_DROP, ARCH_RADIUS, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, TRAIN_CLEARANCE } from "./constants";
+import { ARCH_CENTRES, ARCH_CROWN_DROP, ARCH_RADIUS, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, TRAIN_HEADROOM } from "./constants";
 import type { Layout, PlacedPiece } from "./layout";
 import type { Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
@@ -177,7 +177,7 @@ export function findOverlap(layout: Layout, type: PieceTypeId, flipped: boolean,
 
 /**
  * Would track at this pose cross over (or under) other track too closely for a train to fit between them? Returns the
- * first such piece, or −1. Track over track needs `TRAIN_CLEARANCE` between their bases (two levels); track at the
+ * first such piece, or −1. Track over track needs `TRAIN_HEADROOM` between their bases (two levels, or one over an underpass); track at the
  * same height is `findOverlap`'s. Risers and joiners carry no trains. Called on every pointer move while dragging.
  */
 export function findLowCrossing(layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): number {
@@ -197,7 +197,7 @@ export function findLowCrossing(layout: Layout, type: PieceTypeId, flipped: bool
         const dx = p.x - q.x;
         const dz = p.z - q.z;
         const gap = Math.abs(p.y0 - q.y0);
-        if (dx * dx + dz * dz < limit && gap > SLACK && gap < TRAIN_CLEARANCE - SLACK) return id;
+        if (dx * dx + dz * dz < limit && gap > SLACK && gap < TRAIN_HEADROOM - SLACK) return id;
       }
     }
   }

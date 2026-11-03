@@ -333,7 +333,10 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
       else {
         // Below the ground here: a hill in the way, unless a ramp can cut its way in (no higher than its top end).
         const ground = hillsOf(g).groundAt(x, z);
-        if (y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
+        // An underpass sinks into the board itself: on level ground at its ends' height (its dip is its own trench).
+        if (type === "underpass") {
+          if (Math.abs(ground - y) > 0.5) result = BLOCKED.hill;
+        } else if (y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
       }
     }
     return result === CLEAR;

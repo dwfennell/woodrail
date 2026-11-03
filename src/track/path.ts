@@ -6,7 +6,19 @@ import { normalizeAngle, type Pose } from "./math";
  * Arcs: positive sweep turns toward +heading (left), negative toward -heading (right).
  */
 export type PathGeom =
-  | { readonly kind: "line"; readonly start: Pose; readonly length: number; readonly y0: number; readonly rise: number }
+  | {
+      readonly kind: "line";
+      readonly start: Pose;
+      readonly length: number;
+      readonly y0: number;
+      readonly rise: number;
+      /**
+       * An underpass: the line sinks this far (mm) below its ends' height in the middle, easing down over `dipEase`
+       * from each end (a smoothstep, as a ramp's), flat between. Both ends stay at y0 (+ rise).
+       */
+      readonly dip?: number;
+      readonly dipEase?: number;
+    }
   | {
       readonly kind: "arc";
       readonly start: Pose;
@@ -70,6 +82,13 @@ export function samplePath(g: PathGeom, s: number, out: PathSample): PathSample 
   out.slope = len > 0 ? (g.rise * 6 * t * (1 - t)) / len : 0;
 
   const h0 = g.start.heading;
+  if (g.kind === "line" && g.dip) {
+    const e = g.dipEase ?? len / 3;
+    const u = d < e ? d / e : d > len - e ? (len - d) / e : 1;
+    const dir = d < e ? 1 : d > len - e ? -1 : 0;
+    out.y -= g.dip * u * u * (3 - 2 * u);
+    out.slope -= (dir * g.dip * 6 * u * (1 - u)) / e;
+  }
   if (g.kind === "line") {
     out.x = g.start.x + Math.cos(h0) * d;
     out.z = g.start.z + Math.sin(h0) * d;

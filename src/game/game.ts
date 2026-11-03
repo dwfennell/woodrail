@@ -51,7 +51,8 @@ import type { Prop, PropPose } from "../props/store";
 import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
-import { connectorRef, getPieceDef, pathLength, type KitDef, type Layout, type PlacedPiece } from "../track";
+import { connectorRef, getPieceDef, overUnderpass, pathLength, underpassHoles, type KitDef, type Layout, type PlacedPiece } from "../track";
+import { GIRDER_FLOORS } from "../render/track-geometry";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { BlockTint, SignalMarksView } from "../render/signal-marks-view";
 import { TouchesView } from "../render/touches-view";
@@ -570,7 +571,8 @@ export class Game {
   /** How many riser heights a placed bridge's arches reach down to the ground (0 for other pieces). */
   readonly bridgeLevelsOf = (p: PlacedPiece): number => bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
   /** How far down a placed bridge's arch openings reach, over a hill's edge (null: all its levels). */
-  readonly archFloorsOf = (p: PlacedPiece, levels = this.bridgeLevelsOf(p)): number[] | null => archFloors(this.landscape, p.type, p.flipped, p.pose, p.y, levels);
+  readonly archFloorsOf = (p: PlacedPiece, levels = this.bridgeLevelsOf(p)): number[] | null =>
+    levels === 1 && overUnderpass(this.layout, p) ? [...GIRDER_FLOORS] : archFloors(this.landscape, p.type, p.flipped, p.pose, p.y, levels);
 
   get world(): World {
     return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props, ruins: this.ruins };
@@ -663,6 +665,7 @@ export class Game {
     // Ramps cut into the hills, before anything asks the ground: the track's arches (how far down a bridge reaches),
     // trees.
     syncCuttings(this.landscape, this.layout);
+    this.landscapeView.setFeltHoles(underpassHoles(this.layout));
     this.trackView.sync();
     this.syncKits();
     const hop = this.landscapeView.syncTrees(this.layout, true);
