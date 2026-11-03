@@ -343,7 +343,7 @@ const room = () => p.evaluate(() => {
   const body = document.querySelector(".board-body").getBoundingClientRect();
   const sel = document.querySelector(".board-body .bp-node.selected")?.getBoundingClientRect();
   const more = document.querySelector(".board-sheet .bp-more");
-  return { list: Math.round(body.height), inView: !!sel && sel.top >= body.top - 1 && sel.bottom <= body.bottom + 1, folded: !!more && !more.open, facts: !!more?.querySelector(".bp-makes")?.getBoundingClientRect().height, summary: more?.querySelector("summary")?.textContent.trim() };
+  return { list: Math.round(body.height), inView: !!sel && sel.top >= body.top - 1 && sel.bottom <= body.bottom + 1, folded: !!more && !more.open, facts: !!more?.querySelector(".bp-makes")?.checkVisibility(), summary: more?.querySelector("summary")?.textContent.trim() };
 });
 await select("Train routes");
 const roomFolded = await room();
