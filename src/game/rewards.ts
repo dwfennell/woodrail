@@ -312,7 +312,10 @@ export function cardView(p: Progress, world: World, card: GrowthCard): CardView 
     case "coins":
       return { kind: card.kind, icon: "🪙", amount: `+${card.n} coins`, line: "To spend as you like", ok: true };
     case "crate":
-      return { kind: card.kind, icon: "📦", amount: `A crate: ${card.things.length} ${card.things.length === 1 ? "thing" : "things"}`, line: describeThings(card.things), ok: true };
+      // One kind of thing: the crate says what's in it ("A crate: 2 Turnbacks"; QA 2026-11-03: "A crate: 1 thing" over
+      // "2 Turnbacks" read as a mismatch). Several: how many kinds, then the list.
+      if (card.things.length === 1) return { kind: card.kind, icon: "📦", amount: `A crate: ${describeThings(card.things)}`, line: "Into your toy box", ok: true };
+      return { kind: card.kind, icon: "📦", amount: `A crate: ${card.things.length} things`, line: describeThings(card.things), ok: true };
     case "wagon":
       // The car itself, drawn as the toy box and the tray draw it (QA: it was always 🚃).
       return { kind: card.kind, icon: carIcon(card.id), amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
