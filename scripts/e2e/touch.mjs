@@ -4554,9 +4554,11 @@ async function routeShare(ctx, p) {
   await tapButton(".lines-head .chip:last-child");
   // The payoff: the copy's train comes to its stops in the reversed order.
   const order = (await lineOf(setup.engines[1])).stops;
-  const run = await p.evaluate((e) => {
+  // (Both lines' trains run: the first, stood on the same oval, would otherwise hold the copy's up behind it.)
+  const run = await p.evaluate(([e, other]) => {
     const w = window.woodrail;
     w.sim.setLever(e, 1);
+    w.sim.setLever(other, 1);
     const came = [];
     let was = w.economy.routeOf(e).next;
     for (let i = 0; i < 400 * 120 && came.length < 4; i++) {
@@ -4568,10 +4570,11 @@ async function routeShare(ctx, p) {
       was = r.next;
     }
     w.sim.setLever(e, 0);
+    w.sim.setLever(other, 0);
     for (let i = 0; i < 20 * 120; i++) (w.sim.tick(), w.economy.tick(), w.economy.drainEvents());
     w.invalidate();
     return came;
-  }, setup.engines[1]);
+  }, [setup.engines[1], setup.engines[0]]);
   const k0 = order.indexOf(run[0]);
   check("route-share: the reversed copy's train comes to its stops in that order", run.length >= 3 && k0 !== -1 && run.every((d, i) => d === order[(k0 + i) % order.length]), JSON.stringify({ order, run }));
   await p.keyboard.press("Escape");
