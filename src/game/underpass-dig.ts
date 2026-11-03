@@ -35,6 +35,9 @@ export type DigRefusal = "curve" | "points" | "lines" | "short" | "angle" | "cen
 /** Said when a train stands on the straights an underpass would take up (the caller knows the trains, not the plan). */
 export const DIG_TRAIN = "A train's on the track under the bridge: move it first";
 
+/** Said of a drawn line on the ground meeting a bridge one level up where no underpass fits under it. */
+export const UNDER_BRIDGE = "Too low under the bridge: draw straight under its middle and an underpass goes in";
+
 export const DIG_MESSAGES: Record<DigRefusal, string> = {
   curve: "An underpass needs straight track under the bridge: this is a curve",
   points: "Points can't go in an underpass: put the bridge over plain straight track",
@@ -208,13 +211,19 @@ function check(rules: TrackRules, bridge: DigPiece, covers: readonly number[], p
 /**
  * A plain straight put down on the ground under a bridge already standing one level up: in its place, straights from
  * its end up to an underpass whose middle is under the bridge (see `planUnderpass`, the other way about). Laid from
- * whichever of its ends joins track already there (else from its first end), along its line. Null when it doesn't
+ * whichever of its ends joins track already there (else from its first end; only that with `forward`), along its line. Null when it doesn't
  * apply (not a plain straight, or nothing a level up over it but a bridge).
  */
-export function planUnderpassAhead(rules: TrackRules, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore): DigPlan | null {
+export function planUnderpassAhead(rules: TrackRules, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore, forward = false): DigPlan | null {
   if (!isPlainStraight(type)) return null;
   const layout = rules.layout;
+  // (Laying on from a line's end, the bridge is looked for two long straights' length ahead: from a piece or two back.)
+  if (forward) type = "straight-288";
   const lows = lowCrossings(layout, type, flipped, pose, y, ignore);
+  if (forward) {
+    const on = { x: pose.x + 288 * Math.cos(pose.heading), z: pose.z + 288 * Math.sin(pose.heading), heading: pose.heading };
+    for (const id of lowCrossings(layout, type, flipped, on, y, ignore)) if (!lows.includes(id)) lows.push(id);
+  }
   if (lows.length === 0) return null;
   const bridges = lows.map((id) => layout.getPiece(id)!).filter((q) => isBridge(q.type) && Math.abs(q.y - y - RISER_HEIGHT) < 1);
   if (bridges.length !== 1 || lows.length !== 1) return null;
@@ -232,7 +241,9 @@ export function planUnderpassAhead(rules: TrackRules, type: PieceTypeId, flipped
     { x: pose.x + len * ux, z: pose.z + len * uz, way: -1 },
   ];
   const joined = (e: { x: number; z: number }) => hasEndAt(layout, e.x, e.z, y, ignore);
-  ends.sort((a, b) => Number(joined(b)) - Number(joined(a)));
+  // (A drawn line lays on from where it's got to: its first end only, `forward`.)
+  if (forward) ends.length = 1;
+  else ends.sort((a, b) => Number(joined(b)) - Number(joined(a)));
   let why: DigRefusal = "short";
   for (const e of ends) {
     // Distance from this end to the crossing, the way the pieces go.

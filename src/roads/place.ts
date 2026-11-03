@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout } from "../track";
+import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, TRENCH_HALF, TRENCH_WALL, type Layout } from "../track";
 import type { Landscape } from "../landscape/generate";
 import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_SAND, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
 import { ALONG_ROAD, crossesRoad } from "../landscape/clearance";
@@ -6,7 +6,7 @@ import { SAND, shoreDistance } from "../landscape/coast";
 import { bestTurn, edgesOf, encodeRoad, pieceOf, roadsJoin, turnOf, type Edge, type RoadPieceId } from "./pieces";
 
 /** Why a road piece can't go on a square. */
-export type RoadBlock = "off-land" | "town" | "river" | "sea" | "dry" | "slope" | "in-use" | "station-way" | "track" | "prop";
+export type RoadBlock = "off-land" | "town" | "river" | "sea" | "dry" | "slope" | "in-use" | "station-way" | "track" | "underpass" | "prop";
 
 export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   "off-land": "Roads go on your own land",
@@ -18,6 +18,7 @@ export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   "in-use": "Something stands there",
   "station-way": "On a station's way in, only a straight road across the line",
   track: "Track can only cross a plain straight road, straight over",
+  underpass: "A road can't cross an underpass: cars would drive into its trench",
   prop: "Move what's standing there first",
 };
 
@@ -149,6 +150,8 @@ export class RoadPlacer {
       const j = g.neighbours()[i * 4 + turnOf(this.road)];
       if (j === -1 || g.height[j] - g.height[i] !== (def.id === "ramp-high" ? 1 : 0)) return "slope";
     }
+    // (Bit 8: an underpass's trench is on this square: no road over it, at any angle.)
+    if ((this.trackSquares.get(i) ?? 0) & 8) return "underpass";
     if (this.trackSquares.has(i) && !this.crossable(i)) return "track";
     const x0 = g.colOf(i) * CELL;
     const z0 = g.rowOf(i) * CELL;
@@ -232,6 +235,9 @@ export class RoadPlacer {
       const def = getPieceDef(p.type, p.flipped);
       const ch = Math.cos(p.pose.heading);
       const sh = Math.sin(p.pose.heading);
+      // An underpass's trench, all its width: no road goes over it (bit 8).
+      const trench = p.type === "underpass";
+      const mm = trench ? TRENCH_HALF + TRENCH_WALL : m;
       for (const path of def.paths) {
         const len = pathLength(path.geom);
         const n = Math.max(1, Math.ceil(len / STEP));
@@ -242,10 +248,10 @@ export class RoadPlacer {
           const way = 4 | (Math.abs(Math.cos(h)) >= ALONG_ROAD ? 1 : 0) | (Math.abs(Math.sin(h)) >= ALONG_ROAD ? 2 : 0);
           const x = p.pose.x + sample.x * ch - sample.z * sh;
           const z = p.pose.z + sample.x * sh + sample.z * ch;
-          for (const [dx, dz] of [[-m, -m], [m, -m], [-m, m], [m, m]]) {
+          for (const [dx, dz] of [[-mm, -mm], [mm, -mm], [-mm, mm], [mm, mm]]) {
             const j = g.cellAtWorld(x + dx, z + dz);
             // Track up on a bridge or riser above this square's ground passes over a road.
-            if (j !== -1 && p.y + sample.y <= g.groundY(j) + OVER) this.trackSquares.set(j, (this.trackSquares.get(j) ?? 0) | way);
+            if (j !== -1 && p.y + sample.y <= g.groundY(j) + OVER) this.trackSquares.set(j, (this.trackSquares.get(j) ?? 0) | way | (trench && sample.y < -1 ? 8 : 0));
           }
         }
       }

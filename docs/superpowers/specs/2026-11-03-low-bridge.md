@@ -113,4 +113,29 @@ The user liked the girder look. The CoS chose all stock kept: a 30 dip and a 288
 - **Signals.** Refused, not carried over (see the table). **Trains** are now caught while the bridge is still held (the ghost goes red), not only at the drop.
 - e2e:low-bridge is now 30 checks, with cases for a train on the line, a signal on it, a Long straight laid on under a standing bridge, and Draw from a ramp's top across a line. New pictures: `low-bridge-phone-laid-under.jpg`, `low-bridge-phone-drawn.jpg`.
 
-**Not done yet:** an underpass in a hill or under a road (refused, not cut); a drawn line on the ground meeting a line under a one-level bridge (still refused there).
+## Phase 4: hills, roads, Draw under a bridge
+
+**Draw on the ground, under a bridge one level up.**
+- A drawn straight on the ground running under a standing bridge is "under-bridge" (`Interaction.placement`, for Draw only).
+- `DrawLine.underBridge` lays straights on from the line's end (or from one or two plain straights back, taken off) to an underpass whose middle is under the bridge (`planUnderpassAhead`, forward from the line's end, looking two long straights ahead).
+- Where none fits (a slanting crossing, say), the straight shows red: "Too low under the bridge: draw straight under its middle and an underpass goes in".
+
+**Hills.**
+- An underpass goes on a level hilltop, its ends at the hill's height (`checkPlacement`'s "dip" rule: level ground under its track, at its ends' height).
+- Its trench is cut into the hill through the cut system: `cutsHills` includes it, and `HillShape` cuts follow the path's height (`samplePath`, so the dip), with a per-cut bed width and bank. An underpass's cut is the trench's outer width with vertical banks, so its wooden block stands in the hole with its rim level with the hilltop. `HillCutsView` rebuilds only the blocks the cut changes, as for ramps.
+- A bridge's supports don't stand in the trench. Support heights read `HillShape.groundBeside`, the ground with underpass trenches left out, so a bridge over an underpass on a hilltop is still one level up on its piers (it was 0 levels: no support at all).
+- The felt's holes are only for underpasses on the felt.
+
+**Roads: refused, both ways, with a message.**
+- Why not a road bridge: the trench is only 30 deep. A road at ground level over it leaves no room for the train in it (car tops at 42.5 over the dip's floor), and a level crossing can't be sunk. Bridging it would mean lifting the road a whole level on road ramps, a feature of the road system's own.
+- "An underpass can't cross a road: cars would drive into its trench. Dig it clear of the road" (the "dip-road" refusal, also for a road square beside its track under the trench's walls).
+- "A road can't cross an underpass: cars would drive into its trench" (`RoadPlacer`, squares under an underpass's trench).
+- A bridge one level up over the line still crosses roads by the usual rules.
+
+**Checks.**
+- Unit: `underpass-places.test.ts`, 6 tests: hilltop cut and ground, the dig on a hill with the bridge still one level up, both road refusals, Draw under a bridge from five starts, and refused at a slant.
+- e2e:low-bridge, 37/37 on a 390×844 phone, adding: a hilltop (the hill raised in setup with the Raise tool's own land editor; the bridge digs, the ground at the dip is 18 and beside it 48), the Underpass refused across a road, a road from the road tray refused across an underpass, and Draw on the ground under a standing bridge.
+- Costs: a plan per pointer move 0.33 ms; the felt cut for 7 underpasses 0.26 ms; 0 idle frames.
+- Pictures: `low-bridge-2-hill.jpg`, `low-bridge-2-road-refused.jpg`, `low-bridge-2-drawn-under.jpg`.
+
+**Not done:** an underpass across a hill's edge (part on the hill, part on the felt) is refused ("dip"); a road bridge over an underpass (see above).

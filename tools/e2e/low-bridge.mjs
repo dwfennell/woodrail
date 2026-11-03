@@ -4,7 +4,8 @@
 // tallest cars runs along the line under it, down into the dip and out again. Cases: square on, at 45°, a curved
 // bridge over the line under its middle; refused for a curved bridge crossing near its end, over a curve and over
 // points, with a train or a signal on the straights, saying why. A Long straight laid on under a bridge already
-// standing digs one too, and so does Draw, across a line from a ramp's top.
+// standing digs one too, and so does Draw, across a line from a ramp's top. On a hilltop (cut into the hill); refused
+// across a road, and a road refused across one; Draw on the ground under a standing bridge.
 //
 // Harness shortcuts (named, setup only): the ground line, the ramp (and in case 8 the standing bridge) are put down by
 // the editor (laying them is not what's tested); trains are put down by the sim and run by `sim.setLever` and the
@@ -122,11 +123,11 @@ const build = (lower, ramp, extra = [], clear = []) =>
           const all = [...lower.map((q) => at(q, X, Z)), at(ramp, X, Z)];
           if (all.some((q) => trackBlock(rules, q.type, q.flipped, q.pose, q.y, -1) !== null)) continue;
           // (And where pieces the case expects to go down will go: clear too, for now.)
-          if (clear.some((q) => trackBlock(rules, q.type, false, at(q, X, Z).pose, 0, -1) !== null)) continue;
+          if (clear.some((q) => trackBlock(rules, q.type, false, at(q, X, Z).pose, q.y ?? 0, -1) !== null)) continue;
           // (Room round it too: nothing within 300 mm of the line's middle a level up, so the bridge has the sky.)
           if (trackBlock(rules, "straight-216", false, { x: X - 108, z: Z + 300, heading: 0 }, 0, -1) !== null) continue;
           const lo = w.editor().placeRun(all.slice(0, -1));
-          const r = w.editor().place(ramp.type, at(ramp, X, Z).pose, 0, ramp.flipped ?? false);
+          const r = w.editor().place(ramp.type, at(ramp, X, Z).pose, ramp.y ?? 0, ramp.flipped ?? false);
           const more = extra.map((q) => w.editor().place(q.type, at(q, X, Z).pose, q.y ?? 0, q.flipped ?? false));
           return { X, Z, lo, ramp: r, more };
         }
@@ -460,6 +461,192 @@ async function crossing(name, key, lower, ramp, before = async () => {}) {
     check("draw: the toast says so", msgs.includes("Dug an underpass so trains fit under"), JSON.stringify(msgs));
     await look(at.X + 540, at.Z, [0.6, 0.9, 0.8], 700, 10);
     await snap("low-bridge-phone-drawn.jpg");
+  }
+}
+
+// 10. On a hilltop: a line along a level hill, a ramp up from it, a Bridge onto the ramp's top: the underpass is dug,
+// its trench cut into the hill (the ground drops to its dip there).
+{
+  const H = 48;
+  const lower = [0, 216, 432, 648].map((x) => ({ type: "straight-216", pose: { x, z: 0, heading: 0 }, y: H }));
+  // (Harness shortcut: the hill is raised a level by the Raise tool's own land editor, square by square, on open
+  // felt found clear for the line; the line and ramp then put down on it by the editor. The bridge is what's tested.)
+  const at = await p.evaluate(
+    async ([lower, H]) => {
+      const w = window.woodrail;
+      const { trackBlock } = await import("/src/game/track-rules.ts");
+      const { plotSlotOf } = await import("/src/landscape/edit.ts");
+      const rules = w.interaction.rules;
+      const g = w.landscape.grid;
+      const t = w.controls.target;
+      for (let d = 0; d < 9000; d += 72) {
+        for (let a = 0; a < Math.max(1, Math.round(d / 72) * 6); a++) {
+          const X = Math.round((t.x + d * Math.cos(a)) / 72) * 72;
+          const Z = Math.round((t.z + d * Math.sin(a)) / 72) * 72 + 36;
+          // Open felt for a block a line's length and a ramp's reach: every square's centre clear for track.
+          const cells = [];
+          let ok = true;
+          for (let x = X - 36; x <= X + 900 && ok; x += 72)
+            for (let z = Z - 324; z <= Z + 108 && ok; z += 72) {
+              const i = g.cellAtWorld(x, z);
+              if (i === -1 || g.height[i] !== 0 || trackBlock(rules, "straight-54", false, { x: x - 27, z, heading: 0 }, 0, -1) !== null) ok = false;
+              else cells.push(i);
+            }
+          if (!ok) continue;
+          const editor = w.interaction.landEditor();
+          if (cells.some((i) => editor.check(i, 1) !== null)) continue;
+          for (const i of cells) editor.apply(i, 1);
+          w.editLand([...new Set(cells.map(plotSlotOf))]);
+          const lo = w.editor().placeRun(lower.map((q) => ({ ...q, pose: { ...q.pose, x: X + q.pose.x, z: Z + q.pose.z }, flipped: false })));
+          const ramp = w.editor().place("ramp", { x: X + 432, z: Z - 252, heading: Math.PI / 2 }, H, false);
+          return { X, Z, lo, ramp };
+        }
+      }
+      return null;
+    },
+    [lower, H],
+  );
+  if (!at) check("hilltop: room for it (open felt to raise a hill on)", false, "none found");
+  else {
+    const top = await rampTop(at.ramp);
+    await look(at.X + 432, at.Z, [0.15, 1, 0.55], 900);
+    await settle();
+    const was = await state(null);
+    await said();
+    const r = await lay("piece:bridge", await screen(top.x - 6 * Math.cos(top.heading), top.y, top.z - 6 * Math.sin(top.heading)));
+    const msgs = await said();
+    const after = await state(r.id);
+    const ground = await p.evaluate(async ([x, z]) => {
+      const { hillsOf } = await import("/src/landscape/index.ts");
+      const h = hillsOf(window.woodrail.landscape.grid);
+      return { mid: Math.round(h.groundAt(x, z)), beside: Math.round(h.groundAt(x, z + 44)) };
+    }, [at.X + 432, at.Z]);
+    check("hilltop: the bridge digs an underpass a level up, on the hill", r.id !== null && after.underpasses.length === was.underpasses.length + 1 && after.bridgeY === 2 * H && after.girder === true, JSON.stringify({ id: r.id, y: after.bridgeY, ghost: r.ghost, msgs }));
+    check("hilltop: its trench is cut into the hill (ground at the dip 18, beside it 48)", ground.mid === H - 30 && ground.beside === H, JSON.stringify(ground));
+    await look(at.X + 432, at.Z, [0.7, 0.9, 0.9], 620, H);
+    await snap("low-bridge-2-hill.jpg");
+  }
+}
+
+// 11. A road across where an underpass would go: the Underpass from the tray is refused, saying why. (Harness
+// shortcut: the road square put down by the editor's road step, not the road tray: the underpass is what's tested.)
+{
+  const at = await build(LINE.slice(0, 1), { type: "ramp", pose: { x: 900, z: -400, heading: 0 } }, [], [{ type: "underpass", pose: { x: 216, z: 0, heading: 0 } }]);
+  if (!at) check("road: room for it", false);
+  else {
+    const cell = await p.evaluate(async ([x, z]) => {
+      const w = window.woodrail;
+      const { setRoadSquare, groundUnder } = await import("/src/roads/place.ts");
+      const { encodeRoad } = await import("/src/roads/pieces.ts");
+      const { plotSlotOf } = await import("/src/landscape/edit.ts");
+      const g = w.landscape.grid;
+      const i = g.cellAtWorld(x, z);
+      let undo = () => {};
+      w.editor().editRoads({ do: () => (undo = setRoadSquare(g, i, encodeRoad("straight", 1), groundUnder(w.landscape, i))), undo: () => undo(), slots: [plotSlotOf(i)], trees: false });
+      return i;
+    }, [at.X + 360, at.Z]);
+    await look(at.X + 300, at.Z, [0.15, 1, 0.6], 800);
+    await settle();
+    const was = await state(null);
+    await said();
+    const r = await lay("piece:underpass", await screen(at.X + 216 - 4, 0, at.Z));
+    const msgs = await said();
+    const after = await state(null);
+    check("road: an underpass across a road is refused", after.underpasses.length === was.underpasses.length && r.id === null, JSON.stringify({ id: r.id, ghost: r.ghost, cell }));
+    check("road: it says cars would drive into its trench", msgs.some((m) => /An underpass can't cross a road/.test(m)), JSON.stringify(msgs));
+    // The picture: held there again, its red ghost and the reason showing.
+    const ti = await item("piece:underpass");
+    if (ti) {
+      await p.mouse.click(ti[0], ti[1]);
+      await frames();
+      const pt = await screen(at.X + 216 - 4, 0, at.Z);
+      await p.mouse.move(pt[0], pt[1], { steps: 5 });
+      await frames();
+      await p.waitForTimeout(300);
+      await p.screenshot({ path: `${OUT}/low-bridge-2-road-refused.jpg`, type: "jpeg", quality: 82, timeout: 180000 }).catch(() => {});
+      await p.keyboard.press("Escape");
+      await frames();
+    }
+  }
+}
+
+// 12. A road laid from the road tray across an underpass: refused, saying why.
+{
+  const u = await p.evaluate(() => {
+    const w = window.woodrail;
+    const id = [...w.layout.pieceIds()].find((i) => w.layout.getPiece(i).type === "underpass" && w.layout.getPiece(i).y === 0);
+    const q = w.layout.getPiece(id);
+    return { x: q.pose.x + 144 * Math.cos(q.pose.heading), z: q.pose.z + 144 * Math.sin(q.pose.heading) };
+  });
+  await look(u.x, u.z, [0.15, 1, 0.6], 800);
+  await settle();
+  const before = await p.evaluate(() => [...window.woodrail.landscape.grid.road].filter((r) => r !== 0).length);
+  await said();
+  await p.evaluate(() => document.querySelector(".tray .tabs [data-tab=roads]")?.click());
+  await frames();
+  const r = await item("road:straight");
+  if (!r) check("road over an underpass: the road tray has a straight road", false);
+  else {
+    await p.mouse.click(r[0], r[1]);
+    await frames();
+    const at = await screen(u.x, 0, u.z);
+    await p.mouse.move(at[0], at[1], { steps: 5 });
+    await frames();
+    await p.mouse.click(at[0], at[1]);
+    await frames();
+    await p.keyboard.press("Escape");
+    const msgs = await said();
+    const after = await p.evaluate(() => [...window.woodrail.landscape.grid.road].filter((r) => r !== 0).length);
+    check("road over an underpass: no road goes down over it", after === before, `${before} → ${after}`);
+    check("road over an underpass: it says a road can't cross an underpass", msgs.some((m) => /A road can't cross an underpass/.test(m)), JSON.stringify(msgs));
+  }
+  await p.evaluate(() => document.querySelector(".tray .tabs [data-tab=track]")?.click());
+  await frames();
+}
+
+// 13. Draw on the ground, on from a line's end, under a bridge already standing one level up: straights on to an
+// underpass under the bridge (no longer red under it).
+{
+  const lower = LINE.slice(0, 2);
+  const at = await build(lower, { type: "ramp", pose: { x: 756, z: -252, heading: Math.PI / 2 } }, [{ type: "bridge", pose: { x: 756, z: -108, heading: Math.PI / 2 }, y: 48 }], [
+    { type: "straight-216", pose: { x: 432, z: 0, heading: 0 } },
+    { type: "underpass", pose: { x: 612, z: 0, heading: 0 } },
+    { type: "straight-216", pose: { x: 900, z: 0, heading: 0 } },
+  ]);
+  if (!at) check("draw under a bridge: room for it", false);
+  else {
+    // (A phone's narrow view: centred on the line's end and the bridge, far enough out to show both.)
+    await look(at.X + 590, at.Z, [0.1, 1, 0.45], 1500);
+    await settle();
+    const was = await state(null);
+    await said();
+    if (!(await p.evaluate(() => window.woodrail.interaction.drawing))) await p.evaluate(() => document.querySelector(".tray-draw")?.click());
+    await frames();
+    const pts = [
+      [at.X + 432 - 4, at.Z],
+      [at.X + 700, at.Z],
+      [at.X + 1000, at.Z],
+      [at.X + 1150, at.Z],
+    ];
+    const sc = [];
+    for (const [x, z] of pts) sc.push(await screen(x, 0, z));
+    await p.mouse.move(sc[0][0], sc[0][1]);
+    await p.mouse.down();
+    for (let i = 1; i < sc.length; i++) {
+      const [ax, ay] = sc[i - 1];
+      const [bx, by] = sc[i];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 12));
+      for (let k = 1; k <= n; k++) await p.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    }
+    const drawn = await p.evaluate(() => (window.woodrail.interaction.draw.line?.pieces ?? []).map((q) => `${q.type}${q.blocked ? "(red)" : ""}`));
+    await p.mouse.up();
+    await settle();
+    await p.keyboard.press("Escape");
+    const msgs = await said();
+    const after = await state(at.more[0]);
+    check("draw under a bridge: the line goes on under it through an underpass, the bridge a girder span", after.underpasses.length === was.underpasses.length + 1 && after.girder === true, JSON.stringify({ drawn, msgs }));
+    await look(at.X + 756, at.Z, [0.7, 0.9, 0.9], 640, 10);
+    await snap("low-bridge-2-drawn-under.jpg");
   }
 }
 

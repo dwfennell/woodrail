@@ -102,6 +102,11 @@ export interface DrawOptions {
   startHeld?: boolean;
   /** Is a free end of other track within `reach` (mm) of this end (a piece from here might close onto it)? */
   nearTrack?: (end: DrawEnd, reach: number) => boolean;
+  /**
+   * On the ground under a bridge one level up, from `end`: the pieces to lay on from there instead (straights, then an
+   * underpass whose middle is under the bridge), or null if none fit (see `planUnderpassAhead`).
+   */
+  under?: (type: PieceTypeId, end: DrawEnd) => readonly PieceTypeId[] | null;
   /** The ground's height (mm) at a plan point: where a ramp's far end will land (see `DrawLine.lands`). */
   groundAt?: (x: number, z: number) => number;
   /**
@@ -1445,7 +1450,7 @@ export class DrawLine {
     this.wanted = null;
     const why = this.options.check?.(c, this.pieces) ?? null;
     const refused = this.refused;
-    if (why && this.special(why)) return;
+    if (why && this.special(why, c)) return;
     // The river just ahead on the ground: cross it square (see `cross`), rather than meeting the bank wherever the
     // stroke's staircase brings the line to it. Only near water: elsewhere a line costs what it did. (If the player
     // may not cross, the line just goes on: it wasn't refused anything. QA: a flat line said "No ramp pieces left".)
@@ -1488,8 +1493,10 @@ export class DrawLine {
    * and only if the player has one (else `wanted` says which); at most two more placements are checked for it. True if
    * a piece was laid (or the last one replaced); false leaves the chosen piece to show why it can't go.
    */
-  private special(why: DrawCheck): boolean {
+  private special(why: DrawCheck, chosen?: DrawCandidate): boolean {
     const levels = why.levels ?? 0;
+    // On the ground under a bridge one level up: straights on to an underpass under it.
+    if (why.reason === "under-bridge") return !!chosen && this.underBridge(chosen);
     // (Two levels or more up where the piece chosen ends: a ramp onto the first, if one lands just on it; a long straight
     // across both rises of a terrace drawn straight at it was refused two levels up, where the line had climbed with
     // shorter pieces. QA N5, terrace 2: read where it was drawn, the stroke ran straight on into it.)
@@ -1508,6 +1515,43 @@ export class DrawLine {
     if (down === "laid") return true;
     // Where a ramp down would stand in the river, or (just off a bridge) isn't on the stroke yet: a bridge on, till it is.
     return (down === "river" || (!!last && isBridge(last.type))) && this.bridge();
+  }
+
+  /**
+   * A plain straight chosen on the ground ran under a bridge one level up: in its place, straights on from the line's
+   * end to an underpass whose middle is under the bridge (`DrawOptions.under`), each checked as it's laid. False if
+   * none fit (the chosen piece shows red, saying how one would).
+   */
+  private underBridge(chosen: DrawCandidate): boolean {
+    if (!this.may("underpass")) return this.want("underpass");
+    // From the line's end, or one or two plain straights back (taken off: the bridge too near the end to centre an
+    // underpass under it from there).
+    for (let back = 0; back <= 2; back++) {
+      const k = this.pieces.length - back;
+      if (k < 0) break;
+      const off = this.pieces.slice(k);
+      if (off.some((q) => q.blocked || !/^straight-\d+$/.test(q.type))) break;
+      const from = k > 0 ? this.pieces[k - 1].end : this.start;
+      const types = this.options.under?.(chosen.type, from) ?? null;
+      if (!types) continue;
+      const laid: DrawCandidate[] = [];
+      let e = from;
+      for (const t of types) {
+        // On along the line, the way it's going.
+        const c = candidatesFrom(e, [t]).find((q) => Math.abs(Math.sin(q.end.heading - e.heading)) < 1e-6 && Math.cos(q.end.heading - e.heading) > 0);
+        if (!c) break;
+        laid.push(c);
+        e = c.end;
+      }
+      if (laid.length !== types.length) continue;
+      if (back > 0) {
+        this.progress = this.pieces[k].from;
+        this.pieces.length = k;
+      }
+      for (const c of laid) this.lay(c, this.alongStroke(c));
+      return true;
+    }
+    return false;
   }
 
   /** The plain pieces the line may use now. */

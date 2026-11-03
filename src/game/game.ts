@@ -572,7 +572,8 @@ export class Game {
   readonly bridgeLevelsOf = (p: PlacedPiece): number => bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
   /** How far down a placed bridge's arch openings reach, over a hill's edge (null: all its levels). */
   readonly archFloorsOf = (p: PlacedPiece, levels = this.bridgeLevelsOf(p)): number[] | null =>
-    levels === 1 && overUnderpass(this.layout, p) ? [...GIRDER_FLOORS] : archFloors(this.landscape, p.type, p.flipped, p.pose, p.y, levels);
+    // (One level over an underpass: on a hilltop the ground under it is cut lower, so its levels can read more.)
+    levels >= 1 && overUnderpass(this.layout, p) ? [...GIRDER_FLOORS] : archFloors(this.landscape, p.type, p.flipped, p.pose, p.y, levels);
 
   get world(): World {
     return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props, ruins: this.ruins };

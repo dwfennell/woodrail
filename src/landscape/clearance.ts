@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, isBridge, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, isBridge, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, TRENCH_HALF, TRENCH_WALL, type PieceTypeId, type Pose } from "../track";
 import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, type LandscapeGrid } from "./grid";
 import { smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
@@ -6,7 +6,7 @@ import { cutsHills, hillsOf } from "./hill-shape";
 import { pieceOf, turnOf } from "../roads/pieces";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip";
+export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip" | "dip-road";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -27,6 +27,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   prop: "Something's in the way — move it first",
   headroom: "Trains won't fit under — go two levels up",
   dip: "An underpass needs flat open ground, level with its ends",
+  "dip-road": "An underpass can't cross a road: cars would drive into its trench. Dig it clear of the road",
   trench: "A bridge can't stand in an underpass's trench: put the line under the middle of a bridge one level up",
 };
 
@@ -49,6 +50,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   headroom: { kind: "blocked", reason: "headroom" },
   trench: { kind: "blocked", reason: "trench" },
   dip: { kind: "blocked", reason: "dip" },
+  "dip-road": { kind: "blocked", reason: "dip-road" },
   prop: { kind: "blocked", reason: "prop" },
 };
 
@@ -306,6 +308,16 @@ export function hillMessage(levels: number): string {
   return `The hill is ${levels} levels up here: climb with ${levels === 2 ? "two" : levels} ramps in a row`;
 }
 
+/** Is there a road (a road piece, or a town's street) under an underpass's trench across the track here, at its walls? */
+function trenchOverRoad(g: LandscapeGrid, x: number, z: number, heading: number): boolean {
+  const out = TRENCH_HALF + TRENCH_WALL;
+  for (const w of [-out, out]) {
+    const j = g.cellAtWorld(x - Math.sin(heading) * w, z + Math.cos(heading) * w);
+    if (j !== -1 && (g.road[j] !== 0 || g.surface[j] === SURF_ROAD)) return true;
+  }
+  return false;
+}
+
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
   const overRiver = isBridge(type);
@@ -340,6 +352,8 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         // An underpass sinks into the board itself: on level ground at its ends' height (its dip is its own trench).
         if (type === "underpass") {
           if (Math.abs(ground - y) > 0.5) result = BLOCKED.dip;
+          // No road across its trench, either side of the track (a level crossing can't be sunk; see `ROAD_MESSAGES`).
+          else if (g.road[i] !== 0 || trenchOverRoad(g, x, z, heading)) result = BLOCKED["dip-road"];
         } else if (y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
       }
     }

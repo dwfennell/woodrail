@@ -9,7 +9,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, placeGhost } from "../render/signal-marks-view";
@@ -41,7 +41,7 @@ import { eraseRefusal, sweepLooks, type EraseRefusal } from "./erase";
 import { branchesOff } from "./draw-junctions";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
-import { DIG_MESSAGES, DIG_TRAIN, planUnderpass, planUnderpassAhead, type DigPlan } from "./underpass-dig";
+import { DIG_MESSAGES, DIG_TRAIN, planUnderpass, planUnderpassAhead, UNDER_BRIDGE, type DigPlan } from "./underpass-dig";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { PinHint, type PinHintState } from "./switch-pin";
@@ -165,7 +165,7 @@ const TRAIN_DROP_RANGE = 70;
  * a train on it; "splice-onto": over other track, not a straight), or no room for a depot's yard beside its track
  * (`YardBlock`: something on the ground there, a hill, or water), or track run into a player's depot's yard ("in-yard").
  */
-type PlaceBlock = BlockReason | YardBlock | "in-yard" | "site" | "splice-fit" | "splice-busy" | "splice-onto" | "dig";
+type PlaceBlock = BlockReason | YardBlock | "in-yard" | "site" | "splice-fit" | "splice-busy" | "splice-onto" | "dig" | "under-bridge";
 
 /** A crossing prop dropped this near a level crossing's middle (mm) goes onto it (see `styleCrossings`). */
 const CROSSING_DROP_REACH = 2 * STYLE_REACH;
@@ -546,6 +546,7 @@ export class Interaction {
       placement: (type, flipped, pose, y, ignore) => this.placement(type, flipped, pose, y, ignore ?? -1, false),
       occupied: (id) => this.game.sim.pieceOccupied(id),
       dig: (type, flipped, pose, y, ignore) => this.digPlan(type, flipped, pose, y, ignore ?? -1),
+      ahead: (type, pose, y, ignore) => planUnderpassAhead(this.rules, type, false, pose, y, ignore ?? -1, true),
       message: (reason) => this.blockMessage(reason as PlaceBlock) ?? reason,
       planeAt: (x, y, h) => this.planeAt(x, y, h),
       toScreen: (v) => {
@@ -3237,7 +3238,9 @@ export class Interaction {
     }
     // A new plain straight on the ground under a bridge one level up: straights on from its end to an underpass under
     // the bridge go down in its place (`planUnderpassAhead`). An underpass laid by hand there: said where it goes.
-    // (Not for Draw: `ahead` false. Its straights under a bridge stay refused.)
+    // Draw (`ahead` false): its own straights under a bridge are "under-bridge", for it to lay straights on to an
+    // underpass instead (`DrawLine.underBridge`; it asks `planUnderpassAhead` from the line's end).
+    if ((reason === "headroom" || reason === "piece") && !ahead && isPlainStraight(type) && this.underBridge(type, flipped, pose, y, ignoreId)) reason = "under-bridge";
     if ((reason === "headroom" || reason === "piece") && ahead && ignoreId === -1 && isPlainStraight(type)) {
       const plan = this.aheadPlan(type, flipped, pose, y);
       if (plan?.kind === "dig") reason = null;
@@ -3289,6 +3292,13 @@ export class Interaction {
     return this.aheadFor.plan;
   }
   private aheadFor: { key: string; plan: DigPlan | null } | null = null;
+  /** Is a straight here on the ground under a bridge one level up (and only that in its way, a level up)? */
+  private underBridge(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): boolean {
+    const layout = this.game.layout;
+    const lows = lowCrossings(layout, type, flipped, pose, y, ignoreId);
+    return lows.length === 1 && isBridge(layout.getPiece(lows[0])!.type) && Math.abs(layout.getPiece(lows[0])!.y - y - RISER_HEIGHT) < 1;
+  }
+
   /** The message for the last "dig" refusal (why no underpass can go under the bridge). */
   private digWhy = DIG_MESSAGES.busy;
 
@@ -3534,6 +3544,7 @@ export class Interaction {
     if (isYardBlock(reason)) return this.yardWhy;
     if (reason === "in-yard") return this.inYardWhy;
     if (reason === "dig") return this.digWhy;
+    if (reason === "under-bridge") return UNDER_BRIDGE;
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
   }
 

@@ -10,7 +10,8 @@ export function underpassHoles(layout: Layout): { x: number; z: number }[][] {
   const holes: { x: number; z: number }[][] = [];
   for (const id of layout.pieceIds()) {
     const p = layout.getPiece(id)!;
-    if (p.type !== "underpass" || layout.isLifted(id)) continue;
+    // (On a hilltop its trench is cut into the hill instead: see the landscape's cuttings.)
+    if (p.type !== "underpass" || layout.isLifted(id) || p.y > 0.5) continue;
     const len = pathLength(getPieceDef(p.type, p.flipped).paths[0].geom);
     const x0 = TRENCH_INSET + 2;
     const x1 = len - TRENCH_INSET - 2;

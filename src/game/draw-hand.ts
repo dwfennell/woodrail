@@ -94,6 +94,8 @@ export interface DrawHooks {
   onPlaced(i: number): void;
   /** The underpass a bridge put down here would dig under it, if any (see `planUnderpass`). */
   dig?(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore?: ReadonlySet<number>): DigPlan | null;
+  /** Straights then an underpass, laid on along `pose` from its start, under a bridge one level up (`planUnderpassAhead`). */
+  ahead?(type: PieceTypeId, pose: Pose, y: number, ignore?: ReadonlySet<number>): DigPlan | null;
 }
 
 /**
@@ -708,6 +710,10 @@ export class DrawHand {
     this.line = new DrawLine(end, {
       check: (c, line) => this.check(c, line),
       allow: this.stock ? (type, line) => line.filter((p) => p.type === type).length < this.stock!(type) : undefined,
+      under: (type, end) => {
+        const plan = this.hooks.ahead?.(type, { x: end.x, z: end.z, heading: end.heading }, end.y, this.branchCovers.size ? this.branchCovers : undefined);
+        return plan?.kind === "dig" ? plan.pieces.map((p) => p.type) : null;
+      },
       meet: (e) => this.meet(e),
       closes: (e) => this.closes(e),
       // (Other track only: back round to its own start is `closeOnStart`'s.)
