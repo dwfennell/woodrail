@@ -608,7 +608,7 @@ export class Hud {
       button("Show controls", "Show the camera controls again", () => {
         this.menu.hidden = true;
         this.help.hidden = true;
-        this.coach.start();
+        this.coach.start(false);
       }, "menu-item"),
       sep(),
       button("Title screen", "Save and go back to the title screen", () => {

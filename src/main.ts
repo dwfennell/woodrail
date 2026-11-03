@@ -3919,7 +3919,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * The room the map has on screen (canvas pixels): below the top bar (and the goals), above the tray or a card, or
+   * The room the map has on screen (canvas pixels): below the top bar (and the goals), above the tray, a card or the
+   * camera coach (QA 2026-11-03: Show me framed a station under it), or
    * beside a card docked at the right (see `viewRoom`); the whole view where too little is left. One measure for every
    * framing (the director's too: `roomOf`).
    */
@@ -3929,7 +3930,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const b = e.getBoundingClientRect();
       return { left: b.left - r.left, top: b.top - r.top, right: b.right - r.left, bottom: b.bottom - r.top };
     };
-    const room = viewRoom(r.width, r.height, [...document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")].map(rel), [...document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card")].map(rel));
+    const room = viewRoom(r.width, r.height, [...document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")].map(rel), [...document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card, .hud .coach")].map(rel));
     return room && { ...room, width: r.width, height: r.height };
   }
   function mapRoom(): ViewRoom & { width: number; height: number } {
