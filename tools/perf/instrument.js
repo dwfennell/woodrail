@@ -7,7 +7,14 @@
 // - long tasks (over 50 ms).
 // It also stamps when the game was first ready to play (`__perf.readyAt`, ms since navigation).
 (() => {
-  const P = (window.__perf = { rec: false, raf: [], events: [], timers: {}, longtasks: [], readyAt: null });
+  const P = (window.__perf = {
+    rec: false,
+    raf: [],
+    events: [],
+    timers: {},
+    longtasks: [],
+    readyAt: null,
+  });
   const now = () => performance.now();
   const drawn = () => window.woodrail?.framesDrawn ?? 0;
 

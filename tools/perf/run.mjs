@@ -4,7 +4,7 @@
 // menu, the research board, a train's card, the autosave and the once-a-second HUD timer), draw calls, triangles,
 // programs, heap; optionally growth over a long run. Writes a JSON and a markdown table, to compare runs.
 //
-//   npm run build && node tools/perf/run.mjs [--maps fresh,late,sandbox] [--throttle 4] [--dpr 2] [--idle 20]
+//   npm run build && node tools/perf/run.mjs [--maps fresh,late,sandbox] [--throttle 4] [--dpr 2] [--idle 20] [--pan 40]
 //       [--soak 600] [--out perf-out/<name>] [--root <dir with dist/>] [--trace]
 //
 // `--quick` is the shorter run `npm run perf:check` uses (tools/perf/check.mjs). The browser draws with SwiftShader
@@ -28,19 +28,35 @@ const THROTTLE = Number(opt("throttle", 4));
 const DPR = Number(opt("dpr", 2));
 const IDLE_S = Number(opt("idle", QUICK ? 10 : 20));
 const SOAK_S = Number(opt("soak", 0));
+/** The most seconds the pan, and the tray drag, go on for. */
+const PAN_S = Number(opt("pan", QUICK ? 15 : 40));
 const OUT = opt("out", `perf-out/${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
 const ROOT = opt("root", process.cwd());
 const TRACE = flag("trace");
+/** CPU profiles of the idle and pan stretches (best with an unminified build: `vite build --minify false`). */
+const PROFILE = flag("profile");
 mkdirSync(OUT, { recursive: true });
 
 /** The maps: how each opens. `load` is a copied map (tools/perf/maps), opened with the dev-only `?dev#load=`. */
 const MAP_DEFS = {
   fresh: { label: "fresh Game map", mode: "game" },
-  late: { label: "late Game map (goals play-through, 440 min)", mode: "game", load: "late-game.txt" },
-  sandbox: { label: "big Sandbox map (277 pieces, 16 trains)", mode: "sandbox", load: "big-sandbox.txt" },
+  late: {
+    label: "late Game map (goals play-through, 440 min)",
+    mode: "game",
+    load: "late-game.txt",
+  },
+  sandbox: {
+    label: "big Sandbox map (277 pieces, 16 trains)",
+    mode: "sandbox",
+    load: "big-sandbox.txt",
+  },
 };
 
-const server = await preview({ root: ROOT, preview: { port: 0 }, logLevel: "warn" });
+const server = await preview({
+  root: ROOT,
+  preview: { port: 0 },
+  logLevel: "warn",
+});
 const BASE = server.resolvedUrls.local[0];
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium",
@@ -79,9 +95,54 @@ async function metrics(cdp) {
   return Object.fromEntries(m.map((x) => [x.name, x.value]));
 }
 
+/** The top functions of a CPU profile, by self time and by total (inclusive) time, in ms. */
+function topOf(profile, n = 30) {
+  const byId = new Map(profile.nodes.map((x) => [x.id, x]));
+  const dt = profile.timeDeltas;
+  const selfMs = new Map();
+  for (let i = 0; i < profile.samples.length; i++) selfMs.set(profile.samples[i], (selfMs.get(profile.samples[i]) ?? 0) + (dt[i] ?? 0) / 1000);
+  const label = (x) => `${x.callFrame.functionName || "(anonymous)"} ${x.callFrame.url.split("/").pop()}:${x.callFrame.lineNumber + 1}`;
+  const self = new Map();
+  const total = new Map();
+  const visit = (id, stack) => {
+    const x = byId.get(id);
+    const l = label(x);
+    const ms = selfMs.get(id) ?? 0;
+    self.set(l, (self.get(l) ?? 0) + ms);
+    // (Each function counted once a stack, however deep it recurses.)
+    for (const k of new Set([...stack, l])) total.set(k, (total.get(k) ?? 0) + ms);
+    for (const c of x.children ?? []) visit(c, [...stack, l]);
+  };
+  visit(profile.nodes[0].id, []);
+  const top = (m) =>
+    [...m]
+      .filter(([k]) => !/^\((root|program|idle|garbage collector)\)/.test(k))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([k, v]) => [k, r1(v)]);
+  return {
+    self: top(self),
+    total: top(total),
+    gcMs: r1(self.get([...self.keys()].find((k) => k.startsWith("(garbage collector)")) ?? "") ?? 0),
+  };
+}
+
 /** Measure a stretch: what the page's main thread, the frames and the input handlers cost in it. */
-async function stretch(page, cdp, seconds, during) {
-  await page.evaluate(() => Object.assign(window.__perf, { rec: true, raf: [], events: [], timers: {}, longtasks: [] }));
+async function stretch(page, cdp, seconds, during, profileName) {
+  if (PROFILE && profileName) {
+    await cdp.send("Profiler.enable");
+    await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+    await cdp.send("Profiler.start");
+  }
+  await page.evaluate(() =>
+    Object.assign(window.__perf, {
+      rec: true,
+      raf: [],
+      events: [],
+      timers: {},
+      longtasks: [],
+    }),
+  );
   const m0 = await metrics(cdp);
   const c0 = treeCpu();
   const f0 = await page.evaluate(() => window.woodrail.framesDrawn);
@@ -90,12 +151,25 @@ async function stretch(page, cdp, seconds, during) {
   const left = seconds * 1000 - (Date.now() - t0);
   if (left > 0) await sleep(left);
   const wall = (Date.now() - t0) / 1000;
+  let profile = null;
+  if (PROFILE && profileName) {
+    const { profile: prof } = await cdp.send("Profiler.stop");
+    writeFileSync(`${OUT}/${profileName}.cpuprofile`, JSON.stringify(prof));
+    profile = topOf(prof);
+  }
   const c1 = treeCpu();
   const m1 = await metrics(cdp);
   const p = await page.evaluate(() => {
     const P = window.__perf;
     P.rec = false;
-    return { raf: P.raf, events: P.events.map((e) => [e.type, e.ms]), timers: P.timers, longtasks: P.longtasks, frames: window.woodrail.framesDrawn, simMs: window.woodrail.simMs };
+    return {
+      raf: P.raf,
+      events: P.events.map((e) => [e.type, e.ms]),
+      timers: P.timers,
+      longtasks: P.longtasks,
+      frames: window.woodrail.framesDrawn,
+      simMs: window.woodrail.simMs,
+    };
   });
   const drawnCb = p.raf.filter((x) => x[2] > 0).map((x) => x[1]);
   const drawnAt = p.raf.filter((x) => x[2] > 0).map((x) => x[0]);
@@ -115,15 +189,56 @@ async function stretch(page, cdp, seconds, during) {
     // The whole browser (GPU process: SwiftShader's drawing too), % of one core.
     browserCpuPct: r1(((c1 - c0) / wall) * 100),
     rafMsPerSecond: r1(allCb / wall),
-    frameMs: { p50: r2(q(drawnCb, 0.5)), p95: r2(q(drawnCb, 0.95)), max: r1(q(drawnCb, 1)) },
+    frameMs: {
+      p50: r2(q(drawnCb, 0.5)),
+      p95: r2(q(drawnCb, 0.95)),
+      max: r1(q(drawnCb, 1)),
+    },
     // Draw calls and triangles of the frames drawn (median, and the most).
-    drawCalls: { p50: q(p.raf.filter((x) => x[2] > 0).map((x) => x[3]), 0.5), max: q(p.raf.filter((x) => x[2] > 0).map((x) => x[3]), 1) },
-    trianglesK: { p50: r1(q(p.raf.filter((x) => x[2] > 0).map((x) => x[4] / 1000), 0.5)), max: r1(q(p.raf.filter((x) => x[2] > 0).map((x) => x[4] / 1000), 1)) },
+    drawCalls: {
+      p50: q(
+        p.raf.filter((x) => x[2] > 0).map((x) => x[3]),
+        0.5,
+      ),
+      max: q(
+        p.raf.filter((x) => x[2] > 0).map((x) => x[3]),
+        1,
+      ),
+    },
+    trianglesK: {
+      p50: r1(
+        q(
+          p.raf.filter((x) => x[2] > 0).map((x) => x[4] / 1000),
+          0.5,
+        ),
+      ),
+      max: r1(
+        q(
+          p.raf.filter((x) => x[2] > 0).map((x) => x[4] / 1000),
+          1,
+        ),
+      ),
+    },
     frameGapMs: { p50: r1(q(gaps, 0.5)), p95: r1(q(gaps, 0.95)) },
     simMs: r2(p.simMs),
-    events: Object.fromEntries(Object.entries(events).map(([k, v]) => [k, { n: v.length, p50: r2(q(v, 0.5)), p95: r2(q(v, 0.95)), max: r1(q(v, 1)) }])),
+    events: Object.fromEntries(
+      Object.entries(events).map(([k, v]) => [
+        k,
+        {
+          n: v.length,
+          p50: r2(q(v, 0.5)),
+          p95: r2(q(v, 0.95)),
+          max: r1(q(v, 1)),
+        },
+      ]),
+    ),
     timers,
-    longTasks: { n: p.longtasks.length, ms: r1(p.longtasks.reduce((s, x) => s + x[1], 0)), max: r1(Math.max(0, ...p.longtasks.map((x) => x[1]))) },
+    ...(profile ? { profile } : {}),
+    longTasks: {
+      n: p.longtasks.length,
+      ms: r1(p.longtasks.reduce((s, x) => s + x[1], 0)),
+      max: r1(Math.max(0, ...p.longtasks.map((x) => x[1]))),
+    },
   };
 }
 
@@ -156,6 +271,30 @@ async function frameInfo(page) {
         return n;
       })(),
       domNodes: document.getElementsByTagName("*").length,
+      // What's in the scene to draw, by the scene's top-level groups: meshes, and triangles (instances counted;
+      // whether in view or not, and before any shadow pass). The biggest single meshes too.
+      byGroup: (() => {
+        const groups = {};
+        const meshes = [];
+        const label = (o) => o.name || o.userData?.name || o.constructor?.name || o.type;
+        for (const top of w.scene.children) {
+          const g = (groups[`${label(top)}`] ??= { meshes: 0, trianglesK: 0, casters: 0 });
+          top.traverseVisible((o) => {
+            if (!o.isMesh) return;
+            const geo = o.geometry;
+            const per = (geo.index ? geo.index.count : (geo.attributes.position?.count ?? 0)) / 3;
+            const n = o.isInstancedMesh ? o.count : 1;
+            const range = Number.isFinite(geo.drawRange.count) ? Math.min(geo.drawRange.count / 3, per) : per;
+            const tris = range * n;
+            g.meshes++;
+            g.trianglesK += tris / 1000;
+            if (o.castShadow) g.casters++;
+            meshes.push([`${label(top)}/${label(o)}${o.isInstancedMesh ? ` x${n}` : ""}`, Math.round(tris / 1000)]);
+          });
+        }
+        for (const g of Object.values(groups)) g.trianglesK = Math.round(g.trianglesK);
+        return { groups, biggest: meshes.sort((a, b) => b[1] - a[1]).slice(0, 12) };
+      })(),
     };
     info.autoReset = true;
     return out;
@@ -177,7 +316,10 @@ async function tapToPaint(page, selector) {
     el.click();
     const sync = performance.now() - t0;
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    return { syncMs: Math.round(sync * 10) / 10, toPaintMs: Math.round((performance.now() - t0) * 10) / 10 };
+    return {
+      syncMs: Math.round(sync * 10) / 10,
+      toPaintMs: Math.round((performance.now() - t0) * 10) / 10,
+    };
   }, selector);
 }
 
@@ -185,7 +327,7 @@ async function closeCards(page) {
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
   await page.keyboard.press("Escape");
-  await page.evaluate(() => window.woodrail.settled(3).catch(() => {}));
+  await settle(page, 3000);
 }
 
 async function settle(page, ms = 15000) {
@@ -194,7 +336,12 @@ async function settle(page, ms = 15000) {
 
 async function runMap(id) {
   const def = MAP_DEFS[id];
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: DPR, hasTouch: true, isMobile: true });
+  const ctx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: DPR,
+    hasTouch: true,
+    isMobile: true,
+  });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -218,12 +365,17 @@ async function runMap(id) {
     await go();
     await page.waitForFunction(() => window.woodrail?.title && (window.woodrail.title.shown || window.__perf.readyAt !== null), null, { timeout: 300000 });
     // Past the title (a new game, or Continue), as a player's tap is.
-    await page.evaluate((fresh) => {
-      if (!window.woodrail.title.shown) return;
-      const buttons = [...document.querySelectorAll(fresh ? ".title-card.mode-game button" : ".title-card button")];
-      buttons.find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click();
-    }, def.mode === "game" && !def.load);
-    await page.waitForFunction(() => window.__perf.readyAt !== null, null, { timeout: 300000 });
+    await page.evaluate(
+      (fresh) => {
+        if (!window.woodrail.title.shown) return;
+        const buttons = [...document.querySelectorAll(fresh ? ".title-card.mode-game button" : ".title-card button")];
+        buttons.find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click();
+      },
+      def.mode === "game" && !def.load,
+    );
+    await page.waitForFunction(() => window.__perf.readyAt !== null, null, {
+      timeout: 300000,
+    });
     const r = await page.evaluate(() => {
       const n = performance.getEntriesByType("navigation")[0];
       const res = performance.getEntriesByType("resource");
@@ -244,7 +396,17 @@ async function runMap(id) {
   cold.backgroundMs = Date.now() - bg0;
   await page.evaluate(() => window.woodrail.save?.());
   await page.waitForTimeout(5500); // (an autosave: the map kept for the reload)
+  if (PROFILE) {
+    await cdp.send("Profiler.enable");
+    await cdp.send("Profiler.setSamplingInterval", { interval: 500 });
+    await cdp.send("Profiler.start");
+  }
   const warm = await open(() => page.reload());
+  if (PROFILE) {
+    const { profile } = await cdp.send("Profiler.stop");
+    writeFileSync(`${OUT}/${id}-reload.cpuprofile`, JSON.stringify(profile));
+    warm.profile = topOf(profile);
+  }
   result.load = { cold, warm };
   await page.keyboard.press("Escape");
   await settle(page, 20000);
@@ -254,35 +416,47 @@ async function runMap(id) {
   result.frame = await frameInfo(page);
   result.heapMB = await heap(cdp);
   const trainsRunning = await page.evaluate(() => window.woodrail.sim.trainIds().some((id) => window.woodrail.sim.getTrain(id).speed > 0));
-  result.idle = await stretch(page, cdp, IDLE_S);
+  result.idle = await stretch(page, cdp, IDLE_S, null, `${id}-idle`);
   result.idle.trainsRunning = trainsRunning;
 
   // 3. Paused, as still as the game gets (the idle floor).
   if (trainsRunning) {
     await page.evaluate(() => (window.woodrail.paused = true));
     await settle(page);
-    result.paused = await stretch(page, cdp, Math.min(IDLE_S, 10));
+    result.paused = await stretch(page, cdp, Math.min(IDLE_S, 10), null, `${id}-paused`);
     await page.evaluate(() => (window.woodrail.paused = false));
   }
 
   // 4. Pan and zoom: a finger's drags and a few wheel steps, as fast as a player moves.
-  if (TRACE) await browser.startTracing(page, { path: `${OUT}/${id}-pan.trace.json`, categories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "v8.execute", "blink.user_timing"] });
-  result.pan = await stretch(page, cdp, 0, async () => {
-    const cx = 195;
-    const cy = 420;
-    for (let k = 0; k < 3; k++) {
-      await page.mouse.move(cx - 100, cy);
-      await page.mouse.down();
-      for (let i = 0; i <= 30; i++) await page.mouse.move(cx - 100 + i * 7, cy + Math.sin(i / 5) * 60);
-      await page.mouse.up();
-      for (let i = 0; i < 4; i++) {
-        await page.mouse.move(cx, cy);
-        await page.mouse.wheel(0, k % 2 ? 160 : -160);
-        await page.waitForTimeout(60);
+  if (TRACE)
+    await browser.startTracing(page, {
+      path: `${OUT}/${id}-pan.trace.json`,
+      categories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "v8.execute", "blink.user_timing"],
+    });
+  result.pan = await stretch(
+    page,
+    cdp,
+    0,
+    async () => {
+      // (Bounded by time, not by moves: each move waits for a frame, and SwiftShader's frames are slow.)
+      const cx = 195;
+      const cy = 420;
+      const until = Date.now() + PAN_S * 1000;
+      for (let k = 0; k < 3 && Date.now() < until; k++) {
+        await page.mouse.move(cx - 100, cy);
+        await page.mouse.down();
+        for (let i = 0; i <= 30 && Date.now() < until; i++) await page.mouse.move(cx - 100 + i * 7, cy + Math.sin(i / 5) * 60);
+        await page.mouse.up();
+        for (let i = 0; i < 4 && Date.now() < until; i++) {
+          await page.mouse.move(cx, cy);
+          await page.mouse.wheel(0, k % 2 ? 160 : -160);
+          await page.waitForTimeout(60);
+        }
       }
-    }
-    await page.waitForTimeout(500);
-  });
+      await page.waitForTimeout(500);
+    },
+    `${id}-pan`,
+  );
   if (TRACE) await browser.stopTracing();
   await settle(page);
 
@@ -306,7 +480,10 @@ async function runMap(id) {
       const v = o.getWorldPosition(new w.camera.position.constructor()).project(w.camera);
       if (Math.abs(v.x) < 0.8 && Math.abs(v.y) < 0.6 && v.z < 1) {
         const r = w.canvas.getBoundingClientRect();
-        return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
+        return {
+          x: r.left + ((v.x + 1) / 2) * r.width,
+          y: r.top + ((1 - v.y) / 2) * r.height,
+        };
       }
     }
     return null;
@@ -320,7 +497,11 @@ async function runMap(id) {
       window.__perf.rec = false;
       return window.__perf.events.map((e) => e.ms);
     });
-    ops.trainCard = { tapHandlersMs: r1(ev.reduce((a, b) => a + b, 0)), wallMs: Date.now() - t, opened: await page.evaluate(() => !!document.querySelector(".card:not([hidden])")) };
+    ops.trainCard = {
+      tapHandlersMs: r1(ev.reduce((a, b) => a + b, 0)),
+      wallMs: Date.now() - t,
+      opened: await page.evaluate(() => !!document.querySelector(".card:not([hidden])")),
+    };
     await closeCards(page);
   }
   // A tray drag: a straight from the Track tray, dragged across the map and back over the tray (no drop): the cost of
@@ -334,13 +515,21 @@ async function runMap(id) {
   });
   if (tile) {
     ops.trayDrag = await stretch(page, cdp, 0, async () => {
+      const until = Date.now() + PAN_S * 1000;
       await page.mouse.move(tile.x, tile.y);
       await page.mouse.down();
-      for (let i = 1; i <= 40; i++) await page.mouse.move(tile.x + Math.sin(i / 6) * 120, tile.y - 40 - i * 9);
-      for (let i = 40; i >= 0; i--) await page.mouse.move(tile.x, tile.y - i * 9);
+      let i = 1;
+      for (; i <= 40 && Date.now() < until; i++) await page.mouse.move(tile.x + Math.sin(i / 6) * 120, tile.y - 40 - i * 9);
+      // Back over the tray (no drop).
+      await page.mouse.move(tile.x, tile.y - 100);
+      await page.mouse.move(tile.x, tile.y);
       await page.mouse.up();
-    });
-    ops.trayDrag = { piece: tile.key, pointermove: ops.trayDrag.events.pointermove ?? null, frameMs: ops.trayDrag.frameMs };
+    }, `${id}-tray`);
+    ops.trayDrag = {
+      piece: tile.key,
+      pointermove: ops.trayDrag.events.pointermove ?? null,
+      frameMs: ops.trayDrag.frameMs,
+    };
     await closeCards(page);
   }
   // The autosave and the HUD's once-a-second work: from the idle stretch's timers.
@@ -360,11 +549,23 @@ async function runMap(id) {
       for (let i = 0; i < 10; i++) await page.mouse.move(150 + i * 10, 400);
       await page.mouse.up();
       await page.waitForTimeout(30000);
-      samples.push({ t: Math.round((SOAK_S * 1000 - (tEnd - Date.now())) / 1000), heapMB: await heap(cdp, false) });
+      samples.push({
+        t: Math.round((SOAK_S * 1000 - (tEnd - Date.now())) / 1000),
+        heapMB: await heap(cdp, false),
+      });
     }
     const h1 = await heap(cdp);
     const info = await frameInfo(page);
-    result.soak = { seconds: SOAK_S, heapStartMB: h0, heapEndMB: h1, heapGrowthMB: r1(h1 - h0), geometriesStart: d0, geometriesEnd: info.geometries, texturesEnd: info.textures, samples };
+    result.soak = {
+      seconds: SOAK_S,
+      heapStartMB: h0,
+      heapEndMB: h1,
+      heapGrowthMB: r1(h1 - h0),
+      geometriesStart: d0,
+      geometriesEnd: info.geometries,
+      texturesEnd: info.textures,
+      samples,
+    };
   }
   result.heapEndMB = await heap(cdp);
   result.errors = errors;
@@ -381,7 +582,15 @@ const run = {
       return null;
     }
   })(),
-  settings: { throttle: THROTTLE, dpr: DPR, viewport: "390x844", idleSeconds: IDLE_S, soakSeconds: SOAK_S, quick: QUICK, cores: cpus().length },
+  settings: {
+    throttle: THROTTLE,
+    dpr: DPR,
+    viewport: "390x844",
+    idleSeconds: IDLE_S,
+    soakSeconds: SOAK_S,
+    quick: QUICK,
+    cores: cpus().length,
+  },
   bundle: bundleSize(),
   maps: {},
 };
@@ -399,7 +608,11 @@ function bundleSize() {
       if (/^index-.*\.js$/.test(f)) entry = Math.max(entry, n);
     }
   } catch {}
-  return { jsKB: Math.round(js / 1024), entryJsKB: Math.round(entry / 1024), cssKB: Math.round(css / 1024) };
+  return {
+    jsKB: Math.round(js / 1024),
+    entryJsKB: Math.round(entry / 1024),
+    cssKB: Math.round(css / 1024),
+  };
 }
 
 for (const id of MAPS) {
@@ -410,6 +623,8 @@ for (const id of MAPS) {
     run.maps[id] = { map: id, failed: String(e?.stack ?? e) };
   }
   console.error(`perf: ${id} done in ${((Date.now() - t) / 1000).toFixed(0)} s`);
+  // (Kept as it goes: a run stopped part way keeps the maps it did.)
+  writeFileSync(`${OUT}/perf.json`, JSON.stringify(run, null, 2) + "\n");
 }
 await browser.close();
 await server.close();
@@ -446,8 +661,8 @@ function table(run) {
     ["pan: pointermove ms p50 / p95", (m) => fmt2(get(m, "pan.events.pointermove.p50"), get(m, "pan.events.pointermove.p95"))],
     ["pan: long tasks (n / ms)", (m) => fmt2(get(m, "pan.longTasks.n"), get(m, "pan.longTasks.ms"))],
     ["tray drag: pointermove ms p50 / p95", (m) => fmt2(get(m, "ops.trayDrag.pointermove.p50"), get(m, "ops.trayDrag.pointermove.p95"))],
-    ["menu: tap to paint (ms)", "ops.menu.toPaintMs"],
-    ["research board: tap to paint (ms)", "ops.researchBoard.toPaintMs"],
+    ["menu: tap handler / to paint (ms)", (m) => fmt2(get(m, "ops.menu.syncMs"), get(m, "ops.menu.toPaintMs"))],
+    ["research board: tap handler / to paint (ms)", (m) => fmt2(get(m, "ops.researchBoard.syncMs"), get(m, "ops.researchBoard.toPaintMs"))],
     ["train card: tap handlers (ms)", "ops.trainCard.tapHandlersMs"],
     ["autosave (ms each)", "ops.autosave.avg"],
     ["1 s HUD timer (ms each)", "ops.hudSecond.interval:1000.avg"],
