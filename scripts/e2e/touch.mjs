@@ -4346,6 +4346,23 @@ async function routeReorder(ctx, p) {
     await p.waitForTimeout(300);
     return seen;
   };
+  if (process.env.E2E_SHOTS) {
+    // (Pictures only: a stop picked, with the drag hint; then stop 1 held over the gap between stops 2 and 3, and
+    // taken back where it was before it's let go: no change.)
+    await tapButton('.engine-extra .route-chip[data-stop="1"]');
+    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-hint.jpg`, type: "jpeg", quality: 80 });
+    await tapButton('.engine-extra .route-chip[data-stop="1"]');
+    const [c0, c1] = [await chipAt(0), await chipAt(1)];
+    await touch("touchStart", c0.x, c0.y);
+    await p.waitForTimeout(600);
+    for (let k = 1; k <= 10; k++) (await touch("touchMove", c0.x + ((c1.right + 4 - c0.x) * k) / 10, c0.y + 2), await p.waitForTimeout(16));
+    await frames(p);
+    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-drag-mid.jpg`, type: "jpeg", quality: 80 });
+    for (let k = 1; k <= 10; k++) (await touch("touchMove", c1.right + 4 + ((c0.x - c1.right - 4) * k) / 10, c0.y + 2), await p.waitForTimeout(16));
+    await touch("touchEnd", 0, 0);
+    await frames(p);
+    await p.waitForTimeout(300);
+  }
   const sizes = await Promise.all([0, 1, 2].map(chipAt));
   // (The strip scrolls sideways: a chip past its edge shows at least a finger's width of itself.)
   check("route-reorder: the stops' chips are a finger's size (44 px), each showing 44 px or more in the strip at 390 px", sizes.every((c) => c.h >= 44 && c.w >= 44 && Math.min(c.right, c.stripRight) - c.left >= 44), JSON.stringify(sizes));
