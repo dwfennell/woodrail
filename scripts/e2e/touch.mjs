@@ -4277,6 +4277,11 @@ async function openMode(mode) {
     document.querySelector(".coach:not([hidden]) .coach-skip")?.click();
   });
   await p.waitForFunction(() => { const h = document.querySelector(".help"); return !h || h.hidden || getComputedStyle(h).display === "none"; }, null, { timeout: 60000 });
+  // Let the new page settle (its first frames compile shaders and build the map, a second or more each on SwiftShader):
+  // a group run first on a page, alone or with E2E_FRESH, would otherwise tap a piece before it can be picked, or glide
+  // the view while the opening glide is still under way. (In a full run the shelves' taps gave it that time.)
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await frames(p);
   const tapOn = async (selector) => {
     // (On a phone the favourites come first: a shelf may be scrolled out of view.)
     await p.evaluate((sel) => document.querySelector(sel)?.scrollIntoView({ inline: "center" }), selector);
