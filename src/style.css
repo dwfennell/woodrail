@@ -1202,7 +1202,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    a bar shows where it goes, struck in the warning ink where it can't (the same place twice in a row). The chip
    dropped pops once where it went. */
 .route-stops .route-chip[data-stop] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-.route-chip.lifted { position: relative; z-index: 2; outline: 3px solid var(--line, #888); outline-offset: -1px; opacity: 0.92; cursor: grabbing; transition: none; }
+.route-chip.lifted { position: relative; z-index: 2; outline: 3px solid var(--line, #888); outline-offset: -1px; cursor: grabbing; transition: none; }
 .route-stops.dragging .route-chip:not(.lifted) { opacity: 0.8; }
 .route-drop-mark { position: absolute; top: 2px; bottom: 4px; width: 4px; border-radius: 2px; background: var(--ink, #3a2a1c); box-shadow: 0 0 0 1.5px #fff8; pointer-events: none; z-index: 3; }
 .route-drop-mark.blocked { background: repeating-linear-gradient(180deg, var(--warn-ink) 0 5px, transparent 5px 8px); }
