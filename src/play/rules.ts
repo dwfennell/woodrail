@@ -3,7 +3,7 @@ import { guideSchool } from "../game/goals";
 import { schoolOf, siteWhy } from "../game/industries";
 import { syncIndustries, type World } from "../game/world";
 import { checkPlacement, checkSupport } from "../landscape";
-import { appendPiece, connectorRef, findLowCrossing, findOverlap, getPieceDef, type Layout, type PieceTypeId } from "../track";
+import { appendPiece, connectorRef, findLowCrossing, findOverlap, getPieceDef, trenchClash, type Layout, type PieceTypeId } from "../track";
 import type { Blocked } from "./player";
 
 /** The game's placement rules for a piece on this map (what the tray's drag checks), for simulated players. */
@@ -13,6 +13,7 @@ export function rulesFor(w: World): Blocked {
     if (c.kind === "blocked") return c.reason;
     if (findOverlap(w.layout, type, flipped, pose, y, ignoreId) !== -1) return "piece";
     if (findLowCrossing(w.layout, type, flipped, pose, y, ignoreId) !== -1) return "headroom";
+    if (trenchClash(w.layout, type, flipped, pose, y, ignoreId) !== -1) return "trench";
     if (checkSupport(w.landscape, w.layout, type, flipped, pose, y, ignoreId).kind === "unsupported") return "unsupported";
     return null;
   };

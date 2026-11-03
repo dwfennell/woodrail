@@ -63,6 +63,7 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "ramp", label: "Ramp" },
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
+  { kind: "piece", type: "underpass", label: "Underpass" },
   { kind: "piece", type: "riser", label: "Riser" },
   { kind: "piece", type: "buffer", label: "Buffer" },
   { kind: "piece", type: "buffer-turnback", label: "Turnback" },
@@ -151,7 +152,7 @@ export const ROAD_GROUPS: TrayGroup[] = [
 ];
 
 /** The track bridges: a shelf of the Track tab (with the catalogue's decorative bridges after it, in Sandbox). */
-export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve") }];
+export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve", "underpass") }];
 
 /** Industries the player builds (Game mode): depot pieces placed like track. */
 export const INDUSTRY_GROUPS: TrayGroup[] = [

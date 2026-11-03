@@ -55,6 +55,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:riser": { label: "Riser", cost: { planks: 1 }, tech: "bridges" },
   "piece:bridge": { label: "Bridge", cost: { planks: 4 }, tech: "bridges" },
   "piece:bridge-curve": { label: "Curved bridge", cost: { planks: 5 }, tech: "bridges" },
+  // Dug, not made: a bridge one level up over a line digs one by itself (`planUnderpass`). Free once bridges are known.
+  "piece:underpass": { label: "Underpass", cost: {}, tech: "bridges", free: true },
   "car:engine": { label: "Engine", cost: { planks: 6 } },
   "car:timber": { label: "Flatbed wagon", cost: { planks: 3 } },
   "car:hopper": { label: "Hopper", cost: { planks: 3 }, tech: "farming" },

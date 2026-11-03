@@ -68,6 +68,15 @@
 
 **Draw** lays only the straight ramp.
 
+**Low bridges (underpasses)** (spec: `docs/superpowers/specs/2026-11-03-low-bridge.md`):
+- A bridge one level up across a line on the ground digs an underpass under it (`planUnderpass`, `src/game/underpass-dig.ts`) and is drawn as a girder span (`girderOver`, `GIRDER_FLOORS`).
+- The rules are `TRAIN_HEADROOM` (76 between bases), the trench rule (`trenchClash`) and "dip" (flat ground only).
+- The trench is part of the piece's carved geometry; the felt gets a hole for it (`LandscapeView.setFeltHoles`).
+- A new straight under a standing one-level bridge lays straights on to an underpass (`planUnderpassAhead`). Draw lays a bridge where a line one level up meets ground track ("headroom") and digs at commit (`DrawHand.digsFor`). `Interaction.placement(…, ahead)` is false for Draw.
+- On a hilltop an underpass is cut into the hill (`cutsHills`, a per-cut bed width and bank in `HillShape`). Supports read `groundBeside`, which ignores trenches. Roads are refused both ways ("dip-road"; `RoadPlacer`'s "underpass").
+- Draw on the ground under a standing bridge: "under-bridge" leads to `DrawLine.underBridge`.
+- `npm run e2e:low-bridge`; pictures: `node tools/shots/low-bridge.mjs`.
+
 **Switch shelf:** the wye has a lever at each corner (#15, `cornerLevers`; its state a bit per corner, see rail-road.md). Saves carry `wyeLevers: 3`; older ones load their one-lever wye set the same at every corner.
 
 **Carving** stays in workers; the arch variants for levels 1–3 are carved in the background at load.
