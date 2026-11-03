@@ -4,6 +4,7 @@ import { TRACK_THICKNESS } from "../track";
 import { Kit } from "../catalogue/kit";
 import { buildTrackCleaner, trackCleanerBogies, trackCleanerBrushes } from "../catalogue/assets/track-cleaner";
 import { buildMilkTanker, milkTankerBogies } from "../catalogue/assets/milk-tanker";
+import { buildColdVan, coldVanBogies } from "../catalogue/assets/cold-van";
 import { blenderCar } from "./blender-models";
 import type { Materials } from "./materials";
 import { GROOVE_DEPTH } from "./track-geometry";
@@ -35,7 +36,8 @@ const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { bod
 /** Car facing +x, centred on its two axles, y = 0 at the track base. The models must be loaded (loadBlenderModels). */
 export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic", loaded = false): CarModel {
   if (kind === "cleaner") return cleanerModel(mats);
-  if (kind === "tanker") return tankerModel(mats);
+  if (kind === "tanker") return codeCarModel(mats, "tanker", buildMilkTanker, milkTankerBogies);
+  if (kind === "reefer") return codeCarModel(mats, "reefer", buildColdVan, coldVanBogies);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
   const recolor = variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
   const model = blenderCar(kind, look, mats, lamp, recolor, CAR_SLOTS[kind]);
@@ -79,16 +81,16 @@ function cleanerModel(mats: Materials): CarModel {
   return { root, wheels };
 }
 
-/** The milk tank wagon: a code model (no Blender one), lifted onto the rails as the cleaner is. */
-function tankerModel(mats: Materials): CarModel {
+/** A wagon with a code model (no Blender one: the milk tank wagon, the cold van), lifted onto the rails as the cleaner is. */
+function codeCarModel(mats: Materials, kind: CarKind, build: (k: Kit) => Group, bogies: (root: Object3D) => Object3D): CarModel {
   const kit = new Kit(mats, 0.5);
-  const body = buildMilkTanker(kit);
+  const body = build(kit);
   body.position.y = AXLE_HEIGHT - 7.5;
   const root = new Group();
   root.add(body);
-  const wheels: Object3D[] = [...milkTankerBogies(body).children];
+  const wheels: Object3D[] = [...bogies(body).children];
   root.traverse((o) => {
-    o.userData.carKind = "tanker";
+    o.userData.carKind = kind;
     if ((o as Mesh).isMesh) (o as Mesh).castShadow = true;
   });
   return { root, wheels };

@@ -27,8 +27,8 @@ describe("the dairy chain and the orchard (tech-tree I3, I4)", () => {
     for (const id of ["dairy", "orchard"]) expect(row(id).requires).toContainEqual({ kind: "level", level: 3 });
     expect(row("bakery").research).toEqual({ goods: { planks: 12 }, coins: 120 });
     for (const b of BLUEPRINTS) for (const k of ["milk", "bread", "fruit"]) expect(b.research.goods[k], `${b.id} ${k}`).toBeUndefined();
-    // The creamery and the tank wagons for oil and water stay planned.
-    expect(row("creamery").plan).toBe("soon");
+    // The creamery is built (the next nodes: next-nodes.test.ts); the tank wagons for oil and water stay planned.
+    expect(row("creamery").plan).toBeUndefined();
     expect(row("tankers").plan).toBe("soon");
   });
 

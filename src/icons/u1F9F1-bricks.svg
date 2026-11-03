@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Bricks</title>
+<rect x="0.8" y="3.4" width="22.4" height="17.2" rx="2" fill="#5a2414"/>
+<rect x="2" y="4.6" width="9.4" height="4.4" rx="0.8" fill="#c8562f"/>
+<rect x="12.6" y="4.6" width="9.4" height="4.4" rx="0.8" fill="#b5482a"/>
+<rect x="2" y="10.2" width="4.2" height="4.4" rx="0.8" fill="#b5482a"/>
+<rect x="7.4" y="10.2" width="9.2" height="4.4" rx="0.8" fill="#d8673a"/>
+<rect x="17.8" y="10.2" width="4.2" height="4.4" rx="0.8" fill="#c8562f"/>
+<rect x="2" y="15.8" width="9.4" height="3.6" rx="0.8" fill="#d8673a"/>
+<rect x="12.6" y="15.8" width="9.4" height="3.6" rx="0.8" fill="#c8562f"/>
+<rect x="3" y="5.4" width="4" height="1" rx="0.5" fill="#ec9a6e"/>
+<rect x="8.4" y="11" width="4" height="1" rx="0.5" fill="#f0ac80"/></svg>
