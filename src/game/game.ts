@@ -1133,6 +1133,13 @@ export class Game {
     const landCulled = this.landscapeView.cull(this.camera, reach, detail);
     const culled = cullTiles([this.depotView.group, this.ruinsView.group, this.touches.group], this.camera, reach, detail) || landCulled;
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
+    // The very first frame draws no shadows (it's behind the loading screen), and the next one does: three draws the
+    // shadow pass before it sets the frame's lights up, so on a scene's first frame its depth shaders were compiled for
+    // no lights, and on the second all compiled again for the sun (7 programs twice, on the Sandbox perf map).
+    if (this.framesDrawn === 0) {
+      this.renderer.shadowMap.needsUpdate = false;
+      this.dirty = true;
+    }
     this.stage.update(this.camera);
     pulseBeacons(this.mats, now);
     this.post.setFocus(dist);
