@@ -1520,6 +1520,8 @@ export class Hud {
 
   /** The Research button (and the pill standing in for it on a phone): lit while the picker's open. */
   setBoardButton(open: boolean): void {
+    // (Another view opening puts the ☰ menu away: it isn't left over the board.)
+    if (open) this.closeMenu();
     this.boardBtn.classList.toggle("active", open);
     this.researchPill.classList.toggle("active", open);
   }
@@ -1541,6 +1543,8 @@ export class Hud {
 
   /** The map view is open: its button lit, the goals and tray put away. */
   setMapOpen(open: boolean): void {
+    // (The ☰ menu isn't left open over the map, hiding its labels.)
+    if (open) this.closeMenu();
     this.mapBtn.classList.toggle("active", open);
     this.root.classList.toggle("map-open", open);
     // A toast up as it opens or closes goes where it should now (the goals put away or back); again once the view has
@@ -1568,6 +1572,17 @@ export class Hud {
     window.clearTimeout(this.newGameAsk);
     item.classList.remove("asking");
     item.textContent = "New game";
+  }
+
+  /** Is the ☰ menu open? */
+  get menuOpen(): boolean {
+    return !this.menu.hidden;
+  }
+
+  /** Put the ☰ menu away (another view opened, or Esc). */
+  closeMenu(): void {
+    if (this.menu.hidden) return;
+    this.toggleMenu();
   }
 
   toggleMenu(): void {

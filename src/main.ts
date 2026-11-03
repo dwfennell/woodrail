@@ -4907,6 +4907,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "TEXTAREA" || tag === "INPUT") return;
     if (e.key === "`") hud.perf.hidden = !hud.perf.hidden;
+    // Esc puts away the topmost thing: the ☰ menu first (it sits over the map and the board), then the map or board.
+    if (e.key === "Escape" && hud.menuOpen) {
+      hud.closeMenu();
+      return;
+    }
     if (e.key === "Escape" && mapView.open) closeMap(true, true);
     if (e.key === "Escape" && board.open) setBoardOpen(false);
     if (e.key === " " && !title.shown && tag !== "BUTTON") {
