@@ -937,7 +937,20 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .board-body { padding: 4px 12px 12px; }
   .board-sheet { padding: 0 12px 12px; }
   .board-sheet .bp-ticket { padding: 10px 12px; gap: 6px; }
+  /* The ticket's blurb in two lines at most, while its facts are folded. */
+  .board-sheet .bp-ticket:has(.bp-more:not([open])) .bp-ticket-head > span:last-child { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  /* Unfolded, the ticket scrolls in itself past half the screen: the list keeps a share. */
+  .board-sheet:has(.bp-more[open]) { max-height: 52dvh; overflow-y: auto; overscroll-behavior: contain; }
 }
+/* A phone's ticket: its facts folded under one line ("Unlocks 5 things  More"). */
+.bp-more > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; list-style: none; cursor: pointer; font-size: 13px; font-weight: 800; color: #5a3d22; }
+.bp-more > summary::-webkit-details-marker { display: none; }
+.bp-more-hint { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 10px; background: #f3e6cf; font-size: 12.5px; color: #74522f; }
+.bp-more-hint::after { content: "More"; }
+.bp-more-hint::before { content: ""; width: 7px; height: 7px; margin-top: -3px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.bp-more[open] .bp-more-hint::after { content: "Less"; }
+.bp-more[open] .bp-more-hint::before { margin-top: 3px; transform: rotate(-135deg); }
+.bp-more[open] > summary { margin-bottom: 6px; }
 .bp-key { width: 12px; height: 12px; border-radius: 50%; margin-left: 8px; }
 .bp-key:first-child { margin-left: 0; }
 .bp-key.learned { background: #3f7d3c; }

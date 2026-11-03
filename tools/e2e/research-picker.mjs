@@ -337,6 +337,24 @@ const learnedWords = await words("Switches");
 await shot("09b-card-words-360");
 await p.setViewportSize({ width: 390, height: 844 });
 await p.waitForTimeout(400);
+// QA 2026-11-03 #3: on a phone the ticket's facts are folded under one line, so the list keeps most of the board, the
+// picked tag in view above the ticket; a tap on the line unfolds them (the ticket scrolls in itself), another folds.
+const room = () => p.evaluate(() => {
+  const body = document.querySelector(".board-body").getBoundingClientRect();
+  const sel = document.querySelector(".board-body .bp-node.selected")?.getBoundingClientRect();
+  const more = document.querySelector(".board-sheet .bp-more");
+  return { list: Math.round(body.height), inView: !!sel && sel.top >= body.top - 1 && sel.bottom <= body.bottom + 1, folded: !!more && !more.open, facts: !!more?.querySelector(".bp-makes")?.getBoundingClientRect().height, summary: more?.querySelector("summary")?.textContent.trim() };
+});
+await select("Train routes");
+const roomFolded = await room();
+await shot("09c-ticket-folded-390");
+await tap(".board-sheet .bp-more > summary");
+const roomOpen = await room();
+await shot("09c-ticket-unfolded-390");
+await tap(".board-sheet .bp-more > summary");
+const roomRefolded = await room();
+check("a phone's ticket: facts folded under one line, the list keeps 400+ px, the picked tag in view above the ticket", roomFolded.folded && !roomFolded.facts && roomFolded.list >= 400 && roomFolded.inView && /^Unlocks/.test(roomFolded.summary ?? ""), JSON.stringify(roomFolded));
+check("…a tap unfolds them (Unlocks shown), another folds them", !roomOpen.folded && roomOpen.facts && roomRefolded.folded, JSON.stringify([roomOpen, roomRefolded]));
 // Every chip's amount appears in the cost line, its good named: "\uE000 0/5" → "5 \uE000 planks"; "🪙 40" → "40 🪙 coins".
 const chipsInWords = (w) => !!w && w.chips.length > 0 && w.chips.every((c) => {
   const m = c.text.match(/^(\S+) (?:\d+\/)?(\d+)$/);

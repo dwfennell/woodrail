@@ -296,6 +296,12 @@ export class BlueprintBoard {
   /** Pictures the ticket showing waits for (`needPictures`), and whether it's to be rebuilt for one that came. */
   private wanted = new Set<string>();
   private redraw = false;
+  /**
+   * On a phone, the ticket's facts (Unlocks, Needs, Opens, Costs) folded under a "Details" line, so the list above keeps
+   * most of the panel (QA 2026-11-03: open, they left the list a 300 px window, its lower tags under the ticket). Kept
+   * while the board is open.
+   */
+  private detailsOpen = false;
 
   constructor(parent: HTMLElement, private readonly handlers: BlueprintBoardHandlers) {
     this.root.className = "board-panel";
@@ -329,6 +335,17 @@ export class BlueprintBoard {
     };
     this.body.addEventListener("click", onClick);
     this.sheet.addEventListener("click", onClick);
+    // (A toggle event doesn't bubble: caught on the way down.)
+    this.sheet.addEventListener(
+      "toggle",
+      (e) => {
+        const d = e.target as HTMLDetailsElement;
+        if (!d.classList?.contains("bp-more")) return;
+        this.detailsOpen = d.open;
+        this.keepSelectedInView();
+      },
+      true,
+    );
     parent.appendChild(this.root);
     // Turning a phone (or resizing a window) across the phone width switches between the web and the lists.
     let wasNarrow = this.narrow();
@@ -354,6 +371,7 @@ export class BlueprintBoard {
     if (!open) {
       this.shownKey = "";
       this.selected = "";
+      this.detailsOpen = false;
       // Its pictures not drawn yet aren't waited for any more.
       if (this.wanted.size > 0) {
         this.wanted = new Set();
@@ -524,6 +542,21 @@ export class BlueprintBoard {
       const band = sel.closest<HTMLElement>(".bp-list-band");
       this.body.scrollTop = Math.max(0, (band && sel.offsetTop - band.offsetTop < this.body.clientHeight - 80 ? band.offsetTop : sel.offsetTop - 40) - this.body.offsetTop - 4);
     }
+    if (narrow) this.keepSelectedInView();
+  }
+
+  /**
+   * The phone's list: the picked tag wholly in view above the ticket (a tap on one low in the list opens a ticket that
+   * shrinks the list under it).
+   */
+  private keepSelectedInView(): void {
+    const sel = this.body.querySelector<HTMLElement>(".bp-node.selected, .bp-hints.selected");
+    if (!sel || !this.narrow()) return;
+    const box = this.body.getBoundingClientRect();
+    const r = sel.getBoundingClientRect();
+    const pad = 8;
+    if (r.bottom > box.bottom - pad) this.body.scrollTop += r.bottom - box.bottom + pad;
+    else if (r.top < box.top + pad) this.body.scrollTop -= box.top + pad - r.top;
   }
 
   /**
@@ -575,6 +608,9 @@ export class BlueprintBoard {
       (needs.length || (s.state !== "learned" && reqs) ? fact("Needs:", `${needs.length ? `<span>${esc(needs.join(" + "))}</span>` : ""}${s.state !== "learned" ? reqs : ""}`, "bp-ticket-needs") : "") +
       (opens.length ? fact("Opens:", `${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}`, "bp-opens") : "") +
       (s.state !== "learned" ? `<div class="bp-full-cost"><b>Costs:</b> ${esc(s.cost)}</div>` : "");
-    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${facts ? `<div class="bp-facts">${facts}</div>` : ""}<div class="bp-ticket-foot">${foot}</div></div>`;
+    // A phone: the facts folded under one line saying what's in them (the foot, with its button, always shows).
+    const more = makes ? `Unlocks ${s.makes.length === 1 ? esc(s.makes[0].label) : `${s.makes.length} things`}` : "Details";
+    const factsHtml = !facts ? "" : this.narrow() ? `<details class="bp-more"${this.detailsOpen ? ` open=""` : ""}><summary>${more}<span class="bp-more-hint" aria-hidden="true"></span></summary><div class="bp-facts">${facts}</div></details>` : `<div class="bp-facts">${facts}</div>`;
+    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${factsHtml}<div class="bp-ticket-foot">${foot}</div></div>`;
   }
 }
