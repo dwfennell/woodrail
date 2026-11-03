@@ -4181,8 +4181,9 @@ async function routeUxMore(ctx, p) {
     const g = window.woodrail.scene.getObjectByName("all-lines");
     return { discs: g?.children.filter((c) => c.isSprite).length ?? 0, arrows: !!g?.children.find((c) => c.name === "route-chevrons"), acts: [...document.querySelectorAll(".lines-actions button")].map((b) => ({ t: b.textContent, h: Math.round(b.getBoundingClientRect().height) })) };
   });
-  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and offers Edit stops and + Train (44 px)", all.discs >= 3 && all.arrows && all.acts.map((a) => a.t).join(",") === "Edit stops,+ Train" && all.acts.every((a) => a.h >= 44), JSON.stringify(all));
-  await tapButton(".lines-actions button:last-child");
+  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and offers Edit stops and + Train (and Copy, Reverse; 44 px)", all.discs >= 3 && all.arrows && all.acts.map((a) => a.t).join(",") === "Edit stops,+ Train,Copy,Reverse" && all.acts.every((a) => a.h >= 44), JSON.stringify(all));
+  // (+ Train: the second of a line's actions.)
+  await tapButton(".lines-actions button:nth-child(2)");
   await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
   const joined = await p.evaluate((es) => {
     const w = window.woodrail;
