@@ -18,6 +18,10 @@ export interface LinesViewHandlers {
   edit(id: number): void;
   /** Put another train on a line: the nearest free one that track leads from to it. */
   addTrain(id: number): void;
+  /** A copy of a line (its stops, in a new colour), run by the nearest free train that track leads from to it. */
+  copy(id: number): void;
+  /** A line's stops the other way round (its via points with them). */
+  reverse(id: number): void;
   /** A new line: the nearest free train's card, planning. */
   newLine(): void;
   close(): void;
@@ -162,6 +166,10 @@ export class LinesView {
       return b;
     };
     acts.append(act("Edit stops", "Change this line's stops (all its trains run them)", () => this.handlers.edit(r.id)), act("+ Train", "Put another train on this line", () => this.handlers.addTrain(r.id)));
+    // (Copy: the same stops for another train set, a line of its own; Reverse: its stops the other way round. A line of
+    // one stop has no way round to turn.)
+    acts.append(act("Copy", "A new line with the same stops, for a free train", () => this.handlers.copy(r.id)));
+    if (r.stops > 1) acts.append(act("Reverse", "Run its stops the other way round", () => this.handlers.reverse(r.id)));
     const wrap = document.createElement("div");
     wrap.className = "lines-row-wrap";
     if (this.picking !== r.id) {

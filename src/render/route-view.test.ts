@@ -264,8 +264,8 @@ describe("two-way legs as two lanes (audit F8)", () => {
     // (Back over piece 2 only, and a different path of piece 1: not the same track.)
     const back = [{ pieceId: 2, pathIndex: 0, s0: 216, s1: 0 }, { pieceId: 1, pathIndex: 1, s0: 216, s1: 0 }];
     const [a, b] = laneRuns([there, back]);
-    expect(a).toEqual([{ ...there[0], lane: false }, { ...there[1], lane: true }]);
-    expect(b).toEqual([{ ...back[0], lane: true }, { ...back[1], lane: false }]);
+    expect(a).toMatchObject([{ ...there[0], lane: false }, { ...there[1], lane: true }]);
+    expect(b).toMatchObject([{ ...back[0], lane: true }, { ...back[1], lane: false }]);
     // The same way twice (a train's way to its next stop over its line's leg) is no lane.
     expect(laneRuns([there, there]).flat().every((r) => !r.lane)).toBe(true);
   });
@@ -274,15 +274,15 @@ describe("two-way legs as two lanes (audit F8)", () => {
     const there = [{ pieceId: 1, pathIndex: 0, s0: 0, s1: 216 }];
     const back = [{ pieceId: 1, pathIndex: 0, s0: 200, s1: 100 }];
     const [a, b] = laneRuns([there, back]);
-    expect(a).toEqual([
+    expect(a).toMatchObject([
       { pieceId: 1, pathIndex: 0, s0: 0, s1: 100, lane: false },
       // (Within LANE_MIN of the piece's end: the lane runs on to it, no sliver of ribbon.)
       { pieceId: 1, pathIndex: 0, s0: 100, s1: 216, lane: true },
     ]);
-    expect(b).toEqual([{ ...back[0], lane: true }]);
+    expect(b).toMatchObject([{ ...back[0], lane: true }]);
     // A stretch run back shorter than LANE_MIN: no lanes.
     const [c] = laneRuns([there, [{ pieceId: 1, pathIndex: 0, s0: 100, s1: 100 - LANE_MIN / 2 }]]);
-    expect(c).toEqual([{ ...there[0], lane: false }]);
+    expect(c).toMatchObject([{ ...there[0], lane: false }]);
   });
 
   it("a shuttle's two legs are drawn as two lanes, each on the left of its way, its arrows on it pointing its way", () => {
@@ -321,6 +321,57 @@ describe("two-way legs as two lanes (audit F8)", () => {
     view.show([{ runs: legs[0]!, colour: "#3a7bd5" }], []);
     // (Only where it turns at the end of the farm's piece, run back over it: that piece, no more.)
     expect(view.laneLength).toBeLessThanOrEqual(2 * 216);
+    view.dispose();
+  });
+
+  it("laneRuns: lines sharing track are side by side, in the order given, the same sides whichever way each runs", () => {
+    const red = [{ pieceId: 1, pathIndex: 0, s0: 0, s1: 216 }];
+    const blue = [{ pieceId: 1, pathIndex: 0, s0: 216, s1: 0 }];
+    const [r, b] = laneRuns([red, blue], ["red", "blue"]);
+    expect(r).toMatchObject([{ lane: true, lines: 2 }]);
+    expect(b).toMatchObject([{ lane: true, lines: 2 }]);
+    // Red first across the track (the lower side), blue beside it, whichever way blue runs.
+    expect(r[0].offset).toBeLessThan(0);
+    expect(b[0].offset).toBeGreaterThan(0);
+    expect(laneRuns([red, red], ["red", "blue"])[1][0].offset).toBeGreaterThan(0);
+    // The path run against the map's sense: the other way across it.
+    const [r2, b2] = laneRuns([red, blue], ["red", "blue"], () => true);
+    expect(r2[0].offset).toBeGreaterThan(0);
+    expect(b2[0].offset).toBeLessThan(0);
+    // One line on its own: the whole ribbon, in the middle.
+    expect(laneRuns([red], ["red"])[0]).toMatchObject([{ lane: false, offset: 0, width: 14, lines: 1 }]);
+  });
+
+  it("laneRuns: a line run both ways beside another line: three lanes, its two still each on the left of its way", () => {
+    const there = [{ pieceId: 1, pathIndex: 0, s0: 0, s1: 216 }];
+    const back = [{ pieceId: 1, pathIndex: 0, s0: 216, s1: 0 }];
+    const other = [{ pieceId: 1, pathIndex: 0, s0: 0, s1: 216 }];
+    const [t, k, o] = laneRuns([there, back, other], ["red", "red", "blue"]);
+    // (Red's way up at the lowest side, its way down next, blue beyond: evenly spaced, none overlapping.)
+    expect(t[0].offset).toBeLessThan(k[0].offset);
+    expect(k[0].offset).toBeLessThan(o[0].offset);
+    expect(k[0].offset - t[0].offset).toBeCloseTo(o[0].offset - k[0].offset);
+    expect(k[0].offset - t[0].offset).toBeGreaterThanOrEqual(t[0].width);
+    expect(t[0].lines).toBe(2);
+  });
+
+  it("two lines over one straight: drawn side by side, each its own colour, both within the track", () => {
+    const { layout, ids } = straightLine();
+    const view = new RouteView(layout, stubMaterials());
+    const legs = lineLegs(layout, [ids[0], ids[4]]);
+    view.show([{ runs: legs[0]!, colour: "#3a7bd5" }, { runs: legs[0]!, colour: "#e0603a" }], []);
+    expect(view.sharedLength).toBeGreaterThanOrEqual(2 * 3 * 216);
+    const ribbons = view.group.children.filter((o) => o.name === "route-ribbon") as Mesh[];
+    expect(ribbons).toHaveLength(2);
+    const zs = ribbons.map((m) => {
+      m.geometry.computeBoundingBox();
+      return m.geometry.boundingBox!;
+    });
+    // (Along x, so across is z: one each side of the middle, apart, inside the track's 40 mm.)
+    const mids = zs.map((b) => (b.min.z + b.max.z) / 2).sort((a, b) => a - b);
+    expect(mids[0]).toBeLessThan(-2);
+    expect(mids[1]).toBeGreaterThan(2);
+    for (const b of zs) expect(Math.max(-b.min.z, b.max.z)).toBeLessThanOrEqual(20);
     view.dispose();
   });
 });

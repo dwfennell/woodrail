@@ -49,7 +49,7 @@ import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateR
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
-import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, sameLines, snapshotLines, stopLine, trainsOn } from "./game/lines";
+import { copyLine, editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseStops, sameLines, snapshotLines, stopLine, trainsOn } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
@@ -4220,6 +4220,33 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       closeLines();
       interaction.openEngineCard(engine);
     },
+    copy: (id) => {
+      const line = game.economy.lines.get(id);
+      if (!line) return;
+      // (The free train nearest the line's places that track leads from to one of its stops, as + Train picks.)
+      const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1).filter((p) => p !== -1);
+      const engine = freeTrains((e) => {
+        const front = trainFront(e);
+        return !!front && pieces.some((p) => legFromCursor(game.layout, front, p) !== null);
+      }, linePlaces(id))[0];
+      if (engine === undefined) return hud.toast("No free train can run a copy: put an engine on its track");
+      let made = "";
+      routeEdit(() => (made = copyLine(game.economy, id, engine)?.name ?? ""));
+      if (!made) return;
+      hud.toast(`${made}: a copy of ${line.name}`, false, 2500);
+      linesChanged();
+      closeLines();
+      interaction.openEngineCard(engine);
+    },
+    reverse: (id) => {
+      const line = game.economy.lines.get(id);
+      const engine = trainsOn(game.economy, id)[0];
+      if (!line || engine === undefined) return;
+      // (Its trains each keep heading for the stop they were: then on, the other way round.)
+      routeEdit(() => editLine(game.economy, engine, reverseStops));
+      hud.toast(`${line.name} runs the other way round now`, false, 2500);
+      linesChanged();
+    },
     newLine: () => {
       const engine = freeTrains(() => true, [game.controls.target.clone()])[0];
       if (engine === undefined) return hud.toast(game.sim.trainIds().length === 0 ? "Put an engine on the track first" : "Every train runs a line: put another engine on the track");
@@ -5210,7 +5237,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0 });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0 });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.

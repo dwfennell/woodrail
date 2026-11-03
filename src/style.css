@@ -1273,7 +1273,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-row { display: flex; align-items: center; gap: 10px; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
 /* A line's actions, under its row (audit F12): Edit stops, + Train. */
-.lines-actions { display: flex; gap: 6px; padding-left: 54px; }
+.lines-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 54px; }
+/* (On a phone held upright, the actions under the whole row: four fit in a line at 360 px.) */
+@media (max-width: 480px) { .lines-actions { padding-left: 0; } .lines-actions button { flex: 1 1 auto; padding-inline: 8px; } }
 .lines-actions button { min-height: 44px; }
 .lines-head .lines-new { margin-left: auto; margin-right: 6px; }
 /* A place's card: the lines that call there, and New route from here (audit F12). */
