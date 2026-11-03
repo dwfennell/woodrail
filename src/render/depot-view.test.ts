@@ -9,6 +9,7 @@ import { buildStarterWorld, syncIndustries } from "../game/world";
 import { LandEditor } from "../landscape/edit";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { DepotView, siteLayout } from "./depot-view";
+import { AmbientEye } from "./ambient";
 import { cullTiles, detailReach, viewReach } from "./dressing/tiles";
 import type { Materials } from "./materials";
 
@@ -96,6 +97,44 @@ describe("DepotView: a working depot draws only while the game runs and it's in 
     cullTiles([w.view.group], w.camera, viewReach(1100), detailReach(1100));
     expect(w.view.update(w.economy, [], 0, () => undefined, clock.sim + 2 * SIM_DT, false)).toBe("moving");
     expect(run(w, 1, false, clock)).toBe(30);
+  });
+
+  it("zoomed out, a working sawmill in view but too small to see its saw turn asks for no frames (the ambient rule)", () => {
+    const w = world();
+    const clock = { sim: 0 };
+    // Far above it (about 6.5 m off), still within the crane's reach and in view: its saw is a few pixels across.
+    w.camera.position.set(108, 4600, 4600);
+    w.camera.lookAt(108, 0, 60);
+    w.camera.updateMatrixWorld();
+    cullTiles([w.view.group], w.camera, viewReach(6500), detailReach(6500));
+    const eye = new AmbientEye();
+    eye.set(w.camera, 844);
+    const saw = w.view.group.children.find((o) => o.userData.depotMoving)!;
+    expect(saw.visible).toBe(true);
+    expect(w.economy.working(w.saw)).toBe(true);
+    // Without the rule it would draw every frame; with it, none (and the saw still turns by the game's time, unseen).
+    const tick = () => {
+      for (let k = 0; k < 4; k++) {
+        w.economy.tick();
+        clock.sim += SIM_DT;
+      }
+    };
+    // (The first update starts its clock.)
+    w.view.update(w.economy, [], 0, () => undefined, clock.sim, false);
+    tick();
+    expect(w.view.update(w.economy, [], 0, () => undefined, clock.sim, false)).toBe("moving");
+    let asked = 0;
+    for (let f = 0; f < 60; f++) {
+      tick();
+      if (w.view.update(w.economy, [], 0, () => undefined, clock.sim, false, eye) !== "still") asked++;
+    }
+    expect(asked).toBe(0);
+    // Close in again: it asks for frames, and only for ambient motion (drawn at the ambient rate).
+    w.look(108, 60);
+    eye.set(w.camera, 844);
+    tick();
+    expect(w.view.update(w.economy, [], 0, () => undefined, clock.sim, false, eye)).toBe("moving");
+    expect(w.view.ambientOnly).toBe(true);
   });
 
   it("the saw turns by the game's time, not by frames", () => {

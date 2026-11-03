@@ -1,4 +1,4 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
+import { Box3, BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
@@ -14,7 +14,8 @@ import { TIMBER_DECK } from "./train-models";
 import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
 import { nonIndexed } from "./non-indexed";
 import { HEAP_COLORS, HEAP_KINDS, HEAP_PROFILE, HOPPER_HEAP, hopperLook, type HeapKind } from "./hopper-load";
-import { bakeMotes, IndustryMotes, moteStatics, type MoteHandle } from "./industry-motes";
+import { bakeMotes, IndustryMotes, MOTE_SIZE, moteStatics, type MoteHandle } from "./industry-motes";
+import { AMBIENT_MIN_PX, type AmbientEye } from "./ambient";
 import type { ClockAt } from "./clock-view";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
@@ -462,6 +463,8 @@ interface Site {
   crane: CraneParts;
   /** What turns while it works: a sawmill's saw, a mill's sails. */
   blade: Object3D | null;
+  /** Where its blade turns and how big it is (mm across), for `AmbientEye.sees`. */
+  bladeAt: { x: number; y: number; z: number; size: number } | null;
   /** Its little things that move while it works (pigs, an axe, a tub wagon: `industry-motes.ts`). */
   motes: MoteHandle[];
   /** This frame's crane move (scratch, reused), and whether there is one. */
@@ -782,6 +785,7 @@ export class DepotView {
       at: { x: at.x, z: at.z },
       crane: this.buildCrane(pose, spec.crane),
       blade: null,
+      bladeAt: null,
       motes: [],
       move: { kind: "log", toPile: false, carId: -1, phase: 0 },
       moving: false,
@@ -792,6 +796,13 @@ export class DepotView {
     if (depot.role === "mill") site.blade = this.buildSails(pose);
     if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
     if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
+    if (site.blade) {
+      site.blade.updateWorldMatrix(true, true);
+      const box = new Box3().setFromObject(site.blade);
+      const c = box.getCenter(new Vector3());
+      const d = box.getSize(new Vector3());
+      site.bladeAt = { x: c.x, y: c.y, z: c.z, size: Math.max(d.x, d.y, d.z) };
+    }
     // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
     for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
       if (!o) continue;
@@ -1268,8 +1279,18 @@ export class DepotView {
    * little past the view), a working depot asks for no frames: a camera move draws anyway, and the next frame sees it
    * in view.
    */
-  update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, simSeconds: number, paused: boolean): "moving" | "changed" | "still" {
+  update(
+    economy: Economy,
+    carIds: ArrayLike<number>,
+    carCount: number,
+    carObject: (id: number) => Object3D | undefined,
+    simSeconds: number,
+    paused: boolean,
+    eye: AmbientEye | null = null,
+  ): "moving" | "changed" | "still" {
     let busy = this.dragging !== null;
+    // (Busy only with ambient motion, a saw or motes: see `ambientOnly`.)
+    let ambient = false;
     const ran = this.simSeen < 0 ? 0 : Math.max(0, simSeconds - this.simSeen);
     this.simSeen = simSeconds;
     for (const k of HEAP_KINDS) {
@@ -1342,18 +1363,27 @@ export class DepotView {
     }
 
     // The saw spins while the sawmill is cutting (by the game's time: paused, it stops where it is), and the other
-    // industries' motes move while they work: only those in view (out of view, they stand where they were; a camera
-    // move bringing one into view draws, and the next frame poses it). Asked for less motion, all stand still.
+    // industries' motes move while they work: only those on screen and big enough there to see them move (`eye`, the
+    // ambient rule: out of view or too small, they stand where they were and ask for nothing; a camera move bringing
+    // one into view draws, and the next frame poses it). Asked for less motion, all stand still.
     if (ran > 0 && !this.calm)
       for (const site of this.sites) {
         if ((!site.blade && site.motes.length === 0) || !economy.working(site.depot)) continue;
         if (site.blade) {
           site.blade.rotateZ(ran * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
-          if (site.blade.visible) busy = true;
+          const at = site.bladeAt;
+          if (site.blade.visible && (!eye || !at || eye.sees(at.x, at.y, at.z, at.size, AMBIENT_MIN_PX.blade))) ambient = true;
         }
         if (site.motes.length > 0 && site.crane.trolley.visible) {
-          for (const m of site.motes) this.motes.pose(m, simSeconds);
-          busy = true;
+          let seen = !eye;
+          for (const m of site.motes) {
+            const e = m.anchor.elements;
+            if (!seen && eye!.sees(e[12], e[13], e[14], MOTE_SIZE[m.kind], AMBIENT_MIN_PX.mote, MOTE_SIZE[m.kind] * 3)) seen = true;
+          }
+          if (seen) {
+            for (const m of site.motes) this.motes.pose(m, simSeconds);
+            ambient = true;
+          }
         }
       }
     this.motes.flush();
@@ -1365,8 +1395,12 @@ export class DepotView {
       m.boundingSphere = null;
       m.boundingBox = null;
     }
-    return busy ? "moving" : changed ? "changed" : "still";
+    this.ambientOnly = ambient && !busy;
+    return busy || ambient ? "moving" : changed ? "changed" : "still";
   }
+
+  /** The last `update` was "moving" only for ambient motion (a saw, motes), not a crane or a drag: drawn at the ambient rate. */
+  ambientOnly = false;
 
   /** World centre of the k-th unit on a car (or over the depot track if the car's model is missing). */
   private onCar(site: Site, car: Object3D | undefined, kind: CargoKind, k: number, out: Vector3): Vector3 {

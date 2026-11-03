@@ -4,6 +4,7 @@ import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
+import { AMBIENT_FRAME_MS, AmbientEye } from "../render/ambient";
 import { RoadVehiclesView } from "../render/road-vehicles-view";
 import { Vans } from "./vans";
 import { PropsView } from "../render/props/props-view";
@@ -1017,11 +1018,19 @@ export class Game {
       this.invalidate();
     }
     let active = this.crossingsView.update(this.snapshot, dt);
+    // Ambient motion (an industry's saw and motes, boats, road vehicles) asks for frames only on screen and big enough
+    // to see (`AmbientEye`), and alone is drawn at the ambient rate (`AMBIENT_FRAME_MS`). Its view: last frame's camera
+    // (a camera move draws anyway, and the next frame looks again).
+    this.ambientEye.set(this.camera, this.canvas.clientHeight);
+    let ambient = false;
     // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
     if (this.marksView.animate(dt)) active = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
-    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused);
-    if (depots === "moving") active = true;
+    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, this.ambientEye);
+    if (depots === "moving") {
+      if (this.depotView.ambientOnly) ambient = true;
+      else active = true;
+    }
     else if (depots === "changed") this.invalidate();
     const trainsMoved = this.trainsChanged();
     if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
@@ -1056,12 +1065,12 @@ export class Game {
       else if (show === "changed") this.invalidate();
     }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
-    if (this.boats.update(this.camera)) active = true;
+    if (this.boats.update(this.camera, this.ambientEye)) ambient = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
-    const shadowsMoved = active || this.shadowsMoving;
+    const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;
     // Road vehicles moving in view: drawn, but they cast no shadows (their blob is baked), so no shadow pass for them.
-    if (this.roadVehiclesView.update(this.economy.roadVehicles, this.camera)) active = true;
+    if (this.roadVehiclesView.update(this.economy.roadVehicles, this.camera, this.ambientEye)) ambient = true;
     this.onFrame?.(dt);
     this.flourishes.update(dt);
     // A finger fling glides on between touches (a director glide or zoom takes over from it).
@@ -1113,7 +1122,15 @@ export class Game {
     // scene stays on screen without being drawn again, so an idle game costs next to nothing.
     const now = this.clock.elapsedTime;
     // Something easing or moving keeps drawing for a moment after; a one-off change (invalidate) draws one frame.
-    if (active) this.lastActive = now;
+    if (active || ambient) this.lastActive = now;
+    // Only ambient motion moving (no train, camera move or change): every other tick (`AMBIENT_FRAME_MS`). What it
+    // moves is posed by the clock, so the next frame drawn shows it where it is then.
+    if (ambient && !active && !this.dirty && (now - this.lastDrawnAt) * 1000 < AMBIENT_FRAME_MS - FRAME_SLACK_MS) {
+      this.drewLastTick = false;
+      // (Its shadows are drawn on the next frame drawn.)
+      this.shadowsMoving = true;
+      return;
+    }
     const once = this.dirty;
     this.dirty = false;
     if (!once && now - this.lastActive > IDLE_TAIL) {
@@ -1121,6 +1138,7 @@ export class Game {
       if (this.settling.length > 0) this.settleWaiters(false);
       return;
     }
+    this.lastDrawnAt = now;
     if (this.settling.length > 0) this.settleWaiters(true);
     const radius = shadowRadiusForView(this.camera, t);
     const refit = shouldRefit(this.stage.shadowFit, t.x, t.z, radius);
@@ -1466,6 +1484,10 @@ export class Game {
   /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
   private woken = false;
   private lastActive = 0;
+  /** When the last frame was drawn (the game clock, s), for the ambient rate. */
+  private lastDrawnAt = -1;
+  /** This frame's view, for ambient motion (see `AmbientEye`). */
+  private readonly ambientEye = new AmbientEye();
   private lastFrameAt = -Infinity;
   /** Was a frame drawn on the last tick of the loop (so the time since is a frame's)? */
   private drewLastTick = false;
