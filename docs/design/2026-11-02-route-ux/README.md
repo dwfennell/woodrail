@@ -363,6 +363,6 @@ Sizes: every button, chip and field in the route UI, the place cards and the Lin
 
 ### Left for later
 
-- ~~Two lanes for legs run both ways~~ (done on `claude/route-reorder`: each way a thin lane on its left, with its own arrows); lines sharing track drawn side by side (F9) still to do.
-- ~~Drag to reorder stops~~ (done on `claude/route-reorder`: hold a stop's chip, drag, a bar shows where; Undo); copy or reverse a line (heuristic 7) still to do.
+- ~~Two lanes for legs run both ways~~ (done on `claude/route-reorder`: each way a thin lane on its left, with its own arrows); ~~lines sharing track drawn side by side (F9)~~ (done too: each line its own lane across the track, the same sides from piece to piece).
+- ~~Drag to reorder stops~~ (done on `claude/route-reorder`: hold a stop's chip, drag, a bar shows where; Undo); ~~copy or reverse a line~~ (done: Copy and Reverse on each line in the Lines view, undoable).
 - The harness makes its line in one call (`startLine`). Made tap by tap, the play-through drifts: the mine opens at minute 173, not after 220. Left for a balance pass (the CoS, 2026-11-02).
