@@ -45,8 +45,9 @@ describe("blueprints", () => {
     expect(canResearch(p, "first-class")).toBe(true);
   });
 
-  it("every tier-3 research needs a school beside a city (its library wing); College needs Routes", () => {
-    for (const b of BLUEPRINTS.filter((x) => x.tier === 3)) expect(b.requires.some((n) => n.kind === "landmark" && n.id === CITY_SCHOOL_ID), b.id).toBe(true);
+  it("every tier-3 research needs a school beside a city (its library wing), or a College in a city or a University there (tech tree 3); College needs Routes", () => {
+    const city = [CITY_SCHOOL_ID, "college-school", "university-school"];
+    for (const b of BLUEPRINTS.filter((x) => x.tier === 3)) expect(b.requires.filter((n) => n.kind === "landmark" && city.includes(n.id)), b.id).toHaveLength(1);
     for (const b of BLUEPRINTS.filter((x) => x.tier !== 3)) expect(b.requires.some((n) => n.kind === "landmark" && n.id === CITY_SCHOOL_ID), b.id).toBe(false);
     const p = Progress.fresh();
     for (const id of ["farming", "mills"]) p.learned.add(id);

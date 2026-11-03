@@ -13,7 +13,7 @@ import { INDUSTRY_ROLE, syncIndustries } from "./world";
 import { BOAT_DOCKED, BOAT_EVERY, BOAT_SAIL, FISH_CATCH, HarbourTrade, type HarbourEvent } from "./harbours";
 import { coastWorld, harbourSite } from "./harbours-testing";
 import { Progress } from "./progress";
-import { studyTime, UNIVERSITY } from "./research";
+import { costOf, lacking, studyTime, UNIVERSITY_GOODS } from "./research";
 import { seenOf } from "./tech";
 
 /**
@@ -282,15 +282,20 @@ describe("University", () => {
     expect(bp("university").requires).toContainEqual({ kind: "count", stat: "blueprints", n: 20 });
   });
 
-  it("hard (tier-3) lessons go twice as fast, and the board shows every blueprint", () => {
+  it("a hard (tier-3) lesson needs a third fewer goods once it's learned, coins and study the same; the board shows every blueprint", () => {
     const p = Progress.fresh();
-    const hard = BLUEPRINTS.find((b) => b.tier === 3 && !b.plan)!.id;
-    const easy = BLUEPRINTS.find((b) => (b.tier ?? 1) === 2 && !b.plan)!.id;
-    const before = { hard: studyTime(hard, p.learned), easy: studyTime(easy, p.learned) };
+    const before = { factory: costOf("car-factory", p.learned), mills: costOf("mills", p.learned), study: studyTime("car-factory", p.learned) };
     expect([...seenOf(p).values()].some((s) => s !== "shown")).toBe(true);
     p.learned.add("university");
-    expect(studyTime(hard, p.learned)).toBe(before.hard / UNIVERSITY);
-    expect(studyTime(easy, p.learned)).toBe(before.easy);
+    expect(costOf("car-factory", p.learned)).toEqual({ goods: { planks: Math.ceil(12 * UNIVERSITY_GOODS) }, coins: before.factory.coins });
+    expect(costOf("car-factory", p.learned).goods.planks).toBe(8);
+    // Foundry's 10 stone and 10 coal: 7 of each.
+    expect(costOf("foundry", p.learned).goods).toEqual({ stone: 7, coal: 7 });
+    expect(costOf("mills", p.learned)).toEqual(before.mills);
+    expect(studyTime("car-factory", p.learned)).toBe(before.study);
+    // The research under way asks the schools for the fewer goods.
+    p.research.current = "car-factory";
+    expect(lacking(p, "planks")).toBe(8);
     expect([...seenOf(p).values()].every((s) => s === "shown")).toBe(true);
   });
 });
