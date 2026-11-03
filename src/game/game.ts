@@ -9,7 +9,11 @@ import { Vans } from "./vans";
 import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
 import { LoopShowView } from "../render/loop-show";
-import { ClockView } from "../render/clock-view";
+import { ClockView, type ClockAt } from "../render/clock-view";
+import type { ClockHands } from "../render/clock-hands";
+import { flatClockHands } from "../render/blender-models";
+import { STATION_CLOCK_PART } from "../render/dressing/buildings";
+
 import {
   ACESFilmicToneMapping,
   Clock,
@@ -60,6 +64,9 @@ import { nearTrack } from "../landscape/trees-aside";
 import { hillsOf } from "../landscape/hill-shape";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlot, type World } from "./world";
+
+/** The station house clock's hands' key in `ClockView` (a map part's, not a prop's). */
+const STATION_CLOCK_HANDS = "map:station-clock";
 
 const MAX_STEPS_PER_FRAME = 8;
 /**
@@ -195,6 +202,8 @@ export class Game {
   readonly loopShow = new LoopShowView();
   /** Station clocks' hands, showing the player's real time (see `ClockView`: a timer a minute, nothing per frame). */
   readonly clockView: ClockView;
+  /** The station house clock's hands (once the map's parts are loaded). */
+  private stationHands: ClockHands | undefined;
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
   paused = false;
@@ -337,8 +346,9 @@ export class Game {
     };
     this.scene.add(this.kitView.group);
     this.scene.add(this.loopShow.group);
-    this.clockView = new ClockView(this.propLibrary);
+    this.clockView = new ClockView((key) => this.clockHands(key));
     this.scene.add(this.clockView.group);
+    this.wireClocks();
     // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
     this.propLibrary.onLoaded = (key) => {
       if (key.startsWith("kit:")) this.syncKits(true);
@@ -420,6 +430,7 @@ export class Game {
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
+    this.wireClocks();
     syncCuttings(this.landscape, this.layout);
     this.landscapeView.syncTrees(this.layout);
     this.scene.remove(this.trackView.group);
@@ -772,6 +783,34 @@ export class Game {
     }
     const hop = this.landscapeView.previewTrees(held);
     if (hop) this.flourishes.add(hop);
+  }
+
+  /**
+   * A clock model's hands, by key (see `ClockView`): the station house's (a map part), or a prop's or kit's (asked for
+   * if not loaded yet: its view sets its clocks again once it's in).
+   */
+  private clockHands(key: string): ClockHands | null | undefined {
+    if (key === STATION_CLOCK_HANDS) {
+      this.stationHands ??= flatClockHands(this.mats, STATION_CLOCK_PART) ?? undefined;
+      return this.stationHands ?? null;
+    }
+    const hands = this.propLibrary.clockHands(key);
+    if (hands === undefined) this.propLibrary.load(key).catch(() => {});
+    return hands;
+  }
+
+  /** The views with clocks hand them to `clockView` as they change (each a diff: only what changed is touched). */
+  private wireClocks(): void {
+    const set = (source: string, clocks: Iterable<readonly [number, ClockAt]>) => {
+      if (this.clockView.setClocks(source, clocks)) this.invalidate();
+    };
+    const stations = () => set("stations", [...this.landscapeView.stationClocks].map(([id, matrix]) => [id, { key: STATION_CLOCK_HANDS, matrix }] as const));
+    const yards = () => set("yards", this.depotView.yardClocks);
+    this.landscapeView.onClocks = stations;
+    this.depotView.onClocks = yards;
+    this.kitView.onClocks = (clocks) => set("kits", clocks);
+    stations();
+    yards();
   }
 
   /** The kits' models follow the layout (a diff: only kits added, moved, taken up or put down are touched). */

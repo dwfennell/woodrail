@@ -82,7 +82,8 @@ import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./econ
 import { costTag, refundText, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
 import { qualityFor, saveQualityOverride } from "./render/quality";
-import type { PropModel } from "./render/props/library";
+import { drawnKey, modelKey, type PropModel } from "./render/props/library";
+import { CLOCK_ASSETS } from "./render/clock-hands";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
@@ -1859,16 +1860,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (role !== "school") return null;
     const grade = depot && mode === "game" ? schoolGrade(game.world, depot, progress.learned) : null;
     const { asset, scale } = grade?.wing ? SCHOOL_MODELS.wing : grade?.college ? SCHOOL_MODELS.college : SCHOOL_MODELS.house;
-    const m = game.propLibrary.model(asset);
+    // (A clock's model bare of its hands: they're drawn apart, at the real time, by `ClockView`.)
+    const key = drawnKey(asset);
+    const m = game.propLibrary.model(key);
     if (m === undefined)
-      void game.propLibrary.load(asset).then(
+      void game.propLibrary.load(key).then(
         () => {
           game.depotView.setWorld(game.economy, game.layout);
           game.invalidate();
         },
         () => {},
       );
-    return m && { parts: m.parts, scale };
+    return m && { parts: m.parts, scale, ...(CLOCK_ASSETS.has(asset) ? { clock: modelKey(asset) } : {}) };
   }
 
   /**

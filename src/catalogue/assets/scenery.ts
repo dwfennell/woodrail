@@ -1226,14 +1226,23 @@ const town: Asset[] = [
         const a = (i / 12) * Math.PI * 2;
         for (const s of [-1, 1]) g.add(k.box(k.paint(TOY.black), 0.4, i % 3 ? 0.8 : 1.6, 0.8, 0, s * 3.3, 60 + Math.cos(a) * 7, Math.sin(a) * 7));
       }
+      // The hands, named as a Blender clock's ("hour", "minute": the game shows the real time with them), each face's
+      // turned to look out of it (its x out of the face, so a turn about x goes clockwise as it's seen).
       for (const s of [-1, 1]) {
-        const hour = named(new Group(), `hour${s > 0 ? "a" : "b"}`);
+        const hour = named(new Group(), "hour");
         hour.position.set(s * 3.5, 60, 0);
         hour.add(k.box(k.paint(TOY.black), 0.4, 4.5, 1.2, 0.2, 0, 0, 0));
-        const min = named(new Group(), `min${s > 0 ? "a" : "b"}`);
+        const min = named(new Group(), "minute");
         min.position.set(s * 3.7, 60, 0);
         min.add(k.box(k.paint(TOY.red), 0.4, 6.8, 0.8, 0.2, 0, 0, 0));
-        g.add(hour, min);
+        const face = new Group();
+        if (s < 0) face.rotation.y = Math.PI;
+        face.add(hour, min);
+        if (s < 0) {
+          hour.position.x = -hour.position.x;
+          min.position.x = -min.position.x;
+        }
+        g.add(face);
       }
       g.add(k.ball(k.paint(TOY.yellow), 2, 0, 71.5, 0));
       return g;

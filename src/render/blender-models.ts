@@ -3,7 +3,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import type { Kit } from "../catalogue/kit";
 import type { CarKind, CarLook } from "../sim";
-import type { Batcher } from "./dressing/batcher";
+import { Batcher } from "./dressing/batcher";
+import { splitFlatHands, type ClockHands } from "./clock-hands";
 import type { Materials } from "./materials";
 
 /**
@@ -131,8 +132,47 @@ function addParts(models: ReadonlyMap<string, Object3D>): void {
       const toPart = new Matrix4().multiplyMatrices(inv, m.matrixWorld);
       pieces.push({ material: (m.material as Material).name, geometry: m.geometry.clone().applyMatrix4(toPart) });
     });
-    parts.set(name, pieces);
+    parts.set(name, FLAT_CLOCKS.has(name) ? splitClock(name, pieces) : pieces);
   }
+}
+
+/** The map's parts that are clocks with flat hands (merged with their marks): split at load (see `flatClockHands`). */
+const FLAT_CLOCKS = new Set(["station-clock"]);
+
+/** The flat clocks' hands, by part name: in the part's space, in the paint of the piece they came from. */
+const flatHands = new Map<string, { material: string; kind: "hour" | "minute"; base: Matrix4; geometry: BufferGeometry }[]>();
+
+/** A flat clock's pieces without its hands (kept in `flatHands`): the piece with two long parts loses them. */
+function splitClock(name: string, pieces: Piece[]): Piece[] {
+  const out: Piece[] = [];
+  const hands: { material: string; kind: "hour" | "minute"; base: Matrix4; geometry: BufferGeometry }[] = [];
+  for (const p of pieces) {
+    const split = hands.length === 0 ? splitFlatHands(p.geometry) : null;
+    if (!split) {
+      out.push(p);
+      continue;
+    }
+    out.push({ material: p.material, geometry: split.rest });
+    for (const h of split.hands) hands.push({ material: p.material, ...h });
+  }
+  if (hands.length > 0) flatHands.set(name, hands);
+  return out;
+}
+
+/**
+ * A map part's clock hands (the station house's clock: `buildStation` draws the part bare of them), in the part's own
+ * space, painted; null if the part has none (or the models aren't loaded).
+ */
+export function flatClockHands(mats: Materials, name: string): ClockHands | null {
+  const hands = flatHands.get(name);
+  if (!hands) return null;
+  return {
+    hands: hands.map((h) => {
+      const b = new Batcher(mats.paint);
+      b.add(partMaterial(mats, h.material, {}), h.geometry.clone());
+      return { kind: h.kind, base: h.base, parts: [...b.merged()].map(([material, geometry]) => ({ material, geometry })) };
+    }),
+  };
 }
 
 interface Piece {

@@ -15,6 +15,7 @@ import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
 import { nonIndexed } from "./non-indexed";
 import { HEAP_COLORS, HEAP_KINDS, HEAP_PROFILE, HOPPER_HEAP, hopperLook, type HeapKind } from "./hopper-load";
 import { bakeMotes, IndustryMotes, moteStatics, type MoteHandle } from "./industry-motes";
+import type { ClockAt } from "./clock-view";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
 interface PileSpot {
@@ -602,7 +603,18 @@ export class DepotView {
    * (the caller redraws the yards once it has: `setWorld`).
    */
   catalogueModel: ((asset: string) => { parts: readonly { geometry: BufferGeometry; material: Material }[] } | null | undefined) | null = null;
-  building: ((role: DepotRole, depot?: DepotState) => { parts: readonly { geometry: BufferGeometry; material: Material }[]; scale?: number } | null | undefined) | null = null;
+  building: ((role: DepotRole, depot?: DepotState) => { parts: readonly { geometry: BufferGeometry; material: Material }[]; scale?: number; clock?: string } | null | undefined) | null = null;
+
+  /**
+   * The yards' clocks (a college's, a library's: a building with `clock`, its hands' key, drawn bare of them), by depot
+   * id: their hands are drawn by `ClockView`. Kept as tiles are built again; `onClocks` is told when they change.
+   */
+  readonly yardClocks = new Map<number, ClockAt>();
+  onClocks: (() => void) | null = null;
+  /** The depots whose yard clocks each tile drew, by tile key. */
+  private readonly clockDepots = new Map<number, number[]>();
+  /** While a tile is built: where its yards' clocks go. */
+  private clockSink: ((depotId: number, at: ClockAt) => void) | null = null;
 
   /** Each tile's static parts (yards, sheds, crane masts: batched), by `tileAt` key. */
   private readonly tiles = new Map<number, Group>();
@@ -618,6 +630,11 @@ export class DepotView {
     }
     this.sites = [];
     this.tiles.clear();
+    this.clockDepots.clear();
+    if (this.yardClocks.size > 0) {
+      this.yardClocks.clear();
+      this.onClocks?.();
+    }
     this.carOwners.clear();
     for (const depot of economy.allDepots()) {
       const site = this.makeSite(depot, economy, layout);
@@ -733,10 +750,24 @@ export class DepotView {
       this.tiles.delete(key);
     }
     const sites = this.sites.filter((s) => s.tile === key);
-    if (sites.length === 0) return;
+    const hadClocks = this.clockDepots.get(key) ?? [];
+    for (const id of hadClocks) this.yardClocks.delete(id);
+    this.clockDepots.delete(key);
+    if (sites.length === 0) {
+      if (hadClocks.length > 0) this.onClocks?.();
+      return;
+    }
     // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped.
     const b = new Batcher(this.mats.paint);
+    const clocks: number[] = [];
+    this.clockSink = (id, at) => {
+      this.yardClocks.set(id, at);
+      clocks.push(id);
+    };
     for (const site of sites) this.buildStatic(site, b, true, "instanced");
+    this.clockSink = null;
+    this.clockDepots.set(key, clocks);
+    if (clocks.length > 0 || hadClocks.length > 0) this.onClocks?.();
     const statics = new Group();
     statics.userData.depotStatic = true;
     b.build(statics);
@@ -832,6 +863,12 @@ export class DepotView {
       if (house) {
         const k = house.scale ?? 1;
         for (const p of house.parts) b.add(p.material, place(p.geometry.clone().scale(k, k, k).rotateY(Math.PI / 2), 150, 80, PAD_H));
+        // Its clock's hands, drawn apart (the model is bare of them), where the model stands.
+        if (house.clock && this.clockSink && site.depot.id !== undefined) {
+          toWorld(pose, 150, 80, PAD_H, _v);
+          const matrix = new Matrix4().makeRotationY(-pose.heading + Math.PI / 2).scale(new Vector3(k, k, k)).setPosition(_v);
+          this.clockSink(site.depot.id, { key: house.clock, matrix });
+        }
         return;
       }
       b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(70, 34, 40, 2, 3), 150, 84, PAD_H + 17));
