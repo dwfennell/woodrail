@@ -493,6 +493,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .chip.tray-erase { min-width: 40px; }
   .tray-tools .chip::after { inset: -5px -2px; }
 }
+/* The tab strip scrolls (Sandbox's ten tabs on a phone): it fades at an edge with more beyond, and a › past it scrolls
+   on (hud.ts `tabEdges`). Only where the tabs share their row with the tools. */
+.tabs-more { display: none; }
+@media (max-width: 640px), (max-height: 520px) and (max-width: 780px) {
+  .tabs.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); }
+  .tabs.more-left { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 26px), transparent); }
+  .tabs.more-left.more-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent); }
+  .tabs-more:not([hidden]) { display: inline-flex; flex: none; order: 0; align-items: center; justify-content: center; width: 22px; height: 44px; margin-left: -6px; padding: 0; border: none; border-radius: 0 0 10px 10px; background: rgba(120, 80, 40, 0.14); font: inherit; font-size: 22px; font-weight: 900; line-height: 1; color: #5e4128; cursor: pointer; position: relative; }
+  /* (Drawn 22 px; a finger's reach either side.) */
+  .tabs-more::after { content: ""; position: absolute; inset: 0 -6px 0 -8px; }
+}
 /* Still too many to fit (hud.ts `fitTabs`): the tabs not open show their picture, then all do. A tab's word stays in
    the page (its name for a screen reader); the picture is drawn over it. */
 .tab::before { content: none; }
@@ -919,7 +930,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-legend-box { position: relative; }
 .bp-legend-box summary { list-style: none; width: 44px; height: 44px; display: grid; place-items: center; font-size: 20px; color: #74522f; cursor: pointer; }
 .bp-legend-box summary::-webkit-details-marker { display: none; }
-.bp-legend-box .bp-legend { position: absolute; right: 0; top: 44px; z-index: 5; width: 240px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 6px 18px rgba(60, 40, 20, 0.25); }
+.board-panel > .bp-legend { flex: none; gap: 6px 14px; margin: 0 20px 8px; padding: 8px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.14); }
+.board-panel > .bp-legend[hidden] { display: none; }
+.bp-legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.bp-legend-item .bp-key { margin-left: 0; }
+.bp-legend-box[open] summary { color: #2f6db5; }
+@media (max-width: 560px) { .board-panel > .bp-legend { margin: 0 12px 6px; } }
 /* Phones: each branch a list of tags in two columns (see BlueprintBoard.narrow); the panel is the one thing that scrolls. */
 .bp-list-band { display: flex; flex-direction: column; gap: 10px; }
 /* (The same room above a band's name as below it, plus the panel's gap between bands.) */
@@ -1022,11 +1038,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A phone on its side: the picked research's ticket beside the web, not under it (under, it covered all but a strip of
    the web, and nothing else could be picked). */
 @media (max-height: 520px) and (min-width: 600px) {
-  .board-panel { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); grid-template-rows: auto minmax(0, 1fr); }
+  .board-panel { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); grid-template-rows: auto auto minmax(0, 1fr); }
+  .board-panel > .bp-legend { grid-column: 1 / -1; grid-row: 2; margin: 0 16px 6px; }
   .board-panel:has(> .board-sheet:empty) { grid-template-columns: minmax(0, 1fr); }
   .board-head { grid-column: 1 / -1; padding: 8px 8px 0 16px; }
-  .board-body { grid-column: 1; grid-row: 2; padding: 2px 10px 12px 14px; }
-  .board-sheet { grid-column: 2; grid-row: 2; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 14px 12px 4px; }
+  .board-body { grid-column: 1; grid-row: 3; padding: 2px 10px 12px 14px; }
+  .board-sheet { grid-column: 2; grid-row: 3; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 14px 12px 4px; }
   .bp-web-scroll { max-height: none; }
 }
 /* A research learned (on the open board, or the next time it opens): its check is stamped on like a sticker, a glint runs

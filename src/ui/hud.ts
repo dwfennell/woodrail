@@ -1010,7 +1010,72 @@ export class Hud {
      * open one is still the lifted cream tab; each keeps its name for a screen reader and the tooltip). Measured only
      * when a tab opens or the row's room changes (a shelf opens, the tools change, a turn of the phone), never per frame.
      */
+    /**
+     * The tab strip scrolls when its tabs don't fit (Sandbox's ten at 390 px): its edges fade where there are more,
+     * and a › button past the last one shown scrolls on (QA 2026-11-03: half of them were out of sight, no hint they
+     * were there). Measured on a scroll, a tab opening and a change of the row's room, never per frame.
+     */
+    const tabsMore = button("›", "More tabs", () => {
+      // (At the strip's end it turns to ‹ and goes back.)
+      // A page on: the first tab cut off (or under the fade) at the right comes in whole at the left, so none is ever
+      // skipped half shown; back, the last one cut off at the left comes in whole at the right.
+      const back = !tabs.classList.contains("more-right");
+      const fade = 26;
+      const x0 = tabs.scrollLeft;
+      const w = tabs.clientWidth;
+      const all = [...tabs.children] as HTMLElement[];
+      const at = (t: HTMLElement) => t.offsetLeft - all[0].offsetLeft;
+      let left: number;
+      if (!back) {
+        const cut = all.find((t) => at(t) + t.offsetWidth > x0 + w - fade);
+        left = cut ? Math.max(x0 + 40, at(cut) - fade) : x0 + w;
+      } else {
+        const cut = [...all].reverse().find((t) => at(t) < x0 + fade);
+        left = cut ? Math.min(x0 - 40, at(cut) + cut.offsetWidth + fade - w) : 0;
+      }
+      tabs.scrollTo({ left, behavior: "smooth" });
+    }, "tabs-more");
+    tabsMore.hidden = true;
+    const tabEdges = () => {
+      const more = tabs.scrollWidth - tabs.clientWidth;
+      const left = more > 1 && tabs.scrollLeft > 1;
+      const right = more > 1 && tabs.scrollLeft < more - 1;
+      tabs.classList.toggle("more-left", left);
+      tabs.classList.toggle("more-right", right);
+      const shown = left || right;
+      if (tabsMore.hidden === shown) tabsMore.hidden = !shown;
+      const arrow = right ? "›" : "‹";
+      if (shown && tabsMore.textContent !== arrow) {
+        tabsMore.textContent = arrow;
+        tabsMore.title = right ? "More tabs" : "Back to the first tabs";
+        tabsMore.setAttribute("aria-label", tabsMore.title);
+      }
+    };
+    let edgesQueued = 0;
+    tabs.addEventListener(
+      "scroll",
+      () => {
+        if (edgesQueued) return;
+        edgesQueued = requestAnimationFrame(() => {
+          edgesQueued = 0;
+          tabEdges();
+        });
+      },
+      { passive: true },
+    );
     const fitTabs = () => {
+      fitTabsOnly();
+      // The open tab in full view (a tab opened from elsewhere, as a goal's Show me, may be scrolled out of the strip).
+      const active = tabs.querySelector<HTMLElement>(".tab.active");
+      if (active && tabs.scrollWidth > tabs.clientWidth + 1) {
+        const a = active.offsetLeft - tabs.offsetLeft;
+        // (Clear of the edges' fade, 26 px.)
+        if (a < tabs.scrollLeft + 26) tabs.scrollLeft = a - 30;
+        else if (a + active.offsetWidth > tabs.scrollLeft + tabs.clientWidth - 26) tabs.scrollLeft = a + active.offsetWidth - tabs.clientWidth + 30;
+      }
+      tabEdges();
+    };
+    const fitTabsOnly = () => {
       tabs.classList.remove("short", "icons");
       if (this.trayMode !== "game" || tabs.children.length === 0 || [...tabs.children].some((t) => !(t as HTMLElement).dataset.icon)) return;
       for (const step of ["short", "icons"]) {
@@ -1080,7 +1145,7 @@ export class Hud {
     const tools = el("div", "tray-tools");
     tools.append(pens, orient);
     const head = el("div", "tray-head");
-    head.append(tools, tabs);
+    head.append(tools, tabs, tabsMore);
     fitWatch.observe(head);
     fitWatch.observe(tools);
     this.tray.append(head, scroller);

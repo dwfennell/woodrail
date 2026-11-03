@@ -1219,7 +1219,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
 // lines' routes kept through track laid at a stop, undo and redo, the stop taken up), blocker (a card's Show and Put
 // it away for an engine left in a line train's way), place-facing (an engine dragged right or left along the track by
-// touch faces that way), front-join (a wagon dropped on the front of an engine at a line end coupled on behind), feedback (☰ Report a bug or give feedback: the sheet, a failed send's Copy instead, a send to
+// touch faces that way), front-join (a wagon dropped on the front of an engine at a line end coupled on behind), tabs-reach (Sandbox's tabs at 390 px: the strip's fade and ›, every tab reached by taps), feedback (☰ Report a bug or give feedback: the sheet, a failed send's Copy instead, a send to
 // a mocked Worker whose map loads as the same railway), route-ux (the route card's UX fixes, F1–F7,
 // by taps at 360 px), route-ux-more (the roadmap's phases B and C: a route from a place's card, a stop put in the
 // middle, the ribbon's edge and arrows, tools in view on a phone on its side, the Lines view's actions, a line sent
@@ -3070,6 +3070,78 @@ async function frontJoin(ctx, p, tapSel) {
   await tapSel(".tray .tab[data-tab]");
 }
 
+/**
+ * Sandbox's tray tabs on a 390 px phone (QA 2026-11-03: ten tabs in a 246 px strip, half out of sight with no hint):
+ * the strip fades at its edge with more beyond and a › past it; by taps on the › alone (no swipe) every tab comes into
+ * full view, uncovered, and a tap on it opens it; at the end the button turns to ‹ and goes back to the first.
+ */
+async function tabsReach(p) {
+  await p.keyboard.press("Escape");
+  const strip = () => p.evaluate(() => {
+    const t = document.querySelector(".tray .tabs");
+    const r = t.getBoundingClientRect();
+    const m = document.querySelector(".tray .tabs-more");
+    const tabs = [...t.querySelectorAll(".tab")].map((x) => {
+      const b = x.getBoundingClientRect();
+      const at = [b.left + b.width / 2, b.top + b.height / 2];
+      return { id: x.dataset.tab, whole: b.left >= r.left - 1 && b.right <= r.right + 1, at, top: x.contains(document.elementFromPoint(at[0], at[1])) };
+    });
+    const mb = m && !m.hidden ? m.getBoundingClientRect() : null;
+    return { cls: t.className, more: mb ? { text: m.textContent, at: [mb.left + mb.width / 2, mb.top + mb.height / 2], top: m.contains(document.elementFromPoint(mb.left + mb.width / 2, mb.top + mb.height / 2)) } : null, tabs };
+  });
+  // (The › scrolls smoothly: measured once the strip has stopped.)
+  const settledStrip = async () => {
+    await frames(p);
+    await p.evaluate(() => { window.__stripAt = NaN; });
+    await settledOnce();
+  };
+  const settledOnce = () => p.waitForFunction(() => {
+    const t = document.querySelector(".tray .tabs");
+    const was = window.__stripAt;
+    window.__stripAt = t.scrollLeft;
+    return was === t.scrollLeft;
+  }, null, { polling: 250, timeout: 20000 });
+  await p.evaluate(() => { const t = document.querySelector(".tray .tabs"); t.scrollLeft = 0; });
+  await frames(p);
+  await settledStrip();
+  const s0 = await strip();
+  check("tabs-reach: Sandbox's tabs don't fit 390 px: the strip fades at its right and a › shows past it", s0.tabs.length >= 8 && /\bmore-right\b/.test(s0.cls) && s0.more?.text === "›" && s0.more.top, JSON.stringify({ cls: s0.cls, more: s0.more, n: s0.tabs.length }));
+  const opened = [];
+  for (const id of s0.tabs.map((t) => t.id)) {
+    for (let k = 0; k < 8; k++) {
+      const s = await strip();
+      const t = s.tabs.find((x) => x.id === id);
+      if (t.whole && t.top) break;
+      if (!s.more) break;
+      await tapped(p, () => p.touchscreen.tap(s.more.at[0], s.more.at[1]));
+      await settledStrip();
+    }
+    const t = (await strip()).tabs.find((x) => x.id === id);
+    if (!t.whole || !t.top) {
+      console.log(`(tabs-reach: ${id} not reached: ${JSON.stringify(t)})`);
+      continue;
+    }
+    await tapped(p, () => p.touchscreen.tap(t.at[0], t.at[1]));
+    await settledStrip();
+    if (await p.evaluate((id) => document.querySelector(`.tray .tab[data-tab="${id}"]`)?.classList.contains("active"), id)) opened.push(id);
+    else console.log(`(tabs-reach: ${id} tapped at ${t.at} but not opened: ${await p.evaluate(() => document.querySelector(".tray .tab.active")?.dataset.tab)})`);
+  }
+  check("tabs-reach: by taps on › alone every tab comes into full view and opens with a tap", opened.length === s0.tabs.length, JSON.stringify({ opened, all: s0.tabs.map((t) => t.id) }));
+  await p.evaluate(() => { document.querySelector(".tray .tabs").scrollLeft = 1e5; });
+  await frames(p);
+  await p.waitForTimeout(300);
+  const s1 = await strip();
+  if (s1.more) await tapped(p, () => p.touchscreen.tap(s1.more.at[0], s1.more.at[1]));
+  await settledStrip();
+  const s2 = await strip();
+  check("tabs-reach: at the end it's ‹, the strip fades at its left, and ‹ goes back", s1.more?.text === "‹" && /\bmore-left\b/.test(s1.cls) && !/\bmore-right\b/.test(s1.cls) && /\bmore-right\b/.test(s2.cls), JSON.stringify({ s1: { cls: s1.cls, more: s1.more?.text }, s2: s2.cls }));
+  // (The Track tab back, as the checks before found the tray.)
+  await p.evaluate(() => { document.querySelector(".tray .tabs").scrollLeft = 0; });
+  await frames(p);
+  const track = (await strip()).tabs[0];
+  await tapped(p, () => p.touchscreen.tap(track.at[0], track.at[1]));
+}
+
 async function showBlocker(ctx, p) {
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 360, height: 740 });
@@ -4407,7 +4479,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), "front-join": () => frontJoin(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), "front-join": () => frontJoin(ctx, p, tapOn), "tabs-reach": () => tabsReach(p), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;
