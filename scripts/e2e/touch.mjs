@@ -4253,7 +4253,7 @@ async function routeUxMore(ctx, p) {
 }
 
 /** A phone's page in `mode`, on the map past the title and the first visit's help: what every group starts from. */
-async function openMode(mode) {
+async function openMode(mode, { settle = false } = {}) {
   await boot();
   const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -4278,11 +4278,14 @@ async function openMode(mode) {
     document.querySelector(".coach:not([hidden]) .coach-skip")?.click();
   });
   await p.waitForFunction(() => { const h = document.querySelector(".help"); return !h || h.hidden || getComputedStyle(h).display === "none"; }, null, { timeout: 60000 });
-  // Let the new page settle (its first frames compile shaders and build the map, a second or more each on SwiftShader):
-  // a group run first on a page, alone or with E2E_FRESH, would otherwise tap a piece before it can be picked, or glide
-  // the view while the opening glide is still under way. (In a full run the shelves' taps gave it that time.)
-  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
-  await frames(p);
+  // A group other than the shelves first on the page (alone, or with E2E_FRESH): let the new page settle first (its
+  // first frames compile shaders and build the map, a second or more each on SwiftShader), or it taps a piece before it
+  // can be picked, or glides the view while the opening glide is under way. (In a full run the shelves' taps come
+  // first, as ever: not settled, as the full run always was, so its views are where they always were.)
+  if (settle) {
+    await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+    await frames(p);
+  }
   const tapOn = async (selector) => {
     // (On a phone the favourites come first: a shelf may be scrolled out of view.)
     await p.evaluate((sel) => document.querySelector(sel)?.scrollIntoView({ inline: "center" }), selector);
@@ -4381,11 +4384,11 @@ const closeFixture = async () => {
   openContext = null;
   fixture = null;
 };
-const inMode = (mode, fn) => async () => {
+const inMode = (mode, fn, { settle = true } = {}) => async () => {
   if (!fixture || fixture.mode !== mode || FRESH) {
     await closeFixture();
     try {
-      fixture = await openMode(mode);
+      fixture = await openMode(mode, { settle });
     } catch (e) {
       // (As before the groups: a page that can't open fails "<mode>: ran to the end".)
       await closeFixture();
@@ -4395,9 +4398,9 @@ const inMode = (mode, fn) => async () => {
   }
   await fn(fixture);
 };
-suite.add("sandbox-shelves", inMode("sandbox", (f) => shelves(f)));
+suite.add("sandbox-shelves", inMode("sandbox", (f) => shelves(f), { settle: false }));
 for (const [name, fn] of Object.entries(SANDBOX)) suite.add(name, inMode("sandbox", (f) => step(name, f.p, () => fn(f))));
-suite.add("game-shelves", inMode("game", (f) => shelves(f)));
+suite.add("game-shelves", inMode("game", (f) => shelves(f), { settle: false }));
 await suite.run();
 await closeFixture();
 check("no page errors", errors.length === 0, errors.join(" | "));

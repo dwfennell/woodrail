@@ -41,7 +41,8 @@ the comment above `openGroundScript` says what each is) and `game-shelves`. The 
 before, opened when the first of them that runs needs it (after `sandbox-shelves`'s taps, or without them when that one
 is cached or not selected); each one's `step` takes up what it laid. With `E2E_FRESH=1` each opens a page of its own:
 a full run that way shows no group leans on one before it. (It found two that did: a group run first on a new page
-tapped before the page had settled, so `openMode` now waits for `settled()`; and select-drag was within reach of its
+tapped before the page had settled, so `openMode` waits for `settled()` when a group other than the shelves opens
+the page (not in a full run: settling first moves the opening view, and the Sandbox checks after it ran 30 min slower); and select-drag was within reach of its
 piece only from the view map-taps left, so it now zooms in itself.)
 
 **click** (`scripts/e2e/click-place.mjs`): `desktop`, `model-train`, `tight-curves`, `feedback`, `fullscreen`,
