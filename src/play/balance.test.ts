@@ -1,4 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
+import { MAP_TAG } from "../persist/bug-map";
+import { serializeWorld } from "../persist/save";
 import { Editor } from "../editor/editor";
 import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
@@ -1538,6 +1542,18 @@ export function invariantsAgainst(checks: Invariants, known: Partial<Record<Inva
   };
 }
 
+/** The player's world, progress, goals and stickers as a copied map (the keys `mapText` copies), to a file. */
+function writePerfMap(file: string, p: Player): void {
+  const keys: Record<string, string> = {
+    "woodrail.game.v2": JSON.stringify(serializeWorld(p.w)),
+    "woodrail.game.progress.v1": JSON.stringify(p.progress.toJSON()),
+    "woodrail.game.goals.v1": JSON.stringify(GOALS.filter((g) => p.goals.isDone(g.id)).map((g) => g.id)),
+    "woodrail.game.stickers.v1": JSON.stringify(p.stickers.ids()),
+    "woodrail.game.started": "1",
+  };
+  writeFileSync(file, MAP_TAG + gzipSync(JSON.stringify({ mode: "game", keys })).toString("base64") + "\n");
+}
+
 function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, part: string): Playthrough {
   const P = new Playthrough(true, true);
   const t0 = performance.now();
@@ -1548,6 +1564,9 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
     throw e;
   }
   const seconds = (performance.now() - t0) / 1000;
+  // PERF_MAP_OUT=<file>: the world at the end, written as a copied map (`woodrail-map:1:…`), a late-game map made by
+  // the player's path for the perf harness (tools/perf/maps/, see docs/agents/perf.md).
+  if (ENV.PERF_MAP_OUT) writePerfMap(ENV.PERF_MAP_OUT, P.p);
   console.log(`${part} goals play-through: ${minutes} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}; invariants ${P.p.checks!.summary() || "held"}`);
   console.log(
     `${part} stickers ${P.p.stickers.count}/${P.p.stickers.total}: ${[...P.p.stickersAt].map(([id, m]) => `${id} ${m.toFixed(0)}`).join(", ") || "-"}; ${((1000 * P.p.stickerMs) / Math.max(1, P.p.stickerChecks)).toFixed(1)} µs a check over ${P.p.stickerChecks}`,
