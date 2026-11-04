@@ -42,11 +42,22 @@ export interface HeldPiece {
  *
  * Returns one entry per tree, in order: where it stands now, or null if it has been taken away.
  */
-export function treesAside(grid: LandscapeGrid, layout: Layout, trees: readonly TreeSpot[], held?: HeldPiece): (TreeSpot | null)[] {
-  const c = new TreeClearance(grid, trees);
+export function treesAside(grid: LandscapeGrid, layout: Layout, trees: readonly TreeSpot[], held?: HeldPiece, yards?: YardsOf): (TreeSpot | null)[] {
+  const c = new TreeClearance(grid, trees, yards);
   c.setLayout(layout);
   return c.spots(held);
 }
+
+/** A rectangle in a piece's own frame (x along it, z across): a depot's or kit's yard (`Footprint`'s shape). */
+export interface YardRect {
+  readonly cx: number;
+  readonly cz: number;
+  readonly hw: number;
+  readonly hd: number;
+}
+
+/** A piece type's yard beside its track (a depot's buildings and piles, a kit's platform), or null: none. */
+export type YardsOf = (type: PieceTypeId) => readonly YardRect[] | null;
 
 /** `treesAside` for one map, keeping the placed track's sample points between calls (while a piece is held). */
 export class TreeClearance {
@@ -61,6 +72,8 @@ export class TreeClearance {
   constructor(
     private readonly grid: LandscapeGrid,
     private readonly trees: readonly TreeSpot[],
+    /** Pieces' yards, which trees keep off as they do track (none given: track only). */
+    private readonly yards?: YardsOf,
   ) {}
 
   /** Points along all the track now (see `trackPoints`), bucketed: kept for others who keep clear of track too. */
@@ -71,6 +84,12 @@ export class TreeClearance {
   /** Call when the layout changes. */
   setLayout(layout: Layout): void {
     this.track = trackPoints(layout);
+    if (this.yards)
+      for (const id of layout.pieceIds()) {
+        if (layout.isLifted(id)) continue;
+        const p = layout.getPiece(id)!;
+        addYardPoints(this.track, this.yards(p.type), p.pose);
+      }
     this.base = null;
   }
 
@@ -81,7 +100,10 @@ export class TreeClearance {
   spots(held?: HeldPiece): (TreeSpot | null)[] {
     const { trees, track } = this;
     const extra = new Map<number, number[]>();
-    if (held) addTrackPoints(extra, held.type, held.flipped, held.pose);
+    if (held) {
+      addTrackPoints(extra, held.type, held.flipped, held.pose);
+      if (this.yards) addYardPoints(extra, this.yards(held.type), held.pose);
+    }
     if (track.size === 0 && extra.size === 0) return trees.map((t) => t);
     const base = this.baseSpots();
     if (extra.size === 0) return base.final.slice();
@@ -267,6 +289,35 @@ export function addTrackPoints(buckets: Map<number, number[]>, type: PieceTypeId
     for (let k = 0; k <= n; k++) {
       samplePath(path.geom, (len * k) / n, sample);
       add(pose.x + sample.x * ch - sample.z * sh, pose.z + sample.x * sh + sample.z * ch);
+    }
+  }
+}
+
+/**
+ * Add points over a piece's yard rectangles to buckets, inset by half the track's width: a tree keeps
+ * `TREE_CLEARANCE` from each, so its crown stays clear of the yard's edge as it does of the track's.
+ */
+function addYardPoints(buckets: Map<number, number[]>, rects: readonly YardRect[] | null, pose: Pose): void {
+  if (!rects) return;
+  const ch = Math.cos(pose.heading);
+  const sh = Math.sin(pose.heading);
+  const inset = TRACK_WIDTH / 2;
+  for (const r of rects) {
+    const hw = Math.max(0, r.hw - inset);
+    const hd = Math.max(0, r.hd - inset);
+    const nx = Math.max(1, Math.ceil((2 * hw) / STEP));
+    const nz = Math.max(1, Math.ceil((2 * hd) / STEP));
+    for (let i = 0; i <= nx; i++) {
+      for (let k = 0; k <= nz; k++) {
+        const lx = r.cx - hw + (2 * hw * i) / nx;
+        const lz = r.cz - hd + (2 * hd * k) / nz;
+        const x = pose.x + lx * ch - lz * sh;
+        const z = pose.z + lx * sh + lz * ch;
+        const key = bucketKey(Math.floor(x / BUCKET), Math.floor(z / BUCKET));
+        let list = buckets.get(key);
+        if (!list) buckets.set(key, (list = []));
+        list.push(x, z);
+      }
     }
   }
 }

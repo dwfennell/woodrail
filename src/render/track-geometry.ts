@@ -18,6 +18,7 @@ import {
   GROOVE_SPACING,
   GROOVE_WIDTH,
   canStandOnArches,
+  isTunnelMouth,
   pathLength,
   RISER_HEIGHT,
   samplePath,
@@ -407,7 +408,7 @@ export function buildPieceShadowCaster(def: PieceDef): BufferGeometry {
  * (its block), a switch or crossing (several paths), a joiner (all peg).
  */
 export function hasFarVersion(def: PieceDef): boolean {
-  if (def.paths.length !== 1 || def.connectors.length !== 2 || def.supportHeight > 0 || canStandOnArches(def.type) || def.type === "underpass" || def.type === "joiner") return false;
+  if (def.paths.length !== 1 || def.connectors.length !== 2 || def.supportHeight > 0 || canStandOnArches(def.type) || def.type === "underpass" || isTunnelMouth(def.type) || def.type === "joiner") return false;
   const p = def.paths[0];
   if (p.to === null) return false;
   const g = p.geom;

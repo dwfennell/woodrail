@@ -114,6 +114,11 @@ export const saveSchema = z.object({
        */
       modes: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.enum(STORE_MODES as [StoreMode, ...StoreMode[]])).optional(),
       others: z.enum(STORE_MODES as [StoreMode, ...StoreMode[]]).optional(),
+      /**
+       * A workshop's keep amounts set on its card, by kind (`DepotState.keeps`). Optional: absent (older saves, and a
+       * workshop never set), the game's own amounts. No new save version: it's simply missing from an older save.
+       */
+      keeps: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.number().int().min(0).max(MAX_PILE)).optional(),
       /** Of its piles, what's landed there for trains to take away (a harbour's bought goods), in cargo order. */
       landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_KINDS.length).optional(),
       /** A station's van yard (roads spec D5): goods waiting for its delivery van (or riding it), by kind. */

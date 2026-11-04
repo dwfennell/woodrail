@@ -47,9 +47,9 @@ import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
-import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
+import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
-import { schoolYardHtml, WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
+import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { copyLine, editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseStops, sameLines, snapshotLines, stopLine, trainsOn } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
@@ -74,7 +74,7 @@ import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pil
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
-import { CARRIES, COIN_ICON } from "./economy/cargo";
+import { CARGO, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
@@ -360,6 +360,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     ed.onPropsChange = () => {
       game.propsChanged();
+      // (A tree planted or taken up beside a harvester: its rate, and its card's count.)
+      industriesChanged();
+      interaction.redrawDepotCard();
       hud.setHistory(ed.canUndo, ed.canRedo);
       if (mode === "game") hud.refreshTrayBadges();
       scheduleSave();
@@ -479,6 +482,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
+      leaveNow: () => leaveNow(),
       decouple: () => decouple(),
       emptyCar: () => emptyCars(false),
       emptyTrain: () => emptyCars(true),
@@ -803,7 +807,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (One placed short of what it works from, trees for a harvester or a farm field for a farm yard, works slowly or
     // not at all, as in Game mode, which won't let it be placed so: the card says so in Game mode's words.)
     const piece = game.layout.getPiece(d.pieceId);
-    const site = piece && view.state !== null && ![...game.world.depots.values()].includes(d.pieceId) ? siteWhy(game.landscape, piece.type, piece.pose) : null;
+    const site = piece && view.state !== null && ![...game.world.depots.values()].includes(d.pieceId) ? siteWhy(game.landscape, piece.type, piece.pose, undefined, plantedCells(game.landscape, game.world.props)) : null;
     hud.setDepotChain({ status: site ?? stateWords(view), tone: site ? "waiting" : view.state, rows: chainRows(view, (o) => depotName(game.world, o), (k) => GOODS_ICON[k]) });
     const at = placeOfDepot(d);
     const lines: HintLine[] = [];
@@ -1097,7 +1101,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!site || site.cleared || mode !== "game") return;
     interaction.clearSelection();
     ruinShown = siteId;
-    hud.showRuinCard({ ...ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)), reach: canReach(siteId) ? null : RUIN_NO_WAY });
+    hud.showRuinCard({ ...ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id), workshopStock(game.world)), reach: canReach(siteId) ? null : RUIN_NO_WAY });
     audio.tap();
   }
   interaction.onRuinTap = openRuin;
@@ -1428,7 +1432,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // Back online: what's waiting goes up.
   addEventListener("online", () => void cloud?.flush());
 
-  const title = new TitleScreen(document.body, { play }, { thumbnails });
+  /**
+   * The title's "Load a cloud save" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
+   * it. Loaded, the game starts on that railway (Game's, else Sandbox's).
+   */
+  let titleCloud: CloudCard | null = null;
+  const loadCloud = cloud
+    ? () => {
+        titleCloud ??= new CloudCard(title.root, cloud, {
+          mode: () => "game",
+          reload: () => reloadInto(hasSave("game") ? "game" : "sandbox"),
+          toast: (m) => hud.toast(m),
+        });
+        title.root.classList.add("cloud-open");
+        titleCloud.showEntry(() => title.root.classList.remove("cloud-open"));
+      }
+    : undefined;
+  const title = new TitleScreen(document.body, { play, loadCloud }, { thumbnails });
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
   let pausedBeforeTitle = false;
@@ -2031,6 +2051,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
+  /** How the yards look (`industriesChanged`), as last drawn: null, never drawn by it. */
+  let industryLook: string | null = null;
   function industriesChanged(): void {
     const added = syncIndustries(game.world, mode === "game");
     let key = "";
@@ -2039,9 +2061,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (INDUSTRY_ROLE[p.type]) key += `${id}:${p.pose.x},${p.pose.z},${p.pose.heading};`;
     }
     // Upgrades put a machine in their yards (Game mode): the yards are drawn again when one is learned.
-    key += `#${mode === "game" ? upgradeKey(progress) : ""}`;
     // Schools wear what they've grown into (a college, a library wing): drawn again only when that changes.
-    key += `#${mode === "game" ? schoolGradesKey(game.world, progress.learned) : ""}`;
+    // (How every yard looks: all drawn again when it changes; a placement alone redraws only its own.)
+    const look = `#${mode === "game" ? upgradeKey(progress) : ""}#${mode === "game" ? schoolGradesKey(game.world, progress.learned) : ""}`;
+    key += look;
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     // A town's touches of life grow in number with its level (Game mode's; Sandbox's towns go by their size).
     if ((game.touchLevel !== null) !== (mode === "game")) {
@@ -2051,7 +2074,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.depotView.building = schoolHouse;
     game.depotView.catalogueModel = yardModel;
     if (added || key !== industryKey) {
-      game.depotView.setWorld(game.economy, game.layout);
+      if (look === industryLook) game.depotView.syncSites(game.economy, game.layout);
+      else game.depotView.setWorld(game.economy, game.layout);
+      industryLook = look;
       // (An open card's chain names the nearest places: one placed or taken up may change them.)
       if (key !== industryKey) interaction.redrawDepotCard();
     }
@@ -2059,7 +2084,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     else if (game.depotView.syncStations(game.economy, game.layout)) game.invalidate();
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
-    const rateKey = `${key}#${game.landscape.grid.revision}#${mode === "game" ? upgradeKey(progress) : ""}`;
+    // (Props too: trees planted from Nature count for a harvester.)
+    const rateKey = `${key}#${game.landscape.grid.revision}#${game.world.props.version}#${mode === "game" ? upgradeKey(progress) : ""}`;
     if (rateKey !== rateKeyShown) {
       rateKeyShown = rateKey;
       if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
@@ -2094,7 +2120,32 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWorkshop();
       scheduleSave();
     },
+    // Its keep steppers: a step from the number shown, or back to the game's own (Auto). Only the card is drawn again.
+    keep: (kind, step) => {
+      const d = game.economy.depot(interaction.openDepotId);
+      if (d?.role !== "workshop") return;
+      const row = keepRowsOf(d).find((r) => r.kind === kind);
+      if (!row) return;
+      game.economy.setKeep(d.id, kind, step === "auto" ? null : row.n + step);
+      showWorkshop();
+      scheduleSave();
+    },
   }, hud.depotYard);
+  /**
+   * The workshop's keep steppers: planks (the game's own: its spare, `yardSpare`), and iron once a foundry's known or
+   * the yard holds some (the game's own: all of it).
+   */
+  function keepRowsOf(d: DepotState): KeepRow[] {
+    const cap = capAt(d);
+    const rows: KeepRow[] = [];
+    const planks = d.keeps[CARGO.planks.index];
+    rows.push({ kind: "planks", label: "planks", n: Math.min(cap, planks ?? yardSpare.planks), set: planks !== null, max: cap, auto: "Auto" });
+    if (progress.knows("piece:depot-foundry") || d.piles[CARGO.iron.index] > 0) {
+      const iron = d.keeps[CARGO.iron.index];
+      rows.push({ kind: "iron", label: "iron", n: iron ?? cap, set: iron !== null, max: cap, auto: "All" });
+    }
+    return rows;
+  }
   // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
     pick: (id) => picked(id, toggleQueue),
@@ -2176,6 +2227,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Delivery vans: each station serving a town off the line by road gets its van now.
     if (id === "vans") deliveryVans.sync();
     if (id === "buses") buses.sync();
+    if (id === "tunnels") game.setTunnels(true);
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
     // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
@@ -2520,7 +2572,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Planks the yard keeps with no order: enough for the next industry (`shopSpare`; worked out once a second). */
   let yardSpare = shopSpare(progress);
   /** What the workshop's yard takes while a town on the line wants planks: its order's, or the spare (`yardKeeps`). */
-  const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress, yardSpare.planks) : null);
+  /**
+   * The yard's own keep amount (its card's stepper, `DepotState.keeps`) or, not set, the game's: planks, the spare; other
+   * goods, none (it takes them all). A waiting order's planks still come first (`yardKeeps`).
+   */
+  const shopKeeps = (kind: CargoKind, d: DepotState) => {
+    const set = d.keeps[CARGO[kind].index];
+    return kind === "planks" ? yardKeeps(progress, set ?? yardSpare.planks) : set;
+  };
   /** Stone the workshop takes from trains: only as much as a harbour's price still needs there (`shopOwes`). */
   const owes = (kind: CargoKind) => shopOwes(game.world, progress, kind);
   /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid, a harbour built or restored). */
@@ -2877,6 +2936,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (workshopShown !== id || force) workshopPanel.hide();
     workshopShown = id;
     const rows: MakeRow[] = [];
+    // (What the workshops hold: a price's stone already there isn't said to be needed.)
+    const stock = workshopStock(game.world);
     const SHELVES = ["Track", "Trains", "Industries", "Railway"];
     for (const tid of Object.keys(THING_RULES) as ThingId[]) {
       if (!progress.knows(tid) || isFree(tid)) continue;
@@ -2890,7 +2951,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : RAILWAY_THINGS.has(tid) ? "Railway" : "Track",
         // A second engine before Signals: said, not barred (on a line of its own it runs fine).
         // (A harbour's stone: where it goes, "Needs 10🪨 at the workshop".)
-        note: makeNote(progress, tid) ?? owedText(rule.cost),
+        note: makeNote(progress, tid) ?? owedText(rule.cost, stock),
       });
     }
     rows.sort((a, b) => SHELVES.indexOf(a.shelf) - SHELVES.indexOf(b.shelf));
@@ -2903,14 +2964,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const yard = game.economy.depot(id)!;
     // What the planks it keeps are for: its waiting order, or the next industry (`shopSpare`); none if the yard
     // holds fewer, or it's only the spare.
-    const keeps = yardKeeps(progress, yardSpare.planks);
-    const keptFor = keeps > capAt(yard) ? null : orderPlanks(progress) >= yardSpare.planks ? progress.orders[0] : yardSpare.for;
+    // (Or the number set on its stepper: then what they're for is said only for a waiting order needing more.)
+    const set = yard.keeps[CARGO.planks.index];
+    const spare = set ?? yardSpare.planks;
+    const keeps = yardKeeps(progress, spare);
+    const keptFor = keeps > capAt(yard) ? null : orderPlanks(progress) >= spare ? progress.orders[0] : set === null ? yardSpare.for : null;
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows, {
       takesAll: yard.takesAll,
       keeps: Math.min(keeps, capAt(yard)),
       keptFor: keptFor ? thingLabel(keptFor) : undefined,
       cap: capAt(yard),
       school: game.economy.allDepots().some((d) => d.role === "school" && d.takesAll),
+      keepRows: keepRowsOf(yard),
     });
   }
 
@@ -3008,6 +3073,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (found) hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     game.invalidate();
     onChange();
+  }
+
+  /**
+   * Leave now (the engine card, waiting for a full load): it goes on with what it has. This stop only, and nothing to
+   * undo or save (`Economy.leaveNow`).
+   */
+  function leaveNow(): void {
+    const carId = interaction.openEngineCarId;
+    const found = carId === -1 ? null : game.sim.findCar(carId);
+    if (!found || !game.economy.leaveNow(found.train.id)) return;
+    hud.setLeaveNow(false);
+    game.invalidate();
   }
 
   /** Why a train can't move at all, where engines have their limits (Game mode); in Sandbox any train can go. */
@@ -3151,6 +3228,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
     // Waiting to turn back where the track ends: Continue sends it on now.
     hud.setContinue(canContinue(game.sim, game.economy, carId));
+    // Waiting under the crane for a full load: Leave now sends it on with what it has.
+    hud.setLeaveNow(game.economy.waitingToFill(found.train.id) !== null);
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go
@@ -3184,6 +3263,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const b = viewBlocker.shown;
     hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
+    // A line with a train too many: Remove beside the status (with the status it belongs to).
+    if (status === latest) hud.setCrowded(!!view.crowded);
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
     let angle = 0;
@@ -4921,9 +5002,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
     // (A school stands beside a town, one a town: the one being moved doesn't count against itself.)
     interaction.siteRule =
-      mode === "game" ? (type, pose, ignoreId) => siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id))) ?? haltWhy(game.landscape, type, pose) : null;
+      mode === "game" ? (type, pose, ignoreId) => siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id)), plantedCells(game.landscape, game.world.props)) ?? haltWhy(game.landscape, type, pose) : null;
+    // Tunnels: learned in Game mode, always in Sandbox.
+    game.setTunnels(mode === "sandbox" || progress.learned.has("tunnels"));
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
+    interaction.tunnelStock = mode === "game" ? () => pieceStock("tunnel-mouth-short") : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
     // Road squares cost coins (Game mode's Roads blueprint): a square beyond those in the box is bought as it goes down.
     interaction.roadTill = mode === "game" ? { refuse: (added) => roadRefusal(added) } : null;

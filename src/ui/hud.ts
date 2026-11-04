@@ -20,6 +20,7 @@ import { pillCount, pillText, type PillView } from "../game/research-text";
 export { trayKey, type TrayItem } from "./tray-catalogue";
 import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
+import { CreditsSheet } from "./credits-sheet";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -61,6 +62,8 @@ export interface HudHandlers {
   swapEnds(): void;
   /** The engine card, waiting to turn back where the track ends: turn round now and run on to the next stop. */
   continueOn(): void;
+  /** The engine card, waiting for a full load: go now with what it has (this stop only). */
+  leaveNow(): void;
   /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
   decouple(): void;
   /** The wagon card's Empty: tip its goods out (thrown away), while its train stands. */
@@ -326,6 +329,8 @@ export class Hud {
   private readonly depotStock = el("div", "depot-stock");
   /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
   private readonly depotHelp = el("div", "card-hint depot-help");
+  /** What the crane's toggles do now, in words (their tooltips never show on a phone). */
+  private readonly depotModeHint = el("div", "card-hint depot-mode-hint");
   /** Sandbox's chain hints on a depot card: how it's doing, and where its goods come from and go (`setDepotChain`). */
   private readonly depotChain = el("div", "depot-chain");
   /** The ☰ menu's Chain hints switch (Sandbox only). */
@@ -349,9 +354,14 @@ export class Hud {
    */
   private readonly blockerRow = el("div", "engine-blocker");
   private readonly showBlockerBtn: HTMLButtonElement;
+  /** The engine card's Remove (marked as the quick fix while its line has a train too many: `setCrowded`). */
+  private engineRemoveBtn!: HTMLButtonElement;
+  private crowdShown = false;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
+  /** Leave now (see `setLeaveNow`): a train waiting for a full load goes with what it has. Continue's row and look. */
+  private readonly leaveNowBtn: HTMLButtonElement;
   /** Swap ends and Decouple (the engine card's), and the wagon card's Decouple: greyed where they'd be refused. */
   private readonly swapBtn: HTMLButtonElement;
   private readonly engineDecoupleBtn: HTMLButtonElement;
@@ -393,6 +403,8 @@ export class Hud {
     this.openReport();
   }, "menu-item");
   private readonly reportCard = el("div", "card report-card");
+  /** ☰ Credits (made the first time it's opened). */
+  private credits: CreditsSheet | null = null;
   /** The menu's "Copy map for a bug report" (with "Report a bug or give feedback" before it, in a build that can send). */
   private readonly copyMapItem = button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
     this.menu.hidden = true;
@@ -610,6 +622,10 @@ export class Hud {
         this.help.hidden = true;
         this.coach.start(false);
       }, "menu-item"),
+      button("Credits", "What Woodrail is made with, and their licences", () => {
+        this.menu.hidden = true;
+        (this.credits ??= new CreditsSheet(this.root)).show();
+      }, "menu-item credits-item-btn"),
       sep(),
       button("Title screen", "Save and go back to the title screen", () => {
         this.menu.hidden = true;
@@ -657,6 +673,8 @@ export class Hud {
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
     this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
     this.continueBtn.hidden = true;
+    this.leaveNowBtn = button("Leave now ▸", "Stop waiting for a full load and go on with what it has (this stop only)", h.leaveNow, "chip text primary leave-now");
+    this.leaveNowBtn.hidden = true;
     // Swap ends, Decouple and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): under Go and
     // the arrow, or beside them on a phone on its side (style.css).
     this.swapBtn = button("Swap ends", SWAP_TITLE, h.swapEnds, "chip text swap-ends");
@@ -665,9 +683,9 @@ export class Hud {
     engineActions.append(
       this.swapBtn,
       this.engineDecoupleBtn,
-      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove"),
+      (this.engineRemoveBtn = button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove")),
     );
-    controls.append(this.goBtn, this.wayBtn, this.continueBtn, engineActions);
+    controls.append(this.goBtn, this.wayBtn, this.continueBtn, this.leaveNowBtn, engineActions);
     this.engineCard.appendChild(controls);
     this.engineExtra.hidden = true;
     this.engineCard.appendChild(this.engineExtra);
@@ -732,7 +750,7 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotModeHint, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.root.appendChild(this.depotCard);
 
@@ -1845,6 +1863,16 @@ export class Hud {
     this.showBlockerBtn.setAttribute("aria-label", title);
   }
 
+  /**
+   * The open engine's line has a train too many (`engineView`'s `crowded`): its Remove is marked as the quick fix the
+   * status names ("…, or remove a train"). (Leaving the line wouldn't do: the train still stands on its one track.)
+   */
+  setCrowded(on: boolean): void {
+    if (on === this.crowdShown) return;
+    this.crowdShown = on;
+    this.engineRemoveBtn.classList.toggle("suggested", on);
+  }
+
   setGoNow(on: boolean): void {
     if (on === this.goNow) return;
     this.goNow = on;
@@ -1855,6 +1883,12 @@ export class Hud {
   setContinue(on: boolean): void {
     if (on === !this.continueBtn.hidden) return;
     this.continueBtn.hidden = !on;
+  }
+
+  /** Waiting under the crane for a full load (`Economy.waitingToFill`): Leave now shows. */
+  setLeaveNow(on: boolean): void {
+    if (on === !this.leaveNowBtn.hidden) return;
+    this.leaveNowBtn.hidden = !on;
   }
 
   /**
@@ -2128,7 +2162,7 @@ export class Hud {
   /** Offer Cloud save in the menu (the build has a cloud to save to: `VITE_CLOUD_URL`). */
   addCloudItem(onTap: () => void): void {
     this.linesItem.after(
-      button("☁ Cloud save", "Keep your railway online, and carry on on another device", () => {
+      button("☁ Cloud save", "Save online, or load your railway from another device", () => {
         this.menu.hidden = true;
         onTap();
       }, "menu-item"),
@@ -2260,6 +2294,9 @@ export class Hud {
     this.depotWaitBtn.hidden = waitFull === null;
     setToggle(this.depotWaitBtn, !!waitFull);
     this.depotWaitBtn.disabled = !auto;
+    const mode = depotModeText(auto, waitFull);
+    if (this.depotModeHint.textContent !== mode) this.depotModeHint.textContent = mode;
+    this.depotModeHint.hidden = !mode;
   }
 
   /** The ☰ Chain hints item's words. */
@@ -2953,4 +2990,14 @@ export class Hud {
     const r = this.tray.getBoundingClientRect();
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   }
+}
+
+/**
+ * The line under a depot card's toggles saying what they do now (playthrough: "Wait for a full load" went unexplained
+ * as you got going). Only where the card has both toggles (an industry that gives goods).
+ */
+export function depotModeText(auto: boolean, waitFull: boolean | null): string {
+  if (waitFull === null) return "";
+  if (!auto) return "Trains run straight through; move cargo by hand.";
+  return waitFull ? "Trains wait under the crane till every wagon is full." : "Trains take what's ready and go on.";
 }

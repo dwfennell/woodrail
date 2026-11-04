@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_NONE, FEAT_STATION, FEAT_TREE, PLOT_COLS, PLOT_DEPTH, PLOT_ROWS, PLOT_WIDTH, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_SAND, SURF_SEA, type LandscapeGrid } from "./grid";
-import { adoptRegion, corridorCells, fixedHome, generateLandscape, generatePlot, generateRegion, reachable, stationEnds, type Landscape } from "./generate";
+import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_NONE, FEAT_STATION, FEAT_TREE, PLOT_COLS, PLOT_DEPTH, PLOT_ROWS, PLOT_WIDTH, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_SAND, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { adoptRegion, corridorCells, fixedHome, generateLandscape, generatePlot, generateRegion, OLD_STARTER_TOWNS, reachable, STARTER_TOWNS, stationEnds, type Landscape } from "./generate";
 import { BORDER_BAND, edgeContract, STUB_DEPTH } from "./edges";
 
 const SEEDS = Array.from({ length: 200 }, (_, i) => i + 1);
@@ -100,14 +100,27 @@ describe("generateLandscape", () => {
     }
   });
 
-  it("starter maps have five towns", () => {
-    expect(generateLandscape(7, { starter: true }).towns).toHaveLength(5);
+  it("starter maps have four towns: of five placed, the one nearest the middle of the first line is dropped", () => {
+    const land = generateLandscape(7, { starter: true });
+    expect(land.towns).toHaveLength(STARTER_TOWNS);
+    expect(land.towns.map((t) => t.name)).toEqual(["Larkfield", "Elderwick", "Thimble Cross", "Brambleton"]);
+    expect(land.towns.map((t) => t.id)).toEqual([0, 1, 2, 3]);
+    // As older builds made it (an old save's start, made again): all five, the rest of the map the same.
+    const old = generateLandscape(7, { starter: true, starterTowns: OLD_STARTER_TOWNS });
+    expect(old.towns.map((t) => t.name)).toEqual(["Larkfield", "Elderwick", "Thimble Cross", "Ashcombe", "Brambleton"]);
+    expect(land.depots).toEqual(old.depots);
+    for (const t of land.towns) expect(t.centre).toEqual(old.towns.find((o) => o.name === t.name)!.centre);
+    // Where Ashcombe stood is the player's: no town, station or town ground there.
+    const g = land.grid;
+    const at = g.cellAtWorld(-324, -828);
+    expect(g.feature[at]).not.toBe(FEAT_STATION);
+    expect(g.surface[at]).not.toBe(SURF_TOWN);
   });
 
   // Game mode's first game is seed 7; later games are starter maps from any seed.
   it.each([7, 1000, 8919, 72271, 230651])("starter maps (seed %i) line up the sawmill, towns 0 and 1 and the forest yard with a clear strip along them", (seed) => {
     const land = generateLandscape(seed, { starter: true });
-    expect(land.towns).toHaveLength(5);
+    expect(land.towns).toHaveLength(STARTER_TOWNS);
     expect(land.depots.map((d) => d.kind).sort()).toEqual(["forest", "sawmill"]);
     expect(reachable(land)).toBe(true);
     const [a, b] = land.towns;

@@ -1,3 +1,4 @@
+import { yardParts } from "../game/depot-footprint";
 import type { CargoKind } from "../economy/cargo";
 import {
   BoxGeometry,
@@ -588,7 +589,7 @@ export class LandscapeView {
   private buildTrees(): void {
     this.treeHop?.dispose();
     const trees = treePlacements(this.land);
-    this.clearance = new TreeClearance(this.land.grid, trees);
+    this.clearance = new TreeClearance(this.land.grid, trees, yardParts);
     const spot = (t: TreePlacement): Required<TreeAt> => ({ x: t.x, z: t.z, y: t.y, s: 1 });
     this.treeAnim = { shown: trees.map(spot), from: trees.map(spot), to: trees.map(spot), progress: new Float32Array(trees.length).fill(1) };
     // Tiles whose trees haven't changed (all but those of new plots) are kept, moved over from the old group.

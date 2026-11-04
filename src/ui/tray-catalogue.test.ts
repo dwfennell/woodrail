@@ -24,7 +24,7 @@ describe("tray tabs", () => {
 
   it("bridges are a shelf of the Track tab", () => {
     const track = TRAY_TABS.find((t) => t.id === "track")!;
-    expect(track.groups.find((g) => g.label === "Bridges")!.items.map(trayKey)).toEqual(["piece:bridge", "piece:bridge-curve", "piece:underpass"]);
+    expect(track.groups.find((g) => g.label === "Bridges")!.items.map(trayKey)).toEqual(["piece:bridge", "piece:bridge-curve", "piece:underpass", "piece:tunnel-mouth-short", "piece:tunnel-mouth"]);
     expect(TRAY_TABS.some((t) => t.id === "bridges")).toBe(false);
   });
 });

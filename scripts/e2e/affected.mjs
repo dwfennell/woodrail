@@ -120,7 +120,7 @@ export const RULES = [
   [["src/render/ruins-view.ts", "src/render/goal-marks.ts", "src/render/halt-reach-view.ts"], ["sites", "big-stations"]],
   ["src/render/thumbnails.ts", ["tray", "names"]],
   ["src/render/train-models.ts", ["train-parts", "train-summary", "hopper-load"]],
-  [["src/render/track-geometry.ts", "src/render/piece-carve.ts"], ["low-bridge", "ramps"]],
+  [["src/render/track-geometry.ts", "src/render/piece-carve.ts"], ["low-bridge", "ramps", "tunnels"]],
   // The main thread's carver, loaded on its own (join pieces carved when first wanted): the tray's pictures, joints.
   ["src/render/carver.ts", ["tray", "joints"]],
   ["src/render/chain-hints-view.ts", ["sandbox-chains"]],

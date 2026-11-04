@@ -5,6 +5,12 @@ import { showCode } from "../persist/sync-code";
 /** How long Turn off waits for its second tap (ms). */
 const ASK_MS = 4000;
 
+/**
+ * The way to a railway saved on another device, the same in both states (cloud off or on) and first on the card
+ * (playthrough: "I have a code" / "Use a different code" didn't read as loading a save).
+ */
+export const LOAD_LABEL = "Load a save from another device";
+
 const ERRORS: Record<Extract<UseCodeResult, { ok: false }>["error"], string> = {
   malformed: "That doesn't look like a code: three words and four numbers",
   nothing: "No railway is saved with that code yet",
@@ -49,6 +55,8 @@ export class CloudCard {
   private busy = false;
   private askingOff = false;
   private askTimer = 0;
+  /** Opened straight to the code (from the title screen): Cancel closes the card and calls this. */
+  private cancelTo: (() => void) | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -75,6 +83,7 @@ export class CloudCard {
   }
 
   show(): void {
+    this.cancelTo = null;
     this.entering = false;
     this.error = "";
     this.root.hidden = false;
@@ -92,13 +101,19 @@ export class CloudCard {
     if (this.entering) this.drawEntry();
     else if (this.cloud.code) this.drawOn(this.cloud.code);
     else this.drawOff();
-    r.append(el("p", "cloud-credit", "Code words from the EFF's word list (CC BY 3.0)."));
+    // (The code words' credit, the EFF's word list, is in ☰ Credits.)
+  }
+
+  /** The load chip, first on the card, on a row of its own. */
+  private loadRow(): HTMLElement {
+    const row = el("div", "card-row cloud-load-row");
+    row.append(chip(LOAD_LABEL, "cloud-load", () => this.enter()));
+    return row;
   }
 
   private drawOff(): void {
     const row = el("div", "card-row");
     row.append(
-      chip("I have a code", "", () => this.enter()),
       chip(this.busy ? "Turning on…" : "Turn on", "primary", async () => {
         if (this.busy) return;
         this.busy = true;
@@ -112,7 +127,7 @@ export class CloudCard {
       }),
       this.done(),
     );
-    this.root.append(el("p", "cloud-text", "Keep your railway safe online, and carry on playing on another device."), row);
+    this.root.append(el("p", "cloud-text", "Keep your railway safe online, and carry on playing on another device."), this.loadRow(), row);
   }
 
   /** The other railway a sync kept on this device (see `CloudSync.backupOf`; dated by its last edit), offered back. */
@@ -145,6 +160,7 @@ export class CloudCard {
       chip("Copy", "", () => void this.copy(showCode(code))),
     );
     this.root.append(
+      this.loadRow(),
       el("div", "cloud-status", statusText(this.cloud.status, Date.now())),
       el("div", "cloud-label", "Your code"),
       codeRow,
@@ -167,7 +183,7 @@ export class CloudCard {
       this.draw();
     });
     const row = el("div", "card-row");
-    row.append(chip("Use a different code", "", () => this.enter()), off, this.done());
+    row.append(off, this.done());
     this.root.append(row);
   }
 
@@ -190,7 +206,13 @@ export class CloudCard {
     });
     const row = el("div", "card-row");
     row.append(chip("Cancel", "", () => this.back()), load);
-    this.root.append(el("p", "cloud-text", "Type the code from your other device"), input, err, row);
+    this.root.append(
+      el("p", "cloud-text", "Type the code from your other device"),
+      input,
+      err,
+      el("p", "cloud-small", "Loads the railway saved with that code. Your railway here is kept aside and can be restored from this card."),
+      row,
+    );
     if (!this.busy) requestAnimationFrame(() => input.focus());
   }
 
@@ -247,6 +269,13 @@ export class CloudCard {
     this.h.toast("Couldn't copy it: it's selected to copy, or write it down");
   }
 
+  /** Open straight to the code entry (the title screen's "Load a cloud save"): Cancel closes it and calls `onCancel`. */
+  showEntry(onCancel: () => void): void {
+    this.show();
+    this.cancelTo = onCancel;
+    this.enter();
+  }
+
   private enter(): void {
     this.entering = true;
     this.error = "";
@@ -254,6 +283,12 @@ export class CloudCard {
   }
 
   private back(): void {
+    const to = this.cancelTo;
+    if (to) {
+      this.hide();
+      to();
+      return;
+    }
     this.entering = false;
     this.error = "";
     this.draw();

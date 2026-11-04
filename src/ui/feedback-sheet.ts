@@ -112,7 +112,7 @@ export class FeedbackSheet {
     this.shotCheck.row.append(this.thumb);
     this.mapCheck.box.checked = true;
     this.mapCheck.box.addEventListener("change", () => this.drawKind());
-    const privacy = el("div", "feedback-small feedback-privacy", "Sends only your note, map, picture, game version, browser and screen size, as a public GitHub issue.");
+    const privacy = el("div", "feedback-small feedback-privacy", "Sends only your note, map, picture, game version, browser and screen size, to the people who make Woodrail.");
     this.status.setAttribute("aria-live", "polite");
     this.sendBtn = chip("Send", "primary feedback-send", () => void this.send());
     this.copyBtn = chip("Copy instead", "feedback-copy", () => void this.copyInstead());

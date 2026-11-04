@@ -211,6 +211,17 @@ const NAMES = [
 ];
 const NAME_PREFIXES = ["Little", "Upper", "Lower", "Great", "East", "West", "North", "South", "Old", "New"];
 
+/**
+ * Towns a starter-style map is placed with: the first two (the starter line's), and three more about the start.
+ * `STARTER_TOWNS` of them are kept: the one of the three nearest the middle of the first line is dropped (players: "the
+ * initial map area gets a bit crowded once the towns start growing"). Its land is the player's to build on.
+ * Placed first and dropped after (not placed four), so the rest of the map (rivers, hills, the depots, the other towns)
+ * is as it was. A map from before (`OLD_STARTER_TOWNS`) kept all five: an old save's start is made again that way.
+ */
+const STARTER_PLACED = 5;
+export const STARTER_TOWNS = 4;
+export const OLD_STARTER_TOWNS = STARTER_PLACED;
+
 /** The plots a new game starts with: 2 × 2, centred on the world's origin. */
 export const START_REGION: Region = { px0: -1, pz0: -1, w: 2, h: 2 };
 
@@ -241,10 +252,10 @@ export function corridorCells(land: Landscape): number[] {
 }
 
 /** The world a new game starts with: the start region, generated deterministically from a seed. */
-export function generateLandscape(seed: number, options: { starter?: boolean; coast?: boolean } = {}): Landscape {
+export function generateLandscape(seed: number, options: { starter?: boolean; coast?: boolean; starterTowns?: number } = {}): Landscape {
   const starter = options.starter ?? false;
   const coast = options.coast === false ? null : coastOf(seed, starter);
-  return generateRegion(seed, START_REGION, { starter, shed: true, coast });
+  return generateRegion(seed, START_REGION, { starter, shed: true, coast, starterTowns: options.starterTowns });
 }
 
 /** One plot of land, as it would be if added to a world with this seed (ids from 0: see `adoptRegion`). */
@@ -256,10 +267,10 @@ export function generatePlot(seed: number, px: number, pz: number, coast: Coast 
  * A rectangle of plots, deterministically from the seed and where it is (retrying internally until every town and
  * depot is reachable from the others and from the region's edge). Its edges meet the land either side: see `edges.ts`.
  */
-export function generateRegion(seed: number, region: Region, options: { starter: boolean; shed: boolean; coast?: Coast | null }): Landscape {
+export function generateRegion(seed: number, region: Region, options: { starter: boolean; shed: boolean; coast?: Coast | null; starterTowns?: number }): Landscape {
   let last: Landscape | null = null;
   for (let attempt = 0; attempt < 20; attempt++) {
-    const land = attemptRegion(seed, region, options.starter, attempt, options.coast ?? null);
+    const land = attemptRegion(seed, region, options.starter, attempt, options.coast ?? null, options.starterTowns ?? STARTER_TOWNS);
     if (reachable(land)) {
       if (options.shed) addShed(land);
       addFields(land, region);
@@ -298,7 +309,7 @@ function treeHere(seed: number, col: number, row: number): boolean {
 }
 
 
-function attemptRegion(seed: number, region: Region, starter: boolean, attempt: number, coastOfMap: Coast | null): Landscape {
+function attemptRegion(seed: number, region: Region, starter: boolean, attempt: number, coastOfMap: Coast | null, starterTowns: number): Landscape {
   // A region well inland (the start region, mostly) skips the coast's sums square by square: none can reach it. (The
   // crossings on its edges still ask the map's coast, so they agree with the plots beside it.)
   // (Squares more than SAND + MAX_HEIGHT from the shore are neither sand, nor beach-bound hills, nor too near for a
@@ -328,8 +339,10 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     });
   }
 
-  const towns = placeTowns(random, region, starter, siteRoom, area);
-  const depots = placeDepots(local, seed, towns, region, starter, siteRoom, area);
+  const placed = placeTowns(random, region, starter, siteRoom, area);
+  // (The depots placed among all the towns placed, so they stand where they always did.)
+  const depots = placeDepots(local, seed, placed, region, starter, siteRoom, area);
+  const towns = starter ? keepStarterTowns(placed, starterTowns) : placed;
   const protectedCells = new Set<number>();
 
   // Depots: track and yard squares, and their approach corridors, measured like stations.
@@ -512,7 +525,7 @@ const snap = (v: number) => (Math.floor(v / CELL) + 0.5) * CELL;
 function placeTowns(random: () => number, region: Region, starter: boolean, interior: (col: number, row: number) => boolean, area: number): Town[] {
   const pick = random();
   // A single plot is usually one town, sometimes two, sometimes none (it has a depot instead: see `placeDepots`).
-  const count = starter ? 5 : area === 1 ? (pick < 0.32 ? 0 : pick < 0.9 ? 1 : 2) : Math.round(((5 + Math.floor(random() * 3)) * area) / 4);
+  const count = starter ? STARTER_PLACED : area === 1 ? (pick < 0.32 ? 0 : pick < 0.9 ? 1 : 2) : Math.round(((5 + Math.floor(random() * 3)) * area) / 4);
   const names = [...NAMES];
   for (let i = names.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
@@ -552,6 +565,22 @@ function placeTowns(random: () => number, region: Region, starter: boolean, inte
     towns.push(make(x, z, heading));
   }
   return towns;
+}
+
+/**
+ * A starter map's towns, `keep` of them: the first two (the starter line's) and the extras farthest from the middle of
+ * the line between them, the nearest dropped first (see `STARTER_TOWNS`). Ids renumbered in order; names kept.
+ */
+function keepStarterTowns(towns: Town[], keep: number): Town[] {
+  if (towns.length <= keep || towns.length < 2) return towns;
+  const [a, b] = towns;
+  const mid = { x: (a.centre.x + b.centre.x) / 2, z: (a.centre.z + b.centre.z) / 2 };
+  const extras = towns.slice(2);
+  const byDistance = [...extras].sort((p, q) => Math.hypot(p.centre.x - mid.x, p.centre.z - mid.z) - Math.hypot(q.centre.x - mid.x, q.centre.z - mid.z));
+  const dropped = new Set(byDistance.slice(0, towns.length - Math.max(2, keep)));
+  const kept = towns.filter((t) => !dropped.has(t));
+  kept.forEach((t, i) => (t.id = i));
+  return kept;
 }
 
 /**
