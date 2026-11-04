@@ -68,6 +68,7 @@ export type PieceTypeId =
   | "crossing-45"
   | "signal"
   | "ramp"
+  | "rack"
   | "riser"
   | "bridge"
   | "bridge-curve"
@@ -406,6 +407,21 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     isSwitch: false,
     supportHeight: 0,
   },
+  // Prototype (rack railway spec, 2026-11-04): a rack ramp, two levels up in one ramp's length (peak slope 1). Only a
+  // train with a rack engine may climb it (not built: the prototype is for pictures).
+  rack: {
+    type: "rack",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(RAMP_LENGTH, 0, 0), y: 2 * RISER_HEIGHT },
+    ],
+    paths: [
+      { from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: RAMP_LENGTH, y0: 0, rise: 2 * RISER_HEIGHT } },
+    ],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  },
   riser: { type: "riser", connectors: [], paths: [], flippable: false, isSwitch: false, supportHeight: RISER_HEIGHT },
   // Bridges are track on painted arches that reach down to the ground, however high the deck is (see the landscape's
   // `bridgeLevels`): the piece's base is its deck.
@@ -631,7 +647,7 @@ export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 export const isBridge = (type: PieceTypeId): boolean => type === "bridge" || type === "bridge-curve";
 
 /** Ramps up a level: the straight one, and the curved ones. Each stands on its own sloping support. */
-export const isRamp = (type: PieceTypeId): boolean => type === "ramp" || type === "ramp-curve" || type === "ramp-curve-small" || type === "ramp-curve-wide";
+export const isRamp = (type: PieceTypeId): boolean => type === "ramp" || type === "rack" || type === "ramp-curve" || type === "ramp-curve-small" || type === "ramp-curve-wide";
 
 /** Pieces that stand on arches when raised: bridges always, a ramp when its low end is up off the ground. */
 export const canStandOnArches = (type: PieceTypeId): boolean => isBridge(type) || isRamp(type);
@@ -661,6 +677,7 @@ const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   "ramp",
   "tunnel-mouth",
   "tunnel-mouth-short",
+  "rack",
   "buffer",
   "buffer-turnback",
   // Kits flipping (a buffer's skin): a single end, so a flip can only swap its peg and hole.
