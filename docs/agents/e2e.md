@@ -58,6 +58,13 @@ found on the map), `phone-drag` (7), `phone` (7b, the phone on its side), `speci
 `lift`, `terrace-repeat`, `terrace-qa`, the old subsets that aren't in a full run. The old `E2E_ONLY=junctions` ran
 junctions, loop, ghosts and lift on the first page: now `E2E_ONLY=junctions,loop,ghosts,lift`.
 
+**joints** (`scripts/e2e/joints.mjs`): `qa-line` (QA's drawn line's joints through a reload, an older build's save),
+`slip-draw` (a Draw stroke along a 45° crossing's turn makes it a slip, Game mode). Each on a fresh page.
+
+**tray** (`scripts/e2e/tray.mjs`, on the build): `pictures` (every Track-tray item's real picture, fresh and from the
+cache), `track-pieces` (slips and the double three-way on the Switch shelf: pictures in Sandbox, locked in Game till
+learned).
+
 **roads** (`scripts/e2e/roads.mjs`): `sandbox` (A–J on one page, each section on the roads the ones before laid) and
 `game` (K–X, each on the route N laid). They're one chain each, so two groups; `game` alone opens Sandbox first only
 to read its tabs (K1 compares them).

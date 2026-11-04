@@ -42,6 +42,10 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:switch-3way": { label: "Three-way", cost: { planks: 5 }, tech: "junctions" },
   "piece:crossing": { label: "Crossing", cost: { planks: 3 }, tech: "junctions" },
   "piece:crossing-45": { label: "45° crossing", cost: { planks: 3 }, tech: "junctions" },
+  // Tech-tree T3 and T4: a three-way with a lever for each side; crossings that can also turn.
+  "piece:switch-3way-double": { label: "Double three-way", cost: { planks: 6 }, tech: "double-three-way" },
+  "piece:slip-single": { label: "Single slip", cost: { planks: 5 }, tech: "slips" },
+  "piece:slip-double": { label: "Double slip", cost: { planks: 6 }, tech: "slips" },
   "piece:crossover": { label: "Crossover", cost: { planks: 5 }, tech: "junctions" },
   "piece:wye": { label: "Wye", cost: { planks: 4 }, tech: "junctions" },
   "piece:double-straight": { label: "Double track", cost: { planks: 2 }, tech: "junctions" },

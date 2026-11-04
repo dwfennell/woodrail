@@ -62,6 +62,9 @@ export type PieceTypeId =
   | "switch-3way"
   | "crossing"
   | "crossing-45"
+  | "slip-single"
+  | "slip-double"
+  | "switch-3way-double"
   | "signal"
   | "ramp"
   | "riser"
@@ -153,6 +156,17 @@ export interface PieceDef {
    * from every end alike (`wayAt`).
    */
   readonly cornerLevers?: boolean;
+  /**
+   * A three-way with two levers, one for each branch (the double three-way, tech-tree T3): lever k sends trains from
+   * the trunk to branch k (road k + 1) or back straight on. Its state is a plain three-way's (0 straight, 1 and 2 its
+   * branches), so it routes as one (`wayAt`); only a lever tap differs (`pairLeverState`).
+   */
+  readonly pairLevers?: boolean;
+  /**
+   * A slip (tech-tree T4): a 45° crossing whose ends may also turn onto the other line along a curve. One lever: every
+   * end straight across (0) or every end onto its curve (1). Its chevrons show every end with a choice.
+   */
+  readonly slip?: boolean;
 }
 
 /**
@@ -170,7 +184,15 @@ export function setWayAt(def: PieceDef, state: number, entry: number, option: nu
 
 /** A switch's levers: one, or one at each end (`cornerLevers`). */
 export function leverCount(def: PieceDef): number {
-  return def.cornerLevers ? def.connectors.length : 1;
+  return def.cornerLevers ? def.connectors.length : def.pairLevers ? 2 : 1;
+}
+
+/**
+ * A double three-way's state after a tap on lever `k` (`pairLevers`): its branch (road k + 1) if it isn't set to it,
+ * else straight on. One lever thrown puts the other back, so the two never fight.
+ */
+export function pairLeverState(state: number, k: number): number {
+  return state === k + 1 ? 0 : k + 1;
 }
 
 /**
@@ -262,6 +284,43 @@ const arcPath = (to: number, sweep: number): PathDef => ({
 });
 const linePath = (to: number, length: number): PathDef => ({ from: 0, to, geom: { kind: "line", start: pose(0, 0, 0), length, y0: 0, rise: 0 } });
 
+/**
+ * The curve of a slip: from one end of a 45° crossing onto the other line's far end, an eighth of a turn. It meets
+ * both ends exactly when its radius is diag / (1 − cos 45°) (about 174 mm, between the curve and the wide curve).
+ */
+export const SLIP_RADIUS = diag / (1 - Math.SQRT1_2);
+
+/**
+ * A slip: the 45° crossing (its connectors and its two straights, first), and its curves: from end 0 onto the other
+ * line's end 3, and (double) from end 2 onto end 1. Points, one lever: straight across, or onto the curves.
+ */
+function slip(type: PieceTypeId, double: boolean): PieceDef {
+  const crossing = crossing45();
+  const curves: PathDef[] = [{ from: 0, to: 3, geom: { kind: "arc", start: pose(0, 0, 0), radius: SLIP_RADIUS, sweep: CURVE_SWEEP, y0: 0, rise: 0 } }];
+  if (double) curves.push({ from: 2, to: 1, geom: { kind: "arc", start: pose(half - diag, -diag, Math.PI / 4), radius: SLIP_RADIUS, sweep: -CURVE_SWEEP, y0: 0, rise: 0 } });
+  return { ...crossing, type, paths: [...crossing.paths, ...curves], isSwitch: true, slip: true };
+}
+
+/** Two straights crossing at 45°, for lines meeting on the diagonal. */
+function crossing45(): PieceDef {
+  return {
+    type: "crossing-45",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(CROSSING_SIZE, 0, 0), y: 0 },
+      { kind: "socket", pose: pose(half - diag, -diag, Math.PI + Math.PI / 4), y: 0 },
+      { kind: "peg", pose: pose(half + diag, diag, Math.PI / 4), y: 0 },
+    ],
+    paths: [
+      { from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: CROSSING_SIZE, y0: 0, rise: 0 } },
+      { from: 2, to: 3, geom: { kind: "line", start: pose(half - diag, -diag, Math.PI / 4), length: CROSSING_SIZE, y0: 0, rise: 0 } },
+    ],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  };
+}
+
 const CATALOG: Record<PieceTypeId, PieceDef> = {
   "straight-54": straight("straight-54", 54),
   "straight-108": straight("straight-108", 108),
@@ -332,20 +391,23 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     supportHeight: 0,
   },
   // Two straights crossing at 45°, for lines meeting on the diagonal.
-  "crossing-45": {
-    type: "crossing-45",
+  "crossing-45": crossing45(),
+  // Slips: a 45° crossing that can also turn, from one line onto the other (one curve, or one each way).
+  "slip-single": slip("slip-single", false),
+  "slip-double": slip("slip-double", true),
+  // A three-way with a lever for each branch: either lever sends trains its branch's way, or back straight on.
+  "switch-3way-double": {
+    type: "switch-3way-double",
     connectors: [
       { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
-      { kind: "peg", pose: pose(CROSSING_SIZE, 0, 0), y: 0 },
-      { kind: "socket", pose: pose(half - diag, -diag, Math.PI + Math.PI / 4), y: 0 },
-      { kind: "peg", pose: pose(half + diag, diag, Math.PI / 4), y: 0 },
+      { kind: "peg", pose: pose(SWITCH_LENGTH, 0, 0), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, CURVE_SWEEP), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, -CURVE_SWEEP), y: 0 },
     ],
-    paths: [
-      { from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: CROSSING_SIZE, y0: 0, rise: 0 } },
-      { from: 2, to: 3, geom: { kind: "line", start: pose(half - diag, -diag, Math.PI / 4), length: CROSSING_SIZE, y0: 0, rise: 0 } },
-    ],
-    flippable: true,
-    isSwitch: false,
+    paths: [linePath(1, SWITCH_LENGTH), arcPath(2, CURVE_SWEEP), arcPath(3, -CURVE_SWEEP)],
+    flippable: false,
+    isSwitch: true,
+    pairLevers: true,
     supportHeight: 0,
   },
   crossing: {

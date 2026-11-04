@@ -51,6 +51,9 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "switch-3way", label: "Three-way" },
   { kind: "piece", type: "crossing", label: "Crossing" },
   { kind: "piece", type: "crossing-45", label: "45° crossing" },
+  { kind: "piece", type: "slip-single", label: "Single slip" },
+  { kind: "piece", type: "slip-double", label: "Double slip" },
+  { kind: "piece", type: "switch-3way-double", label: "Double three-way" },
   { kind: "piece", type: "signal", label: "Signal" },
   { kind: "piece", type: "crossover", label: "Crossover" },
   { kind: "piece", type: "double-straight", label: "Double track" },
@@ -115,7 +118,7 @@ const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i
 export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
-  { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45"), SIGNAL_ITEM] },
+  { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "switch-3way-double", "crossover", "wye", "crossing", "crossing-45", "slip-single", "slip-double"), SIGNAL_ITEM] },
   { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
