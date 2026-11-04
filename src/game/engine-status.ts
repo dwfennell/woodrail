@@ -60,6 +60,14 @@ export type TrainState =
 /** How long after turning back at an open end a train's card still says so (s): it's running back the way it came. */
 export const TURNED_SHOWN_S = 8;
 
+/** Is this train on a route with somewhere to go (two places or more)? */
+function routed(economy: Economy, train: Train): boolean {
+  const route = economy.routeOfTrain(train);
+  if (!route || route.stops.length < 2) return false;
+  const first = route.stops[0].depotId;
+  return route.stops.some((s) => s.depotId !== first);
+}
+
 /** A train told to go this recently (s) and not moving yet is just starting (the sim hasn't moved it yet). */
 const STARTING_S = 0.5;
 
@@ -81,7 +89,9 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   // while it runs back the way it came, so the card doesn't just read "Running".
   const turn = train.lastTurn;
   const turning = train.turnback >= 0 && turn !== undefined;
-  if (turn?.cause === "open-end" && (turning || (sim.ticks - turn.tick) * SIM_DT < TURNED_SHOWN_S)) {
+  // (Once it's running back, only for a train with nowhere to go but on: one on a route says where it's off to, not
+  // "the track ends here" mid-line for seconds after, QA 2026-11-03 #12.)
+  if (turn?.cause === "open-end" && (turning || ((sim.ticks - turn.tick) * SIM_DT < TURNED_SHOWN_S && !routed(economy, train)))) {
     // `done`: already running back the way it came.
     return { kind: "turning-back", cause: "open-end", pieceId: turn.pieceId, done: !turning };
   }
@@ -403,7 +413,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     case "worked":
       return `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
-      if (s.cause === "open-end") return s.done ? "Turned back: the track ends here" : "Turning back: the track ends here";
+      // (Running back, it's no longer where the track ends: "back there".)
+      if (s.cause === "open-end") return s.done ? "Turned back: the track ends back there" : "Turning back: the track ends here";
       // (A train on no line among a managed line's trains (one taken off it, say): that line's end is none of its, so
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";

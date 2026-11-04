@@ -1336,6 +1336,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (On a phone held upright, the actions under the whole row: four fit in a line at 360 px.) */
 @media (max-width: 480px) { .lines-actions { padding-left: 0; } .lines-actions button { flex: 1 1 auto; padding-inline: 8px; } }
 .lines-actions button { min-height: 44px; }
+/* Reversed on a ring, trains that couldn't be turned round: why, in the warning ink, and Turn round to try again. */
+.lines-note { display: flex; align-items: center; gap: 8px; padding-left: 54px; font-size: 0.85em; color: var(--warn-ink); font-weight: 600; line-height: 1.3; }
+.lines-note span { flex: 1 1 auto; min-width: 0; }
+.lines-note button { flex: 0 0 auto; min-height: 44px; }
+@media (max-width: 480px) { .lines-note { padding-left: 0; } }
 .lines-head .lines-new { margin-left: auto; margin-right: 6px; }
 /* A place's card: the lines that call there, and New route from here (audit F12). */
 .depot-routes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

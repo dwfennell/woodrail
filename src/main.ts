@@ -51,7 +51,7 @@ import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, si
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
-import { copyLine, editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseStops, sameLines, snapshotLines, stopLine, trainsOn } from "./game/lines";
+import { copyLine, editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseLine, sameLines, snapshotLines, stopLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
@@ -3111,13 +3111,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * lines, from a snapshot before and after (`snapshotLines`); undone, the lines go back and a train that hasn't run on
    * since heads where it did before (`restoreLines`). Nothing recorded if nothing changed.
    */
-  function routeEdit(change: () => void): void {
+  function routeEdit(change: () => void, then?: () => void): void {
     const before = snapshotLines(game.economy);
     change();
     const after = snapshotLines(game.economy);
     if (sameLines(before, after)) return;
     const economy = game.economy;
-    editor.recordRoutes({ undo: () => restoreLines(economy, before, after), redo: () => restoreLines(economy, after, before) });
+    // (`then`: what goes with the edit undone or redone that isn't the lines': trains on a ring turned round again.)
+    editor.recordRoutes({
+      undo: () => (restoreLines(economy, before, after), then?.()),
+      redo: () => (restoreLines(economy, after, before), then?.()),
+    });
     hud.setHistory(editor.canUndo, editor.canRedo);
   }
   /** "Tap a stop for options" is shown until a stop's chip is first tapped (remembered). */
@@ -4612,11 +4616,41 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     },
     reverse: (id) => {
       const line = game.economy.lines.get(id);
-      const engine = trainsOn(game.economy, id)[0];
-      if (!line || engine === undefined) return;
-      // (Its trains each keep heading for the stop they were: then on, the other way round.)
-      routeEdit(() => editLine(game.economy, engine, reverseStops));
-      hud.toast(`${line.name} runs the other way round now`, false, 2500);
+      if (!line || trainsOn(game.economy, id).length === 0) return;
+      // (Its stops the other way round. On a line with ends its trains each keep heading for their stop, turning back
+      // at the ends as before. On a ring they'd keep their way and go the long way round to each stop: each is lifted
+      // and turned round where it is, and runs the other way (reverseLine). Undone or redone, those turned are turned
+      // round again, so they run the line's way.)
+      let out: ReturnType<typeof reverseLine> = null;
+      routeEdit(
+        () => (out = reverseLine(game.economy, id)),
+        () => {
+          const turned = out?.turned ?? [];
+          if (turned.length > 0) turnTrains(game.economy, id, turned);
+          lineNotes.delete(id);
+        },
+      );
+      const r = out as ReturnType<typeof reverseLine>;
+      if (!r) return;
+      lineNotes.delete(id);
+      if (r.stuck.length > 0) {
+        lineNotes.set(id, { order: stopOrder(id), engines: r.stuck.map((s) => s.engine), text: notTurnedText(r.stuck) });
+        hud.toast(`${line.name} runs the other way round now, but ${r.stuck.length === 1 ? "one train" : `${r.stuck.length} trains`} couldn't be turned round: see why under it`, false, 4000);
+      } else if (r.turned.length > 0) hud.toast(`${line.name} runs the other way round now: ${r.turned.length === 1 ? "its train turned round" : `its ${r.turned.length} trains turned round`}`, false, 2500);
+      else hud.toast(`${line.name} runs the other way round now`, false, 2500);
+      linesChanged();
+    },
+    turnRound: (id) => {
+      const note = lineNotes.get(id);
+      if (!note) return;
+      const r = turnTrains(game.economy, id, note.engines);
+      if (r.stuck.length === 0) {
+        lineNotes.delete(id);
+        hud.toast(r.turned.length === 1 ? "Turned round: it runs the line's way now" : "Turned round: they run the line's way now", false, 2500);
+      } else {
+        lineNotes.set(id, { ...note, engines: r.stuck.map((s) => s.engine), text: notTurnedText(r.stuck) });
+        hud.toast("Still no way to turn it round: see why under the line", false, 2500);
+      }
       linesChanged();
     },
     newLine: () => {
@@ -4756,6 +4790,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.invalidate();
   }
 
+  /**
+   * Lines reversed on a ring whose trains couldn't all be turned round (they keep their way, the long way round to each
+   * stop): which, and why, said under the line in the Lines view until they're turned or its stops change.
+   */
+  const lineNotes = new Map<number, { order: string; engines: number[]; text: string }>();
+  /** A line's stops, as a key (a note stands while it's the same). */
+  function stopOrder(id: number): string {
+    return game.economy.lines.get(id)?.stops.map((s) => s.depotId).join(",") ?? "";
+  }
+  /** Why trains on a ring weren't turned round, in a sentence (`turnTrains`). */
+  function notTurnedText(stuck: readonly { engine: number; why: NotTurned; by: number | null }[]): string {
+    const who = (e: number) => game.sim.nameOf(e);
+    const one = stuck[0];
+    const why = (s: (typeof stuck)[number]): string => {
+      if (s.why === "derailed") return "is off the track";
+      if (s.why === "riding") return "is on a lift or turntable";
+      const by = s.by === null ? undefined : game.sim.getTrain(s.by)?.cars.find((c) => c.kind === "engine");
+      return by ? `has ${who(by.id)} too close behind to turn round` : "has no room to turn round";
+    };
+    if (stuck.length === 1) return `${who(one.engine)} ${why(one)}: on this ring it goes the long way round to each stop until it's turned.`;
+    return `${stuck.map((s) => who(s.engine)).join(" and ")} couldn't be turned round (${who(one.engine)} ${why(one)}): on this ring they go the long way round to each stop until they're turned.`;
+  }
+
   /** Each frame: the menu's Lines item, and the open view's list and ribbons (redrawn only when they change). */
   function showLines(): void {
     const allowed = mode === "sandbox" || progress.learned.has("routes");
@@ -4767,7 +4824,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return;
     }
     const lines = [...game.economy.lines.values()];
-    linesView.show(lines.map((l) => ({ id: l.id, name: l.name, colour: l.colour, trains: trainsOn(game.economy, l.id).length, stops: l.stops.length })));
+    // (A note stands while the line's stops are as Reverse left them and a train it names is still on it.)
+    if (lineNotes.size > 0)
+      for (const [id, n] of lineNotes) if (n.order !== stopOrder(id) || !n.engines.some((e) => game.economy.lineIdOf.get(e) === id)) lineNotes.delete(id);
+    linesView.show(lines.map((l) => ({ id: l.id, name: l.name, colour: l.colour, trains: trainsOn(game.economy, l.id).length, stops: l.stops.length, ...(lineNotes.has(l.id) ? { note: lineNotes.get(l.id)!.text } : {}) })));
     // (Ribbons at least 4 px wide however far out the view is: audit F9, at the Lines view's framing a 14 mm ribbon was
     // under a pixel. In steps, so a zoom rebuilds them only when it crosses one.)
     const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);

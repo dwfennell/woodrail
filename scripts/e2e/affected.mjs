@@ -66,7 +66,7 @@ export const CORE = ["touch", "click"];
 export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore"];
 
 // Touch's groups that plan, run or show routes and lines.
-const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share";
+const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring";
 const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade", "sites"];
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
@@ -145,7 +145,7 @@ export const RULES = [
   ["src/ui/workshop-panel.ts", ["workshop"]],
   ["src/ui/cloud-card.ts", ["cloud"]],
   ["src/ui/map-view.ts", ["sites"]],
-  ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share"]],
+  ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share,route-ring"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
   ["src/ui/goals-panel.ts", ["stickers", "research"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
