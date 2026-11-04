@@ -1211,6 +1211,19 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
 .route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
 .route-chip, .planning .route-tools button { flex: 0 0 auto; }
+/* Drag to reorder: a stop's chip held lifts (ringed in the line's colour, over its neighbours) and follows the finger;
+   a bar shows where it goes, struck in the warning ink where it can't (the same place twice in a row). The chip
+   dropped pops once where it went. */
+.route-stops .route-chip[data-stop] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.route-chip.lifted { position: relative; z-index: 2; outline: 3px solid var(--line, #888); outline-offset: -1px; cursor: grabbing; transition: none; }
+.route-stops.dragging .route-chip:not(.lifted) { opacity: 0.8; }
+/* (No faded ends while dragging: the bar and the chip show right to the strip's edge.) */
+.route-stops.dragging { mask-image: none; -webkit-mask-image: none; }
+.route-drop-mark { position: absolute; top: 2px; bottom: 4px; width: 4px; border-radius: 2px; background: var(--ink, #3a2a1c); box-shadow: 0 0 0 1.5px #fff8; pointer-events: none; z-index: 3; }
+.route-drop-mark.blocked { background: repeating-linear-gradient(180deg, var(--warn-ink) 0 5px, transparent 5px 8px); }
+.route-chip.dropped { animation: stop-dropped 0.45s ease-out; }
+@keyframes stop-dropped { 0% { transform: scale(1.1); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .route-chip.dropped { animation: none; } }
 .planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 44px; }
 .planning .engine-extra.route { gap: 4px; }
 /* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
@@ -1273,7 +1286,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-row { display: flex; align-items: center; gap: 10px; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
 /* A line's actions, under its row (audit F12): Edit stops, + Train. */
-.lines-actions { display: flex; gap: 6px; padding-left: 54px; }
+.lines-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 54px; }
+/* (On a phone held upright, the actions under the whole row: four fit in a line at 360 px.) */
+@media (max-width: 480px) { .lines-actions { padding-left: 0; } .lines-actions button { flex: 1 1 auto; padding-inline: 8px; } }
 .lines-actions button { min-height: 44px; }
 .lines-head .lines-new { margin-left: auto; margin-right: 6px; }
 /* A place's card: the lines that call there, and New route from here (audit F12). */

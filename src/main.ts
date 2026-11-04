@@ -5,6 +5,7 @@ import { CrossingBells } from "./audio/crossing-bell";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
+import { stopDrag } from "./ui/route-drag";
 import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
@@ -49,7 +50,7 @@ import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateR
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
-import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, sameLines, snapshotLines, stopLine, trainsOn } from "./game/lines";
+import { copyLine, editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseStops, sameLines, snapshotLines, stopLine, trainsOn } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
@@ -3341,6 +3342,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let scrolledFor = "";
   /** The stop the open card's next mark was last drawn on (its engine): a mark that moves pops, so the player sees it go. */
   let nextDrawn = { carId: -1, next: -1 };
+  /** A stop's chip lifted to drag (`stopDrag`): the card holds still till it's let go. */
+  let stopDragging = false;
+  /** The stop just dropped by a drag: its chip pops once, where it went (−1: none). */
+  let stopDropped = -1;
+  const DRAG_HINT_KEY = "woodrail.hint.stopDrag";
+  let dragHintSeen = loadFlag(DRAG_HINT_KEY);
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
@@ -3353,8 +3360,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       stopPicked = -1;
       viaPicked = null;
       leaveAsked = -1;
+      stopDragging = false;
       return;
     }
+    // (A chip held up: rebuilt when it's let go, not under the finger.)
+    if (stopDragging) return;
     const stops = routeStops(game.world);
     const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
@@ -3530,6 +3540,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         chip.classList.toggle("moved", r?.next === k && nextDrawn.carId === carId && nextDrawn.next !== -1 && nextDrawn.next !== k);
         chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
         chip.classList.toggle("picked", stopPicked === k);
+        chip.classList.toggle("dropped", stopDropped === k);
         // (Only drop or Only pick up: said on the chip itself, beside its name, so it shows without tapping it.)
         if (st.action === "drop" || st.action === "pick") {
           chip.dataset.intent = st.action;
@@ -3576,6 +3587,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         strip.append(add);
       }
       box.append(strip);
+      stopDropped = -1;
+      // Held, a stop's chip lifts and drags along the strip to another place in the order (the card's own edit: Undo
+      // takes it back, and each train keeps heading for the stop it was).
+      stopDrag(strip, {
+        places: line.stops.map((st) => st.depotId),
+        start: () => (stopDragging = true),
+        move: (from, to) => {
+          if (!dragHintSeen) {
+            dragHintSeen = true;
+            saveFlag(DRAG_HINT_KEY);
+          }
+          stopDropped = to;
+          edit((l) => {
+            moveStop(l, from, to);
+            stopPicked = to;
+          });
+        },
+        refused: () => hud.toast("Not there: the same place twice in a row is one stop", false, 2500),
+        // (Rebuilt only if something changed: a slow tap, let go where it was, is a tap, and its click picks the stop.)
+        end: () => {
+          stopDragging = false;
+          showRoute();
+        },
+      });
       nextDrawn = { carId, next: r?.next ?? -1 };
       // Stops beyond the edge (scrolled sideways): the edge fades, as the tray's does.
       const edges = () => {
@@ -3721,6 +3756,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
         box.append(modes, tools);
+        // The first times: stops can be dragged too (till one has been).
+        if (!dragHintSeen && line.stops.length > 2) box.append(Object.assign(document.createElement("div"), { className: "route-hint route-drag-hint", textContent: "Or hold a stop and drag it to its place" }));
         // Planning: where the next place tapped goes.
         if (planning && k < line.stops.length - 1)
           box.append(Object.assign(document.createElement("div"), { className: "route-hint route-insert-hint", textContent: `Places you tap now go after ${nameOf(st.depotId)}` }));
@@ -4337,6 +4374,33 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       linesChanged();
       closeLines();
       interaction.openEngineCard(engine);
+    },
+    copy: (id) => {
+      const line = game.economy.lines.get(id);
+      if (!line) return;
+      // (The free train nearest the line's places that track leads from to one of its stops, as + Train picks.)
+      const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1).filter((p) => p !== -1);
+      const engine = freeTrains((e) => {
+        const front = trainFront(e);
+        return !!front && pieces.some((p) => legFromCursor(game.layout, front, p) !== null);
+      }, linePlaces(id))[0];
+      if (engine === undefined) return hud.toast("No free train can run a copy: put an engine on its track");
+      let made = "";
+      routeEdit(() => (made = copyLine(game.economy, id, engine)?.name ?? ""));
+      if (!made) return;
+      hud.toast(`${made}: a copy of ${line.name}`, false, 2500);
+      linesChanged();
+      closeLines();
+      interaction.openEngineCard(engine);
+    },
+    reverse: (id) => {
+      const line = game.economy.lines.get(id);
+      const engine = trainsOn(game.economy, id)[0];
+      if (!line || engine === undefined) return;
+      // (Its trains each keep heading for the stop they were: then on, the other way round.)
+      routeEdit(() => editLine(game.economy, engine, reverseStops));
+      hud.toast(`${line.name} runs the other way round now`, false, 2500);
+      linesChanged();
     },
     newLine: () => {
       const engine = freeTrains(() => true, [game.controls.target.clone()])[0];
@@ -5339,7 +5403,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.

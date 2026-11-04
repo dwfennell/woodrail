@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Economy } from "../economy";
 import { Sim } from "../sim";
 import { Layout } from "../track";
-import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, restoreLines, sameLines, snapshotLines, stopLine, trainsOn } from "./lines";
+import { copyLine, editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, restoreLines, reverseStops, sameLines, snapshotLines, stopLine, trainsOn } from "./lines";
 
 /** An economy with three depots on a straight line, and an engine. */
 function world() {
@@ -230,3 +230,68 @@ describe("route edits undone (audit F1)", () => {
     expect(undoable(w, () => editLine(w.economy, w.engine, () => {})).changed).toBe(false);
   });
 });
+
+describe("copying and reversing a line (the route UX audit, heuristic 7)", () => {
+  it("reverseStops: the order the other way round, each leg's via points on the stop it now leaves, reversed", () => {
+    const stops = [
+      { depotId: 1, action: "auto" as const, via: [10, 11] },
+      { depotId: 2, action: "drop" as const },
+      { depotId: 3, action: "pick" as const, waitFill: true, via: [30] },
+    ];
+    reverseStops(stops);
+    // (Legs were 1→2 by 10, 11; 2→3 none; 3→1 by 30. Now 3→2 none, 2→1 by 11, 10, and 1→3 by 30.)
+    expect(stops).toEqual([
+      { depotId: 3, action: "pick", waitFill: true },
+      { depotId: 2, action: "drop", via: [11, 10] },
+      { depotId: 1, action: "auto", via: [30] },
+    ]);
+    // Twice: as it was.
+    reverseStops(stops);
+    expect(stops).toEqual([
+      { depotId: 1, action: "auto", via: [10, 11] },
+      { depotId: 2, action: "drop" },
+      { depotId: 3, action: "pick", waitFill: true, via: [30] },
+    ]);
+  });
+
+  it("Reverse on a line: its train keeps heading for its stop; undone, the line is as it was", () => {
+    const w = world();
+    const line = editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }, { depotId: w.mill, action: "drop" }, { depotId: w.town, action: "auto", via: [42] }))!;
+    w.economy.routeOf(w.engine)!.next = 1;
+    const before = snapshotLines(w.economy);
+    editLine(w.economy, w.engine, reverseStops);
+    expect(line.stops.map((s) => s.depotId)).toEqual([w.town, w.mill, w.forest]);
+    const r = w.economy.routeOf(w.engine)!;
+    expect(r.stops[r.next].depotId).toBe(w.mill);
+    const after = snapshotLines(w.economy);
+    restoreLines(w.economy, before, after);
+    expect(line.stops.map((s) => ({ d: s.depotId, via: s.via }))).toEqual([{ d: w.forest, via: undefined }, { d: w.mill, via: undefined }, { d: w.town, via: [42] }]);
+  });
+
+  it("copyLine: a new line in the next colour with the same stops (copies, not shared), run by the free train; undone, gone", () => {
+    const w = world();
+    const line = editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "pick", via: [7] }, { depotId: w.town, action: "drop", waitFill: true }))!;
+    const r = w.sim.addTrain(["engine"], { pieceId: w.economy.depot(w.mill)!.pieceId, pathIndex: 0, reversed: false, s: 100 });
+    if (r.kind !== "placed") throw new Error();
+    const second = w.sim.getTrain(r.trainId)!.cars[0].id;
+    const before = snapshotLines(w.economy);
+    const copy = copyLine(w.economy, line.id, second)!;
+    expect(copy.id).not.toBe(line.id);
+    expect(copy.name).toBe("Blue line");
+    expect(copy.stops).toEqual(line.stops);
+    expect(copy.stops[0]).not.toBe(line.stops[0]);
+    expect(copy.stops[0].via).not.toBe(line.stops[0].via);
+    expect(lineOf(w.economy, second)).toBe(copy);
+    expect(lineOf(w.economy, w.engine)).toBe(line);
+    // (The copy's train, on the sawmill's piece facing on, comes to the town first.)
+    const route = w.economy.routeOf(second)!;
+    expect(route.stops[route.next].depotId).toBe(w.town);
+    // Changing the copy leaves the first be.
+    editLine(w.economy, second, reverseStops);
+    expect(line.stops.map((s) => s.depotId)).toEqual([w.forest, w.town]);
+    restoreLines(w.economy, before, snapshotLines(w.economy));
+    expect(w.economy.lines.size).toBe(1);
+    expect(lineOf(w.economy, second)).toBeUndefined();
+  });
+});
+

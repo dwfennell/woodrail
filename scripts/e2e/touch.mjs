@@ -1232,7 +1232,9 @@ async function wyeLevers(ctx, p, tapOn) {
 // a mocked Worker whose map loads as the same railway), route-ux (the route card's UX fixes, F1–F7,
 // by taps at 360 px), route-ux-more (the roadmap's phases B and C: a route from a place's card, a stop put in the
 // middle, the ribbon's edge and arrows, tools in view on a phone on its side, the Lines view's actions, a line sent
-// another way).)
+// another way), route-reorder (a stop's chip held and dragged to another place in the order, Undo, the train running
+// the new order; a shuttle's legs as two lanes), route-share (☰ Lines: Copy a line for a free train, the two drawn
+// side by side, Reverse and Undo, the copy's train running its stops the other way round).)
 let openContext = null;
 
 /**
@@ -4177,8 +4179,9 @@ async function routeUxMore(ctx, p) {
     const g = window.woodrail.scene.getObjectByName("all-lines");
     return { discs: g?.children.filter((c) => c.isSprite).length ?? 0, arrows: !!g?.children.find((c) => c.name === "route-chevrons"), acts: [...document.querySelectorAll(".lines-actions button")].map((b) => ({ t: b.textContent, h: Math.round(b.getBoundingClientRect().height) })) };
   });
-  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and offers Edit stops and + Train (44 px)", all.discs >= 3 && all.arrows && all.acts.map((a) => a.t).join(",") === "Edit stops,+ Train" && all.acts.every((a) => a.h >= 44), JSON.stringify(all));
-  await tapButton(".lines-actions button:last-child");
+  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and offers Edit stops and + Train (and Copy, Reverse; 44 px)", all.discs >= 3 && all.arrows && all.acts.map((a) => a.t).join(",") === "Edit stops,+ Train,Copy,Reverse" && all.acts.every((a) => a.h >= 44), JSON.stringify(all));
+  // (+ Train: the second of a line's actions.)
+  await tapButton(".lines-actions button:nth-child(2)");
   await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
   const joined = await p.evaluate((es) => {
     const w = window.woodrail;
@@ -4251,6 +4254,328 @@ async function routeUxMore(ctx, p) {
   const fB = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.evaluate(() => (window.woodrail.paused = false));
   check("route-ux-more (B6): the note goes after a few seconds, and the flash ends (no frames after)", !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-way-changed"))) && fB - fA <= 1 && fA > f0, JSON.stringify({ f0, fA, fB }));
+  await p.keyboard.press("Escape");
+}
+
+/**
+ * Drag to reorder a route's stops, and two-way legs drawn as two lanes (the route UX audit's leftovers: heuristic 7,
+ * F8), by the player's path on a 390×844 phone. An oval with a forest, a sawmill and a second forest, its train's route
+ * planned by taps (its engine, Plan a route, the places, Done): a finger held on stop 3's chip lifts it, a bar shows
+ * where it goes, and let go before stop 1 it's first; the train heads where it did, and Undo puts the order back. A
+ * swipe (no hold) only scrolls. Dragged again: the train runs the stops in the new order (the payoff). Then a shuttle
+ * planned by taps draws its legs as two lanes (the oval's, one way round, none), and nothing is drawn at rest. (Setup
+ * only, not what's tested: the track and the trains put down in code; the run is the game's own sim and economy ticks,
+ * ahead of SwiftShader's frames.)
+ */
+async function routeReorder(ctx, p) {
+  await p.keyboard.press("Escape");
+  const cdp = await ctx.newCDPSession(p);
+  const build = (shape) => p.evaluate(async (shape) => {
+    const w = window.woodrail;
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const ids = shape === "oval" ? S.oval(scratch).ids : S.shuttleLine(scratch, 4);
+    const all = [...scratch.pieceIds()];
+    const g = await window.__openGround(all.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    if (!g) throw new Error(`no open ground for the ${shape}`);
+    const types = shape === "oval" ? { [ids[0]]: "depot-forest", [ids[7]]: "depot-sawmill", [ids[9]]: "depot-forest" } : { [ids[0]]: "depot-forest", [ids[ids.length - 1]]: "depot-sawmill" };
+    const placed = w.editor().placeRun(all.map((i) => {
+      const q = scratch.getPiece(i);
+      return { type: types[i] ?? q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const at = (i) => placed[all.indexOf(i)];
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = shape === "oval" ? [depot(at(ids[0]), "forest").id, depot(at(ids[7]), "sawmill").id, depot(at(ids[9]), "forest").id] : [depot(at(ids[0]), "forest").id, depot(at(ids[ids.length - 1]), "sawmill").id];
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: at(ids[2]), pathIndex: 0, s: 150, reversed: false });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(engine, 0);
+    w.invalidate();
+    return { engine, places };
+  }, shape);
+  const setup = await build("oval");
+  const { tapOn, tapButton, still } = mapHelpers(p);
+  await p.setViewportSize({ width: 390, height: 844 });
+  await p.evaluate(() => window.woodrail.follow(-1));
+  const route = () => p.evaluate((e) => {
+    const r = window.woodrail.economy.routeOf(e);
+    return { stops: r?.stops.map((s) => s.depotId) ?? [], heading: r ? r.stops[r.next].depotId : -1 };
+  }, setup.engine);
+  const plan = async (o) => {
+    await tapOn({ engine: o.engine });
+    await tapButton(".engine-extra .route-plan");
+    for (const d of o.places) await tapOn({ depot: d });
+    await tapButton(".engine-extra .route-plan.on");
+    await still();
+  };
+  await plan(setup);
+  const planned = await route();
+  check("route-reorder: a three-stop route planned by taps", JSON.stringify(planned.stops) === JSON.stringify(setup.places), JSON.stringify(planned));
+  const lanesOval = await p.evaluate(() => window.woodrail.routeLanes());
+  const chipAt = (k) => p.evaluate((k) => {
+    const c = document.querySelector(`.engine-extra .route-chip[data-stop="${k}"]`);
+    const s = c.closest(".route-stops").getBoundingClientRect();
+    const r = c.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, right: r.right, h: r.height, w: r.width, inStrip: r.left >= s.left - 1 && r.right <= s.right + 1, stripRight: s.right };
+  }, k);
+  // (Each event stamped with when it happens: a loaded machine handles them late, and a swipe mustn't look like a hold.)
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: Date.now() / 1000, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  /** A finger on stop `from`'s chip, held `hold` ms (0: a swipe), moved to `toX` in steps; `mid` runs before it lifts. */
+  const drag = async (from, toX, hold, mid) => {
+    await p.waitForTimeout(300);
+    const c = await chipAt(from);
+    // (On what of the chip shows in the strip: the last may run on past its edge, scrolled sideways.)
+    const a = { x: (c.left + Math.min(c.right, c.stripRight)) / 2, y: c.y };
+    if (hold) {
+      await touch("touchStart", a.x, a.y);
+      await p.waitForTimeout(hold);
+      for (let k = 1; k <= 10; k++) {
+        await touch("touchMove", a.x + ((toX - a.x) * k) / 10, a.y + 2);
+        await p.waitForTimeout(16);
+      }
+    } else {
+      // A swipe: sent at once, not each awaited (CDP waits for the page to take each event: on SwiftShader's slow frames
+      // an awaited start and first move would be a finger held still for longer than a hold).
+      await Promise.all([touch("touchStart", a.x, a.y), ...Array.from({ length: 10 }, (_, k) => touch("touchMove", a.x + ((toX - a.x) * (k + 1)) / 10, a.y + 2))]);
+    }
+    await frames(p);
+    const seen = mid ? await mid() : null;
+    await touch("touchEnd", 0, 0);
+    await frames(p);
+    await p.waitForTimeout(300);
+    return seen;
+  };
+  if (process.env.E2E_SHOTS) {
+    // (Pictures only: a stop picked, with the drag hint; then stop 1 held over the gap between stops 2 and 3, and
+    // taken back where it was before it's let go: no change.)
+    await tapButton('.engine-extra .route-chip[data-stop="1"]');
+    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-hint.jpg`, type: "jpeg", quality: 80 });
+    await tapButton('.engine-extra .route-chip[data-stop="1"]');
+    const [c0, c1] = [await chipAt(0), await chipAt(1)];
+    await touch("touchStart", c0.x, c0.y);
+    await p.waitForTimeout(600);
+    for (let k = 1; k <= 10; k++) (await touch("touchMove", c0.x + ((c1.right + 4 - c0.x) * k) / 10, c0.y + 2), await p.waitForTimeout(16));
+    await frames(p);
+    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-drag-mid.jpg`, type: "jpeg", quality: 80 });
+    for (let k = 1; k <= 10; k++) (await touch("touchMove", c1.right + 4 + ((c0.x - c1.right - 4) * k) / 10, c0.y + 2), await p.waitForTimeout(16));
+    await touch("touchEnd", 0, 0);
+    await frames(p);
+    await p.waitForTimeout(300);
+  }
+  const sizes = await Promise.all([0, 1, 2].map(chipAt));
+  // (The strip scrolls sideways: a chip past its edge shows at least a finger's width of itself.)
+  check("route-reorder: the stops' chips are a finger's size (44 px), each showing 44 px or more in the strip at 390 px", sizes.every((c) => c.h >= 44 && c.w >= 44 && Math.min(c.right, c.stripRight) - c.left >= 44), JSON.stringify(sizes));
+  // A swipe across the chips, no hold: no stop moves.
+  await drag(2, sizes[0].left + 4, 0);
+  check("route-reorder: a swipe across the chips (no hold) moves no stop", JSON.stringify((await route()).stops) === JSON.stringify(setup.places), JSON.stringify(await route()));
+  // Held, stop 3's chip lifts; dragged before stop 1, the bar shows there; let go, it's first.
+  const target = (await chipAt(0)).left + 4;
+  const mid = await drag(2, target, 600, async () => {
+    if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-drag.jpg`, type: "jpeg", quality: 80 });
+    return p.evaluate(() => {
+      const mark = document.querySelector(".engine-extra .route-drop-mark");
+      const first = document.querySelector('.engine-extra .route-chip[data-stop="0"]').getBoundingClientRect();
+      const m = mark?.getBoundingClientRect();
+      return { lifted: document.querySelector(".engine-extra .route-chip.lifted")?.dataset.stop, mark: !!mark && !mark.hidden, blocked: mark?.classList.contains("blocked"), markX: m && Math.round(m.left + m.width / 2), firstLeft: Math.round(first.left) };
+    });
+  });
+  const moved = await route();
+  check("route-reorder: held, stop 3's chip lifts and a bar shows it going before stop 1", mid.lifted === "2" && mid.mark && !mid.blocked && Math.abs(mid.markX - mid.firstLeft) <= 8, JSON.stringify(mid));
+  check("route-reorder: let go, it's stop 1 now, and the train heads where it did", JSON.stringify(moved.stops) === JSON.stringify([setup.places[2], setup.places[0], setup.places[1]]) && moved.heading === planned.heading, JSON.stringify({ moved, planned }));
+  const chips = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip[data-stop]")].map((c) => `${c.querySelector(".route-num").textContent}${c.classList.contains("picked") ? "*" : ""}`));
+  check("route-reorder: the chips read 1 2 3, the dropped one picked", JSON.stringify(chips) === '["1*","2","3"]', JSON.stringify(chips));
+  await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
+  await frames(p);
+  const undone = await route();
+  check("route-reorder: Undo puts the order back, the train heading where it did", JSON.stringify(undone.stops) === JSON.stringify(setup.places) && undone.heading === planned.heading, JSON.stringify(undone));
+  // Again, and the payoff: the train runs the stops in the new order.
+  await drag(2, (await chipAt(0)).left + 4, 600);
+  const order = (await route()).stops;
+  await p.keyboard.press("Escape");
+  const run = await p.evaluate((o) => {
+    const w = window.woodrail;
+    w.sim.setLever(o.engine, 1);
+    const came = [];
+    let was = w.economy.routeOf(o.engine).next;
+    for (let i = 0; i < 300 * 120 && came.length < 5; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      w.economy.drainEvents();
+      const r = w.economy.routeOf(o.engine);
+      if (r.next !== was) came.push(r.stops[was].depotId);
+      was = r.next;
+    }
+    w.sim.setLever(o.engine, 0);
+    for (let i = 0; i < 20 * 120; i++) (w.sim.tick(), w.economy.tick(), w.economy.drainEvents());
+    w.invalidate();
+    return came;
+  }, setup);
+  const k0 = order.indexOf(run[0]);
+  const inOrder = run.length >= 4 && k0 !== -1 && run.every((d, i) => d === order[(k0 + i) % order.length]);
+  check("route-reorder: the train comes to its stops in the new order", inOrder, JSON.stringify({ order, run }));
+  // Two lanes: a shuttle's legs (there and back over the same track) drawn as two lanes; the oval's, one way, aren't.
+  const shuttle = await build("shuttle");
+  await plan(shuttle);
+  const lanes = await p.evaluate(() => window.woodrail.routeLanes());
+  if (process.env.E2E_SHOTS) {
+    await p.evaluate(async (e) => {
+      const w = window.woodrail;
+      const t = w.sim.findCar(e).train.world[0];
+      w.director.glideTo(new w.controls.target.constructor(t.x, t.y, t.z), 700, { duration: 0.2 });
+    }, shuttle.engine);
+    await still();
+    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-lanes.jpg`, type: "jpeg", quality: 80 });
+  }
+  check("route-reorder (F8): a shuttle's legs are two lanes between its stops; the oval's one-way legs, at most a turn at a stop", lanes >= 2 * 4 * 216 * 0.9 && lanesOval <= 2 * 216, JSON.stringify({ lanes, lanesOval }));
+  await p.evaluate(() => (window.woodrail.paused = true));
+  await frames(p);
+  await p.waitForTimeout(300);
+  const fA = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.waitForTimeout(1200);
+  const fB = await p.evaluate(() => window.woodrail.framesDrawn);
+  await p.evaluate(() => (window.woodrail.paused = false));
+  check("route-reorder (F8): nothing drawn at rest with the lanes shown", fB - fA <= 1, JSON.stringify({ fA, fB }));
+  await p.keyboard.press("Escape");
+}
+
+/**
+ * Copying and reversing a line, and lines sharing track drawn side by side (the route UX audit's heuristic 7 and F9),
+ * by the player's path on a 390×844 phone. An oval with a forest, a sawmill and a second forest, and two free trains:
+ * the first's line planned by taps. ☰ → Lines → Copy: a new line with the same stops, the second train on it, its card
+ * open; the Lines view draws the two side by side where they share track. Reverse on the copy: its stops the other way
+ * round (said), Undo puts them back; reversed again, the second train comes to its stops in that order (the payoff).
+ * (Setup only, not what's tested: the track and the trains put down in code; the run is the game's own sim and
+ * economy ticks.)
+ */
+async function routeShare(ctx, p) {
+  await p.keyboard.press("Escape");
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout } = await import("/src/track/index.ts");
+    const S = await import("/src/routing/scenarios.ts");
+    const scratch = new Layout();
+    const ids = S.oval(scratch).ids;
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    if (!g) throw new Error("no open ground for the oval");
+    const types = { 0: "depot-forest", 7: "depot-sawmill", 9: "depot-forest" };
+    const placed = w.editor().placeRun(ids.map((i, k) => {
+      const q = scratch.getPiece(i);
+      return { type: types[k] ?? q.type, pose: { x: q.pose.x + g.x, z: q.pose.z + g.z, heading: q.pose.heading }, y: 0, flipped: q.flipped };
+    }));
+    const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
+    const places = [depot(placed[0], "forest").id, depot(placed[7], "sawmill").id, depot(placed[9], "forest").id];
+    const engines = [placed[2], placed[12]].map((pieceId) => {
+      const r = w.sim.addTrain(["engine", "timber"], { pieceId, pathIndex: 0, s: 100, reversed: false });
+      if (r.kind !== "placed") throw new Error("no room for a train");
+      const e = w.sim.getTrain(r.trainId).cars[0].id;
+      w.sim.setLever(e, 0);
+      return e;
+    });
+    // (The copy's train is the free train nearest the line's places that can reach it: this oval's second.)
+    w.invalidate();
+    return { engines, places };
+  });
+  const { tapOn, tapButton, still } = mapHelpers(p);
+  await p.setViewportSize({ width: 390, height: 844 });
+  await p.evaluate(() => window.woodrail.follow(-1));
+  const lineOf = (e) => p.evaluate((e) => {
+    const w = window.woodrail;
+    const id = w.economy.lineIdOf.get(e);
+    const l = id === undefined ? undefined : w.economy.lines.get(id);
+    return l ? { id: l.id, name: l.name, colour: l.colour, stops: l.stops.map((s) => s.depotId) } : null;
+  }, e);
+  // The first train's line, by taps.
+  await tapOn({ engine: setup.engines[0] });
+  await tapButton(".engine-extra .route-plan");
+  for (const d of setup.places) await tapOn({ depot: d });
+  await tapButton(".engine-extra .route-plan.on");
+  await still();
+  const first = await lineOf(setup.engines[0]);
+  check("route-share: a line planned by taps", JSON.stringify(first?.stops) === JSON.stringify(setup.places), JSON.stringify(first));
+  await p.keyboard.press("Escape");
+  const openLinesView = async () => {
+    await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId === -1, null, { timeout: 10000 });
+    await tapButton('button[aria-label="Menu"]');
+    await p.evaluate(() => [...document.querySelectorAll(".menu button")].find((b) => b.textContent === "Lines")?.setAttribute("data-e2e", "lines"));
+    await tapButton(".menu button[data-e2e='lines']");
+    await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 30000 });
+    await frames(p);
+  };
+  // A line's row's action, by its words (the row by the line's name).
+  const tapAction = async (lineName, words) => {
+    await p.evaluate(([n, t]) => {
+      document.querySelectorAll("[data-e2e-act]").forEach((b) => b.removeAttribute("data-e2e-act"));
+      const wrap = [...document.querySelectorAll(".lines-row-wrap")].find((w) => w.querySelector(".lines-name")?.value === n);
+      [...(wrap?.querySelectorAll(".lines-actions button") ?? [])].find((b) => b.textContent === t)?.setAttribute("data-e2e-act", "1");
+    }, [lineName, words]);
+    await tapButton("[data-e2e-act='1']");
+  };
+  await openLinesView();
+  const acts = await p.evaluate(() => {
+    const v = document.querySelector(".lines-view").getBoundingClientRect();
+    return [...document.querySelectorAll(".lines-actions button")].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent, h: Math.round(r.height), w: Math.round(r.width), inside: r.left >= v.left && r.right <= v.right + 0.5, clipped: b.scrollWidth > b.clientWidth + 1 }; });
+  });
+  check("route-share: a line's row offers Edit stops, + Train, Copy and Reverse, 44 px or more, inside the sheet at 390 px", acts.map((a) => a.t).join(",") === "Edit stops,+ Train,Copy,Reverse" && acts.every((a) => a.h >= 44 && a.w >= 44 && a.inside && !a.clipped), JSON.stringify(acts));
+  await tapAction(first.name, "Copy");
+  await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
+  const copy = await lineOf(setup.engines[1]);
+  const open = await p.evaluate(() => window.woodrail.interaction.openEngineCarId);
+  check("route-share: Copy makes a new line with the same stops, in another colour, the free train on it, its card open", !!copy && copy.id !== first.id && copy.colour !== first.colour && JSON.stringify(copy.stops) === JSON.stringify(first.stops) && open === setup.engines[1] && JSON.stringify((await lineOf(setup.engines[0]))?.stops) === JSON.stringify(first.stops), JSON.stringify({ copy, first, open }));
+  await p.keyboard.press("Escape");
+  // F9: in the Lines view, the two lines over the same track side by side.
+  await openLinesView();
+  await still();
+  const shared = await p.evaluate(() => window.woodrail.linesShared());
+  if (process.env.E2E_SHOTS) {
+    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-share-lines.jpg`, type: "jpeg", quality: 80 });
+    await p.evaluate(async (e) => {
+      const w = window.woodrail;
+      const t = w.sim.findCar(e).train.world[0];
+      w.director.glideTo(new w.controls.target.constructor(t.x, t.y, t.z), 900, { duration: 0.2 });
+    }, setup.engines[0]);
+    await still();
+    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-share-close.jpg`, type: "jpeg", quality: 80 });
+  }
+  check("route-share (F9): the two lines over the same track are drawn side by side in the Lines view", shared >= 2000, JSON.stringify({ shared }));
+  // Reverse on the copy: said; its stops the other way round, the first line's not; Undo puts them back.
+  await tapAction(copy.name, "Reverse");
+  await frames(p);
+  const reversed = await lineOf(setup.engines[1]);
+  const said = await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
+  check("route-share: Reverse runs the copy's stops the other way round (said), the first line as it was", JSON.stringify(reversed?.stops) === JSON.stringify([...first.stops].reverse()) && JSON.stringify((await lineOf(setup.engines[0]))?.stops) === JSON.stringify(first.stops) && said.includes("runs the other way round now"), JSON.stringify({ reversed, said }));
+  await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
+  await frames(p);
+  const back = await lineOf(setup.engines[1]);
+  check("route-share: Undo puts the copy's stops back", JSON.stringify(back?.stops) === JSON.stringify(first.stops), JSON.stringify(back));
+  await tapAction(copy.name, "Reverse");
+  await frames(p);
+  await tapButton(".lines-head .chip:last-child");
+  // The payoff: the copy's train comes to its stops in the reversed order.
+  const order = (await lineOf(setup.engines[1])).stops;
+  // (Both lines' trains run: the first, stood on the same oval, would otherwise hold the copy's up behind it.)
+  const run = await p.evaluate(([e, other]) => {
+    const w = window.woodrail;
+    w.sim.setLever(e, 1);
+    w.sim.setLever(other, 1);
+    const came = [];
+    let was = w.economy.routeOf(e).next;
+    for (let i = 0; i < 400 * 120 && came.length < 4; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      w.economy.drainEvents();
+      const r = w.economy.routeOf(e);
+      if (r.next !== was) came.push(r.stops[was].depotId);
+      was = r.next;
+    }
+    w.sim.setLever(e, 0);
+    w.sim.setLever(other, 0);
+    for (let i = 0; i < 20 * 120; i++) (w.sim.tick(), w.economy.tick(), w.economy.drainEvents());
+    w.invalidate();
+    return came;
+  }, [setup.engines[1], setup.engines[0]]);
+  const k0 = order.indexOf(run[0]);
+  check("route-share: the reversed copy's train comes to its stops in that order", run.length >= 3 && k0 !== -1 && run.every((d, i) => d === order[(k0 + i) % order.length]), JSON.stringify({ order, run }));
   await p.keyboard.press("Escape");
 }
 
@@ -4377,6 +4702,8 @@ const SANDBOX = {
   feedback: (f) => feedbackFlow(f.p, { press: f.tapOn, check, label: "feedback" }),
   "route-ux": (f) => routeUx(f.ctx, f.p),
   "route-ux-more": (f) => routeUxMore(f.ctx, f.p),
+  "route-reorder": (f) => routeReorder(f.ctx, f.p),
+  "route-share": (f) => routeShare(f.ctx, f.p),
 };
 let fixture = null;
 const FRESH = process.env.E2E_FRESH === "1";
