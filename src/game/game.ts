@@ -1112,7 +1112,10 @@ export class Game {
     if (this.economy.breakdown.busy || this.cranesPosed.size > 0) {
       if (this.poseCranes()) active = true;
     }
-    if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
+    if (trainsMoved || tipping || this.flourishes.casting > 0 || this.touchesMoving) active = true;
+    // Flourishes that move nothing casting a shadow (draw's ghosts catching up with the line): drawn every frame, as
+    // the rest, but the shadow map isn't drawn again for them.
+    const shownOnly = this.flourishes.count > 0;
     this.touchesMoving = false;
     // Small touches: placed again only when what they stand beside changed (a few comparisons a frame); the children
     // look for trains only on frames where trains moved, or while one waves.
@@ -1201,18 +1204,21 @@ export class Game {
     // scene stays on screen without being drawn again, so an idle game costs next to nothing.
     const now = this.clock.elapsedTime;
     // Something easing or moving keeps drawing for a moment after; a one-off change (invalidate) draws one frame.
-    if (active || ambient) this.lastActive = now;
+    if (active || ambient || shownOnly) this.lastActive = now;
     // Only ambient motion moving (no train, camera move or change): every other tick (`AMBIENT_FRAME_MS`). What it
     // moves is posed by the clock, so the next frame drawn shows it where it is then.
-    if (ambient && !active && !this.dirty && (now - this.lastDrawnAt) * 1000 < AMBIENT_FRAME_MS - FRAME_SLACK_MS) {
+    if (ambient && !active && !shownOnly && !this.dirty && !this.redrawn && (now - this.lastDrawnAt) * 1000 < AMBIENT_FRAME_MS - FRAME_SLACK_MS) {
       this.drewLastTick = false;
       // (Its shadows are drawn on the next frame drawn.)
       this.shadowsMoving = true;
       return;
     }
     const once = this.dirty;
+    // (A change that casts no shadow, `redraw`: drawn, the shadow map kept.)
+    const shown = this.redrawn;
     this.dirty = false;
-    if (!once && now - this.lastActive > IDLE_TAIL) {
+    this.redrawn = false;
+    if (!once && !shown && now - this.lastActive > IDLE_TAIL) {
       this.drewLastTick = false;
       if (this.settling.length > 0) this.settleWaiters(false);
       return;
@@ -1561,12 +1567,23 @@ export class Game {
     this.dirty = true;
   }
 
+  /**
+   * Draw a frame for a change that casts no shadow and moves nothing that does (draw's ghosts, a highlight, a trail):
+   * as `invalidate`, but the shadow map isn't drawn again for it. (On a phone the shadow pass is a second draw of
+   * everything in the sun's view: for a ghost that moves on every drag frame, that's most of the frame.)
+   */
+  redraw(): void {
+    this.redrawn = true;
+  }
+
   /** Something casting a shadow moved this frame that the frame loop can't see (a held piece): redraw shadows. */
   moveShadows(): void {
     this.shadowsMoving = true;
   }
 
   private dirty = true;
+  /** A frame wanted for a change that casts no shadow (see `redraw`). */
+  private redrawn = false;
   /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
   private woken = false;
   private lastActive = 0;
