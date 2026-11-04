@@ -109,7 +109,7 @@ const hold = async (p, key, ms) => {
   {
     const q = await ctx.newPage();
     q.on("pageerror", (e) => errors.push(String(e)));
-    await q.goto(URL);
+    await q.goto(URL, { waitUntil: "domcontentloaded", timeout: 180000 });
     await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
     await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
     await q.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: 120000 });
