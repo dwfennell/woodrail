@@ -57,6 +57,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "balloon-loop-small": p("Small loop", "Trains go round and come back the way they came."),
   wye: p("Wye", "A track triangle: run in, back out, and come out turned round."),
   ramp: p("Ramp", "Goes up one level, or down."),
+  rack: p("Rack", "Prototype: goes up two levels in a ramp's length."),
   bridge: p("Bridge", "Carries the line over a road or track."),
   "bridge-curve": p("Curved bridge", "A bend up high, over a road or track."),
   underpass: p("Underpass", "Dips the line so a bridge one level up fits over it."),
