@@ -92,19 +92,23 @@ too, so the saving is kept.
 Measured with the harness (4× CPU, DPR 2 unless said); fixed ones are in the branch history (`git log -- tools/perf`).
 Open ones, biggest first:
 
-- **Shader programs at load.** 50–65 programs; three checks each on first use, which waits for its compile on the main
-  thread, one after another: about 31 s of a 77–88 s reload at 4× in SwiftShader (a phone's driver is faster, but
-  it's still the largest block). 15 of them are the shadow pass's depth variants (16 s). Tried: `compileAsync` before
-  the first frame: it built ~30 programs the frames then didn't use (some parameter differs at that point) and can't
-  reach the shadow pass's depth materials. Leads: fewer material variants (25 `MeshPhysicalMaterial` programs), or
-  warming the depth variants.
-- **Building the map at load.** The `Game` constructor is ~20 s of the reload at 4× on the big Sandbox map:
-  `LandscapeView`'s dressing (`addPart`, `mergeGeometries`), the procedural beech textures (2.2 s). Leads: keep the
-  procedural textures per build (as the tray pictures are), or make them in a worker; build far tiles' dressing later.
-- **Tray and research pictures** (first visit, or a new build): each drawn and read back with a synchronous
-  `readPixels`, which waits for the GPU; the research board's first open waited on them. Lead:
-  `readRenderTargetPixelsAsync`.
-- **The first tray drag** compiles the ghost's material (3.6 s at 4× here): warm it after load.
+- **Shader programs at load.** 44–54 programs after the fixes below; three checks each on first use, which waits for
+  its compile on the main thread, one after another (in SwiftShader, tens of seconds of a reload at 4×). Fixed: the
+  shadow pass's depth programs were compiled twice (its first frame ran before the lights were set up; now the first
+  frame skips the shadow pass), and the held piece's are warmed after load (`Game.warmShaders`). Tried twice and
+  dropped: `compileAsync` of the whole scene before the first frame. Compiled for the screen it built other programs
+  than the frames use (sRGB, ACES: compile for a render target, as `Game.compileFor` does); with that fixed it still
+  built variants the frames didn't use on some loads (possibly the far-detail materials), and held the first frame
+  rather than saving time. Leads: fewer material variants (25 `MeshPhysicalMaterial` programs on the Sandbox map), or
+  precompiling for the view the first frames actually show. `tools/perf/programs.mjs` and `program-origins.mjs` show
+  what's compiled, where and when.
+- **Building the map at load.** The `Game` constructor was ~20 s of a reload at 4× on the big Sandbox map. Fixed:
+  the beech and felt textures are kept per build (IndexedDB) and made once a page; the dressing's vertex colours no
+  longer allocate per vertex. Left: `LandscapeView`'s dressing (`addPart`, `mergeGeometries`, ~10 s at 4×) and the
+  geometry upload (`bufferData`). Lead: build far tiles' dressing after the first frame, or keep it per build.
+- **Tray and research pictures** (first visit, or a new build). Fixed: the studio's 2D canvas is on the CPU (encoding
+  a picture waited on the GPU), and pictures asked for on demand are read back asynchronously. In SwiftShader the
+  readback itself still costs the same either way.
 - **Triangles.** A curved track piece is ~3.1k triangles; the big Sandbox map draws 1.6 M a full frame. Lead: a
   simpler piece far out (where the carving can't be seen).
 - **Research board** refresh: ~110–290 ms of tap handler at 4× on the late map.
