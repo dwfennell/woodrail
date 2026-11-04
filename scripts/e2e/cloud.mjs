@@ -51,6 +51,12 @@ const stopWorker = () => {
     // gone
   }
 };
+// (Killed (a gate's timeout, ^C): the Worker goes too. It runs in a process group of its own, so it would outlive us.)
+for (const sig of ["SIGINT", "SIGTERM"])
+  process.on(sig, () => {
+    stopWorker();
+    process.exit(130);
+  });
 async function boot() {
   if (b) return;
   const WORKER_PORT = Number(process.env.CLOUD_PORT ?? (await freePort()));
