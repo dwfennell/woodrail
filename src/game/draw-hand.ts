@@ -3,7 +3,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
-import { bridgeLevels, CELL, plinthLevels, cutsHills, hillsOf, inRiver, isWater, looseHeight } from "../landscape";
+import { bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight, plinthLevels, tunnelsOn } from "../landscape";
 import { dustPuff } from "../render/dust";
 import { delayed, settle } from "../render/flourishes";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
@@ -34,6 +34,7 @@ import {
   isBridge,
 } from "../track";
 import { DIG_MESSAGES, type DigPlan } from "./underpass-dig";
+import type { TunnelPlan } from "./tunnel-dig";
 import type { Game } from "./game";
 import { DrawNotice, TOO_SHARP } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
@@ -96,6 +97,8 @@ export interface DrawHooks {
   dig?(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore?: ReadonlySet<number>): DigPlan | null;
   /** Straights then an underpass, laid on along `pose` from its start, under a bridge one level up (`planUnderpassAhead`). */
   ahead?(type: PieceTypeId, pose: Pose, y: number, ignore?: ReadonlySet<number>): DigPlan | null;
+  /** Tunnels learned: the tunnel under the hill ahead of a line's end (see `planTunnel`), or null if none goes. */
+  tunnel?(end: DrawEnd, ignore?: ReadonlySet<number>): TunnelPlan | null;
 }
 
 /**
@@ -724,6 +727,11 @@ export class DrawHand {
       wet: (x, z) => inRiver(this.game.landscape.grid, x, z),
       onMap: (x, z) => this.game.landscape.grid.cellAtWorld(x, z) !== -1,
       outOf: (type) => this.outOf(type),
+      tunnel: (end) => {
+        if (!tunnelsOn()) return null;
+        const plan = this.hooks.tunnel?.(end, this.branchCovers.size ? this.branchCovers : undefined);
+        return plan?.kind === "bore" ? plan.steps : null;
+      },
     });
   }
 

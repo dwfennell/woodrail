@@ -149,6 +149,11 @@ const saveSchema = z.object({
        */
       modes: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.enum(STORE_MODES as [StoreMode, ...StoreMode[]])).optional(),
       others: z.enum(STORE_MODES as [StoreMode, ...StoreMode[]]).optional(),
+      /**
+       * A workshop's keep amounts set on its card, by kind (`DepotState.keeps`). Optional: absent (older saves, and a
+       * workshop never set), the game's own amounts. No new save version: it's simply missing from an older save.
+       */
+      keeps: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.number().int().min(0).max(MAX_PILE)).optional(),
       /** Of its piles, what's landed there for trains to take away (a harbour's bought goods), in cargo order. */
       landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_KINDS.length).optional(),
       /** A station's van yard (roads spec D5): goods waiting for its delivery van (or riding it), by kind. */
@@ -204,6 +209,20 @@ const saveSchema = z.object({
 });
 
 export type SaveData = z.infer<typeof saveSchema>;
+
+/** A workshop's keep amounts for its save: only those set (none: nothing). */
+function keepsOf(d: DepotState): { keeps?: Partial<Record<CargoKind, number>> } {
+  const keeps: Partial<Record<CargoKind, number>> = {};
+  let any = false;
+  for (const kind of CARGO_KINDS) {
+    const n = d.keeps[CARGO[kind].index];
+    if (n !== null) {
+      keeps[kind] = n;
+      any = true;
+    }
+  }
+  return any ? { keeps } : {};
+}
 
 /** A depot's landed goods, for its save entry (none: nothing). */
 /** A warehouse's store settings for its save: only what isn't the default (nothing listed, everything taken and given). */
@@ -318,7 +337,7 @@ export function serializeWorld(world: World): SaveData {
     wyeLevers: 3,
     trains,
     ids: sim.idCounters(),
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...storeOf(d), ...landedOf(world, d.id), ...vanYardOf(world, d.id) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...storeOf(d), ...keepsOf(d), ...landedOf(world, d.id), ...vanYardOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
@@ -492,6 +511,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     state.waitFull = d.waitFull;
     state.takesAll = (d.role === "workshop" || d.role === "school") && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
+    // A workshop's keep amounts (older saves have none: the game's own).
+    if (d.role === "workshop") for (const kind of CARGO_KINDS) state.keeps[CARGO[kind].index] = d.keeps?.[kind] ?? null;
     // A warehouse's store settings (older saves have none: it takes and gives everything).
     if (d.role === "warehouse") {
       state.others = d.others ?? "both";

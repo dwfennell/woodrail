@@ -19,7 +19,7 @@ export const LOCK_OUT = 8;
  * Below this height (px) the band between the bars (`MapView.band`) takes compact labels: a town's or depot's name
  * alone on one line, smaller, with its dot (and a depot's goods icon), no line under it or progress bar. A phone on its
  * side has about 190–235 px there, upright 600 or more; the full labels (49 px tall) left room for 2 of the starter
- * map's 5 towns at 667×375. Measured from the band, not the device, so a short window on a desk gets them too.
+ * map's 5 towns (4 since 2026-11-04) at 667×375. Measured from the band, not the device, so a short window on a desk gets them too.
  */
 export const COMPACT_BAND = 300;
 

@@ -125,7 +125,7 @@ const installD = (page) =>
 });
 // The groups (E2E_ONLY, `-- --list`, resume: scripts/e2e/lib/groups.mjs; docs/agents/e2e.md), in the full run's order,
 // on the first page (junctions opens one of its own; the phone cases and QA's replays open contexts of their own).
-// `lift`, `terrace-repeat` and `terrace-qa` aren't in a full run: run when named.
+// `lift` isn't in a full run: run when named.
 const suite = groups("draw", { results, errors, check });
 
 // Favourites: first on the Track tab, a ★ on a shelf's piece adds it, and it's remembered.
@@ -604,11 +604,16 @@ suite.add("specials", async () => {
   step("8");
   await specials();
 });
-// (QA's replay of the slanted river crossings and the terrace climb.)
-suite.add("qa-slant", async () => {
-  step("9");
-  await qaReplay();
-});
+// QA's replays (step 9): the slanted river crossings and the terrace climbs, a group each (each on a fresh page of its
+// own, a few minutes: a timed-out run keeps those done, and shards can share them); then terrace 2 again on one page,
+// and QA's own script for it.
+for (const c of qaCases())
+  suite.add(`qa-${c.slug}`, async () => {
+    step(`9 ${c.name}`);
+    await qaCase(c);
+  });
+suite.add("terrace-repeat", () => terraceRepeat(), { about: "QA's terrace 2 drawn again on one page" });
+suite.add("terrace-qa", () => terraceQA(), { about: "QA's own script for terrace 2" });
 // (The junctions (N2 phase 2: a branch, a merge) and the planning guard, on a fresh page.)
 suite.add("junctions", async () => {
   step("10");
@@ -623,8 +628,6 @@ suite.add("lift", async () => {
   await findSite();
   await liftFlush();
 }, { extra: true, about: "a lift waiting a frame to go down, and what puts it down at once" });
-suite.add("terrace-repeat", () => terraceRepeat(), { extra: true, about: "QA's terrace 2 drawn again on one page (a part of qa-slant)" });
-suite.add("terrace-qa", () => terraceQA(), { extra: true, about: "QA's own script for terrace 2 (a part of qa-slant)" });
 await suite.run(async (g, go) => {
   await start();
   await go();
@@ -849,22 +852,26 @@ async function slantedRiver() {
  * clean case (40°, back) stays clean. And the terrace climb (a level, then another) where one move took 118.6 ms (the
  * second ramp's cutting preview): DrawHand.move under 16 ms at worst.
  */
-async function qaReplay() {
+function qaCases() {
   // QA's exact world lines (seed 7, fresh, Sandbox), and QA's camera for each (phi 0.95, theta −1.1659).
-  const cases = [
-    { name: "slant 23 there", x: -36, z: -1620, h: 2.7576202181510405, total: 972, back: false, cam: [-481, -1440.2, 3662.2] },
-    { name: "slant 30 back", x: -252, z: -1620, h: 2.0943951023931953, total: 972, back: true, cam: [-492, -1204.3, 4760.9] },
-    { name: "slant 10 back", x: -180, z: -1620, h: 2.5307274153917776, total: 852, back: true, cam: [-524, -1379.1, 3662.2] },
-    { name: "slant -23 back", x: -36, z: -1620, h: 2.7401669256310974, total: 972, back: true, cam: [-477.8, -1432.4, 3662.2] },
-    { name: "slant 10 there", x: -180, z: -1620, h: 2.5307274153917776, total: 852, back: false, cam: [-524, -1379.1, 3662.2] },
-    { name: "slant 40 back (the clean case)", x: -252, z: -1620, h: 2.2689280275926285, total: 852, back: true, cam: [-522, -1298.3, 3662.2] },
-    { name: "terrace: a level up, then another", terrace: true, lanes: [0] },
+  return [
+    { name: "slant 23 there", slug: "slant-23-there", x: -36, z: -1620, h: 2.7576202181510405, total: 972, back: false, cam: [-481, -1440.2, 3662.2] },
+    { name: "slant 30 back", slug: "slant-30-back", x: -252, z: -1620, h: 2.0943951023931953, total: 972, back: true, cam: [-492, -1204.3, 4760.9] },
+    { name: "slant 10 back", slug: "slant-10-back", x: -180, z: -1620, h: 2.5307274153917776, total: 852, back: true, cam: [-524, -1379.1, 3662.2] },
+    { name: "slant -23 back", slug: "slant-m23-back", x: -36, z: -1620, h: 2.7401669256310974, total: 972, back: true, cam: [-477.8, -1432.4, 3662.2] },
+    { name: "slant 10 there", slug: "slant-10-there", x: -180, z: -1620, h: 2.5307274153917776, total: 852, back: false, cam: [-524, -1379.1, 3662.2] },
+    { name: "slant 40 back (the clean case)", slug: "slant-40-back", x: -252, z: -1620, h: 2.2689280275926285, total: 852, back: true, cam: [-522, -1298.3, 3662.2] },
+    { name: "terrace: a level up, then another", slug: "terrace", terrace: true, lanes: [0] },
     // QA's second terrace site (heading 180°, a square a level up, then another), at QA's world line and camera (as
     // the unit replay has it; a search for such a site found another, by the map's edge): a ramp at the first rise,
     // and never "too sharp" on a straight stroke.
-    { name: "terrace 2: a square a level up, then another", x: -1764, z: -1620, h: Math.PI, total: 480, back: false, cam: [-2004, -1620, 3662.2], climb: true, noTurn: true },
+    { name: "terrace 2: a square a level up, then another", slug: "terrace-2", x: -1764, z: -1620, h: Math.PI, total: 480, back: false, cam: [-2004, -1620, 3662.2], climb: true, noTurn: true },
   ];
-  for (const c of cases) {
+}
+
+/** One of QA's replays (`qaCases`), on a fresh page of its own, as QA ran them. */
+async function qaCase(c) {
+  {
     // A fresh page for each, as QA ran them.
     const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
     const q = await ctx.newPage();
@@ -940,7 +947,7 @@ async function qaReplay() {
     if (!run) {
       check(`QA replay, ${c.name}: found its run`, false);
       await ctx.close();
-      continue;
+      return;
     }
     // The finger's path every 15 mm along the world line, seen at the ground's height, with QA's camera (or, for the
     // terrace, the smallest view that frames it).
@@ -1036,8 +1043,6 @@ async function qaReplay() {
     check(`QA replay, ${c.name}: cold, no move over 50 ms`, got.worst < 50, what);
     await ctx.close();
   }
-  await terraceRepeat();
-  await terraceQA();
 }
 
 /**

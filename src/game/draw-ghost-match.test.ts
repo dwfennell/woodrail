@@ -144,7 +144,8 @@ function offGhosts(ghosts: readonly Laid[], laid: readonly Laid[]): number {
 const show = (ps: readonly Laid[]) => ps.map((p) => `${p.type}${p.flipped ? "~" : ""}@(${p.x.toFixed(1)}, ${p.z.toFixed(1)}, ${p.heading.toFixed(3)})`).join(" ");
 
 describe("QA: what a drawn line puts down is what its ghosts showed", () => {
-  type Case = { name: string; seed: number; W: number; H: number; d: number; pts: (w: World) => [number, number][]; end: (w: World) => { ref: number } };
+  /** `old`: on the starter map as QA had it, with all five towns (a new one has no Ashcombe: `STARTER_TOWNS`). */
+  type Case = { name: string; seed: number; W: number; H: number; d: number; pts: (w: World) => [number, number][]; end: (w: World) => { ref: number }; old?: boolean };
   const brambleton = (w: World) => stationEnd(w, "Brambleton", 0);
   const elderwickW = (w: World) => stationEnd(w, "Elderwick", 0);
   const elderwickE = (w: World) => stationEnd(w, "Elderwick", 1);
@@ -155,8 +156,8 @@ describe("QA: what a drawn line puts down is what its ghosts showed", () => {
     { name: "Brambleton W, 360", seed: 7, W: 360, H: 740, d: 926, pts: (w) => approach(brambleton(w), 320, 60), end: brambleton },
     { name: "Elderwick W, 390", seed: 7, W: 390, H: 844, d: 1862, pts: (w) => approach(elderwickW(w), 450, -120, -6), end: elderwickW },
     { name: "Elderwick W, 360", seed: 7, W: 360, H: 740, d: 1862, pts: (w) => approach(elderwickW(w), 450, -120, -6), end: elderwickW },
-    { name: "Ashcombe W, 390", seed: 7, W: 390, H: 844, d: 1065, pts: (w) => approach(ashcombe(w), 400, 160, 5, 20, -15), end: ashcombe },
-    { name: "Ashcombe W, 360", seed: 7, W: 360, H: 740, d: 1224, pts: (w) => approach(ashcombe(w), 400, 160, 5, 20, -15), end: ashcombe },
+    { name: "Ashcombe W, 390", seed: 7, W: 390, H: 844, d: 1065, pts: (w) => approach(ashcombe(w), 400, 160, 5, 20, -15), end: ashcombe, old: true },
+    { name: "Ashcombe W, 360", seed: 7, W: 360, H: 740, d: 1224, pts: (w) => approach(ashcombe(w), 400, 160, 5, 20, -15), end: ashcombe, old: true },
     { name: "Elderwick E, 390", seed: 7, W: 390, H: 844, d: 1300, pts: (w) => approach(elderwickE(w), 480, 140, 8, 30), end: elderwickE },
     { name: "Elderwick E, 360", seed: 7, W: 360, H: 740, d: 1300, pts: (w) => approach(elderwickE(w), 480, 140, 8, 30), end: elderwickE },
   ];
@@ -166,7 +167,7 @@ describe("QA: what a drawn line puts down is what its ghosts showed", () => {
 
   for (const c of cases)
     it(`${c.name}: the pieces put down are the last ghosts, within 1 mm and 1°, and joined to the station`, () => {
-      const world = createWorld(c.seed, true);
+      const world = c.old ? createWorld(c.seed, true, false) : createWorld(c.seed, true);
       const { ghosts, laid } = drawAsGame(world, c.pts(world), c.W, c.H, c.d);
       const why = `ghosts ${show(ghosts)}\nlaid   ${show(laid)}`;
       expect(laid.length, why).toBeGreaterThan(0);

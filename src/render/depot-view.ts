@@ -489,6 +489,11 @@ interface Site {
   piles: number;
   /** Picking owners for this depot's piles, made once. */
   readonly pileOwners: Record<CargoKind, CargoSlot>;
+  /**
+   * Its static parts in world space, merged per material, and its yard clocks: made the first time its tile is built,
+   * then kept, so a tile built again (a neighbour picked up or put down) only merges them (`buildTile`).
+   */
+  statics?: { parts: Map<Material, BufferGeometry>; clocks: [number, ClockAt][] };
 }
 
 /** One kind of goods as drawn: its parts (instanced, a unit per instance), who each drawn unit belongs to, and the copy a crane or a hand carries. */
@@ -740,6 +745,9 @@ export class DepotView {
         if (o instanceof Mesh) o.geometry.dispose();
       });
     }
+    for (const site of this.sites) for (const g of site.statics?.parts.values() ?? []) g.dispose();
+    for (const parts of this.models.values()) for (const g of parts.values()) g.dispose();
+    this.models.clear();
     this.shape++;
     this.layout = layout;
     this.sites = [];
@@ -757,6 +765,52 @@ export class DepotView {
     const handles = this.motes.place(this.sites.map((s) => ({ role: s.depot.role, x: s.pose.x, y: s.pose.y ?? 0, z: s.pose.z, heading: s.pose.heading })));
     this.sites.forEach((s, k) => (s.motes = handles[k]));
     for (const key of new Set(this.sites.map((s) => s.tile))) this.buildTile(key);
+  }
+
+  /**
+   * `setWorld`, but only for the sites that changed: a depot's piece picked up (lifted), put down, moved, retyped,
+   * added or gone. Their crane parts are dropped or made, and only their tiles' static parts built again; the rest
+   * stand as they are (QA 2026-11-04: picking a harvester up rebuilt every yard on the map, 8–19 ms). What a full
+   * rebuild is for (`extras`, `building` changed) still needs `setWorld`.
+   */
+  syncSites(economy: Economy, layout: Layout): void {
+    const tiles = new Set<number>();
+    const kept = new Set<DepotState>();
+    const live = new Set(economy.allDepots());
+    this.sites = this.sites.filter((site) => {
+      const piece = layout.getPiece(site.depot.pieceId);
+      const same =
+        live.has(site.depot) &&
+        !!piece &&
+        !layout.isLifted(site.depot.pieceId) &&
+        piece.type === site.drawn &&
+        piece.pose.x === site.pose.x &&
+        piece.pose.z === site.pose.z &&
+        piece.pose.heading === site.pose.heading &&
+        piece.y === site.pose.y;
+      if (same) {
+        kept.add(site.depot);
+        return true;
+      }
+      tiles.add(site.tile);
+      this.dropSite(site);
+      return false;
+    });
+    for (const depot of live) {
+      if (kept.has(depot)) continue;
+      const site = this.makeSite(depot, economy, layout);
+      if (!site) continue;
+      this.sites.push(site);
+      tiles.add(site.tile);
+    }
+    if (tiles.size === 0) return;
+    // (Everything placed afresh on the next update, as after `setWorld`.)
+    this.shape++;
+    this.layout = layout;
+    this.carOwners.clear();
+    const handles = this.motes.place(this.sites.map((s) => ({ role: s.depot.role, x: s.pose.x, y: s.pose.y ?? 0, z: s.pose.z, heading: s.pose.heading })));
+    this.sites.forEach((s, k) => (s.motes = handles[k]));
+    for (const key of tiles) this.buildTile(key);
   }
 
   /**
@@ -853,6 +907,8 @@ export class DepotView {
 
   /** Take a site's moving parts out of the group (its statics go with its tile's rebuild). */
   private dropSite(site: Site): void {
+    for (const g of site.statics?.parts.values() ?? []) g.dispose();
+    site.statics = undefined;
     for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
       if (!o) continue;
       this.group.remove(o);
@@ -880,24 +936,48 @@ export class DepotView {
       if (hadClocks.length > 0) this.onClocks?.();
       return;
     }
-    // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped.
-    const b = new Batcher(this.mats.paint);
+    // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped. Each site's own are made once
+    // (`Site.statics`) and merged here with the rest of the tile's.
     const clocks: number[] = [];
-    this.clockSink = (id, at) => {
-      this.yardClocks.set(id, at);
-      clocks.push(id);
-    };
-    for (const site of sites) this.buildStatic(site, b, true, "instanced");
-    this.clockSink = null;
+    const buckets = new Map<Material, BufferGeometry[]>();
+    for (const site of sites) {
+      const own = (site.statics ??= this.siteStatics(site));
+      for (const [id, at] of own.clocks) {
+        this.yardClocks.set(id, at);
+        clocks.push(id);
+      }
+      for (const [m, g] of own.parts) {
+        let list = buckets.get(m);
+        if (!list) buckets.set(m, (list = []));
+        list.push(g);
+      }
+    }
     this.clockDepots.set(key, clocks);
     if (clocks.length > 0 || hadClocks.length > 0) this.onClocks?.();
     const statics = new Group();
     statics.userData.depotStatic = true;
-    b.build(statics);
+    for (const [m, list] of buckets) {
+      const merged = list.length === 1 ? list[0].clone() : mergeGeometries(list);
+      if (!merged) continue;
+      const mesh = new Mesh(merged, m);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      statics.add(mesh);
+    }
     // Yards reach about 250 mm from their track's middle.
     setCullBox(statics, sites.flatMap(({ at: p }) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
     this.group.add(statics);
     this.tiles.set(key, statics);
+  }
+
+  /** A site's static parts, made (`buildStatic`) and merged per material, and its yard clocks (see `Site.statics`). */
+  private siteStatics(site: Site): NonNullable<Site["statics"]> {
+    const b = new Batcher(this.mats.paint);
+    const clocks: [number, ClockAt][] = [];
+    this.clockSink = (id, at) => clocks.push([id, at]);
+    this.buildStatic(site, b, true, "instanced");
+    this.clockSink = null;
+    return { parts: b.merged(), clocks };
   }
 
   /**
@@ -905,13 +985,27 @@ export class DepotView {
    * with the piece while it's held, and in the tray's picture. The caller disposes its geometry.
    */
   model(role: DepotRole): Group {
-    const site = { depot: { role }, pose: { x: 0, z: 0, heading: 0 }, layout: DEPOT_LAYOUT[role] } as unknown as Site;
-    const b = new Batcher(this.mats.paint);
-    this.buildStatic(site, b);
+    // (Made once per kind and kept till the yards are all drawn again (`setWorld`: an upgrade, a school grown); each
+    // call hands out copies, the caller's to dispose: picking an industry up made it afresh, 2-7 ms.)
+    let parts = this.models.get(role);
+    if (!parts) {
+      const site = { depot: { role }, pose: { x: 0, z: 0, heading: 0 }, layout: DEPOT_LAYOUT[role] } as unknown as Site;
+      const b = new Batcher(this.mats.paint);
+      this.buildStatic(site, b);
+      this.models.set(role, (parts = b.merged()));
+    }
     const out = new Group();
-    b.build(out);
+    for (const [m, g] of parts) {
+      const mesh = new Mesh(g.clone(), m);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      out.add(mesh);
+    }
     return out;
   }
+
+  /** `model`'s parts per kind (see there). */
+  private readonly models = new Map<DepotRole, Map<Material, BufferGeometry>>();
 
   /**
    * An industry's yard and buildings (its static parts only, no upgrades) for a piece at `pose`, each part handed to
@@ -1366,12 +1460,15 @@ export class DepotView {
     // The saw spins while the sawmill is cutting (by the game's time: paused, it stops where it is), and the other
     // industries' motes move while they work: only those on screen and big enough there to see them move (`eye`, the
     // ambient rule: out of view or too small, they stand where they were and ask for nothing; a camera move bringing
-    // one into view draws, and the next frame poses it). Asked for less motion, all stand still.
-    if (ran > 0 && !this.calm)
+    // one into view draws, and the next frame poses it). Asked for less motion, all stand still. With no train on the
+    // map, what they make has nowhere to go: they fill their yards quietly, standing still, so a map with nothing
+    // running on it (Sandbox's opening view) draws nothing (a forest takes 3 min to fill its yard).
+    if (ran > 0 && !this.calm && economy.sim.trainCount > 0)
       for (const site of this.sites) {
         if ((!site.blade && site.motes.length === 0) || !economy.working(site.depot)) continue;
         if (site.blade) {
-          site.blade.rotateZ(ran * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
+          // (A mill's sails at 1.25 rad/s, a turn about every 5 s: half what they were, #27 "turns a bit too fast".)
+          site.blade.rotateZ(ran * (site.depot.role === "mill" ? 1.25 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
           const at = site.bladeAt;
           if (site.blade.visible && (!eye || !at || eye.sees(at.x, at.y, at.z, at.size, AMBIENT_MIN_PX.blade))) ambient = true;
         }

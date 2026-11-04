@@ -1,6 +1,7 @@
 import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, TRENCH_HALF, TRENCH_INSET, TRENCH_WALL, createSample, getPieceDef, ignores, isBridge, isLift, isRamp, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { hillsOf } from "./hill-shape";
+import { inTunnel } from "./clearance";
 
 /** How close to a riser's centre a track end must be to rest on it (a riser is 46 mm across). */
 export const RISER_REACH = 24;
@@ -294,6 +295,8 @@ export function checkSupport(
   for (const f of feet(type, flipped, pose)) {
     const fy = y + f.dy;
     if (restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - fy) <= TOL)) continue;
+    // In a tunnel, track lies on the tunnel's floor.
+    if (inTunnel(land, f.x, f.z, fy)) continue;
     // A ramp's high end stands on the ramp's own support, down to where its low end rests (no riser); a train lift's
     // on its tower.
     if ((isRamp(type) || isLift(type)) && f.dy > 0 && restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - y) <= TOL)) continue;

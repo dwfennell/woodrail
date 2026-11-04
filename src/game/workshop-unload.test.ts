@@ -122,6 +122,76 @@ describe("a hand-run train at a workshop set to Takes all planks", () => {
   });
 });
 
+describe("a workshop set to share shares with a school left sharing too (Dustin's playthrough, 2026-11-04)", () => {
+  it("hand-run, a sharing school after it whose research lacks planks: the yard keeps its part, the school gets the rest", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["workshop", "school"]);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(yardKeeps(p));
+    expect(p.research.got.planks).toBe(9 - yardKeeps(p));
+  });
+
+  it("on a route too", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["workshop", "school"]);
+    w.route([{ stop: w.at("workshop") }, { stop: w.at("school") }]);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(yardKeeps(p));
+    expect(p.research.got.planks).toBe(9 - yardKeeps(p));
+  });
+
+  it("not for a school whose research lacks no planks: the yard takes them all", () => {
+    const p = Progress.fresh();
+    const w = line(p, ["workshop", "school"]);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(9);
+  });
+
+  it("not with the workshop set to Takes all planks", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["workshop", "school"]);
+    w.economy.setTakesAll(w.at("workshop").id, true);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(9);
+    expect(p.research.got).toEqual({});
+  });
+});
+
+describe("a workshop's keep amount set on its card (`DepotState.keeps`)", () => {
+  /** Game mode's rule (main.ts): the stepper's planks, or the spare; a waiting order's still come first (`yardKeeps`). */
+  const ownKeeps = (w: ReturnType<typeof line>, p: Progress) => {
+    w.economy.shopKeeps = (kind, d) => (kind === "planks" ? yardKeeps(p, d.keeps[CARGO.planks.index] ?? undefined) : d.keeps[CARGO[kind].index]);
+  };
+
+  it("set to 2, the yard keeps 2 and the town ahead gets the rest", () => {
+    const p = Progress.fresh();
+    const w = line(p, ["workshop", "town"]);
+    ownKeeps(w, p);
+    w.economy.setKeep(w.at("workshop").id, "planks", 2);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(2);
+    expect(w.delivered()).toBe(7);
+  });
+
+  it("set to 0, it shares them all", () => {
+    const p = Progress.fresh();
+    const w = line(p, ["workshop", "town"]);
+    ownKeeps(w, p);
+    w.economy.setKeep(w.at("workshop").id, "planks", 0);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(0);
+    expect(w.delivered()).toBe(9);
+  });
+
+  it("not set: the game's own (the spare)", () => {
+    const p = Progress.fresh();
+    const w = line(p, ["workshop", "town"]);
+    ownKeeps(w, p);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(yardKeeps(p));
+  });
+});
+
 describe("a school takes what its research lacks when the train gets there", () => {
   it("after a town that wants planks: the town takes what it wants first (here all), the school gets what's left", () => {
     const p = lackingPlanks();

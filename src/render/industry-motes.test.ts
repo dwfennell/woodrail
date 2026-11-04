@@ -84,6 +84,9 @@ function world(roles: DepotRole[]) {
       if (!on) for (const k of ["grain", "stone", "log"] as const) d.piles[CARGO[k].index] = 999;
     }
   };
+  // A train far off, so what they make has somewhere to go (with none on the map, they stand still: tested below).
+  const line = layout.addPiece("straight-216", { x: 0, z: 90000, heading: 0 });
+  const train = sim.addTrain(["engine"], { pieceId: line, pathIndex: 0, reversed: false, s: 100 });
   const view = new DepotView(stubMaterials());
   view.calm = false;
   view.setWorld(economy, layout);
@@ -95,7 +98,7 @@ function world(roles: DepotRole[]) {
     camera.updateProjectionMatrix();
   };
   look(roles.length * 200, 60);
-  return { economy, depots, view, camera, look, stock };
+  return { economy, sim, train, depots, view, camera, look, stock };
 }
 
 /** The game's loop as far as depots go (as depot-view.test.ts's): frames drawn over `seconds`. */
@@ -153,6 +156,26 @@ describe("DepotView: busy industries move, idle ones stand still, and only in vi
     for (const d of w.depots) expect(w.economy.working(d)).toBe(true);
     expect(run(w, 2, clock)).toBe(60);
     expect(snapshot(w)).not.toEqual(still);
+  });
+
+  it("working with no train on the map (Sandbox's opening view): what they make has nowhere to go, so no frames", () => {
+    const w = world([...MOVING, "sawmill"]);
+    const clock = { sim: 0 };
+    w.stock(true);
+    run(w, 0.2, clock);
+    const id = "trainId" in w.train ? w.train.trainId : -1;
+    w.sim.removeTrain(id as number);
+    expect(w.sim.trainCount).toBe(0);
+    for (const d of w.depots) expect(w.economy.working(d)).toBe(true);
+    run(w, 0.2, clock);
+    const still = snapshot(w);
+    expect(run(w, 5, clock)).toBe(0);
+    expect(snapshot(w)).toEqual(still);
+    // They still make goods: the yard fills while standing still.
+    const forest = w.depots[0];
+    const logs = forest.piles[CARGO.log.index];
+    for (let t = 0; t < 20 / SIM_DT; t++) w.economy.tick();
+    expect(forest.piles[CARGO.log.index]).toBeGreaterThan(logs);
   });
 
   it("working but out of view: no frames, and they hold where they were until seen again", () => {

@@ -471,7 +471,7 @@ describe("a workshop set to Takes all planks (`takesAll`): it fills its yard, a 
     expect(p.research.got).toEqual({});
   });
 
-  it("no hold-back for a school further on: shares or takes all, with no town ahead the yard takes them all", () => {
+  it("no town ahead: set to share, the yard keeps its part and leaves the rest for a sharing school; set to take all, it takes them all", () => {
     const p = researching("bridges");
     const shares = line(["depot-workshop", "depot-school"], p);
     keeps(shares, p);
@@ -482,9 +482,11 @@ describe("a workshop set to Takes all planks (`takesAll`): it fills its yard, a 
     all.economy.setTakesAll(all.depots[0].id, true);
     all.run(90);
     expect(p2.research.got).toEqual({});
-    expect(p.research.got).toEqual({});
-    expect(shares.depots[0].piles[CARGO.planks.index]).toBe(9);
     expect(all.depots[0].piles[CARGO.planks.index]).toBe(9);
+    // (Dustin's playthrough, 2026-11-04: the workshop shares with a school left sharing as with a town.)
+    const kept = shares.depots[0].piles[CARGO.planks.index];
+    expect(kept).toBeLessThan(9);
+    expect(p.research.got.planks).toBe(9 - kept);
   });
 });
 

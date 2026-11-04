@@ -8,8 +8,8 @@ import { setRim } from "../render/materials";
 import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, DRAW_TYPES, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, DRAW_TYPES, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, placeGhost } from "../render/signal-marks-view";
@@ -42,6 +42,10 @@ import { branchesOff } from "./draw-junctions";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { DIG_MESSAGES, DIG_TRAIN, planUnderpass, planUnderpassAhead, UNDER_BRIDGE, type DigPlan } from "./underpass-dig";
+import { planBore, planTunnel, TUNNEL_MESSAGES, type TunnelPlan } from "./tunnel-dig";
+
+/** Said of a signal put on a joint in a tunnel. */
+const SIGNAL_DARK = "Signals need daylight: put it outside the tunnel";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { PinHint, type PinHintState } from "./switch-pin";
@@ -547,6 +551,7 @@ export class Interaction {
       occupied: (id) => this.game.sim.pieceOccupied(id),
       dig: (type, flipped, pose, y, ignore) => this.digPlan(type, flipped, pose, y, ignore ?? -1),
       ahead: (type, pose, y, ignore) => planUnderpassAhead(this.rules, type, false, pose, y, ignore ?? -1, true),
+      tunnel: (end, ignore) => (this.tunnelStock && this.tunnelStock() < 2 ? null : planTunnel(this.rules, end, ignore ?? -1)),
       message: (reason) => this.blockMessage(reason as PlaceBlock) ?? reason,
       planeAt: (x, y, h) => this.planeAt(x, y, h),
       toScreen: (v) => {
@@ -698,6 +703,9 @@ export class Interaction {
         target = snapJoint(layout, near.cursor, m.dir);
         const there = target === -1 ? undefined : layout.signalAt(target);
         if (there && there.id !== m.moving) target = -1;
+        // (Not in a tunnel: it couldn't be seen or tapped there.)
+        this.signalDark = target !== -1 && this.jointInTunnel(target);
+        if (this.signalDark) target = -1;
       }
       if (Number.isNaN(m.fx) || Math.hypot(ground.x - m.fx, ground.z - m.fz) >= 4) {
         m.fx = ground.x;
@@ -747,7 +755,7 @@ export class Interaction {
       if (m.overTray && m.moving !== -1) {
         ed.removeSignal(m.moving);
         this.hud.toast("Back in the box");
-      } else if (!m.overTray) this.hud.toast("Drop it onto the track");
+      } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : "Drop it onto the track");
       return;
     }
     let id = m.moving;
@@ -785,6 +793,16 @@ export class Interaction {
     return this.signalReady;
   }
 
+  /** The last signal held over a joint was there in a tunnel (and so refused). */
+  private signalDark = false;
+  private readonly jointScratch = createWorldConnector();
+  /** Is this end of track (a joint) in a tunnel? Signals can't go there. */
+  private jointInTunnel(ref: number): boolean {
+    if (!tunnelsOn()) return false;
+    const w = this.game.layout.worldConnector(ref, this.jointScratch);
+    return inTunnel(this.game.landscape, w.x, w.z, w.y);
+  }
+
   /** With the Signal tool: one on the joint nearest a tap on the track, facing away from the camera. */
   private placeSignalAt(x: number, y: number): void {
     const layout = this.game.layout;
@@ -800,6 +818,10 @@ export class Interaction {
     if (at !== -1 && layout.signalAt(at)) at = layout.signalAt(layout.joinedConnector(at)) ? -1 : layout.joinedConnector(at);
     if (at === -1) {
       this.hud.toast("There's a signal there already");
+      return;
+    }
+    if (this.jointInTunnel(at)) {
+      this.hud.refuse(SIGNAL_DARK);
       return;
     }
     this.editor().addSignal(at);
@@ -878,7 +900,9 @@ export class Interaction {
       this.placeSignalAt(x, y);
       return;
     }
-    if (m.ats.length > 0) this.editor().addSignals(m.ats);
+    const ats = m.ats.filter((at) => !this.jointInTunnel(at));
+    if (ats.length < m.ats.length) this.hud.toast(SIGNAL_DARK);
+    if (ats.length > 0) this.editor().addSignals(ats);
   }
 
   /** The signal mark whose post is under a screen point (CSS px), with a fingertip's slack on touch; −1: none. */
@@ -2520,7 +2544,7 @@ export class Interaction {
         if (why) this.hud.refuse(why);
         this.onTrayPieceDropped?.(false);
       }
-      if (INDUSTRY_ROLE[m.type]) this.game.depotView.setWorld(this.game.economy, this.game.layout);
+      if (INDUSTRY_ROLE[m.type]) this.game.depotView.syncSites(this.game.economy, this.game.layout);
       this.treeKey = "";
       this.game.previewTrees(null);
       this.changed();
@@ -3264,6 +3288,27 @@ export class Interaction {
         reason = "dig";
       }
     }
+    // A new plain straight on the felt run into a hill's side: a tunnel under the hill goes down in its place
+    // (`planBore`): straights, a short mouth down, track a level under, a mouth up out the far side.
+    if (reason === "hill" && ahead && ignoreId === -1 && tunnelsOn() && isPlainStraight(type)) {
+      const plan = this.borePlan(type, flipped, pose, y);
+      if (plan?.kind === "bore") {
+        const short = this.tunnelStock && this.tunnelStock() < 2;
+        if (short) {
+          this.digWhy = "A tunnel takes two short tunnel mouths: make them at the workshop";
+          reason = "dig";
+        } else {
+          // (The straight itself doesn't go down: the tunnel's pieces do, each checked as the plan was made.)
+          const site = this.siteRule?.(type, pose, ignoreId) ?? null;
+          if (!site) return { reason: null, risers: [] };
+          this.siteWhy = site;
+          return { reason: "site", risers: [] };
+        }
+      } else if (plan?.kind === "refused" && plan.why !== "none") {
+        this.digWhy = TUNNEL_MESSAGES[plan.why];
+        reason = "dig";
+      }
+    }
     if (reason === "headroom" && type === "underpass") {
       this.digWhy = "Put the underpass's middle under the bridge";
       reason = "dig";
@@ -3307,6 +3352,16 @@ export class Interaction {
     return this.aheadFor.plan;
   }
   private aheadFor: { key: string; plan: DigPlan | null } | null = null;
+
+  /** The tunnel a new straight run into a hill's side lays in its place (see `planBore`), once per spot and edit. */
+  borePlan(type: PieceTypeId, flipped: boolean, pose: Pose, y: number): TunnelPlan | null {
+    const key = `${type}|${flipped}|${pose.x.toFixed(2)}|${pose.z.toFixed(2)}|${pose.heading.toFixed(4)}|${y}|${this.game.trackVersion}`;
+    if (this.boreFor?.key !== key) this.boreFor = { key, plan: planBore(this.rules, type, flipped, pose, y) };
+    return this.boreFor.plan;
+  }
+  private boreFor: { key: string; plan: TunnelPlan | null } | null = null;
+  /** Game mode: how many short tunnel mouths the toy box has (a tunnel takes two); null for no limit. */
+  tunnelStock: (() => number) | null = null;
   /** Is a straight here on the ground under a bridge one level up (and only that in its way, a level up)? */
   private underBridge(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): boolean {
     const layout = this.game.layout;
@@ -4281,7 +4336,7 @@ export class Interaction {
     const leaves = this.splices(p.type) ? this.inlineEnds(pieceId) : null;
     layout.liftPiece(pieceId);
     // An industry's yard goes up with it (drawn in the hand, not where it stood).
-    if (INDUSTRY_ROLE[p.type]) this.game.depotView.setWorld(this.game.economy, layout);
+    if (INDUSTRY_ROLE[p.type]) this.game.depotView.syncSites(this.game.economy, layout);
     this.game.sim.trackChanged();
     this.changed();
     const ghost = this.heldMesh(p.type, p.flipped);
@@ -4354,6 +4409,8 @@ export class Interaction {
 
   private heldMesh(type: PieceTypeId, flipped: boolean): Mesh {
     const mats = this.game.mats;
+    // While track is held, the track in tunnels shows through the ground (to join on to).
+    this.game.trackView.showTunnels(true);
     setRim(mats.held, "#ffffff", 0);
     const mesh = ghostMesh(type, flipped, [mats.held, mats.trackCut, mats.held]);
     mesh.castShadow = true;
@@ -4380,6 +4437,11 @@ export class Interaction {
   }
 
   private dropHeld(mesh: Mesh): void {
+    this.game.trackView.showTunnels(false);
+    if (!this.game.mats.held.depthTest) {
+      this.game.mats.held.depthTest = true;
+      this.game.mats.held.needsUpdate = true;
+    }
     this.game.scene.remove(mesh);
     for (const child of [...mesh.children]) {
       mesh.remove(child);
@@ -4667,6 +4729,12 @@ export class Interaction {
       else if (m.snap.kind === "snapped") setRim(held, "#7ddc58", 0.9);
       else setRim(held, "#fff2d8", 0.12);
       this.markGap(m);
+      // Held under the ground (in a tunnel, or a mouth going down): seen through it.
+      const under = tunnelsOn() && (py < -0.5 || isTunnelMouth(m.type) || inTunnel(this.game.landscape, pose.x, pose.z, py));
+      if (held.depthTest === under) {
+        held.depthTest = !under;
+        held.needsUpdate = true;
+      }
       m.goal.x = pose.x;
       m.goal.y = py + HOLD_LIFT;
       m.goal.z = pose.z;
@@ -4771,7 +4839,7 @@ export class Interaction {
     const discard = () => {
       this.dropHeld(mesh);
       // The yard shows where it stands again once the one in the hand has gone.
-      if (industry) g.depotView.setWorld(g.economy, g.layout);
+      if (industry) g.depotView.syncSites(g.economy, g.layout);
     };
     const isNew = m.pieceId === -1;
     // The stand-in stops sharing the held-piece material (the next piece picked up re-tints that): plain wood when
@@ -4797,7 +4865,13 @@ export class Interaction {
         let id = -1;
         // A new straight under a bridge one level up: straights on to an underpass under it go down in its place.
         const ahead = !covers && isNew && isPlainStraight(m.type) ? this.aheadPlan(m.type, m.flipped, pose, y) : null;
-        if (ahead?.kind === "dig") {
+        // A new straight run into a hill's side: a tunnel under the hill in its place (`planBore`).
+        const bore = !covers && isNew && isPlainStraight(m.type) && tunnelsOn() && this.blockedBy(m.type, m.flipped, pose, y, -1) === "hill" ? this.borePlan(m.type, m.flipped, pose, y) : null;
+        if (bore?.kind === "bore") {
+          const ids = bore.covers.length > 0 ? ed.replaceRun(bore.covers, bore.pieces) : ed.placeRun(bore.pieces);
+          id = ids[0];
+          this.hud.toast("Dug a tunnel under the hill");
+        } else if (ahead?.kind === "dig") {
           const ids = ed.placeRun(ahead.pieces);
           id = ids[0];
           this.hud.toast("Dug an underpass under the bridge");
