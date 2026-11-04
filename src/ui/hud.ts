@@ -20,6 +20,7 @@ import { pillCount, pillText, type PillView } from "../game/research-text";
 export { trayKey, type TrayItem } from "./tray-catalogue";
 import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
+import { CreditsSheet } from "./credits-sheet";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -395,6 +396,8 @@ export class Hud {
     this.openReport();
   }, "menu-item");
   private readonly reportCard = el("div", "card report-card");
+  /** ☰ Credits (made the first time it's opened). */
+  private credits: CreditsSheet | null = null;
   /** The menu's "Copy map for a bug report" (with "Report a bug or give feedback" before it, in a build that can send). */
   private readonly copyMapItem = button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
     this.menu.hidden = true;
@@ -612,6 +615,10 @@ export class Hud {
         this.help.hidden = true;
         this.coach.start();
       }, "menu-item"),
+      button("Credits", "What Woodrail is made with, and their licences", () => {
+        this.menu.hidden = true;
+        (this.credits ??= new CreditsSheet(this.root)).show();
+      }, "menu-item credits-item-btn"),
       sep(),
       button("Title screen", "Save and go back to the title screen", () => {
         this.menu.hidden = true;

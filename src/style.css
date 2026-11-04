@@ -671,6 +671,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .cloud-card .cloud-restore { align-self: flex-start; }
 .cloud-copy-field { position: fixed; left: -9999px; top: 0; opacity: 0; }
 .cloud-credit { margin: 0; font-size: 11px; color: #8a6c4c; text-align: center; }
+/* ☰ Credits: a list in the report card's place, scrolling on a short screen. */
+.credits-sheet { gap: 8px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 20px); overflow-y: auto; overscroll-behavior: contain; }
+.credits-intro { margin: 0; font-size: 13px; color: #6a5340; text-align: center; }
+.credits-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.credits-item { font-size: 13px; line-height: 1.35; color: #6a5340; }
+.credits-what { font-weight: 800; font-size: 14px; color: #3a2a1c; }
+.credits-link { color: #2f5f9a; text-decoration: underline; text-underline-offset: 2px; display: inline-block; min-height: 24px; }
+.credits-licence { font-weight: 700; }
 /* A phone on its side: docked under the top bar as the other cards are, but free to come down over the tray (it's in
    charge while it's open), so it all fits. */
 @media (max-height: 520px) {

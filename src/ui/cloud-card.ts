@@ -92,7 +92,7 @@ export class CloudCard {
     if (this.entering) this.drawEntry();
     else if (this.cloud.code) this.drawOn(this.cloud.code);
     else this.drawOff();
-    r.append(el("p", "cloud-credit", "Code words from the EFF's word list (CC BY 3.0)."));
+    // (The code words' credit, the EFF's word list, is in ☰ Credits.)
   }
 
   private drawOff(): void {
