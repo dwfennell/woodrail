@@ -48,7 +48,7 @@ export function straightLength(type: PieceTypeId, flipped: boolean): number {
   const def = getPieceDef(type, flipped);
   if (def.connectors.length !== 2 || def.paths.length !== 1 || def.isSwitch) return 0;
   const g = def.paths[0].geom;
-  if (g.kind !== "line" || g.rise !== 0 || g.start.x !== 0 || g.start.z !== 0 || g.start.heading !== 0) return 0;
+  if (g.kind !== "line" || g.rise !== 0 || g.dip || g.start.x !== 0 || g.start.z !== 0 || g.start.heading !== 0) return 0;
   const end = def.connectors[1].pose;
   return Math.abs(end.z) < 1e-6 && Math.abs(end.x - g.length) < 1e-6 ? g.length : 0;
 }

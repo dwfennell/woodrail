@@ -1,4 +1,4 @@
-import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, type BufferGeometry, type Material } from "three";
+import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, ShapeGeometry, Vector2, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, PLOT_DEPTH, PLOT_WIDTH, type LandscapeGrid, type PlotCoord, type Rect } from "../../landscape";
 import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop, type LoopPoint } from "../../landscape/outline";
@@ -15,16 +15,30 @@ const STITCH_LENGTH = 9;
  * The felt ground: one sheet running from the land out under the scenery into the haze, with a darker bound hem and a
  * running stitch marking the edge of the land that can be built on (the owned plots, `plots`).
  */
-export function buildFeltGround(mats: Materials, land: Rect, plots: readonly PlotCoord[]): Group {
+export function buildFeltGround(mats: Materials, land: Rect, plots: readonly PlotCoord[], holes: readonly { x: number; z: number }[][] = []): Group {
   const group = new Group();
   const w = land.x1 - land.x0 + 2 * GROUND_REACH;
   const d = land.z1 - land.z0 + 2 * GROUND_REACH;
-  const sheet = new PlaneGeometry(w, d);
-  sheet.rotateX(-Math.PI / 2);
-  sheet.translate((land.x0 + land.x1) / 2, 0, (land.z0 + land.z1) / 2);
-  // Felt tiles in mm, like the river and road ribbons.
-  const uv = sheet.getAttribute("uv");
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * w) / FELT_TILE, (uv.getY(i) * d) / FELT_TILE);
+  let sheet: BufferGeometry;
+  if (holes.length === 0) {
+    sheet = new PlaneGeometry(w, d);
+    sheet.rotateX(-Math.PI / 2);
+    sheet.translate((land.x0 + land.x1) / 2, 0, (land.z0 + land.z1) / 2);
+    // Felt tiles in mm, like the river and road ribbons.
+    const uv = sheet.getAttribute("uv");
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * w) / FELT_TILE, (uv.getY(i) * d) / FELT_TILE);
+  } else {
+    // With the underpasses' trenches cut out (shape x/y is world x/−z, laid flat).
+    const x0 = land.x0 - GROUND_REACH;
+    const z0 = land.z0 - GROUND_REACH;
+    const shape = new Shape([new Vector2(x0, -z0), new Vector2(x0 + w, -z0), new Vector2(x0 + w, -(z0 + d)), new Vector2(x0, -(z0 + d))]);
+    for (const h of holes) shape.holes.push(new Path(h.map((q) => new Vector2(q.x, -q.z))));
+    sheet = new ShapeGeometry(shape);
+    sheet.rotateX(-Math.PI / 2);
+    const pos = sheet.getAttribute("position");
+    const uv = sheet.getAttribute("uv");
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (pos.getX(i) - x0) / FELT_TILE, (z0 + d - pos.getZ(i)) / FELT_TILE);
+  }
   const ground = new Mesh(sheet, mats.felt);
   ground.receiveShadow = true;
   group.add(ground);

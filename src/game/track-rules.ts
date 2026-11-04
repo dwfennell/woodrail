@@ -13,7 +13,7 @@ import {
 } from "../landscape";
 import { pieceHitsProp, type Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
-import { findLowCrossing, findOverlap, RISER_HEIGHT, type Ignore, type Layout, type PlacedPiece, type PieceTypeId, type Pose } from "../track";
+import { findLowCrossing, findOverlap, trenchClash, RISER_HEIGHT, type Ignore, type Layout, type PlacedPiece, type PieceTypeId, type Pose } from "../track";
 
 /**
  * The rules every track piece is put down by, wherever it comes from (a piece in the hand, a drawn line, and later
@@ -37,6 +37,8 @@ export function trackBlock(r: TrackRules, type: PieceTypeId, flipped: boolean, p
   const arches = { mine: bridgeLevels(r.land, type, flipped, pose, y) * RISER_HEIGHT, of: (p: PlacedPiece) => bridgeLevels(r.land, p.type, p.flipped, p.pose, p.y) * RISER_HEIGHT };
   if (findOverlap(r.layout, type, flipped, pose, y, ignoreId, arches) !== -1) return "piece";
   if (findLowCrossing(r.layout, type, flipped, pose, y, ignoreId) !== -1) return "headroom";
+  // A bridge's piers (or arches) can't stand in an underpass's trench.
+  if (trenchClash(r.layout, type, flipped, pose, y, ignoreId) !== -1) return "trench";
   if (r.props && pieceHitsProp(r.props, r.footprint, type, flipped, pose)) return "prop";
   // A ramp cutting into a hill mustn't take the ground from under other track.
   return cutUndermines(r.land, r.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "undercut";

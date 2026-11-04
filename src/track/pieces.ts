@@ -14,6 +14,9 @@ import {
   SMALL_CURVE_RADIUS,
   SWITCH_LENGTH,
   WIDE_CURVE_RADIUS,
+  UNDERPASS_DIP,
+  UNDERPASS_EASE,
+  UNDERPASS_LENGTH,
 } from "./constants";
 import { normalizeAngle, type Pose } from "./math";
 import type { PathGeom } from "./path";
@@ -64,6 +67,7 @@ export type PieceTypeId =
   | "riser"
   | "bridge"
   | "bridge-curve"
+  | "underpass"
   | "buffer"
   | "buffer-turnback"
   | "adapter-peg"
@@ -382,6 +386,19 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   // `bridgeLevels`): the piece's base is its deck.
   bridge: straight("bridge", BRIDGE_LENGTH),
   "bridge-curve": curve("bridge-curve", LARGE_CURVE_RADIUS),
+  // An underpass: a straight whose middle sinks into the board (a wooden-sided trench), so a bridge one level up can
+  // cross over it with room for the tallest car (see `UNDERPASS_DIP`). Both ends are at the ground.
+  underpass: {
+    type: "underpass",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(UNDERPASS_LENGTH, 0, 0), y: 0 },
+    ],
+    paths: [{ from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: UNDERPASS_LENGTH, y0: 0, rise: 0, dip: UNDERPASS_DIP, dipEase: UNDERPASS_EASE } }],
+    flippable: false,
+    isSwitch: false,
+    supportHeight: 0,
+  },
   buffer: {
     type: "buffer",
     connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],

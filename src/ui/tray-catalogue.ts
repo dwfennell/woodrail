@@ -63,6 +63,7 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "ramp", label: "Ramp" },
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
+  { kind: "piece", type: "underpass", label: "Underpass" },
   { kind: "piece", type: "riser", label: "Riser" },
   { kind: "piece", type: "buffer", label: "Buffer" },
   { kind: "piece", type: "buffer-turnback", label: "Turnback" },
@@ -151,7 +152,7 @@ export const ROAD_GROUPS: TrayGroup[] = [
 ];
 
 /** The track bridges: a shelf of the Track tab (with the catalogue's decorative bridges after it, in Sandbox). */
-export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve") }];
+export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve", "underpass") }];
 
 /** Industries the player builds (Game mode): depot pieces placed like track. */
 export const INDUSTRY_GROUPS: TrayGroup[] = [
@@ -180,6 +181,18 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-harbour", label: "Harbour" },
       { kind: "piece", type: "depot-warehouse", label: "Warehouse" },
     ],
+  },
+];
+
+/**
+ * Sandbox's industries (free, as everything there): the goods chains' makers and users, and a warehouse. Not the
+ * workshop or school (Game mode's research and building), nor the harbour (Game mode's boats). Each works from what's
+ * around it, as in Game mode (a harvester by trees, a farm yard by a field); its card says what it lacks.
+ */
+export const SANDBOX_INDUSTRY_GROUPS: TrayGroup[] = [
+  {
+    label: "Industries",
+    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour"].includes(i.type)),
   },
 ];
 
@@ -296,6 +309,8 @@ export const TRAY_TABS: TrayTab[] = [
   { id: "track", label: "Track", icon: "🛤️", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS, GAME_TRACK_KITS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
   { id: "trains", label: "Trains", icon: "🚂", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
   { id: "industries", label: "Industries", icon: "🏭", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
+  // Sandbox's: the industries alone (its kits are on the catalogue's shelves), free, to make goods chains with.
+  { id: "industries", label: "Industries", icon: "🏭", modes: SANDBOX, groups: SANDBOX_INDUSTRY_GROUPS, orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
   // (Game mode's once Roads is learned: spec 2026-10-31-roads.md. Its zebra, bridge and ramps wait for their blueprints.)
   { id: "roads", label: "Roads", icon: "🛣️", modes: BOTH, groups: ROAD_GROUPS, orient: "turn", gameTech: "roads" },
