@@ -1,6 +1,7 @@
 import { CanvasTexture, Euler, Frustum, Group, InstancedMesh, Matrix4, MeshBasicMaterial, PlaneGeometry, Quaternion, Sphere, Vector3, type Camera } from "three";
 import { VEHICLE_CAP, type RoadVehicles, type VehicleKind } from "../roads/vehicles";
 import { modelKey, type PropLibrary } from "./props/library";
+import { shadowLook } from "./shadow-strength";
 
 /** The catalogue models (they face +x and stand on y = 0, about 70–85 mm long: drawn at `SCALE`). */
 export const VEHICLE_ASSET: Record<VehicleKind, string> = { van: "veh-delivery-van", bus: "veh-town-bus" };
@@ -65,7 +66,7 @@ export class RoadVehiclesView {
   ) {
     this.group.name = "road-vehicles";
     const plane = new PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
-    const material = new MeshBasicMaterial({ color: 0x000000, alphaMap: blobTexture(), transparent: true, opacity: 0.42, depthWrite: false });
+    const material = new MeshBasicMaterial({ color: 0x000000, alphaMap: blobTexture(), transparent: true, opacity: 0.42 * shadowLook().contact, depthWrite: false });
     this.blobs = new InstancedMesh(plane, material, CAP);
     this.blobs.count = 0;
     this.blobs.visible = false;

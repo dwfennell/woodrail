@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
-import { pinClocksIn } from "./pin-clocks.mjs";
+import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -29,6 +29,8 @@ const check = (name, ok, detail = "") => {
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
 pinClocksIn(b);
+// (Industries' axes and saws held still: none of this tests them, and in view they kept `settled()` waiting its 60 s.)
+stillIndustriesIn(b);
 const errors = [];
 
 /** A page on the title, into Sandbox (the Track tab's favourites showing). */
@@ -938,7 +940,9 @@ try {
     await frames(p);
   };
   // (The card is rebuilt as it changes: the button found, a moment's settle, then found again where it is now.)
-  const clickButton = async (sel) => {
+  // (`frame`: a frame drawn after the click, before going on. Not for a click whose effect lasts only a few seconds: a
+  // working industry's animation draws every frame, and under software GL two frames can take longer than that.)
+  const clickButton = async (sel, frame = true) => {
     const where = () => p.waitForFunction((sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel, { timeout: 30000 }).then((h) => h.jsonValue());
     // (Clicked once it holds still: the card's tap guard drops a click on a button that moved within 150 ms, and a
     // change before, such as Only drop, resizes the card.)
@@ -952,7 +956,7 @@ try {
       if (held) break;
     }
     await p.mouse.click(x, y);
-    await frames(p);
+    if (frame) await frames(p);
   };
   const route = () => p.evaluate((e) => {
     const w = window.woodrail;
@@ -981,7 +985,9 @@ try {
   check("desktop (F2): the stop's three modes, Only drop clicked; no Pass by with two stops", opts.modes.length === 3 && !opts.pass && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
   // (Clicked again, up to 3 times, until it asks: the card's tap guard rightly drops a click on a button that just
   // moved, and the card's status line above can change its height at any moment.)
-  for (let k = 0; k < 3 && !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-leave.asking"))); k++) await clickButton(".engine-extra .route-leave:not(.asking)");
+  // (Its "Forget …?" lasts 4 s: read at once, not after a frame. The oval's forest works in Sandbox (anywhere), so its
+  // axe swings and every frame is drawn: two took 4.8 s at 1280×800 under software GL, past the ask.)
+  for (let k = 0; k < 3 && !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-leave.asking"))); k++) await clickButton(".engine-extra .route-leave:not(.asking)", false);
   // (The second click at once, where it is: "Forget …?" waits 4 s, and on a busy page waiting for it to hold still
   // takes longer. It doesn't move.)
   const ask = await p.waitForFunction(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return { text: e.textContent, lines: window.woodrail.economy.lines.size, x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, null, { timeout: 30000 }).then((h) => h.jsonValue());

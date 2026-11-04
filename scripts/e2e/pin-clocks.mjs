@@ -31,3 +31,30 @@ export function pinClocksIn(browser) {
   };
   return browser;
 }
+
+/**
+ * Hold the industries' little movers still (the axe, the saw, sails, wheels, motes: as `prefers-reduced-motion` does,
+ * `DepotView.calm`) in every page and context `browser` opens from now on. For an e2e that waits for `settled()` and
+ * doesn't test them: Sandbox's own forest works from the start, and under software GL (a frame a second, 0.1 s of sim
+ * each) its yard takes hours to fill, its axe drawing every frame while it's in view, so each `settled()` with the
+ * forest in view ran out its 60 s (e2e:touch took 25 min for its first 31 checks instead of 6, depending on where the
+ * view happened to be). Goods are still made and carried; only the decoration stands still. e2e:life tests the motion.
+ */
+export function stillIndustriesIn(browser) {
+  const script = () => {
+    window.__woodrailStillIndustries = true;
+  };
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (...a) => {
+    const ctx = await newContext(...a);
+    await ctx.addInitScript(script);
+    return ctx;
+  };
+  const newPage = browser.newPage.bind(browser);
+  browser.newPage = async (...a) => {
+    const page = await newPage(...a);
+    await page.addInitScript(script);
+    return page;
+  };
+  return browser;
+}
