@@ -390,7 +390,7 @@ describe("switch chevrons", () => {
     expect(new Vector3(0, 0, 1).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeCloseTo(1, 5);
     // Still on the set route, pointing away from the trunk.
     for (const a of arrowsOf(view)) expect(Math.sign(a.z)).toBe(Math.sign(getPieceDef("switch", false).connectors[2].pose.z));
-    // (Further out, a deeper char: the grain doesn't show from there, the arrows must. Pinned stays red.)
+    // (Further out, the same scorched brown as close to: the owner found the deeper char too stark. Pinned stays red.)
     const tones = () => arrowsOf(view).map((a) => a.colour);
     expect(new Set(tones())).toEqual(new Set([SWITCH_ARROW_BURN_FAR]));
     view.setArrowScale(1);

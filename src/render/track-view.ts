@@ -431,12 +431,15 @@ export const SWITCH_ARROW_CLEAR = 24;
 /**
  * Chevron burns: what each multiplies the wood under it by (the wood's own grain, light and shadow show through). Close
  * to, a scorched brown light enough that the grain reads through it (QA on switch-burned: at #4a2a14 the wood went near
- * black, its grain lost). Drawn bigger further out, where no grain shows anyway, a deeper char, so the arrows still
- * stand well off the birch from the usual high camera (QA N1; QA on switch-burned-3: at the lighter brown the default
- * zoom's arrows nearly vanished). A pinned switch's is a red brand at every size, strongly red, told apart by hue.
+ * black, its grain lost). Drawn bigger further out, the same brown: a deeper char stood off the birch better (QA on
+ * switch-burned-3) but read as stark black glyphs, which the owner didn't like; their size carries them now. A pinned
+ * switch's is a red brand at every size, strongly red, told apart by hue.
  */
 export const SWITCH_ARROW_BURN = "#7a5340";
-export const SWITCH_ARROW_BURN_FAR = "#4a2a14";
+// (Drawn bigger further out, the same scorched brown: the near-black char, #4a2a14, read as black "^ v" glyphs from
+// the usual high camera, not burns in the wood (owner, 2026-11-04: "I don't like the switch direction style at this
+// zoom level").)
+export const SWITCH_ARROW_BURN_FAR = SWITCH_ARROW_BURN;
 export const SWITCH_ARROW_PINNED = "#ff2a0c";
 const arrowBurn = new Color(SWITCH_ARROW_BURN);
 const arrowBurnFar = new Color(SWITCH_ARROW_BURN_FAR);
