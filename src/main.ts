@@ -3140,6 +3140,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const b = viewBlocker.shown;
     hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
+    // A line with a train too many: Remove beside the status (with the status it belongs to).
+    if (status === latest) hud.setCrowded(!!view.crowded);
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
     let angle = 0;

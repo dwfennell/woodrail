@@ -349,6 +349,10 @@ export class Hud {
    */
   private readonly blockerRow = el("div", "engine-blocker");
   private readonly showBlockerBtn: HTMLButtonElement;
+  /** A line with a train too many: Remove, beside the status (the quick fix; a passing loop the lasting one). */
+  private readonly crowdRemoveBtn: HTMLButtonElement;
+  private blockerShown = false;
+  private crowdShown = false;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
@@ -641,7 +645,9 @@ export class Hud {
     this.engineSummary.hidden = true;
     this.engineCard.appendChild(this.engineSummary);
     this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
-    this.blockerRow.append(this.showBlockerBtn);
+    this.crowdRemoveBtn = button("Remove this train", "Put this train back in the box: the line's other trains run on", h.removeTrain, "chip text danger crowd-remove");
+    this.crowdRemoveBtn.hidden = this.showBlockerBtn.hidden = true;
+    this.blockerRow.append(this.showBlockerBtn, this.crowdRemoveBtn);
     this.blockerRow.hidden = true;
     this.engineCard.appendChild(this.blockerRow);
     const controls = el("div", "engine-controls");
@@ -1757,12 +1763,25 @@ export class Hud {
    * "points"), for its title.
    */
   setBlocker(show: boolean, what: "train" | "points" = "train"): void {
-    if (this.blockerRow.hidden === !show && this.showBlockerBtn.dataset.what === what) return;
-    this.blockerRow.hidden = !show;
+    if (this.blockerShown === show && this.showBlockerBtn.dataset.what === what) return;
+    this.blockerShown = show;
+    this.showBlockerBtn.hidden = !show;
+    this.blockerRow.hidden = !show && !this.crowdShown;
     this.showBlockerBtn.dataset.what = what;
     const title = what === "points" ? "Show the points it's waiting at" : "Show the train in the way";
     this.showBlockerBtn.title = title;
     this.showBlockerBtn.setAttribute("aria-label", title);
+  }
+
+  /**
+   * The open engine's line has a train too many (`engineView`'s `crowded`): Remove beside the status, the quick fix
+   * (leaving the line wouldn't do: the train still stands on the line's one track).
+   */
+  setCrowded(on: boolean): void {
+    if (on === this.crowdShown) return;
+    this.crowdShown = on;
+    this.crowdRemoveBtn.hidden = !on;
+    this.blockerRow.hidden = !this.blockerShown && !on;
   }
 
   setGoNow(on: boolean): void {

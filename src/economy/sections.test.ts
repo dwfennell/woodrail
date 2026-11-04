@@ -5,7 +5,7 @@ import { editLine, joinLine } from "../game/lines";
 import { Economy } from "./economy";
 import { chain, loopOn, runner, train, type World } from "./loop-fixtures";
 import { topologyOf, trainLength } from "./sections";
-import { engineStatus } from "../game/engine-status";
+import { engineStatus, engineView } from "../game/engine-status";
 import { putAway } from "../game/put-away";
 
 /**
@@ -277,6 +277,8 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
       }
       expect(running.some((e) => l.economy.stalls.stuckOf(e)?.kind === "too-many")).toBe(true);
       for (const e of held) expect(engineStatus(l.sim, l.economy, e, () => "Larkfield")).toMatch(/^Waiting: lay \d+ more passing loops? for \d+ trains$/);
+      // (QA 2026-11-04, 4: both cards offer the quick fix, Remove, beside the status: put away, below, they run.)
+      for (const e of [...held, ...running.filter((x) => l.economy.stalls.stuckOf(x)?.kind === "too-many")]) expect(engineView(l.sim, l.economy, e, () => "Larkfield").crowded, `train ${e}`).toBe(true);
       expect(r.meetings).toEqual([]);
       expect(l.economy.sections.released).toBe(0);
       // The player's fix: the held ones taken off the track (put away). The rest run on, none stuck.

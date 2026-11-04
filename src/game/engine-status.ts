@@ -336,7 +336,7 @@ export function engineView(
   cantMove: CantMove | null = null,
   placeOf: (carId: number) => string = () => "",
   loadHints = false,
-): { status: string; blocker: Blocker | null; addStop?: number } {
+): { status: string; blocker: Blocker | null; addStop?: number; crowded?: true } {
   const found = sim.findCar(engineCarId);
   if (!found) return { status: "", blocker: null };
   const s = trainState(sim, economy, found.train, found.train.cars[found.index].lever, cantMove);
@@ -365,7 +365,11 @@ export function engineView(
   const blocker = blockerOf(sim, economy, s);
   // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
   const place = blocker && blocker.car >= 0 && (!blocker.line || blocker.how === "parked" || blocker.how === "stopped") ? placeOf(blocker.car) : "";
-  return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker };
+  // A line with a train too many (no passing loop for it): a loop is the lasting fix, but taking a train off the track
+  // is the quick one, offered on the card (QA 2026-11-04: two engines on the starter line). (Leaving the line isn't:
+  // the train still stands on its one track.)
+  const crowded = (s.kind === "stuck" && s.why === "too-many") || (s.kind === "needs-loop" && !s.spare && !s.pinned);
+  return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker, ...(crowded ? { crowded: true as const } : {}) };
 }
 
 function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainState, nameOf: (depotId: number) => string, who: Blocker | null, place: string): string {
