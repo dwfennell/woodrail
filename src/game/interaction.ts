@@ -5808,9 +5808,9 @@ export class Interaction {
     const own = exact?.kind === "piece" && exact.pieceId === lever.id;
     if (!post || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace) || this.hiddenFromEye({ x: post.x, y: post.y + post.height / 2, z: post.z })) lever = { id: -1, d: Infinity };
     const won = fingertipWinner(car, lever);
-    // (Right on one of its levers, that one: a double three-way's two stand a finger's width apart, and the post
-    // nearest on screen may be the other.)
-    const corner = exact?.kind === "lever" && exact.pieceId === lever.id ? exact.corner : post?.corner;
+    // (A piece with levers a finger's width apart, a double three-way's: the one whose knob is nearest the tap. Seen
+    // from the side, one stands in front of the other's knob, so neither the ray nor the nearest upright can tell.)
+    const corner = won === "lever" ? this.nearestKnob(x, y, posts, lever.id, post?.corner) : undefined;
     if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(corner ? { corner } : {}), slack: lever.d };
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
   }
@@ -5839,6 +5839,28 @@ export class Interaction {
       if (inFrontOfCamera(az, bz)) ends.push({ id: d.pieceId, ax, ay, bx, by });
     }
     return nearestOnScreen(x, y, ends, slack).id;
+  }
+
+  /**
+   * Of piece `pieceId`'s levers (`posts`), the corner of the one whose knob (its top) is nearest (x, y) on screen;
+   * `fallback` when it has one lever. Asked once a tap.
+   */
+  private nearestKnob(x: number, y: number, posts: { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[], pieceId: number, fallback: number | undefined): number | undefined {
+    const own = posts.filter((p) => p.pieceId === pieceId);
+    if (own.length < 2) return fallback;
+    const r = this.game.canvas.getBoundingClientRect();
+    const v = new Vector3();
+    let best = fallback;
+    let bestD = Infinity;
+    for (const p of own) {
+      v.set(p.x, p.y + p.height, p.z).project(this.game.camera);
+      const d = Math.hypot(r.left + ((v.x + 1) / 2) * r.width - x, r.top + ((1 - v.y) / 2) * r.height - y);
+      if (d < bestD) {
+        bestD = d;
+        best = p.corner;
+      }
+    }
+    return best;
   }
 
   /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
