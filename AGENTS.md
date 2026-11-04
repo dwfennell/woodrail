@@ -14,6 +14,8 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run balance:sweep [-- --from 0 --to 200 --jobs 4]`: the `BALANCE=1` play-through over a range of player seeds, each checked against the bands at 180 min; for balance changes and release points (about a minute of CPU a seed)
 - `npm run replay -- <file>`: replay a "Copy map for a bug report" text headless with the train invariants on, and print the first break (`src/play/bugmap.ts`)
 - `npm run feedback -- <id or map link>`: fetch a "Report a bug or give feedback" report's map into a file for `npm run replay` (`--list` with `ADMIN_KEY` lists the latest; see `docs/feedback.md`)
+- `npm run e2e:affected [-- <base-ref>] [--run]`: the e2e suites (and groups) a branch's changes may affect, against origin/main by default; `--run` runs them. The map is `RULES` in `scripts/e2e/affected.mjs`: add a rule for a new module (see `docs/agents/e2e.md`)
+- Every e2e suite: `npm run e2e:<suite> -- --list` prints its groups; `E2E_ONLY=<group,…>` runs only those; a killed or timed-out run, run again on the same code, skips the groups that already passed (`group X: cached pass`, counted in the last line; `E2E_RESUME=0` runs all); `E2E_SHARD=i/n` runs a slice. Checkpoints in `.e2e-cache/` (`docs/agents/e2e.md`)
 - `npm run e2e:roads`: end-to-end road tests in a headless browser
 - `npm run e2e:kits [-- <out> [groups]]`: end-to-end track props (kits, lineside furniture) in Sandbox, headless (about 12 min)
 - `npm run e2e:research [-- <out>]`: end-to-end Research picker and pill on a 390×844 phone, headless (about 3 min)
