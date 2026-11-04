@@ -735,7 +735,8 @@ await p.evaluate(() => {
   pr.coins = 1000;
   w.hud.setCoins(pr.coins);
 });
-await tap(".research-pill");
+// (Opened by the pill and waited for, as `board` does: a tap that lands while a toast goes may not open it.)
+await board(true);
 await p.setViewportSize({ width: 360, height: 780 });
 await p.waitForTimeout(400);
 const juiceWords = await words("Juice works");
