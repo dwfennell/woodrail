@@ -1,7 +1,7 @@
 import { growthOf } from "./town-life";
 import type { DepotState } from "../economy/economy";
 import type { Landscape, Town } from "../landscape";
-import { CITY_SCHOOL_ID } from "./blueprints";
+import { BLUEPRINTS, CITY_SCHOOL_ID, COLLEGE_SCHOOL_ID, SCHOOL_RANK, UNIVERSITY_SCHOOL_ID, type SchoolLevel } from "./blueprints";
 import { townStatus } from "./towns";
 import type { World } from "./world";
 
@@ -76,11 +76,56 @@ export function schoolTownLevel(world: World, d: DepotState): number {
 export interface SchoolGrade {
   college: boolean;
   wing: boolean;
+  /** A University (tech tree 3): a College whose town is a city, once University is learned. */
+  university: boolean;
 }
 
 export function schoolGrade(world: World, d: DepotState, learned: ReadonlySet<string>): SchoolGrade {
   const level = schoolTownLevel(world, d);
-  return { college: level >= 2 && learned.has("college"), wing: level >= 3 };
+  const college = level >= 2 && learned.has("college");
+  return { college, wing: level >= 3, university: college && level >= 3 && learned.has("university") };
+}
+
+/**
+ * A school's level for research that must be studied at one (`Blueprint.school`): a University, a College in a city
+ * (its library wing: those are tier-3 lessons), or neither.
+ */
+export function schoolLevel(world: World, d: DepotState, learned: ReadonlySet<string>): SchoolLevel | "school" {
+  const g = schoolGrade(world, d, learned);
+  return g.university ? "university" : g.college && g.wing ? "college" : "school";
+}
+
+/** Can school `d` take a research that must be studied at `need` (none: any school can)? */
+export function schoolTakes(world: World, d: DepotState, learned: ReadonlySet<string>, need: SchoolLevel | undefined): boolean {
+  return !need || SCHOOL_RANK[schoolLevel(world, d, learned)] >= SCHOOL_RANK[need];
+}
+
+/** Each blueprint's school, for those that must be studied at a College or a University. */
+const SCHOOL_OF = new Map(BLUEPRINTS.flatMap((b) => (b.school ? [[b.id, b.school] as const] : [])));
+
+/**
+ * Does school `d` take the goods of the research under way: any school does, but one that must be studied at a College
+ * or a University only such a school (the short way first: most research has no such need).
+ */
+export function atSchool(world: World, d: DepotState, p: { readonly learned: ReadonlySet<string>; readonly research: { readonly current: string | null } }): boolean {
+  const need = p.research.current === null ? undefined : SCHOOL_OF.get(p.research.current);
+  return !need || schoolTakes(world, d, p.learned, need);
+}
+
+/**
+ * What to do for a school of `need`'s level, in words for a locked card: "learn College", "grow Larkfield into a city",
+ * "place a school by a town". The school nearest it (its town the biggest) is named.
+ */
+export function schoolHowTo(world: World, learned: ReadonlySet<string>, need: SchoolLevel): string {
+  const tech = need === "college" ? "college" : "university";
+  const schools = placedSchools(world);
+  if (need === "university" && !learned.has("college")) return "learn College, then University";
+  if (!learned.has(tech)) return need === "college" ? "learn College" : "learn University";
+  if (schools.length === 0) return "place a school by a town";
+  const best = [...schools].sort((a, b) => schoolTownLevel(world, b) - schoolTownLevel(world, a))[0];
+  const town = world.landscape.towns.find((t) => t.id === best.townId)?.name;
+  if (!town) return "place a school by a town";
+  return `grow ${town} into a city`;
 }
 
 /** How fast research is studied: the fastest of your schools (a college 2, a schoolhouse 1). */
@@ -93,18 +138,31 @@ export function schoolGradesKey(world: World, learned: ReadonlySet<string>): str
   return placedSchools(world)
     .map((d) => {
       const g = schoolGrade(world, d, learned);
-      return `${d.id}${g.college ? "c" : ""}${g.wing ? "w" : ""}`;
+      return `${d.id}${g.college ? "c" : ""}${g.wing ? "w" : ""}${g.university ? "u" : ""}`;
     })
     .join(",");
 }
 
 /**
- * What your railway has that a blueprint can require: every landmark on the map (a market), and `CITY_SCHOOL_ID` once
- * one of your schools stands beside a city (its library wing opens tier-3 research).
+ * What your railway has that a blueprint can require: every landmark on the map (a market), `CITY_SCHOOL_ID` once
+ * one of your schools stands beside a city (its library wing opens tier-3 research), and a College and a University
+ * once one of your schools is one (`schoolLandmarks`).
  */
-export function landmarksAt(world: World): Set<string> {
+export function landmarksAt(world: World, learned: ReadonlySet<string> = new Set()): Set<string> {
   const out = landmarksOf(world.landscape);
   if (placedSchools(world).some((d) => schoolTownLevel(world, d) >= 3)) out.add(CITY_SCHOOL_ID);
+  for (const id of schoolLandmarks(world, learned)) out.add(id);
+  return out;
+}
+
+/** Your schools' levels as landmarks a blueprint can require (a College, a University: `Blueprint.school`). */
+export function schoolLandmarks(world: World, learned: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  for (const d of placedSchools(world)) {
+    const g = schoolGrade(world, d, learned);
+    if (g.college && g.wing && !out.includes(COLLEGE_SCHOOL_ID)) out.push(COLLEGE_SCHOOL_ID);
+    if (g.university && !out.includes(UNIVERSITY_SCHOOL_ID)) out.push(UNIVERSITY_SCHOOL_ID);
+  }
   return out;
 }
 

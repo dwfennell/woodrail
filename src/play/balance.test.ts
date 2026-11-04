@@ -10,7 +10,7 @@ import { GOALS, GoalTracker, payGoal } from "../game/goals";
 import { StickerTracker } from "../game/stickers";
 import { FULL_PAY, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
-import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
+import { atSchool, landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { engineStatus } from "../game/engine-status";
@@ -445,7 +445,8 @@ class Player {
     const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     this.town = new TownLife(host, {
       knows: (id) => this.progress.learned.has(id),
-      school: (kind) => researchLacking(this.progress, kind) > 0,
+      // (A research that must be studied at a College or a University: only such a school takes its goods.)
+    school: (kind, d) => researchLacking(this.progress, kind) > 0 && atSchool(this.w, d, this.progress),
       received: (t, kind, n, before) => {
         this.lastDelivered.set(t.id, this.tick);
         payDelivery(this.progress, kind, n, before, t);
@@ -525,7 +526,7 @@ class Player {
   /** What the map gives research (as the game does): a school beside a city for tier 3, and the schools' speed. */
   syncLandmarks(): void {
     this.progress.landmarks.clear();
-    for (const id of landmarksAt(this.w)) this.progress.landmarks.add(id);
+    for (const id of landmarksAt(this.w, this.progress.learned)) this.progress.landmarks.add(id);
     setSpeed(this.progress, researchSpeed(this.w, this.progress.learned));
   }
 

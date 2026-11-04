@@ -4,13 +4,18 @@ import { modelKey, type PropLibrary } from "./props/library";
 import { shadowLook } from "./shadow-strength";
 
 /** The catalogue models (they face +x and stand on y = 0, about 70–85 mm long: drawn at `SCALE`). */
-export const VEHICLE_ASSET: Record<VehicleKind, string> = { van: "veh-delivery-van", bus: "veh-town-bus" };
+export const VEHICLE_ASSET: Record<VehicleKind, string> = { van: "veh-delivery-van", bus: "veh-town-bus", car: "veh-family-car" };
 /** Drawn at about half the catalogue's size: a van fits its side of a road (felt 56 mm wide). */
 const SCALE = 0.5;
 /** Room round a vehicle's middle for the whole of it, asking if it's in view. */
 const REACH = 60;
-const KINDS: readonly VehicleKind[] = ["van", "bus"];
-const CAP = VEHICLE_CAP.van + VEHICLE_CAP.bus;
+const KINDS: readonly VehicleKind[] = ["van", "bus", "car"];
+const CAP = VEHICLE_CAP.van + VEHICLE_CAP.bus + VEHICLE_CAP.car;
+/**
+ * A town's cars (life on its streets, not a delivery) ask for frames only this near the camera (mm): further off
+ * they're too small to see drive, and move on unseen (as the touches do: `TOUCH_REACH`).
+ */
+export const CAR_REACH = 6000;
 
 const m4 = new Matrix4();
 const q = new Quaternion();
@@ -152,7 +157,9 @@ export class RoadVehiclesView {
       const was = this.drawnAt.get(v);
       if (was && was[0] === v.x && was[1] === v.z && was[2] === v.heading) continue;
       this.drawnAt.set(v, [v.x, v.z, v.heading]);
-      if (!inView && frustum.intersectsSphere(sphere.set(p.set(v.x, v.y, v.z), REACH))) inView = true;
+      if (inView || !frustum.intersectsSphere(sphere.set(p.set(v.x, v.y, v.z), REACH))) continue;
+      if (v.kind === "car" && camera.position.distanceTo(p) > CAR_REACH) continue;
+      inView = true;
     }
     const draw = inView || this.wasInView || changed;
     this.wasInView = inView;

@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -31,6 +31,10 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   icecream: { index: 15, label: "Ice cream" },
   // Bricks from a brickworks, fired of stone and coal: stacks on flatbeds.
   bricks: { index: 16, label: "Bricks" },
+  // Cars from a car factory, of iron and planks (tech tree 3): little toy cars, on a car carrier only.
+  autos: { index: 17, label: "Cars" },
+  // Fish, the catch the boats bring to your harbours once Fishing boats is learned: crates of fish on ice.
+  fish: { index: 18, label: "Fish" },
 };
 
 /**
@@ -61,6 +65,9 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   cheese: "🧀",
   icecream: "🍦",
   bricks: "🧱",
+  // Tech tree 3's goods (src/icons/u1F697-car, u1F41F-fish).
+  autos: "🚗",
+  fish: "🐟",
 };
 
 /** Coins, beside goods in a cost. */
@@ -72,10 +79,13 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   timber: ["log", "planks", "iron", "fruit", "bricks"],
   hopper: ["grain", "stone", "coal", "ore"],
   // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles, cheeses). Milk goes in a tank wagon.
-  van: ["flour", "furniture", "tools", "bread", "juice", "cheese"],
+  // Fish, in crates on ice, ride in vans or cold vans.
+  van: ["flour", "furniture", "tools", "bread", "juice", "cheese", "fish"],
   tanker: ["milk"],
   // The cold van: cheese (which a van carries too) and, the only wagon it rides in, ice cream.
-  reefer: ["cheese", "icecream"],
+  reefer: ["cheese", "icecream", "fish"],
+  // The car carrier: two decks of new cars, the only wagon they ride in.
+  carrier: ["autos"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

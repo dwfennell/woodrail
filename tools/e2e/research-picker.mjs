@@ -9,7 +9,9 @@
 //
 // Then chains: Mills (needs Farming) queued in one tap behind Farming, "Research Farming now" (never Research now while
 // Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through. Then the next
-// nodes: Juice works' ticket in words, and Creamery then Cold van researched by taps and deliveries.
+// nodes: Juice works' ticket in words, and Creamery then Cold van researched by taps and deliveries. Then tech tree 3: the
+// gates (a node locked at a schoolhouse, open at a College; one waiting for a University), the University (a third fewer
+// goods for hard lessons, the whole board shown), the Car carrier, the Car factory and Fishing boats.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
@@ -698,7 +700,7 @@ await p.waitForTimeout(400);
 await tap(".board-head .close");
 // Creamery (shown: Dairy farm is learned) by taps, Research now, its goods brought: learned. Only then is the Cold van
 // shown by name (a "?" while what it needs isn't learned), and it's researched the same way.
-const researchByTaps = async (name, id) => {
+const researchByTaps = async (name, id, planks = 12) => {
   await tap(".research-pill");
   await select(name);
   const first = await ticket();
@@ -706,7 +708,7 @@ const researchByTaps = async (name, id) => {
   if ((await queued())[0] !== id) await tap(".board-sheet button[data-act=now]", "Research now");
   const under = (await queued())[0];
   await tap(".board-head .close");
-  await deliverGoods({ planks: 12 });
+  await deliverGoods({ planks });
   await p.waitForFunction((id) => window.woodrail.progress().learned.has(id), id, { timeout: 150000 }).catch(() => null);
   return { first, under };
 };
@@ -721,6 +723,130 @@ const payoff = await p.evaluate(() => {
   return { creamery: learned.has("creamery"), reefer: learned.has("reefer") };
 });
 check("…Creamery and then Cold van researched and learned (the creamery and the cold van unlocked)", payoff.creamery && payoff.reefer, JSON.stringify([payoff, await queued()]));
+
+// 12. Tech tree 3, and research studied only at a College or a University. Setup shortcut (not under test): what the
+// nodes need learned (the foundry's chain, the College blueprint, harbours), 20 iron delivered (the car factory's), coins
+// to start them, and the school's town grown by its deliveries set as trains would bring them (as e2e:school-growth
+// does). Beside a village the school is a schoolhouse: the Car carrier is locked, saying it needs a College and what to
+// do. Grown to a city it's a College in a city: the Car carrier opens, and is researched there; the Car factory then
+// waits for a University. The University researched by taps: the College is a University, the Car factory opens, every
+// hard lesson needs a third fewer goods (Fishing boats' 8 planks: 6), and the board shows every blueprint. Then the Car
+// factory and Fishing boats researched by taps and deliveries; the car carrier on the Wagons shelf and the car factory
+// unlocked on the Industries shelf.
+const growSchoolTown = (planks, flour) =>
+  p.evaluate(
+    ([planks, flour]) => {
+      const w = window.woodrail;
+      const school = w.economy.allDepots().find((d) => d.role === "school");
+      w.economy.delivered.set(school.townId, planks);
+      w.economy.deliveredGoods.set(school.townId, { ...(w.economy.deliveredGoods.get(school.townId) ?? {}), planks, flour });
+      w.invalidate();
+    },
+    [planks, flour],
+  );
+await p.evaluate(() => {
+  const w = window.woodrail;
+  for (const id of ["tank", "goods-engine", "quarries", "mines", "foundry", "routes", "warehouses", "college", "harbours", "passengers", "halts", "signals"]) w.learn(id);
+  const pr = w.progress();
+  pr.counts.set("delivered:iron", 20);
+  pr.coins = 3000;
+  w.hud.setCoins(pr.coins);
+});
+await growSchoolTown(4, 0);
+await p.waitForFunction(() => !window.woodrail.progress().landmarks.has("college-school"), null, { timeout: 30000 }).catch(() => {});
+await p.waitForTimeout(1200);
+// (The setup's learns raise toasts, and growth a sheet: let them go before tapping, as a player would.)
+const quiet = async () => {
+  await p.evaluate(() => document.querySelector(".growth-sheet .close")?.click());
+  await p.waitForFunction(() => !document.querySelector(".toast.show"), null, { timeout: 20000, polling: 250 }).catch(() => {});
+};
+/** Open the picker on a card by its name: tried again (closed and opened) if the first go doesn't show it. */
+const openOn = async (name) => {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await quiet();
+    await board(true);
+    if (await select(name)) return true;
+    await board(false);
+  }
+  return false;
+};
+await openOn("Car carrier");
+t = await ticket();
+check("beside a village, the Car carrier is locked: it needs a College in a city, and says to grow the town", t?.state === "locked" && /a College in a city: grow \w+ into a city/.test(t.foot) && t.buttons.length === 0, JSON.stringify(t));
+// …and in the web its tag says so in place of its price, inside its node.
+const nodeTagOf = (name) =>
+  p.evaluate((name) => {
+    const n = [...document.querySelectorAll(".board-body .bp-node")].find((x) => x.querySelector(".bp-name")?.textContent === name);
+    const tag = n?.querySelector(".bp-tag");
+    if (!n || !tag) return null;
+    const a = n.getBoundingClientRect();
+    const b = tag.getBoundingClientRect();
+    return { text: tag.textContent, school: tag.classList.contains("school"), inside: b.left >= a.left - 0.5 && b.right <= a.right + 0.5 };
+  }, name);
+const carTag = await nodeTagOf("Car carrier");
+check("…its node's tag says 🎓 College in place of its price, inside the node", carTag?.school && carTag.text === "🎓 College" && carTag.inside, JSON.stringify(carTag));
+await shot("21-gated-needs-a-college");
+await board(false);
+await growSchoolTown(26, 6);
+const college = await p
+  .waitForFunction(() => ["college-school", "city-school"].every((id) => window.woodrail.progress().landmarks.has(id)), null, { timeout: 30000 })
+  .then(() => true, () => false);
+await p.waitForTimeout(1200);
+await p.evaluate(() => document.querySelector(".growth-sheet .close")?.click());
+check("grown to a city, the school is a College (and has its library wing)", college);
+await openOn("Car carrier");
+t = await ticket();
+check("…and the Car carrier opens there", t?.state === "ready" && t.buttons.length === 1, JSON.stringify(t));
+const planksOf = (t) => Number(/\uE000\s*0\/(\d+)/.exec(t?.foot ?? "")?.[1] ?? NaN);
+await select("Fishing boats");
+const fishPlanksBefore = planksOf(await ticket());
+await board(false);
+const carrier = await researchByTaps("Car carrier", "car-carrier");
+check("Car carrier: researched at the College by taps and learned", carrier.first?.name === "Car carrier" && (await p.evaluate(() => window.woodrail.progress().learned.has("car-carrier"))), JSON.stringify(carrier));
+await board(true);
+await select("Car factory");
+t = await ticket();
+check("…the Car factory waits for a University", t?.state === "locked" && /a University: learn University/.test(t.foot) && t.buttons.length === 0, JSON.stringify(t));
+const factoryTag = await nodeTagOf("Car factory");
+check("…its node's tag says 🏛️ University, inside the node", factoryTag?.school && factoryTag.text === "🏛️ University" && factoryTag.inside, JSON.stringify(factoryTag));
+await shot("21b-gated-needs-a-university");
+// (Unseen blueprints aren't drawn at all; a "?" is drawn as a hint.)
+const hints = () => p.evaluate(() => ({ nodes: document.querySelectorAll(".board-body .bp-node").length, hints: document.querySelectorAll(".board-body .bp-node.hint").length }));
+const hintsBefore = await hints();
+await board(false);
+const learnedCount = await p.evaluate(() => window.woodrail.progress().learned.size);
+check("setup: 20 or more blueprints learned (the University asks for 20)", learnedCount >= 20, String(learnedCount));
+const uni = await researchByTaps("University", "university", 14);
+check("University: a tap and Research now start it, and it's learned", uni.first?.name === "University" && uni.under === "university" && (await p.evaluate(() => window.woodrail.progress().learned.has("university"))), JSON.stringify(uni));
+await p.waitForFunction(() => window.woodrail.progress().landmarks.has("university-school"), null, { timeout: 30000 }).catch(() => {});
+await board(true);
+await select("Fishing boats");
+const fishPlanksAfter = planksOf(await ticket());
+check("…every hard lesson needs a third fewer goods (Fishing boats' planks)", fishPlanksBefore === 8 && fishPlanksAfter === 6, `${fishPlanksBefore} → ${fishPlanksAfter}`);
+await select("Car factory");
+t = await ticket();
+check("…the College is a University now: the Car factory opens", t?.state === "ready" && t.buttons.length === 1, JSON.stringify(t));
+const openTag = await nodeTagOf("Car factory");
+check("…and its tag is its price again", openTag && !openTag.school && /220/.test(openTag.text), JSON.stringify(openTag));
+const hintsAfter = await hints();
+check("…and the board shows every blueprint: more on it, no \"?\" left", hintsAfter.nodes > hintsBefore.nodes && hintsAfter.hints === 0, `${JSON.stringify(hintsBefore)} → ${JSON.stringify(hintsAfter)}`);
+await shot("21c-tech-tree-3-board");
+await board(false);
+const factory = await researchByTaps("Car factory", "car-factory");
+check("Car factory: researched by taps and learned (at the University)", factory.first?.name === "Car factory" && (await p.evaluate(() => window.woodrail.progress().learned.has("car-factory"))), JSON.stringify(factory));
+const fish = await researchByTaps("Fishing boats", "fishing");
+check("Fishing boats: researched by taps and learned", fish.first?.name === "Fishing boats" && (await p.evaluate(() => window.woodrail.progress().learned.has("fishing"))), JSON.stringify(fish));
+// The payoff on the tray: the car carrier on the Trains tab's Wagons shelf, the car factory not locked.
+const trayLocked = () => p.evaluate(() => Object.fromEntries([...document.querySelectorAll(".tray-item[data-key]")].map((b) => [b.dataset.key, b.classList.contains("locked")])));
+await tap(".tabs button", "Trains");
+await tap(".tray-item.tray-group", "Wagons");
+const wagons = await trayLocked();
+check("the car carrier is on the Wagons shelf", wagons["train:Car carrier"] === false, JSON.stringify(wagons));
+await shot("22-car-carrier-wagons-shelf");
+await tap(".tabs button", "Industries");
+await tap(".tray-item.tray-group", "Industries");
+const industries = await trayLocked();
+check("the car factory is on the Industries shelf, unlocked", industries["piece:depot-carworks"] === false, JSON.stringify(industries));
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

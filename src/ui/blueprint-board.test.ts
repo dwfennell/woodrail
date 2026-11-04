@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Progress } from "../game/progress";
 import { deliver, pick } from "../game/research";
 import { researchCard } from "../game/research-text";
-import { HINT_W, layoutWeb, researchFoot, routeLinks, TAG_H, TAG_W, tagTitle, type Station } from "./blueprint-board";
+import { HINT_W, layoutWeb, nodeTag, researchFoot, routeLinks, TAG_H, TAG_W, tagTitle, type Station } from "./blueprint-board";
 
 const st = (id: string, branch: string, needs: string[] = []): Station => ({ id, label: id, blurb: "", branch, makes: [], state: "locked", seen: "shown", needs, price: "free", cost: "nothing", unlocks: "", requires: [] });
 
@@ -167,3 +167,12 @@ describe("tooltips and the full cost (#11)", () => {
   });
 });
 
+
+describe("a node's tag in the web", () => {
+  it("a locked one shows its price, or the school it waits for (a College, a University) in its place", () => {
+    const s = { ...st("car-carrier", "trains"), price: "6\uE000 160🪙" };
+    expect(nodeTag(s)).toContain("price later");
+    expect(nodeTag({ ...s, school: "College" })).toBe(`<span class="bp-tag school">🎓 College</span>`);
+    expect(nodeTag({ ...s, school: "University" })).toBe(`<span class="bp-tag school">🏛️ University</span>`);
+  });
+});
