@@ -27,6 +27,7 @@ import {
   GROOVE_SPACING,
   GROOVE_WIDTH,
   isRamp,
+  isTunnelMouth,
   pathLength,
   RISER_HEIGHT,
   samplePath,
@@ -431,6 +432,33 @@ function trenchBrush(def: PieceDef): Brush {
   return csgEvaluate(evaluator, brush(box), brush(sweep(channel, framesAlong(geom, 4, 4)), CUT), SUBTRACTION);
 }
 
+/**
+ * A tunnel mouth's cutting: a wooden block sunk into the board under the slope (the felt has a hole there), its rim just
+ * proud of the felt, with a channel open to the sky down to the track's bed, through its low end (where the portal
+ * stands: see `TunnelsView`). Piece-local; the high end is wherever the path's y is highest.
+ */
+function mouthBrush(def: PieceDef): Brush {
+  const geom = def.paths[0].geom;
+  const len = pathLength(geom);
+  const ys = [0, len].map((s) => samplePath(geom, s, createSample()).y);
+  const high = Math.max(...ys);
+  const low = Math.min(...ys);
+  const lowAtEnd = ys[1] < ys[0];
+  const depth = high - low + 6;
+  const top = 0.6;
+  const outer = TRENCH_HALF + TRENCH_WALL;
+  const blockLen = len - TRENCH_INSET;
+  const box = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(blockLen, depth + top, 2 * outer, 2, 1.5)));
+  box.translate(lowAtEnd ? TRENCH_INSET + blockLen / 2 : blockLen / 2, high + top - (depth + top) / 2, 0);
+  const channel: ProfilePoint[] = [
+    { u: -TRENCH_HALF, v: 0, smooth: false },
+    { u: TRENCH_HALF, v: 0, smooth: false },
+    { u: TRENCH_HALF, v: 160, smooth: false },
+    { u: -TRENCH_HALF, v: 160, smooth: false },
+  ];
+  return csgEvaluate(evaluator, brush(box), brush(sweep(channel, framesAlong(geom, 4, 4)), CUT), SUBTRACTION);
+}
+
 /** Cross-section of a bridge's viaduct (u across, v up from the deck), corners rounded. */
 function viaductProfile(height: number): ProfilePoint[] {
   const w = TRACK_WIDTH / 2 - 2;
@@ -644,6 +672,7 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
   }
 
   if (def.type === "underpass") result = csgEvaluate(evaluator, result, trenchBrush(def), ADDITION);
+  if (isTunnelMouth(def.type)) result = csgEvaluate(evaluator, result, mouthBrush(def), ADDITION);
 
   // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
   // across a curve's fine faces shatters the mesh (slow, and tens of thousands of triangles on a switch).

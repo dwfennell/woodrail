@@ -1,3 +1,4 @@
+import type { CargoKind } from "../economy/cargo";
 import { aOrAn } from "../economy/goods";
 import type { ThingId } from "../game/things";
 
@@ -39,6 +40,39 @@ export interface YardMode {
   cap: number;
   /** A school is set to Research first (trains keep what its research lacks for it, past the workshop): said. */
   school?: boolean;
+  /** Its keep steppers, shown while it shares: one a good (planks first). None: no steppers. */
+  keepRows?: KeepRow[];
+}
+
+/**
+ * One keep stepper on the workshop's card: how many of a good its yard keeps while it shares (`DepotState.keeps`,
+ * `Economy.setKeep`). `data-keep` (the good) and `data-step` ("-1", "1", or "auto" to go back to the game's own).
+ */
+export interface KeepRow {
+  kind: CargoKind;
+  /** The good's name, plural ("planks"). */
+  label: string;
+  /** The number shown: the player's own, or the game's (`set` false). */
+  n: number;
+  /** The player set it (an Auto button goes back to the game's own). */
+  set: boolean;
+  /** The most it can keep (its yard's cap). */
+  max: number;
+  /** What the game's own amount is called while it isn't set ("Auto", or "All" for a good it takes all of). */
+  auto: string;
+}
+
+/** A keep stepper: "Keeps − 7 + planks", and Auto while the player's set it. */
+export function keepRowHtml(r: KeepRow): string {
+  const shown = r.set || r.auto === "Auto" ? String(r.n) : r.auto;
+  const autoBtn = r.set ? `<button class="chip text keep-auto" data-keep="${r.kind}" data-step="auto" title="Let the game choose again">${r.auto}</button>` : "";
+  return (
+    `<div class="keep-row" data-kind="${r.kind}"><span class="keep-label">Keeps</span>` +
+    `<button class="chip text" data-keep="${r.kind}" data-step="-1" aria-label="Keep fewer ${r.label}"${r.n <= 0 ? " disabled" : ""}>−</button>` +
+    `<b class="keep-n" aria-live="polite">${shown}</b>` +
+    `<button class="chip text" data-keep="${r.kind}" data-step="1" aria-label="Keep more ${r.label}"${r.n >= r.max ? " disabled" : ""}>+</button>` +
+    `<span class="keep-kind">${r.label}</span>${autoBtn}</div>`
+  );
 }
 
 export const SHARES_LABEL = "Shares with towns";
@@ -46,7 +80,7 @@ export const TAKES_ALL_LABEL = "Takes all planks";
 
 /** The line under the choice: what the workshop does with the planks trains bring. */
 export function yardHint(m: YardMode): string {
-  if (!m.takesAll) return `Leaves planks for towns further on, keeping ${m.keeps} for you${m.keptFor ? `, enough for ${/^[aeiou]/i.test(m.keptFor) ? "an" : "a"} ${m.keptFor}` : ""}`;
+  if (!m.takesAll) return `Leaves planks for towns and schools further on, keeping ${m.keeps} for you${m.keptFor ? `, enough for ${/^[aeiou]/i.test(m.keptFor) ? "an" : "a"} ${m.keptFor}` : ""}`;
   return `Fills its yard first, up to ${m.cap}${m.school ? ", after your school's research (it's set to Research first)" : ""}`;
 }
 
@@ -73,7 +107,8 @@ export function schoolHint(first: boolean): string {
 export function yardModeHtml(m: YardMode): string {
   const chip = (all: boolean, label: string) =>
     `<button class="chip text${m.takesAll === all ? " active" : ""}" data-yard="${all ? "all" : "share"}" aria-pressed="${m.takesAll === all}">${label}</button>`;
-  return `<div class="yard-mode" role="group" aria-label="Planks">${chip(false, SHARES_LABEL)}${chip(true, TAKES_ALL_LABEL)}</div><div class="yard-hint">${yardHint(m)}</div>`;
+  const keeps = !m.takesAll && m.keepRows?.length ? `<div class="keep-rows">${m.keepRows.map(keepRowHtml).join("")}</div>` : "";
+  return `<div class="yard-mode" role="group" aria-label="Planks">${chip(false, SHARES_LABEL)}${chip(true, TAKES_ALL_LABEL)}</div>${keeps}<div class="yard-hint">${yardHint(m)}</div>`;
 }
 
 /**
@@ -93,7 +128,7 @@ export class WorkshopPanel {
    */
   constructor(
     private readonly root: HTMLElement,
-    handlers: { order(id: ThingId): void; cancel(id: ThingId): void; takesAll?(on: boolean): void },
+    handlers: { order(id: ThingId): void; cancel(id: ThingId): void; takesAll?(on: boolean): void; keep?(kind: CargoKind, step: number | "auto"): void },
     private readonly yardRoot: HTMLElement | null = null,
   ) {
     const onClick = (e: MouseEvent) => {
@@ -101,6 +136,12 @@ export class WorkshopPanel {
       if (y) {
         e.stopPropagation();
         if (!y.classList.contains("active")) handlers.takesAll?.(y.dataset.yard === "all");
+        return;
+      }
+      const k = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-keep]");
+      if (k) {
+        e.stopPropagation();
+        if (!k.disabled) handlers.keep?.(k.dataset.keep as CargoKind, k.dataset.step === "auto" ? "auto" : Number(k.dataset.step));
         return;
       }
       const b = (e.target as HTMLElement).closest<HTMLElement>("[data-make]");

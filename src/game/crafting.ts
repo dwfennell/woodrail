@@ -224,11 +224,21 @@ export function shopOwing(world: World, p: Progress): boolean {
   return (RECIPES.workshop.owed ?? []).some((k) => shopOwes(world, p, k) > 0);
 }
 
-/** The text on a price with goods only a workshop takes while owed: "Needs 5🪨 at the workshop" (none: null). */
-export function owedText(goods: Bag): string | null {
+/**
+ * The text on a price with goods only a workshop takes while owed: "Needs 5🪨 at the workshop" (none: null). Given
+ * what the workshops hold (`have`, `workshopStock`), only what's still short: "Needs 4🪨 more at the workshop", and
+ * null once they hold it all (QA 2026-11-04: it read as a shortfall with the stone already there).
+ */
+export function owedText(goods: Bag, have?: Bag): string | null {
   const owed: Bag = {};
-  for (const k of RECIPES.workshop.owed ?? []) if (goods[k]) owed[k] = goods[k];
-  return total(owed) > 0 ? `Needs ${costTag(owed)} at the workshop` : null;
+  let held = false;
+  for (const k of RECIPES.workshop.owed ?? []) {
+    if (!goods[k]) continue;
+    const there = have?.[k] ?? 0;
+    if (there > 0) held = true;
+    if (goods[k]! > there) owed[k] = goods[k]! - there;
+  }
+  return total(owed) > 0 ? `Needs ${costTag(owed)}${held ? " more" : ""} at the workshop` : null;
 }
 
 /**
