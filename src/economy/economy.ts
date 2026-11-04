@@ -1830,6 +1830,38 @@ export class Economy {
   }
 
   /**
+   * The depot where this train stands waiting for a full load (its stop's "Wait here till full", `waitFill`, or, hand
+   * run, the depot's `waitFull`): a wagon not yet done this visit waits for goods there (`waitsForLoad`). Null if it
+   * isn't. For its engine card's Leave now. Cheap: its service and its cars, asked while the card is open.
+   */
+  waitingToFill(trainId: number): DepotState | null {
+    const s = this.services.get(trainId);
+    if (!s || s.phase !== HALTED) return null;
+    const d = this.depots[s.depotId];
+    const train = this.sim.getTrain(trainId);
+    if (!d || !train || !d.auto) return null;
+    const route = this.routeOfTrain(train);
+    if (!(route ? this.waitFillAt(route, d.id) : d.waitFull)) return null;
+    for (const car of train.cars) if (!s.done.has(car.id) && canCarry(car.kind) && this.waitsForLoad(d, car.id)) return d;
+    return null;
+  }
+
+  /**
+   * Leave now (its engine's card): a train waiting for a full load (`waitingToFill`) goes with what it has. Only this
+   * visit is let off (`skipVisit`): at its next stop that stop's own settings apply again, waiting to fill included.
+   * Nothing is saved or undone: a train reloaded mid-wait waits again, as it would have. False if it wasn't waiting.
+   */
+  leaveNow(trainId: number): boolean {
+    const train = this.sim.getTrain(trainId);
+    if (!train || !this.waitingToFill(trainId)) return false;
+    // (As `skipVisit`, at the depot it's waiting at: every car done there, the crane lets it go.)
+    const s = this.service(trainId);
+    s.phase = NONE;
+    for (const car of train.cars) s.done.add(car.id);
+    return true;
+  }
+
+  /**
    * Nothing more for this train at the depot it's beside, this visit (Continue, on its engine's card): the crane lets
    * it go, and it runs on. False if it's beside none.
    */

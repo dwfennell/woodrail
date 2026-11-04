@@ -466,6 +466,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
       continueOn: () => continueTrain(),
+      leaveNow: () => leaveNow(),
       decouple: () => decouple(),
       emptyCar: () => emptyCars(false),
       emptyTrain: () => emptyCars(true),
@@ -2996,6 +2997,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     onChange();
   }
 
+  /**
+   * Leave now (the engine card, waiting for a full load): it goes on with what it has. This stop only, and nothing to
+   * undo or save (`Economy.leaveNow`).
+   */
+  function leaveNow(): void {
+    const carId = interaction.openEngineCarId;
+    const found = carId === -1 ? null : game.sim.findCar(carId);
+    if (!found || !game.economy.leaveNow(found.train.id)) return;
+    hud.setLeaveNow(false);
+    game.invalidate();
+  }
+
   /** Why a train can't move at all, where engines have their limits (Game mode); in Sandbox any train can go. */
   const whyCantMove = (): CantMove | null => (game.sim.topSpeed ? (t) => cantMove(game.world, t) : null);
 
@@ -3137,6 +3150,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
     // Waiting to turn back where the track ends: Continue sends it on now.
     hud.setContinue(canContinue(game.sim, game.economy, carId));
+    // Waiting under the crane for a full load: Leave now sends it on with what it has.
+    hud.setLeaveNow(game.economy.waitingToFill(found.train.id) !== null);
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go
