@@ -1,5 +1,5 @@
 import type { CargoKind } from "../economy/cargo";
-import type { Economy } from "../economy/economy";
+import type { DepotState, Economy } from "../economy/economy";
 import type { Bag } from "../economy/goods";
 import type { ResearchCost } from "./blueprints";
 import type { Progress } from "./progress";
@@ -31,6 +31,11 @@ export interface Research {
   study: number;
   /** Researches started (coins paid) and swapped out for another, with what they'd got: nothing is lost. */
   readonly held: Map<string, { got: Bag; study: number }>;
+  /**
+   * Goods collected ahead for researches not started yet (Reading room: the one up next), by research: they go into it
+   * when it starts. Kept if it leaves the queue (as `held`): nothing is lost.
+   */
+  readonly early: Map<string, Bag>;
   /** Goes up whenever anything a card shows changes (not saved): cards redraw on a change of it, never per frame. */
   version: number;
   /**
@@ -41,7 +46,7 @@ export interface Research {
   speed: number;
 }
 
-export const newResearch = (): Research => ({ current: null, next: null, later: [], got: {}, study: 0, held: new Map(), version: 0, speed: 1 });
+export const newResearch = (): Research => ({ current: null, next: null, later: [], got: {}, study: 0, held: new Map(), early: new Map(), version: 0, speed: 1 });
 
 /** Seconds of study once a research's goods are in, by tier, at a school's speed of 1 (a college's is 2). */
 export const STUDY_SECONDS: Readonly<Record<1 | 2 | 3, number>> = { 1: 20, 2: 45, 3: 90 };
@@ -235,7 +240,11 @@ export function repairQueue(p: Progress): string[] {
   dropped.push(...rest);
   const q = queueOf(r);
   if (ok.length !== q.length || ok.some((x, i) => x !== q[i])) setQueue(r, ok);
-  for (const x of dropped) if (!ok.includes(x)) r.held.delete(x);
+  for (const x of dropped)
+    if (!ok.includes(x)) {
+      r.held.delete(x);
+      r.early.delete(x);
+    }
   return dropped;
 }
 
@@ -308,6 +317,7 @@ function promote(p: Progress): boolean {
   // Learned meanwhile (a town's offer), or can't be researched any more: nothing to start; the queue moves up.
   while (r.current === null && r.next !== null && !canResearch(p, r.next)) {
     r.held.delete(r.next);
+    r.early.delete(r.next);
     setQueue(r, r.later);
     // (The ones that needed it go too.)
     repairQueue(p);
@@ -325,6 +335,13 @@ function promote(p: Progress): boolean {
     p.coins -= coins;
     r.got = {};
     r.study = 0;
+  }
+  // (What the schools collected ahead for it goes in: Reading room.)
+  const ahead = r.early.get(id);
+  if (ahead) {
+    r.got = { ...r.got };
+    for (const [k, n] of Object.entries(ahead) as [CargoKind, number][]) r.got[k] = (r.got[k] ?? 0) + n;
+    r.early.delete(id);
   }
   r.current = id;
   r.next = r.later.shift() ?? null;
@@ -360,14 +377,72 @@ export function studying(p: Progress): boolean {
   return true;
 }
 
-/** `n` of `kind` reach a school: the current research takes what it lacks. Returns how many it took. */
-export function deliver(p: Progress, kind: CargoKind, n: number): number {
-  const take = Math.min(n, lacking(p, kind));
-  if (take <= 0) return 0;
+/** Reading room (research, tech tree 4): schools collect the goods of the research up next too. */
+export const READING_ROOM = "reading-room";
+
+/**
+ * How many more of `kind` the schools collect ahead for the research up next (Reading room learned; 0 without it, or
+ * with nothing up next). What it got before (swapped out, `held`) and what's collected (`early`) count. A lookup.
+ */
+export function aheadLacking(p: Progress, kind: CargoKind): number {
   const r = p.research;
-  r.got[kind] = (r.got[kind] ?? 0) + take;
-  r.version++;
-  return take;
+  const id = r.next;
+  if (id === null || !p.learned.has(READING_ROOM)) return 0;
+  const want = costOf(id, p.learned).goods[kind] ?? 0;
+  if (want <= 0) return 0;
+  return Math.max(0, want - (r.held.get(id)?.got[kind] ?? 0) - (r.early.get(id)?.[kind] ?? 0));
+}
+
+/** What the research up next still needs, collected ahead (empty: no Reading room, nothing up next, or all in). */
+export function aheadLacks(p: Progress): Bag {
+  const out: Bag = {};
+  const id = p.research.next;
+  if (id === null || !p.learned.has(READING_ROOM)) return out;
+  for (const k of Object.keys(costOf(id, p.learned).goods) as CargoKind[]) {
+    const n = aheadLacking(p, k);
+    if (n > 0) out[k] = n;
+  }
+  return out;
+}
+
+/**
+ * How many of `kind` a school takes now: what the research under way lacks, and with Reading room what the one up next
+ * lacks. `ok` says whether this school may take goods for a research (one studied at a College or a University: only
+ * such a school); none: any. A lookup (the crane asks per unit).
+ */
+export function wants(p: Progress, kind: CargoKind, ok?: (id: string) => boolean): number {
+  const r = p.research;
+  let n = 0;
+  if (r.current !== null && (!ok || ok(r.current))) n += lacking(p, kind);
+  if (r.next !== null && (!ok || ok(r.next))) n += aheadLacking(p, kind);
+  return n;
+}
+
+/**
+ * `n` of `kind` reach a school: the current research takes what it lacks, and with Reading room the one up next the
+ * rest it lacks (`ok`: as for `wants`). Returns how many were taken.
+ */
+export function deliver(p: Progress, kind: CargoKind, n: number, ok?: (id: string) => boolean): number {
+  const r = p.research;
+  let taken = 0;
+  if (r.current !== null && (!ok || ok(r.current))) {
+    const take = Math.min(n, lacking(p, kind));
+    if (take > 0) {
+      r.got[kind] = (r.got[kind] ?? 0) + take;
+      taken += take;
+    }
+  }
+  if (taken < n && r.next !== null && (!ok || ok(r.next))) {
+    const take = Math.min(n - taken, aheadLacking(p, kind));
+    if (take > 0) {
+      const bag = r.early.get(r.next) ?? {};
+      bag[kind] = (bag[kind] ?? 0) + take;
+      r.early.set(r.next, bag);
+      taken += take;
+    }
+  }
+  if (taken > 0) r.version++;
+  return taken;
 }
 
 /** Coins still short for the research waiting in `next` (0: none waiting, or it can start). */
@@ -438,11 +513,11 @@ export function tick(p: Progress, seconds: number, speed = p.research.speed): st
  * Goods a train (or a hand) brings to a school go into the research (what a school takes at all is `lacking`, asked
  * through the economy's `accepts`). `delivered` hears of each unit taken. Game mode only; `detachResearch` undoes it.
  */
-export function attachResearch(economy: Economy, progress: () => Progress, delivered?: (kind: CargoKind) => void): void {
+export function attachResearch(economy: Economy, progress: () => Progress, delivered?: (kind: CargoKind) => void, takesFor?: (d: DepotState, id: string) => boolean): void {
   economy.intoSink = (d, kind) => {
-    if (d.role === "school" && deliver(progress(), kind, 1) > 0) delivered?.(kind);
+    if (d.role === "school" && deliver(progress(), kind, 1, takesFor && ((id) => takesFor(d, id))) > 0) delivered?.(kind);
   };
-  economy.sinkWants = (kind) => lacking(progress(), kind);
+  economy.sinkWants = (kind) => wants(progress(), kind);
 }
 
 export function detachResearch(economy: Economy): void {
@@ -459,12 +534,14 @@ export interface ResearchData {
   got: [string, number][];
   study: number;
   held?: [string, { got: [string, number][]; study: number }][];
+  /** Goods collected ahead (Reading room), by research; absent when none. */
+  early?: [string, [string, number][]][];
 }
 
 const bagData = (b: Bag): [string, number][] => Object.entries(b).filter(([, n]) => (n ?? 0) > 0) as [string, number][];
 
 export function researchToJSON(r: Research): ResearchData {
-  return { current: r.current, next: r.next, ...(r.later.length > 0 ? { later: [...r.later] } : {}), got: bagData(r.got), study: r.study, ...(r.held.size > 0 ? { held: [...r.held].map(([id, h]) => [id, { got: bagData(h.got), study: h.study }] as [string, { got: [string, number][]; study: number }]) } : {}) };
+  return { current: r.current, next: r.next, ...(r.later.length > 0 ? { later: [...r.later] } : {}), got: bagData(r.got), study: r.study, ...(r.held.size > 0 ? { held: [...r.held].map(([id, h]) => [id, { got: bagData(h.got), study: h.study }] as [string, { got: [string, number][]; study: number }]) } : {}), ...(r.early.size > 0 ? { early: [...r.early].map(([id, b]) => [id, bagData(b)] as [string, [string, number][]]) } : {}) };
 }
 
 /** From saved data, against the blueprints (an unknown or malformed part is dropped). */
@@ -492,5 +569,11 @@ export function researchFromJSON(data: unknown, known: (id: unknown) => string |
     r.study = time(d.study);
   }
   if (Array.isArray(d.held)) for (const e of d.held) if (Array.isArray(e) && known(e[0])) r.held.set(known(e[0])!, { got: bag(e[1]?.got), study: time(e[1]?.study) });
+  if (Array.isArray(d.early))
+    for (const e of d.early)
+      if (Array.isArray(e) && known(e[0])) {
+        const b = bag(e[1]);
+        if (Object.keys(b).length > 0) r.early.set(known(e[0])!, b);
+      }
   return r;
 }

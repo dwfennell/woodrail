@@ -103,7 +103,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), regates: REGATES, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -120,6 +120,8 @@ export class Progress {
     // Blueprints renamed since (risers joined bridges, turning loops joined junctions) come back as what they became.
     const known = (t: unknown): string | null => (typeof t === "string" ? (techOf(RENAMED[t] ?? t) ? (RENAMED[t] ?? t) : null) : null);
     if (d && Array.isArray(d.learned)) for (const t of d.learned) if (known(t)) p.learned.add(known(t)!);
+    // Things moved to a new blueprint since the save was written: it keeps them, its new blueprint learned with them.
+    for (const t of regated(d)) p.learned.add(t);
     if (d && Array.isArray(d.offers)) {
       for (const o of d.offers) {
         const offer = offerFromJSON(o);
@@ -168,6 +170,25 @@ export interface ProgressData {
   making?: boolean;
   research?: ResearchData;
   taken?: Taken[];
+  /** How many of `REGATE_LIST`'s moves the save was written after (absent: none, an older save). */
+  regates?: number;
+}
+
+/**
+ * Things moved from one blueprint to a new one, in the order they were moved: a save written before a move, that had
+ * learned a blueprint it moved from, gets the new one learned too, so nothing it could make goes away.
+ */
+export const REGATE_LIST: readonly { readonly from: readonly string[]; readonly to: string }[] = [
+  // Tech tree 4: the signal box and lever frame, from the Scenery kit to Signal boxes.
+  { from: ["scenery"], to: "signal-boxes" },
+];
+export const REGATES = REGATE_LIST.length;
+
+/** The blueprints a save gets for the moves made since it was written (`REGATE_LIST`): none for a save written since. */
+export function regated(d: Partial<ProgressData> | null | undefined): string[] {
+  const seen = Number.isInteger(d?.regates) ? d!.regates! : 0;
+  const learned = new Set(Array.isArray(d?.learned) ? d.learned : []);
+  return REGATE_LIST.slice(seen).filter((g) => g.from.some((t) => learned.has(t))).map((g) => g.to);
 }
 
 /** A reward taken: its offer (town and level) and what it gave (coins, things, goods to research `to`). */

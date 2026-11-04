@@ -33,7 +33,7 @@ import type { Game } from "./game";
 import { pointsSetFor } from "./engine-status";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
-import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
+import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag, type RoadTill } from "./road-hand";
 import { DrawHand } from "./draw-hand";
@@ -452,6 +452,8 @@ export class Interaction {
   onPickPlace: ((depotId: number) => boolean) | null = null;
   /** Planning a route: plain track tapped (or a via point's disc), a via point (true: taken as one). */
   onPickVia: ((pieceId: number) => boolean) | null = null;
+  /** Do signal boxes reach along telegraph poles (the Telegraph learned, or Sandbox)? Null: no. */
+  telegraph: (() => boolean) | null = null;
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
   routeGroup: Object3D | null = null;
   onTapStopDisc: ((index: number) => void) | null = null;
@@ -5582,13 +5584,15 @@ export class Interaction {
     const g = this.game;
     const p = g.props.get(propId);
     if (!p) return;
-    const levers = leversNear(g.layout, p.x, p.z);
+    // (With the Telegraph, the points and signals by every pole wired to it too, marked "by wire", after the near ones.)
+    const levers = leversWorked(g.layout, g.props, p.x, p.z, this.telegraph?.() ?? false);
     const counts = { points: 0, signal: 0 };
     const items = levers.map((l) => {
       const n = ++counts[l.kind];
+      const by = l.wired ? " (by wire)" : "";
       return l.kind === "points"
-        ? { label: `Points ${n}: ${pointsWay(g.layout, l.pieceId, l.corner)}`, title: "Throw these points" }
-        : { label: `Signal ${n}: ${g.sim.signalHeld(l.pieceId, l.road) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
+        ? { label: `Points ${n}${by}: ${pointsWay(g.layout, l.pieceId, l.corner)}`, title: "Throw these points" }
+        : { label: `Signal ${n}${by}: ${g.sim.signalHeld(l.pieceId, l.road) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
     });
     this.hud.showLevers(items, (i) => {
       const l = levers[i];

@@ -282,6 +282,7 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
       furniture("mech-whistle-post", "Whistle post"),
       furniture("bldg-signal-box", "Signal box"),
       furniture("mech-lever-frame", "Lever frame"),
+      furniture("mech-telegraph-pole", "Telegraph pole"),
       furniture("mech-level-crossing", "Level crossing"),
       furniture("mech-gated-crossing", "Gated crossing"),
       furniture("scene-bus-stop", "Bus stop"),

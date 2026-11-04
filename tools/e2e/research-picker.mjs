@@ -951,6 +951,68 @@ const chainPieces = ["depot-beet", "depot-jam", "depot-chocolate", "depot-flower
 check("the goods chains' six buildings are on the Industries shelf, unlocked", chainPieces.every((t) => chainShelf[`piece:${t}`] === false), JSON.stringify(chainPieces.map((t) => [t, chainShelf[`piece:${t}`]])));
 await shot("26-goods-chains-industries-shelf");
 
+// 15. Tech tree 4. The Reading room researched by taps (College is learned). Then Telegraph tapped: one tap queues
+// Signal boxes, then Telegraph (Signals and Routes are learned). One delivery of 10 planks: Signal boxes takes its 4 and
+// the school reads ahead for Telegraph with the other 6 (its card says so); Signal boxes learned, Telegraph starts with
+// its goods all in and is learned with nothing more brought (the payoff: no gap between the two). The signal box and
+// the telegraph pole on the tray's Lineside shelf, unlocked. Then Mines II, Foundry II and Joinery by taps at the
+// College (setup shortcut, not under test: the coal dug, iron cast and furniture delivered they ask for).
+await p.evaluate(() => {
+  const w = window.woodrail;
+  const pr = w.progress();
+  pr.coins = 3000;
+  pr.counts.set("coalDug", 60);
+  pr.counts.set("ironCast", 40);
+  pr.counts.set("delivered:furniture", 30);
+  w.learn("carpentry");
+  // (What earlier steps left under way or queued: learned, so this step starts with the school idle.)
+  const r = pr.research;
+  for (const id of [r.current, r.next, ...r.later]) if (id) w.learn(id);
+  w.hud.setCoins(pr.coins);
+});
+await p.waitForFunction(() => window.woodrail.progress().research.current === null, null, { timeout: 30000 }).catch(() => {});
+const readingRoom = await researchByTaps("Reading room", "reading-room", 6);
+check("Reading room: researched by taps and learned", readingRoom.first?.name === "Reading room" && (await p.evaluate(() => window.woodrail.progress().learned.has("reading-room"))), JSON.stringify(readingRoom));
+await quiet();
+await board(true);
+await select("Telegraph");
+t = await ticket();
+check("Telegraph: one tap queues Signal boxes, then Telegraph", /Signal boxes/.test(t?.buttons[0]?.text ?? ""), JSON.stringify(t));
+await tap(".board-sheet button[data-act=pick]", t?.buttons[0]?.text);
+check("…Signal boxes under way, Telegraph up next", JSON.stringify(await queued()) === JSON.stringify(["signal-boxes", "telegraph"]), JSON.stringify(await queued()));
+await shot("23-signal-boxes-then-telegraph");
+await board(false);
+await p.evaluate(() => (window.woodrail.paused = true));
+await deliverGoods({ planks: 10 });
+const ahead = await p.evaluate(() => {
+  const r = window.woodrail.progress().research;
+  return { got: r.got.planks ?? 0, early: r.early.get("telegraph")?.planks ?? 0 };
+});
+check("…10 planks: 4 into Signal boxes, 6 read ahead for Telegraph", ahead.got === 4 && ahead.early === 6, JSON.stringify(ahead));
+// The school's card says what it's reading ahead.
+const schoolNote = await p.evaluate(async () => (await import("/src/game/research-text.ts")).schoolCard(window.woodrail.progress()).note);
+check("…the school's card says it's reading ahead for Telegraph", /Reading ahead for Telegraph: \uE0006\/6/.test(schoolNote ?? ""), String(schoolNote));
+await p.evaluate(() => (window.woodrail.paused = false));
+await p.waitForFunction(() => window.woodrail.progress().learned.has("telegraph"), null, { timeout: 200000 }).catch(() => null);
+const both = await p.evaluate(() => ({ boxes: window.woodrail.progress().learned.has("signal-boxes"), telegraph: window.woodrail.progress().learned.has("telegraph") }));
+check("…Signal boxes and then Telegraph learned, Telegraph with nothing more brought", both.boxes && both.telegraph, JSON.stringify(both));
+await quiet();
+await tap(".tabs button", "Industries");
+await tap(".tray-item.tray-group", "Lineside");
+const lineside = await trayLocked();
+check("the signal box and the telegraph pole are on the Lineside shelf, unlocked", lineside["prop:bldg-signal-box"] === false && lineside["prop:mech-telegraph-pole"] === false, JSON.stringify(lineside));
+await shot("24-lineside-telegraph");
+for (const [name, id] of [
+  ["Mines II", "mines2"],
+  ["Foundry II", "foundry2"],
+  ["Joinery", "joinery"],
+]) {
+  await quiet();
+  const r = await researchByTaps(name, id, 14);
+  const learned = await p.evaluate((id) => window.woodrail.progress().learned.has(id), id);
+  check(`${name}: researched by taps and learned`, r.first?.name === name && learned, JSON.stringify(r));
+}
+
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
 await b.close();
