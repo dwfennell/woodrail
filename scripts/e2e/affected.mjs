@@ -55,6 +55,7 @@ export const SUITES = {
   life: { script: "e2e:life", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge" },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
+  crane: { script: "e2e:crane", minutes: 4 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -94,7 +95,7 @@ export const RULES = [
   [["src/landscape/clearance.ts", "src/landscape/support.ts"], ["low-bridge"]],
   ["src/roads/**", ["roads"]],
   ["src/roads/place.ts", ["low-bridge"]],
-  ["src/economy/**", ["sandbox-chains", TOUCH_ROUTES, "click:routes", "warehouse", "train-summary", "workshop", "big-stations", "station-touches", "kits-game", "research", "school", "growth"]],
+  ["src/economy/**", ["crane", "sandbox-chains", TOUCH_ROUTES, "click:routes", "warehouse", "train-summary", "workshop", "big-stations", "station-touches", "kits-game", "research", "school", "growth"]],
   ["src/props/**", [...TOWNS, "click:model-train"]],
   ["src/persist/**", ["cloud", "copy-map", "joints", "engine-names", "touch:defaults"]],
   ["src/persist/bug-map.ts", ["copy-map", "touch:feedback", "click:feedback"]],
@@ -160,6 +161,12 @@ export const RULES = [
   [["src/game/route-*", "src/game/lines.ts", "src/game/continue-on.ts", "src/game/switch-pin.ts"], [TOUCH_ROUTES, "click:routes", "signals"]],
   [["src/game/engine-status.ts", "src/game/engines.ts", "src/game/train-summary.ts", "src/game/decouple-words.ts", "src/game/empty-words.ts"], ["touch:train-card,blocker", "train-summary", "train-parts", "engine-names"]],
   ["src/game/signal-place.ts", ["signals"]],
+  // The breakdown crane (claude/tank-crane): its system, words and model.
+  [["src/economy/breakdown.ts", "src/game/crane-text.ts", "src/catalogue/assets/breakdown-crane.ts", "src/game/engine-status.ts"], ["crane"]],
+  // The game's icon font (src/icons, scripts/icon-font.py): drawn in every bar and card.
+  ["src/assets/woodrail-icons.woff2", ["names", "locked", "research"]],
+  // Hand-made bug maps (src/play/bugmaps): unit tests only.
+  ["src/play/bugmaps/**", []],
   [["src/game/research*", "src/game/blueprints.ts", "src/game/tech.ts", "src/game/learn-text.ts"], ["research", "locked", "kits-game", "landscaping"]],
   [["src/game/goals.ts", "src/game/goal-ticks.ts", "src/game/rewards.ts", "src/game/progress.ts"], ["stickers", "stats", "research", "school", "sites"]],
   ["src/game/stickers.ts", ["stickers"]],

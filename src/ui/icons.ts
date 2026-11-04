@@ -78,6 +78,8 @@ const CAR_COLORS: Record<CarKind, [string, string]> = {
   tanker: ["#f6f3ec", "#2f6db5"],
   reefer: ["#f6f3ec", "#2f6db5"],
   carrier: ["#e6b52c", "#c8442f"],
+  oiltank: ["#2a2b2e", "#e6b52c"],
+  crane: ["#c8442f", "#e6b52c"],
 };
 
 /** Side-view SVG of a car or a short train. */
@@ -113,6 +115,20 @@ export function trainIcon(kinds: readonly CarKind[]): string {
         body += `<rect x="${cx - 5}" y="${cy - 2}" width="10" height="5" rx="2" fill="${trim}"/>`;
         body += `<rect x="${cx - 3.5}" y="${cy - 1}" width="7" height="3" rx="1" fill="#bfe0f2"/>`;
       }
+    } else if (k === "oiltank") {
+      // A black barrel with a yellow band, a dome and an orange hazard diamond.
+      body += `<rect x="${x + 4}" y="24" width="${L - 8}" height="22" rx="11" fill="${main}"/>`;
+      body += `<rect x="${x + L / 2 - 4}" y="24" width="8" height="22" fill="${trim}"/>`;
+      body += `<rect x="${x + L * 0.28 - 4}" y="18" width="10" height="7" rx="2" fill="${trim}"/>`;
+      body += `<rect x="${x + L * 0.72 - 4}" y="31" width="8" height="8" fill="#e07a2e" transform="rotate(45 ${x + L * 0.72} 35)"/>`;
+    } else if (k === "crane") {
+      // A red deck, a yellow cab and a jib reaching up and forward, a hook on its rope.
+      body += `<rect x="${x + 2}" y="38" width="${L - 4}" height="8" rx="2" fill="${main}"/>`;
+      body += `<rect x="${x + 8}" y="22" width="${L * 0.32}" height="17" rx="3" fill="${trim}"/>`;
+      body += `<rect x="${x + 12}" y="26" width="${L * 0.12}" height="6" rx="1" fill="#a9cfe6"/>`;
+      body += `<rect x="${x + L * 0.3}" y="20" width="${L * 0.62}" height="5" rx="2" fill="${trim}" transform="rotate(-28 ${x + L * 0.3} 24)"/>`;
+      body += `<rect x="${x + L * 0.82}" y="2" width="1.6" height="18" fill="#2a2b2e"/>`;
+      body += `<rect x="${x + L * 0.82 - 3}" y="19" width="7.6" height="5" rx="1.5" fill="${main}"/>`;
     } else if (k === "tanker") {
       // A white barrel with two blue bands and a dome.
       body += `<rect x="${x + 4}" y="24" width="${L - 8}" height="22" rx="11" fill="${main}" stroke="#c9c2b4" stroke-width="1.5"/>`;

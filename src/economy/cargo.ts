@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish" | "sugar" | "jam" | "cocoa" | "chocolate" | "flowers" | "paint" | "toys";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish" | "oil" | "water" | "sugar" | "jam" | "cocoa" | "chocolate" | "flowers" | "paint" | "toys";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -35,16 +35,19 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   autos: { index: 17, label: "Cars" },
   // Fish, the catch the boats bring to your harbours once Fishing boats is learned: crates of fish on ice.
   fish: { index: 18, label: "Fish" },
+  // Tank wagons' goods (Tank wagons): oil from an oil well, water from a water pump by a river or lake.
+  oil: { index: 19, label: "Oil" },
+  water: { index: 20, label: "Water" },
   // The goods chains (2026-11-04): sugar in sacks from a sugar beet field, and jam of fruit and sugar in jars;
-  sugar: { index: 19, label: "Sugar" },
-  jam: { index: 20, label: "Jam" },
+  sugar: { index: 21, label: "Sugar" },
+  jam: { index: 22, label: "Jam" },
   // cocoa beans in sacks, landed by the boats at your harbours, and chocolate of cocoa and milk, in bars;
-  cocoa: { index: 21, label: "Cocoa" },
-  chocolate: { index: 22, label: "Chocolate" },
+  cocoa: { index: 23, label: "Cocoa" },
+  chocolate: { index: 24, label: "Chocolate" },
   // flowers in crates from a flower field, paint (tins) from a dye works, and toys of planks and paint.
-  flowers: { index: 23, label: "Flowers" },
-  paint: { index: 24, label: "Paint" },
-  toys: { index: 25, label: "Toys" },
+  flowers: { index: 25, label: "Flowers" },
+  paint: { index: 26, label: "Paint" },
+  toys: { index: 27, label: "Toys" },
 };
 
 /**
@@ -78,6 +81,9 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   // Tech tree 3's goods (src/icons/u1F697-car, u1F41F-fish).
   autos: "🚗",
   fish: "🐟",
+  // Tank wagons' goods (src/icons/u1F6E2-oil, u1F4A7-water).
+  oil: "🛢️",
+  water: "💧",
   // The goods chains' (src/icons/u1F36C-sugar, u1FAD9-jam, u1FAD8-cocoa, u1F36B-chocolate, u1F337-flowers,
   // u1F3A8-paint, u1F9F8-toys).
   sugar: "🍬",
@@ -108,6 +114,8 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   reefer: ["cheese", "icecream", "fish", "chocolate"],
   // The car carrier: two decks of new cars, the only wagon they ride in.
   carrier: ["autos"],
+  // The tank wagon: oil or water, the only wagon either rides in.
+  oiltank: ["oil", "water"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

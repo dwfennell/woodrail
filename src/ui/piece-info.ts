@@ -87,6 +87,8 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-icecream": p("Ice cream factory", "Makes ice cream from milk and fruit, for cold vans."),
   "depot-brickworks": p("Brickworks", "Fires bricks from stone and coal."),
   "depot-carworks": p("Car factory", "Builds cars from iron and planks, for car carriers."),
+  "depot-oilwell": p("Oil well", "Pumps oil, for tank wagons."),
+  "depot-waterpump": p("Water pump", "Pumps water from a river or lake nearby, for tank wagons."),
   "depot-beet": p("Sugar beet field", "Beets boiled down into sugar, in sacks for vans."),
   "depot-jam": p("Jam kitchen", "Makes jam from fruit and sugar, in jars."),
   "depot-chocolate": p("Chocolate factory", "Makes chocolate from cocoa and milk."),
@@ -166,6 +168,8 @@ const CAR_DETAIL: Record<CarKind, string> = {
   tanker: "Carries milk from a dairy farm.",
   reefer: "Keeps cheese, fish and ice cream cold on the way.",
   carrier: "Carries new cars from a car factory, on two decks.",
+  oiltank: "Carries oil from an oil well, or water from a water pump.",
+  crane: "Lifts a derailed train back on, or a stuck train off.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {

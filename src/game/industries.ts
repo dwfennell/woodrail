@@ -64,6 +64,8 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   // harbour, old or new, showed 0.75 at best (QA: "Water nearby: 5 of 8"); an old harbour now has 5 of 5. (A harbour
   // has no recipe of its own, so its rate is only what its card says. The least it's placed with stays 4.)
   harbour: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 5, least: 4, l: 150 },
+  // A water pump draws from a river or lake just past its yard's far side (as a harbour's quay, a little less of it).
+  waterpump: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 4, least: 2, l: 150 },
   // A school stands beside a town: one of its lots near the yard (see `schoolTown`, which also says which town).
   school: { what: "a town", counts: isTownLot, reach: SCHOOL_REACH, need: 1 },
 };

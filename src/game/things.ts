@@ -66,6 +66,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:tanker": { label: "Milk tank wagon", cost: { planks: 3 }, tech: "dairy" },
   "car:reefer": { label: "Cold van", cost: { planks: 4 }, tech: "reefer" },
   "car:carrier": { label: "Car carrier", cost: { planks: 3, iron: 2 }, tech: "car-carrier" },
+  "car:oiltank": { label: "Tank wagon", cost: { planks: 3 }, tech: "tankers" },
+  "car:crane": { label: "Breakdown crane", cost: { planks: 8 }, tech: "breakdown" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 10 }, coins: 300, tech: "sawmills" },
@@ -82,6 +84,9 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-icecream": { label: "Ice cream factory", cost: { planks: 12 }, coins: 360, tech: "ice-cream" },
   "piece:depot-brickworks": { label: "Brickworks", cost: { planks: 10 }, coins: 320, tech: "brickworks" },
   "piece:depot-carworks": { label: "Car factory", cost: { planks: 12, iron: 4 }, coins: 420, tech: "car-factory" },
+  // Tank wagons' wells (Tank wagons): oil anywhere, water by a river or lake.
+  "piece:depot-oilwell": { label: "Oil well", cost: { planks: 8 }, coins: 220, tech: "tankers" },
+  "piece:depot-waterpump": { label: "Water pump", cost: { planks: 6 }, coins: 160, tech: "tankers" },
   // The goods chains (2026-11-04): mostly coins, as the spec asks of new nodes.
   "piece:depot-beet": { label: "Sugar beet field", cost: { planks: 6 }, coins: 150, tech: "sugar" },
   "piece:depot-jam": { label: "Jam kitchen", cost: { planks: 10 }, coins: 260, tech: "jam" },

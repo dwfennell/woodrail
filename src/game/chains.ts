@@ -14,6 +14,8 @@ export const MAKER_LABEL: Partial<Record<DepotRole, string>> = {
   farm: "Farm yard",
   mill: "Mill",
   dairy: "Dairy farm",
+  oilwell: "Oil well",
+  waterpump: "Water pump",
   bakery: "Bakery",
   orchard: "Orchard",
   beetfield: "Sugar beet field",

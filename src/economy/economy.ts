@@ -7,6 +7,7 @@ import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
 import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
+import { Breakdown } from "./breakdown";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone } from "../routing/via";
@@ -39,7 +40,7 @@ interface Service {
   halted?: boolean;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -96,7 +97,7 @@ export const SCHOOL_SHARE = 0.6;
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "sugar", "jam", "chocolate", "flowers", "paint", "toys"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "chocolate", "flowers", "paint", "toys"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
@@ -124,6 +125,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   brickworks: { takes: ["stone", "coal"], gives: ["bricks"], cycle: { uses: { stone: 1, coal: 1 }, makes: { bricks: 1 }, seconds: 12 } },
   // A car factory builds cars of a foundry's iron and a sawmill's planks (tech tree 3): they leave on a car carrier.
   carworks: { takes: ["iron", "planks"], gives: ["autos"], cycle: { uses: { iron: 1, planks: 1 }, makes: { autos: 1 }, seconds: 14 } },
+  // Tank wagons' wells: an oil well pumps oil, a water pump water from the river or lake beside it.
+  oilwell: { takes: [], gives: ["oil"], cycle: { uses: {}, makes: { oil: 1 }, seconds: 14 } },
+  waterpump: { takes: [], gives: ["water"], cycle: { uses: {}, makes: { water: 1 }, seconds: 10 } },
   // The goods chains (2026-11-04), each ending (A + B) -> C as the bakery does: a sugar beet field's sugar and an
   // orchard's fruit make jam; cocoa (landed at harbours) and a dairy's milk make chocolate; a flower field's flowers
   // make paint at a dye works, and a toy workshop makes toys of paint and planks.
@@ -545,6 +549,12 @@ export class Economy {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.router.waitingOn(engine),
     });
+    this.breakdown = new Breakdown(layout, sim, {
+      onLine: (engine) => this.lineIdOf.has(engine),
+      locked: (pieceId) => this.router.locked(pieceId),
+      thrown: (pieceId) => this.router.onSwitch?.(pieceId),
+      removed: () => this.prune(),
+    });
   }
 
   /**
@@ -628,6 +638,8 @@ export class Economy {
   readonly router: Router;
   /** Trains stuck for good (a ring of waits, or a line's held train in the way), for their cards: see stalls.ts. */
   readonly stalls: Stalls;
+  /** Breakdown cranes at work (Game mode's Breakdown crane: src/economy/breakdown.ts). */
+  readonly breakdown: Breakdown;
 
   /**
    * Where a routed engine is going: its next stop's piece, or (standing at it) the next different depot's; −1: no
@@ -2175,6 +2187,8 @@ export class Economy {
     this.router.tick();
     // Trains stuck for good, for their cards (every CHECK_TICKS, with two trains or more).
     this.stalls.tick();
+    // Breakdown cranes driving out and lifting trains (a look every half second with none at work).
+    this.breakdown.tick();
     // (The invariants, where they're on: they only read.)
     this.checker?.check();
     this.roadVehicles.tick(SIM_DT);

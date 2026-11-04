@@ -1,4 +1,4 @@
-export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner" | "tanker" | "reefer" | "carrier";
+export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner" | "tanker" | "reefer" | "carrier" | "oiltank" | "crane";
 export type Pole = "N" | "S";
 
 export interface CarSpec {
@@ -30,6 +30,10 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
   reefer: { kind: "reefer", index: 8, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
   // A car carrier (Game mode's Car carrier): the van's length and running gear, two open decks of new cars.
   carrier: { kind: "carrier", index: 9, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
+  // A tank wagon (Game mode's Tank wagons): the van's length and running gear, a black barrel for oil or water.
+  oiltank: { kind: "oiltank", index: 10, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
+  // The breakdown crane (Game mode's Breakdown crane): a red crane on a heavy wagon that lifts derailed or stuck trains.
+  crane: { kind: "crane", index: 11, length: 88, bogieInset: 18, width: 32, mass: 2, powered: false },
 };
 
 /**
@@ -48,11 +52,13 @@ export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
   tanker: ["classic"],
   reefer: ["classic"],
   carrier: ["classic"],
+  oiltank: ["classic"],
+  crane: ["classic"],
 };
 export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods"];
 
 /** In snapshot-index order. */
-export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier"];
+export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier", "oiltank", "crane"];
 
 /** Gap between two coupled cars' end faces (mm). */
 export const COUPLER_GAP = 2;

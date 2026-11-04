@@ -74,6 +74,7 @@ describe("industries near their resource", () => {
       "depot-quarry": "Needs hillside nearby: 0 of 6",
       "depot-mine": "Needs hillside nearby: 0 of 6",
       "depot-harbour": "Needs water nearby: 0 of 4",
+      "depot-waterpump": "Needs water nearby: 0 of 2",
       "depot-school": "Needs to be beside a town",
     });
   });

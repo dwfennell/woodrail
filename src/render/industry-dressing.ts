@@ -48,6 +48,8 @@ export const PILE_TAG: Record<CargoKind, string> = {
   bricks: "#b5532f",
   autos: "#c8442f",
   fish: "#7d93a6",
+  oil: "#2a2b2e",
+  water: "#3d86b8",
   sugar: "#e98aa8",
   jam: "#a3243b",
   cocoa: "#7a4a2a",

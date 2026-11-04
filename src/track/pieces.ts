@@ -105,6 +105,8 @@ export type PieceTypeId =
   | "depot-icecream"
   | "depot-brickworks"
   | "depot-carworks"
+  | "depot-oilwell"
+  | "depot-waterpump"
   | "depot-beet"
   | "depot-jam"
   | "depot-chocolate"
@@ -567,6 +569,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "depot-icecream": straight("depot-icecream", 216),
   "depot-brickworks": straight("depot-brickworks", 216),
   "depot-carworks": straight("depot-carworks", 216),
+  "depot-oilwell": straight("depot-oilwell", 216),
+  "depot-waterpump": straight("depot-waterpump", 216),
   "depot-beet": straight("depot-beet", 216),
   "depot-jam": straight("depot-jam", 216),
   "depot-chocolate": straight("depot-chocolate", 216),

@@ -55,7 +55,7 @@ const earned = (id: string, economy: Economy) => sticker(id).check({ economy } a
 
 describe("the goods chains' goods", () => {
   it("are new cargo kinds at the end of the list (old saves' piles keep their places)", () => {
-    expect(CARGO_KINDS.slice(19)).toEqual(["sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys"]);
+    expect(CARGO_KINDS.slice(21)).toEqual(["sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys"]);
     for (const [i, k] of CARGO_KINDS.entries()) expect(CARGO[k].index).toBe(i);
   });
 
