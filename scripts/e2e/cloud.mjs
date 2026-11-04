@@ -8,7 +8,8 @@
 // `game-sync` (7–8) and `game-rewards` (9–10), each Game group on two devices of its own (C and D) with a code of its
 // own. The whole suite as one ran 19 min idle and 27 min with a CPU hog (14 Game-mode reloads at 60–77 s each), so a
 // gate's 1700 s timeout fell on its last step, every check before it passing, and the run was lost. Now a killed run
-// keeps the groups that passed, and two shards can run at once (each has a Worker on a free port of its own).
+// keeps the groups that passed, and two shards can run at once (each has a Worker on free ports of its own: its
+// own inspector port too, or the second wrangler can't start).
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,7 +63,7 @@ async function boot() {
   const ORIGIN = new globalThis.URL(URL).origin;
 
   persist = mkdtempSync(join(tmpdir(), "woodrail-cloud-"));
-  worker = spawn("npx", ["wrangler", "dev", "--local", "--port", String(WORKER_PORT), "--ip", "127.0.0.1", "--persist-to", persist, "--var", `ALLOWED_ORIGINS:${ORIGIN}`, "--var", "CODE_KEY:e2e-only-key", "--show-interactive-dev-session=false"], {
+  worker = spawn("npx", ["wrangler", "dev", "--local", "--port", String(WORKER_PORT), "--inspector-port", String(await freePort()), "--ip", "127.0.0.1", "--persist-to", persist, "--var", `ALLOWED_ORIGINS:${ORIGIN}`, "--var", "CODE_KEY:e2e-only-key", "--show-interactive-dev-session=false"], {
     cwd: new globalThis.URL("../../cloud/", import.meta.url),
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
@@ -78,6 +79,9 @@ async function boot() {
     if (i > 120) {
       console.log(workerLog);
       stopWorker();
+      // (Nothing left behind: the next group boots afresh.)
+      await server.close();
+      rmSync(persist, { recursive: true, force: true });
       throw new Error("the Worker didn't start");
     }
     await new Promise((r) => setTimeout(r, 500));
