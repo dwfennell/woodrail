@@ -3415,7 +3415,7 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     const r = s.getBoundingClientRect();
     return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth };
   });
-  const fixSaid = lines ? /^Stuck: (the train on the [A-Za-z]+ line|another train) is in the way\. Add a passing loop here$/.test(card.said) : card.said === "Stuck: this line has a train too many. Add a passing loop";
+  const fixSaid = lines ? /^Stuck: (the train on the [A-Za-z]+ line|another train) is in the way\. Add a passing loop here$/.test(card.said) : card.said === "Stuck: this line has a train too many. Add a passing loop, or remove a train";
   check(`${tag}: the first's card says it's stuck and the fix, in two lines at 360 px`, fixSaid && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
   // (The once-ever head-on tip, if it came with this stall: what works, a passing loop; no signals needed.)
   if (lines) {

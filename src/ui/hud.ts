@@ -349,9 +349,8 @@ export class Hud {
    */
   private readonly blockerRow = el("div", "engine-blocker");
   private readonly showBlockerBtn: HTMLButtonElement;
-  /** A line with a train too many: Remove, beside the status (the quick fix; a passing loop the lasting one). */
-  private readonly crowdRemoveBtn: HTMLButtonElement;
-  private blockerShown = false;
+  /** The engine card's Remove (marked as the quick fix while its line has a train too many: `setCrowded`). */
+  private engineRemoveBtn!: HTMLButtonElement;
   private crowdShown = false;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
@@ -645,9 +644,7 @@ export class Hud {
     this.engineSummary.hidden = true;
     this.engineCard.appendChild(this.engineSummary);
     this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
-    this.crowdRemoveBtn = button("Remove this train", "Put this train back in the box: the line's other trains run on", h.removeTrain, "chip text danger crowd-remove");
-    this.crowdRemoveBtn.hidden = this.showBlockerBtn.hidden = true;
-    this.blockerRow.append(this.showBlockerBtn, this.crowdRemoveBtn);
+    this.blockerRow.append(this.showBlockerBtn);
     this.blockerRow.hidden = true;
     this.engineCard.appendChild(this.blockerRow);
     const controls = el("div", "engine-controls");
@@ -671,7 +668,7 @@ export class Hud {
     engineActions.append(
       this.swapBtn,
       this.engineDecoupleBtn,
-      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove"),
+      (this.engineRemoveBtn = button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove")),
     );
     controls.append(this.goBtn, this.wayBtn, this.continueBtn, engineActions);
     this.engineCard.appendChild(controls);
@@ -1763,10 +1760,8 @@ export class Hud {
    * "points"), for its title.
    */
   setBlocker(show: boolean, what: "train" | "points" = "train"): void {
-    if (this.blockerShown === show && this.showBlockerBtn.dataset.what === what) return;
-    this.blockerShown = show;
-    this.showBlockerBtn.hidden = !show;
-    this.blockerRow.hidden = !show && !this.crowdShown;
+    if (this.blockerRow.hidden === !show && this.showBlockerBtn.dataset.what === what) return;
+    this.blockerRow.hidden = !show;
     this.showBlockerBtn.dataset.what = what;
     const title = what === "points" ? "Show the points it's waiting at" : "Show the train in the way";
     this.showBlockerBtn.title = title;
@@ -1774,14 +1769,13 @@ export class Hud {
   }
 
   /**
-   * The open engine's line has a train too many (`engineView`'s `crowded`): Remove beside the status, the quick fix
-   * (leaving the line wouldn't do: the train still stands on the line's one track).
+   * The open engine's line has a train too many (`engineView`'s `crowded`): its Remove is marked as the quick fix the
+   * status names ("…, or remove a train"). (Leaving the line wouldn't do: the train still stands on its one track.)
    */
   setCrowded(on: boolean): void {
     if (on === this.crowdShown) return;
     this.crowdShown = on;
-    this.crowdRemoveBtn.hidden = !on;
-    this.blockerRow.hidden = !this.blockerShown && !on;
+    this.engineRemoveBtn.classList.toggle("suggested", on);
   }
 
   setGoNow(on: boolean): void {
