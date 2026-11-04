@@ -85,6 +85,7 @@ export class GoalsPanel {
   /** The current goal's title in the header, shown when the card is folded up. */
   private readonly now = document.createElement("span");
   private readonly showBtn = document.createElement("button");
+  private readonly head: HTMLButtonElement;
   /** What's shown now, so an unchanged poll touches nothing. */
   private shownKey = "";
 
@@ -108,7 +109,14 @@ export class GoalsPanel {
     this.dot.className = "goals-dot";
     this.dot.hidden = true;
     this.dot.title = "A sticker earned! Finish the goals to see your stickers.";
-    head.append(this.count, this.bell, this.dot, this.now);
+    // A chevron at the header's end, so it reads as something that folds (playthrough: not obvious it could).
+    const fold = document.createElement("span");
+    fold.className = "goals-fold";
+    fold.setAttribute("aria-hidden", "true");
+    fold.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>`;
+    head.append(this.count, this.bell, this.dot, this.now, fold);
+    this.head = head;
+    head.setAttribute("aria-expanded", String(!this.root.classList.contains("collapsed")));
     head.addEventListener("click", (e) => {
       e.stopPropagation();
       this.setOpen(this.root.classList.contains("collapsed"));
@@ -225,6 +233,7 @@ export class GoalsPanel {
   /** Unfold or fold the card; the News tab counts as read while it's showing. */
   private setOpen(open: boolean): void {
     this.root.classList.toggle("collapsed", !open);
+    this.head.setAttribute("aria-expanded", String(open));
     this.syncNews();
     this.syncStickers();
     this.fitShow();
@@ -416,7 +425,10 @@ export class GoalsPanel {
   setVisible(visible: boolean): void {
     this.root.hidden = !visible;
     // Leaving Game mode: fold the sheet up, and stop the news timer.
-    if (!visible) this.root.classList.add("collapsed");
+    if (!visible) {
+      this.root.classList.add("collapsed");
+      this.head.setAttribute("aria-expanded", "false");
+    }
     this.syncNews();
   }
 
