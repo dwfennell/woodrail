@@ -203,7 +203,11 @@ function carveSoon(): void {
   setTimeout(() => {
     carving.localScheduled = false;
     let job = carving.localQueue.shift();
-    while (job && geometryCache.has(resultKey(job))) job = carving.localQueue.shift();
+    // (One carved meanwhile, by another way: anyone still waiting for it is told, as if carved here.)
+    while (job && geometryCache.has(resultKey(job))) {
+      built(resultKey(job), geometryCache.get(resultKey(job))!);
+      job = carving.localQueue.shift();
+    }
     if (job) built(resultKey(job), compactPiece(carverNow()!.buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels, job.floors ?? null)));
     carveSoon();
   }, LOCAL_CARVE_GAP_MS);
@@ -315,6 +319,8 @@ function carvedGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors:
     // A piece whose flip swaps its ends' peg and hole is carved as it is.
     g = plain || flipSwapsEnds(type) ? compactPiece(carver.buildPieceGeometry(def, levels, floors)) : mirrored(carvedGeometry(type, false, levels, floors));
     geometryCache.set(key, g);
+    // Its stand-in was shown before the carver was in: swapped now, and no longer waited for (`piecesWanted`).
+    if (carving.wanted.has(key)) built(key, g);
   }
   return g;
 }
