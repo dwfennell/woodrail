@@ -29,6 +29,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { groups } from "../../scripts/e2e/lib/groups.mjs";
+import { printEvents, watchBrowser, watchServer } from "../../scripts/e2e/lib/page-watch.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out/sites";
@@ -48,6 +49,9 @@ async function boot() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
+  watchBrowser(b);
+  watchServer(server);
   // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
   stillIndustriesIn(b);
 }

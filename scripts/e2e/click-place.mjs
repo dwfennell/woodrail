@@ -12,6 +12,7 @@ import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
+import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -29,6 +30,9 @@ async function boot() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
+  watchBrowser(b);
+  watchServer(server);
   // (Industries' axes and saws held still: none of this tests them, and in view they kept `settled()` waiting its 60 s.)
   stillIndustriesIn(b);
   // (Each context a group opens, so one that threw doesn't leave its page running into the next: see the run below.)
