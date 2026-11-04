@@ -9,12 +9,14 @@ import { existsSync, mkdirSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
+import { groups } from "./lib/groups.mjs";
 
-const OUT = process.argv[2] ?? "e2e-out";
+const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out";
 mkdirSync(OUT, { recursive: true });
-const server = await createServer({ server: { port: 5199, strictPort: false }, logLevel: "warn" });
-await server.listen();
-const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+// (The dev server, the browser and its page are started by `start()`, when a group first runs: `--list`, and a run
+// whose groups all passed already, start nothing.)
+let server = null;
+let URL = "";
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -22,15 +24,25 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 };
 
-// Software WebGL, so it runs without a GPU.
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
-pinClocksIn(b);
-// (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
-stillIndustriesIn(b);
-const p = await b.newPage({ viewport: { width: 1200, height: 800 } });
+let b = null;
+let p = null;
 const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
+async function start() {
+  if (b) return;
+  server = await createServer({ server: { port: 5199, strictPort: false }, logLevel: "warn" });
+  await server.listen();
+  URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+  // Software WebGL, so it runs without a GPU.
+  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
+  pinClocksIn(b);
+  // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
+  stillIndustriesIn(b);
+  p = await b.newPage({ viewport: { width: 1200, height: 800 } });
+  p.on("pageerror", (e) => errors.push(e.message));
+  // The help card that greets a first visit is taken as read (it would cover the tray, arriving whenever loading's done).
+  await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+}
 
 /** The next frame drawn (or not) by the page: pointer events sent one per frame, as a finger's are. */
 const frame = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
@@ -38,9 +50,6 @@ const frame = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(()
 const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
 /** Wait (up to 20 s) for something in the page to be true; the check after says whether it was. */
 const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 20000, polling: 50 }).catch(() => {});
-
-// The help card that greets a first visit is taken as read (it would cover the tray, arriving whenever loading's done).
-await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 
 /** The game loaded and on screen: the map entered, the loading screen gone. */
 async function ready() {
@@ -256,6 +265,13 @@ const toasts = () => p.evaluate(() => T.toasts());
 const shot = (name) => p.screenshot({ path: `${OUT}/${name}.png`, timeout: 60000 }).catch((e) => console.log(`(no picture ${name}: ${e.message.split("\n")[0]})`));
 const imp = (path) => `import(${JSON.stringify(path)})`;
 
+// The groups (E2E_ONLY, `-- --list`, resume: scripts/e2e/lib/groups.mjs; docs/agents/e2e.md): Sandbox's roads (A–J) on
+// one page, each section building on the roads the ones before laid; then Game mode's (K–X) on it, each on the route
+// the ones before laid. Run alone, "game" opens Sandbox first only to read its tabs (K1 compares them).
+const suite = groups("roads", { results, errors, check });
+const tabsOf = () => p.evaluate(() => [...document.querySelectorAll(".tab")].map((t) => t.dataset.tab));
+let sandboxTabs = null;
+suite.add("sandbox", async () => {
 await boot();
 const sites = await findSites();
 check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill && sites.auto && sites.ready && sites.way !== null), JSON.stringify({ gate: !!sites.gate, river: !!sites.river, hill: !!sites.hill, auto: !!sites.auto, ready: !!sites.ready, way: sites.way !== null }));
@@ -526,13 +542,19 @@ const frames = await p.evaluate(async () => {
 });
 check("J1 an idle scene with the player's roads, a bridge, ramps and a level crossing draws (next to) no frames", frames <= 1, `${frames} frames drawn in 5 s`);
 
+sandboxTabs = await tabsOf();
+});
+
+suite.add("game", async () => {
+if (!sandboxTabs) {
+  await boot();
+  sandboxTabs = await tabsOf();
+}
 // ---- K: Game mode's Roads, once learned (roads spec D1, D3, D4) ------------------------------------------------------
 // Setup shortcuts (named, not what's under test): the blueprints learned through the game's own `learn` (the study
 // skipped); coins given as towns would pay them. The road squares are laid by the player's path: dragged from the tray.
-const tabsOf = () => p.evaluate(() => [...document.querySelectorAll(".tab")].map((t) => t.dataset.tab));
 const badgeOf = (label) => p.evaluate((label) => [...document.querySelectorAll(".tray-item")].find((b) => b.textContent.includes(label))?.querySelector(".have")?.textContent ?? null, label);
 const roadItems = () => p.evaluate(() => [...document.querySelectorAll(".tray-item")].filter((b) => b.offsetParent).map((b) => b.textContent.trim()));
-const sandboxTabs = await tabsOf();
 await p.goto(URL.replace(/#.*$/, ""));
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
 await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
@@ -1079,9 +1101,13 @@ if (route && route.path.length <= 60) {
   await p.keyboard.press("Escape");
 }
 
+});
+
+await suite.run(async (g, go) => {
+  await start();
+  await go();
+});
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
-const failed = results.filter((r) => !r.ok).length;
-console.log(`\n${results.length - failed}/${results.length} passed`);
-await b.close();
-await server.close();
-process.exit(failed === 0 ? 0 : 1);
+await b?.close();
+await server?.close();
+suite.finish();

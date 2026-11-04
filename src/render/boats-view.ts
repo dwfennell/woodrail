@@ -1,5 +1,6 @@
 import { Frustum, Group, Matrix4, Mesh, Sphere, type Camera, type Object3D } from "three";
 import { modelKey, type PropLibrary } from "./props/library";
+import { AMBIENT_MIN_PX, type AmbientEye } from "./ambient";
 
 /** The boat that calls at harbours (a catalogue model; Asset Gen's own boats can take over later). */
 const BOAT_ASSET = "veh-rowing-boat";
@@ -7,6 +8,8 @@ const BOAT_ASSET = "veh-rowing-boat";
 const FLOAT_Y = 0.6;
 /** Room round a boat's middle for the whole of it (and its shadow) when asking if it's in view. */
 const BOAT_REACH = 120;
+/** A boat's length (mm), for the ambient rule: one drawn smaller than `AMBIENT_MIN_PX.boat` sails on unseen. */
+const BOAT_SIZE = 100;
 
 type Point = { readonly x: number; readonly z: number };
 
@@ -104,8 +107,11 @@ export class BoatsView {
     return this.group.children.length;
   }
 
-  /** Move the boats on (by the clock): true if one moved in view, so a frame should be drawn. */
-  update(camera: Camera): boolean {
+  /**
+   * Move the boats on (by the clock): true if one moved in view, so a frame should be drawn. `eye` (the ambient rule):
+   * one too small on screen to see it move counts as out of view.
+   */
+  update(camera: Camera, eye: AmbientEye | null = null): boolean {
     if (this.sailing.length === 0) return false;
     viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(viewProj);
@@ -119,7 +125,7 @@ export class BoatsView {
       place(s, s.leaving ? u * u : 1 - (1 - u) * (1 - u));
       sphere.center.copy(s.boat.position);
       sphere.radius = BOAT_REACH;
-      const seen = frustum.intersectsSphere(sphere);
+      const seen = frustum.intersectsSphere(sphere) && (!eye || eye.pixels(sphere.center.x, sphere.center.y, sphere.center.z, BOAT_SIZE) >= AMBIENT_MIN_PX.boat);
       if (seen || s.seen) draw = true;
       else this.shadowsStale = true;
       s.seen = seen;

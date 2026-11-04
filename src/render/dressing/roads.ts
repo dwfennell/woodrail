@@ -1,5 +1,5 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, Color, CylinderGeometry, ExtrudeGeometry, Group, Mesh, MeshStandardMaterial, Shape, SphereGeometry, type Material } from "three";
-import { CELL, type LandscapeGrid } from "../../landscape";
+import { CELL, SURF_ROAD, type LandscapeGrid } from "../../landscape";
 import { pieceOf, ROAD_PIECES, turnOf, type RoadPieceId } from "../../roads";
 import { RISER_HEIGHT } from "../../track";
 import { FELT_TILE, type Materials } from "../materials";
@@ -17,11 +17,45 @@ const H = CELL / 2;
 /** Board and felt half-widths across the road, and their heights (mm). */
 const BOARD_HALF = 32;
 const FELT_HALF = 28;
+/**
+ * A town street's felt is narrower (its board shows either side as the pavement): street furniture stands on it, by
+ * the houses, off the road (`townFurniture`), and vehicles keep their lane on the felt (`KEEP_LEFT`).
+ */
+export const STREET_FELT_HALF = 20;
 const BOARD_TOP = 3;
 const FELT_TOP = 4;
 const PAINT_TOP = 4.3;
 /** Zebra beacon pole height above the board. */
 const POLE = 26;
+
+/**
+ * Is local point (x, z), from the middle of a square with road byte `road`, on its felt (`half` its half-width: a town
+ * street's `STREET_FELT_HALF`)? The felt's own outline, as `pieceParts` draws it, turned as the tiles turn it.
+ */
+export function onFelt(road: number, x: number, z: number, half = STREET_FELT_HALF): boolean {
+  const def = pieceOf(road);
+  if (!def) return false;
+  // Back into the piece's own frame: tiles turn (x, z) to (x cos − z sin, x sin + z cos).
+  const t = turnOf(road);
+  const cos = [1, 0, -1, 0][t];
+  const sin = [0, 1, 0, -1][t];
+  const lx = x * cos + z * sin;
+  const lz = -x * sin + z * cos;
+  switch (def.id) {
+    case "curve": {
+      const r = Math.hypot(lx + H, lz - H);
+      return r >= H - half && r <= H + half;
+    }
+    case "tee":
+      return Math.abs(lz) <= half || (Math.abs(lx) <= half && lz >= 0);
+    case "cross":
+      return Math.abs(lz) <= half || Math.abs(lx) <= half;
+    case "end":
+      return (lx <= 0 && Math.abs(lz) <= half) || Math.hypot(lx, lz) <= half;
+    default:
+      return Math.abs(lz) <= half;
+  }
+}
 
 /** The materials a road is drawn in, by slot. */
 export interface RoadMaterials {
@@ -137,7 +171,7 @@ function roundEnd(half: number, y0: number, y1: number): BufferGeometry {
   return slab(pts, y0, y1);
 }
 
-function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
+function pieceParts(id: RoadPieceId, feltHalf = FELT_HALF): Record<SlotName, BufferGeometry[]> {
   const board = (half: number, y0: number, y1: number): BufferGeometry[] => {
     switch (id) {
       case "straight":
@@ -177,13 +211,13 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
     case "tee":
       centreDashes([-24, 24]);
       // Give way: a broken line across the side road's mouth.
-      for (let x = -20; x <= 20; x += 8) paint.push(dash(x, FELT_HALF + 2, 5));
+      for (let x = -(feltHalf - 8); x <= feltHalf - 8; x += 8) paint.push(dash(x, feltHalf + 2, 5));
       break;
     case "end":
       centreDashes([-24]);
       break;
     case "zebra":
-      for (let z = -24; z <= 24; z += 8) paint.push(dash(0, z, 24, 0, 4));
+      for (let z = -(feltHalf - 4); z <= feltHalf - 4; z += 8) paint.push(dash(0, z, 24, 0, 4));
       break;
     case "cross":
       break;
@@ -198,7 +232,7 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
       beacon.push(new SphereGeometry(3.6, 14, 10).translate(0, BOARD_TOP + POLE + 2.5, z));
     }
   }
-  const parts = { board: board(BOARD_HALF, 0, BOARD_TOP), felt: board(FELT_HALF, BOARD_TOP, FELT_TOP), paint, dark, beacon };
+  const parts = { board: board(BOARD_HALF, 0, BOARD_TOP), felt: board(feltHalf, BOARD_TOP, FELT_TOP), paint, dark, beacon };
   if (id === "bridge") {
     // Low wooden parapets along both edges, then the whole deck humped over the river (level with the road at its ends).
     for (const z of [-(BOARD_HALF - 1.5), BOARD_HALF - 1.5]) parts.board.push(new BoxGeometry(CELL, 5, 3, 12).translate(0, BOARD_TOP + 2.5, z));
@@ -262,8 +296,11 @@ function pieceMeshes(): Record<SlotName, PieceMesh>[] {
   if (meshes) return meshes;
   meshes = [];
   for (const def of ROAD_PIECES) {
-    const parts = pieceParts(def.id);
-    meshes[def.code] = { board: flatten(parts.board), felt: flatten(parts.felt), paint: flatten(parts.paint), dark: flatten(parts.dark), beacon: flatten(parts.beacon) };
+    // Each piece twice: a country lane's, and (at code + 32) a town street's, its felt narrower.
+    for (const [at, half] of [[def.code, FELT_HALF], [def.code + 32, STREET_FELT_HALF]] as const) {
+      const parts = pieceParts(def.id, half);
+      meshes[at] = { board: flatten(parts.board), felt: flatten(parts.felt), paint: flatten(parts.paint), dark: flatten(parts.dark), beacon: flatten(parts.beacon) };
+    }
   }
   return meshes;
 }
@@ -282,6 +319,8 @@ interface Square {
   row: number;
   road: number;
   y: number;
+  /** A town's street (drawn with the narrower felt). */
+  street?: boolean;
 }
 
 /**
@@ -305,7 +344,7 @@ export function buildRoadTiles(grids: readonly LandscapeGrid[], mats: RoadMateri
       const id = tileAt(tc * TILE_WIDTH, tr * TILE_DEPTH);
       let t = tiles.get(id);
       if (!t) tiles.set(id, (t = { tc, tr, squares: [] }));
-      t.squares.push({ col, row, road, y: g.groundY(i) });
+      t.squares.push({ col, row, road, y: g.groundY(i), street: g.surface[i] === SURF_ROAD });
     }
   }
   for (const [id, t] of tiles) {
@@ -315,6 +354,7 @@ export function buildRoadTiles(grids: readonly LandscapeGrid[], mats: RoadMateri
       key = Math.imul(key ^ s.col, 0x01000193);
       key = Math.imul(key ^ s.row, 0x01000193);
       key = Math.imul(key ^ (s.road | (s.y << 8)), 0x01000193);
+      key = Math.imul(key ^ (s.street ? 1 : 0), 0x01000193);
     }
     let tile = cache.get(id);
     if (!tile || tile.key !== key) {
@@ -343,14 +383,15 @@ export function buildRoadTiles(grids: readonly LandscapeGrid[], mats: RoadMateri
 function tileGeometry(squares: readonly Square[], slot: SlotName): BufferGeometry | null {
   const all = pieceMeshes();
   let n = 0;
-  for (const s of squares) n += all[s.road & 31][slot].position.length / 3;
+  const piece = (s: Square) => all[(s.road & 31) + (s.street ? 32 : 0)];
+  for (const s of squares) n += piece(s)[slot].position.length / 3;
   if (n === 0) return null;
   const position = new Float32Array(n * 3);
   const normal = new Float32Array(n * 3);
   const uv = new Float32Array(n * 2);
   let o = 0;
   for (const s of squares) {
-    const m = all[s.road & 31][slot];
+    const m = piece(s)[slot];
     // A quarter turn takes +x to +z: (x, z) → (−z, x).
     const t = turnOf(s.road);
     const cos = [1, 0, -1, 0][t];

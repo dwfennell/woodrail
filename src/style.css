@@ -2,7 +2,7 @@
    (scripts/icon-font.py, which also writes this unicode-range). Each draws the character it stands for (🪙, 📘, ⏱, the
    goods; planks have no emoji, so they're U+E000), so strings keep their emoji and screen readers their words. Listed
    first wherever a font is named, it draws only these characters; everything else is Nunito's. */
-@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A1, U+26AB, U+26CF, U+26F0, U+26F5, U+2713, U+2728, U+2754, U+2795, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F37D, U+1F381, U+1F393, U+1F3AF, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3E1, U+1F3ED, U+1F49B, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5FA, U+1F682, U+1F683, U+1F689, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5; font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26CF, U+26F0, U+26F5, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F37D, U+1F381, U+1F393, U+1F3AF, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3E1, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5FA, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5; font-weight: 100 900; font-display: block; }
 :root {
   --ink: #2b2118;
   --paper: #f6efe3;
@@ -495,6 +495,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .chip.tray-erase { min-width: 40px; }
   .tray-tools .chip::after { inset: -5px -2px; }
 }
+/* The tab strip scrolls (Sandbox's ten tabs on a phone): it fades at an edge with more beyond, and a › past it scrolls
+   on (hud.ts `tabEdges`). Only where the tabs share their row with the tools. */
+.tabs-more { display: none; }
+@media (max-width: 640px), (max-height: 520px) and (max-width: 780px) {
+  .tabs.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); }
+  .tabs.more-left { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 26px), transparent); }
+  .tabs.more-left.more-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent); }
+  .tabs-more:not([hidden]) { display: inline-flex; flex: none; order: 0; align-items: center; justify-content: center; width: 22px; height: 44px; margin-left: -6px; padding: 0; border: none; border-radius: 0 0 10px 10px; background: rgba(120, 80, 40, 0.14); font: inherit; font-size: 22px; font-weight: 900; line-height: 1; color: #5e4128; cursor: pointer; position: relative; }
+  /* (Drawn 22 px; a finger's reach either side.) */
+  .tabs-more::after { content: ""; position: absolute; inset: 0 -6px 0 -8px; }
+}
 /* Still too many to fit (hud.ts `fitTabs`): the tabs not open show their picture, then all do. A tab's word stays in
    the page (its name for a screen reader); the picture is drawn over it. */
 .tab::before { content: none; }
@@ -900,6 +911,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-node.hint .bp-name { font-size: 17px; font-weight: 900; color: #74522f; text-align: center; }
 .bp-node.hint .bp-dot { display: none; }
 .bp-tag.soon { color: #5e4128; background: transparent; border: 1.5px dashed #a08a6c; padding: 0 6px; }
+/* Locked till you have a College or a University (tech tree 3): the Learning branch's purple, as Soon's dashed tag. */
+.bp-tag.school { color: #5b3a7a; background: #efe6f6; border: 1.5px dashed #7b4fa0; padding: 0 6px; }
 .bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; }
 .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
 /* The tag slot on a card: one height, one shape, whatever it says. */
@@ -928,7 +941,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-legend-box { position: relative; }
 .bp-legend-box summary { list-style: none; width: 44px; height: 44px; display: grid; place-items: center; font-size: 20px; color: #74522f; cursor: pointer; }
 .bp-legend-box summary::-webkit-details-marker { display: none; }
-.bp-legend-box .bp-legend { position: absolute; right: 0; top: 44px; z-index: 5; width: 240px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 6px 18px rgba(60, 40, 20, 0.25); }
+.board-panel > .bp-legend { flex: none; gap: 6px 14px; margin: 0 20px 8px; padding: 8px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.14); }
+.board-panel > .bp-legend[hidden] { display: none; }
+.bp-legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.bp-legend-item .bp-key { margin-left: 0; }
+.bp-legend-box[open] summary { color: #2f6db5; }
+@media (max-width: 560px) { .board-panel > .bp-legend { margin: 0 12px 6px; } }
 /* Phones: each branch a list of tags in two columns (see BlueprintBoard.narrow); the panel is the one thing that scrolls. */
 .bp-list-band { display: flex; flex-direction: column; gap: 10px; }
 /* (The same room above a band's name as below it, plus the panel's gap between bands.) */
@@ -946,7 +964,20 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .board-body { padding: 4px 12px 12px; }
   .board-sheet { padding: 0 12px 12px; }
   .board-sheet .bp-ticket { padding: 10px 12px; gap: 6px; }
+  /* The ticket's blurb in two lines at most, while its facts are folded. */
+  .board-sheet .bp-ticket:has(.bp-more:not([open])) .bp-ticket-head > span:last-child { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  /* Unfolded, the ticket scrolls in itself past half the screen: the list keeps a share. */
+  .board-sheet:has(.bp-more[open]) { max-height: 52dvh; overflow-y: auto; overscroll-behavior: contain; }
 }
+/* A phone's ticket: its facts folded under one line ("Unlocks 5 things  More"). */
+.bp-more > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; list-style: none; cursor: pointer; font-size: 13px; font-weight: 800; color: #5a3d22; }
+.bp-more > summary::-webkit-details-marker { display: none; }
+.bp-more-hint { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 10px; background: #f3e6cf; font-size: 12.5px; color: #74522f; }
+.bp-more-hint::after { content: "More"; }
+.bp-more-hint::before { content: ""; width: 7px; height: 7px; margin-top: -3px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.bp-more[open] .bp-more-hint::after { content: "Less"; }
+.bp-more[open] .bp-more-hint::before { margin-top: 3px; transform: rotate(-135deg); }
+.bp-more[open] > summary { margin-bottom: 6px; }
 .bp-key { width: 12px; height: 12px; border-radius: 50%; margin-left: 8px; }
 .bp-key:first-child { margin-left: 0; }
 .bp-key.learned { background: #3f7d3c; }
@@ -1018,11 +1049,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A phone on its side: the picked research's ticket beside the web, not under it (under, it covered all but a strip of
    the web, and nothing else could be picked). */
 @media (max-height: 520px) and (min-width: 600px) {
-  .board-panel { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); grid-template-rows: auto minmax(0, 1fr); }
+  .board-panel { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); grid-template-rows: auto auto minmax(0, 1fr); }
+  .board-panel > .bp-legend { grid-column: 1 / -1; grid-row: 2; margin: 0 16px 6px; }
   .board-panel:has(> .board-sheet:empty) { grid-template-columns: minmax(0, 1fr); }
   .board-head { grid-column: 1 / -1; padding: 8px 8px 0 16px; }
-  .board-body { grid-column: 1; grid-row: 2; padding: 2px 10px 12px 14px; }
-  .board-sheet { grid-column: 2; grid-row: 2; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 14px 12px 4px; }
+  .board-body { grid-column: 1; grid-row: 3; padding: 2px 10px 12px 14px; }
+  .board-sheet { grid-column: 2; grid-row: 3; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 14px 12px 4px; }
   .bp-web-scroll { max-height: none; }
 }
 /* A research learned (on the open board, or the next time it opens): its check is stamped on like a sticker, a glint runs
@@ -1134,12 +1166,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .research-pill .rp-icon { grid-area: icon; font-size: 11px; }
   .research-pill .rp-name { grid-area: name; }
   .research-pill .rp-count { grid-area: count; }
+  /* Nothing picked: "Pick research" over two lines with the book beside both, read as one ("Pick / 📘 research" read
+     as two things: QA 2026-11-03). */
+  .research-pill.idle .rp-text { grid-template-areas: "icon name" "icon count"; column-gap: 4px; }
+  .research-pill.idle .rp-icon { align-self: center; font-size: 16px; }
 }
 /* At 360 px the pill has about 76 px: the book gives way so the count stays whole (QA: "13/14\uE000" lost its log); the
    pill's place, its bar and its colours say what it is. */
 @media (max-width: 370px) {
   .research-pill .rp-text { grid-template-columns: minmax(0, max-content); grid-template-areas: "name" "count"; }
   .research-pill .rp-icon { display: none; }
+  .research-pill.idle .rp-text { grid-template-columns: minmax(0, max-content); grid-template-areas: "name" "count"; }
 }
 
 /* Tooltips for the HUD's controls (see ui/tooltip.ts). */
@@ -1218,6 +1255,19 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
 .route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
 .route-chip, .planning .route-tools button { flex: 0 0 auto; }
+/* Drag to reorder: a stop's chip held lifts (ringed in the line's colour, over its neighbours) and follows the finger;
+   a bar shows where it goes, struck in the warning ink where it can't (the same place twice in a row). The chip
+   dropped pops once where it went. */
+.route-stops .route-chip[data-stop] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.route-chip.lifted { position: relative; z-index: 2; outline: 3px solid var(--line, #888); outline-offset: -1px; cursor: grabbing; transition: none; }
+.route-stops.dragging .route-chip:not(.lifted) { opacity: 0.8; }
+/* (No faded ends while dragging: the bar and the chip show right to the strip's edge.) */
+.route-stops.dragging { mask-image: none; -webkit-mask-image: none; }
+.route-drop-mark { position: absolute; top: 2px; bottom: 4px; width: 4px; border-radius: 2px; background: var(--ink, #3a2a1c); box-shadow: 0 0 0 1.5px #fff8; pointer-events: none; z-index: 3; }
+.route-drop-mark.blocked { background: repeating-linear-gradient(180deg, var(--warn-ink) 0 5px, transparent 5px 8px); }
+.route-chip.dropped { animation: stop-dropped 0.45s ease-out; }
+@keyframes stop-dropped { 0% { transform: scale(1.1); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .route-chip.dropped { animation: none; } }
 .planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 44px; }
 .planning .engine-extra.route { gap: 4px; }
 /* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
@@ -1280,7 +1330,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-row { display: flex; align-items: center; gap: 10px; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
 /* A line's actions, under its row (audit F12): Edit stops, + Train. */
-.lines-actions { display: flex; gap: 6px; padding-left: 54px; }
+.lines-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 54px; }
+/* (On a phone held upright, the actions under the whole row: four fit in a line at 360 px.) */
+@media (max-width: 480px) { .lines-actions { padding-left: 0; } .lines-actions button { flex: 1 1 auto; padding-inline: 8px; } }
 .lines-actions button { min-height: 44px; }
 .lines-head .lines-new { margin-left: auto; margin-right: 6px; }
 /* A place's card: the lines that call there, and New route from here (audit F12). */

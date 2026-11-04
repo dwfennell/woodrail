@@ -1,0 +1,135 @@
+{
+  "about": "Budgets for npm run perf:check (tools/perf/check.mjs; docs/agents/perf.md). A measure fails when it is over max by more than its kind's margin. --update writes each max afresh from a run (value x headroom, or value + floor, whichever is more).",
+  "run": [
+    "--maps",
+    "fresh,sandbox",
+    "--throttle",
+    "2",
+    "--dpr",
+    "1",
+    "--idle",
+    "6",
+    "--pan",
+    "8"
+  ],
+  "kinds": {
+    "frames": {
+      "margin": 0,
+      "headroom": 1,
+      "floor": 2
+    },
+    "count": {
+      "margin": 0.1,
+      "headroom": 1.05,
+      "floor": 2
+    },
+    "size": {
+      "margin": 0.05,
+      "headroom": 1.03,
+      "floor": 20
+    },
+    "time": {
+      "margin": 0.5,
+      "headroom": 1.25,
+      "floor": 1
+    }
+  },
+  "budgets": {
+    "bundle.jsKB": {
+      "kind": "size",
+      "max": 2920
+    },
+    "bundle.entryJsKB": {
+      "kind": "size",
+      "max": 1850
+    },
+    "fresh.idle.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "fresh.idle.mainThreadPct": {
+      "kind": "time",
+      "max": 8.5
+    },
+    "fresh.frame.drawCalls": {
+      "kind": "count",
+      "max": 293
+    },
+    "fresh.frame.triangles": {
+      "kind": "count",
+      "max": 1440000
+    },
+    "fresh.frame.programs": {
+      "kind": "count",
+      "max": 60
+    },
+    "fresh.frame.textures": {
+      "kind": "count",
+      "max": 42
+    },
+    "fresh.heapMB": {
+      "kind": "count",
+      "max": 32
+    },
+    "fresh.load.cold.readyMs": {
+      "kind": "time",
+      "max": 49900
+    },
+    "fresh.pan.frameMs.p50": {
+      "kind": "time",
+      "max": 24
+    },
+    "fresh.pan.events.pointermove.p95": {
+      "kind": "time",
+      "max": 2.8
+    },
+    "fresh.ops.trayDrag.pointermove.p95": {
+      "kind": "time",
+      "max": 61
+    },
+    "fresh.ops.autosave.avg": {
+      "kind": "time",
+      "max": 6
+    },
+    "sandbox.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "sandbox.paused.mainThreadPct": {
+      "kind": "time",
+      "max": 8
+    },
+    "sandbox.idle.frameMs.p50": {
+      "kind": "time",
+      "max": 55
+    },
+    "sandbox.idle.mainThreadPct": {
+      "kind": "time",
+      "max": 4.8
+    },
+    "sandbox.frame.drawCalls": {
+      "kind": "count",
+      "max": 252
+    },
+    "sandbox.frame.triangles": {
+      "kind": "count",
+      "max": 1710000
+    },
+    "sandbox.frame.programs": {
+      "kind": "count",
+      "max": 69
+    },
+    "sandbox.heapMB": {
+      "kind": "count",
+      "max": 41
+    },
+    "sandbox.load.cold.readyMs": {
+      "kind": "time",
+      "max": 70000
+    },
+    "sandbox.ops.autosave.avg": {
+      "kind": "time",
+      "max": 28
+    }
+  }
+}

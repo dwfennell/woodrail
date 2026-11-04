@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>University</title>
+<polygon points="12,1.2 23.2,7.4 23.2,9.6 0.8,9.6 0.8,7.4" fill="#3a2a1c"/>
+<polygon points="12,2.8 20.8,7.8 3.2,7.8" fill="#7b4fa0"/>
+<rect x="0.8" y="19" width="22.4" height="4" rx="1" fill="#3a2a1c"/>
+<rect x="2.2" y="10.2" width="19.6" height="9.4" fill="#3a2a1c"/>
+<rect x="3.2" y="10.2" width="2.8" height="8.8" rx="0.6" fill="#f1e6cf"/>
+<rect x="7.6" y="10.2" width="2.8" height="8.8" rx="0.6" fill="#f1e6cf"/>
+<rect x="13.6" y="10.2" width="2.8" height="8.8" rx="0.6" fill="#f1e6cf"/>
+<rect x="18" y="10.2" width="2.8" height="8.8" rx="0.6" fill="#f1e6cf"/>
+<rect x="2" y="20" width="20" height="2" rx="0.6" fill="#e3bf8c"/>
+<rect x="1.8" y="8.8" width="20.4" height="1.6" rx="0.6" fill="#e3bf8c"/>
+<circle cx="12" cy="6" r="1.2" fill="#f0b847"/>
+<rect x="11" y="13" width="2" height="6" rx="1" fill="#7b4fa0"/>
+</svg>

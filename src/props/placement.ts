@@ -206,10 +206,37 @@ export function pieceHitsProp(props: PropStore, footprint: (asset: string) => Fo
   const buckets = new Map<number, number[]>();
   addTrackPoints(buckets, type, flipped, pose);
   const margin = TRACK_WIDTH / 2;
+  // The piece's points in one list, and their bounds: a prop whose footprint can't reach them is passed over without
+  // a look at each point (a piece held over a town is checked on every pointer move, against all the town's props).
+  const pts: number[] = [];
+  let x0 = Infinity;
+  let z0 = Infinity;
+  let x1 = -Infinity;
+  let z1 = -Infinity;
+  for (const list of buckets.values())
+    for (let i = 0; i < list.length; i += 2) {
+      const x = list[i];
+      const z = list[i + 1];
+      pts.push(x, z);
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+    }
   for (const prop of props.all()) {
     const fp = standsAside(prop.asset) ? undefined : scaleFootprint(footprint(prop.asset), prop.scale);
     if (!fp) continue;
-    for (const list of buckets.values()) for (let i = 0; i < list.length; i += 2) if (inFootprint(fp, prop, list[i], list[i + 1], margin)) return true;
+    // (A circle round the footprint, the margin added.)
+    const reach = Math.hypot(Math.abs(fp.cx) + fp.hw, Math.abs(fp.cz) + fp.hd) + margin;
+    if (prop.x + reach < x0 || prop.x - reach > x1 || prop.z + reach < z0 || prop.z - reach > z1) continue;
+    const c = Math.cos(prop.heading);
+    const sn = Math.sin(prop.heading);
+    for (let i = 0; i < pts.length; i += 2) {
+      const dx = pts[i] - prop.x;
+      const dz = pts[i + 1] - prop.z;
+      // (As `inFootprint`, its turn worked out once for all the points.)
+      if (Math.abs(dx * c + dz * sn - fp.cx) <= fp.hw + margin && Math.abs(-dx * sn + dz * c - fp.cz) <= fp.hd + margin) return true;
+    }
   }
   return false;
 }

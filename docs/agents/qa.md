@@ -107,7 +107,7 @@ for (const [pc, k] of [[mill,0],[forest,1]]) endOn(W, w.editor(), connectorRef(p
 | command | about |
 |---|---|
 | e2e:touch | 71 checks, 25–40 min |
-| e2e:draw (`E2E_ONLY=junctions`) | 27 |
+| e2e:draw (`E2E_ONLY=junctions,loop,ghosts,lift`; was `E2E_ONLY=junctions`, see `docs/agents/e2e.md`) | 26, about 20 min (`ghosts` "Fernhill W" is a known flake: `docs/agents/rail-road.md`) |
 | e2e:sites | ~37 min |
 | e2e:tutorial | 22 |
 | e2e:click | 27, desktop |

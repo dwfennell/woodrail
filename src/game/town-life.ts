@@ -73,8 +73,11 @@ export interface TownLifeEvents {
   received(town: Town, kind: CargoKind, n: number, before: TownStatus): void;
   /** Is this blueprint learned? (A landmark that comes with one waits for it.) */
   knows?(tech: string): boolean;
-  /** Does a school take `kind` from trains now (the research still lacks some)? A lookup: the crane asks per unit. */
-  school?(kind: CargoKind): boolean;
+  /**
+   * Does school `d` take `kind` from trains now (the research still lacks some, and `d` is a school it can be studied
+   * at)? A lookup: the crane asks per unit.
+   */
+  school?(kind: CargoKind, d: DepotState): boolean;
   /**
    * Does station `d`'s delivery van take `kind` now, for the town off the line it serves (roads spec D5:
    * `DeliveryVans.takes`)? The station takes it from trains though its own town doesn't want it, onto the van's yard.
@@ -116,7 +119,7 @@ export class TownLife {
     // (Made goods, furniture and tools, and everyday food, milk, bread and fruit, are always welcome: towns pay for
     // them, wanted or not.)
     // A school takes only what its research still lacks (`TownLifeEvents.school`; none: nothing).
-    this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind) : d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind) || !!this.events.vanTakes?.(d, kind));
+    this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind, d) : d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind) || !!this.events.vanTakes?.(d, kind));
     // A good its delivery van takes goes on the van's yard (roads spec D5): all of it if its own town doesn't want it,
     // else every other unit (the station shares with the town off the line, as a school shares a load).
     this.game.economy.toVan = this.events.vanTakes
