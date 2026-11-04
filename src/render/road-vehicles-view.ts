@@ -1,6 +1,7 @@
 import { CanvasTexture, Euler, Frustum, Group, InstancedMesh, Matrix4, MeshBasicMaterial, PlaneGeometry, Quaternion, Sphere, Vector3, type Camera } from "three";
 import { VEHICLE_CAP, type RoadVehicles, type VehicleKind } from "../roads/vehicles";
 import { modelKey, type PropLibrary } from "./props/library";
+import { AMBIENT_MIN_PX, type AmbientEye } from "./ambient";
 import { shadowLook } from "./shadow-strength";
 
 /** The catalogue models (they face +x and stand on y = 0, about 70–85 mm long: drawn at `SCALE`). */
@@ -9,11 +10,14 @@ export const VEHICLE_ASSET: Record<VehicleKind, string> = { van: "veh-delivery-v
 const SCALE = 0.5;
 /** Room round a vehicle's middle for the whole of it, asking if it's in view. */
 const REACH = 60;
+/** A vehicle's length as drawn (mm), for the ambient rule: one smaller on screen than `AMBIENT_MIN_PX.vehicle` moves on unseen. */
+const SIZE = 40;
 const KINDS: readonly VehicleKind[] = ["van", "bus", "car"];
 const CAP = VEHICLE_CAP.van + VEHICLE_CAP.bus + VEHICLE_CAP.car;
 /**
  * A town's cars (life on its streets, not a delivery) ask for frames only this near the camera (mm): further off
- * they're too small to see drive, and move on unseen (as the touches do: `TOUCH_REACH`).
+ * they're too small to see drive, and move on unseen (as the touches do: `TOUCH_REACH`). Nearer, they're ambient
+ * motion like the vans and buses: on screen and at least `AMBIENT_MIN_PX.vehicle` across (`AmbientEye`).
  */
 export const CAR_REACH = 6000;
 
@@ -115,7 +119,7 @@ export class RoadVehiclesView {
    * Pose the vehicles if any moved (or came or went) since the last call. True while a moving one is in view (keep
    * drawing frames), or once when the drawn set changed.
    */
-  update(vehicles: RoadVehicles, camera: Camera): boolean {
+  update(vehicles: RoadVehicles, camera: Camera, eye: AmbientEye | null = null): boolean {
     if (vehicles === this.seenList && vehicles.version === this.seen) return false;
     this.seenList = vehicles;
     this.seen = vehicles.version;
@@ -159,6 +163,7 @@ export class RoadVehiclesView {
       this.drawnAt.set(v, [v.x, v.z, v.heading]);
       if (inView || !frustum.intersectsSphere(sphere.set(p.set(v.x, v.y, v.z), REACH))) continue;
       if (v.kind === "car" && camera.position.distanceTo(p) > CAR_REACH) continue;
+      if (eye && eye.pixels(v.x, v.y, v.z, SIZE) < AMBIENT_MIN_PX.vehicle) continue;
       inView = true;
     }
     const draw = inView || this.wasInView || changed;
