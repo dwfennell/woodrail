@@ -77,3 +77,18 @@ describe("findSlip", () => {
     expect(findSlip(layout, straight, { x: 2010, z: 0 }, { x: 2100, z: 0 }).kind).toBe("none");
   });
 });
+
+describe("Draw's slip start (`branchFrom` on a 45° crossing)", () => {
+  it("waits till the finger is `SLIP_WAY` along, then a slip; refused in words when the slip may not be used, or off the turn", async () => {
+    const { branchFrom, SLIP_ALONG } = await import("../game/draw-junctions");
+    const { layout, id } = crossing();
+    const at = layout.getPiece(id)!.pose;
+    const rules = (may: string | null) => ({ layout, check: () => null, occupied: () => false, may: () => may });
+    const press = along("slip-single", at, 2, 30);
+    expect(branchFrom(rules(null), id, press, along("slip-single", at, 2, 60)).kind).toBe("wait");
+    const b = branchFrom(rules(null), id, press, along("slip-single", at, 2, 120));
+    expect(b.kind).toBe("slip");
+    expect(branchFrom(rules("Single slip: not learned yet"), id, press, along("slip-single", at, 2, 120))).toEqual({ kind: "refused", message: "Single slip: not learned yet" });
+    expect(branchFrom(rules(null), id, along("crossing-45", at, 0, 30), along("crossing-45", at, 0, 130))).toEqual({ kind: "refused", message: SLIP_ALONG });
+  });
+});

@@ -1354,8 +1354,9 @@ export class TrackView {
       const state = this.layout.switchState(id);
       const arrows = switchArrows(def, state, this.arrowScale).flatMap((a) => [a.x, a.z, a.heading]);
       const was = this.shown.get(id);
-      // (A double three-way's two: each leaning toward its branch when it's set there, else away.)
-      const lean = def.pairLevers ? [0, 1].map((k) => (state === k + 1 ? 1 : -1) * (Math.sign(def.connectors[k + 2].pose.z) || 1) * 0.45) : [leverLean(def, state)];
+      // (A double three-way's two: each leaning out toward its branch when it's set there, else upright (leaning in, the two
+      // knobs would meet over the trunk, one hiding the other from a tap).)
+      const lean = def.pairLevers ? [0, 1].map((k) => (state === k + 1 ? 0.45 : 0) * (Math.sign(def.connectors[k + 2].pose.z) || 1)) : [leverLean(def, state)];
       // (A wye's other corners: a lever beside each, leaning toward the road it's set to there.)
       for (let k = 1; k < leverCount(def) && def.cornerLevers; k++) {
         const c = cornerLever(def, k, state);
