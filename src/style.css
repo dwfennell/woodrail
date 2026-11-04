@@ -780,6 +780,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-yard { align-self: stretch; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; text-wrap: balance; }
+/* The workshop's keep steppers (while it shares): "Keeps − 7 + planks", Auto while you've set it. 44 px buttons. */
+.keep-rows { display: flex; flex-direction: column; gap: 4px; }
+.keep-row { display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; color: #4a3220; }
+.keep-row .chip { flex: none; min-width: 44px; padding: 0 10px; }
+.keep-row .keep-n { min-width: 2.2em; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; }
+.keep-row .keep-kind { min-width: 3.2em; }
+.keep-row .keep-auto { font-size: 13px; }
 /* A warehouse's goods: a row each (name and count over what it's set to; four 44 px choices), "Any other goods", and
    "+ Add a good" with its picker. The chosen way is green, as any chip that's on. */
 .depot-stock:empty { display: none; }

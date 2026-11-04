@@ -84,7 +84,7 @@ const openCard = async () => {
   await p.waitForFunction(() => !!document.querySelector(".yard-mode"), null, { timeout: 15000 }).catch(() => {});
   await settle();
 };
-const SHARES_HINT = "Leaves planks for towns further on, keeping 7 for you";
+const SHARES_HINT = "Leaves planks for towns and schools further on, keeping 7 for you";
 const ALL_HINT = "Fills its yard first, up to 30";
 const SHOP_HELP = "Trains drop planks here as they pass. On a route, add the workshop as a stop";
 

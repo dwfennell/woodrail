@@ -304,6 +304,13 @@ export interface DepotState {
   readonly modes: (StoreMode | null)[];
   /** What it does with goods not listed ("Any other goods"): "both" by default; "off" keeps only the listed goods. */
   others: StoreMode;
+  /**
+   * A workshop's keep amounts, set on its card, by cargo index: how many of each good its yard takes while set to share
+   * and a town (or a sharing school) the train goes on to wants it (`shopKeeps` is passed the depot and reads them);
+   * null: the game's own amount (planks: a few for the next thing to make, `yardKeeps`; others: all). Set with
+   * `Economy.setKeep`; every other depot keeps them all null.
+   */
+  readonly keeps: (number | null)[];
 }
 
 /** People riding a coach: how many, and the station (depot id) they got on at. */
@@ -647,7 +654,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0, modes: CARGO_KINDS.map(() => null), others: "both" };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0, modes: CARGO_KINDS.map(() => null), others: "both", keeps: CARGO_KINDS.map(() => null) };
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
@@ -1077,6 +1084,13 @@ export class Economy {
     if (d.role === "school") this.stopsStamp++;
   }
 
+  /** Set how many of `kind` a workshop's yard keeps while it shares (null: the game's own amount; see `DepotState.keeps`). */
+  setKeep(depotId: number, kind: CargoKind, n: number | null): void {
+    const d = this.depots[depotId];
+    if (!d || d.role !== "workshop") return;
+    d.keeps[CARGO[kind].index] = n === null ? null : Math.max(0, Math.min(capAt(d), Math.round(n)));
+  }
+
   /** Can a pile hold this cargo (it is the depot's input or output) and is there room? */
   pileAccepts(d: DepotState, kind: CargoKind): boolean {
     const r = RECIPES[d.role];
@@ -1312,7 +1326,7 @@ export class Economy {
     // them too, or a school left sharing whose research lacks them (Dustin's playthrough, 2026-11-04: a sharing school
     // after the workshop got none) (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved). Not one set
     // to take all (`takesAll`), nor at a stop set to Only drop (QA N3: it still shared): it fills its yard.
-    if (d.role === "workshop" && !d.takesAll && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && !(route && this.onlyDropsAt(route, d.id)) && this.townWantsAhead(carId, c.kind, route, true)) return "shares";
+    if (d.role === "workshop" && !d.takesAll && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind, d) ?? Infinity) && !(route && this.onlyDropsAt(route, d.id)) && this.townWantsAhead(carId, c.kind, route, true)) return "shares";
     // A school set to share (its default) takes only its share of a pass's load while a town the train goes on to wants
     // the good too; set to take all (`takesAll`), or at an Only drop stop, all its research lacks.
     if (d.role === "school" && !d.takesAll && !(route && this.onlyDropsAt(route, d.id)) && this.townWantsAhead(carId, c.kind, route)) {
@@ -2237,9 +2251,10 @@ export class Economy {
    * How many of `kind` a workshop's yard takes from a train while a town the train goes on to wants it (Game mode:
    * planks, its waiting tray order's or `WORKSHOP_SPARE`: `yardKeeps` in crafting.ts); beyond that they ride on to the
    * town. Null (or null for a kind): as many as the yard has room for. With no town ahead wanting them, or at a
-   * workshop set to take all (`takesAll`), the yard fills.
+   * workshop set to take all (`takesAll`), the yard fills. `d`: the workshop, whose card may set its own amounts
+   * (`DepotState.keeps`).
    */
-  shopKeeps: ((kind: CargoKind) => number | null) | null = null;
+  shopKeeps: ((kind: CargoKind, d: DepotState) => number | null) | null = null;
 
   /**
    * How many more of `kind` (one a recipe takes only while `owed`: a workshop's stone) the workshops take: what's

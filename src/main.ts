@@ -46,7 +46,7 @@ import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
-import { schoolYardHtml, WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
+import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, sameLines, snapshotLines, stopLine, trainsOn } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
@@ -71,7 +71,7 @@ import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillRes
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
-import { CARRIES, COIN_ICON } from "./economy/cargo";
+import { CARGO, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan } from "./game/blueprints";
@@ -2070,7 +2070,32 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWorkshop();
       scheduleSave();
     },
+    // Its keep steppers: a step from the number shown, or back to the game's own (Auto). Only the card is drawn again.
+    keep: (kind, step) => {
+      const d = game.economy.depot(interaction.openDepotId);
+      if (d?.role !== "workshop") return;
+      const row = keepRowsOf(d).find((r) => r.kind === kind);
+      if (!row) return;
+      game.economy.setKeep(d.id, kind, step === "auto" ? null : row.n + step);
+      showWorkshop();
+      scheduleSave();
+    },
   }, hud.depotYard);
+  /**
+   * The workshop's keep steppers: planks (the game's own: its spare, `yardSpare`), and iron once a foundry's known or
+   * the yard holds some (the game's own: all of it).
+   */
+  function keepRowsOf(d: DepotState): KeepRow[] {
+    const cap = capAt(d);
+    const rows: KeepRow[] = [];
+    const planks = d.keeps[CARGO.planks.index];
+    rows.push({ kind: "planks", label: "planks", n: Math.min(cap, planks ?? yardSpare.planks), set: planks !== null, max: cap, auto: "Auto" });
+    if (progress.knows("piece:depot-foundry") || d.piles[CARGO.iron.index] > 0) {
+      const iron = d.keeps[CARGO.iron.index];
+      rows.push({ kind: "iron", label: "iron", n: iron ?? cap, set: iron !== null, max: cap, auto: "All" });
+    }
+    return rows;
+  }
   // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
     pick: (id) => picked(id, toggleQueue),
@@ -2475,7 +2500,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Planks the yard keeps with no order: enough for the next industry (`shopSpare`; worked out once a second). */
   let yardSpare = shopSpare(progress);
   /** What the workshop's yard takes while a town on the line wants planks: its order's, or the spare (`yardKeeps`). */
-  const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress, yardSpare.planks) : null);
+  /**
+   * The yard's own keep amount (its card's stepper, `DepotState.keeps`) or, not set, the game's: planks, the spare; other
+   * goods, none (it takes them all). A waiting order's planks still come first (`yardKeeps`).
+   */
+  const shopKeeps = (kind: CargoKind, d: DepotState) => {
+    const set = d.keeps[CARGO[kind].index];
+    return kind === "planks" ? yardKeeps(progress, set ?? yardSpare.planks) : set;
+  };
   /** Stone the workshop takes from trains: only as much as a harbour's price still needs there (`shopOwes`). */
   const owes = (kind: CargoKind) => shopOwes(game.world, progress, kind);
   /** Was some owed at the last look (routed lines plan again when that changes: a blueprint learned, a price paid, a harbour built or restored). */
@@ -2853,14 +2885,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const yard = game.economy.depot(id)!;
     // What the planks it keeps are for: its waiting order, or the next industry (`shopSpare`); none if the yard
     // holds fewer, or it's only the spare.
-    const keeps = yardKeeps(progress, yardSpare.planks);
-    const keptFor = keeps > capAt(yard) ? null : orderPlanks(progress) >= yardSpare.planks ? progress.orders[0] : yardSpare.for;
+    // (Or the number set on its stepper: then what they're for is said only for a waiting order needing more.)
+    const set = yard.keeps[CARGO.planks.index];
+    const spare = set ?? yardSpare.planks;
+    const keeps = yardKeeps(progress, spare);
+    const keptFor = keeps > capAt(yard) ? null : orderPlanks(progress) >= spare ? progress.orders[0] : set === null ? yardSpare.for : null;
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows, {
       takesAll: yard.takesAll,
       keeps: Math.min(keeps, capAt(yard)),
       keptFor: keptFor ? thingLabel(keptFor) : undefined,
       cap: capAt(yard),
       school: game.economy.allDepots().some((d) => d.role === "school" && d.takesAll),
+      keepRows: keepRowsOf(yard),
     });
   }
 
