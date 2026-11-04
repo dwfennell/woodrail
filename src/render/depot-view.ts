@@ -39,6 +39,8 @@ interface CraneSpec {
   l: number;
   /** Height the hook travels at (jib arm / gantry beam underside). */
   height: number;
+  /** A gantry's legs stand this far either side of its beam's middle (default `GANTRY_HALF`: a road's longer gantry). */
+  half?: number;
 }
 
 export interface DepotLayout {
@@ -471,6 +473,36 @@ interface Site {
   piles: number;
   /** Picking owners for this depot's piles, made once. */
   readonly pileOwners: Record<CargoKind, CargoSlot>;
+  /**
+   * A further track of a depot of several (depot tracks: `Economy.addRoad`): which (1, 2), its site drawn in its own
+   * piece's frame, only its long gantry (the yard, piles and buildings are its depot's site's). 0: a depot's own site.
+   */
+  road?: number;
+}
+
+/** Tracks of a depot of several lie this far apart (mm), on the side away from its yard (a double track apart). */
+export const ROAD_GAP = 72;
+/** A road's gantry: its near leg this far beyond the road's centre line, its far one this far into the yard (depot frame). */
+const ROAD_LEG_OUT = 34;
+const ROAD_LEG_IN = 118;
+/** Each road's gantry stands this much further along than the one before (mm), so their beams don't meet. */
+const ROAD_STAGGER = 22;
+
+/**
+ * Road `j`'s layout, in its own piece's frame (its depot's frame moved `j * ROAD_GAP` to the −l side): the depot's piles
+ * where they stand (for the crane's moves), and a gantry from just beyond the road over every track to the yard's edge.
+ */
+export function roadLayout(spec: DepotLayout, j: number): DepotLayout {
+  const off = j * ROAD_GAP;
+  const piles: Partial<Record<CargoKind, PileSpot>> = {};
+  for (const k of CARGO_KINDS) {
+    const p = spec.piles[k];
+    if (p) piles[k] = { ...p, l: p.l + off };
+  }
+  const near = -ROAD_LEG_OUT;
+  const far = off + ROAD_LEG_IN;
+  const t = Math.min(200, spec.crane.t + j * ROAD_STAGGER);
+  return { pad: null, crane: { kind: "gantry", t, l: (near + far) / 2, height: Math.max(66, spec.crane.height - 6), half: (far - near) / 2 }, piles, trackT: spec.trackT };
 }
 
 /** One kind of goods as drawn: its parts (instanced, a unit per instance), who each drawn unit belongs to, and the copy a crane or a hand carries. */
@@ -720,10 +752,17 @@ export class DepotView {
     this.carOwners.clear();
     for (const depot of economy.allDepots()) {
       const site = this.makeSite(depot, economy, layout);
-      if (site) this.sites.push(site);
+      if (!site) continue;
+      this.sites.push(site);
+      // Its further tracks (depot tracks), each with a crane of its own.
+      economy.roadsOf(depot.id).forEach((road, k) => {
+        const r = this.makeSite(road, economy, layout, k + 1, site.layout);
+        if (r) this.sites.push(r);
+      });
     }
-    const handles = this.motes.place(this.sites.map((s) => ({ role: s.depot.role, x: s.pose.x, y: s.pose.y ?? 0, z: s.pose.z, heading: s.pose.heading })));
-    this.sites.forEach((s, k) => (s.motes = handles[k]));
+    const own = this.sites.filter((s) => !s.road);
+    const handles = this.motes.place(own.map((s) => ({ role: s.depot.role, x: s.pose.x, y: s.pose.y ?? 0, z: s.pose.z, heading: s.pose.heading })));
+    own.forEach((s, k) => (s.motes = handles[k]));
     for (const key of new Set(this.sites.map((s) => s.tile))) this.buildTile(key);
   }
 
@@ -770,13 +809,13 @@ export class DepotView {
   }
 
   /** A site for `depot` (its crane's moving parts added to the group), or null if this view doesn't draw it. */
-  private makeSite(depot: DepotState, economy: Economy, layout: Layout): Site | null {
+  private makeSite(depot: DepotState, economy: Economy, layout: Layout, road = 0, roadOf?: DepotLayout): Site | null {
     const piece = layout.getPiece(depot.pieceId);
     // A depot piece being carried shows its buildings in the hand instead (see `model`). A kit piece's depot (a
     // Sandbox loader or unloader, a halt) is drawn by its kit's model, its own crane working (KitView); a town's station
     // upgraded to a kit keeps its goods corner (`siteLayout`).
     if (!piece || layout.isLifted(depot.pieceId)) return null;
-    const spec = siteLayout(depot.role, piece.type, economy.stationPieces.has(depot.pieceId));
+    const spec = road && roadOf ? roadLayout(roadOf, road) : siteLayout(depot.role, piece.type, economy.stationPieces.has(depot.pieceId));
     if (!spec) return null;
     const pose: SitePose = { ...piece.pose, y: piece.y };
     const at = toWorld(pose, spec.trackT, 0, 0, new Vector3());
@@ -794,11 +833,15 @@ export class DepotView {
       moving: false,
       piles: -1,
       pileOwners: Object.fromEntries(CARGO_KINDS.map((k) => [k, { kind: "pile", depotId: depot.id, cargo: k }])) as Record<CargoKind, CargoSlot>,
+      road,
     };
-    if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
-    if (depot.role === "mill") site.blade = this.buildSails(pose);
-    if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
-    if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
+    // (A road's site: only its crane moves; the yard's saw, sails or wheel are its depot's.)
+    if (!road) {
+      if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
+      if (depot.role === "mill") site.blade = this.buildSails(pose);
+      if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
+      if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
+    }
     // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
     for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
       if (!o) continue;
@@ -894,6 +937,14 @@ export class DepotView {
       toWorld(pose, t, l, y, _v);
       return g.translate(_v.x, _v.y, _v.z);
     };
+    if (site.road) {
+      // A further track's gantry: legs beyond the road and at the yard's edge, a long beam over every track.
+      const c = layout.crane;
+      const half = c.half ?? GANTRY_HALF;
+      for (const l of [c.l - half, c.l + half]) b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(6, c.height + 6, 6, 1, 1.2), c.t, l, (c.height + 6) / 2));
+      b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(6, 5, half * 2 + 6, 1, 1.2), c.t, c.l, c.height + 6.5));
+      return;
+    }
     // The yard: an industry's own ground and props, or the plain beech pad; then a pallet under each pile.
     const add = (m: Material, g: BufferGeometry, t: number, l: number, y: number) => b.add(m, place(g, t, l, y));
     if (layout.pad && !dressIndustry(site.depot.role, add, mats)) b.add(mats.blockWood, place(new RoundedBoxGeometry(layout.pad.w, PAD_H, layout.pad.d, 2, 1.5), layout.pad.t, layout.pad.l, PAD_H / 2));
@@ -1292,7 +1343,7 @@ export class DepotView {
 
     // Which unit (if any) is on each crane's hook, so it isn't also drawn on its pile or wagon.
     for (const site of this.sites) {
-      site.moving = economy.craneMove(site.depot.id, site.move);
+      site.moving = economy.craneMove(site.depot.id, site.move, site.depot.pieceId);
       // (Paused, its crane holds where it is; out of view, it works on unseen.)
       if (site.moving && !paused && site.crane.trolley.visible) busy = true;
     }
@@ -1300,6 +1351,8 @@ export class DepotView {
     // Piles.
     let changed = false;
     for (const site of this.sites) {
+      // (A depot's further track draws no piles: its depot's site does.)
+      if (site.road) continue;
       let sig = 0;
       for (const kind of CARGO_KINDS) {
         if (!site.layout.piles[kind]) continue;

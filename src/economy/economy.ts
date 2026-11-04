@@ -27,6 +27,11 @@ interface Service {
   readonly trainId: number;
   phase: number;
   depotId: number;
+  /**
+   * The depot (or the depot's road: `addRoad`) whose crane serves it: the same id as `depotId`, but a road of a depot
+   * with several tracks is its own object (its own piece and crane), so two trains are worked at once. Null: none.
+   */
+  depot: DepotState | null;
   /** The car under the crane while halted. */
   carId: number;
   /** Ticks into the current crane move. */
@@ -264,6 +269,8 @@ export interface Route {
   viaFor?: number;
   viaDone?: number;
 }
+
+const NO_ROADS: readonly DepotState[] = [];
 
 export interface DepotState {
   readonly id: number;
@@ -653,6 +660,33 @@ export class Economy {
   depot(id: number): DepotState | undefined {
     return this.depots[id];
   }
+
+  /**
+   * A depot's further tracks (depot tracks, docs/superpowers/specs/2026-11-04-depot-tracks.md; prototype): a road on
+   * piece `pieceId` beside depot `parent`'s own track, worked by a crane of its own from the same yard. The road is the
+   * depot to everything else (same id, piles, settings and modes: it reads them through to the depot), so a route's
+   * stop at the depot is called at on any of its tracks; only its piece and crane point are its own, and a train on it
+   * is served there, as one on the depot's first track is, at the same time. It isn't among `allDepots` (it makes
+   * nothing and isn't counted); `roadsOf` lists them. Its piece taken up, it serves nobody (`onMap`).
+   */
+  addRoad(parent: DepotState, pieceId: number): DepotState {
+    const known = this.byPiece.get(pieceId);
+    if (known) return known;
+    const p = this.layout.getPiece(pieceId);
+    const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
+    const road = Object.create(parent, { pieceId: { value: pieceId, enumerable: true }, craneAt: { value: Math.min(parent.craneAt, len), enumerable: true } }) as DepotState;
+    this.byPiece.set(pieceId, road);
+    let list = this.roads.get(parent.id);
+    if (!list) this.roads.set(parent.id, (list = []));
+    list.push(road);
+    return road;
+  }
+
+  /** A depot's further tracks (`addRoad`), on the map or not, in the order they were added. */
+  roadsOf(depotId: number): readonly DepotState[] {
+    return this.roads.get(depotId) ?? NO_ROADS;
+  }
+  private readonly roads = new Map<number, DepotState[]>();
 
   depotAtPiece(pieceId: number): DepotState | undefined {
     return this.byPiece.get(pieceId);
@@ -1729,14 +1763,14 @@ export class Economy {
   }
 
   /** The car under the crane at a depot right now, or −1. */
-  servicedCar(depotId: number): number {
-    for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId) return s.carId;
+  servicedCar(depotId: number, pieceId = -1): number {
+    for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId && (pieceId === -1 || s.depot?.pieceId === pieceId)) return s.carId;
     return -1;
   }
 
   /** Progress (0–1) of the crane's current move at a depot, or −1 when idle. */
-  cranePhase(depotId: number): number {
-    for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId) return s.ticks / this.craneTicks;
+  cranePhase(depotId: number, pieceId = -1): number {
+    for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId && (pieceId === -1 || s.depot?.pieceId === pieceId)) return s.ticks / this.craneTicks;
     return -1;
   }
 
@@ -1744,10 +1778,12 @@ export class Economy {
    * What the crane at a depot is carrying right now: the cargo, which way (from the wagon to a pile, or the other
    * way), the car, and progress 0–1, written into `out`. False when the crane is idle or waiting.
    */
-  craneMove(depotId: number, out: CraneMove): boolean {
+  craneMove(depotId: number, out: CraneMove, pieceId?: number): boolean {
+    // (A depot of several tracks (`addRoad`): each road's crane by its piece; the depot's own, its first track's.)
+    const piece = pieceId ?? this.depots[depotId]?.pieceId ?? -1;
     for (const s of this.services.values()) {
-      if (s.phase !== HALTED || s.depotId !== depotId || s.ticks === 0) continue;
-      const d = this.depots[depotId];
+      if (s.phase !== HALTED || s.depotId !== depotId || s.ticks === 0 || s.depot?.pieceId !== piece) continue;
+      const d = s.depot;
       out.carId = s.carId;
       out.phase = s.ticks / this.craneTicks;
       if (this.canUnload(d, s.carId)) {
@@ -1778,13 +1814,13 @@ export class Economy {
   standingAt(pieceId: number): boolean {
     if (this.kitStops.haltedAt(pieceId)) return true;
     const d = this.byPiece.get(pieceId);
-    return !!d && this.cranePhase(d.id) >= 0;
+    return !!d && this.cranePhase(d.id, pieceId) >= 0;
   }
 
   /** The depot whose crane is working this train now (it's crawling to, or halted at, the crane), if any. */
   servingDepot(trainId: number): DepotState | undefined {
     const s = this.services.get(trainId);
-    return s && s.phase !== NONE && s.depotId !== -1 ? this.depots[s.depotId] : undefined;
+    return s && s.phase !== NONE && s.depotId !== -1 ? (this.depots[s.depotId] ?? undefined) : undefined;
   }
 
   /**
@@ -1813,8 +1849,9 @@ export class Economy {
     const d = train && this.depotUnder(train);
     if (!train || !d) return false;
     const s = this.service(trainId);
-    if (s.depotId !== d.id) this.endVisit(s);
+    if (s.depot !== d) this.endVisit(s);
     s.depotId = d.id;
+    s.depot = d;
     s.phase = NONE;
     for (const car of train.cars) s.done.add(car.id);
     return true;
@@ -1868,7 +1905,7 @@ export class Economy {
 
   private service(trainId: number): Service {
     let s = this.services.get(trainId);
-    if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, carId: -1, ticks: 0, still: 0, done: new Set() }));
+    if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, depot: null, carId: -1, ticks: 0, still: 0, done: new Set() }));
     return s;
   }
 
@@ -1885,11 +1922,11 @@ export class Economy {
     let work: DepotState | undefined;
     /** The depot last asked whether any wagon has work there (bogies on one depot come together: asked once). */
     let asked: DepotState | undefined;
-    const undone = (d: DepotState, carId: number) => !(s && s.depotId === d.id && s.done.has(carId)) && this.needsService(d, carId);
+    const undone = (d: DepotState, carId: number) => !(s && s.depot === d && s.done.has(carId)) && this.needsService(d, carId);
     for (let k = 0; k < train.bogies.length; k++) {
       const d = this.byPiece.get(train.bogies[k].pieceId);
       if (!d || !d.auto) continue;
-      if (s && s.phase === HALTED && s.depotId === d.id) return d;
+      if (s && s.phase === HALTED && s.depot === d) return d;
       first ??= d;
       if (!here && undone(d, train.cars[k >> 1].id)) here = d;
       if (!work && d !== asked) {
@@ -1924,9 +1961,10 @@ export class Economy {
       if (s.phase !== NONE || s.done.size > 0) this.endVisit(s);
       return Infinity;
     }
-    if (s.depotId !== d.id) {
+    if (s.depot !== d) {
       this.endVisit(s);
       s.depotId = d.id;
+      s.depot = d;
       s.phase = CRAWLING;
     }
     // Reversing the lever sends the train on: nothing more for it here this visit (and it isn't being worked).
@@ -2058,7 +2096,7 @@ export class Economy {
     if (s.phase !== HALTED) this.depotHalts++;
     if (!s.halted) {
       s.halted = true;
-      const d = this.depots[s.depotId];
+      const d = s.depot;
       if (d) this.stationNote("halted", d.pieceId, s.trainId, carId);
     }
     s.phase = HALTED;
@@ -2083,6 +2121,7 @@ export class Economy {
     if (s.halted) this.departed(s);
     s.phase = NONE;
     s.depotId = -1;
+    s.depot = null;
     s.carId = -1;
     s.ticks = 0;
     s.still = 0;
@@ -2094,7 +2133,7 @@ export class Economy {
     for (const s of this.services.values()) {
       if (s.phase !== HALTED) continue;
       const train = this.sim.getTrain(s.trainId);
-      const d = this.depots[s.depotId];
+      const d = s.depot;
       if (!train) {
         // Gone (coupled into another train, or removed): forget its visit.
         if (s.halted) this.departed(s);
@@ -2301,7 +2340,7 @@ export class Economy {
         r.at = false;
         continue;
       }
-      const on = found.train.bogies.some((b) => b.pieceId === d.pieceId);
+      const on = found.train.bogies.some((b) => b.pieceId === d.pieceId || this.byPiece.get(b.pieceId)?.id === d.id);
       // (Via points on the way: passed when its leading axle comes to them.)
       if (!on && !r.at) {
         const net = this.drive(found.train);
@@ -2331,7 +2370,7 @@ export class Economy {
   /** A train halted at a depot sets off: its "left" station event (once a halt). */
   private departed(s: Service): void {
     s.halted = false;
-    const d = this.depots[s.depotId];
+    const d = s.depot;
     if (d) this.stationNote("left", d.pieceId, s.trainId, -1);
   }
 

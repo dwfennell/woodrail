@@ -38,7 +38,7 @@ import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapFramePoints, mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
@@ -96,6 +96,7 @@ import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, ty
 import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
+import { MAX_TRACKS, planTracks, recordTracks, trackCount, TRACK_PRICES, TRACK_ROLES } from "./game/depot-tracks";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
 import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, saveMuted } from "./ui/prefs";
@@ -2705,6 +2706,79 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(line);
   }
 
+  // ---- depot tracks (PROTOTYPE): an industry upgraded to 2, then 3 tracks, from its card ----------------------------
+  // docs/superpowers/specs/2026-11-04-depot-tracks.md. Its row is its own element, put back if another row cleared it.
+  let tracksShown = "";
+  let tracksRow: HTMLElement | null = null;
+  function showTracks(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    if (!d || !TRACK_ROLES.has(d.role) || !game.layout.getPiece(d.pieceId)) {
+      tracksShown = "";
+      tracksRow = null;
+      return;
+    }
+    const n = trackCount(game.world, d.pieceId);
+    const stock = workshopStock(game.world);
+    const key = `${id}|${n}|${game.layout.revision}|${game.landscape.grid.revision}|${JSON.stringify(stock)}`;
+    if (key === tracksShown && tracksRow?.isConnected) return;
+    tracksShown = key;
+    tracksRow?.remove();
+    const box = (tracksRow = document.createElement("div"));
+    box.className = "depot-tracks";
+    const title = document.createElement("div");
+    title.className = "station-waiting";
+    title.textContent = n === 1 ? "One track: one train at a time" : `${n} tracks: ${n} trains loaded at once`;
+    box.append(title);
+    if (n < MAX_TRACKS) {
+      const price = TRACK_PRICES[(n + 1) as 2 | 3];
+      const plan = planTracks(game.world, d.pieceId, (t, f, pose, y, ignore) => interaction.placeWhyIgnoring(t, f, pose, y, ignore));
+      const b = document.createElement("button");
+      b.className = "chip text depot-tracks-btn";
+      b.dataset.tracks = String(n + 1);
+      b.innerHTML = `⬆ ${n === 1 ? "Second" : "Third"} track · ${costTag(price, 0)}`;
+      b.title = "Lay another track beside it, joined at both ends: its crane reaches over to load a second train";
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        addTrack(d);
+      });
+      box.append(b);
+      if (typeof plan === "string") {
+        b.disabled = true;
+        const why = document.createElement("div");
+        why.className = "station-waiting";
+        why.textContent = plan;
+        box.append(why);
+      }
+    }
+    hud.depotExtra.hidden = false;
+    hud.depotExtra.append(box);
+  }
+
+  /** Give depot `d` one more track: the ladder laid in place of the straights at its ends, one undo step, paid for. */
+  function addTrack(d: DepotState): void {
+    const plan = planTracks(game.world, d.pieceId, (t, f, pose, y, ignore) => interaction.placeWhyIgnoring(t, f, pose, y, ignore));
+    if (typeof plan === "string") {
+      hud.toast(plan, false, 3600);
+      audio.refuse();
+      return;
+    }
+    const price = TRACK_PRICES[plan.tracks as 2 | 3];
+    if (!takeFromWorkshops(game.world, price)) {
+      hud.toast(`Another track needs ${costTag(price, 0)} at the workshop`, false, 3600);
+      audio.refuse();
+      return;
+    }
+    const ids = editor.replaceRun(plan.covers, plan.pieces);
+    recordTracks(game.world, plan, ids, d);
+    game.depotView.setWorld(game.economy, game.layout);
+    industriesChanged();
+    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: its crane works a train on each`, false, 3600);
+    audio.chime();
+    tracksShown = "";
+    scheduleSave();
+  }
+
   let harbourShown = "";
   /** The open harbour card's line about its boats: kept and its text updated, so the countdown ticks without the card's button being made again (a tap mid-way would be lost). */
   let harbourLine: HTMLElement | null = null;
@@ -5260,6 +5334,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showFarm();
       showSawmill();
       showHarbour();
+      showTracks();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     // Goals after the towns: a delivery that grows a town is announced (with its tick folded in) before the poll could

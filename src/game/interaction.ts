@@ -3545,6 +3545,12 @@ export class Interaction {
     return r ? this.blockMessage(r) : null;
   }
 
+  /** As `placeWhy`, for a piece mirrored or not, leaving out of the checks the pieces `ignore` (ones about to be taken up). */
+  placeWhyIgnoring(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore): string | null {
+    const r = this.placement(type, flipped, pose, y, ignore).reason;
+    return r ? this.blockMessage(r) : null;
+  }
+
   /** What to say for a piece refused for `reason` (never nothing: a refusal always says something). */
   private blockMessage(reason: PlaceBlock): string {
     return refusalText(this.blockWhy(reason));
