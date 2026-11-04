@@ -35,10 +35,18 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   autos: { index: 17, label: "Cars" },
   // Fish, the catch the boats bring to your harbours once Fishing boats is learned: crates of fish on ice.
   fish: { index: 18, label: "Fish" },
-  // The post (Post office): sacks of letters a town posts, and the post a post office sorts of them for towns.
-  mail: { index: 19, label: "Mail" },
-  post: { index: 20, label: "Post" },
+  // The post (Post office): sacks of letters a town posts, and the post a post office sorts of them for towns. (From
+  // 30: 19-29 are other branches' goods, claude/tank-crane's and claude/goods-chains'; slots between are unused.)
+  mail: { index: 30, label: "Mail" },
+  post: { index: 31, label: "Post" },
 };
+
+/**
+ * Slots for goods in arrays by snapshot index (piles, counts): one past the highest index. Not `CARGO_KINDS.length`:
+ * indices can leave gaps (each branch adding goods takes its own range), and an index never moves (saves keep piles by
+ * it). Masks of goods (`1 << index`) need every index under 32.
+ */
+export const CARGO_SLOTS = Math.max(...Object.values(CARGO).map((c) => c.index)) + 1;
 
 /**
  * One icon per kind of goods, used wherever goods are counted (tray costs, cards, needs, the journal): "30🪵 10🪨" (logs and stone).

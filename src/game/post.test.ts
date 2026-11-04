@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { canCarry, CARGO, CARGO_KINDS, Economy, RECIPES } from "../economy";
-import { CAR_KINDS, CAR_SPECS, Sim, SIM_HZ, type CarKind } from "../sim";
+import { canCarry, CARGO, CARGO_KINDS, CARGO_SLOTS, Economy, RECIPES } from "../economy";
+import { CAR_BY_INDEX, CAR_KINDS, CAR_SPECS, Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { mailSeconds, MAIL_SECONDS, POST_TECH, POST_VANS_EVERY, POST_VANS_PER_TOWN, postLine, postVansFor } from "./post";
@@ -70,10 +70,14 @@ describe("Post office: the blueprint, its things and its goods", () => {
     expect(CAR_KINDS.filter((k) => canCarry(k, "mail"))).toEqual(["mailvan"]);
     expect(CAR_KINDS.filter((k) => canCarry(k, "post"))).toEqual(["mailvan"]);
     expect(CAR_SPECS.mailvan).toMatchObject({ length: 84, powered: false });
-    // New goods and a new wagon go on the end: old saves' indices stay.
-    expect(CARGO.mail.index).toBe(CARGO_KINDS.length - 2);
-    expect(CARGO.post.index).toBe(CARGO_KINDS.length - 1);
-    expect(CAR_SPECS.mailvan.index).toBe(CAR_KINDS.length - 1);
+    // Their own index ranges (goods from 30, wagons from 15: other branches take 19-29 and 10-14), so old saves' indices
+    // stay and branches don't clash; arrays by index are `CARGO_SLOTS` long, a snapshot's wagon read by `CAR_BY_INDEX`.
+    expect([CARGO.mail.index, CARGO.post.index]).toEqual([30, 31]);
+    expect(CARGO_SLOTS).toBe(32);
+    expect(CAR_SPECS.mailvan.index).toBe(15);
+    expect(CAR_BY_INDEX[15]).toBe("mailvan");
+    for (const k of CAR_KINDS) expect(CAR_BY_INDEX[CAR_SPECS[k].index]).toBe(k);
+    expect(new Set(CARGO_KINDS.map((k) => CARGO[k].index)).size).toBe(CARGO_KINDS.length);
     // A school or a harbour's quay takes neither.
     expect(RECIPES.school.takes).not.toContain("mail");
     expect(RECIPES.harbour.takes).not.toContain("post");
@@ -193,7 +197,7 @@ describe("post vans on a town's streets", () => {
 });
 
 describe("saves", () => {
-  it("an old save (19 goods a pile, before the post) loads; a town's mail and a mail van's post are kept", () => {
+  it("an old save (19 goods a pile, before the post) loads; a town's mail is kept", () => {
     const w = buildStarterWorld();
     const old = JSON.parse(JSON.stringify(serializeWorld(w)));
     for (const d of old.depots) d.piles = d.piles.slice(0, 19);

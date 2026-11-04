@@ -1,5 +1,5 @@
 import { BackSide, Box3, Color, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3, type Object3D } from "three";
-import { CAR_KINDS, type CarLook, type SimSnapshot } from "../sim";
+import { CAR_BY_INDEX, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { OUTLINE_TONES } from "./track-view";
 import { NamePlates } from "./name-plates";
@@ -106,7 +106,7 @@ export class TrainView {
       const y = snap.transforms[o + 1];
       const z = snap.transforms[o + 2];
       if (!entry) {
-        const kind = CAR_KINDS[snap.kinds[i]];
+        const kind = CAR_BY_INDEX[snap.kinds[i]];
         // The colour scheme follows the car (its id survives being picked up and put down), not the order models were built.
         const look = this.lookOf(id);
         const model = buildCarModel(kind, this.mats, carVariant(kind, id), look);

@@ -1,4 +1,4 @@
-import { CARGO, CARGO_KINDS, type CargoKind } from "../economy/cargo";
+import { CARGO, CARGO_KINDS, CARGO_SLOTS, type CargoKind } from "../economy/cargo";
 import { RECIPES, WORKSHOP_CAP, type DepotRole, type DepotState } from "../economy/economy";
 import { covers, kindsOf, minus, total, type Bag } from "../economy/goods";
 import { costTag } from "../ui/cost-tag";
@@ -149,7 +149,7 @@ function needsOf(p: Progress, world?: Pick<World, "layout" | "depots">): Needs {
     if (id.startsWith("piece:")) types.add(id.slice("piece:".length));
   }
   const built = world && types.size > 0 ? builtOf(world, types) : null;
-  const most = new Int32Array(CARGO_KINDS.length);
+  const most = new Int32Array(CARGO_SLOTS);
   const industries: DepotRole[] = [];
   for (const id of known) {
     if (id.startsWith("piece:") && built?.has(id.slice("piece:".length))) continue;

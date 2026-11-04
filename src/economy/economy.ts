@@ -1,6 +1,6 @@
 import { getPieceDef, isKit, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
-import { CARGO, CARGO_KINDS, canCarry, POSTAL, type CargoKind } from "./cargo";
+import { CARGO, CARGO_KINDS, CARGO_SLOTS, canCarry, POSTAL, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
@@ -651,7 +651,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0, modes: CARGO_KINDS.map(() => null), others: "both" };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both" };
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
@@ -840,7 +840,7 @@ export class Economy {
   private passOf(train: Train, kind: CargoKind): { loaded: Int32Array; school: Int32Array } {
     let p = this.passes.get(train.id);
     if (!p) {
-      p = { loaded: new Int32Array(CARGO_KINDS.length).fill(-1), school: new Int32Array(CARGO_KINDS.length) };
+      p = { loaded: new Int32Array(CARGO_SLOTS).fill(-1), school: new Int32Array(CARGO_SLOTS) };
       this.passes.set(train.id, p);
     }
     const i = CARGO[kind].index;
@@ -2288,7 +2288,7 @@ export class Economy {
   /** Land `n` of `kind` on a depot's pile for trains to take away. */
   land(d: DepotState, kind: CargoKind, n: number): void {
     let l = this.landed.get(d.id);
-    if (!l) this.landed.set(d.id, (l = new Int32Array(CARGO_KINDS.length)));
+    if (!l) this.landed.set(d.id, (l = new Int32Array(CARGO_SLOTS)));
     l[CARGO[kind].index] += n;
     d.piles[CARGO[kind].index] += n;
   }
@@ -2307,7 +2307,7 @@ export class Economy {
   /** Loads a crane moves at once (grab cranes: two). */
   craneLoads = 1;
   /** Units of each good made at industries, by cargo index, since this economy began (counters for Game mode). */
-  readonly made = new Int32Array(CARGO_KINDS.length);
+  readonly made = new Int32Array(CARGO_SLOTS);
   /** Loads the cranes have moved, since this economy began. */
   loadsMoved = 0;
 

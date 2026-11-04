@@ -31,7 +31,8 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
   // A car carrier (Game mode's Car carrier): the van's length and running gear, two open decks of new cars.
   carrier: { kind: "carrier", index: 9, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
   // A mail van (Game mode's Post office): the van's length and running gear, red, with a letter slot.
-  mailvan: { kind: "mailvan", index: 10, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
+  // (Index 15: 10-14 are other branches' wagons, claude/tank-crane's and claude/goods-chains'.)
+  mailvan: { kind: "mailvan", index: 15, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
 };
 
 /**
@@ -56,6 +57,13 @@ export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "
 
 /** In snapshot-index order. */
 export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier", "mailvan"];
+
+/** Each car kind by its snapshot index (`CAR_SPECS[k].index`; indices can leave gaps, as other branches take ranges). */
+export const CAR_BY_INDEX: readonly CarKind[] = (() => {
+  const out: CarKind[] = [];
+  for (const k of CAR_KINDS) out[CAR_SPECS[k].index] = k;
+  return out;
+})();
 
 /** Gap between two coupled cars' end faces (mm). */
 export const COUPLER_GAP = 2;
