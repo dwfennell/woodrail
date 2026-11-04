@@ -44,7 +44,7 @@ import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
-import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
+import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
@@ -354,6 +354,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     ed.onPropsChange = () => {
       game.propsChanged();
+      // (A tree planted or taken up beside a harvester: its rate, and its card's count.)
+      industriesChanged();
+      interaction.redrawDepotCard();
       hud.setHistory(ed.canUndo, ed.canRedo);
       if (mode === "game") hud.refreshTrayBadges();
       scheduleSave();
@@ -782,7 +785,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (One placed short of what it works from, trees for a harvester or a farm field for a farm yard, works slowly or
     // not at all, as in Game mode, which won't let it be placed so: the card says so in Game mode's words.)
     const piece = game.layout.getPiece(d.pieceId);
-    const site = piece && view.state !== null && ![...game.world.depots.values()].includes(d.pieceId) ? siteWhy(game.landscape, piece.type, piece.pose) : null;
+    const site = piece && view.state !== null && ![...game.world.depots.values()].includes(d.pieceId) ? siteWhy(game.landscape, piece.type, piece.pose, undefined, plantedCells(game.landscape, game.world.props)) : null;
     hud.setDepotChain({ status: site ?? stateWords(view), tone: site ? "waiting" : view.state, rows: chainRows(view, (o) => depotName(game.world, o), (k) => GOODS_ICON[k]) });
     const at = placeOfDepot(d);
     const lines: HintLine[] = [];
@@ -2035,7 +2038,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     else if (game.depotView.syncStations(game.economy, game.layout)) game.invalidate();
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
-    const rateKey = `${key}#${game.landscape.grid.revision}#${mode === "game" ? upgradeKey(progress) : ""}`;
+    // (Props too: trees planted from Nature count for a harvester.)
+    const rateKey = `${key}#${game.landscape.grid.revision}#${game.world.props.version}#${mode === "game" ? upgradeKey(progress) : ""}`;
     if (rateKey !== rateKeyShown) {
       rateKeyShown = rateKey;
       if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
@@ -4803,7 +4807,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
     // (A school stands beside a town, one a town: the one being moved doesn't count against itself.)
     interaction.siteRule =
-      mode === "game" ? (type, pose, ignoreId) => siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id))) ?? haltWhy(game.landscape, type, pose) : null;
+      mode === "game" ? (type, pose, ignoreId) => siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id)), plantedCells(game.landscape, game.world.props)) ?? haltWhy(game.landscape, type, pose) : null;
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
