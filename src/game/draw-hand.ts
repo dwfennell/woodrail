@@ -512,7 +512,8 @@ export class DrawHand {
     const out = w.pieces.map((p) => this.pieceMesh(p));
     for (const m of out) this.game.scene.add(m);
     this.outlineCovers();
-    this.game.invalidate();
+    // (Ghosts and outlines cast no shadow: the shadow map stays as it is.)
+    this.game.redraw();
     return out;
   }
 
@@ -623,7 +624,7 @@ export class DrawHand {
     for (const g of this.mergeGhosts) this.game.scene.add(g);
     this.trimToMerge();
     this.outlineCovers();
-    this.game.invalidate();
+    this.game.redraw();
     return true;
   }
 
@@ -957,7 +958,8 @@ export class DrawHand {
     for (const gh of this.ghosts.splice(i)) g.scene.remove(gh.mesh);
     this.trimToMerge();
     if (grew) this.hooks.onGrow();
-    if (changed) g.invalidate();
+    // (Ghosts cast no shadow: a frame, without drawing the shadow map again. On every drag frame that changes them.)
+    if (changed) g.redraw();
     if (this.line && !this.line.previewDone) this.catchUp();
     return changed;
   }
@@ -983,7 +985,7 @@ export class DrawHand {
         this.catching = false;
       },
     });
-    this.game.invalidate();
+    this.game.redraw();
   }
 
   /** The ghosts on show as the last line went down (for the tests: what went down must be exactly these). */
@@ -1034,7 +1036,8 @@ export class DrawHand {
       const canvas = this.game.canvas;
       for (const { material } of this.trailLines) material.resolution.set(canvas.clientWidth, canvas.clientHeight);
     }
-    this.game.invalidate();
+    // (The finger's trail casts no shadow.)
+    this.game.redraw();
   }
 
   private clear(): void {
