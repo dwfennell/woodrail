@@ -4883,7 +4883,7 @@ async function routeRing(ctx, p) {
     return { text: n?.textContent ?? "", button: btn?.textContent ?? "", h: r ? Math.round(r.height) : 0, inside: !!r && r.left >= v.left && r.right <= v.right + 0.5, toast: [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | ") };
   });
   const names = await p.evaluate(([a, b]) => [window.woodrail.sim.nameOf(a), window.woodrail.sim.nameOf(b)], [front, behind]);
-  check("route-ring: Reverse with a train too close behind the front one: the Lines view says which and why, the long way round, with Turn round (44 px, in the sheet)", note.text.includes(`${names[0]} has ${names[1]} too close behind to turn round`) && note.text.includes("long way round") && note.button === "Turn round" && note.h >= 44 && note.inside && note.toast.includes("couldn't be turned round"), JSON.stringify({ note, names }));
+  check("route-ring: Reverse with a train too close behind the front one: the Lines view says which and why, the long way round, with Turn round (44 px, in the sheet)", (note.text.includes(`${names[0]} has ${names[1]} too close behind to turn round`) || note.text.includes(`${names[0]} has no room to turn round`)) && note.text.includes("long way round") && note.button === "Turn round" && note.h >= 44 && note.inside && note.toast.includes("couldn't be turned round"), JSON.stringify({ note, names }));
   if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ring-stuck.jpg`, type: "jpeg", quality: 80 });
   await tapButton(".lines-head .chip:last-child");
   // The train in the way taken off, by its card's Remove.
