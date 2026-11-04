@@ -64,7 +64,8 @@ export class ThumbnailStudio {
     this.target.texture.colorSpace = SRGBColorSpace;
     this.canvas.width = W;
     this.canvas.height = H;
-    this.ctx = this.canvas.getContext("2d")!;
+    // (On the CPU: pictures are put in and encoded out, and a GPU-backed canvas waited on the GPU for both.)
+    this.ctx = this.canvas.getContext("2d", { willReadFrequently: true })!;
     this.image = this.ctx.createImageData(W, H);
   }
 
@@ -92,7 +93,7 @@ export class ThumbnailStudio {
       this.draw(subject, fill, target);
       const pixels = new Uint8Array(W * H * 4);
       await this.renderer.readRenderTargetPixelsAsync(target, 0, 0, W, H, pixels);
-      return this.encode(pixels);
+      return await this.encodeAsync(pixels);
     } finally {
       this.inFlight.delete(target);
       if (this.disposed) target.dispose();
@@ -126,10 +127,31 @@ export class ThumbnailStudio {
 
   /** Pixels read back as an image URL. */
   private encode(pixels: Uint8Array): string {
-    // GL rows run bottom-up.
+    this.put(pixels);
+    return this.canvas.toDataURL("image/webp", 0.85);
+  }
+
+  /**
+   * As `encode`, the image encoded off the main thread (`toBlob`; `toDataURL` encodes on it: most of the tray pictures'
+   * cost on a first visit, 9.7 s at 2× CPU on the Sandbox perf map). The same data URL as `encode` gives.
+   */
+  private async encodeAsync(pixels: Uint8Array): Promise<string> {
+    this.put(pixels);
+    // (The canvas is taken as it is now: the next picture may be put in it before this one's encoded.)
+    const blob = await new Promise<Blob | null>((resolve) => this.canvas.toBlob(resolve, "image/webp", 0.85));
+    if (!blob) return this.canvas.toDataURL("image/webp", 0.85);
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  /** Pixels into the canvas, the right way up (GL rows run bottom-up). */
+  private put(pixels: Uint8Array): void {
     for (let y = 0; y < H; y++) this.image.data.set(pixels.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
     this.ctx.putImageData(this.image, 0, 0);
-    return this.canvas.toDataURL("image/webp", 0.85);
   }
 
   dispose(): void {

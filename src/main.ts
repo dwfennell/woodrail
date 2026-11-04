@@ -585,15 +585,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   async function drawTrayThumbnails(): Promise<void> {
     const items = [...TRACK_ITEMS, ...TRAIN_ITEMS].filter((item) => !thumbnails.has(trayKey(item)));
     if (items.length === 0) return;
-    // A few at a time in one studio, each batch once its pieces are carved, read back without holding the main thread
-    // (each picture's pixels fetched once the graphics card has drawn it). Preferably while nothing's moving on screen,
-    // but not waiting long for that (a train going round would hold them up for good).
+    // A few at a time in one studio, each batch once its pieces are carved: each picture is read back from the
+    // graphics card, which waits for what it's drawing, so pictures go in batches (one wait each). Preferably while
+    // nothing's moving on screen, but not waiting long for that (a train going round would hold them up for good).
+    // (Read back at once, not with shootAsync: here, between frames, that only made the batches finish later.)
     const studio = new ThumbnailStudio(game.renderer);
     for (let i = 0; i < items.length; i += THUMBNAIL_BATCH) {
       const batch = items.slice(i, i + THUMBNAIL_BATCH);
       await Promise.all(batch.map((item) => (item.kind === "piece" ? TrackView.whenBuilt(item.type) : null)));
       await Promise.race([game.settled(10), sleep(THUMBNAIL_STILL_WAIT_MS)]);
-      for (const key of await drawThumbnailsAsync(batch, studio)) pictureDrawn(key);
+      for (const key of drawThumbnails(batch, false, studio)) pictureDrawn(key);
       // Kept as they come (a visit cut short keeps what it drew).
       saveThumbnailsSoon();
     }
