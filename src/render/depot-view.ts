@@ -1448,7 +1448,8 @@ export class DepotView {
       for (const site of this.sites) {
         if ((!site.blade && site.motes.length === 0) || !economy.working(site.depot)) continue;
         if (site.blade) {
-          site.blade.rotateZ(ran * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
+          // (A mill's sails half what they were, 2.5 rad/s, about a turn every 5 s: #27, "turns a bit too fast".)
+          site.blade.rotateZ(ran * (site.depot.role === "mill" ? 1.25 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
           if (site.blade.visible) busy = true;
         }
         if (site.motes.length > 0 && site.crane.trolley.visible) {
