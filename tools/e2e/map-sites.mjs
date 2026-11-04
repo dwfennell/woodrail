@@ -312,9 +312,10 @@ check("…paid as a new one is, at half the price: 3 planks from the workshop, 4
 // its yard holds grain, drawn on its pile.
 const payoff = await p.evaluate(async (pieceId) => {
   const w = window.woodrail;
-  const { restoredText } = await import("/src/game/restore.ts");
+  const { restoredText, knowsRole } = await import("/src/game/restore.ts");
   const { CARGO } = await import("/src/economy/cargo.ts");
-  const said = restoredText("farm");
+  // (As main.ts says it: naming only the industries the player knows, learned or on the map.)
+  const said = restoredText("farm", (r) => knowsRole(r, w.progress().learned, (role) => w.economy.allDepots().some((x) => x.role === role)));
   const toast = w.hud.hasToast(said);
   const goals = w.goals();
   const goal = goals.isDone("open-farm") || goals.waiting("open-farm");
