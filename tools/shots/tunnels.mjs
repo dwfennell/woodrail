@@ -1,5 +1,5 @@
-// Pictures of the tunnels prototype (docs/superpowers/specs/2026-11-04-tunnels.md), on a 390×844 phone:
-// - a line bored through a hill two levels high (`planTunnel`: plain straights, in at one side, out at the other), a
+// Pictures of tunnels (docs/superpowers/specs/2026-11-04-tunnels.md), on a 390×844 phone:
+// - a line under a hill a level high (`planTunnel`: a short mouth down a level, track under the hill, a mouth up), a
 //   train going in (its cars in the tunnel drawn as ghosts through the hill) and the far portal;
 // - cut and cover: a line down a tunnel mouth two levels into the board, under another line on the felt, and back up;
 // - the dashes painted over each tunnel.
@@ -69,38 +69,28 @@ const hill = await p.evaluate(async () => {
         }
       if (!ok) continue;
       const editor = w.interaction.landEditor();
-      // The hill: squares 7 to 13 along, 3 either side of the line; a level more in its middle; a shoulder one level
-      // high beside the line (not over it) so it isn't a plain box.
+      // The hill: squares 7 to 12 along, 3 either side of the line, a level high, as most of the maps' hills are; a
+      // second level on two squares beside the line (not over it).
       const raise = [];
-      for (let c = 7; c <= 13; c++)
-        for (let r = -3; r <= 3; r++) {
-          let h = 2;
-          if (c >= 9 && c <= 11 && Math.abs(r) <= 1) h = 3;
-          if ((c === 7 || c === 13) && Math.abs(r) === 3) h = 1;
-          if (c === 13 && r === -2) h = 1;
-          raise.push([g.cellAtWorld(X + c * 72 + 36, Z + r * 72), h]);
-        }
+      for (let c = 7; c <= 12; c++)
+        for (let r = -3; r <= 3; r++) raise.push([g.cellAtWorld(X + c * 72 + 36, Z + r * 72), (c === 9 || c === 10) && r === -2 ? 2 : 1]);
       if (raise.some(([i]) => i === -1 || editor.check(i, 1) !== null)) continue;
-      for (let level = 1; level <= 3; level++) for (const [i, h] of raise) if (h >= level) editor.apply(i, 1);
+      for (let level = 1; level <= 2; level++) for (const [i, h] of raise) if (h >= level) editor.apply(i, 1);
       w.editLand([...new Set(raise.map(([i]) => plotSlotOf(i)))]);
-      // The line: two long straights up to the hill, then the bore from there.
-      const approach = [0, 216].map((x) => ({ type: "straight-216", pose: { x: X + x, z: Z, heading: 0 }, y: 0, flipped: false }));
-      const plan = planTunnel(rules, { x: X + 432, z: Z, heading: 0 }, 0);
-      if (plan.kind !== "bore") { const { hillsOf } = await import("/src/landscape/hill-shape.ts"); const prof = []; for (let x = X + 432; x < X + 1100; x += 36) prof.push(hillsOf(g).groundAt(x, Z)); return { refused: plan, prof, hts: raise.map(([i]) => g.height[i]).join("") }; }
-      const after = { x: X + 432 + plan.length, z: Z };
-      const beyond = [0, 216].map((x) => ({ type: "straight-216", pose: { x: after.x + x, z: Z, heading: 0 }, y: 0, flipped: false }));
+      // The line: two long straights up to near the hill, then the tunnel from there.
+      const approach = [0].map((x) => ({ type: "straight-216", pose: { x: X + x, z: Z, heading: 0 }, y: 0, flipped: false }));
+      const plan = planTunnel(rules, { x: X + 216, z: Z, heading: 0, y: 0, kind: "peg" });
+      if (plan.kind !== "bore") return { refused: plan };
+      const last = plan.pieces[plan.pieces.length - 1];
+      const tail = X + 216 + Math.round(plan.pieces.reduce((n, q) => n, 0));
+      void tail;
+      const endX = Math.max(...plan.pieces.map((q) => q.pose.x)) + 36;
+      const beyond = [0, 216].map((x) => ({ type: "straight-216", pose: { x: endX + x, z: Z, heading: 0 }, y: 0, flipped: false }));
+      void last;
       const all = [...approach, ...plan.pieces, ...beyond];
       const whys = all.map((q) => trackBlock(rules, q.type, q.flipped, q.pose, q.y, -1));
       const ids = w.editor().placeRun(all);
-      // The same straight with tunnels off: what the rules say today.
-      const { setTunnels } = await import("/src/landscape/hill-shape.ts");
-      setTunnels(false);
-      const today = trackBlock(rules, "straight-216", false, { x: X + 504, z: Z, heading: 0 }, 0, new Set(ids));
-      setTunnels(true);
-      // A slanting line into the hill, and one under the shoulder: refused, and why.
-      const slant = planTunnel(rules, { x: X + 432, z: Z - 140, heading: 0.3 }, 0);
-      const shoulder = planTunnel(rules, { x: X + 380, z: Z + 3 * 72, heading: 0 }, 0);
-      return { X, Z, ids, whys, inside: plan.inside, length: plan.length, pieces: plan.pieces.map((q) => q.type), today, slant, shoulder, portals: w.tunnelsView.found.portals.length, dashes: w.tunnelsView.found.dashes.length };
+      return { X, Z, ids, whys, face: plan.face + X + 216, exit: plan.exit + X + 216, pieces: plan.pieces.map((q) => `${q.type}@${q.y}`), portals: w.tunnelsView.found.portals.length, dashes: w.tunnelsView.found.dashes.length };
     }
   }
   return null;
@@ -193,7 +183,7 @@ const trains = await p.evaluate(({ hill, cover }) => {
     const r = w.sim.addTrain(kinds, { pieceId, pathIndex: 0, s, reversed: false });
     return r.kind === "placed" ? w.sim.getTrain(r.trainId).cars.map((c) => c.id) : r;
   };
-  const a = add(["engine", "passenger", "passenger", "caboose"], hill.ids[2], 40);
+  const a = add(["engine", "passenger", "passenger", "caboose"], hill.ids[2], 90);
   const b = add(["engine", "timber", "hopper"], cover.lo[1], 60);
   w.trainView.sync?.();
   w.invalidate?.();
@@ -230,16 +220,16 @@ const runTo = (ids, x, ticks = 4000) =>
   );
 
 const hy = 40;
-await look(null, [hill.X + 560, hy, hill.Z], [-1, 0.8, 0.55], 900);
+await look(null, [hill.face, hy, hill.Z], [-1, 0.8, 0.55], 800);
 await p.waitForTimeout(3000);
 // The hill: the engine and its first coach gone in.
-const r1 = await runTo(trains.a, hill.X + 504 + 140);
+const r1 = await runTo(trains.a, hill.face + 110);
 console.log("hill train in:", JSON.stringify(r1));
-await look("tunnels-hill-enter.jpg", [hill.X + 560, hy, hill.Z], [-1, 0.8, 0.55], 900);
+await look("tunnels-hill-enter.jpg", [hill.face + 40, 20, hill.Z], [-1, 0.85, 0.6], 760);
 // The far portal: the train coming out.
-const r2 = await runTo(trains.a, hill.X + 1004 + 60);
+const r2 = await runTo(trains.a, hill.exit + 90);
 console.log("hill train out:", JSON.stringify(r2));
-await look("tunnels-hill-far.jpg", [hill.X + 930, hy, hill.Z], [1, 0.85, -0.55], 820);
+await look("tunnels-hill-far.jpg", [hill.exit - 40, 20, hill.Z], [1, 0.85, -0.6], 760);
 
 // Cut and cover: the goods train going down the mouth, its engine in the tunnel.
 const r0 = await runTo(trains.b, cover.X + 720 + 50);
@@ -256,6 +246,10 @@ const top = await p.evaluate(({ cover }) => {
 }, { cover });
 console.log("top train:", JSON.stringify(top));
 await look("tunnels-cut-cover.jpg", [cover.mid - 60, 0, cover.Z], [-0.55, 1.05, 0.9], 1150);
+// The hill's tunnel track through the hill, as while a piece is held (the view's switch, for the picture).
+await p.evaluate(() => window.woodrail.trackView.showTunnels(true));
+await look("tunnels-track-ghost.jpg", [hill.face + 200, 20, hill.Z], [-0.3, 1.1, 0.8], 820);
+await p.evaluate(() => window.woodrail.trackView.showTunnels(false));
 // Close on the felt over the tunnel: the dashes and the ghost of the goods train under it.
 await look("tunnels-xray.jpg", [cover.mid + 40, 0, cover.Z], [0.25, 1.2, 0.75], 560);
 
@@ -272,7 +266,7 @@ const costs = await p.evaluate(async ({ hill }) => {
     for (let i = 0; i < n; i++) f(i);
     return Math.round(((performance.now() - t0) / n) * 1000) / 1000;
   };
-  const held = (i) => trackBlock(rules, "straight-216", false, { x: hill.X + 480 + (i % 7), z: hill.Z, heading: 0 }, 0, -1);
+  const held = (i) => trackBlock(rules, "straight-216", false, { x: hill.face + 20 + (i % 7), z: hill.Z + 150, heading: 0 }, -48, -1);
   const on = time(held, 300);
   setTunnels(false);
   const off = time(held, 300);

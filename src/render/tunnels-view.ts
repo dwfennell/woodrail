@@ -30,8 +30,8 @@ interface Dash {
 const OPENING_HALF = 23;
 const SPRING = 54;
 /** A hill's portal: its frame this wide and high (two levels of hill are 96). */
-const HILL_HALF = 28;
-const HILL_HEIGHT = 86;
+const HILL_HALF = 36;
+const HILL_HEIGHT = 92;
 /** The frame stands this far proud of the hill's side (or the cutting's end). */
 const FRAME_DEPTH = 5;
 /** The dark of the opening, just outside the face it's on (so the hill or the felt doesn't show through it). */
@@ -228,10 +228,11 @@ export function portalGeometry(p: Portal): { frame: BufferGeometry; dark: Buffer
   hole.forEach((q, i) => (i === 0 ? darkShape.moveTo(q.x, q.y) : darkShape.lineTo(q.x, q.y)));
   const dark = new ShapeGeometry(darkShape);
   dark.translate(0, 0, DARK_OUT);
-  // Local: x across, y up, z out of the tunnel. To the world: z along `out`, x to its right, up y, at the track's base.
+  // Local: x across, y up, z out of the tunnel. To the world: z along `out`, up y, at the track's base.
   const ox = Math.cos(p.out);
   const oz = Math.sin(p.out);
-  const m = new Matrix4().makeBasis(new Vector3(-oz, 0, ox), new Vector3(0, 1, 0), new Vector3(ox, 0, oz)).setPosition(p.x, p.y, p.z);
+  // (Right-handed: x = y × z, so the frame's faces wind outward and aren't culled.)
+  const m = new Matrix4().makeBasis(new Vector3(oz, 0, -ox), new Vector3(0, 1, 0), new Vector3(ox, 0, oz)).setPosition(p.x, p.y, p.z);
   frame.applyMatrix4(m);
   dark.applyMatrix4(m);
   frame.deleteAttribute("uv");

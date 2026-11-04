@@ -1082,6 +1082,11 @@ export class TrackView {
     this.syncTunnelGhosts();
   }
 
+  /** Is track in a tunnel shown through the ground now? */
+  tunnelGhostsShown(): boolean {
+    return this.tunnelsShown && this.tunnelGhosts.length > 0;
+  }
+
   /** Show the track in tunnels through the ground (while track is held), or not. */
   showTunnels(on: boolean): void {
     if (on === this.tunnelsShown) return;

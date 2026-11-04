@@ -1506,6 +1506,8 @@ export class DrawLine {
     // (Two levels or more up where the piece chosen ends: a ramp onto the first, if one lands just on it; a long straight
     // across both rises of a terrace drawn straight at it was refused two levels up, where the line had climbed with
     // shorter pieces. QA N5, terrace 2: read where it was drawn, the stroke ran straight on into it.)
+    // (Tunnels learned and no ramp to climb with: under the hill instead, if a tunnel goes there.)
+    if (why.reason === "hill" && this.options.tunnel && !this.may("ramp") && this.end.y === 0 && this.tunnelFrom(this.pieces.length)) return true;
     if (why.reason === "hill") return levels === 1 ? this.rampUp(false) : levels > 1 && (this.rampUp(false, true) || this.climbBack());
     if (why.reason === "river") return levels >= 1 ? this.bridge() : (this.startCrossing() && this.cross()) || this.rampUp(true);
     // A level up over a line on the ground (too low for trains to pass under): a bridge, which digs an underpass under
@@ -1839,16 +1841,23 @@ export class DrawLine {
     while (k >= 0 && /^straight-\d+$/.test(this.pieces[k].type) && !this.pieces[k].blocked && inLine(this.pieces[k]) && Math.abs(this.pieces[k].y - down.y - RISER_HEIGHT) < 1) k--;
     const up = this.pieces[k];
     if (!up || !climbs(up) || up.blocked || !inLine(up) || k === n - 2 || Math.abs(up.y - down.y) > 1) return;
-    // From where the climb began, or a plain straight or two further back (taken up: the hill too near for a mouth).
+    this.tunnelFrom(k, inLine);
+  }
+
+  /**
+   * A tunnel (`DrawOptions.tunnel`) laid from the line's end before piece `k` (the pieces from there on taken off), or
+   * from a plain straight or two further back (taken off too: the hill too near for a mouth). True if laid.
+   */
+  private tunnelFrom(k: number, inLine: (p: DrawnPiece) => boolean = () => true): boolean {
+    if (!this.options.tunnel) return false;
     for (let back = 0; back <= 2; back++) {
       const j = k - back;
-      if (j < 0) return;
-      if (back > 0 && (!/^straight-\d+$/.test(this.pieces[j].type) || !inLine(this.pieces[j]) || this.pieces[j].blocked)) return;
+      if (j < 0) return false;
+      if (back > 0 && (!/^straight-\d+$/.test(this.pieces[j].type) || !inLine(this.pieces[j]) || this.pieces[j].blocked)) return false;
       const from = j > 0 ? this.pieces[j - 1].end : this.start;
       const steps = this.options.tunnel(from);
       if (!steps) continue;
-      const before = this.pieces.slice(0, j);
-      const line: DrawnPiece[] = [...before];
+      const line: DrawnPiece[] = this.pieces.slice(0, j);
       const laid: DrawCandidate[] = [];
       let e = from;
       let ok = true;
@@ -1864,12 +1873,13 @@ export class DrawLine {
       }
       if (!ok) continue;
       const progress = this.progress;
-      this.progress = this.pieces[j].from;
+      if (j < this.pieces.length) this.progress = this.pieces[j].from;
       this.pieces.length = j;
       for (const c of laid) this.lay(c, this.alongStroke(c));
       this.progress = Math.max(this.progress, Math.min(progress, this.alongStroke(laid[laid.length - 1])));
-      return;
+      return true;
     }
+    return false;
   }
 
   /** A ramp down from the line's end, landing on the ground (else a straight first, see `fill`). "river" if it would stand in the water. */

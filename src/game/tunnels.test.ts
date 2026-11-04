@@ -187,7 +187,7 @@ describe("tunnels: planTunnel (under the hill ahead)", () => {
 
 describe("tunnels: Draw", () => {
   /** A line drawn along z 36 from x 0 across the one-level hill to x `to`, with tunnels on or off. */
-  function draw(on: boolean, to = 1100) {
+  function draw(on: boolean, to = 1100, ramps = true) {
     setTunnels(on);
     const land = oneLevel();
     const world = { landscape: land, layout: new Layout(), props: null } as unknown as World;
@@ -196,7 +196,7 @@ describe("tunnels: Draw", () => {
       const plan = planTunnel(rules, end);
       return plan.kind === "bore" ? plan.steps : null;
     };
-    const line = new DrawLine({ x: 0, z: 36, heading: 0, y: 0, kind: "peg" }, { ...drawOptions(world, false), ...(on ? { tunnel } : {}) });
+    const line = new DrawLine({ x: 0, z: 36, heading: 0, y: 0, kind: "peg" }, { ...drawOptions(world, false), ...(on ? { tunnel } : {}), ...(ramps ? {} : { allow: (t: string) => t !== "ramp" }) });
     for (let x = 6; x <= to; x += 6) line.addPoint(x, 36);
     line.finish();
     return line.pieces;
@@ -216,6 +216,12 @@ describe("tunnels: Draw", () => {
     expect(pieces.every((p) => !p.blocked)).toBe(true);
     expect(pieces.some((p) => p.y === -ONE)).toBe(true);
     expect(pieces[pieces.length - 1].end.x).toBeGreaterThan(720 + 100);
+  });
+
+  it("on, with no ramps to climb with (Game mode's toy box): under the hill as soon as it meets it", () => {
+    const pieces = draw(true, 1100, false);
+    expect(pieces.map((p) => p.type).filter((t) => t === "tunnel-mouth-short")).toHaveLength(2);
+    expect(pieces.every((p) => !p.blocked)).toBe(true);
   });
 
   it("on, but stopping on the hilltop: it climbs (a line onto the hill still goes up)", () => {

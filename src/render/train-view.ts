@@ -303,6 +303,11 @@ export class TrainView {
     });
   }
 
+  /** Is this car drawn as in a tunnel (its ghost shown)? */
+  inTunnel(carId: number): boolean {
+    return this.cars.get(carId)?.inTunnel ?? false;
+  }
+
   carAt(object: Object3D): number {
     const id = object.userData.carId;
     return typeof id === "number" ? id : -1;

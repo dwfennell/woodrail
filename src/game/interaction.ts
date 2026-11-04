@@ -3296,7 +3296,13 @@ export class Interaction {
         if (short) {
           this.digWhy = "A tunnel takes two short tunnel mouths: make them at the workshop";
           reason = "dig";
-        } else reason = null;
+        } else {
+          // (The straight itself doesn't go down: the tunnel's pieces do, each checked as the plan was made.)
+          const site = this.siteRule?.(type, pose, ignoreId) ?? null;
+          if (!site) return { reason: null, risers: [] };
+          this.siteWhy = site;
+          return { reason: "site", risers: [] };
+        }
       } else if (plan?.kind === "refused" && plan.why !== "none") {
         this.digWhy = TUNNEL_MESSAGES[plan.why];
         reason = "dig";
