@@ -1340,6 +1340,8 @@ export class TrackView {
 
       // Signal at the trunk end on the lever's side, its arm reaching away from the track.
       const signal = this.signalPost(id);
+      // (A double three-way's two levers say how it's set: no post, which would stand by a lever and take its taps.)
+      signal.root.visible = !def.pairLevers;
       const post = signal.root.children[0];
       const postSide = def.slip ? -leverSide : -branchSide;
       post.position.set(this.clearX(p, [6, 54, 84, 114, 144].filter((x) => x < trunk - 10), postSide * (SWITCH_LEVER_OFFSET + 4)), 0, postSide * (SWITCH_LEVER_OFFSET + 4));
@@ -1450,6 +1452,7 @@ export class TrackView {
       }
     }
     for (const [id, signal] of this.signals) {
+      if (!signal.root.visible) continue;
       const post = signal.root.children[0];
       v.copy(post.position).applyMatrix4(signal.root.matrix);
       out.push({ pieceId: id, x: v.x, y: v.y, z: v.z, height: SIGNAL_HEIGHT });

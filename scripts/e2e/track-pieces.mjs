@@ -21,6 +21,8 @@ function helpers(ctx, p) {
   };
   const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   const tapAt = async ([x, y]) => {
+    // (What a fingertip's tap there picks: for a failure's message.)
+    tapAt.picked = await p.evaluate(([x, y]) => { const k = window.woodrail.interaction.pick(x, y, true); return k ? JSON.parse(JSON.stringify(k)) : null; }, [x, y]);
     const t = Date.now() / 1000;
     await touch("touchStart", x, y, t);
     await touch("touchEnd", 0, 0, t + 0.05);
@@ -406,7 +408,7 @@ export async function turntableGroup(f, check) {
   const r2 = await alongPiece(roads[2], 108);
   await h.tapAt(await h.screenOf(...r2));
   const after2 = await deckState();
-  check("turntable-taps: a touch tap on a road leading off it turns the deck straight to that road", after2 % 4 === 2, String(after2));
+  check("turntable-taps: a touch tap on a road leading off it turns the deck straight to that road", after2 % 4 === 2, JSON.stringify({ after2, picked: h.tapAt.picked, road: roads[2], deck }));
   await glide();
   const on2 = await p.evaluate(([e, deck]) => window.woodrail.sim.findCar(e).train.bogies.every((b) => b.pieceId === deck && b.pathIndex === 2), [engine, deck]);
   check("turntable-taps: …the engine standing on it carried round onto that road", on2);
@@ -421,7 +423,7 @@ export async function turntableGroup(f, check) {
   }, [deck]);
   await h.tapAt(await h.screenOf(...end3));
   await glide();
-  check("turntable-taps: a touch tap on the deck by another road turns it there", (await deckState()) % 4 === 3, String(await deckState()));
+  check("turntable-taps: a touch tap on the deck by another road turns it there", (await deckState()) % 4 === 3, JSON.stringify({ state: await deckState(), picked: h.tapAt.picked }));
   // 3. A tap on the road it lies along already: nothing turns (the road's piece is taken, as any tap takes it).
   const r3 = await alongPiece(roads[3], 108);
   const was = await deckState();

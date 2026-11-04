@@ -286,7 +286,9 @@ async function slipDraw() {
   const stroke = async () => {
     const pts = await turn();
     await p.evaluate(() => window.woodrail.settled());
+    stroke.picked = await p.evaluate(([x, y]) => { const k = window.woodrail.interaction.pick(x, y, true); return k ? JSON.parse(JSON.stringify(k)) : null; }, pts[0]);
     await touch("touchStart", pts[0][0], pts[0][1]);
+    stroke.mode = await p.evaluate(() => window.woodrail.interaction.mode.kind);
     for (const [x, y] of pts.slice(1)) await touch("touchMove", x, y);
     await touch("touchEnd", 0, 0);
     await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
@@ -302,7 +304,7 @@ async function slipDraw() {
   await stroke();
   const refused = await typeAt();
   const said = await p.evaluate(() => window.__said);
-  check("slip-draw: before Slips is learned, a stroke along the crossing's turn leaves it a crossing, and says why", refused?.type === "crossing-45" && said.some((m) => /slip/i.test(m) && /not learned/.test(m)), JSON.stringify({ refused, said }));
+  check("slip-draw: before Slips is learned, a stroke along the crossing's turn leaves it a crossing, and says why", refused?.type === "crossing-45" && said.some((m) => /slip/i.test(m) && /not learned/.test(m)), JSON.stringify({ refused, said, picked: stroke.picked, mode: stroke.mode, crossing: laid.crossing }));
   // 2. Learned (setup: the blueprint's research is e2e:research's), and a single slip in the box: the stroke makes it a slip.
   await p.evaluate(() => {
     window.woodrail.learn("signals");

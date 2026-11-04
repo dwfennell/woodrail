@@ -150,13 +150,16 @@ async function trackPieces() {
     check(`track-pieces: a new Game's ${label} is locked`, !!t && t.locked, JSON.stringify(t));
   }
   // A tap on the locked Single slip says how to unlock it.
+  await p.evaluate(() => document.querySelector('.scroller .tray-item[data-key="piece:slip-single"]')?.scrollIntoView({ inline: "center" }));
+  await p.waitForTimeout(400);
   const el = await p.$('.scroller .tray-item[data-key="piece:slip-single"]');
   const box = await el?.boundingBox();
   if (box) await p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  // (The lock note, as e2e:locked reads it.)
   const note = await p
-    .waitForFunction(() => [...document.querySelectorAll("body *")].map((e) => (e.children.length === 0 ? e.textContent : "")).find((t) => /Research Slips to unlock/.test(t ?? "")) ?? null, null, { timeout: 10000 })
+    .waitForFunction(() => { const n = document.querySelector(".lock-note"); return n && !n.hidden && /Research Slips to unlock/.test(n.textContent ?? "") ? n.textContent : null; }, null, { timeout: 15000 })
     .then((h) => h.jsonValue())
-    .catch(() => null);
+    .catch(() => p.evaluate(() => document.querySelector(".lock-note")?.textContent ?? null));
   check("track-pieces: tapped, the locked Single slip says to research Slips to unlock it", !!note, String(note));
   // Learned (setup: researching them is e2e:research's): unlocked.
   await p.evaluate(() => {
