@@ -27,6 +27,7 @@ import {
   GROOVE_SPACING,
   GROOVE_WIDTH,
   isRamp,
+  isTunnelMouth,
   pathLength,
   RISER_HEIGHT,
   samplePath,
@@ -671,7 +672,7 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
   }
 
   if (def.type === "underpass") result = csgEvaluate(evaluator, result, trenchBrush(def), ADDITION);
-  if (def.type === "tunnel-mouth") result = csgEvaluate(evaluator, result, mouthBrush(def), ADDITION);
+  if (isTunnelMouth(def.type)) result = csgEvaluate(evaluator, result, mouthBrush(def), ADDITION);
 
   // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
   // across a curve's fine faces shatters the mesh (slow, and tens of thousands of triangles on a switch).

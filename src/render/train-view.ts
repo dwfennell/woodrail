@@ -76,7 +76,7 @@ export class TrainView {
    */
   underground: ((x: number, y: number, z: number) => boolean) | null = null;
   // A car in a tunnel, seen through what hides it: a pale silhouette, only where something is in front of it.
-  private readonly ghost = new MeshBasicMaterial({ color: new Color("#fff0d2"), transparent: true, opacity: 0.4, depthWrite: false, depthFunc: GreaterDepth });
+  private readonly ghost = new MeshBasicMaterial({ color: new Color("#eedfc2"), depthWrite: false, depthFunc: GreaterDepth });
 
   constructor(private readonly mats: Materials) {}
 

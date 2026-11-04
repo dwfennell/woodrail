@@ -50,7 +50,7 @@ import { DepotView, inStationFootprint } from "../render/depot-view";
 import { RuinsView, type ShownRuin } from "../render/ruins-view";
 import type { RuinOnMap } from "./map-markers";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { inTunnel, archFloors, bridgeLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
+import { inTunnel, setTunnels, tunnelsOn, archFloors, bridgeLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
 import type { Prop, PropPose } from "../props/store";
 import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
@@ -447,8 +447,9 @@ export class Game {
     this.trackView.signalClear = (id) => this.sim.signalClear(id);
     this.trackView.showAllEnds(this.allEnds);
     this.scene.add(this.trackView.group);
-    this.trackView.sync();
     this.tunnelsView.sync(this.layout, this.landscape);
+    this.trackView.setTunnelPieces(this.tunnelsView.found.pieces);
+    this.trackView.sync();
     this.marksView.setLayout(this.layout);
     this.blockTint.hide();
     this.blockTint.reset();
@@ -677,6 +678,15 @@ export class Game {
     }
   }
 
+  /** Tunnels on or off (learned in Game mode, always in Sandbox): their rules, and the tunnels drawn again. */
+  setTunnels(on: boolean): void {
+    if (tunnelsOn() === on) return;
+    setTunnels(on);
+    this.tunnelsView.sync(this.layout, this.landscape);
+    this.trackView.setTunnelPieces(this.tunnelsView.found.pieces);
+    this.invalidate();
+  }
+
   /** Call after any layout edit. */
   trackChanged(): void {
     this.trackVersion++;
@@ -686,6 +696,7 @@ export class Game {
     syncCuttings(this.landscape, this.layout);
     this.landscapeView.setFeltHoles(underpassHoles(this.layout));
     this.tunnelsView.sync(this.layout, this.landscape);
+    this.trackView.setTunnelPieces(this.tunnelsView.found.pieces);
     this.trackView.sync();
     this.syncKits();
     const hop = this.landscapeView.syncTrees(this.layout, true);

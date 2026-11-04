@@ -2151,6 +2151,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Delivery vans: each station serving a town off the line by road gets its van now.
     if (id === "vans") deliveryVans.sync();
     if (id === "buses") buses.sync();
+    if (id === "tunnels") game.setTunnels(true);
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
     // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
@@ -4802,8 +4803,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A school stands beside a town, one a town: the one being moved doesn't count against itself.)
     interaction.siteRule =
       mode === "game" ? (type, pose, ignoreId) => siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id))) ?? haltWhy(game.landscape, type, pose) : null;
+    // Tunnels: learned in Game mode, always in Sandbox.
+    game.setTunnels(mode === "sandbox" || progress.learned.has("tunnels"));
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
+    interaction.tunnelStock = mode === "game" ? () => pieceStock("tunnel-mouth-short") : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
     // Road squares cost coins (Game mode's Roads blueprint): a square beyond those in the box is bought as it goes down.
     interaction.roadTill = mode === "game" ? { refuse: (added) => roadRefusal(added) } : null;

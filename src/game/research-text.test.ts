@@ -12,7 +12,7 @@ describe("the picker's card states", () => {
     const p = Progress.fresh();
     expect(cardState(p, "switches")).toBe("ready");
     expect(cardState(p, "junctions")).toBe("locked"); // needs switches
-    expect(cardState(p, "tunnels")).toBe("soon"); // not in the game yet
+    expect(cardState(p, "telegraph")).toBe("soon"); // not in the game yet
     pick(p, "switches");
     expect(cardState(p, "switches")).toBe("researching");
     pick(p, "bridges");
@@ -65,7 +65,7 @@ describe("a card's chips", () => {
     expect(researchCard(p, "bridges", SCHOOL)).toMatchObject({ why: "studying: 15 s", fill: 0.25 });
     // Locked by something besides blueprints (Turntable needs a town): no card. Not in the game: none.
     expect(researchCard(p, "turntable", SCHOOL)).toBeNull();
-    expect(researchCard(p, "tunnels", SCHOOL)).toBeNull();
+    expect(researchCard(p, "telegraph", SCHOOL)).toBeNull();
     p.learned.add("switches");
     expect(researchCard(p, "switches", SCHOOL)).toBeNull();
   });

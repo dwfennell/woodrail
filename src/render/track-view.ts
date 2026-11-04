@@ -16,6 +16,7 @@ import {
   Object3D,
   SphereGeometry,
   type Material,
+  GreaterDepth,
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -1063,6 +1064,57 @@ export class TrackView {
     this.syncLevers();
     this.syncEndBoards();
     this.syncOutline();
+    this.syncTunnelGhosts();
+  }
+
+  // ---- track in tunnels: seen through the ground while track is held, or when selected --------------------------
+
+  /** The pieces in tunnels (from `findTunnels`); their ghosts are made at `sync`. */
+  private tunnelIds: ReadonlySet<number> = new Set();
+  private tunnelGhosts: InstancedMesh[] = [];
+  private tunnelsShown = false;
+  // Drawn only where something is in front (the hill, the felt), pale: where the track runs under the ground.
+  private readonly tunnelMaterial = new MeshBasicMaterial({ color: new Color("#f6e7c8"), transparent: true, opacity: 0.5, depthWrite: false, depthFunc: GreaterDepth });
+
+  /** Which pieces are in tunnels (call before `sync`). */
+  setTunnelPieces(ids: ReadonlySet<number>): void {
+    this.tunnelIds = ids;
+    this.syncTunnelGhosts();
+  }
+
+  /** Show the track in tunnels through the ground (while track is held), or not. */
+  showTunnels(on: boolean): void {
+    if (on === this.tunnelsShown) return;
+    this.tunnelsShown = on;
+    for (const m of this.tunnelGhosts) m.visible = on;
+  }
+
+  private syncTunnelGhosts(): void {
+    for (const m of this.tunnelGhosts) {
+      this.group.remove(m);
+      m.dispose();
+    }
+    this.tunnelGhosts = [];
+    if (this.tunnelIds.size === 0) return;
+    for (const { mesh, ids } of this.meshes.values()) {
+      const under = ids.map((id, i) => (this.tunnelIds.has(id) ? i : -1)).filter((i) => i >= 0);
+      if (under.length === 0) continue;
+      const ghost = new InstancedMesh(mesh.geometry, this.tunnelMaterial, under.length);
+      const m = new Matrix4();
+      under.forEach((i, k) => {
+        mesh.getMatrixAt(i, m);
+        ghost.setMatrixAt(k, m);
+      });
+      ghost.instanceMatrix.needsUpdate = true;
+      ghost.computeBoundingSphere();
+      ghost.renderOrder = 5;
+      ghost.castShadow = false;
+      ghost.receiveShadow = false;
+      ghost.raycast = () => {};
+      ghost.visible = this.tunnelsShown;
+      this.group.add(ghost);
+      this.tunnelGhosts.push(ghost);
+    }
   }
 
   /** Joints were made or parted without the pieces changing (a group taken up to drag): redo the pegs and end boards. */
@@ -1233,6 +1285,12 @@ export class TrackView {
    * rim shows around the edges.
    */
   private syncOutline(): void {
+    // A piece in a tunnel, selected: its outline through the ground over it.
+    const buried = [...this.highlighted].some((id) => this.tunnelIds.has(id));
+    if (this.outlineMaterial.depthTest === buried) {
+      this.outlineMaterial.depthTest = !buried;
+      this.outlineMaterial.needsUpdate = true;
+    }
     let n = 0;
     for (const id of this.highlighted) {
       const p = this.hidden.has(id) ? undefined : this.layout.getPiece(id);

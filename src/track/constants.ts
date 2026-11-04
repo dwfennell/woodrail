@@ -39,6 +39,9 @@ export const TUNNEL_COVER = 2 * RISER_HEIGHT;
 /** A tunnel mouth (cut and cover): from the ground down two levels, eased as two ramps are (steepest slope 0.5). */
 export const MOUTH_LENGTH = 288;
 export const MOUTH_DEPTH = 2 * RISER_HEIGHT;
+/** A short tunnel mouth: down one level, as a ramp's length and grade (under a hill a level or more high). */
+export const SHORT_MOUTH_LENGTH = 144;
+export const SHORT_MOUTH_DEPTH = RISER_HEIGHT;
 /** How far an underpass's trench starts in from each end (the dip is too shallow there to need one). */
 export const TRENCH_INSET = 10;
 /** A girder span's pier at each end: this long along its track (mm). */

@@ -1,7 +1,7 @@
 import { BufferGeometry, DoubleSide, ExtrudeGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, Path, Shape, ShapeGeometry, Vector2, Vector3, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { hillsOf, inTunnel, tunnelsOn, type Landscape } from "../landscape";
-import { createSample, getPieceDef, MOUTH_DEPTH, pathLength, samplePath, TRENCH_HALF, TRENCH_WALL, type Layout } from "../track";
+import { hillsOf, inTunnel, mayTunnel, tunnelsOn, type Landscape } from "../landscape";
+import { createSample, getPieceDef, isTunnelMouth, pathLength, samplePath, TRENCH_HALF, TRENCH_WALL, type Layout } from "../track";
 
 /** A tunnel's portal: where its track meets the open air, facing out along `out` (a world heading). */
 export interface Portal {
@@ -13,6 +13,8 @@ export interface Portal {
   out: number;
   /** In a hill's side, or at the foot of a tunnel mouth's cutting (as wide as the cutting, up to the felt). */
   kind: "hill" | "mouth";
+  /** How high its frame stands over the track's base (mm). */
+  top: number;
 }
 
 /** A short dash of the line painted over a tunnel, on the ground above it: from (x0, z0) to (x1, z1) at height y. */
@@ -28,7 +30,7 @@ interface Dash {
 const OPENING_HALF = 23;
 const SPRING = 54;
 /** A hill's portal: its frame this wide and high (two levels of hill are 96). */
-const HILL_HALF = 30;
+const HILL_HALF = 28;
 const HILL_HEIGHT = 86;
 /** The frame stands this far proud of the hill's side (or the cutting's end). */
 const FRAME_DEPTH = 5;
@@ -47,14 +49,16 @@ const sample = createSample();
  * Where the layout's tunnels are: their portals (where track goes from open air into two levels of ground, and at the
  * foot of each tunnel mouth) and the dashes painted over them. Pure (from the layout and the land), for the view and tests.
  */
-export function findTunnels(layout: Layout, land: Landscape): { portals: Portal[]; dashes: Dash[] } {
+export function findTunnels(layout: Layout, land: Landscape): { portals: Portal[]; dashes: Dash[]; pieces: Set<number> } {
   const portals: Portal[] = [];
   const dashes: Dash[] = [];
-  if (!tunnelsOn()) return { portals, dashes };
+  const pieces = new Set<number>();
+  if (!tunnelsOn()) return { portals, dashes, pieces };
   const hills = hillsOf(land.grid);
   for (const id of layout.pieceIds()) {
     if (layout.isLifted(id)) continue;
     const p = layout.getPiece(id)!;
+    if (!mayTunnel(land, p.type, p.flipped, p.pose, p.y)) continue;
     const def = getPieceDef(p.type, p.flipped);
     const c = Math.cos(p.pose.heading);
     const s = Math.sin(p.pose.heading);
@@ -67,33 +71,46 @@ export function findTunnels(layout: Layout, land: Landscape): { portals: Portal[
         const w = world(sample.x, sample.z);
         return { ...w, y: p.y + sample.y, heading: p.pose.heading + sample.heading };
       };
+      /** Where along the path a test changes, between two samples: halved down to a fraction of a mm. */
+      const edge = (lo: number, hi: number, test: (d: number) => boolean) => {
+        const was = test(lo);
+        for (let i = 0; i < 12; i++) {
+          const mid = (lo + hi) / 2;
+          if (test(mid) === was) lo = mid;
+          else hi = mid;
+        }
+        return { lo, hi };
+      };
+      if (isTunnelMouth(p.type)) {
+        pieces.add(id);
+        // (Its path runs down from its top end, s = 0.) Its portal where it runs in under a hill's side, else at its foot.
+        const under = (d: number) => {
+          const q = at(d);
+          return hills.groundAt(q.x, q.z) > p.y + 0.5;
+        };
+        let face = -1;
+        for (let k = 1; k <= n && face < 0; k++) if (under((len * k) / n)) face = edge((len * (k - 1)) / n, (len * k) / n, under).hi;
+        const q = at(face >= 0 ? face : len);
+        const depth = p.y - samplePath(path.geom, len, sample).y;
+        portals.push({ x: q.x, z: q.z, y: q.y, out: q.heading + Math.PI, kind: face >= 0 ? "hill" : "mouth", top: face >= 0 ? HILL_HEIGHT : depth + p.y + 0.6 });
+        continue;
+      }
       const covered = (d: number) => {
         const q = at(d);
         return inTunnel(land, q.x, q.z, q.y);
       };
-      if (p.type === "tunnel-mouth") {
-        // Its portal at its low end, facing back up the slope.
-        const lowAtEnd = samplePath(path.geom, len, sample).y < samplePath(path.geom, 0, sample).y;
-        const q = at(lowAtEnd ? len : 0);
-        portals.push({ x: q.x, z: q.z, y: q.y, out: lowAtEnd ? q.heading + Math.PI : q.heading, kind: "mouth" });
-        continue;
-      }
       let was = covered(0);
       let d0 = was ? 0 : -1;
+      if (was) pieces.add(id);
       for (let k = 1; k <= n; k++) {
         const d = (len * k) / n;
         const now = covered(d);
+        if (now) pieces.add(id);
         if (now !== was) {
-          // Where it crosses into (or out of) the ground: halve the step down to a fraction of a mm.
-          let lo = (len * (k - 1)) / n;
-          let hi = d;
-          for (let i = 0; i < 12; i++) {
-            const mid = (lo + hi) / 2;
-            if (covered(mid) === was) lo = mid;
-            else hi = mid;
-          }
+          const { lo, hi } = edge((len * (k - 1)) / n, d, covered);
           const q = at(hi);
-          portals.push({ x: q.x, z: q.z, y: q.y, out: now ? q.heading + Math.PI : q.heading, kind: "hill" });
+          // (Where the line goes under the ground at its own level: a hill's side, met square.)
+          portals.push({ x: q.x, z: q.z, y: q.y, out: now ? q.heading + Math.PI : q.heading, kind: "hill", top: HILL_HEIGHT });
           if (now) d0 = hi;
           else {
             dashLine(d0, lo);
@@ -117,7 +134,7 @@ export function findTunnels(layout: Layout, land: Landscape): { portals: Portal[
   // Two pieces meeting at a hill's side both find it: one portal.
   const kept: Portal[] = [];
   for (const q of portals) if (!kept.some((k) => Math.hypot(k.x - q.x, k.z - q.z) < 6 && Math.abs(k.y - q.y) < 6)) kept.push(q);
-  return { portals: kept, dashes };
+  return { portals: kept, dashes, pieces };
 }
 
 /**
@@ -134,7 +151,7 @@ export class TunnelsView {
   constructor(private readonly frame: Material) {}
 
   /** The portals and dashes as last found (tests, the pictures). */
-  found: { portals: Portal[]; dashes: Dash[] } = { portals: [], dashes: [] };
+  found: { portals: Portal[]; dashes: Dash[]; pieces: Set<number> } = { portals: [], dashes: [], pieces: new Set() };
 
   sync(layout: Layout, land: Landscape): boolean {
     const found = findTunnels(layout, land);
@@ -190,7 +207,7 @@ function openingShape(): { x: number; y: number }[] {
 export function portalGeometry(p: Portal): { frame: BufferGeometry; dark: BufferGeometry } {
   const mouth = p.kind === "mouth";
   const half = mouth ? TRENCH_HALF + TRENCH_WALL : HILL_HALF;
-  const height = mouth ? MOUTH_DEPTH + 0.6 : HILL_HEIGHT;
+  const height = p.top;
   const outer = new Shape();
   outer.moveTo(-half, 0);
   outer.lineTo(half, 0);

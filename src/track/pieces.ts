@@ -17,6 +17,8 @@ import {
   UNDERPASS_DIP,
   MOUTH_DEPTH,
   MOUTH_LENGTH,
+  SHORT_MOUTH_DEPTH,
+  SHORT_MOUTH_LENGTH,
   UNDERPASS_EASE,
   UNDERPASS_LENGTH,
 } from "./constants";
@@ -71,6 +73,7 @@ export type PieceTypeId =
   | "bridge-curve"
   | "underpass"
   | "tunnel-mouth"
+  | "tunnel-mouth-short"
   | "buffer"
   | "buffer-turnback"
   | "adapter-peg"
@@ -200,6 +203,24 @@ function arcEnd(radius: number, sweep: number): Pose {
   return pose(radius * Math.sin(a), sign * radius * (1 - Math.cos(a)), sweep);
 }
 
+
+/** A tunnel mouth `length` long, down `depth` from its first end (a hole) to its second (a peg). */
+function mouth(type: PieceTypeId, length: number, depth: number): PieceDef {
+  return {
+    type,
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(length, 0, 0), y: -depth },
+    ],
+    paths: [{ from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length, y0: 0, rise: -depth } }],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  };
+}
+
+/** Is this a tunnel mouth (either length)? */
+export const isTunnelMouth = (type: PieceTypeId): boolean => type === "tunnel-mouth" || type === "tunnel-mouth-short";
 
 /** A ramp round a quarter turn of radius `radius`, up one level (its high end a peg). */
 function rampCurve(type: PieceTypeId, radius: number): PieceDef {
@@ -389,19 +410,11 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   // `bridgeLevels`): the piece's base is its deck.
   bridge: straight("bridge", BRIDGE_LENGTH),
   "bridge-curve": curve("bridge-curve", LARGE_CURVE_RADIUS),
-  // A tunnel mouth (cut and cover): a straight sloping down two levels into the board, in a wooden-lined cutting, to
-  // track under the felt (see `TUNNEL_COVER`). Its top end at the ground; flipped, its ends swap (to come back up).
-  "tunnel-mouth": {
-    type: "tunnel-mouth",
-    connectors: [
-      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
-      { kind: "peg", pose: pose(MOUTH_LENGTH, 0, 0), y: -MOUTH_DEPTH },
-    ],
-    paths: [{ from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: MOUTH_LENGTH, y0: 0, rise: -MOUTH_DEPTH } }],
-    flippable: true,
-    isSwitch: false,
-    supportHeight: 0,
-  },
+  // A tunnel mouth: a straight sloping down two levels into the board, in a wooden-lined cutting, to track under the
+  // felt (see `TUNNEL_COVER`); the short one down one level, to track under a hill. Its top end at the ground; flipped,
+  // its ends swap (to come back up).
+  "tunnel-mouth": mouth("tunnel-mouth", MOUTH_LENGTH, MOUTH_DEPTH),
+  "tunnel-mouth-short": mouth("tunnel-mouth-short", SHORT_MOUTH_LENGTH, SHORT_MOUTH_DEPTH),
   // An underpass: a straight whose middle sinks into the board (a wooden-sided trench), so a bridge one level up can
   // cross over it with room for the tallest car (see `UNDERPASS_DIP`). Both ends are at the ground.
   underpass: {
@@ -645,6 +658,7 @@ function swapEnds(def: PieceDef): PieceDef {
 const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   "ramp",
   "tunnel-mouth",
+  "tunnel-mouth-short",
   "buffer",
   "buffer-turnback",
   // Kits flipping (a buffer's skin): a single end, so a flip can only swap its peg and hole.
