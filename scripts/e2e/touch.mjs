@@ -7,6 +7,7 @@ import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
+import { shot } from "./lib/shot.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -2092,12 +2093,12 @@ async function viaRoute(ctx, p) {
     const r = box.getBoundingClientRect();
     return { vias: [...box.querySelectorAll(".route-via")].map((b) => ({ text: b.textContent, h: b.getBoundingClientRect().height })), rows: rows.size, inside: r.left >= 0 && r.right <= innerWidth };
   });
-  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/via-planning.png` });
+  if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/via-planning.png`);
   check('via: the card shows two "via" chips, 44 px tall or more, the planning card 2 lines at 360 px', card.vias.length === 2 && card.vias.every((v) => v.text.startsWith("via") && v.h >= 44) && card.rows <= 2 && card.inside, JSON.stringify(card));
   // A via chip tapped: its tools (what it is, ✕), the card's buttons 44 px or more.
   await tapButton(".engine-extra .route-via");
   const tools = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-tools button")].map((b) => ({ text: b.textContent, h: Math.round(b.getBoundingClientRect().height), w: Math.round(b.getBoundingClientRect().width) })));
-  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/via-picked.png` });
+  if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/via-picked.png`);
   check("via: a via chip tapped shows its ✕, 44 px or more", tools.some((t) => t.text === "✕") && tools.every((t) => t.h >= 44 && t.w >= 44), JSON.stringify(tools));
   await tapButton(".engine-extra .route-via.picked");
   await tapButton(".engine-extra .route-plan.on");
@@ -2609,6 +2610,11 @@ async function leaveNowWait(ctx, p) {
   // stands under the crane waiting to fill.
   await tapOn({ engine: setup.engine });
   await tapButton(".engine-card .go");
+  // (The Go taken: its lever set, before the game's ticks are run. Under load the tap's click came in but its lever
+  // wasn't set yet when they ran, and the train never moved: {"at":null,"loads":[0,0]}.)
+  const going = await p
+    .waitForFunction((e) => { const f = window.woodrail.sim.findCar(e); return !!f && f.train.cars[f.index].lever !== 0; }, setup.engine, { timeout: 60000 })
+    .then(() => true, () => false);
   const waiting = await p.evaluate((o) => {
     const w = window.woodrail;
     const t = () => w.sim.findCar(o.engine).train;
@@ -2620,11 +2626,11 @@ async function leaveNowWait(ctx, p) {
     const d = w.economy.waitingToFill(t().id);
     return { at: d?.id ?? null, loads: t().cars.filter((c) => c.kind === "timber").map((c) => w.economy.cargoOf(c.id).count) };
   }, setup);
-  check("leave-now: the hand-run train stands under the forest's crane waiting for a full load, a log or more on", waiting.at === setup.forest && waiting.loads[0] >= 1, JSON.stringify(waiting));
+  check("leave-now: the hand-run train stands under the forest's crane waiting for a full load, a log or more on", waiting.at === setup.forest && waiting.loads[0] >= 1, JSON.stringify({ ...waiting, going }));
   const shown = await p.waitForFunction(() => { const b = document.querySelector(".engine-card .leave-now"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 30000 }).then(() => true, () => false);
   const box = await p.evaluate(() => { const r = document.querySelector(".engine-card .leave-now")?.getBoundingClientRect(); return r ? { w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right) } : null; });
   check("leave-now: its card shows Leave now, 44 px or more and inside the phone's width", shown && box && box.h >= 44 && box.w >= 44 && box.right <= 390, JSON.stringify({ shown, box }));
-  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/leave-now.png` });
+  if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/leave-now.png`);
   const undoBefore = await p.evaluate(() => window.woodrail.editor().canUndo);
   await tapButton(".engine-card .leave-now");
   const after = await p.evaluate((o) => {
@@ -4231,7 +4237,7 @@ async function routeUx(ctx, p) {
       return { following: w.following, distance: Math.round(w.camera.position.distanceTo(w.controls.target)), max: Math.round(w.controls.maxDistance), middleY: Math.round(((1 - c.y) / 2) * innerHeight), room: room && [room.left, room.top, room.right, room.bottom].map(Math.round), cards };
     }, setup)),
   };
-  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ux-done.png` });
+  if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/route-ux-done.png`);
   const asFarAsItGoes = done.distance >= done.max - 2 && done.middleY > done.top && done.middleY < done.bottom;
   check("route-ux (F5): after Done, the whole route shows above the card (or the view is as far out as it goes, the route's middle above it)", (done.ok || asFarAsItGoes) && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify(done));
 
@@ -4582,14 +4588,14 @@ async function routeReorder(ctx, p) {
     // (Pictures only: a stop picked, with the drag hint; then stop 1 held over the gap between stops 2 and 3, and
     // taken back where it was before it's let go: no change.)
     await tapButton('.engine-extra .route-chip[data-stop="1"]');
-    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-hint.jpg`, type: "jpeg", quality: 80 });
+    await shot(p, `${process.env.E2E_SHOTS}/route-reorder-hint.jpg`, { type: "jpeg", quality: 80 });
     await tapButton('.engine-extra .route-chip[data-stop="1"]');
     const [c0, c1] = [await chipAt(0), await chipAt(1)];
     await touch("touchStart", c0.x, c0.y);
     await p.waitForTimeout(600);
     for (let k = 1; k <= 10; k++) (await touch("touchMove", c0.x + ((c1.right + 4 - c0.x) * k) / 10, c0.y + 2), await p.waitForTimeout(16));
     await frames(p);
-    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-drag-mid.jpg`, type: "jpeg", quality: 80 });
+    await shot(p, `${process.env.E2E_SHOTS}/route-reorder-drag-mid.jpg`, { type: "jpeg", quality: 80 });
     for (let k = 1; k <= 10; k++) (await touch("touchMove", c1.right + 4 + ((c0.x - c1.right - 4) * k) / 10, c0.y + 2), await p.waitForTimeout(16));
     await touch("touchEnd", 0, 0);
     await frames(p);
@@ -4604,7 +4610,7 @@ async function routeReorder(ctx, p) {
   // Held, stop 3's chip lifts; dragged before stop 1, the bar shows there; let go, it's first.
   const target = (await chipAt(0)).left + 4;
   const mid = await drag(2, target, 600, async () => {
-    if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-drag.jpg`, type: "jpeg", quality: 80 });
+    if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/route-reorder-drag.jpg`, { type: "jpeg", quality: 80 });
     return p.evaluate(() => {
       const mark = document.querySelector(".engine-extra .route-drop-mark");
       const first = document.querySelector('.engine-extra .route-chip[data-stop="0"]').getBoundingClientRect();
@@ -4657,7 +4663,7 @@ async function routeReorder(ctx, p) {
       w.director.glideTo(new w.controls.target.constructor(t.x, t.y, t.z), 700, { duration: 0.2 });
     }, shuttle.engine);
     await still();
-    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-reorder-lanes.jpg`, type: "jpeg", quality: 80 });
+    await shot(p, `${process.env.E2E_SHOTS}/route-reorder-lanes.jpg`, { type: "jpeg", quality: 80 });
   }
   check("route-reorder (F8): a shuttle's legs are two lanes between its stops; the oval's one-way legs, at most a turn at a stop", lanes >= 2 * 4 * 216 * 0.9 && lanesOval <= 2 * 216, JSON.stringify({ lanes, lanesOval }));
   await p.evaluate(() => (window.woodrail.paused = true));
@@ -4762,14 +4768,14 @@ async function routeShare(ctx, p) {
   await still();
   const shared = await p.evaluate(() => window.woodrail.linesShared());
   if (process.env.E2E_SHOTS) {
-    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-share-lines.jpg`, type: "jpeg", quality: 80 });
+    await shot(p, `${process.env.E2E_SHOTS}/route-share-lines.jpg`, { type: "jpeg", quality: 80 });
     await p.evaluate(async (e) => {
       const w = window.woodrail;
       const t = w.sim.findCar(e).train.world[0];
       w.director.glideTo(new w.controls.target.constructor(t.x, t.y, t.z), 900, { duration: 0.2 });
     }, setup.engines[0]);
     await still();
-    await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-share-close.jpg`, type: "jpeg", quality: 80 });
+    await shot(p, `${process.env.E2E_SHOTS}/route-share-close.jpg`, { type: "jpeg", quality: 80 });
   }
   check("route-share (F9): the two lines over the same track are drawn side by side in the Lines view", shared >= 2000, JSON.stringify({ shared }));
   // Reverse on the copy: said; its stops the other way round, the first line's not; on this ring (an oval) its train
