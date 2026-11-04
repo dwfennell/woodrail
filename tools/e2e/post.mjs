@@ -275,14 +275,18 @@ if (!setup.error && setup.engine !== -1) {
       return { x: v.x, y: v.y, z: v.z, leg: v.leg };
     }, van.id);
     await showing({ at: now }, 420);
+    // (Software GL on a busy machine: a frame can take seconds, and the van rests 8 s at each end. Waited for while it drives.)
+    const drives = (id) => p.waitForFunction((id) => ["out", "back"].includes(window.woodrail.vans.vehicles.list.find((v) => v.id === id)?.leg), id, { timeout: 60000 }).catch(() => {});
+    await drives(van.id);
     const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
-    await p.waitForTimeout(3000);
+    await p.waitForFunction((f) => window.woodrail.framesDrawn > f, f0, { timeout: 30000 }).catch(() => {});
     const f1 = await p.evaluate(() => window.woodrail.framesDrawn);
     check("near, in view and driving, the post van draws frames", f1 > f0, JSON.stringify({ leg: now.leg, frames: f1 - f0 }));
     await shot("3-post-van-in-town");
     // Zoomed right out: too small to see drive, it moves on unseen and nothing is drawn.
     await showing({ at: now }, 14000);
     await p.waitForTimeout(1500);
+    await drives(van.id);
     const g0 = await p.evaluate(() => window.woodrail.framesDrawn);
     await p.waitForTimeout(4000);
     const g1 = await p.evaluate(() => window.woodrail.framesDrawn);
