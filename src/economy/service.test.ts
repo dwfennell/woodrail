@@ -217,6 +217,53 @@ describe("automatic servicing", () => {
     }
   });
 
+  describe("Leave now (the engine card): a train waiting to fill goes with what it has, this visit only", () => {
+    const run = (routed: boolean) => {
+      const w = setup("forest");
+      if (routed) w.economy.setRoute(w.engine().id, { stops: [{ depotId: w.depot.id, action: "pick", waitFill: true }], next: 0 });
+      else w.economy.setWaitFull(w.depot.id, true);
+      const id = () => w.train().id;
+      // Not waiting yet (on its way in): nothing to do.
+      expect(w.economy.waitingToFill(id())).toBeNull();
+      expect(w.economy.leaveNow(id())).toBe(false);
+      let i = 0;
+      while (!w.economy.waitingToFill(id()) && i++ < 30 * SIM_HZ) w.step();
+      expect(w.economy.waitingToFill(id())?.id).toBe(w.depot.id);
+      const first = w.wagons()[0].id;
+      expect(w.economy.cargoOf(first).count).toBeLessThan(3);
+      expect(w.economy.leaveNow(id())).toBe(true);
+      expect(w.economy.waitingToFill(id())).toBeNull();
+      // It runs on, past the depot, with what it had (none of its wagons full).
+      let left = false;
+      for (let k = 0; k < 15 * SIM_HZ && !left; k++) {
+        w.step();
+        left = !w.train().bogies.some((b) => b.pieceId === w.depot.pieceId);
+      }
+      expect(left).toBe(true);
+      expect(w.wagons().every((c) => w.economy.cargoOf(c.id).count < 3)).toBe(true);
+      // Back at the depot (it turns back at the end of the line): the stop's setting holds it to fill again.
+      let again = false;
+      for (let k = 0; k < 60 * SIM_HZ && !again; k++) {
+        w.step();
+        again = w.economy.waitingToFill(id()) !== null;
+      }
+      expect(again).toBe(true);
+    };
+    it("hand-run, at a depot set to wait for a full load", () => run(false));
+    it("routed, at a stop set to Wait here till full", () => run(true));
+
+    it("isn't offered to a train being worked at a depot not set to wait", () => {
+      const w = setup("sawmill");
+      for (const car of w.wagons()) w.economy.setCargo(car.id, "log", 3);
+      let seen = false;
+      for (let i = 0; i < 40 * SIM_HZ; i++) {
+        w.step();
+        seen ||= w.economy.waitingToFill(w.train().id) !== null;
+      }
+      expect(seen).toBe(false);
+    });
+  });
+
   it("lever off holds the train and pauses the crane; lever on carries on", () => {
     const w = setup("forest");
     w.depot.piles[CARGO.log.index] = PILE_CAP;

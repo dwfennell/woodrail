@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { appendPiece, connectorRef } from "../track";
 import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, lacking, madeText, makeNote, uncraft, workshopStock } from "./crafting";
-import { makeRowHtml, SHARES_LABEL, TAKES_ALL_LABEL, yardHint, yardModeHtml } from "../ui/workshop-panel";
+import { keepRowHtml, makeRowHtml, SHARES_LABEL, TAKES_ALL_LABEL, yardHint, yardModeHtml } from "../ui/workshop-panel";
 import type { ThingId } from "./things";
 import { Progress } from "./progress";
 import { buildStarterWorld, syncIndustries } from "./world";
@@ -101,17 +101,67 @@ describe("the workshop's plank choice: Shares with towns / Takes all planks", ()
     expect(share).toContain(TAKES_ALL_LABEL);
     expect(share).toMatch(/class="chip text active" data-yard="share" aria-pressed="true"/);
     expect(share).toMatch(/class="chip text" data-yard="all" aria-pressed="false"/);
-    expect(yardHint({ takesAll: false, keeps: 7, cap: 30 })).toBe("Leaves planks for towns further on, keeping 7 for you");
-    expect(yardHint({ takesAll: false, keeps: 8, cap: 30 })).toBe("Leaves planks for towns further on, keeping 8 for you");
+    expect(yardHint({ takesAll: false, keeps: 7, cap: 30 })).toBe("Leaves planks for towns and schools further on, keeping 7 for you");
+    expect(yardHint({ takesAll: false, keeps: 8, cap: 30 })).toBe("Leaves planks for towns and schools further on, keeping 8 for you");
     // What they're for (an order, or the next thing to build: `shopSpare`).
-    expect(yardHint({ takesAll: false, keeps: 8, keptFor: "Mill", cap: 30 })).toBe("Leaves planks for towns further on, keeping 8 for you, enough for a Mill");
-    expect(yardHint({ takesAll: false, keeps: 12, keptFor: "Engine shed", cap: 30 })).toBe("Leaves planks for towns further on, keeping 12 for you, enough for an Engine shed");
+    expect(yardHint({ takesAll: false, keeps: 8, keptFor: "Mill", cap: 30 })).toBe("Leaves planks for towns and schools further on, keeping 8 for you, enough for a Mill");
+    expect(yardHint({ takesAll: false, keeps: 12, keptFor: "Engine shed", cap: 30 })).toBe("Leaves planks for towns and schools further on, keeping 12 for you, enough for an Engine shed");
     expect(yardHint({ takesAll: true, keeps: 8, keptFor: "Mill", cap: 30 })).toBe("Fills its yard first, up to 30");
     expect(yardHint({ takesAll: true, keeps: 7, cap: 30 })).toBe("Fills its yard first, up to 30");
     // A school set to Research first (its card) is said: trains keep its research's planks past the workshop.
     expect(yardHint({ takesAll: true, keeps: 7, cap: 30, school: true })).toBe("Fills its yard first, up to 30, after your school's research (it's set to Research first)");
-    expect(yardHint({ takesAll: false, keeps: 7, cap: 30, school: true })).toBe("Leaves planks for towns further on, keeping 7 for you");
+    expect(yardHint({ takesAll: false, keeps: 7, cap: 30, school: true })).toBe("Leaves planks for towns and schools further on, keeping 7 for you");
     expect(yardModeHtml({ takesAll: true, keeps: 7, cap: 30 })).toMatch(/class="chip text active" data-yard="all"/);
+  });
+});
+
+describe("the workshop's keep steppers (how many it keeps while it shares)", () => {
+  it("saves a keep amount set on that workshop only; one never set (and an old save without the field) loads with the game's own", async () => {
+    const { serializeWorld, deserializeWorld } = await import("../persist/save");
+    const { w, d } = withWorkshop(5);
+    expect(d.keeps.every((n) => n === null)).toBe(true);
+    w.economy.setKeep(d.id, "planks", 4);
+    w.economy.setKeep(d.id, "iron", 999);
+    expect(d.keeps[CARGO.iron.index]).toBe(30);
+    const data = JSON.parse(JSON.stringify(serializeWorld(w)));
+    expect(data.depots.filter((x: { keeps?: object }) => "keeps" in x).map((x: { id: number }) => x.id)).toEqual([d.id]);
+    expect(data.depots[d.id].keeps).toEqual({ planks: 4, iron: 30 });
+    const back = deserializeWorld(data);
+    if (!back.ok) throw new Error(back.error);
+    expect(back.value.economy.depot(d.id)!.keeps[CARGO.planks.index]).toBe(4);
+    expect(back.value.economy.depot(d.id)!.keeps[CARGO.iron.index]).toBe(30);
+    // Back to Auto: nothing saved.
+    w.economy.setKeep(d.id, "planks", null);
+    w.economy.setKeep(d.id, "iron", null);
+    expect(JSON.parse(JSON.stringify(serializeWorld(w))).depots.some((x: { keeps?: object }) => "keeps" in x)).toBe(false);
+    delete data.depots[d.id].keeps;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.depot(d.id)!.keeps.every((n) => n === null)).toBe(true);
+  });
+
+  it("only a workshop takes one", () => {
+    const { w } = withWorkshop(0);
+    const town = w.economy.allDepots().find((x) => x.role === "town")!;
+    w.economy.setKeep(town.id, "planks", 3);
+    expect(town.keeps.every((n) => n === null)).toBe(true);
+  });
+
+  it("the stepper: − and + (44 px chips), the number, Auto once set; − off at 0, + off at the cap", () => {
+    const auto = keepRowHtml({ kind: "planks", label: "planks", n: 7, set: false, max: 30, auto: "Auto" });
+    expect(auto).toContain('data-keep="planks" data-step="-1"');
+    expect(auto).toContain('data-keep="planks" data-step="1"');
+    expect(auto).toContain(">7<");
+    expect(auto).not.toContain('data-step="auto"');
+    expect(keepRowHtml({ kind: "planks", label: "planks", n: 0, set: true, max: 30, auto: "Auto" })).toMatch(/data-step="-1" aria-label="Keep fewer planks" disabled/);
+    expect(keepRowHtml({ kind: "planks", label: "planks", n: 4, set: true, max: 30, auto: "Auto" })).toContain('data-step="auto"');
+    const iron = keepRowHtml({ kind: "iron", label: "iron", n: 30, set: false, max: 30, auto: "All" });
+    expect(iron).toContain(">All<");
+    expect(iron).toMatch(/data-step="1" aria-label="Keep more iron" disabled/);
+    // Shown only while it shares.
+    const rows = [{ kind: "planks" as const, label: "planks", n: 7, set: false, max: 30, auto: "Auto" }];
+    expect(yardModeHtml({ takesAll: false, keeps: 7, cap: 30, keepRows: rows })).toContain("keep-row");
+    expect(yardModeHtml({ takesAll: true, keeps: 7, cap: 30, keepRows: rows })).not.toContain("keep-row");
   });
 });
 

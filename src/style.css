@@ -236,7 +236,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    (DESIGN.md spacing: 8 px inside the row of chips, 10 px between the rows.) */
 .engine-controls { display: grid; grid-template-columns: minmax(150px, 1fr) auto; gap: 10px; align-items: stretch; }
 .engine-controls .chip.go { width: auto; }
-.engine-controls .chip.continue { grid-column: 1 / -1; width: auto; }
+.engine-controls .chip.continue, .engine-controls .chip.leave-now { grid-column: 1 / -1; width: auto; }
 .engine-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: center; }
 /* A line with a train too many: Remove is the quick fix the status names ("…, or remove a train"), ringed. */
 .engine-actions .chip.remove.suggested { box-shadow: 0 0 0 3px #faf3e6, 0 0 0 5px #d9634d, 0 3px 8px rgba(120, 40, 20, 0.25); }
@@ -245,6 +245,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip.go .go-icon { font-size: 16px; margin-right: 8px; }
 /* Continue (waiting to turn back where the track ends): the width of Go and the arrow together, a thumb tall. */
 .chip.continue { width: 218px; height: 48px; font-size: 18px; font-weight: 800; }
+/* Leave now (waiting for a full load): Continue's row and size. */
+.chip.leave-now { height: 48px; font-size: 18px; font-weight: 800; }
 .chip.way { position: relative; width: 58px; height: 58px; padding: 0; color: #4a3220; }
 /* A small ⇄ in the corner: the arrow can be turned round. */
 .chip.way .way-hint { position: absolute; right: 4px; bottom: 2px; font-size: 12px; line-height: 1; font-weight: 800; color: #8a6a4a; }
@@ -793,6 +795,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-yard { align-self: stretch; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; text-wrap: balance; }
+/* The workshop's keep steppers (while it shares): "Keeps − 7 + planks", Auto while you've set it. 44 px buttons. */
+.keep-rows { display: flex; flex-direction: column; gap: 4px; }
+.keep-row { display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; color: #4a3220; }
+.keep-row .chip { flex: none; min-width: 44px; padding: 0 10px; }
+.keep-row .keep-n { min-width: 2.2em; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; }
+.keep-row .keep-kind { min-width: 3.2em; }
+.keep-row .keep-auto { font-size: 13px; }
 /* A warehouse's goods: a row each (name and count over what it's set to; four 44 px choices), "Any other goods", and
    "+ Add a good" with its picker. The chosen way is green, as any chip that's on. */
 .depot-stock:empty { display: none; }
