@@ -37,7 +37,10 @@ describe("the icon font (src/icons → scripts/icon-font.py → style.css)", () 
         else if (/\.(ts|html)$/.test(f) && !/\.test\.ts$/.test(f)) {
           // Comments may name a character (a code's own notes): only what reaches the page counts.
           const code = readFileSync(url, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
-          for (const m of code.matchAll(/\p{Extended_Pictographic}/gu)) {
+          // (Pictographs with the Emoji property: the only ones a phone draws from its emoji font. Text symbols such as
+          // ★ ☰ ✎ are drawn by a text font; whether they're Extended_Pictographic differs by the runtime's Unicode
+          // version, so without this the test passed on one Node and failed on another.)
+          for (const m of code.matchAll(/(?=\p{Emoji})\p{Extended_Pictographic}/gu)) {
             const c = m[0].codePointAt(0)!;
             if (!drawn.has(c)) missing.push(`${m[0]} U+${c.toString(16).toUpperCase()} in src/${rel}${f}`);
           }
