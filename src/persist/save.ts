@@ -158,6 +158,11 @@ const saveSchema = z.object({
       landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_KINDS.length).optional(),
       /** A station's van yard (roads spec D5): goods waiting for its delivery van (or riding it), by kind. */
       vanYard: z.record(z.string(), z.number().int().min(0).max(MAX_PILE)).optional(),
+      /**
+       * An industry's further tracks (depot tracks): the pieces under its crane on each (`roads`), the rest of those
+       * tracks (`ends`), and the ladder joining them to the line. Optional: absent (older saves too), it has one track.
+       */
+      tracks: z.object({ roads: z.array(z.number().int().positive()).max(2), ends: z.array(z.number().int().positive()).max(8), ladder: z.array(z.number().int().positive()).max(64) }).optional(),
     }),
   ),
   /** Plank bundles delivered, by town id. */
@@ -226,6 +231,15 @@ function keepsOf(d: DepotState): { keeps?: Partial<Record<CargoKind, number>> } 
 
 /** A depot's landed goods, for its save entry (none: nothing). */
 /** A warehouse's store settings for its save: only what isn't the default (nothing listed, everything taken and given). */
+/** An industry's further tracks as saved (depot tracks): their pieces still on the map; nothing with none. */
+function tracksSaved(world: World, depotId: number): { tracks?: { roads: number[]; ends: number[]; ladder: number[] } } {
+  const t = world.economy.tracksOf(depotId);
+  if (!t) return {};
+  const on = (id: number) => !!world.layout.getPiece(id);
+  const roads = t.roads.map((r) => r.pieceId).filter(on);
+  return roads.length > 0 ? { tracks: { roads, ends: t.ends.filter(on), ladder: t.ladder.filter(on) } } : {};
+}
+
 function storeOf(d: DepotState): { modes?: Partial<Record<CargoKind, StoreMode>>; others?: StoreMode } {
   const modes: Partial<Record<CargoKind, StoreMode>> = {};
   let any = false;
@@ -337,7 +351,7 @@ export function serializeWorld(world: World): SaveData {
     wyeLevers: 3,
     trains,
     ids: sim.idCounters(),
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...storeOf(d), ...keepsOf(d), ...landedOf(world, d.id), ...vanYardOf(world, d.id) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...storeOf(d), ...keepsOf(d), ...landedOf(world, d.id), ...vanYardOf(world, d.id), ...tracksSaved(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
@@ -532,6 +546,12 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       const yard: Bag = {};
       for (const k of CARGO_KINDS) if (d.vanYard[k]) yard[k] = d.vanYard[k];
       if (Object.keys(yard).length > 0) economy.vanYard.set(state.id, yard);
+    }
+    // Its further tracks (depot tracks): only pieces the save has (a save without: one track).
+    if (d.tracks) {
+      const on = (id: number) => !!layout.getPiece(id);
+      const roads = d.tracks.roads.filter(on);
+      if (roads.length > 0) economy.setTracks(state, roads, d.tracks.ends.filter(on), d.tracks.ladder.filter(on));
     }
     // Bought goods on a harbour's quay stay landed (the next boat doesn't take them back).
     if (d.landed) for (const kind of CARGO_KINDS) {
