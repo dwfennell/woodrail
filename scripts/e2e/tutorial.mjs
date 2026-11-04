@@ -211,11 +211,14 @@ for (const [w, h] of [[360, 740], [667, 375]]) {
     const framed = await p.evaluate(() => {
       const w = window.woodrail;
       const c = document.querySelector(".coach").getBoundingClientRect();
-      const v = w.controls.target.clone().project(w.camera);
-      return { y: Math.round(((1 - v.y) / 2) * innerHeight), coachTop: Math.round(c.top), coachShown: c.height > 0 };
+      // Every place the goal frames (Join two towns: both stations), on screen above the coach.
+      const pts = w.goals().current().guide(w.world).points;
+      const V = w.camera.position.constructor;
+      const ys = pts.map((q) => Math.round(((1 - new V(q.x, 0, q.z).project(w.camera).y) / 2) * innerHeight));
+      return { ys, y: Math.max(...ys), coachTop: Math.round(c.top), coachShown: c.height > 0 };
     });
     if (OUT) await p.screenshot({ path: `${OUT}/coach-show-me-${w}.png` });
-    check("Show me with the coach up frames the goal above the coach", framed.coachShown && framed.y < framed.coachTop - 20, JSON.stringify(framed));
+    check("Show me with the coach up frames the goal above the coach", framed.coachShown && framed.ys.length > 0 && framed.y < framed.coachTop - 20, JSON.stringify(framed));
     const tb = await p.evaluate(() => { const r = document.querySelector(".coach .coach-skip").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
     await p.touchscreen.tap(tb[0], tb[1]);
     await settle(p);
