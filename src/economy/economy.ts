@@ -372,6 +372,11 @@ interface Later {
   town: boolean;
   /** Goods some later town takes (it wants them): a school takes only its share of them (`SCHOOL_SHARE`). */
   towns: number;
+  /**
+   * Goods some later town takes, or a later school left sharing (not `takesAll`) whose research lacks them: a workshop
+   * set to share keeps only its part of them (`shopKeeps`) and leaves the rest on the train.
+   */
+  sharers: number;
 }
 
 /** `Later` for each stop of one stop list, and what it was worked out from (see `Economy.laterOf`). */
@@ -849,14 +854,18 @@ export class Economy {
   /**
    * Does a town this car's train goes on to want `kind`? A routed train: a later stop of its line is a town taking it;
    * an unrouted one: an automatic town on its track (joined to it) takes it. Asked at a school, while its research
-   * lacks the good, and at a workshop whose yard holds what it keeps (`shopKeeps`).
+   * lacks the good, and at a workshop whose yard holds what it keeps (`shopKeeps`). `schools`: a school left sharing
+   * whose research lacks it counts as a town (the workshop shares with it too).
    */
-  private townWantsAhead(carId: number, kind: CargoKind, route: Route | null): boolean {
+  private townWantsAhead(carId: number, kind: CargoKind, route: Route | null, schools = false): boolean {
     const found = this.sim.findCar(carId);
     if (!found) return false;
-    if (route) return !!(this.laterOf(route.stops, route.next % route.stops.length).towns & (1 << CARGO[kind].index));
+    if (route) {
+      const later = this.laterOf(route.stops, route.next % route.stops.length);
+      return !!((schools ? later.sharers : later.towns) & (1 << CARGO[kind].index));
+    }
     const net = this.networkOf(found.train.bogies[0].pieceId);
-    return this.allDepots().some((d) => d.role === "town" && d.auto && this.networkOf(d.pieceId) === net && (!this.accepts || this.accepts(d, kind)));
+    return this.allDepots().some((d) => (d.role === "town" || (schools && d.role === "school" && !d.takesAll)) && d.auto && this.networkOf(d.pieceId) === net && (!this.accepts || this.accepts(d, kind)));
   }
 
   /**
@@ -1300,9 +1309,10 @@ export class Economy {
     // What a school set to Research first lacks rides on past a town or a workshop for it (a workshop's tray order first).
     if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route)) return "school";
     // A workshop's yard takes no more than it keeps (its tray order's, or a few) while a town the train goes on to wants
-    // them too (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved). Not one set
+    // them too, or a school left sharing whose research lacks them (Dustin's playthrough, 2026-11-04: a sharing school
+    // after the workshop got none) (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved). Not one set
     // to take all (`takesAll`), nor at a stop set to Only drop (QA N3: it still shared): it fills its yard.
-    if (d.role === "workshop" && !d.takesAll && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && !(route && this.onlyDropsAt(route, d.id)) && this.townWantsAhead(carId, c.kind, route)) return "shares";
+    if (d.role === "workshop" && !d.takesAll && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && !(route && this.onlyDropsAt(route, d.id)) && this.townWantsAhead(carId, c.kind, route, true)) return "shares";
     // A school set to share (its default) takes only its share of a pass's load while a town the train goes on to wants
     // the good too; set to take all (`takesAll`), or at an Only drop stop, all its research lacks.
     if (d.role === "school" && !d.takesAll && !(route && this.onlyDropsAt(route, d.id)) && this.townWantsAhead(carId, c.kind, route)) {
@@ -1657,7 +1667,7 @@ export class Economy {
     }
     const at: Later[] = [];
     for (let i = 0; i < n; i++) {
-      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false, towns: 0 };
+      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false, towns: 0, sharers: 0 };
       /** Goods some later stop other than a town's or a workshop's takes, so far round the line. */
       let taken = 0;
       for (let k = 1; k < n; k++) {
@@ -1671,6 +1681,7 @@ export class Economy {
         if (role && role !== "town" && role !== "workshop") taken |= takes[j];
         later.town ||= town[j];
         if (role === "town") later.towns |= takes[j];
+        if (role === "town" || (role === "school" && !this.depots[stops[j].depotId].takesAll)) later.sharers |= takes[j];
       }
       at.push(later);
     }

@@ -122,6 +122,41 @@ describe("a hand-run train at a workshop set to Takes all planks", () => {
   });
 });
 
+describe("a workshop set to share shares with a school left sharing too (Dustin's playthrough, 2026-11-04)", () => {
+  it("hand-run, a sharing school after it whose research lacks planks: the yard keeps its part, the school gets the rest", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["workshop", "school"]);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(yardKeeps(p));
+    expect(p.research.got.planks).toBe(9 - yardKeeps(p));
+  });
+
+  it("on a route too", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["workshop", "school"]);
+    w.route([{ stop: w.at("workshop") }, { stop: w.at("school") }]);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(yardKeeps(p));
+    expect(p.research.got.planks).toBe(9 - yardKeeps(p));
+  });
+
+  it("not for a school whose research lacks no planks: the yard takes them all", () => {
+    const p = Progress.fresh();
+    const w = line(p, ["workshop", "school"]);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(9);
+  });
+
+  it("not with the workshop set to Takes all planks", () => {
+    const p = lackingPlanks();
+    const w = line(p, ["workshop", "school"]);
+    w.economy.setTakesAll(w.at("workshop").id, true);
+    w.run(90);
+    expect(w.planks(w.at("workshop"))).toBe(9);
+    expect(p.research.got).toEqual({});
+  });
+});
+
 describe("a school takes what its research lacks when the train gets there", () => {
   it("after a town that wants planks: the town takes what it wants first (here all), the school gets what's left", () => {
     const p = lackingPlanks();
