@@ -26,6 +26,8 @@ ref.
 4. Publish a release (above). The first butler push makes an `html5` channel. On the project's edit page, mark that
    upload as played in the browser and delete the hand-uploaded zip.
 
+The page's cover, screenshots, banner and embed background are in `itch-assets/` (screenshots under itch's 3 MB limit).
+
 ## How the build differs
 
 - **Relative paths** (`--base=./`): itch serves the game from a hashed path in an iframe on `html-classic.itch.zone`.
