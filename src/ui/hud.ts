@@ -326,6 +326,8 @@ export class Hud {
   private readonly depotStock = el("div", "depot-stock");
   /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
   private readonly depotHelp = el("div", "card-hint depot-help");
+  /** What the crane's toggles do now, in words (their tooltips never show on a phone). */
+  private readonly depotModeHint = el("div", "card-hint depot-mode-hint");
   /** Sandbox's chain hints on a depot card: how it's doing, and where its goods come from and go (`setDepotChain`). */
   private readonly depotChain = el("div", "depot-chain");
   /** The ☰ menu's Chain hints switch (Sandbox only). */
@@ -732,7 +734,7 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotModeHint, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.root.appendChild(this.depotCard);
 
@@ -2180,6 +2182,9 @@ export class Hud {
     this.depotWaitBtn.hidden = waitFull === null;
     setToggle(this.depotWaitBtn, !!waitFull);
     this.depotWaitBtn.disabled = !auto;
+    const mode = depotModeText(auto, waitFull);
+    if (this.depotModeHint.textContent !== mode) this.depotModeHint.textContent = mode;
+    this.depotModeHint.hidden = !mode;
   }
 
   /** The ☰ Chain hints item's words. */
@@ -2873,4 +2878,14 @@ export class Hud {
     const r = this.tray.getBoundingClientRect();
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   }
+}
+
+/**
+ * The line under a depot card's toggles saying what they do now (playthrough: "Wait for a full load" went unexplained
+ * as you got going). Only where the card has both toggles (an industry that gives goods).
+ */
+export function depotModeText(auto: boolean, waitFull: boolean | null): string {
+  if (waitFull === null) return "";
+  if (!auto) return "Trains run straight through; move cargo by hand.";
+  return waitFull ? "Trains wait under the crane till every wagon is full." : "Trains take what's ready and go on.";
 }
