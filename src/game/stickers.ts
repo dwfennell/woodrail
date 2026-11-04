@@ -2,7 +2,7 @@ import { townLinks } from "../roads/graph";
 import { townStatus } from "./towns";
 import { growthOf } from "./town-life";
 import { fixedPieces, type World } from "./world";
-import { running } from "./goals";
+import { largestNetwork, running } from "./goals";
 import type { DepotRole } from "../economy";
 
 /**
@@ -22,7 +22,7 @@ export interface StickerContext {
 
 /**
  * What a check depends on: it's run again only when one of these has changed since the last check (see
- * `depKeys`). "pieces": the track (`Layout.piecesVersion`); "towns": what the towns have received; "coins"; "counts";
+ * `depKeys`). "pieces": the track (`Layout.piecesVersion`, `jointsVersion`); "towns": what the towns have received; "coins"; "counts";
  * "learned"; "goals" (how many are done); "land": the squares, roads among them (the grid's revision); "sea": goods
  * sold to and bought from harbour boats (the counts "exported" and "imported", which change only when a boat trades);
  * "trains": how many are running.
@@ -80,6 +80,26 @@ export function industryKinds(w: World): Set<DepotRole> {
   return kinds;
 }
 
+/**
+ * Towns joined in one network for the Connected … towns stickers (in place of the goal "Connect every town", gone since
+ * 2026-11-04). The start has 4 towns (`STARTER_TOWNS`), so 5 means a town on bought land joined; each plot brings 0–2
+ * towns, so 8 is a few plots joined up and 12 a big railway. Every town (`all-towns`) tops them, once the map has 5.
+ */
+export const TOWN_TIERS = [5, 8, 12] as const;
+/** Their icons, from the game's icon font: a station, a bridge, a medal. */
+const TIER_ICONS = ["🚉", "🌉", "🥇"] as const;
+
+/** Towns in the largest network of track (0 when no two are joined): once a check for the four stickers that ask. */
+export function joinedTowns(w: World): number {
+  const key = `${w.layout.piecesVersion}|${w.layout.jointsVersion}|${w.stations.size}`;
+  const hit = joinedCache.get(w);
+  if (hit?.key === key) return hit.n;
+  const n = largestNetwork(w).length;
+  joinedCache.set(w, { key, n });
+  return n;
+}
+const joinedCache = new WeakMap<World, { key: string; n: number }>();
+
 /** Laid track for this sticker. */
 export const TRACK_LAYER = 40;
 export const LONG_LINE = 200;
@@ -105,7 +125,18 @@ export const STICKERS: readonly Sticker[] = [
   { id: "track-layer", title: "Track layer", how: `Lay ${TRACK_LAYER} pieces of track`, icon: "🛤️", theme: "building", deps: ["pieces"], check: (w) => ownTrack(w) >= TRACK_LAYER },
   { id: "long-line", title: "Long line", how: `Lay ${LONG_LINE} pieces of track`, icon: "🚞", theme: "building", deps: ["pieces"], check: (w) => ownTrack(w) >= LONG_LINE },
   { id: "all-industries", title: "The whole works", how: "Have every kind of industry on the map: forest to smithy", icon: "🏭", theme: "building", deps: ["pieces"], check: (w) => industryKinds(w).size >= INDUSTRY_KINDS.length },
-  { id: "all-towns", title: "Every town", how: "Join every town on the map by rail", icon: "🗺️", theme: "building", deps: ["goals"], check: (_w, c) => c.goalsDone("join-all") },
+  ...TOWN_TIERS.map(
+    (n, i): Sticker => ({ id: `towns-${n}`, title: `Connected ${n} towns`, how: `Join ${n} towns by rail, in one network`, icon: TIER_ICONS[i], theme: "building", deps: ["pieces", "land"], check: (w) => joinedTowns(w) >= n }),
+  ),
+  {
+    id: "all-towns",
+    title: "Every town",
+    how: `Join every town on the map by rail, once it has ${TOWN_TIERS[0]} or more`,
+    icon: "🗺️",
+    theme: "building",
+    deps: ["pieces", "land"],
+    check: (w) => w.landscape.towns.length >= TOWN_TIERS[0] && joinedTowns(w) >= w.landscape.towns.length,
+  },
   { id: "road-link", title: "On the road", how: "Join two towns by road", icon: "🛣️", theme: "building", deps: ["land"], check: (w) => [...townLinks(w.landscape).values()].some((l) => l.length > 0) },
   { id: "all-villages", title: "Villages everywhere", how: "Grow every town into a village or more", icon: "🏡", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).every((l) => l >= 1) },
   { id: "first-city", title: "A city", how: "Grow a town into a city", icon: "🏙️", theme: "towns", deps: ["towns"], check: (w) => townLevels(w).some((l) => l >= 3) },
@@ -206,7 +237,8 @@ export function depKeys(w: World, ctx: StickerContext, goalsDone: number): Recor
   for (const n of w.economy.delivered.values()) towns += n;
   for (const bag of w.economy.deliveredGoods.values()) for (const n of Object.values(bag)) towns += n ?? 0;
   return {
-    pieces: String(w.layout.piecesVersion),
+    // (And the joints: a piece dragged into a line joins it without a piece added, for the Connected … towns.)
+    pieces: `${w.layout.piecesVersion}:${w.layout.jointsVersion}`,
     towns: `${w.landscape.towns.length}:${towns}`,
     coins: String(ctx.coins),
     counts: `${count(ctx, "loadsMoved")}:${count(ctx, "planksSawn")}`,
