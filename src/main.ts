@@ -35,7 +35,7 @@ import { TownCars } from "./game/town-cars";
 import { plotPrice, townStatus } from "./game/towns";
 import { firstFoodNews } from "./game/food-text";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
-import { atSchool, landmarkOf, schoolHowTo, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
+import { atSchool, landmarkOf, schoolTakesFor, schoolHowTo, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapFramePoints, mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
@@ -68,8 +68,9 @@ import type { Stuck } from "./economy/stalls";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
-import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
+import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, wants as researchWants, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
 import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pillKey, pillResearch, pillView, removedText, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
+import { TelegraphWires } from "./render/telegraph-wires";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
@@ -753,6 +754,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.onDepart = () => audio.bell();
   interaction.onSwitched = () => scheduleSave();
   interaction.onLeverThrown = () => audio.switchClunk(0.7, 0);
+  // Telegraph poles carry a signal box's reach (the Telegraph; Sandbox has every toy).
+  interaction.telegraph = () => mode !== "game" || progress.learned.has("telegraph");
   // A routed train's throw in view: a soft clunk (rate-limited), and, once, how to pin a switch.
   game.onThrownInView = (pieceId) => {
     const p = game.layout.getPiece(pieceId);
@@ -1632,7 +1635,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     knows: (tech) => progress.learned.has(tech),
     // A school takes only what the research still lacks (a lookup: the crane asks for every unit).
     // (A research that must be studied at a College or a University: only such a school takes its goods.)
-    school: (kind, d) => researchLacking(progress, kind) > 0 && atSchool(game.world, d, progress),
+    // (With Reading room, the research up next's goods too: `wants`.)
+    school: (kind, d) => researchWants(progress, kind, (id) => schoolTakesFor(game.world, d, progress.learned, id)) > 0,
     // A station's delivery van takes what the town off the line it serves wants (roads spec D5).
     vanTakes: (d, kind) => deliveryVans.takes(d, kind),
     vanYard: (d) => deliveryVans.yardFilled(d),
@@ -2492,10 +2496,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     applyCranes(game.economy, progress);
     attachEngines(game.world, () => progress.learned.has("boilers"));
     // Goods brought to a school go into the research (saved soon after: a train brings them in a burst).
-    attachResearch(game.economy, () => progress, () => {
-      refreshPill();
-      scheduleSave("progress");
-    });
+    attachResearch(
+      game.economy,
+      () => progress,
+      () => {
+        refreshPill();
+        scheduleSave("progress");
+      },
+      (d, id) => schoolTakesFor(game.world, d, progress.learned, id),
+    );
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
       scheduleSave("progress");
@@ -4977,6 +4986,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
   const whistles = new WhistlePosts();
+  // The Telegraph's wires from each signal box along its poles (built again only when the props change).
+  const telegraphWires = new TelegraphWires(game.mats.lacquer("#3a3a3a"));
+  game.scene.add(telegraphWires.mesh);
   const crossingBells = new CrossingBells();
   const bellScratch = new Vector3();
   /**
@@ -5291,6 +5303,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     let hum = 0;
     // Whistle posts' near track: worked out again only when the props or the track change.
     whistles.sync(game.layout, game.props, game.trackVersion);
+    if (telegraphWires.sync(game.props, interaction.telegraph?.() ?? false)) game.invalidate();
     for (const e of game.events) {
       // A train too long for a lift's platform: it turns back at the end, and the player is told why (once).
       // (Once a train, not on each approach: by its cars, as it comes back from turning round a new train.)

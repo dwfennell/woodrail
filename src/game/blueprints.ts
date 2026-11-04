@@ -38,7 +38,7 @@ export const BRANCHES: readonly Branch[] = [
 export type Plan = "next" | "soon" | "later" | "ending";
 
 /** Things counted over a game, that a blueprint can ask you to have done. */
-export type Stat = "riders" | "blueprints" | "loadsMoved" | "logsCut" | "planksSawn" | "stoneCut" | "grainGrown" | "flourGround";
+export type Stat = "riders" | "blueprints" | "loadsMoved" | "logsCut" | "planksSawn" | "stoneCut" | "grainGrown" | "flourGround" | "coalDug" | "ironCast";
 
 export const STAT_LABELS: Record<Stat, string> = {
   riders: "carried",
@@ -49,6 +49,8 @@ export const STAT_LABELS: Record<Stat, string> = {
   stoneCut: "stone cut",
   grainGrown: "grain grown",
   flourGround: "flour ground",
+  coalDug: "coal dug",
+  ironCast: "iron cast",
 };
 
 /** Something you must have achieved (not paid) before a blueprint can be learned. */
@@ -167,6 +169,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "bridges", label: "Bridges and ramps", branch: "track", tier: 1, key: true, needs: [], price: { planks: 10 }, blurb: "Ramp up and over rivers and other lines, and raise track higher.", brings: "Ramps, bridges, risers" }),
   row({ id: "junctions", label: "Junctions and loops", branch: "track", tier: 1, key: true, needs: ["switches"], price: { planks: 6 }, blurb: "Three-ways, crossings, double track, and loops to turn a train round.", brings: "Crossings, wye, three-way, double track, balloon loops, signal gantry" }),
   row({ id: "signals", label: "Signals", branch: "track", tier: 1, key: true, needs: ["switches"], price: { planks: 4 }, blurb: "Place signals on any track to split it into blocks: trains follow each other closer. Tap one to hold trains there.", brings: "Signal" }),
+  // Signal boxes (tech tree 4, S1): the signal box and lever frame move here from the Scenery kit, so Signals leads on.
+  row({ id: "signal-boxes", label: "Signal boxes", branch: "track", tier: 2, needs: ["signals", "routes"], price: { planks: 4, coins: 80 }, blurb: "A signal box works the points and signals near it: tap it and throw them from one place.", brings: "Signal box, lever frame", how: "Put a signal box beside your points and signals, then tap it" }),
   row({ id: "tunnels", label: "Tunnels", branch: "track", tier: 2, plan: "soon", needs: ["bridges"], price: { planks: 16, coins: 40 }, blurb: "Through a hill instead of over it.", brings: "Tunnel portals in wood or stone" }),
   row({ id: "engine-shed", label: "Engine shed", branch: "track", tier: 2, needs: ["junctions"], price: { planks: 10, coins: 100 }, blurb: "A shed to park engines in, and water and coal by the line: steam engines stop at them for a moment as they pass.", brings: "Engine shed, water tower, coal stage, water crane, coaling crane" }),
   row({ id: "turntable", label: "Turntable and roundhouse", branch: "track", tier: 2, needs: ["engine-shed"], price: { planks: 12, coins: 160 }, requires: [TOWN], blurb: "Turn an engine round on the spot, stable it in a roundhouse, or slide it across to another road.", brings: "Turntable, roundhouse, transfer table" }),
@@ -219,6 +223,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "brickworks", label: "Brickworks", branch: "industry", tier: 3, school: "college", needs: ["quarries", "mines"], price: { planks: 12, coins: 180 }, blurb: "Stone and coal fired into bricks: a second use for a mine's coal. Towns buy them at full pay.", brings: "Brickworks" }),
   row({ id: "mines", label: "Mines", branch: "industry", tier: 3, needs: ["quarries", "goods-engine"], price: { planks: 20, coins: 80 }, research: study({ planks: 6, stone: 10 }, 160), requires: [delivered("stone", 20)], blurb: "A pithead in the hills brings up coal and iron ore, for a foundry.", brings: "Mine" }),
   row({ id: "foundry", label: "Foundry", branch: "industry", tier: 3, needs: ["mines"], price: { planks: 30, coins: 120 }, research: study({ stone: 10, coal: 10 }, 240), requires: [CITY_STAR], blurb: "Coal and ore make iron, which the biggest cities want and the workshop works with.", brings: "Foundry" }),
+  row({ id: "mines2", label: "Mines II", branch: "industry", tier: 3, school: "college", needs: ["mines"], price: { planks: 12, coins: 220 }, requires: [count("coalDug", 60)], blurb: "Mines bring up coal and ore 1.5× as fast.", brings: "A winding engine at each pithead", feature: { label: "Mines 1.5× as fast", icon: "⛏️" } }),
+  row({ id: "foundry2", label: "Foundry II", branch: "industry", tier: 3, school: "college", needs: ["foundry"], price: { planks: 12, coins: 260 }, requires: [count("ironCast", 40)], blurb: "Foundries cast iron 1.5× as fast.", brings: "A second furnace in each foundry", feature: { label: "Foundries 1.5× as fast", icon: "🔥" } }),
   row({ id: "car-factory", label: "Car factory", branch: "industry", tier: 3, school: "university", needs: ["car-carrier"], price: { planks: 12, coins: 220 }, requires: [delivered("iron", 20)], blurb: "Iron and planks make new cars. Towns pay more for them than for anything else.", brings: "Car factory" }),
 
   // Food
@@ -241,18 +247,21 @@ export const BLUEPRINTS: readonly Blueprint[] = [
 
   // Crafting
   row({ id: "carpentry", label: "Carpenter's bench", branch: "craft", tier: 2, key: true, needs: [], price: { planks: 7, coins: 60 }, requires: [delivered("planks", 50)], blurb: "A carpenter's yard makes furniture from planks: towns pay well for it, and the biggest cities want it.", brings: "Carpenter's yard, furniture" }),
+  row({ id: "joinery", label: "Joinery", branch: "craft", tier: 2, needs: ["carpentry"], price: { planks: 6, coins: 140 }, requires: [delivered("furniture", 30)], blurb: "A turning lathe in every carpenter's yard: furniture made 1.5× as fast.", brings: "A lathe in each carpenter's yard", feature: { label: "Carpenters 1.5× as fast", icon: "🪑" } }),
   row({ id: "paint", label: "Dye works", branch: "craft", tier: 2, plan: "next", needs: ["farming"], price: { planks: 12, coins: 40 }, requires: [landmark("market", "a market")], blurb: "Flower fields make dye, and dye makes paint.", brings: "Dye works, flower fields, paint" }),
   row({ id: "toys", label: "Toy workshop", branch: "craft", tier: 2, plan: "next", needs: ["carpentry", "paint"], price: { planks: 16, coins: 60 }, requires: [delivered("furniture", 20)], blurb: "Planks and paint make toys, the goods towns pay best for.", brings: "Toys, toy van" }),
-  row({ id: "scenery", label: "Scenery kit", branch: "craft", tier: 1, needs: ["carpentry"], price: { planks: 5 }, blurb: "Sights for the line (a castle gate, a train wash, a weighbridge, a track cleaner) and furniture beside it (clocks, whistle posts, signal boxes).", brings: "Castle gate, train wash, weighbridge, track cleaner, lineside furniture" }),
+  row({ id: "scenery", label: "Scenery kit", branch: "craft", tier: 1, needs: ["carpentry"], price: { planks: 5 }, blurb: "Sights for the line (a castle gate, a train wash, a weighbridge, a track cleaner) and furniture beside it (clocks, whistle posts).", brings: "Castle gate, train wash, weighbridge, track cleaner, lineside furniture" }),
   row({ id: "paint-trains", label: "Paint your trains", branch: "craft", tier: 2, plan: "later", needs: ["paint"], price: { planks: 6, coins: 20 }, blurb: "Paint engines, wagons and stations in your own colours.", brings: "A paint pot on every card" }),
   row({ id: "smithy", label: "Smithy", branch: "craft", tier: 3, school: "college", needs: ["foundry", "carpentry"], price: { coins: 60, goods: { iron: 10 } }, blurb: "A smithy makes tools from iron, and your wagons hold 5 instead of 3.", brings: "Smithy, tools, heavy wagons", feature: { label: "Wagons hold 5", icon: "🧰" } }),
+  row({ id: "toolworks", label: "Tool works", branch: "craft", tier: 3, school: "university", needs: ["smithy"], price: { planks: 10, coins: 300 }, requires: [delivered("tools", 30)], blurb: "A steam hammer in every smithy: tools made 1.5× as fast.", brings: "A steam hammer in each smithy", feature: { label: "Smithies 1.5× as fast", icon: "🔧" } }),
   row({ id: "clockmaker", label: "Clockmaker", branch: "craft", tier: 3, plan: "later", needs: ["smithy", "college"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Clocks for every station: trains keep a timetable.", brings: "Station clocks, timetables" }),
 
   // Learning
   // (The school is the building you place, not a blueprint; beside a city it grows a library wing, for tier 3.)
   row({ id: "study-hall", label: "Study hall", branch: "learning", tier: 1, needs: ["farming"], price: { planks: 4 }, blurb: "Easy lessons go twice as fast.", brings: "Quicker easy lessons", feature: { label: "Tier-1 study 2× at any school", icon: "📚" } }),
   row({ id: "college", label: "College", branch: "learning", tier: 2, needs: ["routes"], price: { planks: 10, coins: 120 }, requires: [count("blueprints", 10)], blurb: "Schools by towns become colleges: research 2× as fast.", brings: "Colleges", feature: { label: "Research 2× at a town's school", icon: "🎓" } }),
-  row({ id: "telegraph", label: "Telegraph", branch: "learning", tier: 2, plan: "soon", needs: ["signals"], price: { planks: 14, coins: 50 }, blurb: "Wires along the line: see every train on the map, and call one home.", brings: "Telegraph poles" }),
+  row({ id: "reading-room", label: "Reading room", branch: "learning", tier: 2, needs: ["college"], price: { planks: 6, coins: 120 }, blurb: "Your schools get ready for the next lesson: once this one's goods are in, they collect the next one's.", brings: "Reading rooms", how: "Queue two researches: schools collect for the second once the first one's goods are in", feature: { label: "Schools collect for the next research too", icon: "📘" } }),
+  row({ id: "telegraph", label: "Telegraph", branch: "learning", tier: 2, needs: ["signal-boxes"], price: { planks: 6, coins: 120 }, blurb: "Wires along the line: a signal box works the points and signals by every telegraph pole wired to it.", brings: "Telegraph poles", how: "Put telegraph poles in a chain from a signal box to far points, then tap the box", feature: { label: "Signal boxes reach along the wires", icon: "🔔" } }),
   row({ id: "electricity", label: "Electricity", branch: "learning", tier: 3, school: "college", needs: ["mines", "college"], price: { planks: 24, coins: 120, goods: { iron: 10 } }, research: study({ iron: 10, coal: 10 }, 240), blurb: "A power station burns coal: electric engines run while it has some.", brings: "Power station, colour-light signal" }),
   row({ id: "university", label: "University", branch: "learning", tier: 3, school: "college", needs: ["college"], price: { planks: 14, coins: 300 }, requires: [count("blueprints", 20)], blurb: "A College in a city becomes a University: the hardest lessons are taught there, and every hard lesson needs a third fewer goods. The Research picker shows every blueprint left to find.", brings: "Universities, hard lessons for fewer goods", feature: { label: "Tier-3 research: a third fewer goods", icon: "🏛️" } }),
   row({ id: "wind", label: "Wind farm", branch: "learning", tier: 3, plan: "later", needs: ["electricity"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Windmills on the hills make power without coal.", brings: "Wind turbines" }),

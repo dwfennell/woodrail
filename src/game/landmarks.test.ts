@@ -162,7 +162,7 @@ describe("a school that grows with its town", () => {
   it("the early game and the core goals' research have no such need; the late chains do", () => {
     for (const b of BLUEPRINTS) if ((b.tier ?? 1) < 3) expect(b.school, b.id).toBeUndefined();
     for (const id of ["quarries", "mines", "foundry", "harbours"]) expect(techOf(id)!.school, id).toBeUndefined();
-    expect(BLUEPRINTS.filter((b) => b.school === "university").map((b) => b.id).sort()).toEqual(["car-factory", "cranes3", "electric"]);
+    expect(BLUEPRINTS.filter((b) => b.school === "university").map((b) => b.id).sort()).toEqual(["car-factory", "cranes3", "electric", "toolworks"]);
     // (A College in a city and a University are a city's: those don't ask for a school beside a city as well.)
     for (const b of BLUEPRINTS) if (b.school) expect(b.requires, b.id).not.toContainEqual(expect.objectContaining({ id: CITY_SCHOOL_ID }));
   });

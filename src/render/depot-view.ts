@@ -344,6 +344,49 @@ const UPGRADE_SPOTS: Record<string, { t: number; l: number; turn?: number }> = {
   "upgrade-millstones": { t: 112, l: 96 },
   // Quarry: between the tool shed and the stone pile, its chute toward the track.
   "upgrade-stone-crusher": { t: 68, l: 92 },
+  // Tech tree 4's machines, drawn from code (`CODE_MACHINES`): each on the yard's open ground beside its piles.
+  "upgrade-winding-engine": { t: 40, l: 84 },
+  "upgrade-furnace": { t: 184, l: 42 },
+  "upgrade-lathe": { t: 162, l: 38 },
+  "upgrade-steam-hammer": { t: 162, l: 38 },
+};
+
+type Add = (m: Material, g: BufferGeometry, t: number, l: number, y: number) => void;
+/**
+ * Upgrade machines with no Blender part, drawn from code in the yard's frame (t, l about their spot; y up from the
+ * pad): a few rounded boxes and cylinders each, in the yard's own paints, batched with the yard (no draw call of their
+ * own). Static: they stand still, so they cost nothing per frame.
+ */
+const CODE_MACHINES: Record<string, (add: Add, mats: Materials, t: number, l: number) => void> = {
+  // Mines II: a winding engine house, its chimney, and a winding wheel on a frame.
+  "upgrade-winding-engine": (add, m, t, l) => {
+    add(m.lacquer("#8a4b32"), new RoundedBoxGeometry(30, 22, 24, 2, 2), t, l, 11);
+    add(m.lacquer("#3a3a3a"), new RoundedBoxGeometry(34, 3, 28, 1, 1.2), t, l, 23.5);
+    add(m.lacquer("#5a5048"), new CylinderGeometry(2.6, 3.2, 26, 10), t + 10, l + 8, 38);
+    for (const dl of [-7, 7]) add(m.naturalWood, new RoundedBoxGeometry(3, 34, 3, 1, 0.8), t - 4, l + dl - 22, 17);
+    add(m.lacquer("#c8442f"), new CylinderGeometry(9, 9, 2.4, 18).rotateZ(Math.PI / 2).rotateY(Math.PI / 2), t - 4, l - 22, 35);
+  },
+  // Foundry II: a second furnace, round and tapering, with a glowing mouth and a stack.
+  "upgrade-furnace": (add, m, t, l) => {
+    add(m.lacquer("#6e6259"), new CylinderGeometry(8, 11, 28, 14), t, l, 14);
+    add(m.lacquer("#ff8a2a"), new RoundedBoxGeometry(3, 8, 10, 1, 1), t, l - 10, 9);
+    add(m.lacquer("#3a3a3a"), new CylinderGeometry(3.5, 4.2, 22, 10), t, l, 39);
+  },
+  // Joinery: a turning lathe on its bench, a chair leg in it.
+  "upgrade-lathe": (add, m, t, l) => {
+    add(m.naturalWood, new RoundedBoxGeometry(30, 12, 12, 1, 1.5), t, l, 6);
+    add(m.lacquer("#2f6db5"), new RoundedBoxGeometry(8, 10, 10, 1, 1.5), t - 10, l, 17);
+    add(m.lacquer("#2f6db5"), new RoundedBoxGeometry(5, 8, 8, 1, 1.2), t + 11, l, 16);
+    add(m.blockWood, new CylinderGeometry(2, 2.6, 16, 10).rotateZ(Math.PI / 2), t, l, 17);
+  },
+  // Tool works: a steam hammer, its frame over an anvil, and its little boiler.
+  "upgrade-steam-hammer": (add, m, t, l) => {
+    add(m.lacquer("#3a3a3a"), new RoundedBoxGeometry(14, 8, 12, 1, 1.5), t, l, 4);
+    for (const dt of [-8, 8]) add(m.lacquer("#2f6db5"), new RoundedBoxGeometry(3, 34, 4, 1, 0.8), t + dt, l, 17);
+    add(m.lacquer("#2f6db5"), new RoundedBoxGeometry(20, 4, 6, 1, 1), t, l, 36);
+    add(m.lacquer("#5a5048"), new RoundedBoxGeometry(7, 10, 7, 1, 1.2), t, l, 23);
+    add(m.lacquer("#c8442f"), new CylinderGeometry(5, 5, 16, 12), t, l + 16, 8);
+  },
 };
 
 const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<string, string> }>> = {
@@ -969,6 +1012,7 @@ export class DepotView {
     for (const id of (upgrades && this.extras?.(site.depot.role)) || []) {
       const spot = UPGRADE_SPOTS[id];
       if (spot && hasPart(id)) addPart(b, mats, id, (g) => place(spot.turn ? g.rotateY(spot.turn) : g, spot.t, spot.l, PAD_H));
+      else if (spot && CODE_MACHINES[id]) CODE_MACHINES[id]((m, g, t, l, y) => add(m, g, t, l, PAD_H + y), mats, spot.t, spot.l);
     }
     // A harbour's dock sheds along its quay (Asset Gen's shed, or a stand-in).
     for (let k = 0; k < (site.depot.role === "harbour" ? site.depot.sheds : 0); k++) {

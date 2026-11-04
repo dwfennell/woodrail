@@ -12,7 +12,7 @@ import { GOALS, GoalTracker, payGoal } from "../game/goals";
 import { StickerTracker } from "../game/stickers";
 import { FULL_PAY, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
-import { atSchool, landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
+import { landmarksAt, schoolTakesFor, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { engineStatus } from "../game/engine-status";
@@ -21,7 +21,7 @@ import { INVARIANTS, type Invariant, type Invariants } from "../sim/invariants";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, learnGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { built, techOf, TECHS, unlocksOf } from "../game/tech";
-import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, setSpeed, studying, tick as researchTick } from "../game/research";
+import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, wants as researchWants, pick as pickResearch, setSpeed, studying, tick as researchTick } from "../game/research";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
@@ -448,7 +448,7 @@ class Player {
     this.town = new TownLife(host, {
       knows: (id) => this.progress.learned.has(id),
       // (A research that must be studied at a College or a University: only such a school takes its goods.)
-    school: (kind, d) => researchLacking(this.progress, kind) > 0 && atSchool(this.w, d, this.progress),
+    school: (kind, d) => researchWants(this.progress, kind, (id) => schoolTakesFor(this.w, d, this.progress.learned, id)) > 0,
       received: (t, kind, n, before) => {
         this.lastDelivered.set(t.id, this.tick);
         payDelivery(this.progress, kind, n, before, t);
@@ -481,7 +481,7 @@ class Player {
     // Stone into the workshop only while a harbour's price needs it there (as the game does).
     w.economy.owes = (kind) => shopOwes(w, this.progress, kind);
     // Goods into a school go into the research (as the game does).
-    attachResearch(w.economy, () => this.progress, () => (this.researchFed = this.tick));
+    attachResearch(w.economy, () => this.progress, () => (this.researchFed = this.tick), (d, id) => schoolTakesFor(this.w, d, this.progress.learned, id));
     this.progress.coverMap(w);
   }
 

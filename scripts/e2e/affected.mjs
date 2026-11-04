@@ -113,6 +113,7 @@ export const RULES = [
   ["src/render/station-touches.ts", ["station-touches"]],
   [["src/render/kit-*", "src/render/loop-show.ts"], ["kits", "loop", "lift", "decks"]],
   ["src/render/signal-marks-view.ts", ["signals"]],
+  ["src/render/telegraph-wires.ts", ["kits-game", "research"]],
   ["src/render/route-view.ts", [TOUCH_ROUTES, "click:routes"]],
   [["src/render/depot-view.ts", "src/render/industry-*", "src/render/touches-view.ts", "src/render/flourishes.ts"], ["life", "kits-game", "station-upgrade"]],
   [["src/render/road-vehicles-view.ts", "src/render/crossings-view.ts"], ["roads"]],

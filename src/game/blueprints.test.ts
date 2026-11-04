@@ -54,7 +54,8 @@ describe("the blueprint catalogue", () => {
     let seen = seenOf(p);
     expect(seen.get("switches")).toBe("shown");
     expect(seen.get("signals")).toBe("shown"); // key
-    expect(seen.get("telegraph")).toBe("hint"); // after signals
+    expect(seen.get("signal-boxes")).toBe("hint"); // after signals
+    expect(seen.get("telegraph")).toBe("unseen"); // after signal boxes
     expect(seen.get("radio")).toBe("unseen");
     p.learned.add("switches");
     p.learned.add("passengers");

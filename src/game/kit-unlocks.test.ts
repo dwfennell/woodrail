@@ -25,9 +25,10 @@ const UNLOCKS: Record<string, ThingId[]> = {
     "car:cleaner",
     "prop:bldg-station-clock",
     "prop:mech-whistle-post",
-    "prop:bldg-signal-box",
-    "prop:mech-lever-frame",
   ],
+  // Signal boxes and the Telegraph (tech tree 4): the box and lever frame moved here from the Scenery kit.
+  "signal-boxes": ["prop:bldg-signal-box", "prop:mech-lever-frame"],
+  telegraph: ["prop:mech-telegraph-pole"],
   // The crossing styles moved from Scenery kit to the Roads branch's Crossing gates (roads spec, decision 3).
   "road-crossings": ["prop:mech-level-crossing", "prop:mech-gated-crossing"],
   buses: ["prop:scene-bus-stop"],

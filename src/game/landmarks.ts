@@ -112,6 +112,11 @@ export function atSchool(world: World, d: DepotState, p: { readonly learned: Rea
   return !need || schoolTakes(world, d, p.learned, need);
 }
 
+/** Does school `d` take goods for research `id` (one studied at a College or a University: only such a school)? */
+export function schoolTakesFor(world: World, d: DepotState, learned: ReadonlySet<string>, id: string): boolean {
+  return schoolTakes(world, d, learned, SCHOOL_OF.get(id));
+}
+
 /**
  * What to do for a school of `need`'s level, in words for a locked card: "learn College", "grow Larkfield into a city",
  * "place a school by a town". The school nearest it (its town the biggest) is named.

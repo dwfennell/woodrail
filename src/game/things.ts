@@ -125,8 +125,10 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:cleaner": { label: "Track cleaner", cost: { planks: 3 }, tech: "scenery" },
   "prop:bldg-station-clock": { label: "Station clock", cost: { planks: 2 }, tech: "scenery" },
   "prop:mech-whistle-post": { label: "Whistle post", cost: { planks: 1 }, tech: "scenery" },
-  "prop:bldg-signal-box": { label: "Signal box", cost: { planks: 4 }, tech: "scenery" },
-  "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "scenery" },
+  // Signal boxes (tech tree 4): the box and lever frame (from the Scenery kit before), and the Telegraph's poles.
+  "prop:bldg-signal-box": { label: "Signal box", cost: { planks: 4 }, tech: "signal-boxes" },
+  "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "signal-boxes" },
+  "prop:mech-telegraph-pole": { label: "Telegraph pole", cost: { planks: 1 }, tech: "telegraph" },
   // Big stations: passenger stops of their own (looks only for now: not a town's halt).
   "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
   "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },

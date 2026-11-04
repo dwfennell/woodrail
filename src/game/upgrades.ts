@@ -17,6 +17,11 @@ export const RATE_UPGRADES: readonly { readonly tech: string; readonly role: Dep
   { tech: "farming2", role: "farm", factor: 1.5 },
   { tech: "mills2", role: "mill", factor: 1.5 },
   { tech: "quarries2", role: "quarry", factor: 1.5 },
+  // Tech tree 4: second tiers for the mine, the foundry, the carpenter's yard and the smithy.
+  { tech: "mines2", role: "mine", factor: 1.5 },
+  { tech: "foundry2", role: "foundry", factor: 1.5 },
+  { tech: "joinery", role: "carpenter", factor: 1.5 },
+  { tech: "toolworks", role: "smithy", factor: 1.5 },
 ];
 
 /** The machine each upgrade puts in its yard (a model part); a yard shows its best one. */
@@ -28,6 +33,10 @@ const MACHINES: Record<string, string> = {
   farming2: "upgrade-tractor",
   mills2: "upgrade-millstones",
   quarries2: "upgrade-stone-crusher",
+  mines2: "upgrade-winding-engine",
+  foundry2: "upgrade-furnace",
+  joinery: "upgrade-lathe",
+  toolworks: "upgrade-steam-hammer",
 };
 
 /** The machines a kind of yard shows for the upgrades learned: the best one. */
@@ -57,7 +66,7 @@ export function applyCranes(economy: Economy, p: Progress): void {
 }
 
 /** What making each good counts toward. */
-const MADE_STAT: Partial<Record<CargoKind, Stat>> = { log: "logsCut", planks: "planksSawn", grain: "grainGrown", flour: "flourGround", stone: "stoneCut" };
+const MADE_STAT: Partial<Record<CargoKind, Stat>> = { log: "logsCut", planks: "planksSawn", grain: "grainGrown", flour: "flourGround", stone: "stoneCut", coal: "coalDug", iron: "ironCast" };
 
 /**
  * Carries the economy's counters (goods made, loads moved) into the player's progress, a little at a time: what was
