@@ -101,6 +101,11 @@ export interface RouterHost {
   awaitingGrant(engine: number): boolean;
   /** Engines sections just granted a move (asked for at once, and cleared here). */
   readonly soon: Set<number>;
+  /**
+   * Its next stop is a depot of several tracks, all taken (depot tracks): it waits short of the first of `ladder`'s
+   * points on its way, for `by` (an engine on one of them). Asked right after `goal`. Null: it goes on.
+   */
+  fullAt?(engine: number): { ladder: ReadonlySet<number>; by: number } | null;
 }
 
 /** A route lock (§3.2): points set to `state` for the trains holding it; they don't move while anyone does. */
@@ -419,12 +424,18 @@ export class Router {
       const want = this.walk(layout, train, net > 0, target, grant?.follow, h, this.host.owner?.(engine) ?? engine, grant ? -1 : (this.host.then?.(engine) ?? -1));
       // (Pinned points against its way end the walk: it asks for those before them, and waits at them.)
       const pin = want.length > 0 && want[want.length - 1].pinned ? want.pop()! : null;
+      // (Every track of its next stop taken: it asks for the points before the stop's ladder, and waits short of it.)
+      const full = grant ? null : (this.host.fullAt?.(engine) ?? null);
+      const k = full ? want.findIndex((w) => full.ladder.has(w.pieceId)) : -1;
+      const short = k >= 0 ? want[k] : null;
+      if (short) want.length = k;
       h.want.clear();
       for (const w of want) h.want.set(w.pieceId, w.state);
       h.asked = want;
       this.keep(engine, train, h, want);
       const refused = this.ask(engine, h, want);
       if (refused) this.wait(engine, train, Math.sign(net), { kind: "points", pieceId: refused.stop.pieceId, by: refused.by }, refused.stop);
+      else if (short) this.wait(engine, train, Math.sign(net), { kind: "points", pieceId: short.pieceId, by: full!.by }, short);
       else if (pin) this.wait(engine, train, Math.sign(net), { kind: "pinned", pieceId: pin.pieceId }, pin);
       else this.waits.delete(engine);
     }

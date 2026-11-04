@@ -54,6 +54,7 @@ export const SUITES = {
   signals: { script: "e2e:signals", minutes: 7 },
   life: { script: "e2e:life", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge" },
+  "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
 };
 
@@ -86,7 +87,7 @@ export const RULES = [
   // Simulation and routing.
   ["src/sim/**", ["touch", "click:model-train,routes", "signals", "train-summary", "train-parts", "lift", "loop", "kits", "decks"]],
   ["src/sim/engine-names.ts", ["engine-names"]],
-  ["src/routing/**", [TOUCH_ROUTES, "click:routes", "signals", "warehouse"]],
+  ["src/routing/**", [TOUCH_ROUTES, "click:routes", "signals", "warehouse", "depot-tracks"]],
   ["src/track/**", ["touch", "click", "draw", "joints", "ramps", "kits", "decks", "lift", "loop", "low-bridge"]],
   ["src/track/underpass.ts", ["low-bridge"]],
   ["src/editor/**", ["touch", "click", "draw", "joints", "ramps", "landscaping"]],
@@ -94,7 +95,7 @@ export const RULES = [
   [["src/landscape/clearance.ts", "src/landscape/support.ts"], ["low-bridge"]],
   ["src/roads/**", ["roads"]],
   ["src/roads/place.ts", ["low-bridge"]],
-  ["src/economy/**", ["sandbox-chains", TOUCH_ROUTES, "click:routes", "warehouse", "train-summary", "workshop", "big-stations", "station-touches", "kits-game", "research", "school", "growth"]],
+  ["src/economy/**", ["depot-tracks", "sandbox-chains", TOUCH_ROUTES, "click:routes", "warehouse", "train-summary", "workshop", "big-stations", "station-touches", "kits-game", "research", "school", "growth"]],
   ["src/props/**", [...TOWNS, "click:model-train"]],
   ["src/persist/**", ["cloud", "copy-map", "joints", "engine-names", "touch:defaults"]],
   ["src/persist/bug-map.ts", ["copy-map", "touch:feedback", "click:feedback"]],
@@ -115,6 +116,8 @@ export const RULES = [
   ["src/render/signal-marks-view.ts", ["signals"]],
   ["src/render/route-view.ts", [TOUCH_ROUTES, "click:routes"]],
   [["src/render/depot-view.ts", "src/render/industry-*", "src/render/touches-view.ts", "src/render/flourishes.ts"], ["life", "kits-game", "station-upgrade"]],
+  ["src/render/depot-view.ts", ["depot-tracks"]],
+  ["src/game/depot-tracks.ts", ["depot-tracks"]],
   [["src/render/road-vehicles-view.ts", "src/render/crossings-view.ts"], ["roads"]],
   ["src/render/ambient.ts", ["life", "roads"]],
   [["src/render/ruins-view.ts", "src/render/goal-marks.ts", "src/render/halt-reach-view.ts"], ["sites", "big-stations"]],

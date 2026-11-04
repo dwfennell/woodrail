@@ -1,176 +1,132 @@
 # Depot tracks: an industry with two or three tracks
 
-Status: **Phase 1, design and prototype. Waiting for a decision** (§9). Branch `claude/depot-tracks`.
+Status: **built** on branch `claude/depot-tracks`, after the owner's decision on the Phase 1 design (2026-11-04):
+approved as recommended, with **one crane, not one per track**: the yard's single crane is extended so its gantry spans
+every track, and it serves each track's train in turn.
 
 The owner, playing, at a mill (a depot whose crane serves one track): "what if we made it so you could just expand the
 number of tracks at a location ... maybe it costs planks for the first one and planks and stone for the second one or
 something, just adds to the crane".
 
-## 1. The head
+## 1. What it is
 
-From its card, an industry is upgraded to **2 tracks, then 3**. Each tap lays one more track beside it, on the side
-away from its yard, a double track (72 mm, one square) apart, joined to the line at both ends by crossovers. That is
-**one undo step**, priced like a piece from the workshop. **Each track has a crane of its own** working the same yard
-and piles (the gantry gets longer to reach over to it). Two or three trains are loaded and unloaded **at once**, or one
-waits for a full load without blocking the line. To the rest of the game the industry is still one stop: routes,
-goals, the chain hints and counts don't change. A routed train goes to the **first free track** in a fixed order.
+Once **Sidings** is learned, an industry's card offers **Second track**, then **Third track**. Each tap lays one more
+track beside it, on the side away from its yard, a double track (72 mm, one square) apart, joined to the line at both
+ends by crossovers, with a buffer on each crossover's spare end. Track, record and price are **one undo step** (undone,
+the goods go back to the workshop). The yard's **one crane** becomes a gantry over every track and **serves each
+track's train in turn**, a load at a time. To routes, goals and counts the industry is still one stop. A routed train
+goes to the **first free track** (the industry's own, then 2, then 3), and **waits short of the crossovers** when every
+track is taken.
 
-| | Cost | Lays | Needs on the line |
+| | Cost (from the workshop) | Lays | Needs on the line |
 |---|---|---|---|
-| 2nd track | **10 planks** | 2 crossovers, 1 straight, 2 buffers | 3 squares of straight track at each end |
-| 3rd track | **12 planks + 10 stone** | 2 more crossovers, 3 straights, 2 more buffers (the first two crossovers move out one length) | 6 squares at each end |
+| 2nd track | **10 planks** | 2 crossovers, 2 buffers, its track (108 + 216 + 108), 108 more on the first track at each end | 4½ squares of straight at each end |
+| 3rd track | **12 planks + 10 stone** | 2 more crossovers (the first two move out a length), 2 more buffers, its track, a straight on line 1 at each end | 7½ squares at each end |
 
-Pictures (390×844, the prototype, `node tools/shots/depot-tracks.mjs`):
-`docs/agents/shots/depot-tracks-1-card.jpg` (one track, the card's "Second track · 10 planks" button),
-`-2-card.jpg` (two tracks; "Third track · 12 planks 10 stone"), `-3-card.jpg` (three tracks),
-`-overview.jpg` (from above: the ladders and buffers at both ends, two trains standing at once),
-`-two-trains.jpg` (close: a hopper of grain unloaded and a van loaded with flour at the same moment, a crane each).
+Pictures (390×844, from `npm run e2e:depot-tracks`): `docs/agents/shots/depot-tracks-1-card.jpg` (before: one track,
+"Second track · 10 planks"), `-2-card.jpg` (two tracks, the gantry over both, "Third track · 12 planks 10 stone"),
+`-3-card.jpg` (three, the gantry over all three), `-two-trains.jpg` (two trains standing at once, each on its own
+track, the crane lifting grain from one), `-overview.jpg` (from above: the ladders, buffers, gantry and both trains).
 
-## 2. How the extra track is laid
+## 2. The track
 
-### Options
+The industry lays it (option A of Phase 1): in the depot's frame (t along its track, l across, +l its yard's side), for
+`n` tracks every track runs from t = −108 to 324 (**432 mm**, long enough for an engine and three wagons to stand clear
+of the crossovers; at 216 a two-wagon train's tail stood on the crossover and blocked the next track). Crossover k
+(1 … n−1) joins line k−1 (l = −(k−1)·72) to line k over t ∈ [−108 − (n−k)·216, −108 − (n−k−1)·216], flipped so its
+link goes to −l; the far end the same turned round. Pegs and holes don't matter (any two ends that meet join).
 
-**A. The depot lays it (recommended).** The upgrade puts a straight beside the depot and a **ladder of crossovers** at
-each end in place of the plain straights on the line there, plus a buffer on each crossover's spare end, as one undo
-step (`Editor.replaceRun`, as Draw swaps a switch into a line). In the depot's frame (t along its track, l across, +l
-the yard's side), for `n` tracks: crossover k (1 … n−1) joins line k−1 (l = −(k−1)·72) to line k over
-t ∈ [−(n−k)·216, −(n−k−1)·216], flipped so its link goes to −l; at the far end the same turned round. Line j's road
-is a 216 straight beside the depot. The geometry is exact (the crossover is a double-track board, 216 long, 72 apart:
-no lattice rounding), and needs no new pieces. (Pegs and holes don't matter: any two ends that meet join.)
+It takes the place of plain, level, unswitched straights on the line; a straight running past where the ladder ends is
+cut (the rest put back as a shorter straight). Every piece put down is asked of the game's own drop rule. Refusals, on
+the card under the greyed button and as a toast:
 
-- **Space:** 216 mm (3 squares) of straight, level, unswitched track on the line at each end for 2 tracks; 432 mm
-  (6 squares) for 3. A straight that runs past that is cut (the rest put back as a shorter straight). The band beside
-  it (one square for 2, two for 3) must be clear by the game's own drop rule.
-- **Refusals,** said on the card under the (greyed) button and as a toast, in the drop rule's own words:
-  - "The second track needs 3 squares of straight track on the line at each end: the line ends / it bends / there
-    are points in the way / it climbs";
-  - "No room for a second track: that's a hill" (river, town, another track, a road, a ruin, a yard…: whatever the drop
-    rule says for the piece that doesn't fit);
-  - "A train is standing on the line beside it: move it first";
-  - "Another track needs 10 planks at the workshop" (no workshop: as other upgrades say).
-- **Undo** takes it all back, as one step (prototype: the goods aren't given back yet; §8).
+- "The second track needs 4½ squares of straight track on the line at each end: the line ends / it bends / there are
+  points in the way / it climbs";
+- "No room for a second track: that's a hill" (or whatever the drop rule says: river, town, track, road, yard…);
+- "A train is standing on the line beside it: move it first";
+- "Another track needs 10 planks at the workshop" / "Place your workshop … another track's planks come from there".
 
-**B. The player lays a siding and the depot claims it.** The card says "Lay a track beside the mill, joined at both
-ends, then tap to add it". Freer (any ladder, any length), but it's a puzzle a child won't solve: the geometry has to
-be exact for the crane to stand over it, and the card has to explain why a near miss doesn't count. Worth adding later
-as a fallback ("there's a track there already: use it") when a player has laid one exactly where A would.
+## 3. The crane: one, in turn
 
-**C. A new piece: the depot retyped to a wider one with its roads inside (like the big stations).** Rejected: a
-retype must keep the depot's two ends where they are (`Layout.canRetype`), and 216 mm has no room for a ladder and a
-standing road too. The roads would be shorter than a train.
+- The yard's crane is drawn as a gantry from just beyond the last track (34 mm) to the yard's edge (l 118), at the same
+  place along the depot as before; a jib crane becomes a gantry too (`spanLayout`, src/render/depot-view.ts). One
+  trolley, one hook.
+- **In turn:** the crane moves one unit at a time for one train. Free, it goes to the train that has waited longest
+  for it (`turnAt`: when it halted, or last had the crane; ties by train id), so with two trains it goes back and
+  forth, a load each. A train whose wagon is done, or that is moving up to its next wagon, lets it go at once
+  (`Economy.craneTurn`, `letCraneGo`). A single-track depot is unchanged.
+- **Wait for a full load** stays per train: one can wait full on track 2 while the crane works track 1.
+- Crane speed upgrades apply as before; production doesn't change.
 
-### Which side
+### Throughput (measured, `depot-tracks.test.ts`)
 
-Always the side away from the yard (the yard, its buildings and piles stay put; the crane reaches over). No mirror
-option in the first version: when that side is blocked, the card says so.
+Two trains at a mill, each with work for the crane (a hopper train unloading grain, a van train loading flour):
 
-## 3. The crane
+| | Both done |
+|---|---|
+| One track (the second train waits on the line behind the first, then comes in) | 14.8 s |
+| Two tracks, one crane in turn | 8.6 s (**42% sooner**) |
 
-### Options
+The crane moves the same units at the same speed either way; the gain is that the second train stands ready beside
+the first instead of out on the line, so the crane works it while the first shunts up to its next wagon and leaves,
+and nobody runs in from the line. A busy industry's loads per minute are still capped by its one crane, so the balance
+bands don't move (the play-through doesn't learn Sidings).
 
-1. **One crane per track (recommended; the prototype).** Each track has its own gantry, from just beyond its track
-   over the others to the yard's edge, staggered a little along the depot so the beams don't meet. Each works its own
-   train exactly as today's crane does (the same `Service` per train: halt each wagon under it, unload before load,
-   "Wait for a full load"). All share the yard's piles. Real payoff (2× or 3× the handling), easy to read (a crane over
-   every track), and nothing new to learn: "each track has a crane".
-2. **One crane moving between tracks in turn.** Only a waiting place: no faster handling, harder to read (why is my
-   train standing under nothing?), and needs a rule for who's next.
-3. **One crane, faster at higher levels.** A stat bump that doesn't need extra track; the extra track would then only
-   be a passing place. Doesn't match "two trains served at once".
+## 4. Routing
 
-### Rules (option 1)
+- A route's stop is the industry (one stop). For a routed train heading to an industry of several tracks, the economy
+  gives it a track (`Economy.trackFor`, the router's goal): the one it's on already; else the one it was given, while
+  no other train is on it; else the **first free** track in order (no train on it, none given it). Every train of a
+  line comes to the same answer in the same state.
+- **All taken:** the router stands it short of the first crossover of that industry's ladder on its way (`fullAt`, the
+  router's `RouteWait` of kind "points", naming a train on a track) and asks again as it steers; when a track frees,
+  it's given it and goes in.
+- **Sections:** a train sections send round by a passing loop's other road calls at its stop there if that road is a
+  track of the same industry (`sameDepot`), instead of skipping it.
+- Hand-run trains go the way the points lie; whichever track they stand on, the crane serves them.
 
-- Each crane works the train on its own track only; the depot's own track keeps its old crane.
-- **Shared piles, first come:** cranes take turns a tick at a time in the order their trains halted, so when two want
-  the last flour, the one that came first gets it. (Deterministic: ties by train id.)
-- **Wait for a full load** is per train: one train can wait full on track 2 while track 1 keeps working.
-- Speed upgrades (Mills II, faster cranes) apply to every crane.
-- Production (`rate`, the yard's caps) doesn't change: more tracks make it quicker to load and unload, not to make.
+## 5. The Goods yard, and research
 
-## 4. Routing: picking a track
+The tech tree's planned Goods yard (step 10: a warehouse with three sidings) is folded in: **a warehouse with three
+tracks is the goods yard**. No separate piece. The research is **Sidings** (Logistics, tier 2, needs Warehouses and
+Junctions and loops, 6 planks + 120 coins): "Give an industry a second and a third track…", for every crane industry.
 
-A route's stop stays the depot (one stop). It must stay predictable, so:
+Industries: harvester, sawmill, workshop, farm yard, mill, quarry, warehouse, mine, foundry, carpenter, smithy, power
+station, harbour (landward side), dairy, bakery, orchard, juice works, creamery, ice cream factory, brickworks. Not a
+town's station (Big stations), a school, a halt or Sandbox's loaders.
 
-- **The router aims at the depot's tracks as a set.** At the ladder's facing crossover it sets the way to the
-  **lowest-numbered free track**: the depot's own track first, then 2, then 3. Free: no train standing on it and none
-  given a lock toward it (`Router` locks). Every train of a line comes to the same answer in the same state.
-- **None free:** it waits short of the ladder, as at a busy passing loop, and its card says "Waiting for a free track
-  at Mill".
-- **Sections:** an industry with n tracks is a passing place with n roads. `sections.ts` today knows loops of two
-  roads; it learns loops of n (the ladder is a nested pair of loops at 3: worked out as one "yard" of n roads). The room
-  rule counts it as n − 1 passing places, so a line through a 2-track mill takes one more train. The rule that skips a
-  stop when a train was sent round by the free road (`skipStops`) doesn't skip when the free road is the same depot's
-  track: it calls there.
-- **Hand-run trains** (no route) go the way the points lie; whichever track they stand on, its crane serves them
-  (true in the prototype today).
-- The ladder's crossovers are ordinary points (lever, pin, default): a player can pin one to keep a track for a line.
+## 6. Saves
 
-This is the same work Rail and road's step "route to a free siding" was waiting for (§5).
+Each industry with more tracks saves `tracks: { roads, ends, ladder }` (piece ids: the piece under the crane on each
+further track, the rest of those tracks, and the ladder), only pieces still on the map. On load the economy is given
+them back (`Economy.setTracks`). Old saves have none: **one track**. The number of tracks is always 1 + its further
+tracks still on the map, so a track taken up with the eraser is simply a track less.
 
-## 5. The planned Goods yard (tech tree step 10)
+## 7. Code
 
-The goods yard (a `depot-goods-yard` piece shaped like the terminus: a warehouse with three sidings, upgraded in place
-from a warehouse) is **a special case of this**: a warehouse with three tracks. Recommendation:
+- `src/game/depot-tracks.ts`: `planTracks` (the walk along the line, the ladder, the drop rule), `tracksAfter`, prices,
+  roles, `TRACKS_TECH`.
+- `src/economy/economy.ts`: `setTracks`, `tracksOf`, `roadsOf`, `trackCount`; each further track is a `DepotState` of its
+  own piece and crane point reading everything else through to its industry (same id and piles); the one crane in turn;
+  `trackFor`, `fullAt`, `sameDepot`. `src/routing/router.ts`: `fullAt` (wait short of the ladder).
+  `src/economy/sections.ts`: `sameDepot`.
+- `src/render/depot-view.ts`: `spanLayout`, `syncTracks` (only a depot whose number of tracks changed is drawn again).
+- `src/main.ts`: the card row and `addTrack` (one undo step with the price). `src/persist/save.ts`: `tracks`.
+- `src/game/blueprints.ts`: Sidings.
 
-- **Drop the separate goods-yard piece.** A warehouse upgraded to 3 tracks is the goods yard (its cap could double at
-  3 tracks, as the goods yard planned: 48, if wanted).
-- **The research node becomes "Sidings"** (Logistics t2, needs Warehouses and Junctions and loops, 6 planks + 120
-  coins, where Goods yard stood): "Give an industry a second and third track: a crane for each, so trains don't wait."
-  It unlocks the upgrade for every industry. The third track needs stone anyway, so it comes with Quarries.
-- Both wait on the same router change (§4: aim at a set of tracks, pick the first free). That change is the bulk of
-  the work; the rest is small.
+Cost: nothing per frame while nothing moves (the e2e counts 0 frames idle). The planner runs on a tap, and for the card
+only when the track, the land or the workshop's stock change.
 
-Why a research and not free from the start: the early game teaches one train at a time; a second track is a fix for a
-busy line, which comes with Routes and Warehouses. It also keeps the crossovers (a Junctions piece) behind Junctions.
+## 8. Tests
 
-## 6. Which industries
+- `src/game/depot-tracks.test.ts`: 2 → 3 tracks laid and joined, refusals in words; one crane, never two loads at once,
+  going back and forth; the throughput above; routed trains to the first free track, and a third waiting short of the
+  ladder till one frees; a one-track depot unchanged; a save round trip, and an old save with one track; the gantry's
+  span.
+- `npm run e2e:depot-tracks` (about 6 min): by taps on a phone: the card, Second track (planks taken), Undo (track,
+  crossovers and planks back), again, Third track (planks and stone), the gantry over 2 and 3; two trains routed by
+  taps standing at the mill at once on their own tracks, the crane never moving two loads at once, both trains'
+  grain unloaded; after a reload three tracks still; 0 idle frames.
 
-Every industry a train is loaded or unloaded at by crane: harvester (forest), sawmill, workshop, farm yard, mill,
-quarry, warehouse, mine, foundry, carpenter, smithy, power station, harbour (on the landward side; boats still use the
-quay), dairy, bakery, orchard, juice works, creamery, ice cream factory, brickworks.
-
-Not: a town's station (it has Big stations), a school (a few research loads; not worth it), Sandbox's loaders (kits),
-halts.
-
-## 7. Saves
-
-- Per industry, what it laid: `depotTracks: [depotPieceId, roads: pieceId[], ladder: pieceId[]][]` in the save.
-  Its number of tracks is 1 + its roads still on the map. Old saves have none: **1 track**.
-- On load each road is given back to the economy (`Economy.addRoad`) and drawn (`DepotView`).
-- The ladder pieces are ordinary pieces (saved as pieces); a road taken up by the player (the eraser) is just a track
-  less: its crane goes with it. (Taking up a road needs a rule: either the depot's roads are fixed like the depot, or
-  taking one up gives the upgrade back. Recommended: fixed, like the depot itself; undo is the way back.)
-
-## 8. The prototype (on this branch)
-
-- `src/game/depot-tracks.ts`: the planner (`planTracks`: the walk out along the line for straights, the ladder, the
-  drop rule asked for every piece), `recordTracks`, prices and roles. Unit tests in `depot-tracks.test.ts` (2 → 3
-  tracks laid and joined; a bend refused; two trains worked at once from one yard).
-- `Economy.addRoad`: a depot's further track is a `DepotState` of its own piece and crane point that reads everything
-  else through to its depot (same id, piles, settings), so a route's stop is called at on any track; it isn't in
-  `allDepots` (it makes nothing and isn't counted). A train's service now remembers the depot object it's at, so two
-  trains at one depot each have their own crane (`craneMove`/`cranePhase` by piece).
-- `DepotView`: a road's site draws only its long gantry and its crane's moving parts; piles stay its depot's.
-- The card: "One track: one train at a time" / "2 tracks: 2 trains loaded at once" and the button with its price, or
-  why not (Game mode).
-- `tools/shots/depot-tracks.mjs`: the pictures.
-
-Not in the prototype (the build, after the decision): the router and sections change (§4: routed trains still aim at
-the depot's own track), the save (§7), the research node (§5), the goods given back on undo, drawing a road's site on
-its own instead of the whole `DepotView` again (`setWorld`, once per upgrade), the depot's own gantry's near leg (it
-stands between the first and second track, clear of trains, but could go), two cranes moving the same kind of goods at
-the same moment (one unit drawn on the hook: `DepotView`'s one carried unit per kind), an e2e (upgrade by taps, two
-routed trains standing at once and the goods carried on), and `Object.create` for roads replaced by an explicit type.
-
-Cost: nothing per frame while nothing moves. A road's crane costs what a depot's crane costs (drawn only near the
-camera, moving only while it works). The planner runs on a tap, and on the card only when the track, the land or the
-workshop's stock change (keyed).
-
-## 9. Decisions wanted
-
-1. **How the track is laid:** A, the depot lays the ladder (recommended), or B, the player lays it and the depot claims it?
-2. **The crane:** one per track (recommended), one moving between them, or one faster?
-3. **Prices:** 10 planks, then 12 planks + 10 stone?
-4. **Goods yard:** fold it into this (a warehouse at 3 tracks) and make its research node "Sidings" (recommended)?
-   Or free from the start, no research?
-5. **Routing:** lowest-numbered free track first, wait short of the ladder when all are full?
+Not covered: a line of several trains (sections) running for a long time through an industry of several tracks; a
+three-track ladder under sections (nested loops) is untested.
