@@ -215,8 +215,8 @@ const LINE = [0, 216, 432, 648, 864].map((x) => ({ type: "straight-216", pose: {
  * One case: the line, a ramp up to where the bridge goes, the bridge from the tray onto the ramp's top. `ramp` is the
  * ramp's pose relative to the line's start; the crossing is near (X + 540, Z).
  */
-async function crossing(name, key, lower, ramp, before = async () => {}) {
-  const at = await build(lower, ramp);
+async function crossing(name, key, lower, ramp, before = async () => {}, clear = []) {
+  const at = await build(lower, ramp, [], clear);
   if (!at) {
     check(`${name}: room for it`, false, "no open ground");
     return null;
@@ -324,7 +324,8 @@ suite.add("diagonal", async () => {
 suite.add("curved", async () => {
   // (The line under the middle of its curve: a curved bridge is short, and nearer an end its pier would stand in the
   // trench; that's case 3b.)
-  const c = await crossing("curved bridge", "piece:bridge-curve", LINE, { type: "ramp", pose: { x: 500, z: -198, heading: Math.PI / 2 } });
+  // (Where the underpass will go clear too: the felt there open, not only the line's own squares.)
+  const c = await crossing("curved bridge", "piece:bridge-curve", LINE, { type: "ramp", pose: { x: 500, z: -198, heading: Math.PI / 2 } }, undefined, [{ type: "underpass", pose: { x: 360, z: 0, heading: 0 } }, { type: "underpass", pose: { x: 432, z: 0, heading: 0 } }]);
   if (c) {
     check("curved bridge: an underpass is dug under a curved bridge, drawn as a girder span", c.r.id !== null && c.after.underpasses.length === c.before.underpasses.length + 1 && c.after.girder === true, JSON.stringify({ id: c.r.id, ghost: c.r.ghost, msgs: c.msgs, girder: c.after.girder }));
     await look(c.at.X + 540, c.at.Z, [0.5, 1.1, 1], 700, 10);
@@ -441,7 +442,11 @@ suite.add("laid-under", async () => {
 // 9. Draw: from a ramp's top end, a stroke on across a line on the ground: the line lays a bridge over it one level
 // up and digs an underpass under it (no longer red, "go two levels up").
 suite.add("draw-ramp", async () => {
-  const at = await build(LINE, { type: "ramp", pose: { x: 540, z: -252, heading: Math.PI / 2 } });
+  // (The drawn bridge's way across clear of other track: under it, only the line.)
+  const at = await build(LINE, { type: "ramp", pose: { x: 540, z: -252, heading: Math.PI / 2 } }, [], [
+    { type: "bridge", pose: { x: 540, z: -108, heading: Math.PI / 2 }, y: 48 },
+    { type: "bridge", pose: { x: 540, z: 108, heading: Math.PI / 2 }, y: 48 },
+  ]);
   if (!at) check("draw: room for it", false);
   else {
     const top = await rampTop(at.ramp);
