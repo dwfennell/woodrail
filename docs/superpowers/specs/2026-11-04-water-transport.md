@@ -226,6 +226,43 @@ Everything follows AGENTS.md: render on change, ambient only when seen, nothing 
   every boat tied up; pan and paused numbers within `tools/perf/budgets.json`, or the budgets updated in the same
   commit with why.
 
+## 8b. The assets (design pass, 2026-11-04)
+
+The user liked the direction (the recommended picks included) and asked for a pass on the models before the build,
+with one note: **the blue felt under boats should be smaller.** The models are built in code, as catalogue assets
+(`src/catalogue/assets/water.ts`, prefix `water-`, on Sandbox's Vehicles → "River and sea" shelf), and the pictures
+show them at their own size on a real Game map (`SCENES=./water-assets.mjs node tools/shots/water-mock.mjs`, with
+`FELT=before` for the before pictures).
+
+**The felt.** Every boat used to stand on a round felt pond (`water(k, r)`, 42–76 mm across) that spilled over a
+river's banks and onto the sand. Now `boatFelt` (`boat-parts.ts`) lays blue felt in the hull's own shape, 5 mm past it
+all round. The round pond stays only in the catalogue's viewer (an underlay, left out in the game). This applies to
+all nine existing boats too (rowing, sailing and fishing boats, tug, paddle steamer, car ferry, cargo ship, submarine,
+seaplane), so Sandbox's boats on rivers change with it.
+
+| Before | After |
+|---|---|
+| `docs/agents/shots/water-felt-before.jpg` | `docs/agents/shots/water-felt-after.jpg` |
+| `docs/agents/shots/water-sea-before.jpg` | `docs/agents/shots/water-sea-after.jpg` |
+
+**Sizes.** Boats are at the trains' scale: a wagon is 80–96 mm, so a barge is 88 mm and holds 4 loads (a wagon 3).
+The river is about 108 mm wide.
+
+| Asset | Size (mm) | Look | Picture |
+|---|---|---|---|
+| River tug (`water-river-tug`) | 70 × 30, 25 high | Red hull with a black band, low cream cabin with a red lid (low enough for any bridge), stubby funnel, rope bow fender, tyre fenders, a towing post and a train's magnet coupler at the stern, a yellow flag | `water-asset-tow.jpg` |
+| Barge (`water-barge`, `-logs`, `-stone`, `-coal`, `-grain`) | 88 × 34 | Green hull with a beech rim and a dark open hold, magnet couplers at both ends (they couple as wagons do), four bollards. Loads: logs with pale cut ends, loose rocks, a heap of coal or grain (the hoppers' heap idea) | `water-asset-tow.jpg`, `water-asset-landing.jpg` |
+| River landing (`water-landing`) | 168 along the track, 110 deep | A siding (the slab real track joins), a plank quay level with the rails, a stone edge, a jetty on piles over the water, a yellow hand crane swinging over it, a cream goods shed with a red roof, crates and logs waiting, a lifebuoy and a lamp | `water-asset-landing.jpg` |
+| Cargo ship (`water-cargo-ship`) | 240 × 56 | Navy hull with a red bottom and a beech deck, 40 containers in eight colours, a white bridge at the stern, an orange funnel, a bow mast. About a train long, so 24 loads looks right (the old 130 mm one stays for Sandbox) | `water-sea-after.jpg` |
+| Train ferry (`water-train-ferry`) | 320 × 72 | White hull with a blue stripe; 270 mm of track on deck (an engine and two wagons) between white sides, open at the stern with yellow ends, a red buffer; a tall wheelhouse at the bow over the train, a yellow funnel | `water-asset-ferry.jpg` |
+| Ferry slip (`water-ferry-slip`) | pier 150, ramp 60 | Stone pier carrying the track out, a hinged ramp (yellow sides) on chains from a red frame, three-pile dolphins each side, a red/green light, a hut beside | `water-asset-ferry.jpg` |
+| Lighthouse (`bldg-lighthouse`) | as is | Red-and-white striped, on a stone base; its beam already turns. It fits the toy look as it stands, so no change | `water-sea-after.jpg` |
+
+Points for the build: the landing and slip models replace the harbour stand-in of the first mocks; the barges' loads
+are a named child (`load`) so the game swaps it as a hopper's heap; the ferry's deck track is a `trackSlab`, so the
+game's real track and train sit on it (the picture puts the game's own car models on it). Draw cost: each model is
+baked by the prop library into a few merged parts with shared materials (no new shader programs).
+
 ## 9. Build order (each lands alone, with an e2e on the player's path that checks the payoff)
 
 1. **Boats under routes (M).** A `Boat` in the economy (id, dock, barges, load `Bag`, `Route`), moved on the sim tick
