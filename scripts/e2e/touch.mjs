@@ -2574,6 +2574,89 @@ async function handWait(ctx, p) {
 }
 
 /**
+ * Leave now (the engine card): a hand-run train waiting under the forest's crane for a full load (the forest set to
+ * wait for one) goes on with what it has at a tap, a 44 px button or more; it isn't an undo step; and it's this visit
+ * only: come back to the forest (it turns back at the end of the line), it waits to fill again.
+ */
+async function leaveNowWait(ctx, p) {
+  await p.keyboard.press("Escape");
+  const setup = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
+    // Three straights, the forest, three straights, laid first on a scratch layout from (0, 0) heading +x.
+    const s = new Layout();
+    const ids0 = [s.addPiece("straight-216", { x: 0, z: 0, heading: 0 }, 0, false)];
+    for (const t of ["straight-216", "straight-216", "depot-forest", "straight-216", "straight-216", "straight-216"]) ids0.push(appendPiece(s, t, false, connectorRef(ids0[ids0.length - 1], 1)));
+    const poses = ids0.map((id) => s.getPiece(id));
+    const g = await window.__openGround(poses.flatMap((q) => [0, 108, 216].map((d) => [q.pose.x + d * Math.cos(q.pose.heading), q.pose.z + d * Math.sin(q.pose.heading)])));
+    if (!g) throw new Error("no open ground for the run");
+    // Harness shortcut (setup, not what's tested): the run laid through the editor, as dropping the pieces would; the
+    // train put down in code, as the tray would; the forest set to wait for a full load (its card's switch; e2e:touch
+    // "wait" tests that).
+    const ids = w.editor().placeRun(poses.map((q) => ({ type: q.type, pose: { x: g.x + q.pose.x, z: g.z + q.pose.z, heading: q.pose.heading }, y: 0, flipped: q.flipped })));
+    const forest = w.economy.depotAtPiece(ids[3]) ?? w.economy.addDepot("forest", ids[3]);
+    w.economy.setWaitFull(forest.id, true);
+    forest.piles.fill(0);
+    const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: ids[2], pathIndex: 0, s: 150, reversed: false });
+    if (r.kind !== "placed") throw new Error("no room for a train");
+    const engine = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(engine, 0);
+    w.paused = true;
+    w.invalidate();
+    return { engine, forest: forest.id, forestPiece: ids[3] };
+  });
+  const { tapOn, tapButton } = mapHelpers(p);
+  // Go on its card, a tap; then (harness shortcut: the game's own ticks, run ahead of SwiftShader's frames) on till it
+  // stands under the crane waiting to fill.
+  await tapOn({ engine: setup.engine });
+  await tapButton(".engine-card .go");
+  const waiting = await p.evaluate((o) => {
+    const w = window.woodrail;
+    const t = () => w.sim.findCar(o.engine).train;
+    let i = 0;
+    while (!w.economy.waitingToFill(t().id) && i++ < 60 * 120) (w.sim.tick(), w.economy.tick());
+    // (Some seconds more: the forest makes a log (one each 15 s), the wagon takes it, and it's still waiting for more.)
+    for (let k = 0; k < 18 * 120; k++) (w.sim.tick(), w.economy.tick());
+    w.invalidate();
+    const d = w.economy.waitingToFill(t().id);
+    return { at: d?.id ?? null, loads: t().cars.filter((c) => c.kind === "timber").map((c) => w.economy.cargoOf(c.id).count) };
+  }, setup);
+  check("leave-now: the hand-run train stands under the forest's crane waiting for a full load, a log or more on", waiting.at === setup.forest && waiting.loads[0] >= 1, JSON.stringify(waiting));
+  const shown = await p.waitForFunction(() => { const b = document.querySelector(".engine-card .leave-now"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 30000 }).then(() => true, () => false);
+  const box = await p.evaluate(() => { const r = document.querySelector(".engine-card .leave-now")?.getBoundingClientRect(); return r ? { w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right) } : null; });
+  check("leave-now: its card shows Leave now, 44 px or more and inside the phone's width", shown && box && box.h >= 44 && box.w >= 44 && box.right <= 390, JSON.stringify({ shown, box }));
+  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/leave-now.png` });
+  const undoBefore = await p.evaluate(() => window.woodrail.editor().canUndo);
+  await tapButton(".engine-card .leave-now");
+  const after = await p.evaluate((o) => {
+    const w = window.woodrail;
+    const t = () => w.sim.findCar(o.engine).train;
+    const hidden = document.querySelector(".engine-card .leave-now").hidden;
+    let left = -1;
+    for (let i = 0; i < 20 * 120 && left < 0; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      if (!t().bogies.some((b) => b.pieceId === o.forestPiece)) left = i;
+    }
+    const loads = t().cars.filter((c) => c.kind === "timber").map((c) => w.economy.cargoOf(c.id).count);
+    // Back again (it turns back at the end of the line): it waits to fill there again.
+    let again = false;
+    for (let i = 0; i < 90 * 120 && !again; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      again = w.economy.waitingToFill(t().id)?.id === o.forest;
+    }
+    w.sim.setLever(o.engine, 0);
+    w.paused = false;
+    w.invalidate();
+    return { hidden, left, loads, cap: w.economy.wagonCapacity, again, undo: w.editor().canUndo };
+  }, setup);
+  check("leave-now: a tap sends it on with what it has (not full), the button goes, and it's no undo step", after.hidden && after.left >= 0 && after.loads[0] >= 1 && after.loads.some((n) => n < after.cap) && after.undo === undoBefore, JSON.stringify({ ...after, undoBefore }));
+  check("leave-now: this visit only: back at the forest it waits to fill again", after.again, JSON.stringify(after));
+  await p.keyboard.press("Escape");
+}
+
+/**
  * A toast up over the map: a tap on it dismisses it, but while the map takes taps (picking pieces, drawing) it goes
  * through to the map (QA: picking, a tap on a piece under the toast hit the toast, twice).
  */
@@ -4331,7 +4414,7 @@ async function runMode(mode) {
     }, before);
     if (left) check(`${name}: what it laid is taken up after`, false, `${left} pieces left`);
   };
-  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
+  const SANDBOX = { "map-taps": () => mapTaps(p), "select-drag": () => selectThenDrag(ctx, p), redrawn: () => redrawnControl(ctx, p), flick: () => flickOut(ctx, p, tapOn), "lever-pins": () => leverPins(ctx, p), "under-car": () => shortUnderCar(ctx, p), "toast-through": () => toastTapsThrough(p), trap: () => putAwayButton(p), "dead-end": () => deadEndContinue(p), routes: () => twoRoutes(ctx, p), defaults: () => leverDefault(ctx, p), restore: () => routeRestore(ctx, p), wait: () => routeWait(ctx, p), wye: () => wyeLevers(ctx, p, tapOn), stuck: () => stuckHeadOn(ctx, p, tapOn), "stuck-lines": () => stuckHeadOn(ctx, p, tapOn, true), forward: () => forwardRoute(ctx, p), "hand-wait": () => handWait(ctx, p), "leave-now": () => leaveNowWait(ctx, p), via: () => viaRoute(ctx, p), follow: () => followGap(ctx, p, tapOn), "route-keep": () => routeKeep(ctx, p, tapOn), "tight-curves": () => tightCurves(ctx, p, tapOn), blocker: () => showBlocker(ctx, p), "train-card": () => trainCardAll(p), "place-facing": () => placeFacing(ctx, p, tapOn), feedback: () => feedbackFlow(p, { press: tapOn, check, label: "feedback" }), "route-ux": () => routeUx(ctx, p), "route-ux-more": () => routeUxMore(ctx, p) };
   // (E2E_ONLY: one check, or a comma list run in the full run's order, e.g. "routes,defaults,restore".)
   if (mode === "sandbox") {
     const only = ONLY ? ONLY.split(",") : null;

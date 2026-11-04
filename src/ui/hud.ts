@@ -661,7 +661,7 @@ export class Hud {
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
     this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
     this.continueBtn.hidden = true;
-    this.leaveNowBtn = button("Leave now ▸", "Stop waiting for a full load and go on with what it has (this stop only)", h.leaveNow, "chip text primary continue leave-now");
+    this.leaveNowBtn = button("Leave now ▸", "Stop waiting for a full load and go on with what it has (this stop only)", h.leaveNow, "chip text primary leave-now");
     this.leaveNowBtn.hidden = true;
     // Swap ends, Decouple and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): under Go and
     // the arrow, or beside them on a phone on its side (style.css).
