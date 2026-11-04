@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import pkgSrc from "../../package.json?raw";
 import { describe, expect, it } from "vitest";
 import { CREDITS } from "./credits-sheet";
 
@@ -13,7 +13,7 @@ describe("☰ Credits", () => {
     for (const c of CREDITS) expect(c.link).toMatch(/^https:\/\//);
   });
   it("names every library the game ships with", () => {
-    const deps = Object.keys(JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).dependencies);
+    const deps = Object.keys((JSON.parse(pkgSrc) as { dependencies: Record<string, string> }).dependencies);
     const named = CREDITS.map((c) => c.what.toLowerCase()).join(" ");
     for (const d of deps) expect(named, d).toContain(d.toLowerCase());
   });
