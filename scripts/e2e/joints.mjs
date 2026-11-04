@@ -276,7 +276,8 @@ async function slipDraw() {
       const g = T.getPieceDef("slip-single", false).paths[2].geom;
       const s = T.createSample();
       const out = [];
-      for (let d = 12; d <= 130; d += 6) {
+      // (From 30 mm in: nearer its end, the press is on the leg joined there.)
+      for (let d = 30; d <= 132; d += 6) {
         T.samplePath(g, d, s);
         const v = new V(x0.x + s.x, 0, x0.z + s.z).project(w.camera);
         out.push([r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]);
