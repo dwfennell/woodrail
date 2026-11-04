@@ -201,7 +201,7 @@ const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 440);
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
   "open-mine": "Mines wants 20 stone delivered, 10 more at the school and the Goods engine, which this one goods train brings only at about minute 195; the mine stands at about 220: the long part's (GOALS_LONG=1)",
   "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 412: the long part's (GOALS_LONG=1)",
-  "join-all": "the player joins Ashcombe and Brambleton once the mine is open (the goals' order), past this part's minutes: the long part's (GOALS_LONG=1)",
+  "join-all": "the player joins the last towns (Brambleton, and the bought plot's) once the mine is open (the goals' order), past this part's minutes: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
 export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {};
@@ -2905,7 +2905,7 @@ class Playthrough {
    * far side capped. In the goals play-through, where no end can be run on (on the starter map from minute 157 each
    * ends at a depot, boxed in by headroom, a town or a station: BALANCE_JOIN_TRACE=1 logs each try), a spur to it off a
    * switch in the line instead (`spurTo`), as a player branches off mid-line. (Not in the balance run, to keep its
-   * pacing as it was: there an end reaches Ashcombe in the end, at 113 on seed 2027.) The next nearest is tried if the
+   * pacing as it was: there an end reached Ashcombe in the end, at 113 on seed 2027, on the start as it was with five towns.) The next nearest is tried if the
    * nearest can't be reached.
    */
   joinTowns(): void {

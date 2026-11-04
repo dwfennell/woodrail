@@ -9,6 +9,7 @@ import {
   FEAT_STATION,
   freeName,
   generateLandscape,
+  OLD_STARTER_TOWNS,
   generatePlot,
   PLOT_DEPTH,
   plotKey,
@@ -271,10 +272,12 @@ export const STARTER_SEED = 7;
 
 /**
  * A fresh map: generated landscape with a station piece in every town and no player track. Without `extras`, the map
- * as it was before its old industries' sites (`addStartSites`): for QA's recordings made on such maps.
+ * as it was before its old industries' sites (`addStartSites`), with all the start's towns (`OLD_STARTER_TOWNS`): for
+ * QA's recordings made on such maps.
  */
 export function createWorld(seed: number, starter = false, extras = true, sites = true): World {
-  const landscape = extras && sites ? startLand(seed, starter) : generateLandscape(seed, { starter });
+  // (Without extras, a map as older builds made it: its start had all its towns too, `OLD_STARTER_TOWNS`.)
+  const landscape = extras && sites ? startLand(seed, starter) : generateLandscape(seed, { starter, ...(extras ? {} : { starterTowns: OLD_STARTER_TOWNS }) });
   // (Sandbox: no old industries' sites, on the start or on land added later.)
   if (!sites) {
     landscape.sites = [];
@@ -491,7 +494,8 @@ export function addSitesToOldSave(world: World): { towns: number; sites: number;
   const g = land.grid;
   const starts = g.plots.filter((p) => p.px >= START_REGION.px0 && p.px < START_REGION.px0 + START_REGION.w && p.pz >= START_REGION.pz0 && p.pz < START_REGION.pz0 + START_REGION.h);
   if (starts.length > 0) {
-    const part = generateLandscape(land.seed, { starter: land.starter, coast: !!land.coast });
+    // (Made as it was then: such a save's start has all its towns, `OLD_STARTER_TOWNS`.)
+    const part = generateLandscape(land.seed, { starter: land.starter, coast: !!land.coast, starterTowns: OLD_STARTER_TOWNS });
     patch(part, addStartSites(part));
   }
   for (const p of g.plots) {

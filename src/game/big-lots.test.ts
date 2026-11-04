@@ -49,7 +49,7 @@ describe("big landmarks on 2×2 lots", () => {
   });
 
   it("with no room for a block, on two squares, still itself (drawn as large as fits there); growth never waits", () => {
-    for (const k of [0, 1, 2, 3, 4]) {
+    for (const k of buildStarterWorld().landscape.towns.map((_, i) => i)) {
       const w = buildStarterWorld();
       noRoomForBlocks(w.landscape);
       const t = w.landscape.towns[k];

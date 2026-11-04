@@ -90,9 +90,9 @@ const towns = await p.evaluate(async () => {
     all.sort((a, b) => Math.hypot(a.centre.x - at.x, a.centre.z - at.z) - Math.hypot(b.centre.x - at.x, b.centre.z - at.z));
     chain.push(all.shift());
   }
-  // On the starter map, an order the pathfinder is known to manage (probed headless: the last link, to Thimble Cross,
-  // is a long one round the hills).
-  const known = ["Larkfield", "Elderwick", "Ashcombe", "Brambleton", "Thimble Cross"];
+  // On the starter map, an order the pathfinder is known to manage (the last link, to Thimble Cross, is a long one round
+  // the hills). (Its four towns: Ashcombe, a fifth, is on older maps only.)
+  const known = ["Larkfield", "Elderwick", "Brambleton", "Thimble Cross"];
   const names = new Set(w.world.landscape.towns.map((t) => t.name));
   if (names.size === known.length && known.every((n) => names.has(n))) return known.map((n) => w.world.landscape.towns.find((t) => t.name === n)).map((t) => ({ id: t.id, name: t.name }));
   return chain.map((t) => ({ id: t.id, name: t.name }));
