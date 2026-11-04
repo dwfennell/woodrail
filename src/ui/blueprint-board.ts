@@ -79,7 +79,9 @@ export const TAG_W = 148;
 /** A "?" (not found yet) is a small token, not a full tag: there are many of them and they say little. */
 export const HINT_W = 44;
 const COL_W = 176;
-const ROW_H = 60;
+// A tag with a two-line name and its price is about 62 px tall: rows 68 apart keep it clear of the tag below (at 60
+// they touched, and a lit tag's shadow lay over the next: playthrough).
+const ROW_H = 68;
 const BAND_PAD = 8;
 /**
  * Each band's name sits in a strip above its tags (sticky as the web scrolls), never over them: 10 px above its 24 px
