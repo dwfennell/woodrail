@@ -1075,16 +1075,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
 }
 /* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10\uE000"); tap for the picker. */
-.research-pill { position: relative; overflow: hidden; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
+.research-pill { position: relative; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
-.research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
+.research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .research-pill .rp-line { display: flex; flex: 0 100 auto; align-items: center; gap: 4px; min-width: 0; }
 .research-pill .rp-icon { flex: none; font-size: 16px; line-height: 1; }
 .research-pill .rp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The count: every good the research needs ("\uE0000/6 🌾0/6"). Where they don't all fit, `fitPill` shortens it to the
    goods still lacking, then to the one most lacking and "+1" (it's measured against this room: the name gives way first). */
 .research-pill .rp-count { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; font-variant-numeric: tabular-nums; color: #1f4f8a; }
-.research-pill .rp-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; }
+/* (Across the pill's foot, filled to --fill, and cut to its rounded corners: the pill itself doesn't clip, so the
+   queue's "+1" can sit out on its corner.) */
+.research-pill .rp-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: linear-gradient(to right, #2f6db5 var(--fill, 0%), transparent var(--fill, 0%)); clip-path: inset(-14px 0 0 0 round 0 0 14px 14px); pointer-events: none; }
 /* (Fitted by `fitPill`: a name that's cut goes a little smaller, then over two lines.) */
 .research-pill.rp-small .rp-name { font-size: 0.875em; letter-spacing: -0.01em; }
 .research-pill.rp-wrap .rp-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; line-height: 1.05; }
@@ -1093,8 +1095,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill.rp-goods .rp-line { display: none; }
 .research-pill.rp-goods .rp-text { display: flex; flex-direction: column; justify-content: center; }
 .research-pill.rp-goods .rp-count { white-space: normal; max-height: 2.4em; line-height: 1.15; }
-/* (Clear of the queue's "+1" in the corner.) */
-.research-pill.rp-goods:not([data-more=""])[data-more] .rp-text { padding-top: 11px; }
 .research-pill.idle { background: #fff1c2; box-shadow: 0 0 0 2px #e2a12b, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill.idle .rp-count { color: inherit; }
 /* Nothing to research (the school's idle): an amber dot. It pulses gently a few times (about 10 s) as the school goes
@@ -1107,9 +1107,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes idle-pulse { 50% { transform: scale(1.35); opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) { .research-pill.idle:not(.active)::after { animation: none; } }
 /* The queue behind it (#14): "+2" in the top right corner, over the pill (no layout: the name and count keep their room). */
-.research-pill:not([data-more=""])[data-more]::before { content: attr(data-more); position: absolute; top: 4px; right: 5px; font-size: 10px; line-height: 1; font-weight: 800; color: #fff; background: #2f6db5; border-radius: 7px; padding: 2px 4px; pointer-events: none; }
-/* (Room for it at the pill's end, so the count doesn't run under it: playthrough, it sat jammed in the corner.) */
-.research-pill:not([data-more=""])[data-more] { padding-right: 24px; }
+/* (Out on the corner, a badge, not inside it: playthrough, it sat jammed in the corner over the count. Taking no room,
+   so the pill fits a 360 px phone as before.) */
+.research-pill:not([data-more=""])[data-more]::before { content: attr(data-more); position: absolute; top: -6px; right: -5px; z-index: 1; font-size: 10px; line-height: 1; font-weight: 800; color: #fff; background: #2f6db5; border-radius: 8px; padding: 2px 4px; box-shadow: 0 0 0 2px #faf3e6; pointer-events: none; }
 .research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill:active { transform: scale(0.96); }
 @media (max-width: 640px) {
