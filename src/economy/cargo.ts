@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish" | "oil" | "water";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -35,6 +35,9 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   autos: { index: 17, label: "Cars" },
   // Fish, the catch the boats bring to your harbours once Fishing boats is learned: crates of fish on ice.
   fish: { index: 18, label: "Fish" },
+  // Tank wagons' goods (Tank wagons): oil from an oil well, water from a water pump by a river or lake.
+  oil: { index: 19, label: "Oil" },
+  water: { index: 20, label: "Water" },
 };
 
 /**
@@ -68,6 +71,9 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   // Tech tree 3's goods (src/icons/u1F697-car, u1F41F-fish).
   autos: "🚗",
   fish: "🐟",
+  // Tank wagons' goods (src/icons/u1F6E2-oil, u1F4A7-water).
+  oil: "🛢️",
+  water: "💧",
 };
 
 /** Coins, beside goods in a cost. */
@@ -86,6 +92,8 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   reefer: ["cheese", "icecream", "fish"],
   // The car carrier: two decks of new cars, the only wagon they ride in.
   carrier: ["autos"],
+  // The tank wagon: oil or water, the only wagon either rides in.
+  oiltank: ["oil", "water"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

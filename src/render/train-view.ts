@@ -16,6 +16,8 @@ interface CarEntry {
   lastLever: number;
   spin: number;
   tip: number;
+  /** How far a breakdown crane has it lifted (0 to 1) as last placed. */
+  hoist: number;
   /**
    * Its selection shells (made the first time it's selected), and how strongly they show: 0 off, 1 its train, 2 it, 3
    * its train flashed (in another train's way, shown from that one's card: see `setFlash`).
@@ -23,6 +25,9 @@ interface CarEntry {
   shells: Mesh[] | null;
   shown: 0 | 1 | 2 | 3;
 }
+
+/** How high (mm) a breakdown crane lifts a train clear of the track. */
+const HOIST_HEIGHT = 30;
 
 /** How far a selection shell stands proud of a car's parts (mm). */
 const SHELL_GROW = 1.8;
@@ -47,6 +52,11 @@ const LAMP_COLORS: Record<number, [Color, number]> = {
 export class TrainView {
   /** Each car's look (see `Sim.lookOf`). */
   lookOf: (carId: number) => CarLook = () => "classic";
+  /**
+   * How far a breakdown crane has lifted this car (0 to 1; `Breakdown.hoistOf`): it rises, coming upright as it does.
+   * Cheap when no crane is at work (one size check).
+   */
+  hoistOf: (carId: number) => number = () => 0;
   /** Each engine's name, painted on its plates (see `Sim.nameOf`). */
   nameOf: (carId: number) => string = () => "";
   private readonly plates = new NamePlates();
@@ -117,7 +127,7 @@ export class TrainView {
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
-        entry = { model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, shells: null, shown: 0 };
+        entry = { model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0 };
         this.cars.set(id, entry);
       }
       const heading = snap.transforms[o + 3];
@@ -125,8 +135,10 @@ export class TrainView {
       const lever = snap.levers[i];
       // A car standing as it was last placed (paused, waiting, parked), its lamp as it was, not toppling: left as it is.
       // (Each rotation set works its quaternion out again: 64 cars a tick, all for nothing, while a Sandbox map waits.)
-      const targetTip = snap.derailed[i] ? 1 : 0;
-      if (lever === entry.lastLever && x === entry.lastX && y === entry.lastY && z === entry.lastZ && heading === entry.lastHeading && pitch === entry.lastPitch && entry.tip === targetTip) continue;
+      // (Lifted by a crane, a derailed car comes upright as it rises.)
+      const hoist = this.hoistOf(id);
+      const targetTip = snap.derailed[i] ? 1 - hoist : 0;
+      if (lever === entry.lastLever && x === entry.lastX && y === entry.lastY && z === entry.lastZ && heading === entry.lastHeading && pitch === entry.lastPitch && entry.tip === targetTip && entry.hoist === hoist) continue;
       entry.lastY = y;
       entry.lastHeading = heading;
       entry.lastPitch = pitch;
@@ -146,11 +158,15 @@ export class TrainView {
       entry.lastZ = z;
 
       // A derailed car topples onto its side where it is.
-      entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
+      // (Lifted, it follows the crane's hoist exactly: the crane's own easing is the motion.)
+      if (hoist > 0) entry.tip = targetTip;
+      else entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
       if (Math.abs(targetTip - entry.tip) < 0.002) entry.tip = targetTip;
       else tipping = true;
+      if (hoist !== entry.hoist) tipping = true;
+      entry.hoist = hoist;
       root.rotation.x = entry.tip * (Math.PI / 2) * (id % 2 ? 1 : -1);
-      root.position.y = y + entry.tip * 12;
+      root.position.y = y + entry.tip * 12 + hoist * HOIST_HEIGHT;
 
       if (entry.model.lamp && lever !== entry.lastLever) {
         const [color, intensity] = LAMP_COLORS[snap.levers[i]] ?? LAMP_COLORS[0];

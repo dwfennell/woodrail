@@ -11,7 +11,8 @@
 // Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through. Then the next
 // nodes: Juice works' ticket in words, and Creamery then Cold van researched by taps and deliveries. Then tech tree 3: the
 // gates (a node locked at a schoolhouse, open at a College; one waiting for a University), the University (a third fewer
-// goods for hard lessons, the whole board shown), the Car carrier, the Car factory and Fishing boats.
+// goods for hard lessons, the whole board shown), the Car carrier, the Car factory and Fishing boats. Then Tank wagons and
+// the Breakdown crane, and their wagons and wells on the tray.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
@@ -896,6 +897,30 @@ await tap(".tabs button", "Industries");
 await tap(".tray-item.tray-group", "Industries");
 const industries = await trayLocked();
 check("the car factory is on the Industries shelf, unlocked", industries["piece:depot-carworks"] === false, JSON.stringify(industries));
+
+// 13. Tank wagons and the Breakdown crane (claude/tank-crane). Setup shortcut (not under test): what the crane needs
+// learned (Goods engine, Quicker cranes; Dairy farm is already). Both researched by taps and deliveries; the payoff on the
+// tray: the tank wagon and the breakdown crane on the Wagons shelf, the oil well and the water pump unlocked.
+await p.evaluate(() => {
+  const w = window.woodrail;
+  for (const id of ["goods-engine", "cranes1"]) if (!w.progress().learned.has(id)) w.learn(id);
+  const pr = w.progress();
+  pr.coins = Math.max(pr.coins, 1000);
+  w.hud.setCoins(pr.coins);
+});
+const tanks = await researchByTaps("Tank wagons", "tankers");
+check("Tank wagons: researched by taps and learned", tanks.first?.name === "Tank wagons" && (await p.evaluate(() => window.woodrail.progress().learned.has("tankers"))), JSON.stringify(tanks));
+const crane = await researchByTaps("Breakdown crane", "breakdown");
+check("Breakdown crane: researched by taps and learned", crane.first?.name === "Breakdown crane" && (await p.evaluate(() => window.woodrail.progress().learned.has("breakdown"))), JSON.stringify(crane));
+await tap(".tabs button", "Trains");
+await tap(".tray-item.tray-group", "Wagons");
+const wagons2 = await trayLocked();
+check("the tank wagon and the breakdown crane are on the Wagons shelf", wagons2["train:Tank wagon"] === false && wagons2["train:Breakdown crane"] === false, JSON.stringify(wagons2));
+await shot("23-tank-crane-wagons-shelf");
+await tap(".tabs button", "Industries");
+await tap(".tray-item.tray-group", "Industries");
+const industries2 = await trayLocked();
+check("the oil well and the water pump are on the Industries shelf, unlocked", industries2["piece:depot-oilwell"] === false && industries2["piece:depot-waterpump"] === false, JSON.stringify(industries2));
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

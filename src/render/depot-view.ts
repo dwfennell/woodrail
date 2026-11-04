@@ -233,6 +233,19 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  // Tank wagons' wells: an oil well's drums of oil and a water pump's drums of water, under a jib.
+  oilwell: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { oil: { t: 60, l: 70, y: YARD, across: 3, rows: 2, axis: "t" } },
+    trackT: 60,
+  },
+  waterpump: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { water: { t: 60, l: 70, y: YARD, across: 3, rows: 2, axis: "t" } },
+    trackT: 60,
+  },
   carworks: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -630,6 +643,15 @@ export class DepotView {
         [new RoundedBoxGeometry(SACK_LENGTH - 2, 1.4, SACK_WIDTH - 2, 1, 0.6).translate(0, CRATE_HEIGHT / 2 - 3.2, 0), mats.lacquer("#e4f1f7")],
         [mergeGeometries([-1, 0, 1].map((i) => nonIndexed(new SphereGeometry(1, 10, 6).scale(5, 1.3, 1.9).translate(i * 0.8, CRATE_HEIGHT / 2 - 2, i * 2.4))))!, mats.lacquer("#7d93a6")],
       ],
+      // Tank wagons' goods: a black drum of oil with a yellow band, and a blue drum of water with a white one;
+      oil: [
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.6, SACK_WIDTH / 2 - 0.6, CRATE_HEIGHT - 0.6, 14), mats.lacquer("#2a2b2e")],
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.3, SACK_WIDTH / 2 - 0.3, 1.6, 14), mats.lacquer("#e6b52c")],
+      ],
+      water: [
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.6, SACK_WIDTH / 2 - 0.6, CRATE_HEIGHT - 0.6, 14), mats.lacquer("#3d86b8")],
+        [new CylinderGeometry(SACK_WIDTH / 2 - 0.3, SACK_WIDTH / 2 - 0.3, 1.6, 14), mats.lacquer("#f6f3ec")],
+      ],
       // a tub of ice cream (pink, a cream lid);
       icecream: [
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.4, SACK_WIDTH / 2 - 1.4, CRATE_HEIGHT - 2, 14).translate(0, -1, 0), mats.lacquer("#e98aa8")],
@@ -833,6 +855,7 @@ export class DepotView {
     if (depot.role === "mill") site.blade = this.buildSails(pose);
     if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
     if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
+    if (depot.role === "oilwell") site.blade = this.buildPumpjack(pose);
     if (site.blade) {
       site.blade.updateWorldMatrix(true, true);
       const box = new Box3().setFromObject(site.blade);
@@ -1005,6 +1028,11 @@ export class DepotView {
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(14, 22, 3, 1, 1), 150, 63.5, PAD_H + 11));
       return;
     }
+    // Tank wagons' wells: their own code-built yards (a pumpjack and a tank; a pump house and a water tower).
+    if (site.depot.role === "oilwell" || site.depot.role === "waterpump") {
+      this.foodStandIns(site.depot.role, place, b);
+      return;
+    }
     const dressing = CATALOGUE_DRESSING[site.depot.role];
     if (dressing) {
       // The catalogue's models once they're all loaded (one of them missing: the stand-ins, drawn whole).
@@ -1158,6 +1186,23 @@ export class DepotView {
       b.add(mats.lacquer("#7a3f30"), place(new CylinderGeometry(4.5, 5.5, 70, 12), 182, 100, PAD_H + 35));
       return;
     }
+    if (role === "oilwell") {
+      // A pumpjack's base and its two posts (its beam nods while it pumps: `buildPumpjack`), and a black storage tank.
+      b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(52, 6, 22, 1, 2), 150, 92, PAD_H + 3));
+      for (const l of [84, 100]) b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(4, 34, 4, 1, 1), 150, l, PAD_H + 17));
+      b.add(mats.lacquer("#2a2b2e"), place(new CylinderGeometry(16, 16, 30, 20), 190, 96, PAD_H + 15));
+      b.add(mats.lacquer("#e6b52c"), place(new CylinderGeometry(16.4, 16.4, 4, 20), 190, 96, PAD_H + 24));
+      return;
+    }
+    if (role === "waterpump") {
+      // A brick pump house with a blue roof, and a tall blue water tank on legs.
+      b.add(mats.lacquer("#b5532f"), place(new RoundedBoxGeometry(40, 26, 30, 2, 3), 150, 92, PAD_H + 13));
+      b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(46, 5, 36, 1, 2), 150, 92, PAD_H + 28));
+      for (const [t, l] of [[180, 88], [196, 88], [180, 104], [196, 104]] as const) b.add(mats.lacquer("#5a4a3a"), place(new RoundedBoxGeometry(3, 40, 3, 1, 1), t, l, PAD_H + 20));
+      b.add(mats.lacquer("#3d86b8"), place(new CylinderGeometry(14, 14, 20, 20), 188, 96, PAD_H + 50));
+      b.add(mats.lacquer("#f6f3ec"), place(new ConeGeometry(15, 7, 20), 188, 96, PAD_H + 63));
+      return;
+    }
     if (role === "carworks") {
       // A long blue assembly hall with a saw-tooth roof, and a red car by its door.
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(62, 28, 36, 2, 3), 162, 88, PAD_H + 14));
@@ -1218,6 +1263,22 @@ export class DepotView {
     const blade = hasPart("industry-saw-blade") ? this.partObject("industry-saw-blade") : new Mesh(new CylinderGeometry(11, 11, 1.4, 28).rotateX(Math.PI / 2), this.mats.magnet);
     toWorld(pose, 44, 74, PAD_H + 14 + 4, blade.position);
     return this.addMoving(blade, pose);
+  }
+
+  /**
+   * An oil well's pumpjack beam: a black beam on its posts' pivot with a horse's head at the well's end. It nods (its
+   * angle set by the game's time, not turned on) while the well pumps; see `update`.
+   */
+  private buildPumpjack(pose: SitePose): Object3D {
+    const mats = this.mats;
+    const beam = new Group();
+    beam.add(new Mesh(new RoundedBoxGeometry(46, 4, 6, 1, 1.2), mats.lacquer("#2a2b2e")));
+    beam.add(new Mesh(new RoundedBoxGeometry(6, 12, 7, 1, 1.5).translate(-24, -3, 0), mats.lacquer("#e6b52c")));
+    beam.add(new Mesh(new RoundedBoxGeometry(8, 8, 8, 1, 2).translate(20, -4, 0), mats.lacquer("#c8442f")));
+    // (Its pivot's axis across the beam: the posts stand either side of it.)
+    beam.rotation.order = "YXZ";
+    toWorld(pose, 150, 92, PAD_H + 36, beam.position);
+    return this.addMoving(beam, pose);
   }
 
   /** A windmill's sails, facing the track; they turn (like the saw) while the mill grinds. */
@@ -1371,7 +1432,9 @@ export class DepotView {
       for (const site of this.sites) {
         if ((!site.blade && site.motes.length === 0) || !economy.working(site.depot)) continue;
         if (site.blade) {
-          site.blade.rotateZ(ran * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
+          // (A pumpjack nods, by the game's time; the rest turn.)
+          if (site.depot.role === "oilwell") site.blade.rotation.z = Math.sin(simSeconds * 2.2) * 0.3;
+          else site.blade.rotateZ(ran * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
           const at = site.bladeAt;
           if (site.blade.visible && (!eye || !at || eye.sees(at.x, at.y, at.z, at.size, AMBIENT_MIN_PX.blade))) ambient = true;
         }

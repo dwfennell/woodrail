@@ -340,6 +340,9 @@ export function engineView(
   const found = sim.findCar(engineCarId);
   if (!found) return { status: "", blocker: null };
   const s = trainState(sim, economy, found.train, found.train.cars[found.index].lever, cantMove);
+  // A breakdown crane's own train at work, or a train one is coming for: what the crane is doing.
+  const crane = craneStatus(economy, found.train);
+  if (crane) return { status: crane, blocker: null };
   // Standing (or turning back) beside a warehouse it can't trade with: why nothing happens, and what to do (no one is in
   // its way, so no Show).
   if (s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || (s.kind === "turning-back" && s.cause !== "open-end")) {
@@ -368,10 +371,28 @@ export function engineView(
   return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker };
 }
 
+/** What a breakdown crane is doing, said on its own train's card and on the card of the train it's for; null: none. */
+export function craneStatus(economy: Economy, train: Train): string | null {
+  const b = economy.breakdown;
+  if (!b.busy) return null;
+  const own = train.cars.find((c) => c.kind === "crane");
+  const job = own ? b.jobOf(own.id) : undefined;
+  if (job) {
+    const what = job.kind === "rerail" ? "a derailed train" : "a train in the way";
+    if (job.phase === "drive") return `Breakdown crane: on its way to ${what}`;
+    return job.kind === "rerail" ? "Breakdown crane: lifting a train back on the track" : "Breakdown crane: lifting a train off the line";
+  }
+  const coming = b.jobFor(train.cars[0].id);
+  if (!coming) return null;
+  if (coming.phase === "drive") return coming.kind === "rerail" ? "Off the rails: the breakdown crane is on its way" : "The breakdown crane is coming to lift it off the line";
+  return coming.kind === "rerail" ? "The breakdown crane is lifting it back on the track" : "The breakdown crane is lifting it off the line";
+}
+
 function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainState, nameOf: (depotId: number) => string, who: Blocker | null, place: string): string {
   const found = sim.findCar(engineCarId)!;
   switch (s.kind) {
     case "derailed":
+      // (A crane coming for it: `craneStatus`, said first.)
       return "Off the rails: Rerail puts it back";
     case "worked":
       return `${s.work} at ${nameOf(s.depotId)}`;

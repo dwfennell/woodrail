@@ -44,6 +44,7 @@
     "e2e:lift": "node scripts/e2e/lib/run.mjs tools/e2e/lift.mjs",
     "e2e:loop": "node scripts/e2e/lib/run.mjs tools/e2e/kit-loop.mjs",
     "e2e:research": "node scripts/e2e/lib/run.mjs tools/e2e/research-picker.mjs",
+    "e2e:crane": "node scripts/e2e/lib/run.mjs tools/e2e/crane.mjs",
     "e2e:growth": "node scripts/e2e/lib/run.mjs tools/e2e/growth-menu.mjs",
     "e2e:copy-map": "node scripts/e2e/lib/run.mjs tools/e2e/copy-map.mjs",
     "e2e:town-drag": "node scripts/e2e/lib/run.mjs tools/e2e/town-drag.mjs",

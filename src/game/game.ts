@@ -1,3 +1,5 @@
+import { poseCrane } from "../catalogue/assets/breakdown-crane";
+import { ROPE_REST } from "../economy/breakdown";
 import { kitOnWater } from "./depot-footprint";
 import type { Footprint } from "../props/placement";
 import type { SignBadge } from "../render/landscape-view";
@@ -320,6 +322,7 @@ export class Game {
     this.trackView.sync();
     this.trainView = new TrainView(this.mats);
     this.trainView.lookOf = (id) => this.sim.lookOf(id);
+    this.trainView.hoistOf = (id) => this.economy.breakdown.hoistOf(id);
     this.trainView.nameOf = (id) => this.sim.nameOf(id);
     this.scene.add(this.trainView.group);
     this.depotView = new DepotView(this.mats);
@@ -986,6 +989,31 @@ export class Game {
     );
   }
 
+  /** Crane cars posed for a job last frame (set back to rest when it's over). */
+  private readonly cranesPosed = new Set<number>();
+
+  /** Pose each working crane's turret and rope (`Breakdown.poseOf`); true while one works. */
+  private poseCranes(): boolean {
+    const b = this.economy.breakdown;
+    const now = new Set<number>();
+    for (const job of b.all()) {
+      const o = this.trainView.carObject(job.crane);
+      if (!o) continue;
+      const p = b.poseOf(job);
+      poseCrane(o, p.slew, p.rope);
+      now.add(job.crane);
+    }
+    for (const id of this.cranesPosed) {
+      if (now.has(id)) continue;
+      const o = this.trainView.carObject(id);
+      if (o) poseCrane(o, 0, ROPE_REST);
+      this.invalidate();
+    }
+    this.cranesPosed.clear();
+    for (const id of now) this.cranesPosed.add(id);
+    return now.size > 0;
+  }
+
   start(): void {
     // Station clocks show the real time: their own timer sets the hands at each minute, a frame drawn if one's in view.
     this.clockView.start(this.camera, () => this.canvas.height, () => this.invalidate());
@@ -1060,6 +1088,11 @@ export class Game {
       else active = true;
     }
     else if (depots === "changed") this.invalidate();
+    // Breakdown cranes at work: their turrets slew and ropes pay out (frames while one works; a crane's last pose set
+    // back to rest once it's done).
+    if (this.economy.breakdown.busy || this.cranesPosed.size > 0) {
+      if (this.poseCranes()) active = true;
+    }
     if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
     this.touchesMoving = false;
     // Small touches: placed again only when what they stand beside changed (a few comparisons a frame); the children

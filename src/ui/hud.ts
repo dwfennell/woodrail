@@ -55,6 +55,8 @@ export interface HudHandlers {
   renameEngine(name: string): string;
   /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
   showBlocker(): void;
+  /** Send the breakdown crane to lift the train in the open engine's way off the line. */
+  sendCrane(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
@@ -349,6 +351,7 @@ export class Hud {
    */
   private readonly blockerRow = el("div", "engine-blocker");
   private readonly showBlockerBtn: HTMLButtonElement;
+  private readonly sendCraneBtn: HTMLButtonElement;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
@@ -641,7 +644,9 @@ export class Hud {
     this.engineSummary.hidden = true;
     this.engineCard.appendChild(this.engineSummary);
     this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
-    this.blockerRow.append(this.showBlockerBtn);
+    this.sendCraneBtn = button("Send the crane", "The breakdown crane drives out and lifts the train in the way off the line", h.sendCrane, "chip text send-crane");
+    this.sendCraneBtn.hidden = true;
+    this.blockerRow.append(this.showBlockerBtn, this.sendCraneBtn);
     this.blockerRow.hidden = true;
     this.engineCard.appendChild(this.blockerRow);
     const controls = el("div", "engine-controls");
@@ -1843,6 +1848,12 @@ export class Hud {
     const title = what === "points" ? "Show the points it's waiting at" : "Show the train in the way";
     this.showBlockerBtn.title = title;
     this.showBlockerBtn.setAttribute("aria-label", title);
+  }
+
+  /** A breakdown crane could lift the train in the open engine's way off the line: Send the crane shows. */
+  setSendCrane(show: boolean): void {
+    if (this.sendCraneBtn.hidden === !show) return;
+    this.sendCraneBtn.hidden = !show;
   }
 
   setGoNow(on: boolean): void {

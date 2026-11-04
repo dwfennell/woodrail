@@ -1,3 +1,4 @@
+import { CRANE_TEXT } from "./game/crane-text";
 import { installDevChecks, recentBreaks } from "./game/dev-checks";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
@@ -467,6 +468,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       removeTrain: () => interaction.removeSelectedTrain(),
       renameEngine: (name) => interaction.renameSelectedEngine(name),
       showBlocker: () => showBlocker(),
+      sendCrane: () => sendCrane(),
       showPlace: (id) => showPlace(id),
       toggleChainHints: () => setChainHints(!chainHintsOn),
       tabOpened: (id) => {
@@ -3171,6 +3173,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const b = viewBlocker.shown;
     hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
+    // (A train in the way, and a crane train on the map to lift it off: Send the crane.)
+    hud.setSendCrane(!!b && b.car >= 0 && status.startsWith("Stuck") && game.economy.breakdown.cranes().some((c) => c.train.cars.every((x) => x.id !== carId)) && !game.economy.breakdown.jobFor(b.car));
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
     let angle = 0;
@@ -3228,6 +3232,28 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       consider(p.pose.x, p.pose.z, `the ${st.name.toLowerCase()}`);
     }
     return best;
+  }
+
+  /** What the breakdown cranes did (src/economy/breakdown.ts): a toast each, and a save once a train is put right. */
+  function showCraneNews(): void {
+    for (const e of game.economy.breakdown.drainEvents()) {
+      if (e.kind === "sent") {
+        if (e.auto) hud.toast(CRANE_TEXT.auto);
+      } else if (e.kind === "rerailed" || e.kind === "removed") {
+        hud.toast(CRANE_TEXT[e.kind]);
+        scheduleSave();
+      } else hud.toast(CRANE_TEXT[e.why]);
+    }
+  }
+
+  /** "Send the crane" (the card of a stuck train): the nearest free crane train drives out to lift the train in its way off the line. */
+  function sendCrane(): void {
+    const engine = interaction.openEngineCarId;
+    const found = engine === -1 ? null : game.sim.findCar(engine);
+    const b = found ? blockerOf(game.sim, game.economy, trainState(game.sim, game.economy, found.train, found.train.cars[found.index].lever, whyCantMove())) : null;
+    if (!b || b.car < 0) return;
+    const r = game.economy.breakdown.send(b.car, "remove");
+    hud.toast(r.ok ? CRANE_TEXT.sent : CRANE_TEXT[r.why]);
   }
 
   /**
@@ -5396,6 +5422,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);
+    showCraneNews();
     if (dt > 0) fps += (1 / dt - fps) * 0.05;
     if (!hud.perf.hidden) {
       const info = game.renderer.info.render;

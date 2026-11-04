@@ -130,7 +130,7 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", ...KIT_DEPOT_ROLES]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
