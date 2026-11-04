@@ -1076,7 +1076,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!site || site.cleared || mode !== "game") return;
     interaction.clearSelection();
     ruinShown = siteId;
-    hud.showRuinCard({ ...ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)), reach: canReach(siteId) ? null : RUIN_NO_WAY });
+    hud.showRuinCard({ ...ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id), workshopStock(game.world)), reach: canReach(siteId) ? null : RUIN_NO_WAY });
     audio.tap();
   }
   interaction.onRuinTap = openRuin;
@@ -2827,6 +2827,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (workshopShown !== id || force) workshopPanel.hide();
     workshopShown = id;
     const rows: MakeRow[] = [];
+    // (What the workshops hold: a price's stone already there isn't said to be needed.)
+    const stock = workshopStock(game.world);
     const SHELVES = ["Track", "Trains", "Industries", "Railway"];
     for (const tid of Object.keys(THING_RULES) as ThingId[]) {
       if (!progress.knows(tid) || isFree(tid)) continue;
@@ -2840,7 +2842,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : RAILWAY_THINGS.has(tid) ? "Railway" : "Track",
         // A second engine before Signals: said, not barred (on a line of its own it runs fine).
         // (A harbour's stone: where it goes, "Needs 10🪨 at the workshop".)
-        note: makeNote(progress, tid) ?? owedText(rule.cost),
+        note: makeNote(progress, tid) ?? owedText(rule.cost, stock),
       });
     }
     rows.sort((a, b) => SHELVES.indexOf(a.shelf) - SHELVES.indexOf(b.shelf));
