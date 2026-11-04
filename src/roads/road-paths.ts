@@ -15,10 +15,12 @@ import type { PathHold, RoadPath } from "./vehicles";
 export const VAN_REACH = 8;
 /** The top of a road's felt (mm above its square's ground). */
 const ROAD_TOP = 4.3;
-/** How far from the road's middle a vehicle keeps (to the left: the other way passes on the other side). */
-export const KEEP_LEFT = 11;
-/** Over this far from each end of a path a vehicle eases from the road's middle to its side (it parks in the middle). */
-const EASE_IN = 24;
+/**
+ * How far from the road's middle a vehicle keeps, to the left (the other way passes on the other side): the middle of
+ * its lane on a town street (felt 20 each side, `STREET_FELT_HALF`), near the kerb on a country lane (28). It keeps to it
+ * all the way, ends included: it parks there, at the kerb (a turn round is joined on when it sets off: `joinFrom`).
+ */
+export const KEEP_LEFT = 12;
 /** Half a block: each ramp half climbs this much over its square. */
 const HALF_BLOCK = RISER_HEIGHT / 2;
 /** A road bridge's hump at its middle (as drawn: `render/dressing/roads.ts`). */
@@ -108,7 +110,7 @@ function roadRise(road: number, x: number, z: number): number {
 /**
  * The polyline along road squares `squares` (in order, each joined to the next): from the middle of the first to the
  * middle of the last, through the middles of the edges between, curving round bends; kept `KEEP_LEFT` to the left of
- * the road's middle except near its ends (where it parks). `crossing` says which squares are a level crossing's: a
+ * the road's middle all the way (it parks there, by the kerb). `crossing` says which squares are a level crossing's: a
  * vehicle holds short of each run of them while it's shut (`PathHold`).
  */
 export function roadPath(land: Landscape, squares: readonly number[], crossing: (i: number) => boolean = () => false): RoadPath {
@@ -146,10 +148,6 @@ export function roadPath(land: Landscape, squares: readonly number[], crossing: 
     }
   }
   const n = xs.length;
-  // Distances along the middle, to ease the side offset in and out.
-  const mid = new Float32Array(n);
-  for (let k = 1; k < n; k++) mid[k] = mid[k - 1] + Math.hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1], zs[k] - zs[k - 1]);
-  const total = mid[n - 1] ?? 0;
   const pts = new Float32Array(n * 3);
   for (let k = 0; k < n; k++) {
     const a = Math.max(0, k - 1);
@@ -160,10 +158,9 @@ export function roadPath(land: Landscape, squares: readonly number[], crossing: 
     dx /= len;
     dz /= len;
     // Left of the way it faces (y up): (dz, −dx).
-    const ease = Math.min(1, Math.min(mid[k], total - mid[k]) / EASE_IN);
-    pts[k * 3] = xs[k] + dz * KEEP_LEFT * ease;
+    pts[k * 3] = xs[k] + dz * KEEP_LEFT;
     pts[k * 3 + 1] = ys[k];
-    pts[k * 3 + 2] = zs[k] - dx * KEEP_LEFT * ease;
+    pts[k * 3 + 2] = zs[k] - dx * KEEP_LEFT;
   }
   const at = new Float32Array(n);
   for (let k = 1; k < n; k++) at[k] = at[k - 1] + Math.hypot(pts[k * 3] - pts[k * 3 - 3], pts[k * 3 + 1] - pts[k * 3 - 2], pts[k * 3 + 2] - pts[k * 3 - 1]);
@@ -204,4 +201,54 @@ export class RoadPathCache {
   stale(land: Landscape, crossings: number): boolean {
     return land.grid.revision !== this.revision || crossings !== this.crossings;
   }
+}
+
+/** Points on the join `joinFrom` adds. */
+const JOIN_STEPS = 10;
+
+/**
+ * `path` with a join onto its start from where a vehicle stands, facing `heading` (0 faces +x): a smooth curve (a cubic
+ * whose ends follow the vehicle's way and the path's), so pulling out from the kerb, or turning round at the end of a
+ * trip to come back on the other side, is a turn, not a jump. The same path if it already starts there. A new path
+ * (the cached one is shared): worked out once a trip, never per frame.
+ */
+export function joinFrom(path: RoadPath, x: number, y: number, z: number, heading: number): RoadPath {
+  const { pts } = path;
+  const n = pts.length / 3;
+  if (n < 2) return path;
+  const bx = pts[0];
+  const bz = pts[2];
+  const dist = Math.hypot(bx - x, bz - z);
+  if (dist < 0.5) return path;
+  const ax = Math.cos(heading);
+  const az = -Math.sin(heading);
+  let tx = pts[3] - bx;
+  let tz = pts[5] - bz;
+  const tl = Math.hypot(tx, tz) || 1;
+  tx /= tl;
+  tz /= tl;
+  // Handles: half the way across, longer for a turn round (it swings out ahead before coming back).
+  const back = ax * tx + az * tz < -0.3;
+  const h = back ? Math.max(18, dist * 0.6) : Math.min(24, Math.max(6, dist * 0.5));
+  const p1x = x + ax * h;
+  const p1z = z + az * h;
+  const p2x = bx - tx * h;
+  const p2z = bz - tz * h;
+  const out = new Float32Array((JOIN_STEPS + n) * 3);
+  for (let s = 0; s < JOIN_STEPS; s++) {
+    const u = s / JOIN_STEPS;
+    const a = (1 - u) ** 3;
+    const b = 3 * (1 - u) ** 2 * u;
+    const c = 3 * (1 - u) * u * u;
+    const d = u ** 3;
+    out[s * 3] = a * x + b * p1x + c * p2x + d * bx;
+    out[s * 3 + 1] = y + (pts[1] - y) * u;
+    out[s * 3 + 2] = a * z + b * p1z + c * p2z + d * bz;
+  }
+  out.set(pts, JOIN_STEPS * 3);
+  const m = JOIN_STEPS + n;
+  const at = new Float32Array(m);
+  for (let k = 1; k < m; k++) at[k] = at[k - 1] + Math.hypot(out[k * 3] - out[k * 3 - 3], out[k * 3 + 1] - out[k * 3 - 2], out[k * 3 + 2] - out[k * 3 - 1]);
+  const shift = at[JOIN_STEPS];
+  return { squares: path.squares, pts: out, at, length: at[m - 1], holds: path.holds.map((hd) => ({ ...hd, at: hd.at + shift })), lead: (path.lead ?? 0) + shift };
 }
