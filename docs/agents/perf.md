@@ -14,6 +14,7 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | `node tools/perf/scene.mjs [<root>] [<map file>]` | What the scene holds to draw: its biggest meshes by triangles (instances counted), what casts shadows. Use an unminified build for names. |
 | `node tools/perf/threads.mjs [<s>]` | Which Chromium threads are busy while the game sits idle (a worker, the GPU process, audio). |
 | `node tools/perf/idle-frames.mjs`, `idle-cpu.mjs` | Older, narrower checks: frames drawn and CPU over 20 s idle; audio threads. |
+| `node tools/shots/track-far.mjs [<out>]` | Track carved and in its far version, at four zooms on the Sandbox map: pictures, the pixels that differ, the triangles. |
 
 Run them after `npm run build` (they measure `dist/`). `--root <dir>` measures another build (a directory with a
 `dist/` in it): keep a copy of main's build to compare a change against it on the same machine, in the same hour.
@@ -109,8 +110,12 @@ Open ones, biggest first:
 - **Tray and research pictures** (first visit, or a new build). Fixed: the studio's 2D canvas is on the CPU (encoding
   a picture waited on the GPU), and pictures asked for on demand are read back asynchronously. In SwiftShader the
   readback itself still costs the same either way.
-- **Triangles.** A curved track piece is ~3.1k triangles; the big Sandbox map draws 1.6 M a full frame. Lead: a
-  simpler piece far out (where the carving can't be seen).
+- **Triangles.** A curved track piece is ~3.1k triangles (an S-curve 10k), carved. Fixed: plain track (straights,
+  curves, S-curves, joins) is drawn in its far version (`buildPieceFar`: its body and grooves swept as one, no holes,
+  its curve every 7.5°; ~250 triangles a curve) where a millimetre is under half a pixel (`FAR_TRACK_PX_PER_MM`;
+  beyond ~6.3 m at DPR 2), a tile at a time (`TrackView.setDetail`): the late map's full frame 1.81 M → 1.38 M. At
+  normal zoom nothing changes (`tools/shots/track-far.mjs`: 0 pixels differ). Left: the big Sandbox map, 1.56 M, is
+  mostly near; switches, ramps and bridges are always carved.
 - **Research board** refresh: ~110–290 ms of tap handler at 4× on the late map.
 - **Bundle**: the entry is 1.8 MB; the CSG libraries (three-bvh-csg, three-mesh-bvh, polygon-clipping) are in it as
   well as in the carving worker, for the main thread's fallback carving; zod too. Lead: load them lazily.

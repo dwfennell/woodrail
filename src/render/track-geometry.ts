@@ -26,6 +26,7 @@ import {
   createSample,
   GROOVE_SPACING,
   GROOVE_WIDTH,
+  canStandOnArches,
   isRamp,
   pathLength,
   RISER_HEIGHT,
@@ -109,16 +110,21 @@ interface Frame {
 /** The turn between samples along an arc (radians). */
 const ARC_STEP = (3 * Math.PI) / 180;
 
-/** Samples along a path, optionally extended straight past either end. */
-function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0): Frame[] {
+/** The turn between samples along an arc in a piece's far version (`buildPieceFar`): within 0.6 mm of true. */
+const FAR_ARC_STEP = (7.5 * Math.PI) / 180;
+/** An S-curve's far version: a sample this far apart (mm), about every 4° of its turn. */
+const FAR_S_STEP = 14;
+
+/** Samples along a path, optionally extended straight past either end (`coarse`: for a far version). */
+function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0, coarse = false): Frame[] {
   const len = pathLength(geom);
   const curved = geom.kind !== "line" || geom.rise !== 0 || !!geom.dip;
   // An arc every 3° of turn (within 0.07 mm of true at the outer edge of a large curve: more only costs triangles, a
   // large curve's were a third of a busy map's), a balloon loop's big gentle curves every 6 mm, a slope every 3 mm.
   const steps = curved
     ? geom.kind === "arc"
-      ? Math.max(8, Math.ceil(Math.abs(geom.sweep) / ARC_STEP))
-      : Math.max(8, Math.ceil(len / (geom.kind === "loop" ? 6 : 3)))
+      ? Math.max(coarse ? 4 : 8, Math.ceil(Math.abs(geom.sweep) / (coarse ? FAR_ARC_STEP : ARC_STEP)))
+      : Math.max(8, Math.ceil(len / (coarse && geom.kind === "s" ? FAR_S_STEP : geom.kind === "loop" ? 6 : 3)))
     : lineStep > 0
       ? Math.ceil(len / lineStep)
       : 1;
@@ -140,11 +146,14 @@ function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lin
   return out;
 }
 
-/** Sweep a closed CCW profile along frames into a capped solid with normals and uvs (uv in mm). */
-function sweep(profile: ProfilePoint[], frames: Frame[]): BufferGeometry {
-  const pos: number[] = [];
-  const nor: number[] = [];
-  const uv: number[] = [];
+/**
+ * Sweep a closed CCW profile along frames into a capped solid with normals and uvs (uv in mm). `edges`, if given, says
+ * each profile edge's (from point i to i + 1) material slot and texture v at its two ends (else v is the perimeter so
+ * far): the faces are then grouped by slot (the caps `SLOT_BODY`).
+ */
+function sweep(profile: ProfilePoint[], frames: Frame[], edges?: readonly SweepEdge[]): BufferGeometry {
+  const slots = [0, 1].map(() => ({ pos: [] as number[], nor: [] as number[], uv: [] as number[] }));
+  let { pos, nor, uv } = slots[0];
   const n = profile.length;
 
   // Per-edge outward normals in profile space; per-point normals for each adjacent edge.
@@ -182,12 +191,16 @@ function sweep(profile: ProfilePoint[], frames: Frame[]): BufferGeometry {
       const j = (i + 1) % n;
       const na = pointNormal(i, i);
       const nb = pointNormal(j, i);
+      const e = edges?.[i];
+      ({ pos, nor, uv } = slots[e?.slot ?? SLOT_BODY]);
+      const va = e ? e.va : perim[i];
+      const vb = e ? e.vb : perim[i + 1];
       // quad corners: (f0,i) (f0,j) (f1,j) (f1,i)
       const corners: [Frame, number, Vector2, number][] = [
-        [f0, i, na, perim[i]],
-        [f0, j, nb, perim[i + 1]],
-        [f1, j, nb, perim[i + 1]],
-        [f1, i, na, perim[i]],
+        [f0, i, na, va],
+        [f0, j, nb, vb],
+        [f1, j, nb, vb],
+        [f1, i, na, va],
       ];
       // Winding: profile is CCW with outward normals to its right; sweeping forward gives outward-facing (0,3,2),(0,2,1)
       for (const idx of [0, 3, 2, 0, 2, 1]) {
@@ -200,6 +213,7 @@ function sweep(profile: ProfilePoint[], frames: Frame[]): BufferGeometry {
   }
 
   // End caps.
+  ({ pos, nor, uv } = slots[SLOT_BODY]);
   const contour = profile.map((p) => new Vector2(p.u, p.v));
   const tris = ShapeUtils.triangulateShape(contour, []);
   const cap = (f: Frame, sign: number) => {
@@ -218,11 +232,27 @@ function sweep(profile: ProfilePoint[], frames: Frame[]): BufferGeometry {
   cap(frames[frames.length - 1], 1);
 
   const g = new BufferGeometry();
-  g.setAttribute("position", new Float32BufferAttribute(pos, 3));
-  g.setAttribute("normal", new Float32BufferAttribute(nor, 3));
-  g.setAttribute("uv", new Float32BufferAttribute(uv, 2));
+  const all = (key: "pos" | "nor" | "uv") => (edges ? slots.flatMap((sl) => sl[key]) : slots[0][key]);
+  g.setAttribute("position", new Float32BufferAttribute(all("pos"), 3));
+  g.setAttribute("normal", new Float32BufferAttribute(all("nor"), 3));
+  g.setAttribute("uv", new Float32BufferAttribute(all("uv"), 2));
+  if (edges) {
+    let start = 0;
+    slots.forEach((sl, slot) => {
+      const count = sl.pos.length / 3;
+      if (count > 0) g.addGroup(start, count, slot);
+      start += count;
+    });
+  }
   fixWinding(g);
   return g;
+}
+
+interface SweepEdge {
+  slot: number;
+  /** Texture v at the edge's two ends. */
+  va: number;
+  vb: number;
 }
 
 /** Ensure each triangle's winding agrees with its stored normal (outward-facing). */
@@ -562,6 +592,73 @@ export function buildPieceShadowCaster(def: PieceDef): BufferGeometry {
   }
   g.clearGroups();
   g.deleteAttribute("uv");
+  g.computeBoundingSphere();
+  return g;
+}
+
+/**
+ * Can this piece be drawn far out by its far version (`buildPieceFar`)? A plain piece of one path joined at both ends:
+ * a straight, a curve, an S-curve. Not a ramp, bridge or underpass (their supports and slopes are carved), a buffer
+ * (its block), a switch or crossing (several paths), a joiner (all peg).
+ */
+export function hasFarVersion(def: PieceDef): boolean {
+  if (def.paths.length !== 1 || def.connectors.length !== 2 || def.supportHeight > 0 || canStandOnArches(def.type) || def.type === "underpass" || def.type === "joiner") return false;
+  const p = def.paths[0];
+  if (p.to === null) return false;
+  const g = p.geom;
+  return (g.kind === "line" || g.kind === "arc" || g.kind === "s") && g.rise === 0 && !(g.kind === "line" && g.dip);
+}
+
+/**
+ * A piece's far version, for where it's drawn too small to see its finer carving (see `TrackView.setDetail`): the body
+ * and its grooves swept as one outline (no carving), its bevels in fewer steps, its curve every 7.5° (not 3°), and no
+ * holes at its ends (a joint's peg fills them: `buildPegGeometry`). About a tenth of the triangles: a large curve's
+ * 3.1k are about 300. Its materials' groups, uvs and shading as the carved piece's. A millisecond or so to make.
+ */
+export function buildPieceFar(def: PieceDef): BufferGeometry {
+  const w = TRACK_WIDTH / 2;
+  const h = TRACK_THICKNESS;
+  const floor = TRACK_THICKNESS - GROOVE_DEPTH;
+  const pts: ProfilePoint[] = [];
+  const edges: SweepEdge[] = [];
+  /** Texture v so far: the body's perimeter (as the carved piece's body sweep), and the grooves' own. */
+  let v = 0;
+  let cutV = 0;
+  const to = (u: number, pv: number, smooth: boolean, slot = SLOT_BODY) => {
+    const last = pts[pts.length - 1];
+    if (last) {
+      const l = Math.hypot(u - last.u, pv - last.v);
+      if (slot === SLOT_BODY) edges.push({ slot, va: v, vb: (v += l) });
+      else edges.push({ slot, va: cutV, vb: (cutV += l) });
+    }
+    pts.push({ u, v: pv, smooth });
+  };
+  const arc = (cu: number, cv: number, r: number, a0: number, a1: number, n: number) => {
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + ((a1 - a0) * i) / n;
+      to(cu + r * Math.cos(a), cv + r * Math.sin(a), i > 0 && i < n);
+    }
+  };
+  arc(-w + BOTTOM_RADIUS, BOTTOM_RADIUS, BOTTOM_RADIUS, Math.PI, 1.5 * Math.PI, 1);
+  arc(w - BOTTOM_RADIUS, BOTTOM_RADIUS, BOTTOM_RADIUS, 1.5 * Math.PI, 2 * Math.PI, 1);
+  arc(w - TOP_RADIUS, h - TOP_RADIUS, TOP_RADIUS, 0, 0.5 * Math.PI, 2);
+  // Along the top, right to left, each groove's walls and floor (the carving's colour), then the top on past it.
+  for (const c of [GROOVE_SPACING / 2, -GROOVE_SPACING / 2]) {
+    const right = c + GROOVE_WIDTH / 2;
+    const left = c - GROOVE_WIDTH / 2;
+    to(right, h, false);
+    const top = v;
+    to(right, floor, false, SLOT_CUT);
+    to(left, floor, false, SLOT_CUT);
+    to(left, h, false, SLOT_CUT);
+    // The top past the groove has its texture where the body's would be, as if the groove weren't there.
+    v = top + (right - left);
+  }
+  arc(-w + TOP_RADIUS, h - TOP_RADIUS, TOP_RADIUS, 0.5 * Math.PI, Math.PI, 2);
+  // The closing edge, back to the first point (the left side).
+  edges.push({ slot: SLOT_BODY, va: v, vb: v + Math.hypot(pts[0].u - pts[pts.length - 1].u, pts[0].v - pts[pts.length - 1].v) });
+  const g = sweep(pts, framesAlong(def.paths[0].geom, 0, 0, 0, true), edges);
+  g.computeBoundingBox();
   g.computeBoundingSphere();
   return g;
 }

@@ -113,7 +113,7 @@
     },
     "sandbox.frame.triangles": {
       "kind": "count",
-      "max": 1710000
+      "max": 1650000
     },
     "sandbox.frame.programs": {
       "kind": "count",

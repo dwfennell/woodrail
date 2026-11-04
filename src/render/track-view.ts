@@ -27,7 +27,7 @@ import { MAX_BRIDGE_LEVELS, PLOT_DEPTH, PLOT_WIDTH } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
-import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceShadowCaster, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceFar, buildPieceGeometry, buildPieceShadowCaster, hasFarVersion, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
@@ -836,6 +836,35 @@ function casterGeometry(type: PieceTypeId, flipped: boolean): BufferGeometry | n
   return g;
 }
 
+/** Far versions (`buildPieceFar`), one for each kind of piece that has one, shared by every TrackView. */
+const farVersions = new Map<string, BufferGeometry | null>();
+
+/** A kind of piece's far version, or null where it has none (or is a kit's: its own look). */
+function farGeometry(type: PieceTypeId, flipped: boolean): BufferGeometry | null {
+  const key = `${type}|${flipped ? 1 : 0}`;
+  let g = farVersions.get(key);
+  if (g === undefined) {
+    const def = getPieceDef(type, flipped);
+    farVersions.set(key, (g = !kitOf(type) && hasFarVersion(def) ? compactPiece(buildPieceFar(def)) : null));
+  }
+  return g;
+}
+
+/** The carved geometry (or its stand-in for now) a tile mesh of this key (see `TrackView.sync`) draws close up. */
+function carvedOfKey(key: string): BufferGeometry {
+  const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
+  return carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
+}
+
+/**
+ * Track is drawn in its far version (`buildPieceFar`, a tenth of the triangles) where a millimetre is drawn smaller
+ * than this many pixels: its bevels and the steps of its curves are then a fraction of a pixel, and its grooves are
+ * kept, so the swap doesn't show. (On a 390×844 phone at DPR 2 that's beyond about 6.3 m from the camera; the camera
+ * plays from about 0.3 to 3 m.) Back to the carved one a tenth nearer, so a tile on the edge doesn't flip-flop.
+ */
+export const FAR_TRACK_PX_PER_MM = 0.5;
+const FAR_TRACK_HYSTERESIS = 1.1;
+
 /**
  * Draws a Layout with one InstancedMesh per piece variant. Call `sync()` after the layout changes.
  * Picking: `pieceAt(object, instanceId)` maps a raycast hit back to a piece id.
@@ -850,7 +879,10 @@ const TRACK_TILE_DEPTH = PLOT_DEPTH;
 
 export class TrackView {
   readonly group = new Group();
-  private meshes = new Map<string, { mesh: InstancedMesh; ids: number[] }>();
+  private meshes = new Map<string, { mesh: InstancedMesh; ids: number[]; far: BufferGeometry | null; isFar: boolean }>();
+  /** Where the camera was and its pixels at a unit distance, as last set (`setDetail`): sync's new meshes use it. */
+  private readonly detailEye = new Vector3();
+  private detailScale = 0;
   /** The shadow casters' material (never drawn to the screen: the shadow map draws depth only). */
   private readonly casterMaterial = new MeshBasicMaterial();
   /** For track that's picked but not drawn (`modelRails`): raycasts still hit it. */
@@ -1003,7 +1035,9 @@ export class TrackView {
     for (const [key, ids] of groups) {
       const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
       const unseen = modelRails(type);
-      const mesh = new InstancedMesh(carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
+      const near = carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
+      const far = Number(levels) === 0 && !unseen ? farGeometry(type, flipped === "1") : null;
+      const mesh = new InstancedMesh(near, unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
       mesh.castShadow = !unseen;
       mesh.receiveShadow = !unseen;
       ids.forEach((id, i) => {
@@ -1029,7 +1063,9 @@ export class TrackView {
         mesh.add(shadow);
       }
       this.group.add(mesh);
-      this.meshes.set(key, { mesh, ids });
+      const entry = { mesh, ids, far, isFar: false };
+      this.meshes.set(key, entry);
+      if (far && this.detailScale > 0) this.detailOf(key, entry);
       // (A kit's model draws its own buffer stops, where its roads end.)
       if (bufferBlock(type) && !kitOf(type)) bufferIds.push(...ids);
     }
@@ -1225,7 +1261,8 @@ export class TrackView {
 
   /** Pieces carved in the background: those showing a stand-in take theirs (no rebuild of the rest). */
   piecesBuilt(): void {
-    for (const [key, { mesh }] of this.meshes) {
+    for (const [key, { mesh, isFar }] of this.meshes) {
+      if (isFar) continue;
       const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
       const g = carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
       if (mesh.geometry !== g) {
@@ -1234,6 +1271,37 @@ export class TrackView {
       }
     }
     this.syncOutline();
+  }
+
+  /**
+   * Draw each tile's track carved, or in its far version where it's too small to see the difference
+   * (`FAR_TRACK_PX_PER_MM`): `eye` the camera's position, `scale` its pixels a millimetre at a millimetre away (the
+   * drawing's height in pixels over twice the tangent of half the fov). On the frames drawn; a distance a tile mesh.
+   * Returns true if any changed.
+   */
+  setDetail(eye: Vector3, scale: number): boolean {
+    this.detailEye.copy(eye);
+    this.detailScale = scale;
+    let changed = false;
+    for (const [key, entry] of this.meshes) if (entry.far && this.detailOf(key, entry)) changed = true;
+    return changed;
+  }
+
+  /** Swap a tile mesh to its far version or back, by the last `setDetail`. True if it changed. */
+  private detailOf(key: string, entry: { mesh: InstancedMesh; far: BufferGeometry | null; isFar: boolean }): boolean {
+    const sphere = entry.mesh.boundingSphere;
+    if (!sphere || !entry.far) return false;
+    // (The nearest the tile's pieces come: all of them change together.)
+    const d = Math.max(1, this.detailEye.distanceTo(sphere.center) - sphere.radius);
+    const pxPerMm = this.detailScale / d;
+    const far = pxPerMm < FAR_TRACK_PX_PER_MM * (entry.isFar ? FAR_TRACK_HYSTERESIS : 1);
+    if (far === entry.isFar) return false;
+    entry.isFar = far;
+    const sphereWas = entry.mesh.boundingSphere;
+    entry.mesh.geometry = far ? entry.far : carvedOfKey(key);
+    // (Its bounding sphere stays: it's the instances', the same either way, and its shadow caster shares it.)
+    entry.mesh.boundingSphere = sphereWas;
+    return true;
   }
 
   private readonly outlines: Mesh[] = [];
