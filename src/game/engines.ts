@@ -15,6 +15,8 @@ export interface EngineKind {
   readonly quick: number;
   /** Runs on electricity: only while a power station has coal. */
   readonly electric?: boolean;
+  /** Has a cog under it: climbs a rack (`isRack`), where other trains stop short. */
+  readonly rack?: boolean;
 }
 
 export const ENGINES: Partial<Record<CarLook, EngineKind>> = {
@@ -24,6 +26,8 @@ export const ENGINES: Partial<Record<CarLook, EngineKind>> = {
   diesel: { label: "diesel", pulls: 6, speed: 1.2, quick: 1 },
   electric: { label: "electric engine", pulls: 6, speed: 1.4, quick: 1.2, electric: true },
   express: { label: "express engine", pulls: 4, speed: 1.5, quick: 1 },
+  // The rack's (spec 2026-11-04-rail-types.md): weak and slow, but it climbs.
+  rack: { label: "rack engine", pulls: 2, speed: 0.7, quick: 1.5, rack: true },
 };
 
 const engineOf = (world: World, carId: number): EngineKind => ENGINES[world.sim.lookOf(carId)] ?? ENGINES.classic!;
@@ -93,13 +97,23 @@ export function tooHeavy(world: World, train: Train): string | null {
   return `Too heavy: ${who}, and this train has ${l.cars}. Add an engine or take a car off`;
 }
 
-/** Game mode's engines on the sim (Sandbox: none, every engine alike). */
+/** May this train climb a rack: has it a rack engine (anywhere in it, pulling or pushing)? */
+export function canRack(world: World, train: Train): boolean {
+  return train.cars.some((c) => c.kind === "engine" && !!ENGINES[world.sim.lookOf(c.id)]?.rack);
+}
+
+/** "Can't climb the rack: …", for a train standing short of one (`Sim.rackHeld`). */
+export const RACK_WAIT = "Can't climb the rack: add a rack engine, or go round by the ramps";
+
+/** Game mode's engines on the sim (Sandbox: none, every engine alike, and any train climbs a rack). */
 export function attachEngines(world: World, boilers: () => boolean = () => false): void {
   world.sim.topSpeed = (train) => topSpeed(world, train, boilers());
   world.sim.quickness = (train) => quickness(world, train);
+  world.sim.mayRack = (train) => canRack(world, train);
 }
 
 export function detachEngines(world: World): void {
   world.sim.topSpeed = null;
   world.sim.quickness = null;
+  world.sim.mayRack = null;
 }

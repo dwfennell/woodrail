@@ -9,6 +9,7 @@ import {
   FEAT_STATION,
   freeName,
   generateLandscape,
+  hillsOf,
   OLD_STARTER_TOWNS,
   generatePlot,
   PLOT_DEPTH,
@@ -24,7 +25,9 @@ import {
 } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
-import { kitOf, Layout, type PieceTypeId } from "../track";
+import { kitOf, Layout, LOOKOUT_KIT, RISER_HEIGHT, type PieceTypeId } from "../track";
+
+export { LOOKOUT_KIT };
 import { PropStore } from "../props/store";
 import { isTownLot, SCHOOL_REACH } from "./town-lots";
 import { addPlotExtras, addStartSites, type Extra } from "./map-sites";
@@ -158,7 +161,7 @@ export function syncIndustries(world: World, halts = false): boolean {
     const type = piece.type;
     if (halts && HALT_KITS.has(type)) {
       // A halt (Game mode): a passenger stop for the town nearest it, kept linked to the nearest as it moves.
-      const town = haltTown(world.landscape, piece.pose);
+      const town = stopTown(world.landscape, type, piece.pose);
       const d = world.economy.depotAtPiece(id);
       if (d) {
         if (town && d.townId !== town.id) d.townId = town.id;
@@ -198,18 +201,28 @@ export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   // Big stations (a research): a stop on each road, or each road of the terminus, for the same town.
   "kit-two-platform-station",
   "kit-grand-terminus",
+  // The rack's lookout: a stop of the nearest town's, however far, on a hilltop (`LOOKOUT_KIT`).
+  "kit-lookout",
 ]);
+
+/**
+ * The lookout halt (Mountain railway): stands only on a hilltop `LOOKOUT_HEIGHT` up or more. No one lives there, so no
+ * one waits there (`peopleArrive`); riders from any town get off there (`Economy.canAlight`), and pay
+ * `LOOKOUT_FARE` times the fare for the view (`fareFor`).
+ */
+export const LOOKOUT_HEIGHT = 2 * RISER_HEIGHT;
+export const LOOKOUT_LOW = "A lookout stands on a hilltop two levels up or more";
 
 /** How far a halt may stand from a town's middle (mm): a plot's depth, about 23 squares. */
 export const HALT_REACH = PLOT_DEPTH;
 
 /** The town nearest a halt at `pose` (its piece's origin) within `HALT_REACH`, or null. A few towns: cheap. */
-export function haltTown(land: Landscape, pose: { x: number; z: number; heading: number }): Landscape["towns"][number] | null {
+export function haltTown(land: Landscape, pose: { x: number; z: number; heading: number }, reach = HALT_REACH): Landscape["towns"][number] | null {
   // Measured from the platform's middle (108 along a 216 halt).
   const x = pose.x + 108 * Math.cos(pose.heading);
   const z = pose.z + 108 * Math.sin(pose.heading);
   let best: Landscape["towns"][number] | null = null;
-  let bestD = HALT_REACH;
+  let bestD = reach;
   for (const t of land.towns) {
     const d = Math.hypot(t.centre.x - x, t.centre.z - z);
     if (d <= bestD) {
@@ -225,7 +238,22 @@ export const HALT_TOO_FAR = `Build halts within ${Math.round(HALT_REACH / CELL)}
 
 /** Game mode's rule for a halt's place (`Interaction.siteRule`): near a town, or why not. */
 export function haltWhy(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): string | null {
+  if (type === LOOKOUT_KIT) return onHilltop(land, pose) ? null : LOOKOUT_LOW;
   return HALT_KITS.has(type) && !haltTown(land, pose) ? HALT_TOO_FAR : null;
+}
+
+/** The town a halt is a stop of: the nearest within `HALT_REACH`; a lookout's, the nearest however far. */
+export function stopTown(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): Landscape["towns"][number] | null {
+  return haltTown(land, pose, type === LOOKOUT_KIT ? Infinity : HALT_REACH);
+}
+
+/** Is the ground under a halt's platform (its two ends and middle) a hilltop `LOOKOUT_HEIGHT` up or more? */
+export function onHilltop(land: Landscape, pose: { x: number; z: number; heading: number }): boolean {
+  const hills = hillsOf(land.grid);
+  const cos = Math.cos(pose.heading);
+  const sin = Math.sin(pose.heading);
+  for (const t of [12, 108, 204]) if (hills.groundAt(pose.x + t * cos, pose.z + t * sin) < LOOKOUT_HEIGHT - 0.5) return false;
+  return true;
 }
 
 export interface World {

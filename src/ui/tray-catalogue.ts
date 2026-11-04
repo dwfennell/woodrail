@@ -61,6 +61,8 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "balloon-loop-small", label: "Small loop" },
   { kind: "piece", type: "wye", label: "Wye" },
   { kind: "piece", type: "ramp", label: "Ramp" },
+  { kind: "piece", type: "rack", label: "Rack" },
+  { kind: "piece", type: "rack-short", label: "Short rack" },
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
   { kind: "piece", type: "underpass", label: "Underpass" },
@@ -84,6 +86,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
   { kind: "train", cars: ["engine"], looks: ["express"], label: "Express" },
   { kind: "train", cars: ["engine"], looks: ["goods"], label: "Goods engine" },
+  { kind: "train", cars: ["engine"], looks: ["rack"], label: "Rack engine" },
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Flatbed wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
@@ -118,7 +121,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
   { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45"), SIGNAL_ITEM] },
-  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser") },
+  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser", "rack", "rack-short") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
 ];
@@ -256,7 +259,7 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
   },
   {
     label: "Halts",
-    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform")],
+    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform"), kit("kit-lookout", "Lookout halt")],
   },
   {
     label: "Lineside",

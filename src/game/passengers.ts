@@ -24,6 +24,9 @@ export const RIDER_SECONDS = 24;
 /** Most people waiting at a station (twice as many, coming twice as often, with busy stations). */
 export const WAITING_CAP = 6;
 
+/** A ride to a lookout halt pays this many times the fare: a day out for the view. */
+export const LOOKOUT_FARE = 2;
+
 /** Each mm between the two stations is worth this much fare (and never less than `MIN_FARE`). */
 const FARE_PER_MM = 1 / 800;
 const MIN_FARE = 1;
@@ -52,7 +55,8 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
   // Each town's stops, in depot order (its station, added with the map, first).
   const stops = new Map<number, DepotState[]>();
   for (const d of world.economy.allDepots()) {
-    if (d.role !== "town" || !world.layout.getPiece(d.pieceId)) continue;
+    // (No one lives at a lookout: riders only get off there.)
+    if (d.role !== "town" || !world.layout.getPiece(d.pieceId) || world.economy.isLookout(d)) continue;
     const list = stops.get(d.townId);
     if (list) list.push(d);
     else stops.set(d.townId, [d]);
@@ -96,6 +100,7 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (world.sim.lookOf(carId) === "first-class") fare *= FIRST_CLASS;
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
   }
+  if (world.economy.isLookout(to)) fare *= LOOKOUT_FARE;
   return Math.round(fare);
 }
 

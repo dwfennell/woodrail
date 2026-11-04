@@ -101,6 +101,9 @@ export interface KitDef {
 /** Kit piece types: `kit-` and the asset's name without its catalogue prefix. */
 export type KitTypeId = `kit-${string}`;
 
+/** The lookout halt (the rack's): a passenger stop on a hilltop, where riders from any town get off (see src/game/world.ts). */
+export const LOOKOUT_KIT: KitTypeId = "kit-lookout";
+
 /** The furnished platform's depth across, and how far off the track's edge it stands (mm). */
 const PLATFORM_DEPTH = 26;
 const PLATFORM_GAP = 1;
@@ -281,6 +284,21 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     footprint: [
       { t: 108, l: beside(24), w: 216, d: 26 },
       // The chalet and its pines behind the platform.
+      { t: 103, l: 63, w: 90, d: 34 },
+    ],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  // A lookout halt (the rack's): the mountain station's chalet, standing only on a hilltop two levels up or more. Riders
+  // from any town get off there for a day out and pay twice the fare (src/game/world.ts `LOOKOUT_KIT`).
+  "kit-lookout": {
+    asset: "bldg-mountain-station",
+    name: "lookout",
+    track: straight("kit-lookout", 216),
+    rails: "track",
+    place: { t: 108, l: TRACK_HALF + PLATFORM_GAP + 30, turn: Math.PI },
+    footprint: [
+      { t: 108, l: beside(24), w: 216, d: 26 },
       { t: 103, l: 63, w: 90, d: 34 },
     ],
     splices: true,

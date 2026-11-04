@@ -7,7 +7,7 @@ import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from
 import { attachPassengers, fareFor, SEATS } from "./passengers";
 import { Progress } from "./progress";
 import { routeStops } from "./route-stops";
-import { buildStarterWorld, HALT_KITS, HALT_REACH, haltTown, haltWhy, STATION_CRANE_AT, syncIndustries, type World } from "./world";
+import { buildStarterWorld, HALT_KITS, HALT_REACH, LOOKOUT_KIT, haltTown, haltWhy, STATION_CRANE_AT, syncIndustries, type World } from "./world";
 
 /** Lay `type` on free end `ref` (seated by an end of the other kind); returns its id. */
 function lay(layout: Layout, ref: number, type: PieceTypeId): number {
@@ -219,7 +219,8 @@ describe("placing a halt in Game mode", () => {
     expect(haltWhy(w.landscape, "kit-country-halt", near)).toBeNull();
     const far = { x: town.centre.x + HALT_REACH * 4, z: town.centre.z + HALT_REACH * 4, heading: 0 };
     expect(haltTown(w.landscape, far)).toBeNull();
-    for (const type of HALT_KITS) expect(haltWhy(w.landscape, type, far)).toBe("Build halts within 23 squares of a town");
+    // (A lookout is held to a hilltop instead: lookout.test.ts.)
+    for (const type of HALT_KITS) if (type !== LOOKOUT_KIT) expect(haltWhy(w.landscape, type, far)).toBe("Build halts within 23 squares of a town");
     // Only halts are held to towns.
     expect(haltWhy(w.landscape, "kit-water-tower", far)).toBeNull();
     expect(haltWhy(w.landscape, "straight-216", far)).toBeNull();

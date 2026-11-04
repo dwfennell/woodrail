@@ -60,6 +60,10 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // Dug as much as made: coins for the digging (a tunnel takes two). A short one goes a level down, under a hill; a
   // long one two, under the felt (and anything on it).
   "piece:tunnel-mouth-short": { label: "Short tunnel mouth", cost: { planks: 1 }, coins: 20, tech: "tunnels" },
+  // The rack (Mountain railway): a steep ramp only a rack engine climbs, and the lookout halt on a hilltop.
+  "piece:rack": { label: "Rack", cost: { planks: 3 }, coins: 20, tech: "rack" },
+  "piece:rack-short": { label: "Short rack", cost: { planks: 2 }, coins: 10, tech: "rack" },
+  "piece:kit-lookout": { label: "Lookout halt", cost: { planks: 6 }, coins: 40, tech: "rack" },
   "piece:tunnel-mouth": { label: "Tunnel mouth", cost: { planks: 2 }, coins: 30, tech: "tunnels" },
   "car:engine": { label: "Engine", cost: { planks: 6 } },
   "car:timber": { label: "Flatbed wagon", cost: { planks: 3 } },
@@ -162,7 +166,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
  * Cars in a look of their own that needs a blueprint (the passenger line's coaches, the express engine). Other looks
  * come with the car.
  */
-export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine" };
+export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine", rack: "rack" };
 
 /** A thing's whole price, for cards, by icon as tickets show it: "12\uE000 30🪙" ("free" if nothing). */
 export function costText(rule: ThingRule): string {

@@ -1,6 +1,12 @@
 # New rail types: rack, metro, monorail (2026-11-04)
 
-A design, not a build. Asked for: a rack railway (steep hills), a monorail and a metro; for each its pieces, how it
+**Status (2026-11-04):** the user approved it: the monorail dropped; the rack with its lookout halt, only trains with a
+rack engine climbing; metro stops bringing new riders (half rate, two a town); the metro train needing a power
+station with coal. One condition on the metro: "It should be expensive to move folks by metro": its cost at the top of
+the transport options, its extra riders paying back slowly over a long game (§2, Cost and payback). The rack is built on
+`claude/rack` (§7); the metro follows on `claude/metro`.
+
+The design as first written follows. Asked for: a rack railway (steep hills), a monorail and a metro; for each its pieces, how it
 joins ordinary track, its trains, a real reason to use it, research gating and the phone UI; which to build first and
 which to drop. Branch `claude/design-rail-types`. Tunnels are on `claude/tunnels` (not merged): the metro builds on them.
 
@@ -252,6 +258,38 @@ Each lands alone, with its e2e on the player's path (research → tray → lay �
       middle without its ground.)
 4. **Metro unit needs power** (a power station with coal), like the electric engine? Recommended yes, for one rule.
 5. **Monorail:** drop it (recommended), keep it on the board as "later", or build only the ride kit?
+
+## 7. The rack as built (`claude/rack`)
+
+- **Pieces:** `rack` (two levels in 144) and `rack-short` (one level in 72), in `isRamp` (their own sloping viaduct,
+  cuttings) and `isRack`. On the Ups & downs shelf. A cog strip in the carved wood's darker shade down the middle,
+  part of the piece's carved geometry (built once per type: no new material, no draw call).
+- **Hills step a level a square** (the maps' settling, and the land editor, never make a two-level cliff). So a rack
+  climbs across a step: its foot on the felt a square out, its top two squares on, over the one-level square between
+  (as a ramp crosses a terrace). `e2e:rack` lays one so.
+- **The rule:** `Sim.mayRack` (Game mode: `canRack`, a rack engine anywhere in the train). A train that may not stops
+  short of a rack's end, either way, and waits (`Sim.rackHeld`); its card: "Can't climb the rack: add a rack engine,
+  or go round by the ramps". A rack engine's train runs at half speed on a rack (`RACK_SLOW`). Sandbox: no rule, any
+  train climbs at full speed. Cost: a walk over the pieces ahead, only while the layout has a rack and the train has no
+  rack engine (racks found again when `Layout.piecesVersion` changes).
+- **Routes don't plan round a rack.** A routed train without a rack engine whose way goes up one waits at its foot,
+  its card saying why. Planning round it (or refusing such a stop on the route card) would touch the router's
+  invariants: left for later, if play shows it's needed.
+- **Rack engine:** a car look (`rack`): the tank engine's model in claret and gold with a cog under it; pulls 2,
+  speed 0.7, quick 1.5. On the Trains tab with the engines.
+- **Lookout halt** (`kit-lookout`): the mountain station's chalet; a halt (`HALT_KITS`) of the nearest town's, however
+  far; put down only where the ground under its platform is two levels up or more ("A lookout stands on a hilltop two
+  levels up or more"). No one waits there (`peopleArrive` skips it); riders from any town, its own too, get off there
+  (`Economy.canAlight`); their fare is twice the distance fare (`LOOKOUT_FARE`). No reach ring while it's held.
+- **Research:** `rack`, tier 2, needs Bridges and ramps and Tank engine, a Town; 8🪵 + 120🪙. Things: rack 3🪵 + 20🪙,
+  short rack 2🪵 + 10🪙, lookout 6🪵 + 40🪙; the rack engine an engine (6🪵) in its look. The balance player's list
+  (`WISH`) doesn't take it, so the play-through doesn't change.
+- **Tests:** `src/sim/rack.test.ts` (held short both ways, the short rack, half speed, Sandbox), `src/game/lookout.test.ts`
+  (riders from another town and its own get off and pay twice; no one waits there; hilltop only; saved; the rack
+  engine climbs, a tank engine's card says why), `grade-guard` (finds both racks). `npm run e2e:rack` (about 3 min) on
+  a 390×844 phone: the tray, the rack put down from it at a hill's foot, the lookout from it on the hilltop, a tank
+  engine's train held with its card, a rack engine's train carrying four riders from a halt up to the lookout, paid
+  twice, idle frames. Pictures: `docs/agents/shots/rack-*.jpg`.
 
 ## 6. Prototype on this branch
 

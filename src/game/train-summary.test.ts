@@ -24,7 +24,7 @@ describe("train summary (#9)", () => {
 
   it("speed in words, by the engine's speed against the classic engine's", () => {
     const said = Object.fromEntries(Object.entries(ENGINES).map(([k, e]) => [k, speedWord(e.speed)]));
-    expect(said).toEqual({ classic: "steady", tank: "steady", goods: "slow", diesel: "quick", electric: "quick", express: "fast" });
+    expect(said).toEqual({ classic: "steady", tank: "steady", goods: "slow", diesel: "quick", electric: "quick", express: "fast", rack: "slow" });
     expect(speedWord(0)).toBe("");
   });
 

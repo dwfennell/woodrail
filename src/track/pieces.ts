@@ -69,6 +69,7 @@ export type PieceTypeId =
   | "signal"
   | "ramp"
   | "rack"
+  | "rack-short"
   | "riser"
   | "bridge"
   | "bridge-curve"
@@ -287,6 +288,21 @@ const arcPath = (to: number, sweep: number): PathDef => ({
 });
 const linePath = (to: number, length: number): PathDef => ({ from: 0, to, geom: { kind: "line", start: pose(0, 0, 0), length, y0: 0, rise: 0 } });
 
+/** A rack piece (`isRack`): straight, `length` long, rising `rise`, eased as a ramp is. */
+function rack(type: PieceTypeId, length: number, rise: number): PieceDef {
+  return {
+    type,
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(length, 0, 0), y: rise },
+    ],
+    paths: [{ from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length, y0: 0, rise } }],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  };
+}
+
 const CATALOG: Record<PieceTypeId, PieceDef> = {
   "straight-54": straight("straight-54", 54),
   "straight-108": straight("straight-108", 108),
@@ -407,21 +423,11 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     isSwitch: false,
     supportHeight: 0,
   },
-  // Prototype (rack railway spec, 2026-11-04): a rack ramp, two levels up in one ramp's length (peak slope 1). Only a
-  // train with a rack engine may climb it (not built: the prototype is for pictures).
-  rack: {
-    type: "rack",
-    connectors: [
-      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
-      { kind: "peg", pose: pose(RAMP_LENGTH, 0, 0), y: 2 * RISER_HEIGHT },
-    ],
-    paths: [
-      { from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: RAMP_LENGTH, y0: 0, rise: 2 * RISER_HEIGHT } },
-    ],
-    flippable: true,
-    isSwitch: false,
-    supportHeight: 0,
-  },
+  // A rack: a ramp so steep only a train with a rack engine climbs it (src/game/engines.ts, `Sim.mayRack`), a cog strip
+  // down its middle. Two levels up in one ramp's length (its steepest slope 1); the short one a level up in half that.
+  // Ends as a ramp's: a hole at the foot, a peg at the top; flipped, they swap (spec 2026-11-04-rail-types.md).
+  rack: rack("rack", RAMP_LENGTH, 2 * RISER_HEIGHT),
+  "rack-short": rack("rack-short", RAMP_LENGTH / 2, RISER_HEIGHT),
   riser: { type: "riser", connectors: [], paths: [], flippable: false, isSwitch: false, supportHeight: RISER_HEIGHT },
   // Bridges are track on painted arches that reach down to the ground, however high the deck is (see the landscape's
   // `bridgeLevels`): the piece's base is its deck.
@@ -647,7 +653,10 @@ export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 export const isBridge = (type: PieceTypeId): boolean => type === "bridge" || type === "bridge-curve";
 
 /** Ramps up a level: the straight one, and the curved ones. Each stands on its own sloping support. */
-export const isRamp = (type: PieceTypeId): boolean => type === "ramp" || type === "rack" || type === "ramp-curve" || type === "ramp-curve-small" || type === "ramp-curve-wide";
+export const isRamp = (type: PieceTypeId): boolean => type === "ramp" || isRack(type) || type === "ramp-curve" || type === "ramp-curve-small" || type === "ramp-curve-wide";
+
+/** A rack piece: only a train with a rack engine may run onto it, in Game mode (`Sim.mayRack`). */
+export const isRack = (type: PieceTypeId): boolean => type === "rack" || type === "rack-short";
 
 /** Pieces that stand on arches when raised: bridges always, a ramp when its low end is up off the ground. */
 export const canStandOnArches = (type: PieceTypeId): boolean => isBridge(type) || isRamp(type);
@@ -678,6 +687,7 @@ const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   "tunnel-mouth",
   "tunnel-mouth-short",
   "rack",
+  "rack-short",
   "buffer",
   "buffer-turnback",
   // Kits flipping (a buffer's skin): a single end, so a flip can only swap its peg and hole.

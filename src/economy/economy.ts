@@ -1,4 +1,4 @@
-import { getPieceDef, isKit, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { getPieceDef, isKit, LOOKOUT_KIT, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -1002,8 +1002,12 @@ export class Economy {
   /** Would someone on this coach get off here: a town's station other than where they got on (a stop to drop at)? */
   private canAlight(d: DepotState, carId: number): boolean {
     const r = this.riders.get(carId);
-    // (A town's halts are its stops too: no one gets off in the town they got on in.)
-    if (!r || d.role !== "town" || this.townOf(r.from) === d.townId) return false;
+    if (!r || d.role !== "town") return false;
+    // (A lookout takes riders from any town, its own too, for the view; none got on at a lookout. Else, a town's halts
+    // are its stops too: no one gets off in the town they got on in.)
+    if (this.isLookout(d)) {
+      if (this.isLookout(this.depots[r.from])) return false;
+    } else if (this.townOf(r.from) === d.townId) return false;
     const route = this.routeOfCar(carId);
     return !route || this.dropsAt(route, d, null);
   }
@@ -1016,6 +1020,11 @@ export class Economy {
     if (!r && this.seatsOf(carId) <= 0) return false;
     const route = this.routeOfCar(carId);
     return !route || this.picksAt(route, d, null);
+  }
+
+  /** Is this a lookout halt's stop (`LOOKOUT_KIT`): a destination for riders from anywhere, where no one lives? */
+  isLookout(d: DepotState | undefined): boolean {
+    return !!d && d.role === "town" && this.layout.getPiece(d.pieceId)?.type === LOOKOUT_KIT;
   }
 
   /** The town a passenger stop (a station's depot, or a halt's) is for, by its depot id: −1 for none. */
