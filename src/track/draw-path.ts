@@ -118,6 +118,12 @@ export interface DrawOptions {
   onMap?: (x: number, z: number) => boolean;
   /** What to say when the line needed a special piece (a ramp, a bridge) it may not use: "Out of ramp pieces". */
   outOf?: (type: PieceTypeId) => string;
+  /**
+   * Tunnels learned: the pieces of a tunnel under the hill ahead of `end` (each a type and how far it takes the line up
+   * or down), from there on to open ground past it, or null if none goes (see `planTunnel`). A line that climbs a hill
+   * a level high only to come straight down its far side goes under it instead (see `DrawLine.underHill`).
+   */
+  tunnel?: (end: DrawEnd) => readonly { type: PieceTypeId; dy: number }[] | null;
 }
 
 /** Stroke points closer than this (mm) to the last are skipped. */
@@ -1500,6 +1506,8 @@ export class DrawLine {
     // (Two levels or more up where the piece chosen ends: a ramp onto the first, if one lands just on it; a long straight
     // across both rises of a terrace drawn straight at it was refused two levels up, where the line had climbed with
     // shorter pieces. QA N5, terrace 2: read where it was drawn, the stroke ran straight on into it.)
+    // (Tunnels learned and no ramp to climb with: under the hill instead, if a tunnel goes there.)
+    if (why.reason === "hill" && this.options.tunnel && !this.may("ramp") && this.end.y === 0 && this.tunnelFrom(this.pieces.length)) return true;
     if (why.reason === "hill") return levels === 1 ? this.rampUp(false) : levels > 1 && (this.rampUp(false, true) || this.climbBack());
     if (why.reason === "river") return levels >= 1 ? this.bridge() : (this.startCrossing() && this.cross()) || this.rampUp(true);
     // A level up over a line on the ground (too low for trains to pass under): a bridge, which digs an underpass under
@@ -1512,7 +1520,10 @@ export class DrawLine {
     const groundAt = this.options.groundAt;
     if (last && climbs(last) && !(groundAt && groundAt(last.end.x, last.end.z) >= last.end.y - 1)) return this.bridge();
     const down = this.rampDown();
-    if (down === "laid") return true;
+    if (down === "laid") {
+      this.underHill();
+      return true;
+    }
     // Where a ramp down would stand in the river, or (just off a bridge) isn't on the stroke yet: a bridge on, till it is.
     return (down === "river" || (!!last && isBridge(last.type))) && this.bridge();
   }
@@ -1807,6 +1818,66 @@ export class DrawLine {
       const p = past > 0 ? { x: this.xs[n] + Math.cos(h) * past, z: this.zs[n] + Math.sin(h) * past } : this.pointAt(at);
       // (Water level with the line: from a hilltop over it, a bridge goes straight on.)
       if (wet(p.x, p.z)) return groundAt(p.x, p.z) >= e.y - 1;
+    }
+    return false;
+  }
+
+  /**
+   * Tunnels learned, and the line has just come down a ramp off a hill one level high that it climbed with a ramp, in a
+   * straight line, along plain straights: in their place, a short tunnel mouth down a level into the board, the same
+   * straights a level under the felt (under the hill), and a mouth back up. Piece for piece where the ramps and straights
+   * were (a ramp's length is a short mouth's). Each checked as it's laid; as it was if any can't go, or the player hasn't
+   * two short mouths.
+   */
+  private underHill(): void {
+    if (!this.options.tunnel) return;
+    const n = this.pieces.length;
+    const down = this.pieces[n - 1];
+    if (!down || down.type !== "ramp" || down.blocked || !(down.end.y < down.y + RISER_HEIGHT - 1)) return;
+    const heading = down.end.heading;
+    const inLine = (p: DrawnPiece) => Math.abs(Math.sin(p.end.heading - heading)) < 1e-6 && Math.cos(p.end.heading - heading) > 0;
+    if (!inLine(down) || Math.abs(Math.sin(2 * heading)) > 1e-3) return;
+    let k = n - 2;
+    while (k >= 0 && /^straight-\d+$/.test(this.pieces[k].type) && !this.pieces[k].blocked && inLine(this.pieces[k]) && Math.abs(this.pieces[k].y - down.y - RISER_HEIGHT) < 1) k--;
+    const up = this.pieces[k];
+    if (!up || !climbs(up) || up.blocked || !inLine(up) || k === n - 2 || Math.abs(up.y - down.y) > 1) return;
+    this.tunnelFrom(k, inLine);
+  }
+
+  /**
+   * A tunnel (`DrawOptions.tunnel`) laid from the line's end before piece `k` (the pieces from there on taken off), or
+   * from a plain straight or two further back (taken off too: the hill too near for a mouth). True if laid.
+   */
+  private tunnelFrom(k: number, inLine: (p: DrawnPiece) => boolean = () => true): boolean {
+    if (!this.options.tunnel) return false;
+    for (let back = 0; back <= 2; back++) {
+      const j = k - back;
+      if (j < 0) return false;
+      if (back > 0 && (!/^straight-\d+$/.test(this.pieces[j].type) || !inLine(this.pieces[j]) || this.pieces[j].blocked)) return false;
+      const from = j > 0 ? this.pieces[j - 1].end : this.start;
+      const steps = this.options.tunnel(from);
+      if (!steps) continue;
+      const line: DrawnPiece[] = this.pieces.slice(0, j);
+      const laid: DrawCandidate[] = [];
+      let e = from;
+      let ok = true;
+      for (const { type, dy } of steps) {
+        const c = candidatesFrom(e, [type]).find((q) => Math.abs(Math.sin(q.end.heading - e.heading)) < 1e-6 && Math.cos(q.end.heading - e.heading) > 0 && Math.abs(q.end.y - (e.y + dy)) < 0.5);
+        if (!c || !this.may(type, line) || this.options.check?.(c, line)) {
+          ok = false;
+          break;
+        }
+        laid.push(c);
+        line.push({ type: c.type, flipped: c.flipped, pose: c.pose, y: c.y, entry: c.entry, exit: c.exit, end: c.end, from: 0, points: 0, blocked: null, blockedBy: null, track: trackOf(c), aside: false });
+        e = c.end;
+      }
+      if (!ok) continue;
+      const progress = this.progress;
+      if (j < this.pieces.length) this.progress = this.pieces[j].from;
+      this.pieces.length = j;
+      for (const c of laid) this.lay(c, this.alongStroke(c));
+      this.progress = Math.max(this.progress, Math.min(progress, this.alongStroke(laid[laid.length - 1])));
+      return true;
     }
     return false;
   }
