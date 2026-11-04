@@ -528,6 +528,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-cloud { min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: rgba(250, 243, 230, 0.82); box-shadow: 0 4px 14px rgba(30, 20, 10, 0.25); font: inherit; font-weight: 800; font-size: 14px; color: #5c4632; cursor: pointer; }
 .title-cloud:hover { background: rgba(250, 243, 230, 0.95); }
 .title-screen .cloud-card { position: fixed; top: 50%; bottom: auto; transform: translate(-50%, -50%); }
+/* (A phone on its side has no room under the cards: the link sits in the empty top right corner instead.) */
+@media (max-height: 500px) { .title-foot { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); } }
+.title-screen .cloud-card { max-height: calc(100dvh - 24px); overflow-y: auto; }
 @media (max-width: 560px), (max-height: 520px) {
   .title-card { padding: 14px 16px 16px; display: grid; grid-template-columns: 64px 1fr; column-gap: 12px; }
   .title-art { width: 64px; height: 64px; grid-row: span 2; }
