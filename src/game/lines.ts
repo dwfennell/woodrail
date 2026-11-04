@@ -174,6 +174,43 @@ export function moveStop(stops: RouteStopDef[], from: number, to: number): void 
   stops.splice(Math.max(0, Math.min(stops.length, to)), 0, s);
 }
 
+/**
+ * A line's stops the other way round, in place: the order reversed, and each leg's via points with it (a leg's via
+ * points are kept on the stop it leaves, so those of the leg from a to b, run from b to a, go on b, in reverse order).
+ * Each stop's own settings (what it does, wait to fill) go with it.
+ */
+export function reverseStops(stops: RouteStopDef[]): void {
+  const n = stops.length;
+  if (n < 2) return;
+  const vias = stops.map((st) => st.via);
+  stops.reverse();
+  // (Now stop i is old n−1−i; its leg on is to old n−2−i, the old leg from n−2−i to n−1−i, run back. The last, old 0,
+  // goes on to old n−1: the old leg from n−1 round to 0.)
+  stops.forEach((st, i) => {
+    const via = vias[i === n - 1 ? n - 1 : n - 2 - i];
+    if (via && via.length > 0) st.via = [...via].reverse();
+    else delete st.via;
+  });
+}
+
+/**
+ * A copy of line `id` (its stops, their settings and via points), a new line in the next colour, run by this engine
+ * (which runs no line), heading for the stop it comes to first along its way (`firstStopAhead`; else the first).
+ */
+export function copyLine(economy: Economy, id: number, engineCarId: number): Line | null {
+  const from = economy.lines.get(id);
+  if (!from || from.stops.length === 0) return null;
+  stopLine(economy, engineCarId);
+  const line = startLine(
+    economy,
+    engineCarId,
+    from.stops.map((st) => ({ ...st, ...(st.via ? { via: [...st.via] } : {}) })),
+  );
+  const first = line.stops.length >= 2 ? firstStopAhead(economy, engineCarId, line.stops) : -1;
+  economy.setRoute(engineCarId, { stops: line.stops, next: first === -1 ? 0 : first });
+  return line;
+}
+
 /** The most via points a stop keeps (on the way to the next stop). */
 export const MAX_VIAS = 8;
 

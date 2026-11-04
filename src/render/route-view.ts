@@ -35,6 +35,102 @@ export interface GapSpec {
   to: { x: number; y: number; z: number };
 }
 
+/**
+ * A run of a ribbon, as drawn: a lane (`lane`) where its way shares the track with another (the same line the other
+ * way, or another line), `offset` mm to the side of the track's middle (`RouteView.point`'s side) and `width` mm wide;
+ * else the whole ribbon, in the middle. `lines`: how many lines share it (1: its own only).
+ */
+export interface LaneRun extends PathRun {
+  lane: boolean;
+  offset: number;
+  width: number;
+  lines: number;
+}
+
+/**
+ * Each way's runs (a line's legs, `keys[i]` the line each way is: its colour), split where it shares track with other
+ * runs of these ways, as lanes side by side across the track (audit F8, F9): a line run both ways is two lanes, each to
+ * the left of the way it runs (as trains here keep left); lines sharing track are each a lane (or two), in the order
+ * the lines are given, the same way across the track whichever way each runs (`flipped(piece, path)`: that path runs
+ * against the map's own sense, so its lines are put the other way across it, and stay on their sides from piece to
+ * piece). In order along each way, as given; each piece keeps its direction. Stretches shorter than `LANE_MIN` take
+ * their neighbour's lanes (no slivers at a joint, or where a train turns at the end of a stop).
+ */
+export function laneRuns(ways: readonly (readonly PathRun[])[], keys: readonly string[] = [], flipped: (pieceId: number, pathIndex: number) => boolean = () => false): LaneRun[][] {
+  // The lines in order (by first given), and each path's stretches: the line, which way along it, from and to.
+  const order = new Map<string, number>();
+  ways.forEach((_, i) => {
+    const k = keys[i] ?? "";
+    if (!order.has(k)) order.set(k, order.size);
+  });
+  const cover = new Map<string, { line: number; up: boolean; lo: number; hi: number }[]>();
+  ways.forEach((runs, i) => {
+    const line = order.get(keys[i] ?? "")!;
+    for (const r of runs) {
+      if (Math.abs(r.s1 - r.s0) < 1e-3) continue;
+      const key = `${r.pieceId}/${r.pathIndex}`;
+      let c = cover.get(key);
+      if (!c) cover.set(key, (c = []));
+      c.push({ line, up: r.s1 > r.s0, lo: Math.min(r.s0, r.s1), hi: Math.max(r.s0, r.s1) });
+    }
+  });
+  const split = (r: PathRun, line: number): LaneRun[] => {
+    const up = r.s1 >= r.s0;
+    const lo = Math.min(r.s0, r.s1);
+    const hi = Math.max(r.s0, r.s1);
+    const here = cover.get(`${r.pieceId}/${r.pathIndex}`) ?? [];
+    const cuts = [lo, hi, ...here.flatMap((c) => [c.lo, c.hi]).filter((x) => x > lo + 1e-3 && x < hi - 1e-3)].sort((x, y) => x - y);
+    const flip = flipped(r.pieceId, r.pathIndex);
+    // Each stretch between cuts: the lanes across the track there, and which is this way's.
+    const segs: { a: number; b: number; offset: number; width: number; lane: boolean; lines: number }[] = [];
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const [a, b] = [cuts[i], cuts[i + 1]];
+      if (b - a < 1e-3) continue;
+      const mid = (a + b) / 2;
+      const seen = new Map<number, { up: boolean; down: boolean }>();
+      for (const c of here) {
+        if (c.lo > mid || c.hi < mid) continue;
+        const w = seen.get(c.line) ?? { up: false, down: false };
+        if (c.up) w.up = true;
+        else w.down = true;
+        seen.set(c.line, w);
+      }
+      const lines = [...seen.keys()].sort((x, y) => (flip ? y - x : x - y));
+      // (Across the track, as `point` counts it: a line's two ways, its way up at the lower side: left of its way.)
+      const slots: string[] = [];
+      for (const l of lines) {
+        const w = seen.get(l)!;
+        if (w.up && w.down) slots.push(`${l}+`, `${l}-`);
+        else slots.push(`${l}`);
+      }
+      const n = slots.length;
+      const both = seen.get(line);
+      const mine = both && both.up && both.down ? `${line}${up ? "+" : "-"}` : `${line}`;
+      const j = Math.max(0, slots.indexOf(mine));
+      const step = n <= 3 ? 2 * LANE_OFFSET : (4 * LANE_OFFSET) / (n - 1);
+      segs.push(n <= 1 ? { a, b, offset: 0, width: RIBBON_WIDTH, lane: false, lines: 1 } : { a, b, offset: (j - (n - 1) / 2) * step, width: Math.min(LANE_WIDTH, step * 0.7), lane: true, lines: lines.length });
+    }
+    // Slivers take a neighbour's lanes (the longer one), then neighbours alike are joined.
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i];
+      if (s.b - s.a >= LANE_MIN || segs.length === 1) continue;
+      const prev = segs[i - 1];
+      const next = segs[i + 1];
+      const from = !prev ? next : !next ? prev : prev.b - prev.a >= next.b - next.a ? prev : next;
+      Object.assign(s, { offset: from.offset, width: from.width, lane: from.lane, lines: from.lines });
+    }
+    const out: LaneRun[] = [];
+    for (const s of segs) {
+      const last = out[out.length - 1];
+      if (last && last.offset === s.offset && last.width === s.width && last.lines === s.lines) last.s1 = s.b;
+      else out.push({ pieceId: r.pieceId, pathIndex: r.pathIndex, s0: s.a, s1: s.b, lane: s.lane, offset: s.offset, width: s.width, lines: s.lines });
+    }
+    if (up) return out;
+    return out.reverse().map((x) => ({ ...x, s0: x.s1, s1: x.s0 }));
+  };
+  return ways.map((runs, i) => runs.map((r) => split(r, order.get(keys[i] ?? "")!)).flat());
+}
+
 export interface DiscSpec {
   pieceId: number;
   label: string;
@@ -59,6 +155,16 @@ const FLASH_S = 1.6;
 const CHEVRON_LENGTH = 9;
 const CHEVRON_WIDTH = 9;
 const CHEVRON_LIFT = 0.6;
+/**
+ * Two-way legs (audit F8): where a line runs over the same track both ways (a shuttle, a spur in and out), each way is
+ * its own thin lane, `LANE_WIDTH` wide, `LANE_OFFSET` to the left of the way it runs (as trains here keep left), with
+ * its own arrows: so a shuttle reads as there and back, not one way. Their dark edges meet between them as a divider.
+ * Stretches run both ways shorter than `LANE_MIN` (a train turning at the end of a stop's piece) stay one ribbon.
+ */
+const LANE_WIDTH = 9;
+const LANE_OFFSET = 6.5;
+const LANE_CHEVRON_WIDTH = 7;
+export const LANE_MIN = 30;
 /** How dark a ribbon's edge is: its colour (in linear light) times this. */
 const EDGE_SHADE = 0.15;
 
@@ -139,6 +245,10 @@ export class RouteView {
 
   /** The ribbons drawn last (for the e2e: what the map shows). */
   shown: readonly RibbonSpec[] = [];
+  /** How much of them (mm of track, each way counted) was drawn as two lanes, run both ways (for the e2e). */
+  laneLength = 0;
+  /** How much was drawn side by side with other lines' (mm of track, each line's way counted; for the e2e). */
+  sharedLength = 0;
   /** A changed stretch lit up (`highlight`): its mesh, when it began (s), and whether it fades (no: reduced motion). */
   private lit: { mesh: Mesh; mat: MeshBasicMaterial; from: number; fade: boolean } | null = null;
   /** The runs lit last (for the e2e). */
@@ -166,23 +276,43 @@ export class RouteView {
       return b;
     };
     const edges = new Set(ribbons.filter((r) => !r.dotted).map((r) => ribbonEdge(r.colour)));
+    // Each line's (colour's) solid ribbons, split into lanes where it runs over the same track both ways (audit F8).
+    const solid = ribbons.filter((r) => !r.dotted);
+    // (And lines sharing track, side by side: audit F9. Each path's sense against the map's +x, so lines keep their
+    // sides from piece to piece.)
+    const split = new Map<RibbonSpec, LaneRun[]>();
+    laneRuns(
+      solid.map((r) => r.runs),
+      solid.map((r) => r.colour),
+      (pieceId, pathIndex) => this.flipped(pieceId, pathIndex),
+    ).forEach((runs, i) => split.set(solid[i], runs));
+    let laneLength = 0;
+    let sharedLength = 0;
     for (const r of ribbons) {
       if (r.dotted) {
         const b = stripOf(r.colour, true);
         this.dashes(r.runs, DOT_WIDTH, DOTS_LIFT, b.pos, b.uv);
       } else {
         const b = stripOf(r.colour, false);
-        for (const run of r.runs) this.strip(run, b.pos, b.uv);
         // Under it, a wider strip in a dark shade of its colour: an edge that holds 3:1 against the beech track
         // (audit F10: yellow was 1.2:1). Drawn first; the ribbon over it.
         const e = stripOf(ribbonEdge(r.colour), false);
-        for (const run of r.runs) if (this.layout.getPiece(run.pieceId)) this.span(run, run.s0, run.s1, EDGE_LIFT, e.pos, e.uv, (RIBBON_WIDTH + 2 * EDGE_WIDTH) * this.scale);
+        for (const run of split.get(r)!) {
+          if (!this.layout.getPiece(run.pieceId)) continue;
+          const offset = run.offset * this.scale;
+          this.span(run, run.s0, run.s1, RIBBON_LIFT, b.pos, b.uv, run.width * this.scale, offset);
+          this.span(run, run.s0, run.s1, EDGE_LIFT, e.pos, e.uv, (run.width + 2 * EDGE_WIDTH) * this.scale, offset);
+          if (run.lane && run.lines === 1) laneLength += Math.abs(run.s1 - run.s0);
+          if (run.lines > 1) sharedLength += Math.abs(run.s1 - run.s0);
+        }
       }
     }
+    this.laneLength = laneLength;
+    this.sharedLength = sharedLength;
     // Which way the train runs: small arrowheads along each solid ribbon, spaced by distance along it (audit F8: a
     // shuttle and a ring looked the same). One mesh for them all, built with the ribbons.
     const arrows: number[] = [];
-    for (const r of ribbons) if (!r.dotted) this.chevrons(r.runs, arrows);
+    for (const r of solid) this.chevrons(split.get(r)!, arrows);
     if (arrows.length > 0) {
       const g = new BufferGeometry();
       g.setAttribute("position", new Float32BufferAttribute(arrows, 3));
@@ -395,8 +525,22 @@ export class RouteView {
     out.push(piece.pose.x + lx * ch - lz * sh, piece.y + sample.y + TRACK_THICKNESS + lift, piece.pose.z + lx * sh + lz * ch);
   }
 
+  /**
+   * Does this path run against the map's own sense (its middle heading west of north–south)? Its lines are put across
+   * it the other way round (see `laneRuns`), so they keep their sides from piece to piece.
+   */
+  private flipped(pieceId: number, pathIndex: number): boolean {
+    const piece = this.layout.getPiece(pieceId);
+    if (!piece) return false;
+    const geom = getPieceDef(piece.type, piece.flipped).paths[pathIndex].geom;
+    samplePath(geom, pathLength(geom) / 2, sample);
+    const h = piece.pose.heading + sample.heading;
+    const c = Math.cos(h);
+    return c < -1e-6 || (Math.abs(c) <= 1e-6 && Math.sin(h) < 0);
+  }
+
   /** A quad strip along `run` from a to b (path distances), sampled on a fixed grid so runs over the same track agree. */
-  private span(run: PathRun, a: number, b: number, lift: number, pos: number[], uv: number[], width = RIBBON_WIDTH): void {
+  private span(run: PathRun, a: number, b: number, lift: number, pos: number[], uv: number[], width = RIBBON_WIDTH, offset = 0): void {
     const lo = Math.min(a, b);
     const hi = Math.max(a, b);
     if (hi - lo < 1e-3) return;
@@ -407,8 +551,8 @@ export class RouteView {
     const l: number[] = [];
     const r: number[] = [];
     for (const s of ss) {
-      this.point(run, s, w, lift, l);
-      this.point(run, s, -w, lift, r);
+      this.point(run, s, offset + w, lift, l);
+      this.point(run, s, offset - w, lift, r);
     }
     for (let i = 0; i + 1 < ss.length; i++) {
       const L0 = l.slice(i * 3, i * 3 + 3);
@@ -430,14 +574,16 @@ export class RouteView {
    * Arrowheads along a ribbon's runs, the way each run goes (s0 to s1, the way the train runs), every `CHEVRON_GAP`
    * of the whole way (so they run on evenly from piece to piece): a flat triangle each, over the ribbon.
    */
-  private chevrons(runs: readonly PathRun[], pos: number[]): void {
+  private chevrons(runs: readonly LaneRun[], pos: number[]): void {
     let along = 0;
     const a: number[] = [];
     const gap = CHEVRON_GAP * this.scale;
     const len = CHEVRON_LENGTH * this.scale;
-    const wide = CHEVRON_WIDTH * this.scale;
     for (const run of runs) {
       if (!this.layout.getPiece(run.pieceId)) continue;
+      // (On a lane, narrower and on its lane.)
+      const wide = (run.lane ? Math.min(LANE_CHEVRON_WIDTH, run.width * 0.8) : CHEVRON_WIDTH) * this.scale;
+      const off = run.offset * this.scale;
       const dir = run.s1 >= run.s0 ? 1 : -1;
       const n = Math.abs(run.s1 - run.s0);
       for (let k = Math.ceil((along - gap / 2) / gap); ; k++) {
@@ -447,9 +593,9 @@ export class RouteView {
         if (d - len / 2 < 0 || d + len / 2 > n) continue;
         const s = run.s0 + dir * d;
         a.length = 0;
-        this.point(run, s + (dir * len) / 2, 0, CHEVRON_LIFT, a);
-        this.point(run, s - (dir * len) / 2, wide / 2, CHEVRON_LIFT, a);
-        this.point(run, s - (dir * len) / 2, -wide / 2, CHEVRON_LIFT, a);
+        this.point(run, s + (dir * len) / 2, off, CHEVRON_LIFT, a);
+        this.point(run, s - (dir * len) / 2, off + wide / 2, CHEVRON_LIFT, a);
+        this.point(run, s - (dir * len) / 2, off - wide / 2, CHEVRON_LIFT, a);
         pos.push(...a);
       }
       along += n;

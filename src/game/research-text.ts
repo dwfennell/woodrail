@@ -52,7 +52,7 @@ const goodName = (k: CargoKind, n: number): string => {
  * 40 🪙 coins" ("nothing" when free). Coins already paid (under way, or set aside) say so: "40 🪙 coins (paid)".
  */
 export function costWords(p: Progress, id: string): string {
-  const cost = costOf(id);
+  const cost = costOf(id, p.learned);
   const parts = (Object.keys(cost.goods) as CargoKind[]).map((k) => `${cost.goods[k]} ${GOODS_ICON[k]} ${goodName(k, cost.goods[k]!)}`);
   const c = cost.coins ?? 0;
   if (c > 0) parts.push(`${c} ${COIN_ICON} ${c === 1 ? "coin" : "coins"}${paid(p, id) ? " (paid)" : ""}`);
@@ -146,7 +146,7 @@ const paid = (p: Progress, id: string) => p.research.current === id || p.researc
 
 /** A research's cost as chips: each good got of needed, then its coins (from tier 2) unless they're paid. */
 export function researchChips(p: Progress, id: string): Chip[] {
-  const cost = costOf(id);
+  const cost = costOf(id, p.learned);
   const got = gotOf(p, id);
   const chips: Chip[] = (Object.keys(cost.goods) as CargoKind[]).map((k) => {
     const n = Math.min(got[k] ?? 0, cost.goods[k]!);
@@ -162,7 +162,7 @@ export const chipsText = (chips: readonly Chip[]): string => chips.map((c) => c.
 
 /** How far a research's goods are in (0–1), or its study once they are. */
 export function researchFill(p: Progress, id: string): number {
-  const goods = costOf(id).goods;
+  const goods = costOf(id, p.learned).goods;
   const got = gotOf(p, id);
   let need = 0;
   let have = 0;
@@ -345,7 +345,7 @@ export function pillView(p: Progress, hasSchool: boolean): PillView | null {
   if (r.current) {
     const id = r.current;
     if (studying(p)) return view(id, `⏱ ${Math.ceil(studyLeft(p))} s`, [], `studying, ${Math.ceil(studyLeft(p))} s left`, researchFill(p, id), queued);
-    const goods = costOf(id).goods;
+    const goods = costOf(id, p.learned).goods;
     const parts = (Object.keys(goods) as CargoKind[]).map((k) => ({ icon: GOODS_ICON[k], got: Math.min(r.got[k] ?? 0, goods[k]!), need: goods[k]! }));
     const words = (Object.keys(goods) as CargoKind[]).map((k, i) => `${parts[i].got} of ${goods[k]} ${GOODS_ICON[k]} ${goodName(k, goods[k]!)}`).join(", ");
     return view(id, parts.map(partText).join(" "), parts, words, researchFill(p, id), queued);
@@ -445,7 +445,7 @@ export function schoolCard(p: Progress): { piles: { label: string; count: number
   }
   const queued = queueOf(r).length;
   const then = queued > 0 ? ` · ${queued} in queue` : "";
-  const goods = costOf(r.current).goods;
+  const goods = costOf(r.current, p.learned).goods;
   const piles = (Object.keys(goods) as CargoKind[]).map((k) => ({ label: GOODS_ICON[k], count: r.got[k] ?? 0, cap: goods[k]! }));
   // (A college studies twice as fast: said while it matters, the goods all in.)
   const fast = r.speed > 1 ? " (college: 2×)" : "";
@@ -470,4 +470,16 @@ export class IdleNotice {
     this.told = { p, id };
     return idleText(school);
   }
+}
+
+/**
+ * What a research learned says, in the News and its one toast: "Learned Switches! Make a switch or a Y switch at the
+ * workshop · Present: 1 Engine". `makes`: what it brings, in words (`makesLine`), "" for a feature, which says how to
+ * use it (`how`, else its blurb). The toast adds the goal it opens and, when the queue moves on, what's studied next
+ * (QA 2026-11-03: that was a second toast, "Learned Switches! Next: Tank engine", after "Learned switches! …").
+ */
+export function learnedText(o: { label: string; makes: string; how?: string; blurb: string; present?: string; goal?: string; next?: string }): { line: string; toast: string } {
+  const line = `Learned ${o.label}! ${o.makes || o.how || o.blurb}${o.present ?? ""}`;
+  const toast = [line, o.goal, o.next ? `Next: ${o.next}` : ""].filter(Boolean).join(" · ");
+  return { line, toast };
 }

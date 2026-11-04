@@ -2,7 +2,7 @@ import type { Economy } from "../economy";
 import { SURF_ROAD, type Landscape } from "../landscape";
 import { roadAt } from "../roads/graph";
 import { edgesOf, roadsJoin, type Edge } from "../roads/pieces";
-import { findRoadSquares, RoadPathCache, roadPath, VAN_REACH } from "../roads/road-paths";
+import { findRoadSquares, KEEP_LEFT, RoadPathCache, roadPath, VAN_REACH } from "../roads/road-paths";
 import type { RoadPath, RoadVehicle, RoadVehicles, VehicleKind } from "../roads/vehicles";
 import type { Layout } from "../track";
 
@@ -117,13 +117,14 @@ export class Vans {
     });
   }
 
-  /** A vehicle parked on square `home` (a new one; null at the cap), facing along its road. */
+  /** A vehicle parked on square `home` (a new one; null at the cap), facing along its road, at the kerb on its left. */
   park(kind: VehicleKind, home: number, data: Trip | null = null): RoadVehicle | null {
     const land = this.world().landscape;
     const g = land.grid;
     // (Along x if its road goes east or west, else along z.)
     const heading = edgesOf(roadAt(land, home)) & 5 ? 0 : -Math.PI / 2;
-    return this.vehicles.add(kind, g.centreX(g.colOf(home)), g.groundY(home) + ROAD_TOP, g.centreZ(g.rowOf(home)), heading, data);
+    const at = kerbOf(g.centreX(g.colOf(home)), g.centreZ(g.rowOf(home)), heading);
+    return this.vehicles.add(kind, at.x, g.groundY(home) + ROAD_TOP, at.z, heading, data);
   }
 
   /** Send a parked vehicle on a trip from its home to the nearest square its goal takes; false if there's no way. */
@@ -181,9 +182,10 @@ export class Vans {
       // Still joined all the way; but a crossing may have come or gone: the same squares, its holds afresh.
       const fresh = roadPath(land, path.squares, (i) => this.crossings().has(i));
       if (fresh.holds.length !== path.holds.length || fresh.holds.some((h, n) => h.square !== path.holds[n].square)) {
-        const t = v.t;
+        // (Past the join it set off on, if any: the same place on the fresh path.)
+        const t = v.t - (path.lead ?? 0);
         v.path = fresh;
-        v.t = Math.min(t, fresh.length);
+        v.t = Math.max(0, Math.min(t, fresh.length));
       }
       return;
     }
@@ -201,10 +203,17 @@ export class Vans {
       this.vehicles.turnBack(v, back);
       return;
     }
-    // No road home at all: it's put back home.
-    this.vehicles.park(v, g.centreX(g.colOf(trip.home)), g.groundY(trip.home) + ROAD_TOP, g.centreZ(g.rowOf(trip.home)), v.heading);
+    // No road home at all: it's put back home (at its kerb).
+    const spot = kerbOf(g.centreX(g.colOf(trip.home)), g.centreZ(g.rowOf(trip.home)), v.heading);
+    this.vehicles.park(v, spot.x, g.groundY(trip.home) + ROAD_TOP, spot.z, v.heading);
     this.on[v.kind]?.home?.(v, trip);
   }
+}
+
+/** Where a vehicle facing `heading` parks on a square whose middle is (x, z): in its lane, by the kerb on its left. */
+function kerbOf(x: number, z: number, heading: number): { x: number; z: number } {
+  // Left of the way it faces (dx, dz) = (cos, −sin): (dz, −dx), as the paths keep (`roadPath`).
+  return { x: x - Math.sin(heading) * KEEP_LEFT, z: z - Math.cos(heading) * KEEP_LEFT };
 }
 
 /** Are squares `k` on of a path still road, each joined to the next? */

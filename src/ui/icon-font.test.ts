@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 // Node's fs, typed here (the project has no Node types), as bugmaps.test.ts reads files.
-const fs = async () => (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc?: "utf8"): string & Uint8Array; readdirSync(path: URL): string[]; statSync(path: URL): { mtimeMs: number; size: number } };
+const fs = async () => (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc?: "utf8"): string & Uint8Array; readdirSync(path: URL): string[]; statSync(path: URL): { mtimeMs: number; size: number; isDirectory(): boolean } };
 
 describe("the icon font (src/icons → scripts/icon-font.py → style.css)", () => {
   it("draws exactly the characters there are drawings for, and the emoji selectors", async () => {
@@ -23,6 +23,32 @@ describe("the icon font (src/icons → scripts/icon-font.py → style.css)", () 
       expect(svg, f).toContain('viewBox="0 0 24 24"');
       expect(svg, f).not.toMatch(/stroke=|Gradient|<image|<text|<use|style=/);
     }
+  });
+
+  it("no emoji is left to the phone: every pictograph the game shows is one the font draws", async () => {
+    // The phone's own emoji font looks nothing like the game's icons (QA 2026-11-03): each must be drawn in src/icons.
+    const { readFileSync, readdirSync, statSync } = await fs();
+    const drawn = new Set(readdirSync(new URL("../icons/", import.meta.url)).filter((f) => f.endsWith(".svg")).map((f) => parseInt(f.slice(1, f.indexOf("-")), 16)));
+    const missing: string[] = [];
+    const scan = (dir: URL, rel: string) => {
+      for (const f of readdirSync(dir)) {
+        const url = new URL(f, dir);
+        if (statSync(url).isDirectory()) scan(new URL(`${f}/`, dir), `${rel}${f}/`);
+        else if (/\.(ts|html)$/.test(f) && !/\.test\.ts$/.test(f)) {
+          // Comments may name a character (a code's own notes): only what reaches the page counts.
+          const code = readFileSync(url, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+          // (Pictographs with the Emoji property: the only ones a phone draws from its emoji font. Text symbols such as
+          // ★ ☰ ✎ are drawn by a text font; whether they're Extended_Pictographic differs by the runtime's Unicode
+          // version, so without this the test passed on one Node and failed on another.)
+          for (const m of code.matchAll(/(?=\p{Emoji})\p{Extended_Pictographic}/gu)) {
+            const c = m[0].codePointAt(0)!;
+            if (!drawn.has(c)) missing.push(`${m[0]} U+${c.toString(16).toUpperCase()} in src/${rel}${f}`);
+          }
+        }
+      }
+    };
+    scan(new URL("../", import.meta.url), "");
+    expect([...new Set(missing)], "draw these in src/icons and rerun scripts/icon-font.py").toEqual([]);
   });
 
   it("the font is one small file (a few kB for every icon)", async () => {
