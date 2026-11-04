@@ -19,7 +19,7 @@ function stubMaterials(): Materials {
   return new Proxy({ lacquer } as unknown as Materials, { get: (t, k) => (k in t ? t[k as keyof Materials] : m()) });
 }
 
-/** A sawmill with logs to cut (so it's working), no trains, drawn by a DepotView; a camera looking at it, or away. */
+/** A sawmill with logs to cut (so it's working), a train far off, drawn by a DepotView; a camera looking at it, or away. */
 function world() {
   const layout = new Layout();
   const at = layout.addPiece("depot-sawmill", { x: 0, z: 0, heading: 0 });
@@ -27,6 +27,8 @@ function world() {
   const economy = new Economy(layout, sim);
   const saw = economy.addDepot("sawmill", at);
   saw.piles[CARGO.log.index] = 6;
+  // A train far off, so the planks have somewhere to go (with none on the map, industries stand still).
+  sim.addTrain(["engine"], { pieceId: layout.addPiece("straight-216", { x: 0, z: 90000, heading: 0 }), pathIndex: 0, reversed: false, s: 100 });
   const view = new DepotView(stubMaterials());
   view.setWorld(economy, layout);
   const camera = new PerspectiveCamera(50, 390 / 844, 10, 100000);

@@ -1350,8 +1350,10 @@ export class DepotView {
 
     // The saw spins while the sawmill is cutting (by the game's time: paused, it stops where it is), and the other
     // industries' motes move while they work: only those in view (out of view, they stand where they were; a camera
-    // move bringing one into view draws, and the next frame poses it). Asked for less motion, all stand still.
-    if (ran > 0 && !this.calm)
+    // move bringing one into view draws, and the next frame poses it). Asked for less motion, all stand still. With
+    // no train on the map, what they make has nowhere to go: they fill their yards quietly, standing still, so a map
+    // with nothing running on it (Sandbox's opening view) draws nothing (a forest takes 3 min to fill its yard).
+    if (ran > 0 && !this.calm && economy.sim.trainCount > 0)
       for (const site of this.sites) {
         if ((!site.blade && site.motes.length === 0) || !economy.working(site.depot)) continue;
         if (site.blade) {
