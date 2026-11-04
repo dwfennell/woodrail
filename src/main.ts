@@ -2010,6 +2010,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
+  /** How the yards look (`industriesChanged`), as last drawn: null, never drawn by it. */
+  let industryLook: string | null = null;
   function industriesChanged(): void {
     const added = syncIndustries(game.world, mode === "game");
     let key = "";
@@ -2018,9 +2020,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (INDUSTRY_ROLE[p.type]) key += `${id}:${p.pose.x},${p.pose.z},${p.pose.heading};`;
     }
     // Upgrades put a machine in their yards (Game mode): the yards are drawn again when one is learned.
-    key += `#${mode === "game" ? upgradeKey(progress) : ""}`;
     // Schools wear what they've grown into (a college, a library wing): drawn again only when that changes.
-    key += `#${mode === "game" ? schoolGradesKey(game.world, progress.learned) : ""}`;
+    // (How every yard looks: all drawn again when it changes; a placement alone redraws only its own.)
+    const look = `#${mode === "game" ? upgradeKey(progress) : ""}#${mode === "game" ? schoolGradesKey(game.world, progress.learned) : ""}`;
+    key += look;
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     // A town's touches of life grow in number with its level (Game mode's; Sandbox's towns go by their size).
     if ((game.touchLevel !== null) !== (mode === "game")) {
@@ -2030,7 +2033,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.depotView.building = schoolHouse;
     game.depotView.catalogueModel = yardModel;
     if (added || key !== industryKey) {
-      game.depotView.setWorld(game.economy, game.layout);
+      if (look === industryLook) game.depotView.syncSites(game.economy, game.layout);
+      else game.depotView.setWorld(game.economy, game.layout);
+      industryLook = look;
       // (An open card's chain names the nearest places: one placed or taken up may change them.)
       if (key !== industryKey) interaction.redrawDepotCard();
     }

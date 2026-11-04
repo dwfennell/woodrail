@@ -1,4 +1,4 @@
-import { Color, MeshStandardMaterial, PerspectiveCamera, Quaternion } from "three";
+import { Box3, Color, MeshStandardMaterial, PerspectiveCamera, Quaternion, Vector3, type Mesh, type Object3D } from "three";
 import { describe, expect, it } from "vitest";
 import { CARGO, Economy } from "../economy";
 import { Sim, SIM_DT } from "../sim";
@@ -238,5 +238,50 @@ describe("DepotView: a town's station upgraded in place keeps its goods crane (t
     expect(siteLayout("town", "kit-grand-terminus", false)).toBeNull();
     expect(siteLayout("town", "kit-country-halt", true)).toBeNull();
     expect(siteLayout("town", "kit-two-platform-station", true)).not.toBeNull();
+  });
+});
+
+describe("DepotView.syncSites: only what changed is drawn again (QA 2026-11-04, 9: a pick-up rebuilt every yard)", () => {
+  it("picking one industry up keeps the others' static parts; putting it back elsewhere draws it there; same as setWorld", () => {
+    const layout = new Layout();
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const a = layout.addPiece("depot-sawmill", { x: 0, z: 0, heading: 0 });
+    const far = layout.addPiece("depot-forest", { x: 20000, z: 20000, heading: 0 });
+    economy.addDepot("sawmill", a);
+    economy.addDepot("forest", far);
+    const view = new DepotView(stubMaterials());
+    view.setWorld(economy, layout);
+    const statics = () => view.group.children.filter((o) => o.userData.depotStatic);
+    const before = statics();
+    expect(before.length).toBe(2);
+    const farTile = before.find((g) => Math.abs(new Box3().setFromObject(g).getCenter(new Vector3()).x - 20000) < 2000)!;
+    expect(farTile).toBeDefined();
+    layout.liftPiece(a);
+    view.syncSites(economy, layout);
+    // The sawmill's tile is gone (nothing else in it); the forest's is the very same group.
+    expect(statics()).toEqual([farTile]);
+    expect(view.craneOf(0)).toBeNull();
+    layout.dropPiece(a, { x: 400, z: 0, heading: 0 }, 0);
+    view.syncSites(economy, layout);
+    expect(statics()).toContain(farTile);
+    expect(statics().length).toBe(2);
+    expect(view.craneOf(0)?.drawn).toBe("depot-sawmill");
+    // The same triangles as drawing it all afresh.
+    const tris = () => statics().reduce((n, g) => n + g.children.reduce((k, m) => k + ((m as Mesh).geometry.getAttribute("position")?.count ?? 0), 0), 0);
+    const synced = tris();
+    view.setWorld(economy, layout);
+    expect(tris()).toBe(synced);
+  });
+
+  it("the held model is made once per kind and handed out as copies (each the caller's to dispose)", () => {
+    const view = new DepotView(stubMaterials());
+    const one = view.model("forest");
+    const two = view.model("forest");
+    const geoms = (g: Object3D) => g.children.map((m) => (m as Mesh).geometry);
+    expect(geoms(one).length).toBeGreaterThan(0);
+    expect(geoms(one).every((g, i) => g !== geoms(two)[i])).toBe(true);
+    for (const g of geoms(one)) g.dispose();
+    expect(geoms(view.model("forest")).map((g) => g.getAttribute("position").count)).toEqual(geoms(two).map((g) => g.getAttribute("position").count));
   });
 });

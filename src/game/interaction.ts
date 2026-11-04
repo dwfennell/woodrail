@@ -2520,7 +2520,7 @@ export class Interaction {
         if (why) this.hud.refuse(why);
         this.onTrayPieceDropped?.(false);
       }
-      if (INDUSTRY_ROLE[m.type]) this.game.depotView.setWorld(this.game.economy, this.game.layout);
+      if (INDUSTRY_ROLE[m.type]) this.game.depotView.syncSites(this.game.economy, this.game.layout);
       this.treeKey = "";
       this.game.previewTrees(null);
       this.changed();
@@ -4280,7 +4280,7 @@ export class Interaction {
     const leaves = this.splices(p.type) ? this.inlineEnds(pieceId) : null;
     layout.liftPiece(pieceId);
     // An industry's yard goes up with it (drawn in the hand, not where it stood).
-    if (INDUSTRY_ROLE[p.type]) this.game.depotView.setWorld(this.game.economy, layout);
+    if (INDUSTRY_ROLE[p.type]) this.game.depotView.syncSites(this.game.economy, layout);
     this.game.sim.trackChanged();
     this.changed();
     const ghost = this.heldMesh(p.type, p.flipped);
@@ -4758,7 +4758,7 @@ export class Interaction {
     const discard = () => {
       this.dropHeld(mesh);
       // The yard shows where it stands again once the one in the hand has gone.
-      if (industry) g.depotView.setWorld(g.economy, g.layout);
+      if (industry) g.depotView.syncSites(g.economy, g.layout);
     };
     const isNew = m.pieceId === -1;
     // The stand-in stops sharing the held-piece material (the next piece picked up re-tints that): plain wood when
