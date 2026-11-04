@@ -14,7 +14,7 @@ function boardHud(): { hud: Hud; lit: () => boolean } {
   const classes = new Set<string>();
   const list = { toggle: (c: string, on?: boolean) => ((on ?? !classes.has(c)) ? classes.add(c) : classes.delete(c)) };
   const hud = Object.create(Hud.prototype) as Hud;
-  Object.assign(hud, { boardBtn: { classList: list }, researchPill: { classList: { toggle: () => {} } } });
+  Object.assign(hud, { menu: { hidden: true }, boardBtn: { classList: list }, researchPill: { classList: { toggle: () => {} } } });
   return { hud, lit: () => classes.has("active") };
 }
 
@@ -26,6 +26,42 @@ describe("the Research button", () => {
     hud.setBoardButton(false);
     expect(lit()).toBe(false);
     expect(hudSrc).not.toMatch(/rewardsSeen|board-new/);
+  });
+});
+
+describe("the ☰ menu", () => {
+  it("is put away when the board or the map opens, and by closeMenu (Esc)", () => {
+    vi.stubGlobal("window", { clearTimeout: () => {} });
+    const noop = { toggle: () => {}, add: () => {}, remove: () => {}, contains: () => false };
+    const hud = Object.create(Hud.prototype) as Hud;
+    const menu = { hidden: false };
+    Object.assign(hud, {
+      menu,
+      newGameItem: { classList: noop, textContent: "" },
+      toastEl: { classList: noop },
+      boardBtn: { classList: noop },
+      researchPill: { classList: noop },
+      mapBtn: { classList: noop },
+      root: { classList: noop },
+      refitToast: () => {},
+    });
+    expect(hud.menuOpen).toBe(true);
+    hud.setBoardButton(true);
+    expect(menu.hidden).toBe(true);
+    menu.hidden = false;
+    hud.setMapOpen(true);
+    expect(menu.hidden).toBe(true);
+    menu.hidden = false;
+    hud.closeMenu();
+    expect(hud.menuOpen).toBe(false);
+    // Closing a view leaves the menu as it was (closed stays closed).
+    hud.setMapOpen(false);
+    expect(menu.hidden).toBe(true);
+    vi.unstubAllGlobals();
+  });
+  it("is closed by Esc in main.ts, before the map or the board", async () => {
+    const main = (await import("../main.ts?raw")).default;
+    expect(main).toMatch(/Escape" && hud\.menuOpen\)\s*\{\s*hud\.closeMenu\(\)/);
   });
 });
 

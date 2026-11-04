@@ -4339,6 +4339,18 @@ export class Interaction {
     board.matrix.copy(pieceMatrix(c.pose.x, c.y, c.pose.z, c.pose.heading)).scale(board.scale);
   }
 
+  /**
+   * The held piece's shaders compiled ahead of the first drag from the tray (a plain mesh in the held paint: a program
+   * the instanced track doesn't have), so that first drag doesn't stall on it. Once, after the map's first frames.
+   */
+  warmHeld(): Promise<void> {
+    const mats = this.game.mats;
+    setRim(mats.held, "#ffffff", 0);
+    const mesh = ghostMesh("straight-216", false, [mats.held, mats.trackCut, mats.held]);
+    mesh.castShadow = true;
+    return this.game.warmShaders([mesh]);
+  }
+
   private heldMesh(type: PieceTypeId, flipped: boolean): Mesh {
     const mats = this.game.mats;
     setRim(mats.held, "#ffffff", 0);
@@ -4954,7 +4966,20 @@ export class Interaction {
     }
     if (!best) return false;
     const { id, front } = best;
-    const t = sim.getTrain(id)!;
+    const t0car = sim.getTrain(id)!.cars[0].id;
+    // The nearer end first; then the train's other end (QA 2026-11-03: a wagon dropped on the front of an engine standing
+    // at a buffer found no room there, and was refused, though its rear was free).
+    if (this.joinAt(cars, id, front)) return true;
+    // (A try that lifted their train and put it back gave it a new id: found again by a car of it.)
+    const again = sim.findCar(t0car)?.train.id;
+    return again !== undefined && this.joinAt(cars, again, !front);
+  }
+
+  /** Couple `cars` on to train `id`'s front or rear end, if there's track for them there. */
+  private joinAt(cars: HeldCar[], id: number, front: boolean): boolean {
+    const sim = this.game.sim;
+    const t = sim.getTrain(id);
+    if (!t) return false;
     const theirs: HeldCar[] = t.cars.map((c) => {
       const cargo = this.game.economy.cargoOf(c.id);
       return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, look: sim.lookOf(c.id), ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };

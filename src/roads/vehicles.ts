@@ -1,3 +1,5 @@
+import { joinFrom } from "./road-paths";
+
 /**
  * Road vehicles (roads spec §3): vans and buses, cheap. No physics: each is a distance along a cached polyline
  * (`t += v·dt`), posed from it. No collisions between vehicles (each runs on its own trip). Ticked in the economy's
@@ -7,7 +9,8 @@
  * Nothing when idle: a parked vehicle isn't ticked at all (`moving` is 0, and `tick` returns at once).
  */
 
-export type VehicleKind = "van" | "bus";
+/** Vans and buses (roads spec §3), and the cars a town bought (tech tree 3: `TownCars`). */
+export type VehicleKind = "van" | "bus" | "car";
 
 /**
  * Where a vehicle is in its trip: parked at home, loading at home (about to leave: a timer, no moving), driving out,
@@ -28,6 +31,8 @@ export interface RoadPath {
   readonly at: Float32Array;
   readonly length: number;
   readonly holds: readonly PathHold[];
+  /** How long a join onto it from where a vehicle stood is, at its start (`joinFrom`); none: 0. */
+  readonly lead?: number;
 }
 
 export interface RoadVehicle {
@@ -57,9 +62,9 @@ export interface RoadVehicle {
 }
 
 /** mm per second: a little slower than a train (`ENGINE_SPEED` 120). */
-export const VEHICLE_SPEED: Record<VehicleKind, number> = { van: 90, bus: 80 };
+export const VEHICLE_SPEED: Record<VehicleKind, number> = { van: 90, bus: 80, car: 100 };
 /** Most vehicles of each kind on a map (spec §3: one InstancedMesh each, whatever the number). */
-export const VEHICLE_CAP: Record<VehicleKind, number> = { van: 8, bus: 4 };
+export const VEHICLE_CAP: Record<VehicleKind, number> = { van: 8, bus: 4, car: 8 };
 /** Seconds a vehicle stands at the far end before coming back. */
 export const DWELL = 1.5;
 
@@ -128,8 +133,12 @@ export class RoadVehicles {
     v.back = back;
   }
 
-  /** Turn a vehicle onto a new path from its start (a road edit changed its way: see `vans.ts`). */
+  /**
+   * Turn a vehicle onto a new path (setting off, coming back, or a road edit changed its way: see `vans.ts`), joined on
+   * from where it stands (`joinFrom`: pulling out from the kerb, or turning round, rather than jumping there).
+   */
   follow(v: RoadVehicle, path: RoadPath): void {
+    path = joinFrom(path, v.x, v.y, v.z, v.heading);
     v.path = path;
     v.t = 0;
     v.seg = 0;
@@ -260,7 +269,17 @@ export function poseAt(v: { x: number; y: number; z: number; heading: number; pi
   v.y = pts[a + 1] + dy * f;
   v.z = pts[a + 2] + dz * f;
   if (dx !== 0 || dz !== 0) {
-    v.heading = Math.atan2(-dz, dx);
+    // Its heading turns smoothly through a bend: the way along the path at each point (from the point before it to
+    // the one after), blended along the segment, rather than a jump at every point.
+    const t0x = pts[Math.min(last, k + 1) * 3] - pts[Math.max(0, k - 1) * 3];
+    const t0z = pts[Math.min(last, k + 1) * 3 + 2] - pts[Math.max(0, k - 1) * 3 + 2];
+    const t1x = pts[Math.min(last, k + 2) * 3] - pts[k * 3];
+    const t1z = pts[Math.min(last, k + 2) * 3 + 2] - pts[k * 3 + 2];
+    const l0 = Math.hypot(t0x, t0z) || 1;
+    const l1 = Math.hypot(t1x, t1z) || 1;
+    const hx = (t0x / l0) * (1 - f) + (t1x / l1) * f;
+    const hz = (t0z / l0) * (1 - f) + (t1z / l1) * f;
+    v.heading = hx !== 0 || hz !== 0 ? Math.atan2(-hz, hx) : Math.atan2(-dz, dx);
     v.pitch = Math.atan2(dy, Math.hypot(dx, dz));
   }
   return k;

@@ -11,6 +11,10 @@ const server = await createServer({ server: { port: 0, strictPort: false }, logL
 await server.listen();
 await server.warmupRequest("/src/main.ts");
 const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+// A page loaded again (a reload, or a second page in the same browser beside one still running the game): on
+// SwiftShader under load that took 90–290 s to reach the title (a second page beside a running one), so these waits have
+// room. What they wait for is unchanged.
+const LOAD_MS = 420000;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const OUT = process.env.SHOTS;
 const results = [];
@@ -105,13 +109,24 @@ const hold = async (p, key, ms) => {
   for (const dy of [-120, 120]) await until(p, 4, () => rightDrag(0, dy));
   const c4 = await coach(p);
   check("a right-drag up or down ticks Tilt: the last card leads into the goals", c4?.done === 4 && /That's the camera/.test(c4.title) && /Show me/.test(c4.text), JSON.stringify(c4));
+  // (QA 2026-11-03: every step done, the page gone before Let's play, and the coach started again at step 1.)
+  {
+    const q = await ctx.newPage();
+    q.on("pageerror", (e) => errors.push(String(e)));
+    await q.goto(URL, { waitUntil: "domcontentloaded", timeout: LOAD_MS });
+    await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: LOAD_MS });
+    await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+    await q.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: LOAD_MS });
+    check("every step done, a reload before Let's play doesn't start it again", !(await coach(q)), JSON.stringify(await coach(q)));
+    await q.close();
+  }
   await p.evaluate(() => document.querySelector(".coach .coach-go").click());
   const nudged = await p.evaluate(() => !!document.querySelector(".goals-show-icon.nudge"));
   check("Let's play closes it, and Show me lights up", !(await coach(p)) && nudged, `nudge ${nudged}`);
-  await p.reload();
-  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
+  await p.reload({ timeout: LOAD_MS });
+  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: LOAD_MS });
   await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
-  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: 120000 });
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: LOAD_MS });
   check("not shown again on this device (nor the help card)", !(await coach(p)) && !(await helpShown(p)));
   await p.evaluate(() => [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent === "Show controls").click());
   const again = await coach(p);
@@ -185,6 +200,29 @@ for (const [w, h] of [[360, 740], [667, 375]]) {
     });
     const c1 = await coach(p);
     check("a one-finger drag ticks Move; Zoom says pinch", c1?.done === 1 && /Pinch/.test(c1.text), JSON.stringify(c1));
+    // A reload part way through goes on from there (QA 2026-11-03: "Move around 1 of 4" again).
+    await p.reload({ timeout: LOAD_MS });
+    await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: LOAD_MS });
+    await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+    await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: LOAD_MS });
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    const c1b = await coach(p);
+    check("a reload part way through goes on from the step it was at", c1b?.done === 1 && /Pinch/.test(c1b.text), JSON.stringify(c1b));
+    // Show me with the coach up frames the goal above it, not under it (QA 2026-11-03: Elderwick's station behind it).
+    await p.evaluate(() => window.woodrail.showMe());
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    await settle(p);
+    const framed = await p.evaluate(() => {
+      const w = window.woodrail;
+      const c = document.querySelector(".coach").getBoundingClientRect();
+      // Every place the goal frames (Join two towns: both stations), on screen above the coach.
+      const pts = w.goals().current().guide(w.world).points;
+      const V = w.camera.position.constructor;
+      const ys = pts.map((q) => Math.round(((1 - new V(q.x, 0, q.z).project(w.camera).y) / 2) * innerHeight));
+      return { ys, y: Math.max(...ys), coachTop: Math.round(c.top), coachShown: c.height > 0 };
+    });
+    if (OUT) await p.screenshot({ path: `${OUT}/coach-show-me-${w}.png` });
+    check("Show me with the coach up frames the goal above the coach", framed.coachShown && framed.ys.length > 0 && framed.y < framed.coachTop - 20, JSON.stringify(framed));
     const tb = await p.evaluate(() => { const r = document.querySelector(".coach .coach-skip").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
     await p.touchscreen.tap(tb[0], tb[1]);
     await settle(p);

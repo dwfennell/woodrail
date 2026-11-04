@@ -619,7 +619,8 @@ describe("place-workshop guide", () => {
     // The game's "Learned" toast folds them in; the News has them as two lines (what was learned, the new goal).
     expect(mainSrc).toMatch(/goals\.openedBy\(id, progress\.learned\)/);
     expect(mainSrc).toMatch(/note\(\{ kind: "milestone", text: goalLine \}/);
-    expect(mainSrc).toMatch(/`\$\{learnedLine\} · \$\{goalLine\}`/);
+    expect(mainSrc).toMatch(/learnedText\(\{[^}]*goal: goalLine/);
+    expect(mainSrc).toMatch(/hud\.toast\(said\.toast/);
   });
 
   it("two trains at once, with one train on the map, says to put the second engine on first; Show me opens Engines", () => {

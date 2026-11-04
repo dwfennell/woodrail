@@ -5,7 +5,7 @@
 // then "Stickers!", whose tap opens the Journal on the new Stickers tab, with Track layer earned and the town stickers
 // to collect (Connected 5, 8 and 12 towns, Every town); a tile's tap shows its ticket; looking at the tab clears the
 // dot; the Goals tab says keep building, with See stickers (no New game: that is only in the ☰ menu). The new land's
-// town joined earns Connected 5 towns and Every town, each toasted; the chip says "Goals ✓ · 🌟 3 / 25"; a reload
+// town joined earns Connected 5 towns and Every town, each toasted; the chip says "Goals ✓ · 🌟 3 / n"; a reload
 // keeps it all.
 //
 // Usage: npm run e2e:stickers [-- <out dir>]   (default out: e2e-out/stickers)
@@ -78,6 +78,8 @@ await p.evaluate(() => {
 // goals play-through reaches them the player's way), so land bought is the goal that completes the core. (The last
 // goal till 2026-11-04 was "Connect every town", now the Connected … towns and Every town stickers.) The stickers
 // aren't touched.
+/** How many stickers there are (the table's length: more are added as the game grows). */
+const TOTAL = await p.evaluate(async () => (await import("/src/game/stickers.ts")).STICKERS.length);
 const towns = await p.evaluate(async () => {
   const { GOALS } = await import("/src/game/goals.ts");
   const w = window.woodrail;
@@ -231,7 +233,7 @@ const paneNow = () =>
 const pane = await paneNow();
 await shot("2-toast-tapped");
 check("a tap on the toast opens the Journal on the Stickers tab", tapped && pane.open && pane.tab === "Stickers", JSON.stringify(pane));
-check("…“🌟 1 / 25 stickers”, Track layer in colour", pane.count === "🌟 1 / 25 stickers" && pane.got.includes("track-layer") && pane.got.length === 1, JSON.stringify(pane));
+check(`…“🌟 1 / ${TOTAL} stickers”, Track layer in colour`, pane.count === `🌟 1 / ${TOTAL} stickers` && pane.got.includes("track-layer") && pane.got.length === 1, JSON.stringify(pane));
 check("…hidden ones as ???; tiles 64 px or more (44 px taps)", pane.hidden >= 1 && pane.tiles.every((w) => w >= 64), JSON.stringify(pane.tiles));
 // The town stickers to collect: Connected 5, 8 and 12 towns, then Every town.
 const tiers = await p.evaluate(() => ["towns-5", "towns-8", "towns-12", "all-towns"].map((id) => document.querySelector(`.sticker[data-id="${id}"]`)?.textContent ?? null));
@@ -281,14 +283,14 @@ await tap(".goals-tab", "Stickers");
 await tap('.sticker[data-id="towns-5"]');
 const pane3 = await paneNow();
 const t5got = await p.evaluate(() => document.querySelector(".sticker-ticket")?.textContent);
-check("the Stickers tab: “🌟 3 / 25 stickers”, Connected 5 towns and Every town in colour", pane3.count === "🌟 3 / 25 stickers" && ["track-layer", "towns-5", "all-towns"].every((id) => pane3.got.includes(id)), JSON.stringify(pane3));
+check(`the Stickers tab: “🌟 3 / ${TOTAL} stickers”, Connected 5 towns and Every town in colour`, pane3.count === `🌟 3 / ${TOTAL} stickers` && ["track-layer", "towns-5", "all-towns"].every((id) => pane3.got.includes(id)), JSON.stringify(pane3));
 check("…Connected 5 towns' ticket: earned", /Connected 5 towns.*Earned!/.test(t5got ?? ""), t5got);
 await shot("5-town-stickers");
 await p.screenshot({ path: `${OUT}/town-stickers.jpg`, type: "jpeg", quality: 80, timeout: 120000 }).catch(() => {});
 await tap(".goals-close");
 await p.waitForFunction(() => document.querySelector(".goals").classList.contains("collapsed"), null, { timeout: 10000 }).catch(() => {});
 const chip = await p.evaluate(() => document.querySelector(".goals-now")?.textContent);
-check("the folded chip: “Goals ✓ · 🌟 3 / 25”", chip === "Goals ✓ · 🌟 3 / 25", chip);
+check(`the folded chip: “Goals ✓ · 🌟 3 / ${TOTAL}”`, chip === `Goals ✓ · 🌟 3 / ${TOTAL}`, chip);
 await shot("6-chip");
 
 // 7. A reload keeps the stickers (and the tab, with no toast this time).

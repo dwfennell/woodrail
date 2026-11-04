@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CELL, gridWithPlots, SURF_RIVER, SURF_ROAD, type Landscape } from "../landscape";
 import { RISER_HEIGHT } from "../track";
 import { encodeRoad, pieceForEdges } from "./pieces";
-import { findRoadSquares, KEEP_LEFT, RoadPathCache, roadPath, VAN_REACH } from "./road-paths";
+import { findRoadSquares, joinFrom, KEEP_LEFT, RoadPathCache, roadPath, VAN_REACH } from "./road-paths";
 import { DWELL, RoadVehicles, VEHICLE_CAP, VEHICLE_SPEED } from "./vehicles";
 
 function land(): Landscape {
@@ -57,16 +57,17 @@ describe("road paths (roads spec §3)", () => {
     expect(findRoadSquares(l, [sq[0]], (i) => i === sq[VAN_REACH + 3])).toHaveLength(VAN_REACH + 4);
   });
 
-  it("is a polyline from the first square's middle to the last's, keeping left between, round a bend", () => {
+  it("is a polyline from the first square's middle to the last's, keeping left all the way (ends too: it parks at the kerb), round a bend", () => {
     const l = land();
     const g = l.grid;
     // East along row 2, then a bend south down column 4.
     const sq = lay(l, [[2, 2], [3, 2], [4, 2], [4, 3], [4, 4]]);
     const path = roadPath(l, sq);
     const n = path.at.length;
+    // Starting east (left is −z), ending south (left is +x).
     expect(path.pts[0]).toBeCloseTo(g.centreX(2));
-    expect(path.pts[2]).toBeCloseTo(g.centreZ(2));
-    expect(path.pts[(n - 1) * 3]).toBeCloseTo(g.centreX(4));
+    expect(path.pts[2]).toBeCloseTo(g.centreZ(2) - KEEP_LEFT);
+    expect(path.pts[(n - 1) * 3]).toBeCloseTo(g.centreX(4) + KEEP_LEFT);
     expect(path.pts[(n - 1) * 3 + 2]).toBeCloseTo(g.centreZ(4));
     // Between squares 2 and 3 of row 2 (x = 3 cells), heading +x: left is −z.
     const k = [...path.pts].findIndex((v, j) => j % 3 === 0 && Math.abs(v - 3 * CELL) < 0.01);
@@ -198,7 +199,7 @@ describe("road vehicles", () => {
   it("faces the way it drives, and keeps left", () => {
     const { out } = path();
     const rv = new RoadVehicles();
-    const v = rv.add("van", 0, 0, 0, 0)!;
+    const v = rv.add("van", out.pts[0], out.pts[1], out.pts[2], 0)!;
     rv.send(v, out, null);
     for (let k = 0; k < 120; k++) rv.tick(1 / 120);
     expect(v.heading).toBeCloseTo(0);
@@ -212,7 +213,7 @@ describe("road vehicles", () => {
     const rv = new RoadVehicles();
     let shut = true;
     rv.shut = () => shut;
-    const v = rv.add("van", 0, 0, 0, 0)!;
+    const v = rv.add("van", out.pts[0], out.pts[1], out.pts[2], 0)!;
     rv.send(v, out, null);
     for (let k = 0; k < 120 * 10; k++) rv.tick(1 / 120);
     expect(v.holding).toBe(true);
@@ -231,6 +232,42 @@ describe("road vehicles", () => {
     const t = v.t;
     rv.tick(1 / 120);
     expect(v.t).toBeGreaterThan(t);
+  });
+
+  it("sets off from where it stands: a pull-out joins the kerb to the lane, a turn round swings smoothly, never a jump", () => {
+    const l = land();
+    const sq = lay(l, straightRow(1, 6, 2));
+    const east = roadPath(l, sq);
+    const west = roadPath(l, [...sq].reverse());
+    const rv = new RoadVehicles();
+    // At the end of the way east, by the kerb on its left, facing east: the way back west starts on the other side.
+    const n = east.pts.length / 3 - 1;
+    const v = rv.add("van", east.pts[n * 3], east.pts[n * 3 + 1], east.pts[n * 3 + 2], 0)!;
+    rv.send(v, west, null);
+    const joined = v.path!;
+    expect(joined.lead).toBeGreaterThan(0);
+    expect(joined.length).toBeCloseTo(west.length + joined.lead!);
+    // The join ends where the way west starts, and no step along it is long (no jump), nor turns sharply.
+    const k0 = joined.at.length - west.at.length;
+    expect(joined.pts[k0 * 3]).toBeCloseTo(west.pts[0]);
+    expect(joined.pts[k0 * 3 + 2]).toBeCloseTo(west.pts[2]);
+    let prev = v.heading;
+    let turned = 0;
+    for (let k = 0; k < 120 * 3; k++) {
+      const x = v.x;
+      const z = v.z;
+      rv.tick(1 / 120);
+      expect(Math.hypot(v.x - x, v.z - z)).toBeLessThan(2);
+      const d = Math.atan2(Math.sin(v.heading - prev), Math.cos(v.heading - prev));
+      expect(Math.abs(d)).toBeLessThan(0.15);
+      turned += d;
+      prev = v.heading;
+    }
+    // It turned round (half a turn), and drives west on its own left (+z of the middle).
+    expect(Math.abs(turned)).toBeCloseTo(Math.PI, 0);
+    expect(v.z).toBeGreaterThan(l.grid.centreZ(2));
+    // Already where a path starts, facing its way: the path as it is.
+    expect(joinFrom(west, west.pts[0], west.pts[1], west.pts[2], Math.PI)).toBe(west);
   });
 
   it("is capped per kind", () => {
