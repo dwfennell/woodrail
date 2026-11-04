@@ -14,6 +14,7 @@ import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, resto
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
+import { loadSaveSchemas } from "./persist/schemas";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
@@ -5657,6 +5658,8 @@ requestAnimationFrame(() =>
       loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (loadBar.set("thumbnails", 1), t)),
       models(),
       texturesKept,
+      // (Zod and the save's schemas, not in the first download: wanted before the save is read, below.)
+      loadSaveSchemas(),
     ]).then(async ([, thumbs]) => {
       // The cloud check, under way all this while: waited for only a little longer than the rest took.
       const cloudNotes = { ...takeCloudNote(), ...((await Promise.race([cloudStarted, sleep(CLOUD_WAIT_MS).then(() => ({}))])) as CloudNotes) };

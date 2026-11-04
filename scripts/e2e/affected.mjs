@@ -120,7 +120,9 @@ export const RULES = [
   [["src/render/ruins-view.ts", "src/render/goal-marks.ts", "src/render/halt-reach-view.ts"], ["sites", "big-stations"]],
   ["src/render/thumbnails.ts", ["tray", "names"]],
   ["src/render/train-models.ts", ["train-parts", "train-summary", "hopper-load"]],
-  ["src/render/track-geometry.ts", ["low-bridge", "ramps"]],
+  [["src/render/track-geometry.ts", "src/render/piece-carve.ts"], ["low-bridge", "ramps"]],
+  // The main thread's carver, loaded on its own (join pieces carved when first wanted): the tray's pictures, joints.
+  ["src/render/carver.ts", ["tray", "joints"]],
   ["src/render/chain-hints-view.ts", ["sandbox-chains"]],
 
   // UI.
@@ -173,6 +175,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // The tests' setup (what the game loads on its own, loaded before each test file).
+  ["src/test-setup.ts", []],
 ];
 
 // A tiny glob: ** any depth, * within a path segment.

@@ -2,7 +2,8 @@ import { Box3, InstancedMesh, Mesh, MeshBasicMaterial, Raycaster, Vector3, type 
 import { describe, expect, it } from "vitest";
 import { createSample, getPieceDef, GROOVE_SPACING, Layout, pathLength, samplePath, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { buildPieceFar, buildPieceGeometry, compactPiece, GROOVE_DEPTH, hasFarVersion, SLOT_BODY, SLOT_CUT } from "./track-geometry";
+import { buildPieceGeometry } from "./piece-carve";
+import { buildPieceFar, compactPiece, GROOVE_DEPTH, hasFarVersion, SLOT_BODY, SLOT_CUT } from "./track-geometry";
 import { FAR_TRACK_PX_PER_MM, TrackView } from "./track-view";
 
 const triangles = (g: BufferGeometry) => (g.index ? g.index.count : g.attributes.position.count) / 3;

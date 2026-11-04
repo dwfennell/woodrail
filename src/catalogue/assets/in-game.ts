@@ -1,6 +1,7 @@
 import { Group, Mesh } from "three";
 import { buildCarModel } from "../../render/train-models";
-import { buildPieceGeometry, withPegs } from "../../render/track-geometry";
+import { withPegs } from "../../render/track-geometry";
+import { buildPieceGeometry } from "../../render/piece-carve";
 import { CAR_KINDS, type CarKind } from "../../sim/cars";
 import { getPieceDef, isBridge, isJoin, isKit, PIECE_TYPES, type PieceTypeId } from "../../track";
 import type { Asset } from "../types";

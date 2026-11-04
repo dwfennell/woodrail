@@ -27,11 +27,12 @@ import { MAX_BRIDGE_LEVELS, PLOT_DEPTH, PLOT_WIDTH } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
-import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceFar, buildPieceGeometry, buildPieceShadowCaster, hasFarVersion, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceFar, buildPieceShadowCaster, hasFarVersion, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
 import { nonIndexed } from "./non-indexed";
+import { carverNow, loadCarver, whenCarver } from "./carver";
 
 const geometryCache = new Map<string, BufferGeometry>();
 const scratch = new Matrix4();
@@ -69,6 +70,8 @@ const carving = {
   local: false,
   localQueue: [] as PieceJob[],
   localScheduled: false,
+  /** Carving here waits for the carver to load (`carver.ts`). */
+  awaitingCarver: false,
   /** Shown as stand-ins, or waited for (`whenBuilt`): keys as in the geometry cache. */
   wanted: new Map<string, (() => void)[]>(),
   /** Kinds of piece moved up the queue (with their other heights). */
@@ -185,12 +188,23 @@ function localJob(job: PieceJob, first: boolean): void {
 
 function carveSoon(): void {
   if (carving.localScheduled || carving.localQueue.length === 0) return;
+  if (!carverNow()) {
+    // (Not in the first download: carved once it's in.)
+    if (carving.awaitingCarver) return;
+    carving.awaitingCarver = true;
+    void loadCarver();
+    whenCarver(() => {
+      carving.awaitingCarver = false;
+      carveSoon();
+    });
+    return;
+  }
   carving.localScheduled = true;
   setTimeout(() => {
     carving.localScheduled = false;
     let job = carving.localQueue.shift();
     while (job && geometryCache.has(resultKey(job))) job = carving.localQueue.shift();
-    if (job) built(resultKey(job), compactPiece(buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels, job.floors ?? null)));
+    if (job) built(resultKey(job), compactPiece(carverNow()!.buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels, job.floors ?? null)));
     carveSoon();
   }, LOCAL_CARVE_GAP_MS);
 }
@@ -288,9 +302,18 @@ function carvedGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors:
     }
   }
   if (!g) {
+    const carver = carverNow();
+    if (!carver) {
+      // Carved here (a join piece, or no workers), but the carver isn't in yet (it's not in the first download): a
+      // stand-in meanwhile, swapped when it's carved (`onPiecesBuilt`), as a worker's piece is.
+      const job = jobFor(type, flipped, levels, floors);
+      if (!carving.wanted.has(resultKey(job))) carving.wanted.set(resultKey(job), []);
+      localJob(job, false);
+      return floors ? carvedGeometry(type, flipped, levels) : standIn(type, levels, def);
+    }
     // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
     // A piece whose flip swaps its ends' peg and hole is carved as it is.
-    g = plain || flipSwapsEnds(type) ? compactPiece(buildPieceGeometry(def, levels, floors)) : mirrored(carvedGeometry(type, false, levels, floors));
+    g = plain || flipSwapsEnds(type) ? compactPiece(carver.buildPieceGeometry(def, levels, floors)) : mirrored(carvedGeometry(type, false, levels, floors));
     geometryCache.set(key, g);
   }
   return g;
@@ -1845,7 +1868,9 @@ export class TrackView {
   /** Resolves once this kind of piece is carved (not a stand-in): for pictures of it. */
   static whenBuilt(type: PieceTypeId): Promise<void> {
     const job = { type, levels: baseLevels(type) };
-    if (geometryCache.has(resultKey(job)) || !carving.started || carving.broken || !carvedInBackground(type)) return Promise.resolve();
+    if (geometryCache.has(resultKey(job)) || !carving.started) return Promise.resolve();
+    // Carved here when wanted: once the carver's in (`carver.ts`).
+    if (carving.broken || !carvedInBackground(type)) return modelRails(type) ? Promise.resolve() : loadCarver();
     return new Promise((resolve) => hurry(job, resolve));
   }
 

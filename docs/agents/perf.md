@@ -14,6 +14,7 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | `node tools/perf/scene.mjs [<root>] [<map file>]` | What the scene holds to draw: its biggest meshes by triangles (instances counted), what casts shadows. Use an unminified build for names. |
 | `node tools/perf/threads.mjs [<s>]` | Which Chromium threads are busy while the game sits idle (a worker, the GPU process, audio). |
 | `node tools/perf/idle-frames.mjs`, `idle-cpu.mjs` | Older, narrower checks: frames drawn and CPU over 20 s idle; audio threads. |
+| `node tools/perf/first-download.mjs [<dist>]` | The first download: the entry script and the chunks it imports statically (what a first visit fetches before the game runs), against what loads later. `bundle.firstJsKB` in a run. |
 | `node tools/shots/track-far.mjs [<out>]` | Track carved and in its far version, at four zooms on the Sandbox map: pictures, the pixels that differ, the triangles. |
 
 Run them after `npm run build` (they measure `dist/`). `--root <dir>` measures another build (a directory with a
@@ -117,7 +118,9 @@ Open ones, biggest first:
   normal zoom nothing changes (`tools/shots/track-far.mjs`: 0 pixels differ). Left: the big Sandbox map, 1.56 M, is
   mostly near; switches, ramps and bridges are always carved.
 - **Research board** refresh: ~110–290 ms of tap handler at 4× on the late map.
-- **Bundle**: the entry is 1.8 MB; the CSG libraries (three-bvh-csg, three-mesh-bvh, polygon-clipping) are in it as
-  well as in the carving worker, for the main thread's fallback carving; zod too. Lead: load them lazily.
+- **Bundle**. Fixed: the CSG carving (three-bvh-csg, three-mesh-bvh, polygon-clipping: `piece-carve.ts`) and Zod
+  (the save's schemas: `save-schema.ts`) load on their own (`carver.ts`, `persist/schemas.ts`), not in the first
+  download: 2377 → 2153 KB (723 → 661 KB gzipped). The schemas are fetched as loading starts, beside the models; the
+  carver only when the main thread carves (a join piece, or no workers).
 - **Idle tick**: `Game.frame` and `onFrame` cost ~1.3 ms a tick at 4× when nothing draws (~4% of the main thread),
   many small checks; nothing large left.
