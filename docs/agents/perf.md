@@ -15,6 +15,7 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | `node tools/perf/threads.mjs [<s>]` | Which Chromium threads are busy while the game sits idle (a worker, the GPU process, audio). |
 | `node tools/perf/idle-frames.mjs`, `idle-cpu.mjs` | Older, narrower checks: frames drawn and CPU over 20 s idle; audio threads. |
 | `node tools/perf/first-download.mjs [<dist>]` | The first download: the entry script and the chunks it imports statically (what a first visit fetches before the game runs), against what loads later. `bundle.firstJsKB` in a run. |
+| `node tools/perf/research-tap.mjs [--taps 4] [--trace <f>] [--profile <f>]` | The research board's tap on its own, on the late map: the tap handler's time each tap, and with `--trace` the style and layout it forces. |
 | `node tools/shots/track-far.mjs [<out>]` | Track carved and in its far version, at four zooms on the Sandbox map: pictures, the pixels that differ, the triangles. |
 
 Run them after `npm run build` (they measure `dist/`). `--root <dir>` measures another build (a directory with a
@@ -117,7 +118,14 @@ Open ones, biggest first:
   beyond ~6.3 m at DPR 2), a tile at a time (`TrackView.setDetail`): the late map's full frame 1.81 M → 1.38 M. At
   normal zoom nothing changes (`tools/shots/track-far.mjs`: 0 pixels differ). Left: the big Sandbox map, 1.56 M, is
   mostly near; switches, ramps and bridges are always carved.
-- **Research board** refresh: ~110–290 ms of tap handler at 4× on the late map.
+- **Research board** tap. Fixed: the board was laid out twice in the tap (a scroll position read before its tags went
+  in, then written after: now kept from scroll events), every blueprint's "Unlocks" pictures were made for the web
+  though only the ticket shows them (now when read), and a board opened again on the same tag with nothing changed
+  was built and laid out afresh (now kept). Tap handler at 4× on the late map, 8 taps (`tools/perf/research-tap.mjs`):
+  median 129 → 22 ms. Left: the first open of a visit, ~200 ms, most of it the browser's first style and layout of the
+  board (~100 ms). Lead: to paint, on a first visit, the ticket's tray pictures drawn on demand
+  (`drawWantedPictures`) wait on their shader programs' compiles (`getShaderInfoLog`, `getProgramInfoLog`: 8.5 s of a
+  13.7 s tap-to-paint at 4× in SwiftShader).
 - **Bundle**. Fixed: the CSG carving (three-bvh-csg, three-mesh-bvh, polygon-clipping: `piece-carve.ts`) and Zod
   (the save's schemas: `save-schema.ts`) load on their own (`carver.ts`, `persist/schemas.ts`), not in the first
   download: 2377 → 2153 KB (723 → 661 KB gzipped). The schemas are fetched as loading starts, beside the models; the
