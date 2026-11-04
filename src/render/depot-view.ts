@@ -559,6 +559,7 @@ export class DepotView {
    * they're in, stand-ins where not. Call again once Game mode's parts arrive (`loadGameModels`), then `setWorld`.
    */
   rebuildUnits(): void {
+    this.shape++;
     const mats = this.mats;
     for (const u of this.allUnits) {
       for (const m of u.parts) {
@@ -736,6 +737,8 @@ export class DepotView {
         if (o instanceof Mesh) o.geometry.dispose();
       });
     }
+    this.shape++;
+    this.layout = layout;
     this.sites = [];
     this.tiles.clear();
     this.clockDepots.clear();
@@ -781,6 +784,7 @@ export class DepotView {
       }
       for (const key of tiles) this.buildTile(key);
       changed = true;
+      this.shape++;
     }
     return changed;
   }
@@ -1308,78 +1312,42 @@ export class DepotView {
    * little past the view), a working depot asks for no frames: a camera move draws anyway, and the next frame sees it
    * in view.
    */
-  update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, simSeconds: number, paused: boolean): "moving" | "changed" | "still" {
+  update(
+    economy: Economy,
+    carIds: ArrayLike<number>,
+    carCount: number,
+    carObject: (id: number) => Object3D | undefined,
+    simSeconds: number,
+    paused: boolean,
+    trainsMoved = true,
+  ): "moving" | "changed" | "still" {
     let busy = this.dragging !== null;
     const ran = this.simSeen < 0 ? 0 : Math.max(0, simSeconds - this.simSeen);
     this.simSeen = simSeconds;
-    for (const k of HEAP_KINDS) {
-      const h = this.heaps[k];
-      h.n = 0;
-    }
-    for (const kind of CARGO_KINDS) {
-      const u = this.units[kind];
-      u.n = 0;
-      u.carried.visible = false;
-    }
     const drag = this.dragging;
-
-    // Which unit (if any) is on each crane's hook, so it isn't also drawn on its pile or wagon.
+    let anyMoving = false;
     for (const site of this.sites) {
       site.moving = economy.craneMove(site.depot.id, site.move);
+      if (site.moving) anyMoving = true;
       // (Paused, its crane holds where it is; out of view, it works on unseen.)
       if (site.moving && !paused && site.crane.trolley.visible) busy = true;
     }
-
-    // Piles.
-    let changed = false;
-    for (const site of this.sites) {
-      let sig = 0;
-      for (const kind of CARGO_KINDS) {
-        if (!site.layout.piles[kind]) continue;
-        let count = Math.min(site.depot.piles[CARGO[kind].index], site.layout.piles[kind]!.show ?? Infinity);
-        if (site.moving && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
-        if (drag?.kind === "pile" && drag.depotId === site.depot.id && drag.cargo === kind) count--; // in a hand
-        sig = sig * 257 + count + 1;
-        const owner = site.pileOwners[kind];
-        for (let k = 0; k < count; k++) {
-          const yaw = this.pileUnit(site, kind, k, _v);
-          _q.setFromAxisAngle(_up, yaw);
-          this.put(kind, _m.compose(_v, _q, _s), owner);
-        }
-      }
-      // A pile out of view changed: nothing to draw now (a camera move bringing it into view draws it).
-      if (sig !== site.piles) {
-        site.piles = sig;
-        if (site.crane.trolley.visible) changed = true;
-      }
-    }
-
-    // Wagon loads.
-    let wagons = carCount;
-    for (let i = 0; i < carCount; i++) {
-      const id = carIds[i];
-      const cargo = economy.cargoOf(id);
-      const car = carObject(id);
-      wagons = (Math.imul(wagons, 31) + id * 977 + (cargo.kind ? CARGO[cargo.kind].index + 1 : 0) * 61 + cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0)) | 0;
-      if (!cargo.kind || cargo.count === 0) continue;
-      if (!car) continue;
-      const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
-      const owner = this.carOwner(id);
-      if (car.userData.carKind === "hopper") {
-        const look = hopperLook(cargo.kind, count, economy.wagonCapacity);
-        if (look) this.putHeap(look.heap, car, look.y, owner);
-        if (look || count <= 0) continue;
-      }
-      for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
-    }
-
-    // Cranes.
-    for (const site of this.sites) this.updateCrane(site, economy, carObject);
-
-    if (wagons !== this.wagonsSeen) {
-      this.wagonsSeen = wagons;
-      changed = true;
-    }
+    // Piles, loads and cranes are placed again only when something they follow changed: a train moved (its loads ride
+    // on it), a crane is working or just stopped, a unit is in a hand, a pile or a load grew or shrank, or the sites
+    // were made again. Idle or paused, nothing is placed (it was every tick: every unit's matrix, every crane).
+    const placeAll =
+      trainsMoved ||
+      drag !== null ||
+      anyMoving ||
+      !this.atRest ||
+      this.shape !== this.shapeSeen ||
+      (this.layout?.revision ?? 0) !== this.revisionSeen ||
+      economy.wagonCapacity !== this.capacitySeen ||
+      this.pilesChanged(drag) ||
+      this.wagonsKey(economy, carIds, carCount, drag) !== this.wagonsSeen;
+    if (placeAll) this.placeAll(economy, carIds, carCount, carObject, drag);
+    const changed = this.placedChanged;
+    this.placedChanged = false;
 
     // The saw spins while the sawmill is cutting (by the game's time: paused, it stops where it is), and the other
     // industries' motes move while they work: only those in view (out of view, they stand where they were; a camera
@@ -1397,6 +1365,109 @@ export class DepotView {
         }
       }
     this.motes.flush();
+    return busy ? "moving" : changed ? "changed" : "still";
+  }
+
+  /** Bumped when the sites or the units' meshes are made again: everything is placed afresh on the next update. */
+  private shape = 0;
+  private shapeSeen = -1;
+  /** The track's `Layout.revision` when last placed (a piece moved: placed again, whatever moved with it). */
+  private layout: Layout | null = null;
+  private revisionSeen = -1;
+  private capacitySeen = -1;
+  /** Were the cranes last placed at rest (none working, nothing in a hand)? Until then, placed every update. */
+  private atRest = false;
+  /** A pile in view, or a load, grew or shrank when last placed (for `update`'s "changed"). */
+  private placedChanged = false;
+
+  /** Would a pile be drawn with another count than when last placed (`Site.piles`)? No units placed. */
+  private pilesChanged(drag: CargoSlot | null): boolean {
+    for (const site of this.sites) if (this.pileSig(site, drag) !== site.piles) return true;
+    return false;
+  }
+
+  /** A site's piles as counts drawn (a unit on the hook or in a hand not counted), as one number. */
+  private pileSig(site: Site, drag: CargoSlot | null): number {
+    let sig = 0;
+    for (const kind of CARGO_KINDS) {
+      if (!site.layout.piles[kind]) continue;
+      sig = sig * 257 + this.pileCount(site, kind, drag) + 1;
+    }
+    return sig;
+  }
+
+  private pileCount(site: Site, kind: CargoKind, drag: CargoSlot | null): number {
+    let count = Math.min(site.depot.piles[CARGO[kind].index], site.layout.piles[kind]!.show ?? Infinity);
+    if (site.moving && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
+    if (drag?.kind === "pile" && drag.depotId === site.depot.id && drag.cargo === kind) count--; // in a hand
+    return count;
+  }
+
+  /** The wagons' loads as drawn (each car's goods, less a unit on a hook or in a hand), as one number. */
+  private wagonsKey(economy: Economy, carIds: ArrayLike<number>, carCount: number, drag: CargoSlot | null): number {
+    let wagons = carCount;
+    for (let i = 0; i < carCount; i++) {
+      const id = carIds[i];
+      const cargo = economy.cargoOf(id);
+      wagons = (Math.imul(wagons, 31) + id * 977 + (cargo.kind ? CARGO[cargo.kind].index + 1 : 0) * 61 + cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0)) | 0;
+    }
+    return wagons;
+  }
+
+  /** Place every pile's and wagon load's units, and every crane (`site.moving` set for this update). */
+  private placeAll(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, drag: CargoSlot | null): void {
+    for (const k of HEAP_KINDS) this.heaps[k].n = 0;
+    for (const kind of CARGO_KINDS) {
+      const u = this.units[kind];
+      u.n = 0;
+      u.carried.visible = false;
+    }
+    let anyMoving = false;
+    // Piles.
+    for (const site of this.sites) {
+      if (site.moving) anyMoving = true;
+      for (const kind of CARGO_KINDS) {
+        if (!site.layout.piles[kind]) continue;
+        const count = this.pileCount(site, kind, drag);
+        const owner = site.pileOwners[kind];
+        for (let k = 0; k < count; k++) {
+          const yaw = this.pileUnit(site, kind, k, _v);
+          _q.setFromAxisAngle(_up, yaw);
+          this.put(kind, _m.compose(_v, _q, _s), owner);
+        }
+      }
+      // A pile out of view changed: nothing to draw now (a camera move bringing it into view draws it).
+      const sig = this.pileSig(site, drag);
+      if (sig !== site.piles) {
+        site.piles = sig;
+        if (site.crane.trolley.visible) this.placedChanged = true;
+      }
+    }
+
+    // Wagon loads.
+    for (let i = 0; i < carCount; i++) {
+      const id = carIds[i];
+      const cargo = economy.cargoOf(id);
+      if (!cargo.kind || cargo.count === 0) continue;
+      const car = carObject(id);
+      if (!car) continue;
+      const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
+      const owner = this.carOwner(id);
+      if (car.userData.carKind === "hopper") {
+        const look = hopperLook(cargo.kind, count, economy.wagonCapacity);
+        if (look) this.putHeap(look.heap, car, look.y, owner);
+        if (look || count <= 0) continue;
+      }
+      for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
+    }
+    const wagons = this.wagonsKey(economy, carIds, carCount, drag);
+    if (wagons !== this.wagonsSeen) {
+      this.wagonsSeen = wagons;
+      this.placedChanged = true;
+    }
+
+    // Cranes.
+    for (const site of this.sites) this.updateCrane(site, economy, carObject);
 
     for (const u of this.allUnits) for (const part of u.parts) part.count = u.n;
     for (const m of this.cargoMeshes) {
@@ -1405,7 +1476,10 @@ export class DepotView {
       m.boundingSphere = null;
       m.boundingBox = null;
     }
-    return busy ? "moving" : changed ? "changed" : "still";
+    this.shapeSeen = this.shape;
+    this.revisionSeen = this.layout?.revision ?? 0;
+    this.capacitySeen = economy.wagonCapacity;
+    this.atRest = !anyMoving && drag === null;
   }
 
   /** World centre of the k-th unit on a car (or over the depot track if the car's model is missing). */

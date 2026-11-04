@@ -20,6 +20,7 @@ import {
   Frustum,
   Matrix4,
   type Fog,
+  type Object3D,
   PCFShadowMap,
   PerspectiveCamera,
   Scene,
@@ -28,6 +29,7 @@ import {
   Spherical,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
@@ -962,6 +964,27 @@ export class Game {
     });
   }
 
+  /**
+   * Compile the shaders of things not on the map yet (a held piece's ghost) as the map's lights and surroundings will
+   * draw them, without blocking: three's `compileAsync` against this scene. Drawn first otherwise, each new program
+   * waits for its compile on the main thread (the first tray drag: 3.6 s at 4× CPU in the perf harness).
+   */
+  warmShaders(objects: readonly Object3D[]): Promise<void> {
+    const side = new Scene();
+    for (const o of objects) side.add(o);
+    // Compiled for a render target, as the scene is drawn (into the post-processing's target: linear, no tone
+    // mapping); compiled for the screen, they'd be other programs (sRGB, ACES) the frames never use.
+    const target = new WebGLRenderTarget(1, 1);
+    const was = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(target);
+    const compiling = this.renderer.compileAsync(side, this.camera, this.scene);
+    this.renderer.setRenderTarget(was);
+    return compiling.then(
+      () => target.dispose(),
+      () => target.dispose(),
+    );
+  }
+
   start(): void {
     // Station clocks show the real time: their own timer sets the hands at each minute, a frame drawn if one's in view.
     this.clockView.start(this.camera, () => this.canvas.height, () => this.invalidate());
@@ -1024,10 +1047,10 @@ export class Game {
     // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
     if (this.marksView.animate(dt)) active = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
-    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused);
+    const trainsMoved = this.trainsChanged();
+    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, trainsMoved || tipping);
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
-    const trainsMoved = this.trainsChanged();
     if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
     this.touchesMoving = false;
     // Small touches: placed again only when what they stand beside changed (a few comparisons a frame); the children
@@ -1137,6 +1160,13 @@ export class Game {
     const landCulled = this.landscapeView.cull(this.camera, reach, detail);
     const culled = cullTiles([this.depotView.group, this.ruinsView.group, this.touches.group], this.camera, reach, detail) || landCulled;
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
+    // The very first frame draws no shadows (it's behind the loading screen), and the next one does: three draws the
+    // shadow pass before it sets the frame's lights up, so on a scene's first frame its depth shaders were compiled for
+    // no lights, and on the second all compiled again for the sun (7 programs twice, on the Sandbox perf map).
+    if (this.framesDrawn === 0) {
+      this.renderer.shadowMap.needsUpdate = false;
+      this.dirty = true;
+    }
     this.stage.update(this.camera);
     pulseBeacons(this.mats, now);
     this.post.setFocus(dist);

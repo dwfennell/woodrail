@@ -1,17 +1,17 @@
 /**
- * Things this build generates the same way every time (track piece geometry, tray pictures), saved in the browser
+ * Things this build generates the same way every time (track piece geometry, tray pictures, the wood's and felt's generated textures), saved in the browser
  * (IndexedDB) after they're first made, so later visits to the same build skip making them. One record per build
  * in each store; older builds' records are cleared. Every call tolerates storage being unavailable (private
  * windows, blocked site data): things are then just made as usual.
  */
 const DB = "woodrail-cache";
-export type CacheStore = "pieces" | "thumbnails" | "arches";
-const STORES: CacheStore[] = ["pieces", "thumbnails", "arches"];
+export type CacheStore = "pieces" | "thumbnails" | "arches" | "textures";
+const STORES: CacheStore[] = ["pieces", "thumbnails", "arches", "textures"];
 
 function open(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     try {
-      const req = indexedDB.open(DB, 2);
+      const req = indexedDB.open(DB, 3);
       // Blocked (another tab holds the older version open): go on without the cache, and close the connection if
       // it opens later after all.
       let gaveUp = false;

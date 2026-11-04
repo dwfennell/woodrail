@@ -4339,6 +4339,18 @@ export class Interaction {
     board.matrix.copy(pieceMatrix(c.pose.x, c.y, c.pose.z, c.pose.heading)).scale(board.scale);
   }
 
+  /**
+   * The held piece's shaders compiled ahead of the first drag from the tray (a plain mesh in the held paint: a program
+   * the instanced track doesn't have), so that first drag doesn't stall on it. Once, after the map's first frames.
+   */
+  warmHeld(): Promise<void> {
+    const mats = this.game.mats;
+    setRim(mats.held, "#ffffff", 0);
+    const mesh = ghostMesh("straight-216", false, [mats.held, mats.trackCut, mats.held]);
+    mesh.castShadow = true;
+    return this.game.warmShaders([mesh]);
+  }
+
   private heldMesh(type: PieceTypeId, flipped: boolean): Mesh {
     const mats = this.game.mats;
     setRim(mats.held, "#ffffff", 0);
