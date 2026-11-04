@@ -1,3 +1,4 @@
+import { atSchool } from "../game/landmarks";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { CARGO } from "../economy/cargo";
@@ -89,7 +90,8 @@ class Playthrough {
         payDelivery(this.progress, kind, n, before);
       },
       // A school takes what the research lacks; goods into it go into the research (as in the game).
-      school: (kind) => researchLacking(this.progress, kind) > 0,
+      // (A research that must be studied at a College or a University: only such a school takes its goods.)
+    school: (kind, d) => researchLacking(this.progress, kind) > 0 && atSchool(this.w, d, this.progress),
       grew: (t, status, built) => {
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings)`);
         const gift = firstTimeGift(this.progress, status.level);

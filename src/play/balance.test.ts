@@ -1,4 +1,6 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { serializeWorld } from "../persist/save";
+import { writeMapFile } from "./perf-map-file";
 import { Editor } from "../editor/editor";
 import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
@@ -10,7 +12,7 @@ import { GOALS, GoalTracker, payGoal } from "../game/goals";
 import { StickerTracker } from "../game/stickers";
 import { FULL_PAY, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
-import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
+import { atSchool, landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { engineStatus } from "../game/engine-status";
@@ -445,7 +447,8 @@ class Player {
     const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     this.town = new TownLife(host, {
       knows: (id) => this.progress.learned.has(id),
-      school: (kind) => researchLacking(this.progress, kind) > 0,
+      // (A research that must be studied at a College or a University: only such a school takes its goods.)
+    school: (kind, d) => researchLacking(this.progress, kind) > 0 && atSchool(this.w, d, this.progress),
       received: (t, kind, n, before) => {
         this.lastDelivered.set(t.id, this.tick);
         payDelivery(this.progress, kind, n, before, t);
@@ -525,7 +528,7 @@ class Player {
   /** What the map gives research (as the game does): a school beside a city for tier 3, and the schools' speed. */
   syncLandmarks(): void {
     this.progress.landmarks.clear();
-    for (const id of landmarksAt(this.w)) this.progress.landmarks.add(id);
+    for (const id of landmarksAt(this.w, this.progress.learned)) this.progress.landmarks.add(id);
     setSpeed(this.progress, researchSpeed(this.w, this.progress.learned));
   }
 
@@ -1549,6 +1552,20 @@ export function invariantsAgainst(checks: Invariants, known: Partial<Record<Inva
   };
 }
 
+/** The player's world, progress, goals and stickers as a copied map (the keys `mapText` copies), to a file. */
+let perfMapWritten: Promise<void> = Promise.resolve();
+afterAll(() => perfMapWritten);
+function writePerfMap(file: string, p: Player): void {
+  const keys: Record<string, string> = {
+    "woodrail.game.v2": JSON.stringify(serializeWorld(p.w)),
+    "woodrail.game.progress.v1": JSON.stringify(p.progress.toJSON()),
+    "woodrail.game.goals.v1": JSON.stringify(GOALS.filter((g) => p.goals.isDone(g.id)).map((g) => g.id)),
+    "woodrail.game.stickers.v1": JSON.stringify(p.stickers.ids()),
+    "woodrail.game.started": "1",
+  };
+  perfMapWritten = writeMapFile(file, "game", keys);
+}
+
 function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, part: string): Playthrough {
   const P = new Playthrough(true, true);
   const t0 = performance.now();
@@ -1559,6 +1576,9 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
     throw e;
   }
   const seconds = (performance.now() - t0) / 1000;
+  // PERF_MAP_OUT=<file>: the world at the end, written as a copied map (`woodrail-map:1:…`), a late-game map made by
+  // the player's path for the perf harness (tools/perf/maps/, see docs/agents/perf.md).
+  if (ENV.PERF_MAP_OUT) writePerfMap(ENV.PERF_MAP_OUT, P.p);
   console.log(`${part} goals play-through: ${minutes} min of play in ${seconds.toFixed(1)} s; goals ${P.p.goals.doneCount}/${GOALS.length}; invariants ${P.p.checks!.summary() || "held"}`);
   console.log(
     `${part} stickers ${P.p.stickers.count}/${P.p.stickers.total}: ${[...P.p.stickersAt].map(([id, m]) => `${id} ${m.toFixed(0)}`).join(", ") || "-"}; ${((1000 * P.p.stickerMs) / Math.max(1, P.p.stickerChecks)).toFixed(1)} µs a check over ${P.p.stickerChecks}`,

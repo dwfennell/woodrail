@@ -9,7 +9,7 @@ import { landmarksAt, landmarksOf, townLandmarks } from "../game/landmarks";
 import { Progress } from "../game/progress";
 import { cardView, describeThings, firstTimeGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { attachEngines, powered, topSpeed } from "../game/engines";
-import { CITY_SCHOOL_ID } from "../game/blueprints";
+import { CITY_SCHOOL_ID, COLLEGE_SCHOOL_ID, UNIVERSITY_SCHOOL_ID } from "../game/blueprints";
 import { needMet, ready, techOf } from "../game/tech";
 import { describeNeed } from "../game/blueprints";
 import { applyCranes, Counters } from "../game/upgrades";
@@ -111,10 +111,16 @@ class Tour {
 
   syncLandmarks(): void {
     this.progress.landmarks.clear();
-    for (const id of landmarksAt(this.w)) this.progress.landmarks.add(id);
+    for (const id of landmarksAt(this.w, this.progress.learned)) this.progress.landmarks.add(id);
     // (A shortcut: the tour places no school depot, but learns as if it had one beside its biggest town: a city's opens
     // tier 3.)
-    if (Math.max(...this.w.landscape.towns.map((t) => this.town.status(t.id).level)) >= 3) this.progress.landmarks.add(CITY_SCHOOL_ID);
+    // That school grows as the game's do (`schoolLandmarks`): a College in a city once College is learned, a University
+    // once University is.
+    if (Math.max(...this.w.landscape.towns.map((t) => this.town.status(t.id).level)) >= 3) {
+      this.progress.landmarks.add(CITY_SCHOOL_ID);
+      if (this.progress.learned.has("college")) this.progress.landmarks.add(COLLEGE_SCHOOL_ID);
+      if (this.progress.learned.has("college") && this.progress.learned.has("university")) this.progress.landmarks.add(UNIVERSITY_SCHOOL_ID);
+    }
   }
 
   note(s: string): void {
@@ -155,6 +161,8 @@ class Tour {
     if (this.progress.learned.has(id)) return;
     expect(ready(this.progress, id), `${id} ready`).toBe(true);
     this.progress.learned.add(id);
+    // (As the game's `learned` does: College or University may make the school one.)
+    this.syncLandmarks();
     this.note(`learned ${techOf(id)!.label} (shortcut)`);
   }
 
@@ -165,6 +173,7 @@ class Tour {
     const missing = [...t.needs.filter((n) => !this.progress.learned.has(n)), ...t.requires.filter((n) => !needMet(this.progress, n)).map(describeNeed)];
     if (missing.length > 0) this.findings.push(`${t.label} wasn't ready when the tour wanted it (at ${minutes(this.tick)} min): still wanted ${missing.join(", ")}`);
     this.progress.learned.add(id);
+    this.syncLandmarks();
     applyCranes(this.w.economy, this.progress);
     this.note(`learned ${t.label} (shortcut${missing.length > 0 ? ", NOT READY" : ""})`);
   }

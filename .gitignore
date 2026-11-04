@@ -22,3 +22,5 @@ woodrail-itch.zip
 # Reports fetched with `npm run feedback` (docs/feedback.md)
 feedback-*.txt
 feedback-*.txt.json
+.e2e-cache/
+perf-out/

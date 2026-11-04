@@ -62,6 +62,9 @@ export const INDUSTRY_MOTES: Partial<Record<DepotRole, readonly MoteSpec[]>> = {
 const MOTE_ROAM = 2 * TUB_RUN + 10;
 
 /** Each mote kind's loop (s): the clock goes round it. */
+/** How big each kind is (mm, its longest side), for the ambient rule (`AmbientEye.sees`: big enough on screen to see). */
+export const MOTE_SIZE: Record<MoteKind, number> = { axe: 16, pig: 12, tub: 18, cap: 11, hammer: 12, saw: 14 };
+
 export const MOTE_PERIOD: Record<MoteKind, number> = { axe: 1.4, pig: 40 * Math.PI, tub: 9, cap: 1.25, hammer: 0.8, saw: 0.7 };
 
 const smooth = (x: number) => x * x * (3 - 2 * x);

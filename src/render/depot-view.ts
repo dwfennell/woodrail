@@ -1,11 +1,11 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
+import { Box3, BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
 import type { Layout, PieceTypeId, Pose } from "../track";
 import { kitOf, TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
-import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
+import { AUTO_HEIGHT, AUTO_LENGTH, AUTO_WIDTH, BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
 import { setCullBox, tileAt } from "./dressing/tiles";
@@ -14,7 +14,8 @@ import { TIMBER_DECK } from "./train-models";
 import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
 import { nonIndexed } from "./non-indexed";
 import { HEAP_COLORS, HEAP_KINDS, HEAP_PROFILE, HOPPER_HEAP, hopperLook, type HeapKind } from "./hopper-load";
-import { bakeMotes, IndustryMotes, moteStatics, type MoteHandle } from "./industry-motes";
+import { bakeMotes, IndustryMotes, MOTE_SIZE, moteStatics, type MoteHandle } from "./industry-motes";
+import { AMBIENT_MIN_PX, type AmbientEye } from "./ambient";
 import type { ClockAt } from "./clock-view";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
@@ -234,6 +235,16 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  carworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      iron: { t: 38, l: 64, y: YARD, across: 2, axis: "t" },
+      planks: { t: 60, l: 64, y: YARD, across: 2, axis: "t" },
+      autos: { t: 84, l: 64, y: YARD, across: 2, axis: "t" },
+    },
+    trackT: 60,
+  },
   icecream: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -374,6 +385,11 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
   ],
   // The brickworks: the catalogue's factory with its banded chimney (a brick works, its notes say).
   brickworks: [{ asset: "bldg-factory", t: 156, l: 86 }],
+  // The car factory: the catalogue's goods shed as its assembly hall, and a new car waiting by the door.
+  carworks: [
+    { asset: "bldg-goods-shed", t: 162, l: 86 },
+    { asset: "veh-family-car", t: 116, l: 100, turn: 0.4, scale: 0.6 },
+  ],
   // The ice cream factory: the catalogue's kiosk (its cone turns in the catalogue; here it stands) and a seller.
   icecream: [
     { asset: "bldg-ice-cream-kiosk", t: 160, l: 88 },
@@ -464,6 +480,8 @@ interface Site {
   crane: CraneParts;
   /** What turns while it works: a sawmill's saw, a mill's sails. */
   blade: Object3D | null;
+  /** Where its blade turns and how big it is (mm across), for `AmbientEye.sees`. */
+  bladeAt: { x: number; y: number; z: number; size: number } | null;
   /** Its little things that move while it works (pigs, an axe, a tub wagon: `industry-motes.ts`). */
   motes: MoteHandle[];
   /** This frame's crane move (scratch, reused), and whether there is one. */
@@ -576,6 +594,7 @@ export class DepotView {
    * they're in, stand-ins where not. Call again once Game mode's parts arrive (`loadGameModels`), then `setWorld`.
    */
   rebuildUnits(): void {
+    this.shape++;
     const mats = this.mats;
     for (const u of this.allUnits) {
       for (const m of u.parts) {
@@ -632,6 +651,17 @@ export class DepotView {
       ],
       // The next nodes' goods: a stack of red bricks;
       bricks: [[mergeGeometries([-1, 1].flatMap((i) => [-1, 1].flatMap((j) => [0, 1].map((h) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH / 2 - 0.6, STONE_HEIGHT / 2 - 0.4, SACK_WIDTH / 2 - 0.4, 1, 0.4).translate((i * SACK_LENGTH) / 4, -STONE_HEIGHT / 4 + h * (STONE_HEIGHT / 2), (j * SACK_WIDTH) / 4))))))!, mats.lacquer("#b5532f")]],
+      // a little red toy car (body, a sky-blue cabin, four black wheels: a car factory's), and a crate of fish on ice;
+      autos: [
+        [new RoundedBoxGeometry(AUTO_LENGTH, 4.6, AUTO_WIDTH, 1, 1.6).translate(0, -1.2, 0), mats.lacquer("#c8442f")],
+        [new RoundedBoxGeometry(AUTO_LENGTH * 0.52, 3.8, AUTO_WIDTH - 1.6, 1, 1.4).translate(-1, 2.6, 0), mats.lacquer("#bfe0f2")],
+        [mergeGeometries([-1, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(2.3, 2.3, 1.6, 10).rotateX(Math.PI / 2).translate(i * (AUTO_LENGTH / 2 - 4.5), -AUTO_HEIGHT / 2 + 2.3, j * (AUTO_WIDTH / 2 - 0.4))))))!, mats.lacquer("#2a2a2a")],
+      ],
+      fish: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 3, SACK_WIDTH, 1, 0.8).translate(0, -1.5, 0), mats.naturalWood],
+        [new RoundedBoxGeometry(SACK_LENGTH - 2, 1.4, SACK_WIDTH - 2, 1, 0.6).translate(0, CRATE_HEIGHT / 2 - 3.2, 0), mats.lacquer("#e4f1f7")],
+        [mergeGeometries([-1, 0, 1].map((i) => nonIndexed(new SphereGeometry(1, 10, 6).scale(5, 1.3, 1.9).translate(i * 0.8, CRATE_HEIGHT / 2 - 2, i * 2.4))))!, mats.lacquer("#7d93a6")],
+      ],
       // a tub of ice cream (pink, a cream lid);
       icecream: [
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.4, SACK_WIDTH / 2 - 1.4, CRATE_HEIGHT - 2, 14).translate(0, -1, 0), mats.lacquer("#e98aa8")],
@@ -742,6 +772,8 @@ export class DepotView {
         if (o instanceof Mesh) o.geometry.dispose();
       });
     }
+    this.shape++;
+    this.layout = layout;
     this.sites = [];
     this.tiles.clear();
     this.clockDepots.clear();
@@ -794,6 +826,7 @@ export class DepotView {
       }
       for (const key of tiles) this.buildTile(key);
       changed = true;
+      this.shape++;
     }
     return changed;
   }
@@ -828,6 +861,7 @@ export class DepotView {
       at: { x: at.x, z: at.z },
       crane: this.buildCrane(pose, spec.crane),
       blade: null,
+      bladeAt: null,
       motes: [],
       move: { kind: "log", toPile: false, carId: -1, phase: 0 },
       moving: false,
@@ -835,12 +869,16 @@ export class DepotView {
       pileOwners: Object.fromEntries(CARGO_KINDS.map((k) => [k, { kind: "pile", depotId: depot.id, cargo: k }])) as Record<CargoKind, CargoSlot>,
       road,
     };
-    // (A road's site: only its crane moves; the yard's saw, sails or wheel are its depot's.)
-    if (!road) {
-      if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
-      if (depot.role === "mill") site.blade = this.buildSails(pose);
-      if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
-      if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
+    if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
+    if (depot.role === "mill") site.blade = this.buildSails(pose);
+    if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
+    if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
+    if (site.blade) {
+      site.blade.updateWorldMatrix(true, true);
+      const box = new Box3().setFromObject(site.blade);
+      const c = box.getCenter(new Vector3());
+      const d = box.getSize(new Vector3());
+      site.bladeAt = { x: c.x, y: c.y, z: c.z, size: Math.max(d.x, d.y, d.z) };
     }
     // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
     for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
@@ -1168,6 +1206,13 @@ export class DepotView {
       b.add(mats.lacquer("#7a3f30"), place(new CylinderGeometry(4.5, 5.5, 70, 12), 182, 100, PAD_H + 35));
       return;
     }
+    if (role === "carworks") {
+      // A long blue assembly hall with a saw-tooth roof, and a red car by its door.
+      b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(62, 28, 36, 2, 3), 162, 88, PAD_H + 14));
+      for (const t of [144, 162, 180]) b.add(mats.lacquer("#cfc6b6"), place(new RoundedBoxGeometry(16, 8, 40, 1, 1.5), t, 88, PAD_H + 31));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(20, 7, 11, 1, 2), 116, 100, PAD_H + 5));
+      return;
+    }
     if (role === "icecream") {
       // A round pink kiosk with a striped roof and a cone on top.
       b.add(mats.lacquer("#e98aa8"), place(new CylinderGeometry(20, 20, 30, 20), 160, 88, PAD_H + 15));
@@ -1326,40 +1371,136 @@ export class DepotView {
    * little past the view), a working depot asks for no frames: a camera move draws anyway, and the next frame sees it
    * in view.
    */
-  update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, simSeconds: number, paused: boolean): "moving" | "changed" | "still" {
+  update(
+    economy: Economy,
+    carIds: ArrayLike<number>,
+    carCount: number,
+    carObject: (id: number) => Object3D | undefined,
+    simSeconds: number,
+    paused: boolean,
+    trainsMoved = true,
+    eye: AmbientEye | null = null,
+  ): "moving" | "changed" | "still" {
     let busy = this.dragging !== null;
+    // (Busy only with ambient motion, a saw or motes: see `ambientOnly`.)
+    let ambient = false;
     const ran = this.simSeen < 0 ? 0 : Math.max(0, simSeconds - this.simSeen);
     this.simSeen = simSeconds;
-    for (const k of HEAP_KINDS) {
-      const h = this.heaps[k];
-      h.n = 0;
+    const drag = this.dragging;
+    let anyMoving = false;
+    for (const site of this.sites) {
+      site.moving = economy.craneMove(site.depot.id, site.move);
+      if (site.moving) anyMoving = true;
+      // (Paused, its crane holds where it is; out of view, it works on unseen.)
+      if (site.moving && !paused && site.crane.trolley.visible) busy = true;
     }
+    // Piles, loads and cranes are placed again only when something they follow changed: a train moved (its loads ride
+    // on it), a crane is working or just stopped, a unit is in a hand, a pile or a load grew or shrank, or the sites
+    // were made again. Idle or paused, nothing is placed (it was every tick: every unit's matrix, every crane).
+    const placeAll =
+      trainsMoved ||
+      drag !== null ||
+      anyMoving ||
+      !this.atRest ||
+      this.shape !== this.shapeSeen ||
+      (this.layout?.revision ?? 0) !== this.revisionSeen ||
+      economy.wagonCapacity !== this.capacitySeen ||
+      this.pilesChanged(drag) ||
+      this.wagonsKey(economy, carIds, carCount, drag) !== this.wagonsSeen;
+    if (placeAll) this.placeAll(economy, carIds, carCount, carObject, drag);
+    const changed = this.placedChanged;
+    this.placedChanged = false;
+
+    // The saw spins while the sawmill is cutting (by the game's time: paused, it stops where it is), and the other
+    // industries' motes move while they work: only those on screen and big enough there to see them move (`eye`, the
+    // ambient rule: out of view or too small, they stand where they were and ask for nothing; a camera move bringing
+    // one into view draws, and the next frame poses it). Asked for less motion, all stand still.
+    if (ran > 0 && !this.calm)
+      for (const site of this.sites) {
+        if ((!site.blade && site.motes.length === 0) || !economy.working(site.depot)) continue;
+        if (site.blade) {
+          site.blade.rotateZ(ran * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
+          const at = site.bladeAt;
+          if (site.blade.visible && (!eye || !at || eye.sees(at.x, at.y, at.z, at.size, AMBIENT_MIN_PX.blade))) ambient = true;
+        }
+        if (site.motes.length > 0 && site.crane.trolley.visible) {
+          let seen = !eye;
+          for (const m of site.motes) {
+            const e = m.anchor.elements;
+            if (!seen && eye!.sees(e[12], e[13], e[14], MOTE_SIZE[m.kind], AMBIENT_MIN_PX.mote, MOTE_SIZE[m.kind] * 3)) seen = true;
+          }
+          if (seen) {
+            for (const m of site.motes) this.motes.pose(m, simSeconds);
+            ambient = true;
+          }
+        }
+      }
+    this.motes.flush();
+    this.ambientOnly = ambient && !busy;
+    return busy || ambient ? "moving" : changed ? "changed" : "still";
+  }
+
+  /** Bumped when the sites or the units' meshes are made again: everything is placed afresh on the next update. */
+  private shape = 0;
+  private shapeSeen = -1;
+  /** The track's `Layout.revision` when last placed (a piece moved: placed again, whatever moved with it). */
+  private layout: Layout | null = null;
+  private revisionSeen = -1;
+  private capacitySeen = -1;
+  /** Were the cranes last placed at rest (none working, nothing in a hand)? Until then, placed every update. */
+  private atRest = false;
+  /** A pile in view, or a load, grew or shrank when last placed (for `update`'s "changed"). */
+  private placedChanged = false;
+
+  /** Would a pile be drawn with another count than when last placed (`Site.piles`)? No units placed. */
+  private pilesChanged(drag: CargoSlot | null): boolean {
+    for (const site of this.sites) if (this.pileSig(site, drag) !== site.piles) return true;
+    return false;
+  }
+
+  /** A site's piles as counts drawn (a unit on the hook or in a hand not counted), as one number. */
+  private pileSig(site: Site, drag: CargoSlot | null): number {
+    let sig = 0;
+    for (const kind of CARGO_KINDS) {
+      if (!site.layout.piles[kind]) continue;
+      sig = sig * 257 + this.pileCount(site, kind, drag) + 1;
+    }
+    return sig;
+  }
+
+  private pileCount(site: Site, kind: CargoKind, drag: CargoSlot | null): number {
+    let count = Math.min(site.depot.piles[CARGO[kind].index], site.layout.piles[kind]!.show ?? Infinity);
+    if (site.moving && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
+    if (drag?.kind === "pile" && drag.depotId === site.depot.id && drag.cargo === kind) count--; // in a hand
+    return count;
+  }
+
+  /** The wagons' loads as drawn (each car's goods, less a unit on a hook or in a hand), as one number. */
+  private wagonsKey(economy: Economy, carIds: ArrayLike<number>, carCount: number, drag: CargoSlot | null): number {
+    let wagons = carCount;
+    for (let i = 0; i < carCount; i++) {
+      const id = carIds[i];
+      const cargo = economy.cargoOf(id);
+      wagons = (Math.imul(wagons, 31) + id * 977 + (cargo.kind ? CARGO[cargo.kind].index + 1 : 0) * 61 + cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0)) | 0;
+    }
+    return wagons;
+  }
+
+  /** Place every pile's and wagon load's units, and every crane (`site.moving` set for this update). */
+  private placeAll(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, drag: CargoSlot | null): void {
+    for (const k of HEAP_KINDS) this.heaps[k].n = 0;
     for (const kind of CARGO_KINDS) {
       const u = this.units[kind];
       u.n = 0;
       u.carried.visible = false;
     }
-    const drag = this.dragging;
-
-    // Which unit (if any) is on each crane's hook, so it isn't also drawn on its pile or wagon.
-    for (const site of this.sites) {
-      site.moving = economy.craneMove(site.depot.id, site.move, site.depot.pieceId);
-      // (Paused, its crane holds where it is; out of view, it works on unseen.)
-      if (site.moving && !paused && site.crane.trolley.visible) busy = true;
-    }
-
+    let anyMoving = false;
     // Piles.
-    let changed = false;
     for (const site of this.sites) {
-      // (A depot's further track draws no piles: its depot's site does.)
-      if (site.road) continue;
-      let sig = 0;
+      if (site.moving) anyMoving = true;
       for (const kind of CARGO_KINDS) {
         if (!site.layout.piles[kind]) continue;
-        let count = Math.min(site.depot.piles[CARGO[kind].index], site.layout.piles[kind]!.show ?? Infinity);
-        if (site.moving && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
-        if (drag?.kind === "pile" && drag.depotId === site.depot.id && drag.cargo === kind) count--; // in a hand
-        sig = sig * 257 + count + 1;
+        const count = this.pileCount(site, kind, drag);
         const owner = site.pileOwners[kind];
         for (let k = 0; k < count; k++) {
           const yaw = this.pileUnit(site, kind, k, _v);
@@ -1368,20 +1509,19 @@ export class DepotView {
         }
       }
       // A pile out of view changed: nothing to draw now (a camera move bringing it into view draws it).
+      const sig = this.pileSig(site, drag);
       if (sig !== site.piles) {
         site.piles = sig;
-        if (site.crane.trolley.visible) changed = true;
+        if (site.crane.trolley.visible) this.placedChanged = true;
       }
     }
 
     // Wagon loads.
-    let wagons = carCount;
     for (let i = 0; i < carCount; i++) {
       const id = carIds[i];
       const cargo = economy.cargoOf(id);
-      const car = carObject(id);
-      wagons = (Math.imul(wagons, 31) + id * 977 + (cargo.kind ? CARGO[cargo.kind].index + 1 : 0) * 61 + cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0)) | 0;
       if (!cargo.kind || cargo.count === 0) continue;
+      const car = carObject(id);
       if (!car) continue;
       const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
       const owner = this.carOwner(id);
@@ -1392,31 +1532,14 @@ export class DepotView {
       }
       for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
     }
+    const wagons = this.wagonsKey(economy, carIds, carCount, drag);
+    if (wagons !== this.wagonsSeen) {
+      this.wagonsSeen = wagons;
+      this.placedChanged = true;
+    }
 
     // Cranes.
     for (const site of this.sites) this.updateCrane(site, economy, carObject);
-
-    if (wagons !== this.wagonsSeen) {
-      this.wagonsSeen = wagons;
-      changed = true;
-    }
-
-    // The saw spins while the sawmill is cutting (by the game's time: paused, it stops where it is), and the other
-    // industries' motes move while they work: only those in view (out of view, they stand where they were; a camera
-    // move bringing one into view draws, and the next frame poses it). Asked for less motion, all stand still.
-    if (ran > 0 && !this.calm)
-      for (const site of this.sites) {
-        if ((!site.blade && site.motes.length === 0) || !economy.working(site.depot)) continue;
-        if (site.blade) {
-          site.blade.rotateZ(ran * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
-          if (site.blade.visible) busy = true;
-        }
-        if (site.motes.length > 0 && site.crane.trolley.visible) {
-          for (const m of site.motes) this.motes.pose(m, simSeconds);
-          busy = true;
-        }
-      }
-    this.motes.flush();
 
     for (const u of this.allUnits) for (const part of u.parts) part.count = u.n;
     for (const m of this.cargoMeshes) {
@@ -1425,8 +1548,14 @@ export class DepotView {
       m.boundingSphere = null;
       m.boundingBox = null;
     }
-    return busy ? "moving" : changed ? "changed" : "still";
+    this.shapeSeen = this.shape;
+    this.revisionSeen = this.layout?.revision ?? 0;
+    this.capacitySeen = economy.wagonCapacity;
+    this.atRest = !anyMoving && drag === null;
   }
+
+  /** The last `update` was "moving" only for ambient motion (a saw, motes), not a crane or a drag: drawn at the ambient rate. */
+  ambientOnly = false;
 
   /** World centre of the k-th unit on a car (or over the depot track if the car's model is missing). */
   private onCar(site: Site, car: Object3D | undefined, kind: CargoKind, k: number, out: Vector3): Vector3 {

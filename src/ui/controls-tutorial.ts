@@ -100,6 +100,17 @@ function hintArt(step: CameraStep, input: InputKind): string {
 }
 
 const SEEN_KEY = "woodrail.controlsSeen";
+/** The steps done so far, kept so a reload part way through goes on from there (QA 2026-11-03: it started again). */
+const DONE_KEY = "woodrail.controlsDone";
+
+function loadDone(): CameraStep[] {
+  try {
+    const raw = localStorage.getItem(DONE_KEY);
+    return raw ? (JSON.parse(raw) as string[]).filter((s): s is CameraStep => (CAMERA_STEPS as readonly string[]).includes(s)) : [];
+  } catch {
+    return [];
+  }
+}
 
 export class ControlsTutorial {
   readonly root = document.createElement("div");
@@ -166,9 +177,11 @@ export class ControlsTutorial {
     }
   }
 
-  start(): void {
+  /** Show it: on a first visit going on from the steps done before a reload (`resume`); from the menu, afresh. */
+  start(resume = true): void {
     this.steps = new CameraSteps();
-    this.finished = false;
+    if (resume) for (const s of loadDone()) this.steps.done.add(s);
+    this.finished = this.steps.next() === null;
     this.last = this.view();
     this.root.hidden = false;
     this.listen();
@@ -192,6 +205,11 @@ export class ControlsTutorial {
     this.ownAt = own ? t : null;
     if (!prev || !own) return;
     if (this.steps.feed(prev, now).length === 0) return;
+    try {
+      localStorage.setItem(DONE_KEY, JSON.stringify([...this.steps.done]));
+    } catch {
+      // storage unavailable: a reload starts the steps again
+    }
     this.render();
     if (this.steps.next() === null) this.finish();
   }
@@ -203,14 +221,21 @@ export class ControlsTutorial {
     this.unlisten();
     try {
       localStorage.setItem(SEEN_KEY, "1");
+      localStorage.removeItem(DONE_KEY);
     } catch {
       // storage unavailable: it shows again next visit
     }
     this.onDone?.(skipped);
   }
 
+  /** Every step done: seen, even if the page goes before Let's play (QA 2026-11-03: a reload then started it again). */
   private finish(): void {
     this.finished = true;
+    try {
+      localStorage.setItem(SEEN_KEY, "1");
+    } catch {
+      // storage unavailable: it shows again next visit
+    }
     this.render();
   }
 

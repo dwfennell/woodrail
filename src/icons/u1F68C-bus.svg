@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Bus</title>
+<rect x="1.4" y="3.2" width="21.2" height="15.4" rx="2.4" fill="#3a2a1c"/>
+<rect x="2.6" y="4.4" width="18.8" height="13" rx="1.6" fill="#f0b847"/>
+<rect x="2.6" y="4.4" width="18.8" height="1.4" rx="0.7" fill="#f3c766"/>
+<rect x="3.8" y="6.6" width="3.6" height="4.4" rx="0.4" fill="#fbf3e4"/>
+<rect x="8.4" y="6.6" width="3.6" height="4.4" rx="0.4" fill="#fbf3e4"/>
+<rect x="13" y="6.6" width="3.6" height="4.4" rx="0.4" fill="#fbf3e4"/>
+<rect x="17.6" y="6.6" width="2.8" height="8.6" rx="0.4" fill="#fbf3e4"/>
+<rect x="2.6" y="12.6" width="14.6" height="1.6" fill="#c8442f"/>
+<circle cx="6.6" cy="18.6" r="3.2" fill="#3a2a1c"/>
+<circle cx="6.6" cy="18.6" r="2" fill="#2e3338"/>
+<circle cx="6.6" cy="18.6" r="0.8" fill="#f6dfb4"/>
+<circle cx="17.4" cy="18.6" r="3.2" fill="#3a2a1c"/>
+<circle cx="17.4" cy="18.6" r="2" fill="#2e3338"/>
+<circle cx="17.4" cy="18.6" r="0.8" fill="#f6dfb4"/>
+</svg>
