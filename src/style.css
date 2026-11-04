@@ -521,6 +521,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-art { width: 84px; height: 84px; border-radius: 16px; background: #efe0c6 center / 112% no-repeat; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.06); margin-bottom: 6px; }
 .title-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .title-buttons .chip { flex: 1; justify-content: center; }
+/* A quiet way in for a railway saved on another device (a build with a cloud): a small pill under the cards, not a
+   third big button. Its card opens over the title, in the middle. */
+.title-foot { display: flex; justify-content: center; }
+.title-foot[hidden] { display: none; }
+.title-cloud { min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: rgba(250, 243, 230, 0.82); box-shadow: 0 4px 14px rgba(30, 20, 10, 0.25); font: inherit; font-weight: 800; font-size: 14px; color: #5c4632; cursor: pointer; }
+.title-cloud:hover { background: rgba(250, 243, 230, 0.95); }
+.title-screen .cloud-card { position: fixed; top: 50%; bottom: auto; transform: translate(-50%, -50%); }
 @media (max-width: 560px), (max-height: 520px) {
   .title-card { padding: 14px 16px 16px; display: grid; grid-template-columns: 64px 1fr; column-gap: 12px; }
   .title-art { width: 64px; height: 64px; grid-row: span 2; }
@@ -662,6 +669,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .cloud-card .card-row { justify-content: flex-end; flex-wrap: wrap; }
 .cloud-card .chip.asking { background: linear-gradient(180deg, #f0b49a, #d9785a); }
 .cloud-text { margin: 0; font-size: 15px; line-height: 1.35; }
+.cloud-small { margin: 0; font-size: 13px; line-height: 1.35; color: #6a5340; }
+.cloud-load-row .cloud-load { flex: 1; justify-content: center; }
 .cloud-status { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; }
 .cloud-label { font-size: 13px; font-weight: 800; color: #6a4a2c; text-transform: uppercase; letter-spacing: 0.04em; }
 .cloud-code-row { display: flex; align-items: center; gap: 10px; }
@@ -1451,3 +1460,5 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* "Add Foxley": the status's fix, one tap (audit F15). */
 .route-fix { display: flex; }
 .route-fix .route-add-stop { min-height: 44px; }
+/* (The cloud card open over the title: the cards and the link wait behind it, out of the way.) */
+.title-screen.cloud-open :is(.title-cards, .title-foot) { visibility: hidden; }
