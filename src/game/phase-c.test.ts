@@ -62,6 +62,8 @@ describe("Phase C, the rest", () => {
     for (const t of ["cranes1", "cranes2", "harvesters", "sawmills", "farming", "mills", "quarries", "tank", "goods-engine", "mines", "foundry", "carpentry"]) p.learned.add(t);
     p.bestLevel = 4;
     p.landmarks.add("city-school");
+    // (Grab cranes are studied at a University, tech tree 3: a setup shortcut, as the school beside a city is.)
+    p.landmarks.add("university-school");
     expect(ready(p, "cranes3")).toBe(false);
     p.learned.add("smithy");
     expect(ready(p, "cranes3")).toBe(true);

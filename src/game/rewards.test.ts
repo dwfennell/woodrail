@@ -376,8 +376,10 @@ describe("three real choices", () => {
       expect(crate!.things.map(([id]) => id)).not.toContain(wagon!.id);
       for (const card of offer.cards) expect(cardView(p, w, card).ok, `seed ${seed} ${card.kind}`).toBe(true);
     }
-    // One thing in the crate reads so.
-    expect(cardView(Progress.fresh(), buildStarterWorld(), { kind: "crate", things: [["piece:buffer-turnback", 2]] }).amount).toBe("A crate: 1 thing");
+    // One kind of thing in the crate: it says what, not "1 thing" over "2 Turnbacks".
+    const one = cardView(Progress.fresh(), buildStarterWorld(), { kind: "crate", things: [["piece:buffer-turnback", 2]] });
+    expect(one.amount).toBe("A crate: 2 Turnbacks");
+    expect(one.line).toBe("Into your toy box");
   });
 
   it("a village with a school placed (Switches picked or not), or a workshop: three cards too", () => {
@@ -537,7 +539,7 @@ describe("crates and presents", { timeout: 30_000 }, () => {
     expect(p.owned.get("car:engine")).toBe(2);
     // The game: a finished research goes through `learned`, which gives the present.
     const researched = mainSrc.slice(mainSrc.indexOf("function researched("), mainSrc.indexOf("function researched(") + 400);
-    expect(researched).toMatch(/\blearned\(id\)/);
+    expect(researched).toMatch(/\blearned\(id[,)]/);
     const learned = mainSrc.slice(mainSrc.indexOf("function learned("), mainSrc.indexOf("function learned(") + 600);
     expect(learned).toMatch(/learnGift\(progress, id\)/);
   });

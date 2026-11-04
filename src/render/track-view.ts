@@ -23,7 +23,7 @@ import { canStandOnArches, connectorRef, createSample, flipSwapsEnds, getPieceDe
 import { lerpAngle } from "../game/camera-director";
 import { easeOutBack, easeOutCubic } from "../lib/tween";
 import type { Flourish } from "./flourishes";
-import { MAX_BRIDGE_LEVELS } from "../landscape";
+import { MAX_BRIDGE_LEVELS, PLOT_DEPTH, PLOT_WIDTH } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
@@ -843,6 +843,14 @@ function casterGeometry(type: PieceTypeId, flipped: boolean): BufferGeometry | n
  * Draws a Layout with one InstancedMesh per piece variant. Call `sync()` after the layout changes.
  * Picking: `pieceAt(object, instanceId)` maps a raycast hit back to a piece id.
  */
+/**
+ * The track's instances are drawn in meshes a tile each (see `TrackView.sync`), a plot a tile. (Measured on the big
+ * Sandbox perf map: two-plot tiles cut its triangles a frame from 2.23 M to 1.70 M, one-plot tiles to 1.62 M, for
+ * about as many draw calls.)
+ */
+const TRACK_TILE_WIDTH = PLOT_WIDTH;
+const TRACK_TILE_DEPTH = PLOT_DEPTH;
+
 export class TrackView {
   readonly group = new Group();
   private meshes = new Map<string, { mesh: InstancedMesh; ids: number[] }>();
@@ -984,7 +992,10 @@ export class TrackView {
       const p = this.layout.getPiece(id)!;
       const def = getPieceDef(p.type, p.flipped);
       const levels = this.bridgeLevels(p);
-      const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}|${levels}|${this.archFloors(p, levels)?.join(",") ?? ""}`;
+      // (And by the tile it's on: each tile's instances are a mesh of their own, so a tile out of view, or out of the
+      // shadow camera's, isn't drawn. One mesh for every curve on a big map drew all of them if any was in view.)
+      const tile = `${Math.floor(p.pose.x / TRACK_TILE_WIDTH)},${Math.floor(p.pose.z / TRACK_TILE_DEPTH)}`;
+      const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}|${levels}|${this.archFloors(p, levels)?.join(",") ?? ""}|${tile}`;
       let list = groups.get(key);
       if (!list) groups.set(key, (list = []));
       list.push(id);

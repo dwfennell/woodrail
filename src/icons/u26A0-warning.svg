@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Warning</title>
+<path d="M10.2 2.6 Q12 -0.2 13.8 2.6 L23 19.4 Q24.2 22 21.4 22 L2.6 22 Q-0.2 22 1 19.4 Z" fill="#7a4f12"/>
+<path d="M11 4.6 Q12 3 13 4.6 L21.2 19.2 Q21.8 20.6 20.4 20.6 L3.6 20.6 Q2.2 20.6 2.8 19.2 Z" fill="#f0b847"/>
+<rect x="10.6" y="8" width="2.8" height="7.6" rx="1.2" fill="#3a2a1c"/>
+<circle cx="12" cy="18" r="1.6" fill="#3a2a1c"/>
+</svg>

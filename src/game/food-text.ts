@@ -9,5 +9,7 @@ import { FULL_PAY } from "./towns";
  */
 export function firstFoodNews(kind: CargoKind, n: number, total: number, town: string): string | null {
   if (!FULL_PAY.has(kind) || n <= 0 || total !== n) return null;
-  return `First ${CARGO[kind].label.toLowerCase()}! ${GOODS_ICON[kind]} ${town} buys it at full pay`;
+  const label = CARGO[kind].label.toLowerCase();
+  // (Bricks and cars are counted things: "buys them".)
+  return `First ${label}! ${GOODS_ICON[kind]} ${town} buys ${label.endsWith("s") ? "them" : "it"} at full pay`;
 }

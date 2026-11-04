@@ -53,7 +53,14 @@ interface Toy {
  */
 export class LoadingToys {
   private readonly renderer: WebGLRenderer;
-  private readonly mats: Materials;
+  /**
+   * Made with the first toy, not with the stage: by then the page has read the textures an earlier visit kept (see
+   * `useTextureCache`), so the wood isn't generated again for the loading screen.
+   */
+  private matsMade: Materials | null = null;
+  private get mats(): Materials {
+    return (this.matsMade ??= createMaterials(this.renderer.capabilities.getMaxAnisotropy()));
+  }
   private readonly lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.3, roughness: 0.3 });
   private readonly scene = new Scene();
   private readonly rows = ORDER.map(() => new Group());
@@ -73,7 +80,6 @@ export class LoadingToys {
     this.renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
-    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
     this.scene.add(new HemisphereLight(new Color("#fff6e6"), new Color("#8a7a5c"), 1.4));
     const sun = new DirectionalLight(new Color("#fff1dc"), 2.2);
     sun.position.set(-60, 160, 120);
