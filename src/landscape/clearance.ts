@@ -1,12 +1,12 @@
-import { createSample, getPieceDef, isBridge, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, TRENCH_HALF, TRENCH_WALL, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, isBridge, isPlainStraight, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, TRENCH_HALF, TRENCH_WALL, TUNNEL_COVER, type PieceTypeId, type Pose } from "../track";
 import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, type LandscapeGrid } from "./grid";
 import { smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
-import { cutsHills, hillsOf } from "./hill-shape";
+import { cutsHills, hillsOf, tunnelsOn } from "./hill-shape";
 import { pieceOf, turnOf } from "../roads/pieces";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip" | "dip-road";
+export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip" | "dip-road" | "shallow" | "portal" | "mouth";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -28,6 +28,9 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   headroom: "Trains won't fit under — go two levels up",
   dip: "An underpass needs flat open ground, level with its ends",
   "dip-road": "An underpass can't cross a road: cars would drive into its trench. Dig it clear of the road",
+  shallow: "The hill is only one level over the line here: a tunnel needs two",
+  portal: "Run into the hill square to its side for a tunnel mouth",
+  mouth: "A tunnel mouth needs flat open ground, level with its top end",
   trench: "A bridge can't stand in an underpass's trench: put the line under the middle of a bridge one level up",
 };
 
@@ -52,6 +55,9 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   dip: { kind: "blocked", reason: "dip" },
   "dip-road": { kind: "blocked", reason: "dip-road" },
   prop: { kind: "blocked", reason: "prop" },
+  shallow: { kind: "blocked", reason: "shallow" },
+  portal: { kind: "blocked", reason: "portal" },
+  mouth: { kind: "blocked", reason: "mouth" },
 };
 
 /** Track at most this high over a road meets it at a level crossing (higher, on a bridge or riser, it passes over). */
@@ -318,15 +324,28 @@ function trenchOverRoad(g: LandscapeGrid, x: number, z: number, heading: number)
   return false;
 }
 
+/** Is track at this height (its base) in a tunnel here: two levels of ground over it? (Only with tunnels on.) */
+export function inTunnel(land: Landscape, x: number, z: number, trackY: number): boolean {
+  return tunnelsOn() && hillsOf(land.grid).groundAt(x, z) >= trackY + TUNNEL_COVER - 0.5;
+}
+
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
+  const tunnels = tunnelsOn();
+  if (tunnels) {
+    const t = tunnelPlacement(land, type, flipped, pose, y);
+    if (t) return t;
+  }
   const overRiver = isBridge(type);
   // A ramp may cut into hills up to the height of its top end (see `HillShape` cuttings).
-  const cutTop = cutsHills(type) ? y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y)) : -Infinity;
+  // (With tunnels, a plain straight cuts through a level of hill: see `cutsHills`.)
+  const cutTop = !cutsHills(type) ? -Infinity : tunnels && isPlainStraight(type) ? y + RISER_HEIGHT : y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y));
   let result = CLEAR;
   forEachSample(type, flipped, pose, (x, z, trackY, heading) => {
     const i = g.cellAtWorld(x, z);
     if (i === -1) result = BLOCKED["off-mat"];
+    // (In a tunnel: whatever is over it. See `tunnelPlacement`.)
+    else if (tunnels && inTunnel(land, x, z, y + trackY)) return true;
     else {
       const f = g.feature[i];
       const s = g.surface[i];
@@ -354,10 +373,73 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
           if (Math.abs(ground - y) > 0.5) result = BLOCKED.dip;
           // No road across its trench, either side of the track (a level crossing can't be sunk; see `ROAD_MESSAGES`).
           else if (g.road[i] !== 0 || trenchOverRoad(g, x, z, heading)) result = BLOCKED["dip-road"];
-        } else if (y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
+        } else if (type !== "tunnel-mouth" && y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
       }
     }
     return result === CLEAR;
   });
   return result;
+}
+
+/**
+ * The tunnel rules, before the usual ones: null to go on to them (no part of the piece is in a tunnel), else the
+ * verdict for the whole piece. In a tunnel (two levels of ground over the track), anything may be over it: a hill, a
+ * town, a road, a river, other track. Where the line meets the ground at its own level it must come out square to a
+ * hill's side (a portal stands there); a level of ground over it, not two, is too little. A tunnel mouth needs flat open
+ * ground at its top end's height all along it (its cutting is sunk into the board under it).
+ */
+function tunnelPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance | null {
+  const g = land.grid;
+  const hills = hillsOf(g);
+  if (type === "tunnel-mouth") {
+    // (On the felt only, for now: on a hilltop its cutting would be cut into the hill.)
+    if (Math.abs(y) > 0.5) return BLOCKED.mouth;
+    let result = CLEAR;
+    forEachSample(type, flipped, pose, (x, z, _trackY, heading) => {
+      const i = g.cellAtWorld(x, z);
+      if (i === -1) result = BLOCKED["off-mat"];
+      else if (Math.abs(hills.groundAt(x, z) - y) > 0.5) result = BLOCKED.mouth;
+      else if (g.road[i] !== 0 || trenchOverRoad(g, x, z, heading)) result = BLOCKED["dip-road"];
+      else if (inRiver(g, x, z)) result = BLOCKED.river;
+      return result === CLEAR;
+    });
+    // The rest (buildings, fields, stations) as any piece on the ground.
+    return result === CLEAR ? null : result;
+  }
+  let covered = 0;
+  let open = 0;
+  let result: Clearance = CLEAR;
+  let rowOpen = false;
+  let rowCovered = false;
+  let lateral = 0;
+  forEachSample(type, flipped, pose, (x, z, trackY, heading) => {
+    const i = g.cellAtWorld(x, z);
+    if (i === -1) {
+      result = BLOCKED["off-mat"];
+      return false;
+    }
+    const ground = hills.groundAt(x, z);
+    const base = y + trackY;
+    if (lateral === 0) rowOpen = rowCovered = false;
+    if (ground >= base + TUNNEL_COVER - 0.5) {
+      covered++;
+      rowCovered = true;
+    } else {
+      open++;
+      rowOpen = true;
+      // Under the ground but not two levels under: a level of hill over a plain straight is cut away (a cutting, see
+      // `HillShape`); anything else is too low to bore, or underground with no cover (only a mouth goes down into the
+      // board).
+      const cutting = cutsHills(type) && base > -0.5 && ground <= base + RISER_HEIGHT + 0.5;
+      if (ground > base + 0.5 && !cutting && (covered > 0 || base < -0.5)) result = BLOCKED.shallow;
+    }
+    // A row of samples across the track half in the hill and half out: the line meets the hill's side at a slant.
+    if (lateral === 2 && rowOpen && rowCovered && Math.abs(Math.sin(2 * (heading))) > 0.02) result = BLOCKED.portal;
+    lateral = (lateral + 1) % 3;
+    return result === CLEAR;
+  });
+  if (result !== CLEAR) return result;
+  if (covered === 0) return y < -0.5 ? BLOCKED.shallow : null;
+  // Wholly in the tunnel: nothing over it matters. Partly: the open part by the usual rules (a hill's side is fine).
+  return open === 0 ? CLEAR : null;
 }

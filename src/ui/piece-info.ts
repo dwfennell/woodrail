@@ -60,6 +60,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   bridge: p("Bridge", "Carries the line over a road or track."),
   "bridge-curve": p("Curved bridge", "A bend up high, over a road or track."),
   underpass: p("Underpass", "Dips the line so a bridge one level up fits over it."),
+  "tunnel-mouth": p("Tunnel mouth", "Takes the line two levels down, under the ground."),
   riser: p("Riser", "A block to hold track up a level."),
   buffer: p("Buffer", "The end of the line. Trains turn back here."),
   "buffer-turnback": p("Turnback buffer", "The end of the line, with a flag. Trains turn back."),

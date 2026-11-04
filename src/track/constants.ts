@@ -31,6 +31,14 @@ export const UNDERPASS_EASE = 96;
 /** Inner half-width of an underpass's trench, and its walls' thickness (mm). */
 export const TRENCH_HALF = TRACK_WIDTH / 2 + 4;
 export const TRENCH_WALL = 4;
+/**
+ * Tunnels: track is in a tunnel where the ground over it is at least this high above its base (two levels: the tallest
+ * car's 72.5, and a roof). Through a hill two levels high at the track's level, or two levels under the felt.
+ */
+export const TUNNEL_COVER = 2 * RISER_HEIGHT;
+/** A tunnel mouth (cut and cover): from the ground down two levels, eased as two ramps are (steepest slope 0.5). */
+export const MOUTH_LENGTH = 288;
+export const MOUTH_DEPTH = 2 * RISER_HEIGHT;
 /** How far an underpass's trench starts in from each end (the dip is too shallow there to need one). */
 export const TRENCH_INSET = 10;
 /** A girder span's pier at each end: this long along its track (mm). */

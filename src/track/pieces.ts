@@ -15,6 +15,8 @@ import {
   SWITCH_LENGTH,
   WIDE_CURVE_RADIUS,
   UNDERPASS_DIP,
+  MOUTH_DEPTH,
+  MOUTH_LENGTH,
   UNDERPASS_EASE,
   UNDERPASS_LENGTH,
 } from "./constants";
@@ -68,6 +70,7 @@ export type PieceTypeId =
   | "bridge"
   | "bridge-curve"
   | "underpass"
+  | "tunnel-mouth"
   | "buffer"
   | "buffer-turnback"
   | "adapter-peg"
@@ -386,6 +389,19 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   // `bridgeLevels`): the piece's base is its deck.
   bridge: straight("bridge", BRIDGE_LENGTH),
   "bridge-curve": curve("bridge-curve", LARGE_CURVE_RADIUS),
+  // A tunnel mouth (cut and cover): a straight sloping down two levels into the board, in a wooden-lined cutting, to
+  // track under the felt (see `TUNNEL_COVER`). Its top end at the ground; flipped, its ends swap (to come back up).
+  "tunnel-mouth": {
+    type: "tunnel-mouth",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(MOUTH_LENGTH, 0, 0), y: -MOUTH_DEPTH },
+    ],
+    paths: [{ from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: MOUTH_LENGTH, y0: 0, rise: -MOUTH_DEPTH } }],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  },
   // An underpass: a straight whose middle sinks into the board (a wooden-sided trench), so a bridge one level up can
   // cross over it with room for the tallest car (see `UNDERPASS_DIP`). Both ends are at the ground.
   underpass: {
@@ -628,6 +644,7 @@ function swapEnds(def: PieceDef): PieceDef {
 /** Pieces whose flip swaps their ends' peg and hole, rather than mirroring them. */
 const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   "ramp",
+  "tunnel-mouth",
   "buffer",
   "buffer-turnback",
   // Kits flipping (a buffer's skin): a single end, so a flip can only swap its peg and hole.

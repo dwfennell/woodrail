@@ -11,10 +11,11 @@ export function underpassHoles(layout: Layout): { x: number; z: number }[][] {
   for (const id of layout.pieceIds()) {
     const p = layout.getPiece(id)!;
     // (On a hilltop its trench is cut into the hill instead: see the landscape's cuttings.)
-    if (p.type !== "underpass" || layout.isLifted(id) || p.y > 0.5) continue;
+    if ((p.type !== "underpass" && p.type !== "tunnel-mouth") || layout.isLifted(id) || p.y > 0.5) continue;
     const len = pathLength(getPieceDef(p.type, p.flipped).paths[0].geom);
     const x0 = TRENCH_INSET + 2;
-    const x1 = len - TRENCH_INSET - 2;
+    // (A tunnel mouth's cutting runs right to its low end, where the portal stands and the felt goes on over the tunnel.)
+    const x1 = p.type === "tunnel-mouth" ? len - 0.5 : len - TRENCH_INSET - 2;
     const h = TRENCH_HALF + TRENCH_WALL / 2;
     const c = Math.cos(p.pose.heading);
     const s = Math.sin(p.pose.heading);

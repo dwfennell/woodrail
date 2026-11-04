@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, pathLength, RISER_HEIGHT, TRACK_WIDTH, TRENCH_HALF, TRENCH_WALL, samplePath, type PathGeom, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, isPlainStraight, pathLength, RISER_HEIGHT, TRACK_WIDTH, TUNNEL_COVER, TRENCH_HALF, TRENCH_WALL, samplePath, type PathGeom, type PieceTypeId, type Pose } from "../track";
 import { CELL, isWater, MAX_HEIGHT, type LandscapeGrid } from "./grid";
 
 /** Half the width of a cutting's bed (mm): the track, and a little room each side. */
@@ -7,8 +7,25 @@ export const CUT_BED_HALF = TRACK_WIDTH / 2 + 4;
 export const CUT_BANK_ANGLE = (60 * Math.PI) / 180;
 const BANK_RISE = Math.tan(CUT_BANK_ANGLE);
 
-/** Can this piece cut its way into a hill? Plain ramps can (not ramps standing up on arches), and underpasses. */
-export const cutsHills = (type: PieceTypeId): boolean => type === "ramp" || type === "underpass";
+/**
+ * Tunnels (prototype, see docs/superpowers/specs/2026-11-04-tunnels.md): track may run where the ground over it is two
+ * levels high (`TUNNEL_COVER`), through a hill or under the felt; a plain straight cuts a cutting through one level of
+ * hill. Off until switched on (in time: by the Tunnels research).
+ */
+let tunnels = false;
+export function setTunnels(on: boolean): void {
+  tunnels = on;
+}
+export const tunnelsOn = (): boolean => tunnels;
+
+/**
+ * Can this piece cut its way into a hill? Plain ramps can (not ramps standing up on arches), and underpasses; with
+ * tunnels, plain straights (through one level of hill: under two, they're in a tunnel and the hill stays whole).
+ */
+export const cutsHills = (type: PieceTypeId): boolean => type === "ramp" || type === "underpass" || (tunnels && isPlainStraight(type));
+
+/** A tunnel's cutting: a slot with upright sides, this wide each side of the line (a portal fits in it). */
+const SLOT_HALF = 31;
 
 /**
  * An underpass on a hilltop is let into the hill as its trench is into the felt: cut straight down round the trench's
@@ -31,6 +48,8 @@ interface PreparedCut {
   cut: HillCut;
   geom: PathGeom;
   length: number;
+  /** A tunnel's cutting: the hill's blocks, for where it's two levels over the line (bored, not cut). */
+  bored: ((x: number, z: number) => number) | null;
   /** Half its bed's width, and how steeply its banks rise (rise over run). */
   half: number;
   bank: number;
@@ -55,9 +74,10 @@ function prepare(cut: HillCut, hill: (x: number, z: number) => number): Prepared
   const cos = Math.cos(cut.pose.heading);
   const sin = Math.sin(cut.pose.heading);
   const trench = cut.type === "underpass";
-  const half = trench ? TRENCH_OUTER : CUT_BED_HALF;
-  const bank = trench ? VERTICAL : BANK_RISE;
-  const reach = half + (trench ? 0 : (MAX_HEIGHT * RISER_HEIGHT) / BANK_RISE) + 1;
+  const slot = isPlainStraight(cut.type);
+  const half = trench ? TRENCH_OUTER : slot ? SLOT_HALF : CUT_BED_HALF;
+  const bank = trench || slot ? VERTICAL : BANK_RISE;
+  const reach = half + (trench || slot ? 0 : (MAX_HEIGHT * RISER_HEIGHT) / BANK_RISE) + 1;
   let dug = false;
   const n = Math.max(1, Math.ceil(length / BED_STEP));
   const m = Math.ceil((2 * half) / BED_STEP);
@@ -75,6 +95,7 @@ function prepare(cut: HillCut, hill: (x: number, z: number) => number): Prepared
     cut,
     geom,
     length,
+    bored: slot ? hill : null,
     half,
     bank,
     cos,
@@ -99,6 +120,7 @@ function cutSurface(c: PreparedCut, x: number, z: number): number {
   const across = -dx * c.sin + dz * c.cos;
   const s = along < 0 ? 0 : along > c.length ? c.length : along;
   const bed = c.cut.y + samplePath(c.geom, s, bedSample).y;
+  if (c.bored && c.bored(x, z) >= bed + TUNNEL_COVER - 0.5) return Infinity;
   const out = Math.hypot(Math.max(0, Math.abs(across) - c.half), along - s);
   return bed + out * c.bank;
 }
