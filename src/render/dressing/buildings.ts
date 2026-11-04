@@ -2,6 +2,7 @@ import { BoxGeometry, ConeGeometry, Matrix4, CylinderGeometry, ExtrudeGeometry, 
 import { rng } from "../../lib/rng";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, SURF_TOWN, type Landscape, type Shed, type Town } from "../../landscape";
+import { onFelt, STREET_FELT_HALF } from "./roads";
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import { addPart } from "../blender-models";
@@ -818,14 +819,19 @@ const PROP_SIZE: Record<PropKind, { half: number; depth: number; tall: boolean }
   postbox: { half: 4, depth: 8, tall: false },
   phone: { half: 8, depth: 16, tall: true },
   busstop: { half: 21, depth: 12, tall: true },
-  fountain: { half: 14, depth: 28, tall: false },
+  // (Drawn at `FOUNTAIN_SCALE`: a small one, to stand on a street's pavement.)
+  fountain: { half: 8, depth: 16, tall: false },
   statue: { half: 8, depth: 16, tall: true },
 };
+/** A fountain is drawn this size of its model (28 mm across): a small one that stands on the pavement, off the road. */
+const FOUNTAIN_SCALE = 16 / 28;
 /** Furniture keeps this far (mm) from any square outside the town (where track may run) and from the station. */
 export const FURNITURE_CLEARANCE = 18;
 /** ...and this far from a building's door. */
 const DOOR_CLEARANCE = 12;
 const KERB_OFFSETS = [-22, 22, -30, 30, -14, 14, 0];
+/** How wide a town street's pavement is: from its square's edge to its felt (the road dressing's `STREET_FELT_HALF`). */
+export const PAVEMENT = CELL / 2 - STREET_FELT_HALF;
 
 interface Rect {
   x0: number;
@@ -870,6 +876,13 @@ export function townFurniture(land: Landscape, town: Town, doors: readonly Point
         if (i === -1 || !own.has(i) || grid.feature[i] === FEAT_STATION) if (overlaps(g, cr)) return false;
       }
     }
+    // Off the street's felt: on the pavement, or a corner the road doesn't run over.
+    for (let x = rc.x0; x <= rc.x1 + 0.01; x += Math.max(1, (rc.x1 - rc.x0) / Math.ceil((rc.x1 - rc.x0) / 3))) {
+      for (let z = rc.z0; z <= rc.z1 + 0.01; z += Math.max(1, (rc.z1 - rc.z0) / Math.ceil((rc.z1 - rc.z0) / 3))) {
+        const i = grid.cellAtWorld(Math.min(x, rc.x1 - 0.01), Math.min(z, rc.z1 - 0.01));
+        if (i !== -1 && onFelt(grid.road[i], Math.min(x, rc.x1 - 0.01) - grid.centreX(grid.colOf(i)), Math.min(z, rc.z1 - 0.01) - grid.centreZ(grid.rowOf(i)))) return false;
+      }
+    }
     const d = grow(rc, DOOR_CLEARANCE);
     if (doors.some((p) => p.x > d.x0 && p.x < d.x1 && p.z > d.z0 && p.z < d.z1)) return false;
     return !placed.some((p) => overlaps(grow(rc, 6), p));
@@ -886,11 +899,8 @@ export function townFurniture(land: Landscape, town: Town, doors: readonly Point
     for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       if (house(at(col + dc, row + dr))) kerbs.push({ x: cx + (dc * CELL) / 2, z: cz + (dr * CELL) / 2, nx: -dc, nz: -dr });
     }
-    for (const dc of [1, -1]) {
-      for (const dr of [1, -1]) {
-        if (house(at(col + dc, row)) && house(at(col, row + dr))) corners.push({ x: cx + (dc * CELL) / 2, z: cz + (dr * CELL) / 2, nx: -dc, nz: -dr });
-      }
-    }
+    // Every corner of the square (a fountain or statue fits only where the road doesn't run: a bend's outside).
+    for (const dc of [1, -1]) for (const dr of [1, -1]) corners.push({ x: cx + (dc * CELL) / 2, z: cz + (dr * CELL) / 2, nx: -dc, nz: -dr });
   }
   const shuffled = <T,>(list: readonly T[]): T[] => {
     const out = [...list];
@@ -903,9 +913,10 @@ export function townFurniture(land: Landscape, town: Town, doors: readonly Point
   const rectOf = (x: number, z: number, hx: number, hz: number): Rect => ({ x0: x - hx, x1: x + hx, z0: z - hz, z1: z + hz });
   const tryPlace = (kind: PropKind): boolean => {
     const { half, depth, tall } = PROP_SIZE[kind];
-    const inset = (tall ? 9 : 4) + depth / 2;
+    // Back from the kerb's edge (a tall one clear of a shop's awning), on the pavement: never out on the street's felt.
+    const inset = Math.min((tall ? 9 : 4) + depth / 2, PAVEMENT - depth / 2);
     if (kind === "fountain" || kind === "statue") {
-      // Tucked into the corner between two buildings, facing out across the road.
+      // Tucked into a corner of a street square the road doesn't run over (a bend's outside), facing out across it.
       for (const c of shuffled(corners)) {
         const x = c.x + c.nx * (4 + half);
         const z = c.z + c.nz * (4 + half);
@@ -953,7 +964,8 @@ export function furniture(b: Batcher, mats: Materials, p: Prop): void {
   // Each kind is a part (tools/blender/dressing.py), authored facing +z; a planter's flowers vary with where it stands.
   const seed = Math.round(Math.abs(p.x) + Math.abs(p.z));
   const flowers = Object.fromEntries([0, 1, 2, 3].map((k) => [`flower${k}`, pick(FLOWER_COLORS, seed + k)]));
-  addPart(b, mats, p.kind, (g) => g.rotateY(p.yaw).translate(p.x, 0, p.z), flowers);
+  const k = p.kind === "fountain" ? FOUNTAIN_SCALE : 1;
+  addPart(b, mats, p.kind, (g) => g.scale(k, k, k).rotateY(p.yaw).translate(p.x, 0, p.z), flowers);
 }
 
 // ————————————————————————————————————————— Station staff and travellers —————————————————————————————————————————

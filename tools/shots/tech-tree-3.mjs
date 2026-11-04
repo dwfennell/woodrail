@@ -106,9 +106,23 @@ const carAt = await p.evaluate(() => {
   return v ? { x: v.x, z: v.z } : null;
 });
 console.log("town car:", JSON.stringify(carAt));
-await look(carAt?.x ?? town.x, carAt?.z ?? town.z, Number(process.env.TOWN ?? 420), 0.95);
+// From above (lanes, kerbs, the pavement's furniture), then lower down along the street.
+await look(carAt?.x ?? town.x, carAt?.z ?? town.z, Number(process.env.TOWN ?? 420), Number(process.env.TOP_PHI ?? 0.3));
 await p.waitForTimeout(700);
-await snap("town-cars");
+await snap("town-cars-top");
+// (A car well along its way, not turning round at either end: the game held still for the picture.)
+const midway = () => window.woodrail.economy.roadVehicles.list.find((x) => x.kind === "car" && x.path && x.t > (x.path.lead ?? 0) + 25 && x.t < x.path.length - 25);
+await p.waitForFunction(`(${midway.toString()})() !== undefined`, null, { timeout: 60000, polling: 50 }).catch(() => console.log("(no car midway)"));
+const carNow = await p.evaluate(`(() => {
+  const v = (${midway.toString()})() ?? window.woodrail.economy.roadVehicles.list.find((x) => x.kind === "car");
+  window.woodrail.paused = true;
+  return v ? { x: v.x, z: v.z, heading: v.heading } : null;
+})()`);
+// (Behind the car, looking along its way.)
+await look(carNow?.x ?? town.x, carNow?.z ?? town.z, Number(process.env.LOW ?? 260), Number(process.env.LOW_PHI ?? 1.2), carNow ? carNow.heading + Math.PI / 2 : undefined);
+await p.waitForTimeout(700);
+await snap("town-cars-low");
+await p.evaluate(() => (window.woodrail.paused = false));
 
 // A harbour on the coast with its catch: the coast plot bought, a harbour put down where boats reach its quay, Fishing
 // boats learned, a boat in and its catch landed (shortcut: landed as a boat lands it, `Economy.land`).
