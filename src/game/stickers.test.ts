@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, type PieceTypeId } from "../track";
 import { buildStarterWorld, type World } from "./world";
-import { BUSY_TRAINS, DELIVERED_LOTS, DELIVERED_SOME, deliveredTotal, INDUSTRY_KINDS, industryKinds, LONG_LINE, ownTrack, RUSH_HOUR, SEA_TRADER, STICKERS, StickerTracker, TRACK_LAYER, TWO_STARS, townLevels, type StickerContext } from "./stickers";
+import { BUSY_TRAINS, DELIVERED_LOTS, DELIVERED_SOME, deliveredTotal, INDUSTRY_KINDS, industryKinds, joinedTowns, LONG_LINE, TOWN_TIERS, ownTrack, RUSH_HOUR, SEA_TRADER, STICKERS, StickerTracker, TRACK_LAYER, TWO_STARS, townLevels, type StickerContext } from "./stickers";
 import { BLUEPRINTS } from "./blueprints";
 import { THING_RULES } from "./things";
 import { CARGO } from "../economy";
@@ -60,7 +60,66 @@ describe("StickerTracker", () => {
     expect(t.update(w, ctx({ coins: 1000 }), 0).map((s) => s.id)).toEqual(["rich"]);
     expect(t.update(w, ctx({ counts: new Map([["loadsMoved", 500]]) }), 0).map((s) => s.id)).toEqual(["busy-loads"]);
     expect(t.update(w, ctx({ learned: new Set(Array.from({ length: 25 }, (_, i) => `b${i}`)) }), 0).map((s) => s.id)).toEqual(["scholar"]);
-    expect(t.update(w, ctx({ goalsDone: (id) => id === "join-all" }), 22).map((s) => s.id)).toEqual(["all-towns"]);
+  });
+
+  it("Connected 5, 8 and 12 towns, then Every town: towns joined in one network, as the player's track joins them", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    // (A row of stations end to end, far off the start, as `n` towns: each joined to the next as track is, by its
+    // joints. The map's towns are these, so Every town asks for all of them.)
+    const stations = new Map<number, number>();
+    const towns = [] as World["landscape"]["towns"];
+    let last = -1;
+    const like = w.landscape.towns[0];
+    const add = () => {
+      const i = towns.length;
+      const id = last === -1 ? w.layout.addPiece("station", { x: 0, z: 6000, heading: 0 }) : appendPiece(w.layout, "station", false, connectorRef(last, 1));
+      last = id;
+      stations.set(100 + i, id);
+      towns.push({ ...like, id: 100 + i, name: `Town ${i}` });
+    };
+    for (const [id, piece] of [...w.stations]) {
+      w.stations.delete(id);
+      w.layout.removePiece(piece);
+    }
+    w.landscape.towns = towns;
+    const sync = () => {
+      for (const [id, piece] of stations) w.stations.set(id, piece);
+    };
+    for (let i = 0; i < 4; i++) add();
+    sync();
+    expect(joinedTowns(w)).toBe(4);
+    // Four towns, all joined: not five, and Every town waits for a map of five or more.
+    expect(t.update(w, ctx(), 0).map((s) => s.id)).toEqual([]);
+    add();
+    sync();
+    expect(t.update(w, ctx(), 0).map((s) => s.id)).toEqual(["towns-5", "all-towns"]);
+    for (let i = 0; i < 2; i++) add();
+    sync();
+    expect(t.update(w, ctx(), 0).map((s) => s.id)).toEqual([]);
+    add();
+    sync();
+    expect(t.update(w, ctx(), 0).map((s) => s.id)).toEqual(["towns-8"]);
+    for (let i = 0; i < 4; i++) add();
+    sync();
+    expect(joinedTowns(w)).toBe(12);
+    expect(t.update(w, ctx(), 0).map((s) => s.id)).toEqual(["towns-12"]);
+    expect(TOWN_TIERS).toEqual([5, 8, 12]);
+  });
+
+  it("Every town: never from the old goal alone", () => {
+    const w = buildStarterWorld();
+    const t = new StickerTracker();
+    // (The goal "Connect every town" is gone: a save that holds it earns nothing by it.)
+    expect(t.update(w, ctx({ goalsDone: (id) => id === "join-all" }), 24).map((s) => s.id)).toEqual([]);
+  });
+
+  it("the town stickers' icons are the game's own (its icon font draws them), not emoji", () => {
+    const drawn = Object.keys(import.meta.glob("../icons/*.svg")).map((f) => parseInt(/\/u([0-9A-F]+)-/i.exec(f)![1], 16));
+    for (const id of [...TOWN_TIERS.map((n) => `towns-${n}`), "all-towns"]) {
+      const s = STICKERS.find((x) => x.id === id)!;
+      expect(drawn, id).toContain(s.icon.codePointAt(0));
+    }
   });
 
   it("checks a sticker only when what it reads has changed, and none once earned", () => {

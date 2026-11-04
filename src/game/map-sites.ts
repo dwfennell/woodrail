@@ -666,7 +666,7 @@ export function harbourStranded(land: Landscape, site: MapSite): boolean {
   return site.role === "harbour" && !waterWay(land, site.piece);
 }
 
-export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned: (id: string) => boolean): RuinCard {
+export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned: (id: string) => boolean, have?: Bag): RuinCard {
   const name = SITE_NAMES[site.role];
   const r = resourceAt(land, site.role, site.piece);
   const res = RESOURCE[site.role];
@@ -679,7 +679,7 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   const price = restorePrice(site.role);
   const priced = mode === "game" ? costTag(price.goods, price.coins) : "";
   // (Stone, which a workshop takes only while a price like this needs it: where to bring it, "Needs 5🪨 at the workshop".)
-  const owed = mode === "game" ? owedText(price.goods) : null;
+  const owed = mode === "game" ? owedText(price.goods, have) : null;
   // (A harbour whose water no longer leads off the land or out to sea: a river one in an old save, its river ending in
   // land bought since. New harbour sites are only where the sea is reached, which buying land can't cut. Restore would
   // fail, so the card says why instead of offering it.)

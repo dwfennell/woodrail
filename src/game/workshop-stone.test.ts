@@ -284,4 +284,12 @@ describe("the cards say where the stone goes", () => {
     expect(owedText(restorePrice("harbour").goods)).toBe("Needs 5🪨 at the workshop");
     expect(owedText(THING_RULES["piece:depot-mill" as ThingId]!.cost)).toBeNull();
   });
+
+  it("given what the workshop holds, only what's still short: none once the stone is there (QA 2026-11-04, 6)", () => {
+    const cost = THING_RULES[HARBOUR]!.cost;
+    expect(owedText(cost, {})).toBe("Needs 10🪨 at the workshop");
+    expect(owedText(cost, { stone: 6 })).toBe("Needs 4🪨 more at the workshop");
+    expect(owedText(cost, { stone: 10 })).toBeNull();
+    expect(owedText(cost, { stone: 30, planks: 2 })).toBeNull();
+  });
 });

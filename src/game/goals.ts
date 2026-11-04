@@ -101,7 +101,7 @@ export const running = (w: World) =>
   });
 
 /** The towns of the largest network of track joining two or more towns (empty when no two are joined). */
-function largestNetwork(w: World): number[] {
+export function largestNetwork(w: World): number[] {
   // Every pair within a network is listed, so a town's partners plus itself are its whole network.
   const partners = new Map<number, number[]>();
   for (const [a, b] of connectedPairs(w.layout, w.stations)) {
@@ -606,13 +606,8 @@ export const GOALS: readonly Goal[] = [
   openIndustry("quarry", "quarries", "Open a quarry", "Restore an old quarry, or build one by a hillside."),
   openIndustry("mine", "mines", "Open a mine", "Restore an old mine, or build one by a hillside."),
   openIndustry("harbour", "harbours", "Open a harbour", "Restore an old harbour, or build one by the sea."),
-  {
-    id: "join-all",
-    title: "Connect every town",
-    hint: "One railway that reaches every town on the map.",
-    check: (w) => towns(w, w.landscape.towns.length),
-    guide: (w) => guideTowns(w, nextTowns(w)),
-  },
+  // (No "Connect every town" since 2026-11-04, the owner's call: joining more towns is the stickers' Connected 5, 8 and
+  // 12 towns and Every town (`TOWN_TIERS`). A save holding its id loads without it: `GoalTracker` drops unknown ids.)
 ];
 
 /** The first of the open goals (a bridge, three towns, ten deliveries...): from here on, done as soon as they're met. */

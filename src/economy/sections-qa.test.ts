@@ -367,7 +367,7 @@ describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
         // (routing §16 Q3) but wait for it, stuck, saying so.)
         expect(runsOrSays(r, 240, 4), `pre ${!!pre} at ${at}`).toEqual([]);
         expect(r.released).toBe(0);
-        expect([...r.cards]).toContain("Waiting: lay 1 more passing loop for 3 trains");
+        expect([...r.cards]).toContain("Waiting: lay 1 more passing loop for 3 trains, or remove a train");
       }
   });
 
@@ -396,7 +396,7 @@ describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
     expect(r.meet).toBe(0);
     // (One held for room, the other stands short of it: stuck, too many trains. Before, the other turned back.)
     expect(runsOrSays(r, 240, 6)).toEqual([]);
-    expect([...r.cards]).toContain("Stuck: this line has a train too many. Add a passing loop");
+    expect([...r.cards]).toContain("Stuck: this line has a train too many. Add a passing loop, or remove a train");
   });
 
   it("N2: a train put down just short of one loading at its stop, facing it, doesn't bump it", () => {
@@ -1170,7 +1170,7 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       // (Nothing delivers: the trap. The held one's card says lay a loop; the one waiting on it, that the line is full.)
       expect(goodsIn(r, 60, 300)).toBe(0);
       const last = (e: number) => r.cardLog.filter((x) => x.e === e).at(-1)!.c;
-      expect(last(r.E[2])).toBe("Waiting: lay 1 more passing loop for 3 trains");
+      expect(last(r.E[2])).toBe("Waiting: lay 1 more passing loop for 3 trains, or remove a train");
       expect([...r.cards]).toContain("Waiting: the line is full. Lay 1 more passing loop");
       // ("Put away" on any of their cards puts the held one away.)
       for (const e of r.E) expect(q.economy.sections.putAwayFor(e)).toBe(r.E[2]);

@@ -85,7 +85,8 @@ describe("goals", () => {
     const { w } = joined();
     expect(goal("join-two").check(w)).toMatchObject({ done: true, count: 2, target: 2 });
     expect(goal("join-three").check(w)).toMatchObject({ done: false, count: 2, target: 3, unit: "towns" });
-    expect(goal("join-all").check(w)).toMatchObject({ done: false, target: w.landscape.towns.length });
+    // (No Connect every town: the stickers count towns past three, `TOWN_TIERS`.)
+    expect(GOALS.some((g) => g.id === "join-all")).toBe(false);
   });
 
   it("trains: placed, moving, at a station, timber, two running", () => {
@@ -587,9 +588,9 @@ describe("place-workshop guide", () => {
   });
   it("two trains at once waits for switches (a passing loop), not signals: hidden, not counted, never the current goal till then", () => {
     const w = buildStarterWorld();
-    const t = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains" && g.id !== "join-all").map((g) => g.id));
+    const t = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains").map((g) => g.id));
     t.update(w, { learned: new Set() });
-    expect(t.current()?.id).toBe("join-all");
+    expect(t.current()).toBeNull();
     expect(t.next()).toBeNull();
     expect(t.total).toBe(GOALS.length - 1);
     expect(t.lockedHint()).toBe("Research Switches to unlock a goal");
@@ -675,10 +676,10 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
     throw new Error(`no map with two old ${role}s`);
   }
 
-  it("come after the passing loop, before Connect every town; each needs its blueprint; Open a farm is where it was", () => {
+  it("come after the passing loop, the last goals; each needs its blueprint; Open a farm is where it was", () => {
     const ids = GOALS.map((g) => g.id);
-    expect(GOALS).toHaveLength(24);
-    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "give-route", "open-quarry", "open-mine", "open-harbour", "join-all"]);
+    expect(GOALS).toHaveLength(23);
+    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "give-route", "open-quarry", "open-mine", "open-harbour"]);
     for (const r of ROLES) expect(goal(r.id)).toMatchObject({ title: r.title, hint: r.hint, needs: [r.bp] });
     expect(goal("open-farm")).toMatchObject({ title: "Open a farm", hint: "Restore an old farm, or build a farm yard by some fields.", needs: ["farming"] });
     expect(OPEN_INDUSTRY_GOALS).toEqual(["open-farm", "open-quarry", "open-mine", "open-harbour"]);
@@ -686,11 +687,11 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
 
   it("each shows once its blueprint is learned (hidden and not counted till then), and learning it names the goal", () => {
     const w = buildStarterWorld();
-    const before = GOALS.filter((g) => !ROLES.some((r) => r.id === g.id) && g.id !== "join-all").map((g) => g.id);
+    const before = GOALS.filter((g) => !ROLES.some((r) => r.id === g.id)).map((g) => g.id);
     for (const r of ROLES) {
       const t = new GoalTracker(before);
       t.update(w, { learned: new Set(["signals", "farming"]) });
-      expect(t.current()?.id).toBe("join-all");
+      expect(t.current()).toBeNull();
       expect(t.total).toBe(GOALS.length - 3);
       expect(t.lockedCount).toBe(3);
       expect(t.openedBy(r.bp, new Set([r.bp])).map((g) => g.title)).toEqual([r.title]);
@@ -743,12 +744,41 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
   });
 });
 
+describe("saves from before Connect every town went (2026-11-04)", () => {
+  /** Every goal of then: today's and "join-all", as a save has them (`saveGoals`: ids). */
+  const THEN = [...GOALS.map((g) => g.id), "join-all"];
+
+  it("a finished game loads finished: 23 done, no current goal, nothing locked (its Stickers tab stays)", () => {
+    const w = buildStarterWorld();
+    const t = new GoalTracker(THEN);
+    t.update(w, { learned: new Set(["switches", "farming", "quarries", "mines", "harbours", "routes", "bridges", "signals"]) });
+    expect(t.doneCount).toBe(23);
+    expect(t.isDone("join-all")).toBe(false);
+    expect(t.current()).toBeNull();
+    expect(t.lockedCount).toBe(0);
+    expect(t.total).toBe(GOALS.length);
+  });
+
+  it("one that was only on Connect every town is finished now", () => {
+    const t = new GoalTracker(GOALS.map((g) => g.id));
+    t.update(buildStarterWorld(), { learned: new Set(["switches", "farming", "quarries", "mines", "harbours", "routes", "bridges", "signals"]) });
+    expect(t.current()).toBeNull();
+    expect(t.lockedCount).toBe(0);
+  });
+
+  it("one part way through still has the goals it had, in order", () => {
+    const t = new GoalTracker(["join-two", "join-all"]);
+    expect(t.doneCount).toBe(1);
+    expect(t.current()?.id).toBe(GOALS[1].id);
+  });
+});
+
 describe("Buy some land", () => {
   it("comes after Connect three towns, an open one: ticked when a plot is bought (as the land card's Add this land does), and stays", () => {
     const ids = GOALS.map((g) => g.id);
     expect(ids.indexOf("buy-land")).toBe(ids.indexOf("join-three") + 1);
     expect(ids.indexOf("buy-land")).toBeGreaterThan(ids.indexOf("build-bridge"));
-    expect(GOALS[GOALS.length - 1].id).toBe("join-all");
+    expect(GOALS[GOALS.length - 1].id).toBe("open-harbour");
     expect(goal("buy-land").title).toBe("Buy some land");
     expect(goal("buy-land").hint).toBe(BUY_LAND_HINT);
     const w = buildStarterWorld();
