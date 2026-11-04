@@ -5,15 +5,15 @@ import { existsSync, mkdirSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
+import { groups } from "./lib/groups.mjs";
 
-const OUT = process.argv[2] ?? "e2e-out";
+const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out";
 mkdirSync(OUT, { recursive: true });
-// Any free port (other dev servers may be running).
-const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
-await server.listen();
-// Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
-await server.warmupRequest("/src/main.ts");
-const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+// (The dev server, the browser and the first page are started by `start()`, when a group first runs: `--list`, and a
+// run whose groups all passed already, start nothing.)
+let server = null;
+let URL = "";
+let b = null;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const T0 = Date.now();
 const step = (name) => console.log(`...   ${((Date.now() - T0) / 1000).toFixed(0)}s  ${name}`);
@@ -58,14 +58,26 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 };
 
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
-pinClocksIn(b);
-// (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
-stillIndustriesIn(b);
-let p = await b.newPage({ viewport: { width: 1200, height: 800 } });
+let p = null;
 const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
+async function start() {
+  if (b) return;
+  // Any free port (other dev servers may be running).
+  server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
+  await server.listen();
+  // Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
+  await server.warmupRequest("/src/main.ts");
+  URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
+  pinClocksIn(b);
+  // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
+  stillIndustriesIn(b);
+  p = await b.newPage({ viewport: { width: 1200, height: 800 } });
+  p.on("pageerror", (e) => errors.push(e.message));
+  await boot(p);
+  await installD(p);
+}
 
 /** Load the game and start playing (condition waits: software rendering under load can be slow). */
 const boot = async (page, tries = 3) => {
@@ -88,7 +100,6 @@ const bootOnce = async (page) => {
   // A new player's opening camera move (if any) has finished, so it doesn't undo the test's framing.
   await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
 };
-await boot(p);
 /** The page's test helpers: toasts kept, and `D` (screen points, piece and joint counts). */
 const installD = (page) =>
   page.evaluate(() => {
@@ -112,13 +123,13 @@ const installD = (page) =>
     toasts: () => window.__toasts.splice(0),
   };
 });
-await installD(p);
-
-/** Only the ramps and bridges cases (E2E_ONLY=specials): quick to run on their own. */
-const ONLY_SPECIALS = process.env.E2E_ONLY === "specials";
+// The groups (E2E_ONLY, `-- --list`, resume: scripts/e2e/lib/groups.mjs; docs/agents/e2e.md), in the full run's order,
+// on the first page (junctions opens one of its own; the phone cases and QA's replays open contexts of their own).
+// `lift`, `terrace-repeat` and `terrace-qa` aren't in a full run: run when named.
+const suite = groups("draw", { results, errors, check });
 
 // Favourites: first on the Track tab, a ★ on a shelf's piece adds it, and it's remembered.
-if (!process.env.E2E_ONLY) {
+suite.add("favourites", async () => {
   await p.evaluate(() => localStorage.removeItem("woodrail.favourites"));
   await tapSel(p, ".tabs [data-tab=track]");
   const favs = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.map((b) => b.querySelector(".label")?.textContent));
@@ -133,10 +144,10 @@ if (!process.env.E2E_ONLY) {
   await p.click(".scroller > .tray-item:has-text('Wide curve') .fav", { timeout: 120000, force: true });
   const removed = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.length);
   check("★ again on the favourites row takes it off", removed === 5, `${removed}`);
-}
+});
 
 // A drag up on a shelf (not opened) takes out its first piece: the first thing a new player tries.
-if (!process.env.E2E_ONLY) {
+suite.add("shelf-drag", async () => {
   await tapSel(p, ".tabs [data-tab=track]");
   const shelf = await p.$(".scroller .tray-group:has-text('Curve')");
   const box = await shelf.boundingBox();
@@ -147,10 +158,18 @@ if (!process.env.E2E_ONLY) {
   await p.keyboard.press("Escape");
   await p.mouse.up();
   check("a drag up on a shelf takes out its first piece", held === "curve-large", String(held));
-}
+});
 
-/** A free end of track on level ground with clear, level, empty land ahead of it (found from the map). */
-const site = await p.evaluate(async () => {
+/**
+ * A free end of track on level ground with clear, level, empty land ahead of it (found from the map): found once, on
+ * the first page, by the first group that needs it (in a full run, after the shelves' cases, as ever).
+ */
+let site = null;
+let siteLooked = false;
+const findSite = async () => {
+  if (siteLooked) return site;
+  siteLooked = true;
+  site = await p.evaluate(async () => {
   const w = window.woodrail;
   const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
   const G = w.landscape.grid;
@@ -177,7 +196,8 @@ const site = await p.evaluate(async () => {
   }
   return null;
 });
-check("found a free end with open ground ahead", !!site, JSON.stringify(site));
+  return site;
+};
 
 /**
  * Frame the view on (x, z) with about `r` mm round it in view: one glide straight there (a focus only ever comes 30%
@@ -211,62 +231,8 @@ const drawThrough = async (pts, { shotAt = -1, shotName = "", stepPx = 14 } = {}
   return shown;
 };
 
-if (ONLY_SPECIALS) {
-  await specials();
-  await finishRun();
-}
-
-/** Only the junctions (N2 phase 2: a branch, a merge) and the planning guard (E2E_ONLY=junctions). */
-if (process.env.E2E_ONLY === "junctions") {
-  await junctions(false);
-  await loopOffStraight();
-  await ghostMatch();
-  await liftFlush();
-  await finishRun();
-}
-
-/** Only what's laid against the last ghosts (E2E_ONLY=ghosts). */
-if (process.env.E2E_ONLY === "ghosts") {
-  await ghostMatch();
-  await finishRun();
-}
-
-/** Only a lift waiting a frame to go down, and what puts it down at once (E2E_ONLY=lift). */
-if (process.env.E2E_ONLY === "lift") {
-  await liftFlush();
-  await finishRun();
-}
-
-/** Only the passing loop off a straight (E2E_ONLY=loop). */
-if (process.env.E2E_ONLY === "loop") {
-  await loopOffStraight();
-  await finishRun();
-}
-
-/** Only QA's terrace 2 drawn again on one page (E2E_ONLY=terrace-repeat): a part of qa-slant, quick on its own. */
-if (process.env.E2E_ONLY === "terrace-repeat") {
-  await terraceRepeat();
-  await finishRun();
-}
-
-/** Only QA's own script for terrace 2 (E2E_ONLY=terrace-qa): a part of qa-slant, quick on its own. */
-if (process.env.E2E_ONLY === "terrace-qa") {
-  await terraceQA();
-  await finishRun();
-}
-
-/** Only the phone on its side, a straight swipe off the grid (E2E_ONLY=phone): step 7b on its own. */
-if (process.env.E2E_ONLY === "phone") {
-  await phoneSwipe();
-  await finishRun();
-}
-
-/** Only QA's replay of the slanted river crossings and the terrace climb (E2E_ONLY=qa-slant). */
-if (process.env.E2E_ONLY === "qa-slant") {
-  await qaReplay();
-  await finishRun();
-}
-
+suite.add("drawn", async () => {
+check("found a free end with open ground ahead", !!(await findSite()), JSON.stringify(site));
 if (site) {
   const { x, z, heading: h } = site;
   const fx = Math.cos(h);
@@ -421,11 +387,13 @@ if (site) {
   const off = await p.evaluate(() => !window.woodrail.interaction.isDrawing && !document.querySelector(".tray-draw").classList.contains("active"));
   check("Esc switches drawing off", off);
 }
+});
 
 // 7. On a phone: a one-finger touch drag on open ground, up the screen then round to the right.
 
+suite.add("phone-drag", async () => {
 step("7");
-if (site) {
+if (await findSite()) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
@@ -507,13 +475,16 @@ if (site) {
   check("idle after drawing: no frames drawn", idle === 0, `${idle} frames in 2 s (${sailing} with boats sailing)`);
   await ctx.close();
 }
+});
 
 // 7b. A phone on its side: a straight one-finger swipe across the screen over open ground. The view is turned off the
 // grid, so on the ground it's a straight line off the eighths the track runs on: a staircase of straights under the
 // finger (QA N1), not a snake of curves, and never "too sharp".
 
-step("7b");
-await phoneSwipe();
+suite.add("phone", async () => {
+  step("7b");
+  await phoneSwipe();
+});
 
 async function phoneSwipe() {
   const ctx = await b.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
@@ -629,14 +600,33 @@ async function phoneSwipe() {
 
 // 8. Ramps and bridges (N2 phase 1), and QA's replay.
 
-step("8");
-await specials();
-step("9");
-await qaReplay();
-step("10");
-await junctions();
-await loopOffStraight();
-await ghostMatch();
+suite.add("specials", async () => {
+  step("8");
+  await specials();
+});
+// (QA's replay of the slanted river crossings and the terrace climb.)
+suite.add("qa-slant", async () => {
+  step("9");
+  await qaReplay();
+});
+// (The junctions (N2 phase 2: a branch, a merge) and the planning guard, on a fresh page.)
+suite.add("junctions", async () => {
+  step("10");
+  await junctions();
+});
+suite.add("loop", () => loopOffStraight());
+suite.add("ghosts", () => ghostMatch());
+// Not in a full run: run when named.
+suite.add("lift", async () => {
+  await findSite();
+  await liftFlush();
+}, { extra: true, about: "a lift waiting a frame to go down, and what puts it down at once" });
+suite.add("terrace-repeat", () => terraceRepeat(), { extra: true, about: "QA's terrace 2 drawn again on one page (a part of qa-slant)" });
+suite.add("terrace-qa", () => terraceQA(), { extra: true, about: "QA's own script for terrace 2 (a part of qa-slant)" });
+await suite.run(async (g, go) => {
+  await start();
+  await go();
+});
 await finishRun();
 
 /**
@@ -1401,11 +1391,9 @@ async function ghostMatch() {
 
 async function finishRun() {
   check("no page errors", errors.length === 0, errors.join(" | "));
-  await b.close();
-  await server.close();
-  const failed = results.filter((r) => !r.ok).length;
-  console.log(`\n${results.length - failed}/${results.length} passed`);
-  process.exit(failed ? 1 : 0);
+  await b?.close();
+  await server?.close();
+  suite.finish();
 }
 
 /**

@@ -3,7 +3,8 @@
 // See docs/agents/e2e.md.
 //
 //   const suite = groups("touch", { check, results, errors });
-//   suite.add("map-taps", async () => { … }, { needs: "sandbox page" });
+//   suite.add("map-taps", async () => { … });
+//   suite.add("lift", async () => { … }, { extra: true, about: "…" });   // not in a full run: only when named
 //   …
 //   await suite.run();            // runs what's selected and not already passed for this source tree
 //   … the suite's own last checks (e.g. "no page errors") …
@@ -11,7 +12,8 @@
 //
 // Env and flags (each suite reads them through this helper, the same way):
 //   --list                 print the suite's groups, one a line, and exit
-//   E2E_ONLY=a,b           run only these groups (in the suite's order); unknown names fail the run
+//   E2E_ONLY=a,b           run only these groups (in the suite's order); unknown names fail the run. A group added
+//                          with { extra: true } runs only when named here
 //   E2E_SHARD=i/n          run only the i-th of n slices of the groups (1-based, round-robin by position)
 //   E2E_RESUME=0           ignore the checkpoints (run everything selected); default: on
 //   E2E_FRESH=1            each group on a fresh page (suites that support it: see `fresh` in the suite)
@@ -87,7 +89,10 @@ export function groups(suite, { results, errors = [], check }) {
   const api = {
     suite,
     key,
-    /** Add a group. `fn` runs it; its checks are whatever `check` calls it makes. */
+    /**
+     * Add a group. `fn` runs it; its checks are whatever `check` calls it makes. `opts.about`: a line for `--list`;
+     * `opts.extra`: not part of a full run, only run when E2E_ONLY names it.
+     */
     add(name, fn, opts = {}) {
       if (list.some((g) => g.name === name)) throw new Error(`${suite}: group ${name} twice`);
       list.push({ name, fn, ...opts });
@@ -96,8 +101,8 @@ export function groups(suite, { results, errors = [], check }) {
     names: () => list.map((g) => g.name),
     /** The groups this run will look at (E2E_ONLY, E2E_SHARD), in order; cached or not. */
     selected() {
-      let sel = list;
       const only = envList(process.env.E2E_ONLY);
+      let sel = only.length ? list : list.filter((g) => !g.extra);
       if (only.length) {
         const unknown = only.filter((n) => !list.some((g) => g.name === n));
         if (unknown.length) {
@@ -125,7 +130,7 @@ export function groups(suite, { results, errors = [], check }) {
      */
     async run(around = (g, go) => go()) {
       if (argv.includes("--list")) {
-        for (const g of list) console.log(g.name + (g.about ? `\t${g.about}` : ""));
+        for (const g of list) console.log(g.name + (g.extra ? "\t(only when named) " : g.about ? "\t" : "") + (g.about ?? ""));
         process.exit(0);
       }
       const sel = api.selected();

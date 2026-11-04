@@ -16,8 +16,8 @@ import { ROOT } from "./lib/groups.mjs";
 export const SUITES = {
   touch: { script: "e2e:touch", groups: true, minutes: 50 },
   click: { script: "e2e:click", groups: true, minutes: 40 },
-  draw: { script: "e2e:draw", minutes: 90 },
-  roads: { script: "e2e:roads" },
+  draw: { script: "e2e:draw", groups: true, minutes: 90 },
+  roads: { script: "e2e:roads", groups: true },
   names: { script: "e2e:names", minutes: 12 },
   cloud: { script: "e2e:cloud" },
   tutorial: { script: "e2e:tutorial" },

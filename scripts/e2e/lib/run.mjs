@@ -4,8 +4,8 @@
 // same tree it prints "group all: cached pass" and the run's last line again ("ALL PASS", "N/N passed", …), so a
 // gate that greps it still finds it. A suite with groups of its own (it imports groups.mjs) is just run.
 //
-// Not cached: a run given arguments (an out dir for pictures: it's run for them), or E2E_ONLY naming the suite's own
-// subsets (e2e:draw's "specials", "junctions", …: passed through to it as before).
+// Not cached: a run given arguments (an out dir for pictures: it's run for them), or E2E_ONLY naming anything but
+// "all" (passed through to the suite as it is).
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";

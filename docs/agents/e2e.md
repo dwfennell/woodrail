@@ -34,7 +34,7 @@ everything again; editing a doc doesn't. Not a git checkout: no key, nothing ski
 recorded, so the next run runs it again (and the ones after it that hadn't run). A run given arguments (an out dir for
 pictures) isn't cached by run.mjs: it's run for its pictures.
 
-## Groups in e2e:touch and e2e:click
+## Groups in the split suites
 
 **touch** (`scripts/e2e/touch.mjs`): `sandbox-shelves`, the 28 Sandbox checks (`map-taps`, `select-drag`, … `route-ux-more`;
 the comment above `openGroundScript` says what each is) and `game-shelves`. The Sandbox groups share one page, as
@@ -48,6 +48,22 @@ piece only from the view map-taps left, so it now zooms in itself.)
 **click** (`scripts/e2e/click-place.mjs`): `desktop`, `model-train`, `tight-curves`, `feedback`, `fullscreen`,
 `game-engine`, `touch-tray`, `routes`. Each opens its own pages; one that throws fails `<group>: ran to the end` and the
 rest still run (before, one throw ended the run with no last line).
+
+**sites** (`tools/e2e/map-sites.mjs`, about 37 min): `ruins` (steps 1–12 on one page), then `sandbox` (13),
+`phone-side` (14), `map-view` (15), `map-side` (16), `big-map` (17), each on fresh pages, closed after it.
+
+**draw** (`scripts/e2e/draw.mjs`, about 90 min): `favourites`, `shelf-drag`, `drawn` (steps 1–6, from the free end
+found on the map), `phone-drag` (7), `phone` (7b, the phone on its side), `specials` (ramps and bridges), `qa-slant`
+(QA's replays), `junctions` (on a fresh page), `loop`, `ghosts`. Three groups run only when named (`extra`, below):
+`lift`, `terrace-repeat`, `terrace-qa`, the old subsets that aren't in a full run. The old `E2E_ONLY=junctions` ran
+junctions, loop, ghosts and lift on the first page: now `E2E_ONLY=junctions,loop,ghosts,lift`.
+
+**roads** (`scripts/e2e/roads.mjs`): `sandbox` (A–J on one page, each section on the roads the ones before laid) and
+`game` (K–X, each on the route N laid). They're one chain each, so two groups; `game` alone opens Sandbox first only
+to read its tabs (K1 compares them).
+
+**A group that runs only when named:** `suite.add(name, fn, { extra: true, about: "…" })`. A full run (no `E2E_ONLY`)
+leaves it out; `--list` marks it "(only when named)".
 
 ## Splitting another suite into groups
 
@@ -64,9 +80,6 @@ rest still run (before, one throw ended the run with no last line).
 5. In package.json call the script directly (not through run.mjs; run.mjs passes a suite that imports groups.mjs
    straight through anyway). Set `groups: true` for it in `SUITES` in scripts/e2e/affected.mjs, and name its groups in
    rules where a path only touches some of them.
-
-**sites** (`tools/e2e/map-sites.mjs`, about 37 min): `ruins` (steps 1–12 on one page), then `sandbox` (13),
-`phone-side` (14), `map-view` (15), `map-side` (16), `big-map` (17), each on fresh pages, closed after it.
 
 ## What to run for a change: `npm run e2e:affected`
 
