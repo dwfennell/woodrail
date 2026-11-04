@@ -121,3 +121,32 @@ describe("a prop drawn at its own scale (a landmark on a smaller lot)", () => {
     expect(propsInRect(props, () => fp, 50, -5, 80, 5)).toBe(true);
   });
 });
+
+describe("pieceHitsProp's quick path (props out of reach passed over)", () => {
+  it("says what a point-by-point look with inFootprint says, for pieces and props all about", async () => {
+    const { pieceHitsProp: hits, inFootprint: inside } = await import("./placement");
+    const { PropStore: Store } = await import("./store");
+    const { addTrackPoints } = await import("../landscape/trees-aside");
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const fps: Record<string, { cx: number; cz: number; hw: number; hd: number }> = { "bldg-red-barn": { cx: 20, cz: -10, hw: 60, hd: 35 }, "bldg-cottage": { cx: 0, cz: 0, hw: 30, hd: 30 } };
+    const fp = (a: string) => fps[a];
+    let agreed = 0;
+    let hit = 0;
+    for (let k = 0; k < 400; k++) {
+      const store = new Store();
+      for (let i = 0; i < 6; i++) store.add(rnd() < 0.5 ? "bldg-red-barn" : "bldg-cottage", { x: rnd() * 800 - 400, z: rnd() * 800 - 400, heading: rnd() * 6.28, y: 0 }, undefined, {});
+      const type = (["straight-216", "curve-large", "switch"] as const)[k % 3];
+      const pose = { x: rnd() * 600 - 300, z: rnd() * 600 - 300, heading: rnd() * 6.28 };
+      const buckets = new Map<number, number[]>();
+      addTrackPoints(buckets, type, false, pose);
+      const slow = store.all().some((p) => [...buckets.values()].some((l) => l.some((_, i) => i % 2 === 0 && inside(fp(p.asset), p, l[i], l[i + 1], 20))));
+      if (hits(store, fp, type, false, pose) === slow) agreed++;
+      if (slow) hit++;
+    }
+    expect(agreed).toBe(400);
+    // (Both answers come up.)
+    expect(hit).toBeGreaterThan(20);
+    expect(hit).toBeLessThan(380);
+  });
+});
