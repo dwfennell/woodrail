@@ -565,6 +565,26 @@ export class Sim {
     return turned;
   }
 
+  /**
+   * Lift a train, moving or not, and put it down turned round where it stands (`turnAround`), as a child turns a toy
+   * train the other way: it sets off again from standing (its levers kept), its pending turnback dropped. A line run
+   * the other way round on a ring (lines.ts `reverseLine`). Returns the turned train, or why it couldn't be: off the
+   * track ("derailed"), riding a lift or turntable deck ("riding"), or no room to set it down turned round ("no-room",
+   * `by`: the train in the way, if one is).
+   */
+  liftAndTurn(trainId: number): { kind: "turned"; train: Train } | { kind: "derailed" | "riding" | "none" } | { kind: "no-room"; by: number | null } {
+    const t = this.trains.get(trainId);
+    if (!t || t.bogies.length === 0) return { kind: "none" };
+    if (t.derailed) return { kind: "derailed" };
+    if (this.rides.size > 0 && this.riding(t)) return { kind: "riding" };
+    const turned = this.turnAround(t);
+    if (!turned) return { kind: "no-room", by: this.turnBlocker(t) };
+    turned.lastTurn = t.lastTurn;
+    this.turnBlocked.delete(trainKey(t));
+    this.events.push({ kind: "turned", trainId: t.id, newTrainId: turned.id });
+    return { kind: "turned", train: turned };
+  }
+
   /** Turn a car around in place (swaps which magnet faces which way). */
   flipCar(carId: number): boolean {
     const found = this.findCar(carId);
