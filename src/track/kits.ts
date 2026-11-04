@@ -748,7 +748,10 @@ export const isKit = (type: PieceTypeId): type is KitTypeId => byType.has(type);
 export const KIT_TYPES = Object.keys(KITS) as readonly KitTypeId[];
 
 /** The kit that draws this catalogue asset, if any (for the tray: its shelf offers the kit, not the prop). */
-const byAsset = new Map<string, KitTypeId>(KIT_TYPES.map((t) => [KITS[t].asset, t]));
+const byAsset = new Map<string, KitTypeId>();
+// (The first kit of an asset: the lookout halt wears the mountain station's chalet, and the catalogue's chalet is still
+// the mountain station.)
+for (const t of KIT_TYPES) if (!byAsset.has(KITS[t].asset)) byAsset.set(KITS[t].asset, t);
 export const kitForAsset = (asset: string): KitTypeId | undefined => byAsset.get(asset);
 
 /** Where a kit's model stands in its piece's frame (see `KitDef.place`). */

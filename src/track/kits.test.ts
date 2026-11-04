@@ -176,3 +176,10 @@ describe("kit pieces", () => {
     expect(kit.footprint).toEqual([]);
   });
 });
+
+describe("kits by their catalogue asset", () => {
+  it("the mountain station's chalet is the mountain station's kit, though the lookout halt wears it too", async () => {
+    const { kitForAsset } = await import("./kits");
+    expect(kitForAsset("bldg-mountain-station")).toBe("kit-mountain-station");
+  });
+});
