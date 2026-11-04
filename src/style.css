@@ -1326,6 +1326,12 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
    as the cloud card is (it's in charge while it's open): Go and Swap ends, Decouple and Remove under it all show, without
    a scroll, at 360 px tall. A long route still scrolls. With no route yet, "Plan a route" goes under them, alone (its
    words would take a line of their own). */
+/* A phone on its side: an industry's card is a sheet at the right, as the engine card is, coming down over the tray (QA
+   2026-11-04, 844x390: it had 165 px above the tray, a harbour's Buy buttons and the workshop's list under the fold).
+   Narrow enough to leave the goals bar and its Show me clear at the left. */
+@media (max-height: 520px) {
+  .depot-card { width: min(380px, calc(50vw - 24px)); box-sizing: border-box; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); }
+}
 @media (max-height: 520px) {
   :not(.planning) > .engine-card { width: auto; gap: 8px; padding-top: 12px; padding-bottom: 14px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); }
   :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }
