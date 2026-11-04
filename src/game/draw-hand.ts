@@ -984,6 +984,8 @@ export class DrawHand {
       dispose: () => {
         this.catching = false;
       },
+      // (Ghosts: no shadows, so no shadow pass on the frames it runs.)
+      shadows: false,
     });
     this.game.redraw();
   }

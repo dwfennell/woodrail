@@ -1060,7 +1060,10 @@ export class Game {
       else active = true;
     }
     else if (depots === "changed") this.invalidate();
-    if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
+    if (trainsMoved || tipping || this.flourishes.casting > 0 || this.touchesMoving) active = true;
+    // Flourishes that move nothing casting a shadow (draw's ghosts catching up with the line): drawn every frame, as
+    // the rest, but the shadow map isn't drawn again for them.
+    const shownOnly = this.flourishes.count > 0;
     this.touchesMoving = false;
     // Small touches: placed again only when what they stand beside changed (a few comparisons a frame); the children
     // look for trains only on frames where trains moved, or while one waves.
@@ -1149,10 +1152,10 @@ export class Game {
     // scene stays on screen without being drawn again, so an idle game costs next to nothing.
     const now = this.clock.elapsedTime;
     // Something easing or moving keeps drawing for a moment after; a one-off change (invalidate) draws one frame.
-    if (active || ambient) this.lastActive = now;
+    if (active || ambient || shownOnly) this.lastActive = now;
     // Only ambient motion moving (no train, camera move or change): every other tick (`AMBIENT_FRAME_MS`). What it
     // moves is posed by the clock, so the next frame drawn shows it where it is then.
-    if (ambient && !active && !this.dirty && !this.redrawn && (now - this.lastDrawnAt) * 1000 < AMBIENT_FRAME_MS - FRAME_SLACK_MS) {
+    if (ambient && !active && !shownOnly && !this.dirty && !this.redrawn && (now - this.lastDrawnAt) * 1000 < AMBIENT_FRAME_MS - FRAME_SLACK_MS) {
       this.drewLastTick = false;
       // (Its shadows are drawn on the next frame drawn.)
       this.shadowsMoving = true;
