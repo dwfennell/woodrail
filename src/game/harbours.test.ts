@@ -143,6 +143,24 @@ describe("harbours", () => {
     expect(loadBoat(d, BOAT_LOADS, w.economy.landed.get(d.id))).toEqual({});
   });
 
+  it("ordered goods come off only as the boat ties up: never while the card says it's coming in (QA 2026-11-04, 8)", () => {
+    const w = coastWorld();
+    const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+    syncIndustries(w);
+    const d = w.economy.depotAtPiece(id)!;
+    const p = Progress.fresh();
+    p.coins = 100;
+    const trade = new HarbourTrade();
+    trade.order(d.id, "planks");
+    // In the game's own steps (the clock's second, here a tenth of one), the card's line read after each.
+    for (let t = 0; t < 120 * 10 && d.piles[CARGO.planks.index] === 0; t++) {
+      trade.update(w, p, 0.1);
+      if (d.piles[CARGO.planks.index] === 0) expect(trade.describe(d.id)).not.toMatch(/tied up/);
+    }
+    expect(d.piles[CARGO.planks.index]).toBe(3);
+    expect(trade.describe(d.id)).toMatch(/^A boat is tied up at the quay/);
+  });
+
   it("an order is paid for as it comes off: with too few coins, the rest goes back", () => {
     const w = coastWorld();
     const id = w.layout.addPiece("depot-harbour", harbourSite(w));
