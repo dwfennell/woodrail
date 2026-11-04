@@ -140,7 +140,7 @@ describe("pieceHitsProp's quick path (props out of reach passed over)", () => {
       const pose = { x: rnd() * 600 - 300, z: rnd() * 600 - 300, heading: rnd() * 6.28 };
       const buckets = new Map<number, number[]>();
       addTrackPoints(buckets, type, false, pose);
-      const slow = store.all().some((p) => [...buckets.values()].some((l) => l.some((_, i) => i % 2 === 0 && inside(fp(p.asset), p, l[i], l[i + 1], 20))));
+      const slow = [...store.all()].some((p) => [...buckets.values()].some((l) => l.some((_, i) => i % 2 === 0 && inside(fp(p.asset), p, l[i], l[i + 1], 20))));
       if (hits(store, fp, type, false, pose) === slow) agreed++;
       if (slow) hit++;
     }
