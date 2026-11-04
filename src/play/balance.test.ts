@@ -7,7 +7,7 @@ import { HarbourTrade } from "../game/harbours";
 import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, shopSpare, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker, payGoal } from "../game/goals";
-import { StickerTracker } from "../game/stickers";
+import { joinedTowns, StickerTracker, TOWN_TIERS } from "../game/stickers";
 import { FULL_PAY, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
@@ -78,7 +78,7 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * The goals play-through (the same player, working down the goals' list) runs in two parts (see `GOALS_RUN_MINUTES`):
  * the fast one in plain `npm test` (to minute 175, about 47 s), and a long one, skipped unless asked for:
  *   GOALS_LONG=1 npx vitest run src/play/balance.test.ts -t "long goals"
- * which plays on to minute 440 (about 130 s) and checks the mine, "Connect every town" and the harbour too.
+ * which plays on to minute 440 (about 130 s) and checks the mine, every town joined (the Connected … towns stickers) and the harbour too.
  */
 
 /** The environment (Node's, under Vitest), without Node's types. */
@@ -201,7 +201,6 @@ const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 440);
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
   "open-mine": "Mines wants 20 stone delivered, 10 more at the school and the Goods engine, which this one goods train brings only at about minute 195; the mine stands at about 220: the long part's (GOALS_LONG=1)",
   "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 412: the long part's (GOALS_LONG=1)",
-  "join-all": "the player joins the last towns (Brambleton, and the bought plot's) once the mine is open (the goals' order), past this part's minutes: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
 export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {};
@@ -1632,10 +1631,12 @@ describe.skipIf(RUN || !GOALS_LONG)("the long goals play-through (GOALS_LONG=1)"
     // A plot bought (its price paid, by the land card's way), and "Buy some land" ticked.
     expect(P.firsts["land bought"], "a plot bought").toBeDefined();
     expect(P.p.goals.isDone("buy-land"), "Buy some land ticked").toBe(true);
-    // Every town on the railway, joined to Larkfield's station.
-    // (The plot's town too: "Buy some land" comes before "Connect every town", so its town is one to join.)
+    // Every town on the railway, joined to Larkfield's station (the plot's town too), and the stickers that count them
+    // (in place of the goal "Connect every town", gone since 2026-11-04): Connected 5 towns and Every town.
     const had = w.landscape.towns;
     expect(townsOnLine(P.p).map((i) => w.landscape.towns[i].name), "every town joined").toEqual(had.map((t) => t.name));
+    expect(had.length, "the start's four towns and the plot's").toBeGreaterThanOrEqual(TOWN_TIERS[0]);
+    expect(P.p.stickers.ids(), "Connected 5 towns and Every town earned").toEqual(expect.arrayContaining([`towns-${TOWN_TIERS[0]}`, "all-towns"]));
     // The harbour, built (or an old one restored) by the sea, on the line: Harbours researched, the stone of its price
     // brought to the workshop by train (the cranes' own unloads: no pile written to), and a boat trading there.
     expect(P.p.learnedAt.find((b) => b.id === "harbours")?.how, "Harbours researched").toBe("researched");
@@ -2686,7 +2687,7 @@ class Playthrough {
           P.note("the mine's goods on a train");
           break;
         }
-    // Every town on the railway (the goal "Connect every town"): `joinTowns`.
+    // Every town on the railway (the Connected … towns and Every town stickers; the goal "Connect every town" until 2026-11-04): `joinTowns`.
     this.joinTowns();
     this.buyLand();
   }
@@ -2894,11 +2895,11 @@ class Playthrough {
     else P.note(`COULDN'T reach a ${role} site from the line's ends (or a branch)`);
   }
 
-  /** When the line was last run on to another town for "Connect every town" (minutes). */
+  /** When the line was last run on to another town to join every town (minutes). */
   private joinTry = -99;
 
   /**
-   * "Connect every town": once the quarry is open (the goals before it done, as a player's are; in the goals
+   * Every town joined (the stickers; the goal "Connect every town" until 2026-11-04): once the quarry is open (the goals before it done, as a player's are; in the goals
    * play-through, the mine too: "Open a mine" comes first in the goals' list, and the two towns' spurs make the lap
    * half as long again: joined at 157 and 167, Mines was still not learned at minute 285), every 10 minutes with planks
    * to spare, the line run on from one of its ends to the nearest town not on it (as the third town was), the station's
@@ -2911,7 +2912,7 @@ class Playthrough {
   joinTowns(): void {
     const P = this.p;
     const w = P.w;
-    if (P.goals.isDone("join-all") || this.quarry < 0 || (this.goalsFirst && this.mine < 0) || !this.joinedThird || P.minute - this.joinTry < 10 || P.planks() < PICK_SPARE) return;
+    if (joinedTowns(w) >= w.landscape.towns.length || this.quarry < 0 || (this.goalsFirst && this.mine < 0) || !this.joinedThird || P.minute - this.joinTry < 10 || P.planks() < PICK_SPARE) return;
     const on = townsOnLine(P);
     const ends = lineEnds(P).map((e) => w.layout.worldConnector(e.ref, peg));
     const dist = (i: number) => Math.min(...ends.map((e) => Math.hypot(w.landscape.towns[i].centre.x - e.x, w.landscape.towns[i].centre.z - e.z)));
