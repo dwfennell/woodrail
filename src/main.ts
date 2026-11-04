@@ -84,7 +84,7 @@ import { GOODS_ICON, type CargoKind } from "./economy/cargo";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { drawnKey, modelKey, type PropModel } from "./render/props/library";
 import { CLOCK_ASSETS } from "./render/clock-hands";
-import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
+import { renderThumbnails, renderThumbnailsAsync, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
@@ -135,6 +135,8 @@ const THUMBNAIL_STILL_WAIT_MS = 1500;
  * wait for the next frame: a few a frame on a phone, so a ticket's fill in at once without a frame dropped for it.
  */
 const PICTURE_BUDGET_MS = 7;
+/** At most this many on-demand pictures drawn a frame (each read back later, without waiting). */
+const PICTURES_A_FRAME = 4;
 
 /** How long (ms) an engine's status must hold before its card shows it (so it doesn't flicker between steps). */
 const STATUS_HOLD_MS = 600;
@@ -370,24 +372,31 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const industryItems = INDUSTRY_GROUPS.flatMap((g) => g.items);
   const thumbnails = new Map(savedThumbnails ?? []);
   /** Draw the tray pictures not drawn yet among `items`; returns the keys drawn. */
-  const drawThumbnails = (items: readonly TrayItem[], save = true, studio?: ThumbnailStudio): string[] => {
-    const unseen = items.filter((item) => !thumbnails.has(trayKey(item)));
-    if (unseen.length === 0) return [];
-    const drawn = renderThumbnails(
-      game.renderer,
-      game.mats,
-      unseen.flatMap((item): ThumbnailSubject[] =>
+  const subjectsOf = (items: readonly TrayItem[]): ThumbnailSubject[] =>
+    items
+      .filter((item) => !thumbnails.has(trayKey(item)))
+      .flatMap((item): ThumbnailSubject[] =>
         item.kind === "piece"
           ? [{ key: trayKey(item), kind: "piece" as const, type: item.type }]
           : item.kind === "train"
             ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
             : [],
-      ),
-      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : kitOf(type) ? game.kitView.model(type) : null),
-      studio,
-    );
+      );
+  const withPiece = (type: PieceTypeId) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : kitOf(type) ? game.kitView.model(type) : null);
+  const drawThumbnails = (items: readonly TrayItem[], save = true, studio?: ThumbnailStudio): string[] => {
+    const subjects = subjectsOf(items);
+    if (subjects.length === 0) return [];
+    const drawn = renderThumbnails(game.renderer, game.mats, subjects, withPiece, studio);
     for (const [k, v] of drawn) thumbnails.set(k, v);
     if (save) void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+    return [...drawn.keys()];
+  };
+  /** As `drawThumbnails` (unsaved), read back without holding the main thread: the keys drawn, once they're in. */
+  const drawThumbnailsAsync = async (items: readonly TrayItem[], studio: ThumbnailStudio): Promise<string[]> => {
+    const subjects = subjectsOf(items);
+    if (subjects.length === 0) return [];
+    const drawn = await renderThumbnailsAsync(studio, game.mats, subjects, withPiece);
+    for (const [k, v] of drawn) thumbnails.set(k, v);
     return [...drawn.keys()];
   };
   // Only the title's pictures now; the tray's are drawn after the title's up (see drawTrayThumbnails), the tray
@@ -576,15 +585,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   async function drawTrayThumbnails(): Promise<void> {
     const items = [...TRACK_ITEMS, ...TRAIN_ITEMS].filter((item) => !thumbnails.has(trayKey(item)));
     if (items.length === 0) return;
-    // A few at a time in one studio, each batch once its pieces are carved: each picture is read back from the
-    // graphics card, which waits for what it's drawing, so pictures go in batches (one wait each). Preferably while
-    // nothing's moving on screen, but not waiting long for that (a train going round would hold them up for good).
+    // A few at a time in one studio, each batch once its pieces are carved, read back without holding the main thread
+    // (each picture's pixels fetched once the graphics card has drawn it). Preferably while nothing's moving on screen,
+    // but not waiting long for that (a train going round would hold them up for good).
     const studio = new ThumbnailStudio(game.renderer);
     for (let i = 0; i < items.length; i += THUMBNAIL_BATCH) {
       const batch = items.slice(i, i + THUMBNAIL_BATCH);
       await Promise.all(batch.map((item) => (item.kind === "piece" ? TrackView.whenBuilt(item.type) : null)));
       await Promise.race([game.settled(10), sleep(THUMBNAIL_STILL_WAIT_MS)]);
-      for (const key of drawThumbnails(batch, false, studio)) pictureDrawn(key);
+      for (const key of await drawThumbnailsAsync(batch, studio)) pictureDrawn(key);
       // Kept as they come (a visit cut short keeps what it drew).
       saveThumbnailsSoon();
     }
@@ -599,9 +608,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // Pictures drawn on demand: catalogue models' (a kit's, a prop's) when their shelf is first shown, and those the
   // blueprint board's open ticket shows; then kept with the start-up pictures for the next visit. Every one's model is
-  // fetched as soon as it's asked for (all at once), and those ready are drawn as many a frame as fit in
-  // PICTURE_BUDGET_MS, the open ticket's first: the first picture of a frame waits for the graphics card (it's read
-  // back), the rest in that frame hardly at all. Nothing runs once none are waiting.
+  // fetched as soon as it's asked for (all at once), and those ready are drawn a few a frame (PICTURES_A_FRAME, within
+  // PICTURE_BUDGET_MS), the open ticket's first, each read back without waiting for the graphics card and shown when
+  // its pixels are in. Nothing runs once none are waiting.
   /** A picture asked for: by the tray, the board, or both; `ready` once its model's fetched and built. */
   type PictureJob = { item: TrayItem; tray: boolean; board: boolean; ready: boolean; model?: PropModel | null };
   const pictureJobs = new Map<string, PictureJob>();
@@ -678,13 +687,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const ready = [...pictureJobs].filter(([, j]) => j.ready).sort(([, a], [, b]) => Number(b.board) - Number(a.board));
     let drawn = 0;
     for (const [key, job] of ready) {
-      if (drawn > 0 && performance.now() - start > PICTURE_BUDGET_MS) break;
+      // (Read back without waiting for the graphics card: a picture's main-thread cost is drawing it. A few a frame,
+      // so the card isn't handed a pile at once.)
+      if (drawn > 0 && (drawn >= PICTURES_A_FRAME || performance.now() - start > PICTURE_BUDGET_MS)) break;
       pictureJobs.delete(key);
       drawn++;
-      studio ??= new ThumbnailStudio(game.renderer);
+      const shots = (studio ??= new ThumbnailStudio(game.renderer));
       const { item } = job;
+      const came = (keys: string[]) => {
+        for (const k of keys) pictureDrawn(k);
+        if (keys.length > 0) saveThumbnailsSoon();
+      };
       if (item.kind !== "prop") {
-        for (const k of drawThumbnails([item], false, studio)) pictureDrawn(k);
+        void drawThumbnailsAsync([item], shots).then(came);
         continue;
       }
       // (A prop whose asset doesn't exist has no picture: its blank stays.)
@@ -692,10 +707,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const subject = new Group();
       for (const part of job.model.parts) subject.add(new Mesh(part.geometry, part.material));
       subject.rotation.y = -0.6;
-      thumbnails.set(key, studio.shoot(subject));
-      pictureDrawn(key);
+      void shots.shootAsync(subject).then((url) => {
+        thumbnails.set(key, url);
+        came([key]);
+      });
     }
-    if (drawn > 0) saveThumbnailsSoon();
     // More ready than fitted: the rest next frame. (Those still loading schedule a frame when they're in.)
     if (drawn < ready.length) schedulePictures();
   }

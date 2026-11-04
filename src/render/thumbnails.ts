@@ -70,6 +70,40 @@ export class ThumbnailStudio {
 
   /** A picture of `subject` (framed to fit; `fill` > 1 frames tighter). WebP where the browser can, else PNG. */
   shoot(subject: Object3D, fill = 1): string {
+    this.draw(subject, fill, this.target);
+    this.renderer.readRenderTargetPixels(this.target, 0, 0, W, H, this.pixels);
+    return this.encode(this.pixels);
+  }
+
+  /** Targets free for `shootAsync` (each picture in flight has its own). */
+  private readonly spare: WebGLRenderTarget[] = [];
+  private readonly inFlight = new Set<WebGLRenderTarget>();
+
+  /**
+   * As `shoot`, but read back without waiting for the graphics card: drawn now, its pixels fetched once the card has
+   * drawn it (three's `readRenderTargetPixelsAsync`: a fence, polled). The main thread isn't held meanwhile (`shoot`'s
+   * read waits for everything queued before it: 15 s at 4× CPU, in SwiftShader, for the research board's first pictures).
+   */
+  async shootAsync(subject: Object3D, fill = 1): Promise<string> {
+    const target = this.spare.pop() ?? new WebGLRenderTarget(W, H, { samples: 4 });
+    target.texture.colorSpace = SRGBColorSpace;
+    this.inFlight.add(target);
+    try {
+      this.draw(subject, fill, target);
+      const pixels = new Uint8Array(W * H * 4);
+      await this.renderer.readRenderTargetPixelsAsync(target, 0, 0, W, H, pixels);
+      return this.encode(pixels);
+    } finally {
+      this.inFlight.delete(target);
+      if (this.disposed) target.dispose();
+      else this.spare.push(target);
+    }
+  }
+
+  private disposed = false;
+
+  /** Draw `subject` into `target` (framed to fit). */
+  private draw(subject: Object3D, fill: number, target: WebGLRenderTarget): void {
     const { renderer, scene, camera } = this;
     scene.add(subject);
     this.box.setFromObject(subject).getBoundingSphere(this.sphere);
@@ -82,22 +116,64 @@ export class ThumbnailStudio {
     const prevAlpha = renderer.getClearAlpha();
     const prevColor = renderer.getClearColor(new Color());
     renderer.setClearColor(0x000000, 0);
-    renderer.setRenderTarget(this.target);
+    renderer.setRenderTarget(target);
     renderer.clear();
     renderer.render(scene, camera);
-    renderer.readRenderTargetPixels(this.target, 0, 0, W, H, this.pixels);
     renderer.setRenderTarget(prevTarget);
     renderer.setClearColor(prevColor, prevAlpha);
     scene.remove(subject);
+  }
+
+  /** Pixels read back as an image URL. */
+  private encode(pixels: Uint8Array): string {
     // GL rows run bottom-up.
-    for (let y = 0; y < H; y++) this.image.data.set(this.pixels.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+    for (let y = 0; y < H; y++) this.image.data.set(pixels.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
     this.ctx.putImageData(this.image, 0, 0);
     return this.canvas.toDataURL("image/webp", 0.85);
   }
 
   dispose(): void {
+    this.disposed = true;
     this.target.dispose();
+    for (const t of this.spare) t.dispose();
+    this.spare.length = 0;
   }
+}
+
+/** A tray subject as a model to photograph, and how to put it away after. */
+function subjectModel(s: ThumbnailSubject, mats: Materials, withPiece: (type: PieceTypeId) => Object3D | null): { subject: Object3D; done: () => void } {
+  if (s.kind === "piece") {
+    const mesh = new Mesh(pieceGeometry(s.type, false, isBridge(s.type) ? 1 : 0), [mats.track, mats.trackCut, mats.bridgePaint]);
+    const extra = withPiece(s.type);
+    if (extra) mesh.add(extra);
+    // Long pieces lie diagonally so they fill the square tile.
+    mesh.rotation.y = 0.5;
+    return { subject: mesh, done: () => mesh.children.forEach((child) => disposeObject(child)) };
+  }
+  const subject = trainModel(s.cars, mats, s.looks);
+  subject.rotation.y = 0.35;
+  return { subject, done: () => disposeObject(subject) };
+}
+
+/**
+ * As `renderThumbnails`, read back without holding the main thread (`ThumbnailStudio.shootAsync`): all drawn now, each
+ * picture's URL as its pixels come back.
+ */
+export async function renderThumbnailsAsync(
+  studio: ThumbnailStudio,
+  mats: Materials,
+  subjects: readonly ThumbnailSubject[],
+  withPiece: (type: PieceTypeId) => Object3D | null = () => null,
+): Promise<Map<string, string>> {
+  const shots = subjects.map(async (s) => {
+    const { subject, done } = subjectModel(s, mats, withPiece);
+    try {
+      return [s.key, await studio.shootAsync(subject)] as const;
+    } finally {
+      done();
+    }
+  });
+  return new Map(await Promise.all(shots));
 }
 
 /** Pictures of the track pieces and trains in the tray, drawn once at start-up, as image URLs by key. */
@@ -116,21 +192,9 @@ export function renderThumbnails(
   const out = new Map<string, string>();
   const studio = kept ?? new ThumbnailStudio(renderer);
   for (const s of subjects) {
-    let subject: Object3D;
-    if (s.kind === "piece") {
-      const mesh = new Mesh(pieceGeometry(s.type, false, isBridge(s.type) ? 1 : 0), [mats.track, mats.trackCut, mats.bridgePaint]);
-      const extra = withPiece(s.type);
-      if (extra) mesh.add(extra);
-      // Long pieces lie diagonally so they fill the square tile.
-      mesh.rotation.y = 0.5;
-      subject = mesh;
-    } else {
-      subject = trainModel(s.cars, mats, s.looks);
-      subject.rotation.y = 0.35;
-    }
+    const { subject, done } = subjectModel(s, mats, withPiece);
     out.set(s.key, studio.shoot(subject));
-    if (s.kind === "train") disposeObject(subject);
-    else for (const child of subject.children) disposeObject(child);
+    done();
   }
   if (!kept) studio.dispose();
   return out;
