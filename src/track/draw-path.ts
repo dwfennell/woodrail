@@ -77,6 +77,27 @@ export const DRAW_TYPES: readonly PieceTypeId[] = ["straight-216", "straight-144
  * needed: a line closing onto a station or depot prefers the standard ones when they fit about as well (see `ODD_COST`).
  */
 export const STANDARD_DRAW_TYPES: readonly PieceTypeId[] = ["straight-216", "straight-144", "straight-108", "curve-large"];
+/** The plain pieces a line under a bridge may take off to lay straights on to an underpass from further back. */
+const PLAIN_DRAWN = new Set<PieceTypeId>(DRAW_TYPES);
+/** A curve a line under a bridge may lead in with, to cross it squarely under its middle (`underBridge`). */
+const LEAD_CURVES: readonly PieceTypeId[] = ["curve-large", "curve-wide", "curve-small"];
+/** Straights a lead-in may start with, to bring its curve where the line crosses under the bridge's middle. */
+const LEAD_STRAIGHTS: readonly PieceTypeId[] = ["straight-54", "straight-108", "straight-144", "straight-216"];
+
+/**
+ * The ways a line under a bridge may lead in from an end before going straight on to an underpass (`underBridge`):
+ * none; a curve; or a straight and then a curve (the straight's length moves where the line crosses the bridge).
+ */
+function leadsFrom(from: DrawEnd): DrawCandidate[][] {
+  const out: DrawCandidate[][] = [[]];
+  const curves = (e: DrawEnd) => candidatesFrom(e, LEAD_CURVES);
+  for (const c of curves(from)) out.push([c]);
+  for (const t of LEAD_STRAIGHTS) {
+    const st = candidatesFrom(from, [t]).find((q) => Math.abs(Math.sin(q.end.heading - from.heading)) < 1e-6 && Math.cos(q.end.heading - from.heading) > 0);
+    if (st) for (const c of curves(st.end)) out.push([st, c]);
+  }
+  return out;
+}
 
 export interface DrawOptions {
   /** May this piece go here (the landscape, other track, the line's own pieces)? Null, or why not. */
@@ -1518,41 +1539,68 @@ export class DrawLine {
   }
 
   /**
-   * A plain straight chosen on the ground ran under a bridge one level up: in its place, straights on from the line's
+   * A plain piece chosen on the ground ran under a bridge one level up: in its place, straights on from the line's
    * end to an underpass whose middle is under the bridge (`DrawOptions.under`), each checked as it's laid. False if
-   * none fit (the chosen piece shows red, saying how one would).
+   * none fit (the chosen piece shows red, saying how one would). A line drawn at a slant to the grid zigzags, straights
+   * and curves: the curve that met the bridge (and up to three plain pieces before it, curves too) is taken off, and
+   * the underpass goes straight on from an end whose way crosses the bridge squarely enough; the line bends back to
+   * the stroke after it.
    */
   private underBridge(chosen: DrawCandidate): boolean {
     if (!this.may("underpass")) return this.want("underpass");
-    // From the line's end, or one or two plain straights back (taken off: the bridge too near the end to centre an
-    // underpass under it from there).
-    for (let back = 0; back <= 2; back++) {
+    // From the line's end, or up to three plain pieces back (taken off: the bridge too near the end to centre an
+    // underpass under it from there, or the end's way along the bridge rather than across it). From each, straight on,
+    // or after one curve (a line at a slant meets the bridge near its end, or along it: a curve first brings it under
+    // the bridge's middle, squarely). At most 4 × 7 plans, only while the line's refused under a bridge.
+    for (let back = 0; back <= 3; back++) {
       const k = this.pieces.length - back;
       if (k < 0) break;
       const off = this.pieces.slice(k);
-      if (off.some((q) => q.blocked || !/^straight-\d+$/.test(q.type))) break;
+      if (off.some((q) => q.blocked || !(PLAIN_DRAWN.has(q.type) || /^straight-\d+$/.test(q.type)))) break;
       const from = k > 0 ? this.pieces[k - 1].end : this.start;
-      const types = this.options.under?.(chosen.type, from) ?? null;
-      if (!types) continue;
-      const laid: DrawCandidate[] = [];
-      let e = from;
-      for (const t of types) {
-        // On along the line, the way it's going.
-        const c = candidatesFrom(e, [t]).find((q) => Math.abs(Math.sin(q.end.heading - e.heading)) < 1e-6 && Math.cos(q.end.heading - e.heading) > 0);
-        if (!c) break;
-        laid.push(c);
-        e = c.end;
+      // (On the ground: a line that's climbed or is on a ramp's top isn't under a bridge a level up from there.)
+      if (Math.abs(from.y - chosen.y) > 1) continue;
+      const kept = this.pieces.slice(0, k);
+      for (const lead of leadsFrom(from)) {
+        const start = lead.length ? lead[lead.length - 1].end : from;
+        const types = this.underFrom(start);
+        if (!types) continue;
+        // (Each checked against the line kept: a lead's two pieces follow on, and can't cross each other.)
+        if (lead.some((c) => !this.may(c.type, kept) || this.options.check?.(c, kept))) continue;
+        const laid: DrawCandidate[] = [...lead];
+        let e = start;
+        for (const t of types) {
+          // On along the line, the way it's going.
+          const c = candidatesFrom(e, [t]).find((q) => Math.abs(Math.sin(q.end.heading - e.heading)) < 1e-6 && Math.cos(q.end.heading - e.heading) > 0);
+          if (!c) break;
+          laid.push(c);
+          e = c.end;
+        }
+        if (laid.length !== types.length + lead.length) continue;
+        if (back > 0) {
+          this.progress = this.pieces[k].from;
+          this.pieces.length = k;
+        }
+        for (const c of laid) this.lay(c, this.alongStroke(c));
+        return true;
       }
-      if (laid.length !== types.length) continue;
-      if (back > 0) {
-        this.progress = this.pieces[k].from;
-        this.pieces.length = k;
-      }
-      for (const c of laid) this.lay(c, this.alongStroke(c));
-      return true;
     }
     return false;
   }
+
+  /**
+   * The pieces on from an end to an underpass under a bridge (`DrawOptions.under`), kept for the stroke: the line asks
+   * again from the same ends (memoized by `candidatesFrom`) on each move while it's refused under a bridge, and the
+   * layout doesn't change while it's drawn.
+   */
+  private underFrom(end: DrawEnd): readonly PieceTypeId[] | null {
+    const known = this.unders.get(end);
+    if (known && known.x === end.x && known.z === end.z && known.heading === end.heading && known.y === end.y) return known.types;
+    const types = this.options.under?.("straight-216", end) ?? null;
+    this.unders.set(end, { x: end.x, z: end.z, heading: end.heading, y: end.y, types });
+    return types;
+  }
+  private readonly unders = new WeakMap<DrawEnd, { x: number; z: number; heading: number; y: number; types: readonly PieceTypeId[] | null }>();
 
   /** The plain pieces the line may use now. */
   private allowed(): readonly PieceTypeId[] {

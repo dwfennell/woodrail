@@ -53,7 +53,7 @@ export const SUITES = {
   locked: { script: "e2e:locked", minutes: 6 },
   signals: { script: "e2e:signals", minutes: 7 },
   life: { script: "e2e:life", minutes: 4 },
-  "low-bridge": { script: "e2e:low-bridge" },
+  "low-bridge": { script: "e2e:low-bridge", groups: true },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
 };
 

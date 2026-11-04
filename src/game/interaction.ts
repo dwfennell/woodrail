@@ -9,7 +9,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, DRAW_TYPES, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, placeGhost } from "../render/signal-marks-view";
@@ -3252,9 +3252,10 @@ export class Interaction {
     }
     // A new plain straight on the ground under a bridge one level up: straights on from its end to an underpass under
     // the bridge go down in its place (`planUnderpassAhead`). An underpass laid by hand there: said where it goes.
-    // Draw (`ahead` false): its own straights under a bridge are "under-bridge", for it to lay straights on to an
+    // Draw (`ahead` false): its own plain pieces under a bridge are "under-bridge", for it to lay straights on to an
     // underpass instead (`DrawLine.underBridge`; it asks `planUnderpassAhead` from the line's end).
-    if ((reason === "headroom" || reason === "piece") && !ahead && isPlainStraight(type) && this.underBridge(type, flipped, pose, y, ignoreId)) reason = "under-bridge";
+    // (A curve too: a line drawn at a slant zigzags, and the piece that meets the bridge may be one.)
+    if ((reason === "headroom" || reason === "piece") && !ahead && (isPlainStraight(type) || DRAW_TYPES.includes(type)) && this.underBridge(type, flipped, pose, y, ignoreId)) reason = "under-bridge";
     if ((reason === "headroom" || reason === "piece") && ahead && ignoreId === -1 && isPlainStraight(type)) {
       const plan = this.aheadPlan(type, flipped, pose, y);
       if (plan?.kind === "dig") reason = null;

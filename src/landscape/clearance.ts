@@ -3,10 +3,11 @@ import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT
 import { smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
+import { plinthLevels } from "./support";
 import { pieceOf, turnOf } from "../roads/pieces";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip" | "dip-road";
+export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip" | "dip-hill" | "dip-road";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -26,7 +27,8 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   unsupported: "Needs something under that end",
   prop: "Something's in the way — move it first",
   headroom: "Trains won't fit under — go two levels up",
-  dip: "An underpass needs flat open ground, level with its ends",
+  dip: "An underpass needs level ground under it, or a whole level down off a hill's edge",
+  "dip-hill": "An underpass can't dig into a hillside: lay it on the hilltop, or clear of the hill",
   "dip-road": "An underpass can't cross a road: cars would drive into its trench. Dig it clear of the road",
   trench: "A bridge can't stand in an underpass's trench: put the line under the middle of a bridge one level up",
 };
@@ -50,6 +52,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   headroom: { kind: "blocked", reason: "headroom" },
   trench: { kind: "blocked", reason: "trench" },
   dip: { kind: "blocked", reason: "dip" },
+  "dip-hill": { kind: "blocked", reason: "dip-hill" },
   "dip-road": { kind: "blocked", reason: "dip-road" },
   prop: { kind: "blocked", reason: "prop" },
 };
@@ -308,6 +311,14 @@ export function hillMessage(levels: number): string {
   return `The hill is ${levels} levels up here: climb with ${levels === 2 ? "two" : levels} ramps in a row`;
 }
 
+/** Is the ground higher than an underpass's ends (`y`) under its trench's walls across the track here (a hillside)? */
+function trenchInHill(g: LandscapeGrid, x: number, z: number, heading: number, y: number): boolean {
+  const out = TRENCH_HALF + TRENCH_WALL - 1;
+  const hills = hillsOf(g);
+  for (const w of [-out, out]) if (hills.groundBeside(x - Math.sin(heading) * w, z + Math.cos(heading) * w) > y + 0.5) return true;
+  return false;
+}
+
 /** Is there a road (a road piece, or a town's street) under an underpass's trench across the track here, at its walls? */
 function trenchOverRoad(g: LandscapeGrid, x: number, z: number, heading: number): boolean {
   const out = TRENCH_HALF + TRENCH_WALL;
@@ -324,6 +335,8 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
   // A ramp may cut into hills up to the height of its top end (see `HillShape` cuttings).
   const cutTop = cutsHills(type) ? y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y)) : -Infinity;
   let result = CLEAR;
+  // An underpass over lower ground somewhere (off a hill's edge): its block needs a plinth down to it (see below).
+  let lower = false;
   forEachSample(type, flipped, pose, (x, z, trackY, heading) => {
     const i = g.cellAtWorld(x, z);
     if (i === -1) result = BLOCKED["off-mat"];
@@ -349,15 +362,22 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
       else {
         // Below the ground here: a hill in the way, unless a ramp can cut its way in (no higher than its top end).
         const ground = hillsOf(g).groundAt(x, z);
-        // An underpass sinks into the board itself: on level ground at its ends' height (its dip is its own trench).
+        // An underpass sinks into the board itself: on level ground at its ends' height (its dip is its own trench), or
+        // off a hill's edge on a plinth down to the ground below. Never into ground higher than its ends: a hillside.
+        // (The ground its block stands in: a trench already cut into the hill is filled by its block.)
         if (type === "underpass") {
-          if (Math.abs(ground - y) > 0.5) result = BLOCKED.dip;
-          // No road across its trench, either side of the track (a level crossing can't be sunk; see `ROAD_MESSAGES`).
+          const beside = hillsOf(g).groundBeside(x, z);
+          if (beside > y + 0.5 || trenchInHill(g, x, z, heading, y)) result = BLOCKED["dip-hill"];
+          // No road across its trench, either side of the track (a level crossing can't be sunk; see `ROAD_MESSAGES`),
+          // nor under its plinth.
           else if (g.road[i] !== 0 || trenchOverRoad(g, x, z, heading)) result = BLOCKED["dip-road"];
+          else if (beside < y - 0.5) lower = true;
         } else if (y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
       }
     }
     return result === CLEAR;
   });
+  // Off a hill's edge: a whole level or more down to the ground under all of its block (not a ramp's sloping cutting).
+  if (result === CLEAR && lower && plinthLevels(land, type, flipped, pose, y) === 0) return BLOCKED.dip;
   return result;
 }

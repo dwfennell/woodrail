@@ -54,9 +54,14 @@ rest still run (before, one throw ended the run with no last line).
 
 **draw** (`scripts/e2e/draw.mjs`, about 90 min): `favourites`, `shelf-drag`, `drawn` (steps 1–6, from the free end
 found on the map), `phone-drag` (7), `phone` (7b, the phone on its side), `specials` (ramps and bridges), `qa-slant`
-(QA's replays), `junctions` (on a fresh page), `loop`, `ghosts`. Three groups run only when named (`extra`, below):
+(QA's replays), `junctions` (on a fresh page), `loop`, `under-slant` (a line drawn at a slant under a bridge one level up, on a phone page of its own), `ghosts`. Three groups run only when named (`extra`, below):
 `lift`, `terrace-repeat`, `terrace-qa`, the old subsets that aren't in a full run. The old `E2E_ONLY=junctions` ran
 junctions, loop, ghosts and lift on the first page: now `E2E_ONLY=junctions,loop,ghosts,lift`.
+
+**low-bridge** (`tools/e2e/low-bridge.mjs`, about 12 min): one Sandbox phone page; each group builds its own place:
+`square`, `diagonal`, `curved`, `curved-end`, `curve-under`, `points`, `train`, `signal`, `laid-under`, `draw-ramp`,
+`hilltop`, `hill-edge`, `hill-edge-curved`, `hillside`, `road`, `road-over`, `draw-under`, `costs` (road-over and costs
+put down an underpass first when run alone).
 
 **roads** (`scripts/e2e/roads.mjs`): `sandbox` (A–J on one page, each section on the roads the ones before laid) and
 `game` (K–X, each on the route N laid). They're one chain each, so two groups; `game` alone opens Sandbox first only
