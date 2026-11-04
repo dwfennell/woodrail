@@ -14,6 +14,9 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run balance:sweep [-- --from 0 --to 200 --jobs 4]`: the `BALANCE=1` play-through over a range of player seeds, each checked against the bands at 180 min; for balance changes and release points (about a minute of CPU a seed)
 - `npm run replay -- <file>`: replay a "Copy map for a bug report" text headless with the train invariants on, and print the first break (`src/play/bugmap.ts`)
 - `npm run feedback -- <id or map link>`: fetch a "Report a bug or give feedback" report's map into a file for `npm run replay` (`--list` with `ADMIN_KEY` lists the latest; see `docs/feedback.md`)
+- `npm run e2e:affected [-- <base-ref>] [--run]`: the e2e suites (and groups) a branch's changes may affect, against origin/main by default; `--run` runs them. The map is `RULES` in `scripts/e2e/affected.mjs`: add a rule for a new module (see `docs/agents/e2e.md`)
+- Every e2e suite: `npm run e2e:<suite> -- --list` prints its groups; `E2E_ONLY=<group,…>` runs only those; a killed or timed-out run, run again on the same code, skips the groups that already passed (`group X: cached pass`, counted in the last line; `E2E_RESUME=0` runs all); `E2E_SHARD=i/n` runs a slice. Checkpoints in `.e2e-cache/` (`docs/agents/e2e.md`)
+- `npm run perf [-- --maps fresh,late,sandbox --profile]`: the perf harness, after a build (see `docs/agents/perf.md`); `npm run perf:check`: it against `tools/perf/budgets.json` (about 5 min)
 - `npm run e2e:roads`: end-to-end road tests in a headless browser
 - `npm run e2e:kits [-- <out> [groups]]`: end-to-end track props (kits, lineside furniture) in Sandbox, headless (about 12 min)
 - `npm run e2e:research [-- <out>]`: end-to-end Research picker and pill on a 390×844 phone, headless (about 3 min)
@@ -39,11 +42,15 @@ Designs and plans are in `docs/superpowers/specs` and `docs/superpowers/plans`.
 The game should cost close to nothing when nothing is happening, and only pay for what changed when something does.
 
 - **Render on change.** Draw a frame only when something visible changed: the camera moved, a train or animation is running, or `invalidate()` was called. Don't add work that runs every frame unconditionally.
+- **Ambient animation draws only when it can be seen.** Motion that's there for looks (an industry's saw or axe, a boat, a road vehicle) asks for frames only while it's on screen *and* drawn big enough to see it move: test it with the frame's `AmbientEye` (`src/render/ambient.ts`: frustum and size in pixels, thresholds per kind in `AMBIENT_MIN_PX`), not with an object's `visible`. Zoomed out, it stands still and the map costs nothing. When ambient motion is all that moves, it's drawn at `AMBIENT_FRAME_MS` (15 a second); trains and the camera keep the full rate. New ambient motion follows the same rule.
 - **Shadows** redraw only when a shadow caster moves (`moveShadows()`), something changes (`invalidate()`), or the shadow frustum refits. A camera move alone doesn't redraw them.
 - **Rebuild incrementally.** When one thing changes, rebuild only the meshes, colliders or data it affects, not the whole map. For example, `HillCutsView` rebuilds only blocks whose cuts changed; the map-wide core and shadow mesh are rebuilt only when the set of cut blocks changes.
 - **Key caches by their inputs.** Skip work when the inputs are the same as last time, such as a key built from the pose, or a signature of what's cut. Cache derived data per map (as `hillsOf(grid)` does).
 - **Pointer moves are hot paths.** Code called on every pointer move while dragging (placement checks, previews) should be cheap and bounded. Time it, with a target of a few milliseconds on a phone.
-- **Measure before and after** a performance change: idle CPU, frame time, the time of the operation itself. Note the numbers in the commit.
+- **Measure before and after** a performance change: idle CPU, frame time, the time of the operation itself. Note the numbers in the commit. `npm run perf` (tools/perf/run.mjs) measures three maps on a throttled phone-sized page (load, idle, paused, pan, tray drag, cards, autosave, draw calls, triangles, heap); `--profile` adds CPU profiles. How to read it: `docs/agents/perf.md`.
+- **Budgets.** `npm run perf:check` (after a build, about 5 min) fails when a measure is over `tools/perf/budgets.json`. A change that rightly costs more updates the budgets (`-- --update`) in the same commit, saying why; one that saves a lot tightens them.
+- **Before adding per-frame work**, ask: does it need to run every tick, or on an event or a version change? `Game.frame` and `onFrame` run 30 times a second even when nothing is drawn, paused too. Does it allocate (arrays, closures, spreads, strings)? Does it write the DOM when nothing changed? Does it add draw calls or a new material (a new shader program to compile at load)?
+- **Not while paused or idle.** A paused game, or one with nothing moving, should cost next to nothing: no placing objects that haven't moved, no re-uploading buffers that haven't changed, no saving what hasn't changed.
 
 ## Testing: check the player's path, end to end
 

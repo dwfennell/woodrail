@@ -48,9 +48,25 @@ export const STUDY_SECONDS: Readonly<Record<1 | 2 | 3, number>> = { 1: 20, 2: 45
 
 const NONE: ResearchCost = { goods: {} };
 
-/** What researching a blueprint takes: goods, and from tier 2 coins. */
-export function costOf(id: string): ResearchCost {
-  return techOf(id)?.research ?? NONE;
+/** University (tech tree 3): once learned, every tier-3 lesson needs this share of its goods (rounded up); coins the same. */
+export const UNIVERSITY_GOODS = 2 / 3;
+const fewer = new Map<string, ResearchCost>();
+
+/**
+ * What researching a blueprint takes: goods, and from tier 2 coins. Given what's `learned`: with University, a tier-3
+ * one's goods are a third fewer (`UNIVERSITY_GOODS`). A lookup (the crane asks per unit): each kept once worked out.
+ */
+export function costOf(id: string, learned?: ReadonlySet<string>): ResearchCost {
+  const t = techOf(id);
+  if (!t) return NONE;
+  if (t.tier !== 3 || !learned?.has("university")) return t.research;
+  let c = fewer.get(id);
+  if (!c) {
+    const goods: Record<string, number> = {};
+    for (const [k, n] of Object.entries(t.research.goods)) goods[k] = Math.ceil(n * UNIVERSITY_GOODS - 1e-9);
+    fewer.set(id, (c = { ...t.research, goods }));
+  }
+  return c;
 }
 
 /** Set how fast study goes (see `Research.speed`): cards and the pill redraw if it changed. */
@@ -320,7 +336,7 @@ function promote(p: Progress): boolean {
 export function lacking(p: Progress, kind: CargoKind): number {
   const r = p.research;
   if (r.current === null) return 0;
-  const want = costOf(r.current).goods[kind] ?? 0;
+  const want = costOf(r.current, p.learned).goods[kind] ?? 0;
   return want > 0 ? Math.max(0, want - (r.got[kind] ?? 0)) : 0;
 }
 
@@ -329,7 +345,7 @@ export function lacks(p: Progress): Bag {
   const out: Bag = {};
   const r = p.research;
   if (r.current === null) return out;
-  for (const k of Object.keys(costOf(r.current).goods) as CargoKind[]) {
+  for (const k of Object.keys(costOf(r.current, p.learned).goods) as CargoKind[]) {
     const n = lacking(p, k);
     if (n > 0) out[k] = n;
   }
@@ -340,7 +356,7 @@ export function lacks(p: Progress): Bag {
 export function studying(p: Progress): boolean {
   const r = p.research;
   if (r.current === null) return false;
-  for (const k of Object.keys(costOf(r.current).goods) as CargoKind[]) if (lacking(p, k) > 0) return false;
+  for (const k of Object.keys(costOf(r.current, p.learned).goods) as CargoKind[]) if (lacking(p, k) > 0) return false;
   return true;
 }
 

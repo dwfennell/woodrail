@@ -104,7 +104,19 @@ export interface Blueprint {
   readonly feature?: { readonly label: string; readonly icon: string };
   /** What researching it at a school takes (see `ResearchCost`). */
   readonly research: ResearchCost;
+  /**
+   * The school it must be studied at (tech tree 3, the user's "certain tech done in a college or university"): a
+   * College in a city (a school whose town is a city, once College is learned) or a University (such a College once
+   * University is learned). Shown as a need ("a College in a city"), and only such a school takes its goods. Only on
+   * tier-3 rows (it stands for their school beside a city). None: any school.
+   */
+  readonly school?: SchoolLevel;
 }
+
+/** A school's level, from a schoolhouse up: what a blueprint's `school` asks for. */
+export type SchoolLevel = "college" | "university";
+/** How a grade ranks (a University is a College too). */
+export const SCHOOL_RANK: Record<SchoolLevel | "school", number> = { school: 0, college: 1, university: 2 };
 
 /**
  * What a research costs: goods delivered to a school (by kind: "planks", "grain"…), and from tier 2 coins, paid when
@@ -132,13 +144,20 @@ const place = (text: string): Need => ({ kind: "place", text });
 /** A school of yours beside a city (its library wing): every tier-3 research needs one. */
 export const CITY_SCHOOL_ID = "city-school";
 const CITY_SCHOOL = landmark(CITY_SCHOOL_ID, "a school beside a city");
+/** Your schools' grades, as landmarks a blueprint can require (`landmarksAt` adds them; `school` on a row asks). */
+export const COLLEGE_SCHOOL_ID = "college-school";
+export const UNIVERSITY_SCHOOL_ID = "university-school";
+export const SCHOOL_NEED: Record<SchoolLevel, Need> = { college: landmark(COLLEGE_SCHOOL_ID, "a College in a city"), university: landmark(UNIVERSITY_SCHOOL_ID, "a University") };
 const TOWN = level(2);
 const CITY = level(3);
 const CITY_STAR = level(4);
 
 type Row = Omit<Blueprint, "requires" | "price" | "research"> & { requires?: readonly Need[]; price?: Price; research?: ResearchCost };
-/** A row: its research from its price, and from tier 3 a school beside a city among what it requires. */
-const row = (r: Row): Blueprint => ({ price: {}, ...r, requires: [...(r.requires ?? []), ...(r.tier === 3 ? [CITY_SCHOOL] : [])], research: r.research ?? researchFrom(r.price ?? {}, r.tier ?? 1) });
+/**
+ * A row: its research from its price, and among what it requires from tier 3 a school beside a city, or the school it
+ * must be studied at (a College in a city, a University: each a city's school already).
+ */
+const row = (r: Row): Blueprint => ({ price: {}, ...r, requires: [...(r.requires ?? []), ...(r.school ? [SCHOOL_NEED[r.school]] : r.tier === 3 ? [CITY_SCHOOL] : [])], research: r.research ?? researchFrom(r.price ?? {}, r.tier ?? 1) });
 /** A research cost of goods (and coins), for the rows that ask for a good of the chain before them. */
 const study = (goods: Record<string, number>, coins?: number): ResearchCost => ({ goods, ...(coins ? { coins } : {}) });
 
@@ -169,11 +188,12 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "tankers", label: "Tank wagons", branch: "trains", tier: 2, plan: "soon", needs: ["dairy"], price: { planks: 6, coins: 20 }, blurb: "Oil and water in tank wagons, as milk goes from a dairy farm.", brings: "Oil and water tank wagons" }),
   row({ id: "reefer", label: "Cold van", branch: "trains", tier: 2, needs: ["creamery"], price: { planks: 4, coins: 100 }, blurb: "A white van that keeps cheese and ice cream cold on the way. Ice cream rides in nothing else.", brings: "Cold van" }),
   row({ id: "mail", label: "Mail vans", branch: "trains", tier: 2, plan: "soon", needs: ["post-office"], price: { planks: 6 }, blurb: "Letters and parcels between every pair of towns.", brings: "Mail van" }),
-  row({ id: "electric", label: "Electric engine", branch: "trains", tier: 3, needs: ["diesel", "electricity"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Pulls 6 cars at 1.4×, quietly, while a power station has coal.", brings: "Electric engine", feature: { label: "Electric engine (Trains tab)", icon: "⚡" } }),
+  row({ id: "electric", label: "Electric engine", branch: "trains", tier: 3, school: "university", needs: ["diesel", "electricity"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Pulls 6 cars at 1.4×, quietly, while a power station has coal.", brings: "Electric engine", feature: { label: "Electric engine (Trains tab)", icon: "⚡" } }),
   row({ id: "brake-vans", label: "Brake vans", branch: "trains", tier: 1, needs: ["tank"], price: { planks: 4 }, blurb: "A caboose at the end makes a train a bit faster.", brings: "Caboose" }),
   row({ id: "fuel-stop", label: "Fuel stop", branch: "trains", tier: 2, needs: ["diesel"], price: { planks: 5, coins: 60 }, blurb: "A diesel fuel stop for the line: diesels stop there a moment, as steam engines do at water.", brings: "Fuel station" }),
   row({ id: "boilers", label: "Better boilers", branch: "trains", tier: 2, needs: ["goods-engine"], price: { planks: 6, coins: 150 }, requires: [count("loadsMoved", 400)], blurb: "All your engines go a bit faster.", brings: "Faster engines", feature: { label: "Every engine 1.1× as fast", icon: "🔥" } }),
-  row({ id: "car-carrier", label: "Car carrier", branch: "trains", tier: 3, plan: "later", needs: ["car-factory"], price: { planks: 10, goods: { iron: 4 } }, blurb: "Brings new cars from the factory to the towns' roads.", brings: "Car carrier wagon" }),
+  // Tech tree 3 (2026-11-03): iron's chain gets an end, as ice cream's did, the wagon first (cars ride in nothing else).
+  row({ id: "car-carrier", label: "Car carrier", branch: "trains", tier: 3, school: "college", needs: ["foundry"], price: { planks: 6, coins: 160 }, blurb: "A yellow wagon with two decks, for new cars. They ride in nothing else.", brings: "Car carrier" }),
   row({ id: "circus-train", label: "Circus train", branch: "trains", tier: 3, plan: "later", needs: ["circus"], price: { planks: 20, coins: 80 }, blurb: "The circus tours your towns: crowds wherever it stops.", brings: "Circus train" }),
 
   // Logistics
@@ -181,25 +201,25 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "warehouses", label: "Warehouses", branch: "logistics", tier: 2, key: true, needs: ["routes"], price: { planks: 8, coins: 80 }, blurb: "Keep goods for later: routed trains drop them off and pick them up.", brings: "Warehouse" }),
   row({ id: "cranes1", label: "Quicker cranes", branch: "logistics", tier: 1, key: true, needs: [], price: { planks: 4 }, blurb: "Every crane moves a load in 0.45 s instead of 0.6 s.", brings: "Faster cranes", feature: { label: "Cranes load in 0.45 s", icon: "🏗️" } }),
   row({ id: "cranes2", label: "Two-arm cranes", branch: "logistics", tier: 2, needs: ["cranes1"], price: { planks: 7, coins: 80 }, requires: [count("loadsMoved", 200)], blurb: "Cranes move a load in 0.3 s.", brings: "A second arm on every crane", feature: { label: "Cranes load in 0.3 s", icon: "🏗️" } }),
-  row({ id: "cranes3", label: "Grab cranes", branch: "logistics", tier: 3, needs: ["cranes2", "smithy"], price: { planks: 12, coins: 200 }, requires: [CITY_STAR], blurb: "Cranes lift two loads at a time.", brings: "Grab cranes", feature: { label: "Cranes lift two at once", icon: "🏗️" } }),
+  row({ id: "cranes3", label: "Grab cranes", branch: "logistics", tier: 3, school: "university", needs: ["cranes2", "smithy"], price: { planks: 12, coins: 200 }, requires: [CITY_STAR], blurb: "Cranes lift two loads at a time.", brings: "Grab cranes", feature: { label: "Cranes lift two at once", icon: "🏗️" } }),
   // Sandbox's loaders, cranes and unloaders, in Game mode as looks only (no heaps, nothing taken: spec I1, I2).
   row({ id: "loading-kits", label: "Loading kits", branch: "logistics", tier: 1, needs: ["cranes1"], price: { planks: 5 }, blurb: "Loaders to dress your yards.", brings: "Log loader, grain elevator, drop hopper, goods shed" }),
-  row({ id: "big-cranes", label: "Big cranes", branch: "logistics", tier: 3, needs: ["cranes2", "mines"], price: { planks: 10, coins: 200 }, blurb: "Giant cranes and chutes for big yards.", brings: "Gantry, magnet and harbour cranes, conveyor, wagon tipper, coal chute" }),
+  row({ id: "big-cranes", label: "Big cranes", branch: "logistics", tier: 3, school: "college", needs: ["cranes2", "mines"], price: { planks: 10, coins: 200 }, blurb: "Giant cranes and chutes for big yards.", brings: "Gantry, magnet and harbour cranes, conveyor, wagon tipper, coal chute" }),
   row({ id: "lift-load", label: "Lift and load", branch: "logistics", tier: 3, plan: "later", needs: ["warehouses", "cranes2"], price: { planks: 20, coins: 80 }, blurb: "A tall warehouse with a lift: stacks goods three high and loads two wagons at once.", brings: "Lift-and-load warehouse" }),
 
   // Industry
   row({ id: "harvesters", label: "Harvesters", branch: "industry", tier: 1, key: true, needs: [], price: { planks: 5 }, blurb: "A forest yard of your own, beside the trees.", brings: "Forest yard" }),
   row({ id: "harvesters2", label: "Harvesters II", branch: "industry", tier: 2, needs: ["harvesters"], price: { planks: 6, coins: 80 }, requires: [count("logsCut", 100)], blurb: "Forest yards work 1.5× as fast.", brings: "A log loader in each yard", feature: { label: "Forest yards 1.5× as fast", icon: "🪓" } }),
-  row({ id: "harvesters3", label: "Harvesters III", branch: "industry", tier: 3, needs: ["harvesters2"], price: { planks: 10, coins: 200 }, requires: [count("logsCut", 400)], blurb: "Forest yards work twice as fast.", brings: "A steam log crane", feature: { label: "Forest yards twice as fast", icon: "🪓" } }),
+  row({ id: "harvesters3", label: "Harvesters III", branch: "industry", tier: 3, school: "college", needs: ["harvesters2"], price: { planks: 10, coins: 200 }, requires: [count("logsCut", 400)], blurb: "Forest yards work twice as fast.", brings: "A steam log crane", feature: { label: "Forest yards twice as fast", icon: "🪓" } }),
   row({ id: "sawmills", label: "Sawmills", branch: "industry", tier: 2, key: true, needs: [], price: { planks: 8, coins: 40 }, blurb: "Build your own sawmill, wherever you like.", brings: "Sawmill" }),
   row({ id: "sawmills2", label: "Sawmills II", branch: "industry", tier: 2, needs: ["sawmills"], price: { planks: 7, coins: 80 }, requires: [count("planksSawn", 100)], blurb: "Sawmills work 1.5× as fast.", brings: "A second saw", feature: { label: "Sawmills 1.5× as fast", icon: "🪚" } }),
-  row({ id: "sawmills3", label: "Sawmills III", branch: "industry", tier: 3, needs: ["sawmills2"], price: { planks: 12, coins: 200 }, requires: [count("planksSawn", 400)], blurb: "Sawmills work twice as fast.", brings: "A steam saw house", feature: { label: "Sawmills twice as fast", icon: "🪚" } }),
+  row({ id: "sawmills3", label: "Sawmills III", branch: "industry", tier: 3, school: "college", needs: ["sawmills2"], price: { planks: 12, coins: 200 }, requires: [count("planksSawn", 400)], blurb: "Sawmills work twice as fast.", brings: "A steam saw house", feature: { label: "Sawmills twice as fast", icon: "🪚" } }),
   row({ id: "quarries", label: "Quarries", branch: "industry", tier: 3, key: true, needs: ["mills"], price: { planks: 24, coins: 40 }, research: study({ planks: 8, flour: 6 }, 80), blurb: "Cut stone from the hills, for growing cities.", brings: "Quarry" }),
-  row({ id: "quarries2", label: "Quarries II", branch: "industry", tier: 3, needs: ["quarries"], price: { planks: 12, coins: 200 }, requires: [count("stoneCut", 60)], blurb: "Quarries work 1.5× as fast.", brings: "A stone crusher", feature: { label: "Quarries 1.5× as fast", icon: "⛏️" } }),
-  row({ id: "brickworks", label: "Brickworks", branch: "industry", tier: 3, needs: ["quarries", "mines"], price: { planks: 12, coins: 180 }, blurb: "Stone and coal fired into bricks: a second use for a mine's coal. Towns buy them at full pay.", brings: "Brickworks" }),
+  row({ id: "quarries2", label: "Quarries II", branch: "industry", tier: 3, school: "college", needs: ["quarries"], price: { planks: 12, coins: 200 }, requires: [count("stoneCut", 60)], blurb: "Quarries work 1.5× as fast.", brings: "A stone crusher", feature: { label: "Quarries 1.5× as fast", icon: "⛏️" } }),
+  row({ id: "brickworks", label: "Brickworks", branch: "industry", tier: 3, school: "college", needs: ["quarries", "mines"], price: { planks: 12, coins: 180 }, blurb: "Stone and coal fired into bricks: a second use for a mine's coal. Towns buy them at full pay.", brings: "Brickworks" }),
   row({ id: "mines", label: "Mines", branch: "industry", tier: 3, needs: ["quarries", "goods-engine"], price: { planks: 20, coins: 80 }, research: study({ planks: 6, stone: 10 }, 160), requires: [delivered("stone", 20)], blurb: "A pithead in the hills brings up coal and iron ore, for a foundry.", brings: "Mine" }),
   row({ id: "foundry", label: "Foundry", branch: "industry", tier: 3, needs: ["mines"], price: { planks: 30, coins: 120 }, research: study({ stone: 10, coal: 10 }, 240), requires: [CITY_STAR], blurb: "Coal and ore make iron, which the biggest cities want and the workshop works with.", brings: "Foundry" }),
-  row({ id: "car-factory", label: "Car factory", branch: "industry", tier: 3, plan: "later", needs: ["foundry", "paint"], price: { planks: 30, coins: 150, goods: { iron: 20 } }, blurb: "Iron and paint make toy cars for the roads.", brings: "Car factory" }),
+  row({ id: "car-factory", label: "Car factory", branch: "industry", tier: 3, school: "university", needs: ["car-carrier"], price: { planks: 12, coins: 220 }, requires: [delivered("iron", 20)], blurb: "Iron and planks make new cars. Towns pay more for them than for anything else.", brings: "Car factory" }),
 
   // Food
   row({ id: "farming", label: "Farming", branch: "food", tier: 1, key: true, needs: [], price: { planks: 6 }, blurb: "A farm yard by the fields, hoppers for its grain, and fields to plant.", brings: "Farm yard, hopper, fields" }),
@@ -215,8 +235,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   // coins. Their goods towns always buy at full pay (`FULL_PAY`); no study asks for them.
   row({ id: "creamery", label: "Creamery", branch: "food", tier: 2, needs: ["dairy"], price: { planks: 10, coins: 140 }, blurb: "A dairy's milk made into cheese. Towns buy it at full pay.", brings: "Creamery" }),
   row({ id: "juice", label: "Juice works", branch: "food", tier: 2, needs: ["orchard"], price: { planks: 8, coins: 120 }, blurb: "An orchard's fruit pressed into juice, in bottles by the crate. Towns buy it at full pay.", brings: "Juice works" }),
-  row({ id: "ice-cream", label: "Ice cream factory", branch: "food", tier: 3, needs: ["reefer", "orchard"], price: { planks: 10, coins: 200 }, blurb: "Milk and fruit make ice cream, carried in cold vans. Towns pay the most for it.", brings: "Ice cream factory" }),
-  row({ id: "fishing", label: "Fishing boats", branch: "food", tier: 3, plan: "soon", needs: ["harbours"], price: { planks: 16, coins: 40 }, blurb: "Fishing boats go out from your harbours and bring back fish. Towns take fish as well as flour, so a town by the water can grow without a farm.", brings: "Fishing boats, fish" }),
+  row({ id: "ice-cream", label: "Ice cream factory", branch: "food", tier: 3, school: "college", needs: ["reefer", "orchard"], price: { planks: 10, coins: 200 }, blurb: "Milk and fruit make ice cream, carried in cold vans. Towns pay the most for it.", brings: "Ice cream factory" }),
+  row({ id: "fishing", label: "Fishing boats", branch: "food", tier: 3, school: "college", needs: ["harbours"], price: { planks: 8, coins: 160 }, blurb: "Every boat that calls at your harbours brings a catch of fish. Towns buy fish at full pay.", brings: "Fish at every harbour", feature: { label: "A catch of fish with every boat", icon: "🐟" } }),
   row({ id: "chocolate", label: "Chocolate factory", branch: "food", tier: 3, plan: "later", needs: ["trade", "dairy"], price: { planks: 24, coins: 120 }, blurb: "Cocoa from abroad and milk make chocolate.", brings: "Chocolate factory" }),
 
   // Crafting
@@ -225,7 +245,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "toys", label: "Toy workshop", branch: "craft", tier: 2, plan: "next", needs: ["carpentry", "paint"], price: { planks: 16, coins: 60 }, requires: [delivered("furniture", 20)], blurb: "Planks and paint make toys, the goods towns pay best for.", brings: "Toys, toy van" }),
   row({ id: "scenery", label: "Scenery kit", branch: "craft", tier: 1, needs: ["carpentry"], price: { planks: 5 }, blurb: "Sights for the line (a castle gate, a train wash, a weighbridge, a track cleaner) and furniture beside it (clocks, whistle posts, signal boxes).", brings: "Castle gate, train wash, weighbridge, track cleaner, lineside furniture" }),
   row({ id: "paint-trains", label: "Paint your trains", branch: "craft", tier: 2, plan: "later", needs: ["paint"], price: { planks: 6, coins: 20 }, blurb: "Paint engines, wagons and stations in your own colours.", brings: "A paint pot on every card" }),
-  row({ id: "smithy", label: "Smithy", branch: "craft", tier: 3, needs: ["foundry", "carpentry"], price: { coins: 60, goods: { iron: 10 } }, blurb: "A smithy makes tools from iron, and your wagons hold 5 instead of 3.", brings: "Smithy, tools, heavy wagons", feature: { label: "Wagons hold 5", icon: "🧰" } }),
+  row({ id: "smithy", label: "Smithy", branch: "craft", tier: 3, school: "college", needs: ["foundry", "carpentry"], price: { coins: 60, goods: { iron: 10 } }, blurb: "A smithy makes tools from iron, and your wagons hold 5 instead of 3.", brings: "Smithy, tools, heavy wagons", feature: { label: "Wagons hold 5", icon: "🧰" } }),
   row({ id: "clockmaker", label: "Clockmaker", branch: "craft", tier: 3, plan: "later", needs: ["smithy", "college"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Clocks for every station: trains keep a timetable.", brings: "Station clocks, timetables" }),
 
   // Learning
@@ -233,8 +253,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "study-hall", label: "Study hall", branch: "learning", tier: 1, needs: ["farming"], price: { planks: 4 }, blurb: "Easy lessons go twice as fast.", brings: "Quicker easy lessons", feature: { label: "Tier-1 study 2× at any school", icon: "📚" } }),
   row({ id: "college", label: "College", branch: "learning", tier: 2, needs: ["routes"], price: { planks: 10, coins: 120 }, requires: [count("blueprints", 10)], blurb: "Schools by towns become colleges: research 2× as fast.", brings: "Colleges", feature: { label: "Research 2× at a town's school", icon: "🎓" } }),
   row({ id: "telegraph", label: "Telegraph", branch: "learning", tier: 2, plan: "soon", needs: ["signals"], price: { planks: 14, coins: 50 }, blurb: "Wires along the line: see every train on the map, and call one home.", brings: "Telegraph poles" }),
-  row({ id: "electricity", label: "Electricity", branch: "learning", tier: 3, needs: ["mines", "college"], price: { planks: 24, coins: 120, goods: { iron: 10 } }, research: study({ iron: 10, coal: 10 }, 240), blurb: "A power station burns coal: electric engines run while it has some.", brings: "Power station, colour-light signal" }),
-  row({ id: "university", label: "University", branch: "learning", tier: 3, plan: "soon", needs: ["college"], price: { planks: 30, coins: 120 }, requires: [count("blueprints", 20)], blurb: "Shows every blueprint left to find; learn two at once.", brings: "A university" }),
+  row({ id: "electricity", label: "Electricity", branch: "learning", tier: 3, school: "college", needs: ["mines", "college"], price: { planks: 24, coins: 120, goods: { iron: 10 } }, research: study({ iron: 10, coal: 10 }, 240), blurb: "A power station burns coal: electric engines run while it has some.", brings: "Power station, colour-light signal" }),
+  row({ id: "university", label: "University", branch: "learning", tier: 3, school: "college", needs: ["college"], price: { planks: 14, coins: 300 }, requires: [count("blueprints", 20)], blurb: "A College in a city becomes a University: the hardest lessons are taught there, and every hard lesson needs a third fewer goods. The Research picker shows every blueprint left to find.", brings: "Universities, hard lessons for fewer goods", feature: { label: "Tier-3 research: a third fewer goods", icon: "🏛️" } }),
   row({ id: "wind", label: "Wind farm", branch: "learning", tier: 3, plan: "later", needs: ["electricity"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Windmills on the hills make power without coal.", brings: "Wind turbines" }),
   row({ id: "radio", label: "Radio mast", branch: "learning", tier: 3, plan: "later", needs: ["electricity", "telegraph"], price: { planks: 16, coins: 80, goods: { iron: 6 } }, blurb: "Stations announce the trains: more people travel.", brings: "Radio mast" }),
   row({ id: "observatory", label: "Observatory", branch: "learning", tier: 3, plan: "soon", needs: ["university", "foundry"], price: { planks: 30, coins: 150, goods: { iron: 20 } }, blurb: "A telescope on the hill: the first step toward the rocket.", brings: "Observatory" }),
@@ -267,7 +287,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
 
   // Water and air
   row({ id: "harbours", label: "Harbours", branch: "water", tier: 3, needs: ["warehouses", "bridges"], price: { planks: 30, coins: 150, goods: { stone: 20 } }, blurb: "A quay by the river. Boats call by themselves and take what you leave there, 6 loads a visit, paid at half a town's price.", brings: "Harbour, rowing boats" }),
-  row({ id: "dock-sheds", label: "Dock sheds", branch: "water", tier: 3, needs: ["harbours"], price: { planks: 6, coins: 80 }, blurb: "Build sheds beside a harbour's quay (from its card, 30 coins each, up to three): each holds 12 more of every good for the boats.", feature: { label: "Dock sheds (on a harbour's card)", icon: "🏚️" }, brings: "Dock shed" }),
+  row({ id: "dock-sheds", label: "Dock sheds", branch: "water", tier: 3, school: "college", needs: ["harbours"], price: { planks: 6, coins: 80 }, blurb: "Build sheds beside a harbour's quay (from its card, 30 coins each, up to three): each holds 12 more of every good for the boats.", feature: { label: "Dock sheds (on a harbour's card)", icon: "🏚️" }, brings: "Dock shed" }),
   row({ id: "barges", label: "River barges", branch: "water", tier: 3, plan: "later", needs: ["harbours", "cranes2"], price: { planks: 20, coins: 80 }, blurb: "A tugboat with barges: boats take 12 loads a visit instead of 6.", brings: "Tugboat and barges" }),
   row({ id: "trade", label: "Imports and exports", branch: "water", tier: 3, plan: "soon", needs: ["harbours"], price: { coins: 100 }, requires: [landmark("trading-house", "a trading house")], blurb: "Order goods on the next boat: what you've made, then goods from abroad.", brings: "Buying at harbours and the map's edge" }),
   row({ id: "ferry", label: "Train ferry", branch: "water", tier: 3, plan: "later", needs: ["harbours", "junctions"], price: { planks: 24, coins: 120, goods: { iron: 10 } }, blurb: "Trains ride a ferry across wide water.", brings: "Train ferry" }),

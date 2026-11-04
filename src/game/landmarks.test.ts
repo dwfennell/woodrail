@@ -2,9 +2,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { loadFootprints } from "../props/footprints-testing";
 import type { Footprint } from "../props/placement";
 import { townProps } from "../props/towns";
-import { CITY_SCHOOL_ID } from "./blueprints";
-import { TECHS } from "./tech";
-import { landmarksAt, LANDMARKS, placedSchools, researchSpeed, schoolGrade, schoolGradesKey, townLandmarks } from "./landmarks";
+import { BLUEPRINTS, CITY_SCHOOL_ID, SCHOOL_NEED } from "./blueprints";
+import { techOf, TECHS } from "./tech";
+import { atSchool, landmarksAt, LANDMARKS, placedSchools, researchSpeed, schoolGrade, schoolGradesKey, schoolHowTo, schoolLevel, townLandmarks } from "./landmarks";
 import { Progress } from "./progress";
 import { pick, setSpeed, studyLeft, tick } from "./research";
 import { payDelivery } from "./rewards";
@@ -84,13 +84,13 @@ describe("a school that grows with its town", () => {
     expect(school.townId).toBe(t.id);
     const learned = new Set<string>();
     grow(4);
-    expect(schoolGrade(w, school, learned)).toEqual({ college: false, wing: false });
+    expect(schoolGrade(w, school, learned)).toEqual({ college: false, wing: false, university: false });
     expect(researchSpeed(w, learned)).toBe(1);
     // A town: no college till College is learned.
     grow(12);
-    expect(schoolGrade(w, school, learned)).toEqual({ college: false, wing: false });
+    expect(schoolGrade(w, school, learned)).toEqual({ college: false, wing: false, university: false });
     learned.add("college");
-    expect(schoolGrade(w, school, learned)).toEqual({ college: true, wing: false });
+    expect(schoolGrade(w, school, learned)).toEqual({ college: true, wing: false, university: false });
     expect(researchSpeed(w, learned)).toBe(2);
     // College learned, but beside a village: still a schoolhouse.
     grow(4);
@@ -98,7 +98,7 @@ describe("a school that grows with its town", () => {
     expect(landmarksAt(w).has(CITY_SCHOOL_ID)).toBe(false);
     // A city: the library wing, which opens tier-3 research.
     grow(26, 6);
-    expect(schoolGrade(w, school, learned)).toEqual({ college: true, wing: true });
+    expect(schoolGrade(w, school, learned)).toEqual({ college: true, wing: true, university: false });
     expect(landmarksAt(w).has(CITY_SCHOOL_ID)).toBe(true);
     const p = Progress.fresh();
     for (const id of ["farming", "mills"]) p.learned.add(id);
@@ -109,6 +109,62 @@ describe("a school that grows with its town", () => {
     w.layout.removePiece(school.pieceId);
     expect(landmarksAt(w).has(CITY_SCHOOL_ID)).toBe(false);
     expect(researchSpeed(w, learned)).toBe(1);
+  });
+
+  it("certain research is studied only at a College or a University (tech tree 3): locked till you have one, and only such a school takes its goods", () => {
+    const { w, t, school, grow } = withSchool();
+    const p = Progress.fresh();
+    for (const id of ["farming", "mills", "quarries", "mines", "goods-engine", "tank", "foundry", "routes", "switches", "college"]) p.learned.add(id);
+    p.coins = 1000;
+    const sync = () => {
+      p.landmarks.clear();
+      for (const id of landmarksAt(w, p.learned)) p.landmarks.add(id);
+    };
+    // Beside a village: a schoolhouse. The Car carrier needs a College, and says what to do.
+    grow(4);
+    sync();
+    expect(techOf("car-carrier")!.requires).toContainEqual(SCHOOL_NEED.college);
+    expect(canResearch(p, "car-carrier")).toBe(false);
+    expect(schoolHowTo(w, p.learned, "college")).toBe(`grow ${t.name} into a city`);
+    // A town: a college (it studies twice as fast), but not yet one in a city.
+    grow(12);
+    sync();
+    expect(canResearch(p, "car-carrier")).toBe(false);
+    expect(schoolHowTo(w, new Set(), "college")).toBe("learn College");
+    // A city: a College in a city. It can be researched, and the school takes its goods.
+    grow(26, 6);
+    sync();
+    expect(schoolLevel(w, school, p.learned)).toBe("college");
+    expect(canResearch(p, "car-carrier")).toBe(true);
+    p.research.current = "car-carrier";
+    expect(atSchool(w, school, p)).toBe(true);
+    // The Car factory needs a University: a College isn't enough, and that school takes none of its goods.
+    p.learned.add("car-carrier");
+    p.counts.set("delivered:iron", 20);
+    expect(canResearch(p, "car-factory")).toBe(false);
+    expect(schoolHowTo(w, p.learned, "university")).toBe("learn University");
+    p.research.current = "car-factory";
+    expect(atSchool(w, school, p)).toBe(false);
+    // University learned: this College in a city is a University now.
+    p.learned.add("university");
+    sync();
+    expect(schoolLevel(w, school, p.learned)).toBe("university");
+    expect(canResearch(p, "car-factory")).toBe(true);
+    expect(atSchool(w, school, p)).toBe(true);
+    // A town shrunk back to a village (a map edit): no longer a University or a College.
+    grow(4);
+    expect(atSchool(w, school, p)).toBe(false);
+    // Research with no such need: any school.
+    p.research.current = "harvesters";
+    expect(atSchool(w, school, p)).toBe(true);
+  });
+
+  it("the early game and the core goals' research have no such need; the late chains do", () => {
+    for (const b of BLUEPRINTS) if ((b.tier ?? 1) < 3) expect(b.school, b.id).toBeUndefined();
+    for (const id of ["quarries", "mines", "foundry", "harbours"]) expect(techOf(id)!.school, id).toBeUndefined();
+    expect(BLUEPRINTS.filter((b) => b.school === "university").map((b) => b.id).sort()).toEqual(["car-factory", "cranes3", "electric"]);
+    // (A College in a city and a University are a city's: those don't ask for a school beside a city as well.)
+    for (const b of BLUEPRINTS) if (b.school) expect(b.requires, b.id).not.toContainEqual(expect.objectContaining({ id: CITY_SCHOOL_ID }));
   });
 
   it("its model is drawn again only when its grade changes (the key holds through deliveries)", () => {

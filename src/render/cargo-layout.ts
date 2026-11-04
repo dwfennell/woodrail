@@ -1,4 +1,5 @@
 import type { CargoKind } from "../economy";
+import { CARRIER_UPPER } from "../catalogue/assets/car-carrier";
 
 /** A turned log: length along x, lying on its side. */
 export const LOG_LENGTH = 54;
@@ -19,10 +20,16 @@ export const STONE_HEIGHT = 8;
  */
 export const CRATE_HEIGHT = 9;
 export const TOOLBOX_PITCH = 7.5;
+/** A little toy car (a car factory's goods): length along x, width, height. */
+export const AUTO_LENGTH = 20;
+export const AUTO_WIDTH = 11;
+export const AUTO_HEIGHT = 9;
+/** How far apart cars stand along a car carrier's deck. */
+const AUTO_PITCH = 26;
 
 /** How far apart units of a sack-sized kind stack. */
 function sackPitch(kind: CargoKind): number {
-  return kind === "furniture" || kind === "milk" || kind === "bread" || kind === "fruit" || kind === "juice" || kind === "cheese" || kind === "icecream" ? CRATE_HEIGHT : kind === "tools" ? TOOLBOX_PITCH : kind === "stone" || kind === "coal" || kind === "ore" || kind === "bricks" ? STONE_HEIGHT : SACK_HEIGHT;
+  return kind === "furniture" || kind === "milk" || kind === "bread" || kind === "fruit" || kind === "juice" || kind === "cheese" || kind === "icecream" || kind === "fish" || kind === "autos" ? CRATE_HEIGHT : kind === "tools" ? TOOLBOX_PITCH : kind === "stone" || kind === "coal" || kind === "ore" || kind === "bricks" ? STONE_HEIGHT : SACK_HEIGHT;
 }
 
 export interface Slot {
@@ -38,6 +45,7 @@ export function unitSize(kind: CargoKind): { x: number; y: number; z: number } {
   if (kind === "planks") return { x: BUNDLE_LENGTH, y: BUNDLE_HEIGHT, z: BUNDLE_WIDTH };
   // Iron bars come in bundles the size of a planks bundle (they ride flatbeds like planks).
   if (kind === "iron") return { x: BUNDLE_LENGTH, y: 7.5, z: BUNDLE_WIDTH };
+  if (kind === "autos") return { x: AUTO_LENGTH, y: AUTO_HEIGHT, z: AUTO_WIDTH };
   return { x: SACK_LENGTH, y: sackPitch(kind), z: SACK_WIDTH };
 }
 
@@ -67,6 +75,8 @@ export function wagonSlot(kind: CargoKind, k: number): Slot {
   if (kind === "planks") return { x: 0, y: BUNDLE_HEIGHT / 2 + k * BUNDLE_HEIGHT, z: 0 };
   // Iron bundles stack like planks.
   if (kind === "iron") return { x: 0, y: 7.5 / 2 + k * 7.5, z: 0 };
+  // Cars on a car carrier: three along the lower deck, a heavy wagon's fourth and fifth on the upper deck.
+  if (kind === "autos") return k < 3 ? { x: (k - 1) * AUTO_PITCH, y: AUTO_HEIGHT / 2, z: 0 } : { x: (k - 3.5) * AUTO_PITCH, y: CARRIER_UPPER + AUTO_HEIGHT / 2, z: 0 };
   // Sacks: in a row along the wagon; a heavy wagon's fourth and fifth on top.
   const h = sackPitch(kind);
   if (k < 3) return { x: (k - 1) * (SACK_LENGTH + 1), y: h / 2, z: 0 };

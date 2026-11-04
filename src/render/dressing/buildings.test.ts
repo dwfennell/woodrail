@@ -6,6 +6,7 @@ import type { Batcher } from "./batcher";
 import { building, buildStation, buildTown, footprintOf, FURNITURE_CLEARANCE, SPECIAL_LOOKS, townFurniture, townGreens, townLooks, type Look, type PropKind } from "./buildings";
 import { releaseBuilding } from "../../props/towns";
 import { loadBlenderModels } from "../blender-models";
+import { onFelt } from "./roads";
 
 // The cars and the map's building parts are models (public/models): read from disk here.
 beforeAll(() => loadBlenderModels());
@@ -97,6 +98,11 @@ describe("townFurniture", () => {
           kinds.add(p.kind);
           const i = g.cellAtWorld(p.x, p.z);
           expect(own.has(i) && g.surface[i] === SURF_ROAD).toBe(true);
+          // On the pavement, never out on the street's felt (where cars drive): its middle and a ring round it.
+          for (const [dx, dz] of [[0, 0], [3, 0], [-3, 0], [0, 3], [0, -3]]) {
+            const j = g.cellAtWorld(p.x + dx, p.z + dz);
+            expect(onFelt(g.road[j], p.x + dx - g.centreX(g.colOf(j)), p.z + dz - g.centreZ(g.rowOf(j))), `${p.kind} on the felt`).toBe(false);
+          }
           // Nothing within the clearance of a square outside the town or of the station.
           for (let dr = -1; dr <= 1; dr++) {
             for (let dc = -1; dc <= 1; dc++) {

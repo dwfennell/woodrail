@@ -15,6 +15,11 @@ import type { World } from "./world";
 
 /** Loads a boat takes a visit. */
 export const BOAT_LOADS = 6;
+/**
+ * Fish a boat lands at a harbour each visit once Fishing boats is learned (tech tree 3): free, for trains to take to
+ * towns (they buy it at full pay). Only while the quay has room for them.
+ */
+export const FISH_CATCH = 3;
 /** Seconds between one boat leaving and the next arriving. */
 export const BOAT_EVERY = 150;
 /** Seconds a boat takes to sail in (or out). */
@@ -193,6 +198,8 @@ export type HarbourEvent =
    * room on the quay (null: all came).
    */
   | { kind: "bought"; depotId: number; goods: Bag; coins: number; short: "coins" | "room" | null }
+  /** A boat landed its catch of fish on the quay (Fishing boats): `n` crates. */
+  | { kind: "caught"; depotId: number; n: number }
   /** The harbour went (taken up, or moved) while its boat was in: the boat's gone at once. */
   | { kind: "gone"; depotId: number };
 
@@ -262,6 +269,12 @@ export class HarbourTrade {
           // Then what you ordered comes off onto the quay (after loading, so the boat doesn't take it back).
           const bought = this.unload(world, d, p);
           if (bought) events.push(bought);
+          // And, once Fishing boats is learned, its catch: landed, so the next boat won't take it back.
+          const caught = p.learned.has("fishing") ? Math.min(FISH_CATCH, capAt(d) - d.piles[CARGO.fish.index]) : 0;
+          if (caught > 0) {
+            world.economy.land(d, "fish", caught);
+            events.push({ kind: "caught", depotId: d.id, n: caught });
+          }
           break;
         }
         case "docked":
@@ -354,9 +367,9 @@ export class HarbourTrade {
   }
 
   /** What a harbour's card says about its boats. */
-  describe(depotId: number): string {
+  describe(depotId: number, fishing = false): string {
     const b = this.boatAt(depotId);
-    const each = `A boat takes ${BOAT_LOADS} loads a visit, paying half a town's price.`;
+    const each = `A boat takes ${BOAT_LOADS} loads a visit, paying half a town's price${fishing ? `, and lands ${FISH_CATCH} fish` : ""}.`;
     if (!b || b.phase === "away") {
       const s = b?.left ?? FIRST_BOAT;
       return `Next boat in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}. ${each}`;

@@ -4,6 +4,7 @@ import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
+import { AMBIENT_FRAME_MS, AmbientEye } from "../render/ambient";
 import { RoadVehiclesView } from "../render/road-vehicles-view";
 import { Vans } from "./vans";
 import { PropsView } from "../render/props/props-view";
@@ -20,6 +21,7 @@ import {
   Frustum,
   Matrix4,
   type Fog,
+  type Object3D,
   PCFShadowMap,
   PerspectiveCamera,
   Scene,
@@ -28,6 +30,7 @@ import {
   Spherical,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
@@ -981,6 +984,27 @@ export class Game {
     });
   }
 
+  /**
+   * Compile the shaders of things not on the map yet (a held piece's ghost) as the map's lights and surroundings will
+   * draw them, without blocking: three's `compileAsync` against this scene. Drawn first otherwise, each new program
+   * waits for its compile on the main thread (the first tray drag: 3.6 s at 4× CPU in the perf harness).
+   */
+  warmShaders(objects: readonly Object3D[]): Promise<void> {
+    const side = new Scene();
+    for (const o of objects) side.add(o);
+    // Compiled for a render target, as the scene is drawn (into the post-processing's target: linear, no tone
+    // mapping); compiled for the screen, they'd be other programs (sRGB, ACES) the frames never use.
+    const target = new WebGLRenderTarget(1, 1);
+    const was = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(target);
+    const compiling = this.renderer.compileAsync(side, this.camera, this.scene);
+    this.renderer.setRenderTarget(was);
+    return compiling.then(
+      () => target.dispose(),
+      () => target.dispose(),
+    );
+  }
+
   start(): void {
     // Station clocks show the real time: their own timer sets the hands at each minute, a frame drawn if one's in view.
     this.clockView.start(this.camera, () => this.canvas.height, () => this.invalidate());
@@ -1040,13 +1064,21 @@ export class Game {
       this.invalidate();
     }
     let active = this.crossingsView.update(this.snapshot, dt);
+    // Ambient motion (an industry's saw and motes, boats, road vehicles) asks for frames only on screen and big enough
+    // to see (`AmbientEye`), and alone is drawn at the ambient rate (`AMBIENT_FRAME_MS`). Its view: last frame's camera
+    // (a camera move draws anyway, and the next frame looks again).
+    this.ambientEye.set(this.camera, this.canvas.clientHeight);
+    let ambient = false;
     // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
     if (this.marksView.animate(dt)) active = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
-    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused);
-    if (depots === "moving") active = true;
-    else if (depots === "changed") this.invalidate();
     const trainsMoved = this.trainsChanged();
+    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, trainsMoved || tipping, this.ambientEye);
+    if (depots === "moving") {
+      if (this.depotView.ambientOnly) ambient = true;
+      else active = true;
+    }
+    else if (depots === "changed") this.invalidate();
     if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
     this.touchesMoving = false;
     // Small touches: placed again only when what they stand beside changed (a few comparisons a frame); the children
@@ -1079,12 +1111,12 @@ export class Game {
       else if (show === "changed") this.invalidate();
     }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
-    if (this.boats.update(this.camera)) active = true;
+    if (this.boats.update(this.camera, this.ambientEye)) ambient = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
-    const shadowsMoved = active || this.shadowsMoving;
+    const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;
     // Road vehicles moving in view: drawn, but they cast no shadows (their blob is baked), so no shadow pass for them.
-    if (this.roadVehiclesView.update(this.economy.roadVehicles, this.camera)) active = true;
+    if (this.roadVehiclesView.update(this.economy.roadVehicles, this.camera, this.ambientEye)) ambient = true;
     this.onFrame?.(dt);
     this.flourishes.update(dt);
     // A finger fling glides on between touches (a director glide or zoom takes over from it).
@@ -1136,7 +1168,15 @@ export class Game {
     // scene stays on screen without being drawn again, so an idle game costs next to nothing.
     const now = this.clock.elapsedTime;
     // Something easing or moving keeps drawing for a moment after; a one-off change (invalidate) draws one frame.
-    if (active) this.lastActive = now;
+    if (active || ambient) this.lastActive = now;
+    // Only ambient motion moving (no train, camera move or change): every other tick (`AMBIENT_FRAME_MS`). What it
+    // moves is posed by the clock, so the next frame drawn shows it where it is then.
+    if (ambient && !active && !this.dirty && (now - this.lastDrawnAt) * 1000 < AMBIENT_FRAME_MS - FRAME_SLACK_MS) {
+      this.drewLastTick = false;
+      // (Its shadows are drawn on the next frame drawn.)
+      this.shadowsMoving = true;
+      return;
+    }
     const once = this.dirty;
     this.dirty = false;
     if (!once && now - this.lastActive > IDLE_TAIL) {
@@ -1144,6 +1184,7 @@ export class Game {
       if (this.settling.length > 0) this.settleWaiters(false);
       return;
     }
+    this.lastDrawnAt = now;
     if (this.settling.length > 0) this.settleWaiters(true);
     const radius = shadowRadiusForView(this.camera, t);
     const refit = shouldRefit(this.stage.shadowFit, t.x, t.z, radius);
@@ -1156,6 +1197,13 @@ export class Game {
     const landCulled = this.landscapeView.cull(this.camera, reach, detail);
     const culled = cullTiles([this.depotView.group, this.ruinsView.group, this.touches.group], this.camera, reach, detail) || landCulled;
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
+    // The very first frame draws no shadows (it's behind the loading screen), and the next one does: three draws the
+    // shadow pass before it sets the frame's lights up, so on a scene's first frame its depth shaders were compiled for
+    // no lights, and on the second all compiled again for the sun (7 programs twice, on the Sandbox perf map).
+    if (this.framesDrawn === 0) {
+      this.renderer.shadowMap.needsUpdate = false;
+      this.dirty = true;
+    }
     this.stage.update(this.camera);
     pulseBeacons(this.mats, now);
     this.post.setFocus(dist);
@@ -1489,6 +1537,10 @@ export class Game {
   /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
   private woken = false;
   private lastActive = 0;
+  /** When the last frame was drawn (the game clock, s), for the ambient rate. */
+  private lastDrawnAt = -1;
+  /** This frame's view, for ambient motion (see `AmbientEye`). */
+  private readonly ambientEye = new AmbientEye();
   private lastFrameAt = -Infinity;
   /** Was a frame drawn on the last tick of the loop (so the time since is a frame's)? */
   private drewLastTick = false;

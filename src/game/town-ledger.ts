@@ -67,7 +67,7 @@ export interface LedgerContext {
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
-const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks"];
+const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks"];
 
 /** The goods a town always buys at full pay (`FULL_PAY`), by the blueprint that brings its maker, in cargo order. */
 const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
@@ -78,6 +78,8 @@ const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
   ["cheese", "creamery"],
   ["icecream", "ice-cream"],
   ["bricks", "brickworks"],
+  ["autos", "car-factory"],
+  ["fish", "fishing"],
 ];
 
 /** "Always buys 🥛 milk, 🥖 bread and 🍎 fruit at full pay" for the foods whose blueprint is learned, or null. */

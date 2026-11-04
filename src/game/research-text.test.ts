@@ -545,3 +545,20 @@ describe("cards for chains in the queue", () => {
     expect(removedText(["switches", "junctions", "engine-shed"])).toBe("Removed Switches, Junctions and Engine shed too");
   });
 });
+
+describe("a research learned, said once", () => {
+  it("one toast with what's next, the name as the board writes it", async () => {
+    const { learnedText } = await import("./research-text");
+    const a = learnedText({ label: "Switches", makes: "Make a switch or a Y switch at the workshop", blurb: "", goal: "New goal: Lay a switch", next: "Tank engine" });
+    expect(a.line).toBe("Learned Switches! Make a switch or a Y switch at the workshop");
+    expect(a.toast).toBe("Learned Switches! Make a switch or a Y switch at the workshop · New goal: Lay a switch · Next: Tank engine");
+    // A feature says how to use it, once.
+    const b = learnedText({ label: "Train routes", makes: "", how: "Tap a train, then Plan a route", blurb: "Routes", next: "Signals" });
+    expect(b.toast).toBe("Learned Train routes! Tap a train, then Plan a route · Next: Signals");
+    expect(b.toast.match(/Learned/g)).toHaveLength(1);
+  });
+  it("main.ts makes no second Learned toast", async () => {
+    const main = (await import("../main.ts?raw")).default;
+    expect(main.match(/`Learned /g) ?? []).toHaveLength(0);
+  });
+});
