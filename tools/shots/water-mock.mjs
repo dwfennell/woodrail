@@ -51,12 +51,13 @@ await p.evaluate(async () => {
     }
     const box = new THREE.Box3().setFromObject(g);
     const size = box.getSize(new THREE.Vector3());
-    const s = len / Math.max(size.x, size.z);
+    const s = len ? len / Math.max(size.x, size.z) : 1;
     const inner = new THREE.Group();
     inner.add(g);
     g.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
     // Long side along x.
-    if (size.z > size.x) g.rotation.y = Math.PI / 2, g.position.set((box.min.z + box.max.z) / 2, -box.min.y, -(box.min.x + box.max.x) / 2);
+    if (!len) g.position.set(0, 0, 0);
+    else if (size.z > size.x) g.rotation.y = Math.PI / 2, g.position.set((box.min.z + box.max.z) / 2, -box.min.y, -(box.min.x + box.max.x) / 2);
     inner.scale.setScalar(s);
     inner.position.set(x, y, z);
     inner.rotation.y = -heading;
