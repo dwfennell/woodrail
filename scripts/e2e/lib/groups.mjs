@@ -58,6 +58,14 @@ export function sourceKey() {
   return (memoKey = h.digest("hex").slice(0, 16));
 }
 
+/** Where in the suite's own script an error was thrown (" at roads.mjs:612"), from its stack: or "". */
+function where(e) {
+  const script = process.argv[1] ?? "";
+  const line = String(e?.stack ?? "").split("\n").find((l) => script && l.includes(script));
+  const m = line && /:(\d+):\d+\)?$/.exec(line);
+  return m ? ` (at ${script.split("/").at(-1)}:${m[1]})` : "";
+}
+
 const envList = (v) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 /**
@@ -150,7 +158,7 @@ export function groups(suite, { results, errors = [], check }) {
         try {
           await around(g, () => g.fn());
         } catch (e) {
-          check(`${g.name}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
+          check(`${g.name}: ran to the end`, false, String(e?.message ?? e).split("\n")[0] + where(e));
         }
         const mine = results.slice(r0);
         const seconds = Math.round((Date.now() - t0) / 1000);
