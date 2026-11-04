@@ -62,6 +62,11 @@ junctions, loop, ghosts and lift on the first page: now `E2E_ONLY=junctions,loop
 `game` (K–X, each on the route N laid). They're one chain each, so two groups; `game` alone opens Sandbox first only
 to read its tabs (K1 compares them).
 
+**cloud** (`scripts/e2e/cloud.mjs`, about 19 min idle, 27 with a CPU hog): `sandbox` (steps 1–6, devices A and B),
+`game-sync` (7–8) and `game-rewards` (9–10). Each Game group sets up two devices (C and D) on a code of its own, so it
+can run alone; each run starts its own Worker on a free port (`CLOUD_PORT` to pin one), so `E2E_SHARD=1/2` and `2/2`
+can run side by side. As one group, a gate's 1700 s timeout fell on step 10 with every check before it passing.
+
 **A group that runs only when named:** `suite.add(name, fn, { extra: true, about: "…" })`. A full run (no `E2E_ONLY`)
 leaves it out; `--list` marks it "(only when named)".
 
@@ -98,3 +103,12 @@ that aren't e2e) maps to nothing. **A path no rule matches gets the core set (to
 add a rule for it. The map is by hand, from what each suite's header says it drives; when you add a suite, add it to
 `SUITES` and give it rules for the code it's there to cover; when you add a module, a rule saves every later branch the
 core set's hour.
+
+## Pictures: `scripts/e2e/lib/shot.mjs`
+
+A screenshot is never a check, so it must never hang or fail a suite. `shot(page, path, opts)` takes one with a
+timeout (2 min) and a bound of its own past Playwright's, and on failure prints `(no picture …)` and carries on.
+`quiet(page)` waits (bounded) for the page's start-up work: its tray pictures drawn and saved, then `settled()`. Use it
+before a picture of a page that has only just loaded in a fresh context: it is still drawing its tray pictures, each read
+back from the graphics card, and under load a frame then takes seconds. (e2e:copy-map's last screenshot waited 23–30 s
+there for a frame, and ran out on a slower box after every check had passed; after `quiet` it took under a second.)
