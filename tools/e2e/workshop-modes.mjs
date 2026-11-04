@@ -5,7 +5,8 @@
 // - with a school placed, Takes all's line is the same (nothing is held back for the school); both fit at 360 and 390 px;
 // - the school's card has a choice too, Shares with towns (on) / Research first: a tap switches it, kept on reload, and the
 //   workshop's Takes all line then says the school comes first;
-// - the card says how planks get there (a train on a route drops them only if the workshop is one of its stops).
+// - the card says how planks get there (a train on a route drops them only if the workshop is one of its stops);
+// - while it shares, a stepper sets how many planks it keeps (the crane's rule reads it), kept on reload; Auto goes back.
 //
 // Usage: npm run e2e:workshop [-- <out dir>]   (default out: e2e-out/workshop)
 // Starts its own dev server (on 5384, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -145,6 +146,53 @@ check("after a reload it still takes all planks", c.on === "Takes all planks" &&
 await tap('.yard-mode [data-yard="share"]');
 c = await card();
 check("a tap on Shares with towns switches it back", c.on === "Shares with towns" && c.takesAll === false && c.hint === SHARES_HINT, JSON.stringify(c));
+
+// Its keep stepper (shown while it shares): Keeps − 7 + planks. Two taps on − keep 5: the depot's setting, the game's own
+// rule (`shopKeeps`, what the crane reads) says 5, the line under says so, and Auto shows; the map isn't drawn again for
+// it. Kept on reload; Auto goes back to the game's own.
+const keep = () =>
+  p.evaluate(
+    (id) => {
+      const w = window.woodrail;
+      const d = w.economy.depot(id);
+      const row = document.querySelector('.keep-row[data-kind="planks"]');
+      const r = row?.getBoundingClientRect();
+      const btns = row ? [...row.querySelectorAll(".chip")].map((b) => Math.round(b.getBoundingClientRect().height)) : [];
+      return {
+        shown: row?.querySelector(".keep-n")?.textContent ?? null,
+        auto: !!row?.querySelector('[data-step="auto"]'),
+        set: d.keeps[1],
+        rule: w.economy.shopKeeps?.("planks", d) ?? null,
+        hint: document.querySelector(".yard-hint")?.textContent ?? null,
+        fits: !!r && r.left >= 0 && r.right <= innerWidth,
+        btns,
+      };
+    },
+    shop,
+  );
+let k = await keep();
+check("its keep stepper while it shares: Keeps 7 planks (the game's own), no Auto, 44 px buttons", k.shown === "7" && !k.auto && k.set === null && k.rule === 7 && k.btns.every((h) => h >= 40) && k.fits, JSON.stringify(k));
+await shot("03-keep-stepper");
+const less = await tapFrames('.keep-row [data-keep="planks"][data-step="-1"]');
+await tap('.keep-row [data-keep="planks"][data-step="-1"]');
+k = await keep();
+check("two taps on − keep 5: the setting, the crane's rule and the line under it say 5; Auto shows", k.shown === "5" && k.set === 5 && k.rule === 5 && k.auto && k.hint === "Leaves planks for towns and schools further on, keeping 5 for you", JSON.stringify(k));
+check("…and the map isn't drawn again for it", less.invalidates === 0, JSON.stringify(less));
+await shot("04-keep-5");
+await p.waitForTimeout(2500);
+await p.reload();
+await enterGame();
+shop = await p.evaluate(() => window.woodrail.economy.allDepots().find((d) => d.role === "workshop")?.id ?? null);
+await openCard();
+k = await keep();
+check("after a reload it still keeps 5", k.shown === "5" && k.set === 5 && k.rule === 5, JSON.stringify(k));
+await tap('.keep-row [data-keep="planks"][data-step="auto"]');
+k = await keep();
+check("Auto goes back to the game's own 7", k.shown === "7" && k.set === null && k.rule === 7 && !k.auto && k.hint === SHARES_HINT, JSON.stringify(k));
+await tap('.yard-mode [data-yard="all"]');
+k = await keep();
+check("Takes all planks: no stepper (it fills its yard)", k.shown === null, JSON.stringify(k));
+await tap('.yard-mode [data-yard="share"]');
 
 // A school on the map: Takes all's line is unchanged (no hidden priority for the school). Both fit, at 390 and 360 px.
 let school = await p.evaluate(() => {
