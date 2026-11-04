@@ -1094,7 +1094,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill.rp-goods .rp-text { display: flex; flex-direction: column; justify-content: center; }
 .research-pill.rp-goods .rp-count { white-space: normal; max-height: 2.4em; line-height: 1.15; }
 /* (Clear of the queue's "+1" in the corner.) */
-.research-pill.rp-goods:not([data-more=""])[data-more] .rp-text { padding-top: 9px; }
+.research-pill.rp-goods:not([data-more=""])[data-more] .rp-text { padding-top: 11px; }
 .research-pill.idle { background: #fff1c2; box-shadow: 0 0 0 2px #e2a12b, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill.idle .rp-count { color: inherit; }
 /* Nothing to research (the school's idle): an amber dot. It pulses gently a few times (about 10 s) as the school goes
@@ -1107,7 +1107,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes idle-pulse { 50% { transform: scale(1.35); opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) { .research-pill.idle:not(.active)::after { animation: none; } }
 /* The queue behind it (#14): "+2" in the top right corner, over the pill (no layout: the name and count keep their room). */
-.research-pill:not([data-more=""])[data-more]::before { content: attr(data-more); position: absolute; top: 1px; right: 3px; font-size: 10px; line-height: 1; font-weight: 800; color: #fff; background: #2f6db5; border-radius: 6px; padding: 1px 3px; pointer-events: none; }
+.research-pill:not([data-more=""])[data-more]::before { content: attr(data-more); position: absolute; top: 4px; right: 5px; font-size: 10px; line-height: 1; font-weight: 800; color: #fff; background: #2f6db5; border-radius: 7px; padding: 2px 4px; pointer-events: none; }
+/* (Room for it at the pill's end, so the count doesn't run under it: playthrough, it sat jammed in the corner.) */
+.research-pill:not([data-more=""])[data-more] { padding-right: 24px; }
 .research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill:active { transform: scale(0.96); }
 @media (max-width: 640px) {
