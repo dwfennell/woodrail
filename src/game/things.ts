@@ -82,6 +82,13 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-icecream": { label: "Ice cream factory", cost: { planks: 12 }, coins: 360, tech: "ice-cream" },
   "piece:depot-brickworks": { label: "Brickworks", cost: { planks: 10 }, coins: 320, tech: "brickworks" },
   "piece:depot-carworks": { label: "Car factory", cost: { planks: 12, iron: 4 }, coins: 420, tech: "car-factory" },
+  // The goods chains (2026-11-04): mostly coins, as the spec asks of new nodes.
+  "piece:depot-beet": { label: "Sugar beet field", cost: { planks: 6 }, coins: 150, tech: "sugar" },
+  "piece:depot-jam": { label: "Jam kitchen", cost: { planks: 10 }, coins: 260, tech: "jam" },
+  "piece:depot-chocolate": { label: "Chocolate factory", cost: { planks: 12 }, coins: 380, tech: "chocolate" },
+  "piece:depot-flowers": { label: "Flower field", cost: { planks: 6 }, coins: 150, tech: "paint" },
+  "piece:depot-dyeworks": { label: "Dye works", cost: { planks: 10 }, coins: 240, tech: "paint" },
+  "piece:depot-toyworks": { label: "Toy workshop", cost: { planks: 14 }, coins: 440, tech: "toys" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 15 }, coins: 480, tech: "foundry" },

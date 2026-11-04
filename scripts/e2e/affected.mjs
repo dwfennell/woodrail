@@ -105,6 +105,10 @@ export const RULES = [
   ["src/lib/**", CORE],
   ["src/debug/**", ["copy-map"]],
   ["src/icons/**", [...CORE, "locked"]],
+  // The compiled icon font (scripts/icon-font.py, from src/icons): as the drawings.
+  ["src/assets/woodrail-icons.woff2", [...CORE, "locked"]],
+  // Bug maps replayed headless (src/play/bugmaps.test.ts): no page.
+  ["src/play/bugmaps/**", []],
 
   // Rendering.
   ["src/render/**", ["touch", "click", "life"]],

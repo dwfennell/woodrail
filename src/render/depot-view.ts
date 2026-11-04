@@ -1,4 +1,4 @@
-import { Box3, BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
+import { Box3, BoxGeometry, ConeGeometry, CylinderGeometry, TorusGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
@@ -262,6 +262,59 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  // The goods chains (2026-11-04): the two fields keep their crops along the yard's back and their goods by the
+  // track, as the orchard does; the works take two goods in (one at the dye works) under a jib at the near end.
+  beetfield: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { sugar: { t: 60, l: 66, y: YARD, across: 3, rows: 2, axis: "t" } },
+    trackT: 60,
+  },
+  flowerfield: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { flowers: { t: 60, l: 66, y: YARD, across: 3, rows: 2, axis: "t" } },
+    trackT: 60,
+  },
+  jamworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      fruit: { t: 38, l: 64, y: YARD, across: 3, axis: "t" },
+      sugar: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      jam: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
+  chocworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      cocoa: { t: 38, l: 64, y: YARD, across: 3, axis: "t" },
+      milk: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      chocolate: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
+  dyeworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      flowers: { t: 46, l: 64, y: YARD, across: 3, axis: "t" },
+      paint: { t: 74, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
+  toyworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      planks: { t: 38, l: 64, y: YARD, across: 2, axis: "t" },
+      paint: { t: 60, l: 64, y: YARD, across: 3, axis: "t" },
+      toys: { t: 82, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
@@ -398,6 +451,17 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
     { asset: "bldg-watermill", t: 160, l: 86 },
     { asset: "scene-apple-tree", t: 112, l: 96, turn: 1.1 },
   ],
+  // The goods chains' (2026-11-04), beside their own buildings and crops (`chainYard`, drawn from code): a farmer in
+  // the beet, beehives by the flowers, the jam kitchen a thatched cottage with an apple tree, a chef at the chocolate
+  // factory's door, and the catalogue's toy shop (a pinwheel on its roof) as the toy workshop.
+  beetfield: [{ asset: "life-farmer", t: 120, l: 98, turn: 0.8 }],
+  flowerfield: [{ asset: "scene-beehives", t: 192, l: 96, turn: 0.3, scale: 0.8 }],
+  jamworks: [
+    { asset: "bldg-thatched-cottage", t: 160, l: 86 },
+    { asset: "scene-apple-tree", t: 114, l: 98, turn: 2.2 },
+  ],
+  chocworks: [{ asset: "life-chef", t: 120, l: 96, turn: 0.5 }],
+  toyworks: [{ asset: "bldg-toy-shop", t: 160, l: 86 }],
   // Two rows of apple trees beyond the crates.
   orchard: [
     { asset: "scene-apple-tree", t: 112, l: 70, turn: 0 },
@@ -645,6 +709,43 @@ export class DepotView {
         [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 4, SACK_WIDTH, 1, 0.8).translate(0, -2, 0), mats.naturalWood],
         [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(1.5, 1.5, 5, 8).translate((i * SACK_LENGTH) / 3.4, 1.5, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#e6a52c")],
         [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(0.9, 0.9, 1.2, 8).translate((i * SACK_LENGTH) / 3.4, 4.4, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#3c8f4e")],
+      ],
+      // The goods chains' (2026-11-04): a white sack of sugar with a pink tie; a crate of red jam jars, gingham lids;
+      sugar: [
+        [sack, mats.lacquer("#f6f3ec")],
+        [tie, mats.lacquer("#e98aa8")],
+      ],
+      jam: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 4, SACK_WIDTH, 1, 0.8).translate(0, -2, 0), mats.naturalWood],
+        [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(2.1, 2.1, 4.6, 10).translate((i * SACK_LENGTH) / 3.4, 1.2, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#a3243b")],
+        [mergeGeometries([-1, 0, 1].flatMap((i) => [-1, 1].map((j) => nonIndexed(new CylinderGeometry(2.4, 2.4, 1, 10).translate((i * SACK_LENGTH) / 3.4, 3.9, (j * SACK_WIDTH) / 4.5)))))!, mats.lacquer("#f6f3ec")],
+      ],
+      // a brown sack of cocoa beans; a box of chocolate bars in gold foil;
+      cocoa: [
+        [sack, mats.lacquer("#7a4a2a")],
+        [tie, mats.naturalWood],
+      ],
+      chocolate: [
+        [new RoundedBoxGeometry(SACK_LENGTH, 3, SACK_WIDTH, 1, 0.6).translate(0, -CRATE_HEIGHT / 2 + 1.5, 0), mats.lacquer("#e98aa8")],
+        [mergeGeometries([0, 1].flatMap((h) => [-1, 1].map((j) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH - 2, 2.6, SACK_WIDTH / 2 - 0.8, 1, 0.5).translate(0, -1.2 + h * 2.8, (j * SACK_WIDTH) / 4)))))!, mats.lacquer("#5a3320")],
+        [mergeGeometries([-1, 1].map((j) => nonIndexed(new RoundedBoxGeometry(4, 1.2, SACK_WIDTH / 2 - 0.4, 1, 0.3).translate(SACK_LENGTH / 2 - 4, 2.9, (j * SACK_WIDTH) / 4))))!, mats.lacquer("#e6b52c")],
+      ],
+      // a crate of flowers (red, yellow and pink heads on green); tins of paint (red, yellow, blue lids);
+      flowers: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 4, SACK_WIDTH, 1, 0.8).translate(0, -2, 0), mats.naturalWood],
+        [new RoundedBoxGeometry(SACK_LENGTH - 2, 2, SACK_WIDTH - 2, 1, 0.8).translate(0, 1.2, 0), mats.lacquer("#5fae3c")],
+        ...(["#c8442f", "#e6b52c", "#d9559a"] as const).map((c, n): [BufferGeometry, Material] => [mergeGeometries([0, 1].map((j) => nonIndexed(new SphereGeometry(1.9, 8, 6).translate(((n - 1) * SACK_LENGTH) / 3.2 + (j ? 1.6 : -1.6), 3.2, (j ? 1 : -1) * (SACK_WIDTH / 4.2)))))!, mats.lacquer(c)]),
+      ],
+      paint: [
+        [new RoundedBoxGeometry(SACK_LENGTH, 1.6, SACK_WIDTH, 1, 0.4).translate(0, -CRATE_HEIGHT / 2 + 0.8, 0), mats.naturalWood],
+        [mergeGeometries([-1, 0, 1].map((i) => nonIndexed(new CylinderGeometry(3.2, 3.2, CRATE_HEIGHT - 3.4, 12).translate((i * SACK_LENGTH) / 3.3, -0.1, 0))))!, mats.lacquer("#cfd3d6")],
+        ...(["#c8442f", "#e6b52c", "#2f6db5"] as const).map((c, i): [BufferGeometry, Material] => [new CylinderGeometry(3.3, 3.3, 1.2, 12).translate(((i - 1) * SACK_LENGTH) / 3.3, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer(c)]),
+      ],
+      // a toy box: an open blue crate, a teddy (brown, a round head and ears) and a red ball in it.
+      toys: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 4, SACK_WIDTH, 1, 0.8).translate(0, -2, 0), mats.lacquer("#2f6db5")],
+        [mergeGeometries([nonIndexed(new SphereGeometry(3, 10, 8).translate(-2.5, 1.4, 0)), nonIndexed(new SphereGeometry(2.3, 10, 8).translate(-2.5, 4.6, 0)), ...[-1, 1].map((j) => nonIndexed(new SphereGeometry(0.9, 6, 5).translate(-2.5, 6.4, j * 1.7)))])!, mats.lacquer("#a0612e")],
+        [new SphereGeometry(2.4, 10, 8).translate(4.2, 1.6, 0), mats.lacquer("#c8442f")],
       ],
     };
     // The modelled sack when it's loaded (its base at y 0: units are placed by their centre).
@@ -1005,6 +1106,8 @@ export class DepotView {
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(14, 22, 3, 1, 1), 150, 63.5, PAD_H + 11));
       return;
     }
+    // The goods chains' own buildings and crops, drawn from code (no catalogue model is one), beside their dressing.
+    const chain = this.chainYard(site.depot.role, place, b);
     const dressing = CATALOGUE_DRESSING[site.depot.role];
     if (dressing) {
       // The catalogue's models once they're all loaded (one of them missing: the stand-ins, drawn whole).
@@ -1019,6 +1122,7 @@ export class DepotView {
       this.foodStandIns(site.depot.role, place, b);
       return;
     }
+    if (chain) return;
     const model = INDUSTRY_MODELS[site.depot.role];
     if (model && hasPart(model.part)) {
       // The industry's buildings, modelled in Blender in this depot frame (tools/blender/dressing.py, "Industries").
@@ -1139,6 +1243,78 @@ export class DepotView {
     }
   }
 
+  /**
+   * The goods chains' yards (2026-11-04), drawn from code in the toy style (lacquered blocks, turned shapes): rows of
+   * sugar beet (purple-pink roots, leafy tops) and a little boiling shed; rows of flowers in five paints; a chocolate
+   * factory (a brown hall, its roof a bar of chocolate, a pink awning); a dye works (a shed and three vats of red,
+   * yellow and blue); the toy workshop's alphabet blocks and a rocking horse by the toy shop. Static: nothing moves, so
+   * they cost nothing once batched. True if `role` is one of them.
+   */
+  private chainYard(role: DepotRole, place: (g: BufferGeometry, t: number, l: number, y: number) => BufferGeometry, b: Pick<Batcher, "add">): boolean {
+    const mats = this.mats;
+    if (role === "beetfield" || role === "flowerfield") {
+      // Rows of crop along the yard's back, soil strips under them.
+      const rows = [76, 88, 100, 112];
+      // (From t 92, past the goods' pallets by the jib, to t 172, short of the shed or the hives at the far end.)
+      for (const l of rows) b.add(mats.lacquer("#6b4a2e"), place(new RoundedBoxGeometry(80, 2, 8, 1, 0.8), 132, l, PAD_H + 1));
+      if (role === "beetfield") {
+        for (const [r, l] of rows.entries()) {
+          for (let i = 0; i < 5; i++) {
+            const t = 98 + i * 16 + (r % 2) * 4;
+            // A round root half out of the soil, three broad leaves fanning up from it.
+            b.add(mats.lacquer("#b0306a"), place(new SphereGeometry(3.4, 9, 7), t, l, PAD_H + 3.4));
+            for (let k = 0; k < 3; k++) b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(1, 6, 5).scale(1.1, 3.6, 2.2).translate(0, 3.2, 0).rotateX(0.5).rotateY((k * Math.PI * 2) / 3 + i), t, l, PAD_H + 6));
+          }
+        }
+        // A white boiling shed with a blue roof and a chimney, at the far end.
+        b.add(mats.lacquer("#f6f3ec"), place(new RoundedBoxGeometry(30, 22, 26, 2, 2.5), 192, 94, PAD_H + 11));
+        b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(34, 4, 30, 1, 1.5), 192, 94, PAD_H + 24));
+        b.add(mats.lacquer("#9a4f3a"), place(new CylinderGeometry(2.6, 3, 14, 10), 200, 102, PAD_H + 32));
+        return true;
+      }
+      const paints = ["#c8442f", "#e6b52c", "#d9559a", "#7b4fa0", "#f6f3ec"];
+      for (const [r, l] of rows.entries()) {
+        const head = paints[r % paints.length];
+        for (let i = 0; i < 7; i++) {
+          const t = 98 + i * 11 + (r % 2) * 3;
+          b.add(mats.lacquer("#3c8f4e"), place(new CylinderGeometry(0.6, 0.6, 7, 5), t, l, PAD_H + 4.5));
+          b.add(mats.lacquer(i % 4 === 3 ? paints[(r + 2) % paints.length] : head), place(new SphereGeometry(2.3, 8, 6), t, l, PAD_H + 8.5));
+        }
+      }
+      return true;
+    }
+    if (role === "chocworks") {
+      // A brown hall, its roof a bar of chocolate (eight squares), a pink awning and a cream chimney.
+      b.add(mats.lacquer("#8a5a3b"), place(new RoundedBoxGeometry(58, 30, 38, 2, 3), 160, 88, PAD_H + 15));
+      for (let i = 0; i < 4; i++) for (const dl of [-9, 9]) b.add(mats.lacquer("#5a3320"), place(new RoundedBoxGeometry(14, 4, 17, 1, 1.5), 139 + i * 14, 88 + dl, PAD_H + 32));
+      b.add(mats.lacquer("#e98aa8"), place(new RoundedBoxGeometry(40, 2, 9, 1, 0.8).rotateX(-0.35), 160, 66, PAD_H + 22));
+      b.add(mats.lacquer("#efd9a7"), place(new CylinderGeometry(3.5, 4, 22, 10), 182, 100, PAD_H + 44));
+      return true;
+    }
+    if (role === "dyeworks") {
+      // A cream shed with a purple roof, and three round vats of red, yellow and blue before it.
+      // (The shed at the far end, the vats well before it: seen from the track's side, its roof would hide them.)
+      b.add(mats.lacquer("#efd9a7"), place(new RoundedBoxGeometry(40, 28, 34, 2, 3), 186, 94, PAD_H + 14));
+      b.add(mats.lacquer("#7b4fa0"), place(new RoundedBoxGeometry(46, 5, 40, 1, 2), 186, 94, PAD_H + 31));
+      for (const [i, c] of ["#c8442f", "#e6b52c", "#2f6db5"].entries()) {
+        const t = 100 + i * 18;
+        b.add(mats.naturalWood, place(new CylinderGeometry(7, 7.5, 12, 14), t, 96, PAD_H + 6));
+        b.add(mats.lacquer(c), place(new CylinderGeometry(6.2, 6.2, 1, 14), t, 96, PAD_H + 12.2));
+      }
+      return true;
+    }
+    if (role === "toyworks") {
+      // Alphabet blocks stacked by the shop, and a red rocking horse.
+      for (const [i, [t, l, h, c]] of ([[116, 100, 0, "#c8442f"], [128, 100, 0, "#2f6db5"], [122, 100, 1, "#e6b52c"], [122, 88, 0, "#3c8f4e"]] as const).entries()) b.add(mats.lacquer(c), place(new RoundedBoxGeometry(10, 10, 10, 1, 1.5).rotateY(i * 0.3), t, l, PAD_H + 5 + h * 10));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(14, 7, 5, 1, 2), 196, 100, PAD_H + 11));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(5, 6, 5, 1, 1.5), 203, 100, PAD_H + 16));
+      for (const dt of [-5, 5]) b.add(mats.naturalWood, place(new CylinderGeometry(0.8, 0.8, 7, 6), 196 + dt, 100, PAD_H + 5));
+      b.add(mats.naturalWood, place(new TorusGeometry(10, 1, 6, 16, Math.PI * 0.6).rotateZ(Math.PI * 1.2).rotateY(Math.PI / 2), 196, 100, PAD_H + 10.5));
+      return true;
+    }
+    return role === "jamworks";
+  }
+
   /** The buildings of the industries dressed from the catalogue (`CATALOGUE_DRESSING`), drawn from code till its models load. */
   private foodStandIns(role: DepotRole, place: (g: BufferGeometry, t: number, l: number, y: number) => BufferGeometry, b: Pick<Batcher, "add">): void {
     const mats = this.mats;
@@ -1176,6 +1352,30 @@ export class DepotView {
       // A red barn with a white roof.
       b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(50, 34, 36, 2, 3), 160, 88, PAD_H + 17));
       b.add(mats.lacquer("#f6f3ec"), place(new RoundedBoxGeometry(56, 5, 42, 1, 2), 160, 88, PAD_H + 36));
+      return;
+    }
+    // The goods chains' catalogue dressing, standing in: a thatched cottage (the jam kitchen), its apple tree; the toy
+    // shop, purple; a person (a farmer, a chef) as a turned peg; beehives as two stacked boxes.
+    if (role === "jamworks") {
+      b.add(mats.lacquer("#f6f3ec"), place(new RoundedBoxGeometry(48, 26, 32, 2, 3), 160, 86, PAD_H + 13));
+      b.add(mats.lacquer("#d9a441"), place(new ConeGeometry(34, 18, 4).rotateY(Math.PI / 4).scale(1, 1, 0.75), 160, 86, PAD_H + 35));
+      b.add(mats.naturalWood, place(new CylinderGeometry(2.4, 3, 20, 8), 114, 98, PAD_H + 10));
+      b.add(mats.lacquer("#5fae3c"), place(new SphereGeometry(12, 12, 9), 114, 98, PAD_H + 28));
+      return;
+    }
+    if (role === "toyworks") {
+      b.add(mats.lacquer("#7b4fa0"), place(new RoundedBoxGeometry(48, 32, 34, 2, 3), 160, 86, PAD_H + 16));
+      b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(54, 5, 40, 1, 2), 160, 86, PAD_H + 34));
+      return;
+    }
+    if (role === "beetfield" || role === "chocworks") {
+      const at = CATALOGUE_DRESSING[role]![0];
+      b.add(mats.lacquer(role === "chocworks" ? "#f6f3ec" : "#2f6db5"), place(new CylinderGeometry(3, 3.6, 12, 10), at.t, at.l, PAD_H + 6));
+      b.add(mats.lacquer("#efd9a7"), place(new SphereGeometry(3, 10, 8), at.t, at.l, PAD_H + 15));
+      return;
+    }
+    if (role === "flowerfield") {
+      for (const dt of [-8, 8]) b.add(mats.lacquer(dt < 0 ? "#f6f3ec" : "#e6b52c"), place(new RoundedBoxGeometry(11, 16, 11, 1, 1.2), 192 + dt, 96, PAD_H + 8));
       return;
     }
     if (role === "juicer") {

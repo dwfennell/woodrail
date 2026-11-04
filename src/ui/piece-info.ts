@@ -87,6 +87,12 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-icecream": p("Ice cream factory", "Makes ice cream from milk and fruit, for cold vans."),
   "depot-brickworks": p("Brickworks", "Fires bricks from stone and coal."),
   "depot-carworks": p("Car factory", "Builds cars from iron and planks, for car carriers."),
+  "depot-beet": p("Sugar beet field", "Beets boiled down into sugar, in sacks for vans."),
+  "depot-jam": p("Jam kitchen", "Makes jam from fruit and sugar, in jars."),
+  "depot-chocolate": p("Chocolate factory", "Makes chocolate from cocoa and milk."),
+  "depot-flowers": p("Flower field", "Rows of flowers, picked into crates for flatbeds."),
+  "depot-dyeworks": p("Dye works", "Boils flowers into bright paint, in tins."),
+  "depot-toyworks": p("Toy workshop", "Makes toys from planks and paint."),
   "depot-power": p("Power station", "Burns coal so electric engines can run."),
   "depot-harbour": p("Harbour", "Ships bring and take goods here."),
   "depot-warehouse": p("Warehouse", "Keeps goods until a train takes them."),
@@ -189,6 +195,8 @@ export function trayInfo(item: TrayItem): ItemInfo {
       const look = item.looks?.[0] ?? "classic";
       if (kind === "engine") return p(item.label, engineDetail(look));
       const carries = CARRIES[kind];
+      // (A van carries a dozen goods since the goods chains: too long to list, it names a few.)
+      if (carries && carries.length > 7) return p(item.label, `Carries sacks and crates: ${listed([...carries.slice(0, 3).map((c) => CARGO[c].label.toLowerCase()), "more"])}.`);
       if (carries) return p(item.label, `Carries ${listed(carries.map((c) => CARGO[c].label.toLowerCase()))}.`);
       return p(item.label, LOOK_DETAIL[look] ?? CAR_DETAIL[kind]);
     }

@@ -173,6 +173,12 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-juicer", label: "Juice works" },
       { kind: "piece", type: "depot-creamery", label: "Creamery" },
       { kind: "piece", type: "depot-icecream", label: "Ice cream factory" },
+      // The goods chains (2026-11-04): sugar and jam, chocolate, flowers to paint to toys.
+      { kind: "piece", type: "depot-beet", label: "Sugar beet field" },
+      { kind: "piece", type: "depot-jam", label: "Jam kitchen" },
+      { kind: "piece", type: "depot-chocolate", label: "Chocolate factory" },
+      { kind: "piece", type: "depot-flowers", label: "Flower field" },
+      { kind: "piece", type: "depot-dyeworks", label: "Dye works" },
       { kind: "piece", type: "depot-quarry", label: "Quarry" },
       { kind: "piece", type: "depot-mine", label: "Mine" },
       { kind: "piece", type: "depot-foundry", label: "Foundry" },
@@ -180,6 +186,7 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-carworks", label: "Car factory" },
       { kind: "piece", type: "depot-carpenter", label: "Carpenter's yard" },
       { kind: "piece", type: "depot-smithy", label: "Smithy" },
+      { kind: "piece", type: "depot-toyworks", label: "Toy workshop" },
       { kind: "piece", type: "depot-power", label: "Power station" },
       { kind: "piece", type: "depot-harbour", label: "Harbour" },
       { kind: "piece", type: "depot-warehouse", label: "Warehouse" },
@@ -189,13 +196,14 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
 
 /**
  * Sandbox's industries (free, as everything there): the goods chains' makers and users, and a warehouse. Not the
- * workshop or school (Game mode's research and building), nor the harbour (Game mode's boats). Each works from what's
+ * workshop or school (Game mode's research and building), nor the harbour (Game mode's boats), nor the chocolate factory
+ * (its cocoa only comes by boat). Each works from what's
  * around it, as in Game mode (a harvester by trees, a farm yard by a field); its card says what it lacks.
  */
 export const SANDBOX_INDUSTRY_GROUPS: TrayGroup[] = [
   {
     label: "Industries",
-    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour"].includes(i.type)),
+    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour", "depot-chocolate"].includes(i.type)),
   },
 ];
 

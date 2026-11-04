@@ -2755,7 +2755,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const d = game.economy.depot(id)!;
     const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
-    const text = harbourTrade.describe(id, progress.learned.has("fishing"));
+    const text = harbourTrade.describe(id, progress.learned.has("fishing"), progress.learned.has("chocolate"));
     const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
     // Goods the boats sell you (what you already make), and what's on order for the next one.
     const forSale = goodsForSale(game.world);

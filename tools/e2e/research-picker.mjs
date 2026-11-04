@@ -11,7 +11,8 @@
 // Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through. Then the next
 // nodes: Juice works' ticket in words, and Creamery then Cold van researched by taps and deliveries. Then tech tree 3: the
 // gates (a node locked at a schoolhouse, open at a College; one waiting for a University), the University (a third fewer
-// goods for hard lessons, the whole board shown), the Car carrier, the Car factory and Fishing boats.
+// goods for hard lessons, the whole board shown), the Car carrier, the Car factory and Fishing boats. Then the goods
+// chains: Sugar beet, Jam kitchen, Chocolate factory, Dye works and Toy workshop, and their six buildings unlocked.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
@@ -896,6 +897,35 @@ await tap(".tabs button", "Industries");
 await tap(".tray-item.tray-group", "Industries");
 const industries = await trayLocked();
 check("the car factory is on the Industries shelf, unlocked", industries["piece:depot-carworks"] === false, JSON.stringify(industries));
+
+// 13. The goods chains (2026-11-04): Sugar beet, Jam kitchen, Chocolate factory, Dye works and Toy workshop researched
+// by taps and deliveries to the school (now a University in a city). Setup shortcut (not under test): what they need
+// first that isn't theirs (Juice works, Carpenter's bench) learned, and the 20 furniture the Toy workshop asks for
+// counted as delivered. Before Dye works the Toy workshop is a "?"/locked; after, it opens at the University. The payoff:
+// all six buildings unlocked on the Industries shelf.
+await p.evaluate(() => {
+  const w = window.woodrail;
+  for (const id of ["juice", "carpentry"]) w.learn(id);
+  const pr = w.progress();
+  pr.counts.set("delivered:furniture", 20);
+  pr.coins = 3000;
+  w.hud.setCoins(pr.coins);
+});
+await tap(".tabs button", "Trains");
+for (const [name, id] of [["Sugar beet", "sugar"], ["Jam kitchen", "jam"], ["Chocolate factory", "chocolate"], ["Dye works", "paint"], ["Toy workshop", "toys"]]) {
+  const r = await researchByTaps(name, id);
+  check(`${name}: researched by taps and learned`, r.first?.name === name && (await p.evaluate((id) => window.woodrail.progress().learned.has(id), id)), JSON.stringify(r));
+}
+await board(true);
+await select("Toy workshop");
+await shot("23-goods-chains-board");
+await board(false);
+await tap(".tabs button", "Industries");
+await tap(".tray-item.tray-group", "Industries");
+const chainShelf = await trayLocked();
+const chainPieces = ["depot-beet", "depot-jam", "depot-chocolate", "depot-flowers", "depot-dyeworks", "depot-toyworks"];
+check("the goods chains' six buildings are on the Industries shelf, unlocked", chainPieces.every((t) => chainShelf[`piece:${t}`] === false), JSON.stringify(chainPieces.map((t) => [t, chainShelf[`piece:${t}`]])));
+await shot("24-goods-chains-industries-shelf");
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

@@ -39,7 +39,7 @@ interface Service {
   halted?: boolean;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -96,7 +96,7 @@ export const SCHOOL_SHARE = 0.6;
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "sugar", "jam", "chocolate", "flowers", "paint", "toys"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
@@ -124,6 +124,15 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   brickworks: { takes: ["stone", "coal"], gives: ["bricks"], cycle: { uses: { stone: 1, coal: 1 }, makes: { bricks: 1 }, seconds: 12 } },
   // A car factory builds cars of a foundry's iron and a sawmill's planks (tech tree 3): they leave on a car carrier.
   carworks: { takes: ["iron", "planks"], gives: ["autos"], cycle: { uses: { iron: 1, planks: 1 }, makes: { autos: 1 }, seconds: 14 } },
+  // The goods chains (2026-11-04), each ending (A + B) -> C as the bakery does: a sugar beet field's sugar and an
+  // orchard's fruit make jam; cocoa (landed at harbours) and a dairy's milk make chocolate; a flower field's flowers
+  // make paint at a dye works, and a toy workshop makes toys of paint and planks.
+  beetfield: { takes: [], gives: ["sugar"], cycle: { uses: {}, makes: { sugar: 1 }, seconds: 12 } },
+  jamworks: { takes: ["fruit", "sugar"], gives: ["jam"], cycle: { uses: { fruit: 1, sugar: 1 }, makes: { jam: 1 }, seconds: 12 } },
+  chocworks: { takes: ["cocoa", "milk"], gives: ["chocolate"], cycle: { uses: { cocoa: 1, milk: 1 }, makes: { chocolate: 1 }, seconds: 14 } },
+  flowerfield: { takes: [], gives: ["flowers"], cycle: { uses: {}, makes: { flowers: 1 }, seconds: 12 } },
+  dyeworks: { takes: ["flowers"], gives: ["paint"], cycle: { uses: { flowers: 1 }, makes: { paint: 1 }, seconds: 10 } },
+  toyworks: { takes: ["planks", "paint"], gives: ["toys"], cycle: { uses: { planks: 1, paint: 1 }, makes: { toys: 1 }, seconds: 14 } },
   // Made goods: a carpenter's yard makes furniture of planks, a smithy tools of iron.
   carpenter: { takes: ["planks"], gives: ["furniture"], cycle: { uses: { planks: 3 }, makes: { furniture: 1 }, seconds: 12 } },
   smithy: { takes: ["iron"], gives: ["tools"], cycle: { uses: { iron: 2 }, makes: { tools: 1 }, seconds: 14 } },

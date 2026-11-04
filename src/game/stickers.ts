@@ -171,6 +171,37 @@ export const STICKERS: readonly Sticker[] = [
     deps: ["towns"],
     check: (w) => [...w.economy.deliveredGoods.values()].some((bag) => (bag.fish ?? 0) > 0),
   },
+  // The goods chains' ends (2026-11-04): jam and toys shown (two-input chains a child can aim for), chocolate hidden
+  // (its cocoa comes by boat: a surprise).
+  {
+    id: "jam-today",
+    title: "Jam today",
+    how: "Bring jam to a town",
+    icon: "🫙",
+    theme: "economy",
+    deps: ["towns"],
+    check: (w) => [...w.economy.deliveredGoods.values()].some((bag) => (bag.jam ?? 0) > 0),
+  },
+  {
+    id: "sweet-tooth",
+    title: "Sweet tooth",
+    how: "Bring chocolate to a town",
+    icon: "🍫",
+    theme: "economy",
+    hidden: true,
+    hint: "The boats could bring something from far away. With milk, it makes a treat.",
+    deps: ["towns"],
+    check: (w) => [...w.economy.deliveredGoods.values()].some((bag) => (bag.chocolate ?? 0) > 0),
+  },
+  {
+    id: "toy-box",
+    title: "Toy box",
+    how: "Bring toys to a town",
+    icon: "🧸",
+    theme: "economy",
+    deps: ["towns"],
+    check: (w) => [...w.economy.deliveredGoods.values()].some((bag) => (bag.toys ?? 0) > 0),
+  },
   { id: "busy-loads", title: "Busy railway", how: `Move ${BUSY_LOADS} loads`, icon: "📦", theme: "economy", deps: ["counts"], check: (_w, c) => count(c, "loadsMoved") >= BUSY_LOADS },
   {
     id: "sawdust",
