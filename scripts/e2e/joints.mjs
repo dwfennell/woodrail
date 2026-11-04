@@ -297,7 +297,13 @@ async function slipDraw() {
   };
   const typeAt = () => p.evaluate(({ x, z }) => {
     const w = window.woodrail;
-    const id = [...w.layout.pieceIds()].find((i) => { const q = w.layout.getPiece(i); return Math.hypot(q.pose.x - x, q.pose.z - z) < 1; });
+    // (The crossing, or the slip in its place: its middle is the crossing's, 72 mm along it; a leg starts at its end 0.)
+    const id = [...w.layout.pieceIds()].find((i) => {
+      const q = w.layout.getPiece(i);
+      const mx = q.pose.x + 72 * Math.cos(q.pose.heading);
+      const mz = q.pose.z + 72 * Math.sin(q.pose.heading);
+      return /^(crossing-45|slip-)/.test(q.type) && Math.hypot(mx - (x + 72), mz - z) < 2;
+    });
     return id === undefined ? null : { id, type: w.layout.getPiece(id).type, state: w.layout.switchState(id) };
   }, laid);
   await p.tap(".tray-draw");
