@@ -11,6 +11,7 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run build:artifact`: a build to publish as a claude.ai Artifact (see `docs/artifact-builds.md`)
 - `npm run build:itch`: a build for itch.io, zipped (`woodrail-itch.zip`); releases push it there (see `docs/itch-builds.md`)
 - `npm run fuzz:long [-- --seeds 200 --seconds 1800]`: the long routing fuzz with every train invariant, sharded over the cores; for release points (about 30 game minutes a seed)
+- `npm run balance:sweep [-- --from 0 --to 200 --jobs 4]`: the `BALANCE=1` play-through over a range of player seeds, each checked against the bands at 180 min; for balance changes and release points (about a minute of CPU a seed)
 - `npm run replay -- <file>`: replay a "Copy map for a bug report" text headless with the train invariants on, and print the first break (`src/play/bugmap.ts`)
 - `npm run feedback -- <id or map link>`: fetch a "Report a bug or give feedback" report's map into a file for `npm run replay` (`--list` with `ADMIN_KEY` lists the latest; see `docs/feedback.md`)
 - `npm run e2e:roads`: end-to-end road tests in a headless browser

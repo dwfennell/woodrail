@@ -16,6 +16,7 @@ dist-artifact/
 /*.png
 .trajectory/
 .fuzz-long/
+.balance-sweep/
 dist-itch/
 woodrail-itch.zip
 # Reports fetched with `npm run feedback` (docs/feedback.md)
