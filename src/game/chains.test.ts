@@ -63,7 +63,7 @@ describe("chains: what an industry makes, where its goods come from and go", () 
     expect(rows.slice(0, 2)).toEqual([`${GOODS_ICON.flour} Flour from the Mill and 1 more`, `${GOODS_ICON.milk} Milk from the Dairy farm`]);
     // The mill: grain from nowhere yet (a farm yard makes it), flour to the bakery (nearer than any town).
     const mill = w.economy.allDepots().find((d) => d.role === "mill")!;
-    expect(rowsOf(w, mill)).toEqual([`${GOODS_ICON.grain} Grain: none made on the map yet. Place a Farm yard (Industries tab)`, `${GOODS_ICON.flour} Flour goes to the Bakery and 5 more`]);
+    expect(rowsOf(w, mill)).toEqual([`${GOODS_ICON.grain} Grain: none made on the map yet. Place a Farm yard (Industries tab)`, `${GOODS_ICON.flour} Flour goes to the Bakery and ${w.landscape.towns.length} more`]);
     // Show buttons go to the place named.
     const shows = chainRows(chainOf(bakery, w.economy.allDepots(), placeOf(w)), (o) => depotName(w, o), (k) => GOODS_ICON[k]).map((r) => r.show);
     expect(shows[0]).toBe(mill.id);

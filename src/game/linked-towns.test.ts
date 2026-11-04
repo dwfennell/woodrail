@@ -125,7 +125,11 @@ describe("the town card's road line, and the sticker", () => {
     const links = townLinks(w.landscape) as Map<number, number[]>;
     links.set(a.id, [b.id]);
     expect(roadLine(w, a.id)).toBe(`Joined by road to ${b.name}`);
+    // (Three named; four or more, two and how many more: the starter map's other three, and a map's extra town.)
     links.set(a.id, w.landscape.towns.slice(1).map((t) => t.id));
+    expect(roadLine(w, a.id)).toMatch(/^Joined by road to [^,]+, [^,]+ and [^,]+$/);
+    w.landscape.towns.push({ ...w.landscape.towns[3], id: 99, name: "Foxley" });
+    (townLinks(w.landscape) as Map<number, number[]>).set(a.id, w.landscape.towns.slice(1).map((t) => t.id));
     expect(roadLine(w, a.id)).toMatch(/^Joined by road to .+, .+ and \d more$/);
   });
 

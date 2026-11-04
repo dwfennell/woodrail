@@ -62,10 +62,10 @@ describe("railway kits in Game mode", () => {
     for (const id of kits) expect(Object.keys(UNLOCKS), id).toContain(ruleOf(id)!.tech);
   });
 
-  it("their blueprints are built now (no longer coming soon), on their tiers; tunnels, the viaduct and the lift bridge still wait", () => {
+  it("their blueprints are built now (no longer coming soon), on their tiers; the viaduct and the lift bridge still wait", () => {
     for (const id of Object.keys(UNLOCKS)) expect(built(techOf(id)!), id).toBe(true);
     expect([techOf("signals")!.tier, techOf("junctions")!.tier, techOf("engine-shed")!.tier, techOf("turntable")!.tier, techOf("scenery")!.tier]).toEqual([1, 1, 2, 2, 1]);
-    for (const id of ["tunnels", "viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeDefined();
+    for (const id of ["viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeDefined();
     const halts = techOf("halts")!;
     expect([halts.branch, halts.needs]).toEqual(["passengers", ["passengers"]]);
     expect(BLUEPRINTS.filter((b) => b.id === "halts")).toHaveLength(1);

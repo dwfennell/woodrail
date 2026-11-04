@@ -73,7 +73,7 @@ describe("picking research", () => {
     expect(pick(p, "switches")).toBeNull();
     expect(pick(p, "mills")).toBeNull();
     expect(pick(p, "dining")).toBeNull();
-    expect(pick(p, "tunnels")).toBeNull();
+    expect(pick(p, "telegraph")).toBeNull();
     expect(canResearch(p, "junctions")).toBe(true);
     expect(p.research.current).toBeNull();
   });
@@ -279,7 +279,7 @@ describe("the research queue (#14)", () => {
     expect(toggleQueue(p, "bridges")).toBe("current");
     expect(p.research.current).toBe("bridges");
     // Not researchable: nothing.
-    expect(toggleQueue(p, "tunnels")).toBeNull();
+    expect(toggleQueue(p, "viaduct")).toBeNull();
   });
 
   it("holds at most QUEUE_MAX waiting", () => {
@@ -530,7 +530,7 @@ describe("chains in the queue: what a research needs queued ahead of it", () => 
     const swapped = Progress.fromJSON({ owned: [], learned: [], research: { current: "bridges", next: "junctions", later: ["engine-shed", "switches", "tank"], got: [], study: 0 } });
     expect(line(swapped)).toEqual(["bridges", "switches", "junctions", "engine-shed", "tank"]);
     // Its prerequisite missing (and one not in the game): dropped, with what needs them.
-    const broken = Progress.fromJSON({ owned: [], learned: [], research: { current: "bridges", next: "mills", later: ["tank", "mills2", "tunnels"], got: [], study: 0 } });
+    const broken = Progress.fromJSON({ owned: [], learned: [], research: { current: "bridges", next: "mills", later: ["tank", "mills2", "telegraph"], got: [], study: 0 } });
     expect(line(broken)).toEqual(["bridges", "tank"]);
     // Its prerequisite under way: fine as it is.
     const fine = Progress.fromJSON({ owned: [], learned: [], research: { current: "farming", next: "mills", got: [], study: 0 } });

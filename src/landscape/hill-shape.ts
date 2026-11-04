@@ -7,6 +7,17 @@ export const CUT_BED_HALF = TRACK_WIDTH / 2 + 4;
 export const CUT_BANK_ANGLE = (60 * Math.PI) / 180;
 const BANK_RISE = Math.tan(CUT_BANK_ANGLE);
 
+/**
+ * Tunnels (see docs/superpowers/specs/2026-11-04-tunnels.md): track may run where the ground over it is two levels high
+ * (`TUNNEL_COVER`), under a hill or the felt. Off until switched on: by the Tunnels research in Game mode, always in
+ * Sandbox.
+ */
+let tunnels = false;
+export function setTunnels(on: boolean): void {
+  tunnels = on;
+}
+export const tunnelsOn = (): boolean => tunnels;
+
 /** Can this piece cut its way into a hill? Plain ramps can (not ramps standing up on arches), and underpasses. */
 export const cutsHills = (type: PieceTypeId): boolean => type === "ramp" || type === "underpass";
 

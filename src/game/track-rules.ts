@@ -39,7 +39,8 @@ export function trackBlock(r: TrackRules, type: PieceTypeId, flipped: boolean, p
   if (findLowCrossing(r.layout, type, flipped, pose, y, ignoreId) !== -1) return "headroom";
   // A bridge's piers (or arches) can't stand in an underpass's trench.
   if (trenchClash(r.layout, type, flipped, pose, y, ignoreId) !== -1) return "trench";
-  if (r.props && pieceHitsProp(r.props, r.footprint, type, flipped, pose)) return "prop";
+  // (Under the felt, in a tunnel, nothing on it is in the way.)
+  if (r.props && y > -0.5 && pieceHitsProp(r.props, r.footprint, type, flipped, pose)) return "prop";
   // A ramp cutting into a hill mustn't take the ground from under other track.
   return cutUndermines(r.land, r.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "undercut";
 }
