@@ -125,7 +125,7 @@ export const RULES = [
 
   // UI.
   ["src/ui/**", ["touch", "click"]],
-  [["src/ui/hud.ts", "src/ui/tray-catalogue.ts"], ["names", "locked", "focus-ring", "research", "tray", "sandbox-chains"]],
+  [["src/ui/hud.ts", "src/ui/tray-catalogue.ts"], ["names", "locked", "focus-ring", "research", "tray", "sandbox-chains", "touch:tabs-reach"]],
   ["src/ui/prefs.ts", ["sandbox-chains"]],
   [["src/ui/blueprint-board.ts", "src/ui/cost-tag.ts"], ["research", "locked"]],
   ["src/ui/feedback-sheet.ts", ["touch:feedback", "click:feedback"]],
@@ -146,6 +146,8 @@ export const RULES = [
 
   // Game rules (src/game: by file; anything else there falls to CORE).
   [["src/game/game.ts", "src/game/interaction.ts", "src/game/world.ts", "src/game/modes.ts"], [...CORE, "locked", "life"]],
+  // (interaction.ts: CORE runs touch whole; its wagon drop onto a train's ends is front-join.)
+  ["src/game/interaction.ts", ["touch:front-join"]],
   [["src/game/touch-*", "src/game/drag-rule.ts", "src/game/drop.ts", "src/game/put-away.ts", "src/game/place-facing.ts"], ["touch", "click", "names"]],
   [["src/game/camera-director.ts"], ["touch", "click", "tutorial"]],
   [["src/game/draw-*", "src/game/erase.ts", "src/game/track-rules.ts", "src/game/lift-notice.ts"], ["draw", "joints", "ramps", "touch:select-drag,flick", "low-bridge"]],

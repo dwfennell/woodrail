@@ -1228,7 +1228,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // follower keeps a gap behind a moving train and pulls up close behind one the player stopped, #6), route-keep (two
 // lines' routes kept through track laid at a stop, undo and redo, the stop taken up), blocker (a card's Show and Put
 // it away for an engine left in a line train's way), place-facing (an engine dragged right or left along the track by
-// touch faces that way), feedback (☰ Report a bug or give feedback: the sheet, a failed send's Copy instead, a send to
+// touch faces that way), front-join (a wagon dropped on the front of an engine at a line end coupled on behind), tabs-reach (Sandbox's tabs at 390 px: the strip's fade and ›, every tab reached by taps), feedback (☰ Report a bug or give feedback: the sheet, a failed send's Copy instead, a send to
 // a mocked Worker whose map loads as the same railway), route-ux (the route card's UX fixes, F1–F7,
 // by taps at 360 px), route-ux-more (the roadmap's phases B and C: a route from a place's card, a stop put in the
 // middle, the ribbon's edge and arrows, tools in view on a phone on its side, the Lines view's actions, a line sent
@@ -2992,6 +2992,154 @@ async function placeFacing(ctx, p, tapSel) {
   await tapSel(".tray .tab[data-tab]");
 }
 
+/**
+ * A wagon dropped on the front of an engine standing at the end of the line is coupled on behind it (QA 2026-11-03:
+ * it said "Not enough track there", as only the engine's nearer end was tried). A straight is laid and an engine put
+ * on it with its front at the straight's end (harness setup, not what's tested); then a Flatbed wagon is dragged out of
+ * the Trains tab by touch and let go over the engine's front half. The payoff: one train, the engine and the flatbed.
+ */
+async function frontJoin(ctx, p, tapSel) {
+  await p.keyboard.press("Escape");
+  const cdp = await ctx.newCDPSession(p);
+  let stamp = Date.now() / 1000;
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp += 0.016) });
+  const spot = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const h = w.interaction.cameraHeading() + Math.PI / 2;
+    const pts = [-108, 0, 108].map((d) => [d * Math.cos(h), d * Math.sin(h)]);
+    const o = await window.__openGround(pts, { pieceGap: 400 });
+    if (!o) return null;
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const sim = await import("/src/sim/index.ts");
+    w.editor().place("straight-216", poseForCentre("straight-216", false, o.x, o.z, h), 0, false);
+    // An engine with its front at the straight's end: no room ahead of it.
+    for (const d of [-80, -60, -40, 40, 60, 80]) {
+      const near = sim.nearestCursor(w.layout, o.x + d * Math.cos(h), o.z + d * Math.sin(h), 30, 0);
+      const r = near && w.sim.addTrainAround(["engine"], near.cursor);
+      if (r?.kind !== "placed") continue;
+      const t = w.sim.getTrain(r.trainId);
+      const ahead = { ...t.bogies[0] };
+      if (sim.advanceCursor(w.layout, ahead, 40, null, sim.createAdvance()).status !== sim.ADV_OK) {
+        w.director.glideTo(w.controls.target.clone().set(o.x, 0, o.z), frameDistance(420, w.camera.fov, w.camera.aspect), { duration: 0.2 });
+        w.invalidate();
+        return { id: r.trainId };
+      }
+      w.sim.removeTrain(r.trainId);
+    }
+    return null;
+  });
+  if (!spot) throw new Error("front-join: no engine at a line's end");
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await frames(p);
+  await tapSel('.tray .tab[data-tab="trains"]');
+  const wagonItem = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="train:Flatbed wagon"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  for (let k = 0; k < 8 && !(await wagonItem()); k++) {
+    if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await tapSel(".scroller .tray-back");
+    const n = await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length);
+    await tapSel(`.scroller .tray-group:nth-child(${k + 1 + n})`);
+  }
+  await frames(p);
+  const item = await wagonItem();
+  if (!item) throw new Error("front-join: no Flatbed wagon in the Trains tab");
+  // The engine's front half on screen: its lead axle, a held wagon riding 56 px above the finger.
+  const front = await p.evaluate(async (id) => {
+    const w = window.woodrail;
+    const { cursorWorld, createWorldSample } = await import("/src/sim/index.ts");
+    const t = w.sim.getTrain(id);
+    const a = cursorWorld(w.layout, t.bogies[0], createWorldSample());
+    const v = new (w.camera.position.constructor)(a.x, 34, a.z).project(w.camera);
+    return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight + 56];
+  }, spot.id);
+  const trains0 = await p.evaluate(() => window.woodrail.sim.trainIds().length);
+  await touch("touchStart", item[0], item[1]);
+  for (let k = 1; k <= 16; k++) await touch("touchMove", item[0] + ((front[0] - item[0]) * k) / 16, item[1] + ((front[1] - item[1]) * k) / 16);
+  await frames(p);
+  await touch("touchMove", front[0], front[1]);
+  await frames(p);
+  await touch("touchEnd", 0, 0);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 30000))]));
+  const after = await p.evaluate(() => {
+    const w = window.woodrail;
+    const joined = [...w.sim.trainIds()].map((i) => w.sim.getTrain(i).cars.map((c) => c.kind).join("+")).find((k) => k === "engine+timber" || k === "timber+engine");
+    return { trains: w.sim.trainIds().length, joined, said: [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | ") };
+  });
+  check("front-join: a Flatbed wagon dropped on the front of an engine at the line's end is coupled on behind it", after.joined === "engine+timber" && after.trains === trains0 && !/Not enough track/.test(after.said), JSON.stringify({ trains0, ...after }));
+  await tapSel(".tray .tab[data-tab]");
+}
+
+/**
+ * Sandbox's tray tabs on a 390 px phone (QA 2026-11-03: ten tabs in a 246 px strip, half out of sight with no hint):
+ * the strip fades at its edge with more beyond and a › past it; by taps on the › alone (no swipe) every tab comes into
+ * full view, uncovered, and a tap on it opens it; at the end the button turns to ‹ and goes back to the first.
+ */
+async function tabsReach(p) {
+  await p.keyboard.press("Escape");
+  const strip = () => p.evaluate(() => {
+    const t = document.querySelector(".tray .tabs");
+    const r = t.getBoundingClientRect();
+    const m = document.querySelector(".tray .tabs-more");
+    const tabs = [...t.querySelectorAll(".tab")].map((x) => {
+      const b = x.getBoundingClientRect();
+      const at = [b.left + b.width / 2, b.top + b.height / 2];
+      return { id: x.dataset.tab, whole: b.left >= r.left - 1 && b.right <= r.right + 1, at, top: x.contains(document.elementFromPoint(at[0], at[1])) };
+    });
+    const mb = m && !m.hidden ? m.getBoundingClientRect() : null;
+    return { cls: t.className, more: mb ? { text: m.textContent, at: [mb.left + mb.width / 2, mb.top + mb.height / 2], top: m.contains(document.elementFromPoint(mb.left + mb.width / 2, mb.top + mb.height / 2)) } : null, tabs };
+  });
+  // (The › scrolls smoothly: measured once the strip has stopped.)
+  const settledStrip = async () => {
+    await frames(p);
+    await p.evaluate(() => { window.__stripAt = NaN; });
+    await settledOnce();
+  };
+  const settledOnce = () => p.waitForFunction(() => {
+    const t = document.querySelector(".tray .tabs");
+    const was = window.__stripAt;
+    window.__stripAt = t.scrollLeft;
+    return was === t.scrollLeft;
+  }, null, { polling: 250, timeout: 20000 });
+  await p.evaluate(() => { const t = document.querySelector(".tray .tabs"); t.scrollLeft = 0; });
+  await frames(p);
+  await settledStrip();
+  const s0 = await strip();
+  check("tabs-reach: Sandbox's tabs don't fit 390 px: the strip fades at its right and a › shows past it", s0.tabs.length >= 8 && /\bmore-right\b/.test(s0.cls) && s0.more?.text === "›" && s0.more.top, JSON.stringify({ cls: s0.cls, more: s0.more, n: s0.tabs.length }));
+  const opened = [];
+  for (const id of s0.tabs.map((t) => t.id)) {
+    for (let k = 0; k < 8; k++) {
+      const s = await strip();
+      const t = s.tabs.find((x) => x.id === id);
+      if (t.whole && t.top) break;
+      if (!s.more) break;
+      await tapped(p, () => p.touchscreen.tap(s.more.at[0], s.more.at[1]));
+      await settledStrip();
+    }
+    const t = (await strip()).tabs.find((x) => x.id === id);
+    if (!t.whole || !t.top) {
+      console.log(`(tabs-reach: ${id} not reached: ${JSON.stringify(t)})`);
+      continue;
+    }
+    await tapped(p, () => p.touchscreen.tap(t.at[0], t.at[1]));
+    await settledStrip();
+    if (await p.evaluate((id) => document.querySelector(`.tray .tab[data-tab="${id}"]`)?.classList.contains("active"), id)) opened.push(id);
+    else console.log(`(tabs-reach: ${id} tapped at ${t.at} but not opened: ${await p.evaluate(() => document.querySelector(".tray .tab.active")?.dataset.tab)})`);
+  }
+  check("tabs-reach: by taps on › alone every tab comes into full view and opens with a tap", opened.length === s0.tabs.length, JSON.stringify({ opened, all: s0.tabs.map((t) => t.id) }));
+  await p.evaluate(() => { document.querySelector(".tray .tabs").scrollLeft = 1e5; });
+  await frames(p);
+  await p.waitForTimeout(300);
+  const s1 = await strip();
+  if (s1.more) await tapped(p, () => p.touchscreen.tap(s1.more.at[0], s1.more.at[1]));
+  await settledStrip();
+  const s2 = await strip();
+  check("tabs-reach: at the end it's ‹, the strip fades at its left, and ‹ goes back", s1.more?.text === "‹" && /\bmore-left\b/.test(s1.cls) && !/\bmore-right\b/.test(s1.cls) && /\bmore-right\b/.test(s2.cls), JSON.stringify({ s1: { cls: s1.cls, more: s1.more?.text }, s2: s2.cls }));
+  // (The Track tab back, as the checks before found the tray.)
+  await p.evaluate(() => { document.querySelector(".tray .tabs").scrollLeft = 0; });
+  await frames(p);
+  const track = (await strip()).tabs[0];
+  await tapped(p, () => p.touchscreen.tap(track.at[0], track.at[1]));
+}
+
 async function showBlocker(ctx, p) {
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 360, height: 740 });
@@ -4699,6 +4847,8 @@ const SANDBOX = {
   blocker: (f) => showBlocker(f.ctx, f.p),
   "train-card": (f) => trainCardAll(f.p),
   "place-facing": (f) => placeFacing(f.ctx, f.p, f.tapOn),
+  "front-join": (f) => frontJoin(f.ctx, f.p, f.tapOn),
+  "tabs-reach": (f) => tabsReach(f.p),
   feedback: (f) => feedbackFlow(f.p, { press: f.tapOn, check, label: "feedback" }),
   "route-ux": (f) => routeUx(f.ctx, f.p),
   "route-ux-more": (f) => routeUxMore(f.ctx, f.p),

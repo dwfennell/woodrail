@@ -471,3 +471,15 @@ export class IdleNotice {
     return idleText(school);
   }
 }
+
+/**
+ * What a research learned says, in the News and its one toast: "Learned Switches! Make a switch or a Y switch at the
+ * workshop · Present: 1 Engine". `makes`: what it brings, in words (`makesLine`), "" for a feature, which says how to
+ * use it (`how`, else its blurb). The toast adds the goal it opens and, when the queue moves on, what's studied next
+ * (QA 2026-11-03: that was a second toast, "Learned Switches! Next: Tank engine", after "Learned switches! …").
+ */
+export function learnedText(o: { label: string; makes: string; how?: string; blurb: string; present?: string; goal?: string; next?: string }): { line: string; toast: string } {
+  const line = `Learned ${o.label}! ${o.makes || o.how || o.blurb}${o.present ?? ""}`;
+  const toast = [line, o.goal, o.next ? `Next: ${o.next}` : ""].filter(Boolean).join(" · ");
+  return { line, toast };
+}

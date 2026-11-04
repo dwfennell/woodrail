@@ -303,13 +303,33 @@ export class BlueprintBoard {
   /** Pictures the ticket showing waits for (`needPictures`), and whether it's to be rebuilt for one that came. */
   private wanted = new Set<string>();
   private redraw = false;
+  /**
+   * On a phone, the ticket's facts (Unlocks, Needs, Opens, Costs) folded under a "Details" line, so the list above keeps
+   * most of the panel (QA 2026-11-03: open, they left the list a 300 px window, its lower tags under the ticket). Kept
+   * while the board is open.
+   */
+  private detailsOpen = false;
+  /** The ⓘ that shows what the colours mean. */
+  private readonly legendBox: HTMLDetailsElement;
 
   constructor(parent: HTMLElement, private readonly handlers: BlueprintBoardHandlers) {
     this.root.className = "board-panel";
     this.root.hidden = true;
     const head = document.createElement("div");
     head.className = "board-head";
-    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one, or line up a few; trains bring the goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary><div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key researching"></span>Researching<span class="bp-key next"></span>Next up<span class="bp-key ready"></span>Can research<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Soon<span class="bp-key hint">?</span>Not found yet</div></details>`;
+    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one, or line up a few; trains bring the goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary></details>`;
+    // What the colours mean: a strip under the head while the ⓘ is open, pushing the list down, not a pop-up over its
+    // first row; each key kept with its word (QA 2026-11-03: at 390 px "Researching ◯" ended a line, "Next up" began
+    // the next).
+    const legend = document.createElement("div");
+    legend.className = "bp-legend";
+    legend.hidden = true;
+    const keys: [string, string][] = [["learned", "Learned"], ["researching", "Researching"], ["next", "Next up"], ["ready", "Can research"], ["locked", "Later"], ["soon", "Soon"], ["hint", "Not found yet"]];
+    legend.innerHTML = keys.map(([k, w]) => `<span class="bp-legend-item"><span class="bp-key ${k}">${k === "hint" ? "?" : ""}</span>${w}</span>`).join("");
+    this.legendBox = head.querySelector("details")!;
+    this.legendBox.addEventListener("toggle", () => {
+      legend.hidden = !this.legendBox.open;
+    });
     const close = document.createElement("button");
     close.className = "close";
     close.textContent = "✕";
@@ -322,7 +342,7 @@ export class BlueprintBoard {
     head.appendChild(close);
     this.body.className = "board-body";
     this.sheet.className = "board-sheet";
-    this.root.append(head, this.body, this.sheet);
+    this.root.append(head, legend, this.body, this.sheet);
     const onClick = (e: MouseEvent) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
       if (!b || (b as HTMLButtonElement).disabled || b.getAttribute("aria-disabled") === "true") return;
@@ -336,6 +356,17 @@ export class BlueprintBoard {
     };
     this.body.addEventListener("click", onClick);
     this.sheet.addEventListener("click", onClick);
+    // (A toggle event doesn't bubble: caught on the way down.)
+    this.sheet.addEventListener(
+      "toggle",
+      (e) => {
+        const d = e.target as HTMLDetailsElement;
+        if (!d.classList?.contains("bp-more")) return;
+        this.detailsOpen = d.open;
+        this.keepSelectedInView();
+      },
+      true,
+    );
     parent.appendChild(this.root);
     // Turning a phone (or resizing a window) across the phone width switches between the web and the lists.
     let wasNarrow = this.narrow();
@@ -361,6 +392,8 @@ export class BlueprintBoard {
     if (!open) {
       this.shownKey = "";
       this.selected = "";
+      this.detailsOpen = false;
+      this.legendBox.open = false;
       // Its pictures not drawn yet aren't waited for any more.
       if (this.wanted.size > 0) {
         this.wanted = new Set();
@@ -520,7 +553,11 @@ export class BlueprintBoard {
     } else if (pane && sel) {
       const band = web.bands.find((b) => b.top <= sel.offsetTop && sel.offsetTop < b.top + b.height);
       // Only as far right as shows the tag: what leads to it stays in view on a wide screen.
-      pane.scrollLeft = Math.max(0, Math.min(sel.offsetLeft - LEFT, sel.offsetLeft + sel.offsetWidth + 24 - pane.clientWidth));
+      const want = Math.max(0, Math.min(sel.offsetLeft - LEFT, sel.offsetLeft + sel.offsetWidth + 24 - pane.clientWidth));
+      // …and from a column's edge, the first column shown whole, not cut mid-card (QA 2026-11-03: "ctions and ps" on a
+      // phone on its side). The tag's own column is one, so it stays in view.
+      const cols = [...new Set([...pane.querySelectorAll<HTMLElement>(".bp-node:not(.hint)")].map((n) => n.offsetLeft - LEFT))];
+      pane.scrollLeft = want <= 0 ? 0 : Math.min(...cols.filter((c) => c >= want - 1), sel.offsetLeft - LEFT);
       // (A phone on its side: the web isn't capped in height, and the panel's body scrolls it.)
       const scroller = pane.scrollHeight > pane.clientHeight + 1 ? pane : this.body;
       const top = Math.max(0, band && sel.offsetTop - band.top < scroller.clientHeight - 60 ? band.top : sel.offsetTop - 60);
@@ -531,6 +568,21 @@ export class BlueprintBoard {
       const band = sel.closest<HTMLElement>(".bp-list-band");
       this.body.scrollTop = Math.max(0, (band && sel.offsetTop - band.offsetTop < this.body.clientHeight - 80 ? band.offsetTop : sel.offsetTop - 40) - this.body.offsetTop - 4);
     }
+    if (narrow) this.keepSelectedInView();
+  }
+
+  /**
+   * The phone's list: the picked tag wholly in view above the ticket (a tap on one low in the list opens a ticket that
+   * shrinks the list under it).
+   */
+  private keepSelectedInView(): void {
+    const sel = this.body.querySelector<HTMLElement>(".bp-node.selected, .bp-hints.selected");
+    if (!sel || !this.narrow()) return;
+    const box = this.body.getBoundingClientRect();
+    const r = sel.getBoundingClientRect();
+    const pad = 8;
+    if (r.bottom > box.bottom - pad) this.body.scrollTop += r.bottom - box.bottom + pad;
+    else if (r.top < box.top + pad) this.body.scrollTop -= box.top + pad - r.top;
   }
 
   /**
@@ -582,6 +634,9 @@ export class BlueprintBoard {
       (needs.length || (s.state !== "learned" && reqs) ? fact("Needs:", `${needs.length ? `<span>${esc(needs.join(" + "))}</span>` : ""}${s.state !== "learned" ? reqs : ""}`, "bp-ticket-needs") : "") +
       (opens.length ? fact("Opens:", `${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}`, "bp-opens") : "") +
       (s.state !== "learned" ? `<div class="bp-full-cost"><b>Costs:</b> ${esc(s.cost)}</div>` : "");
-    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${facts ? `<div class="bp-facts">${facts}</div>` : ""}<div class="bp-ticket-foot">${foot}</div></div>`;
+    // A phone: the facts folded under one line saying what's in them (the foot, with its button, always shows).
+    const more = makes ? `Unlocks ${s.makes.length === 1 ? esc(s.makes[0].label) : `${s.makes.length} things`}` : "Details";
+    const factsHtml = !facts ? "" : this.narrow() ? `<details class="bp-more"${this.detailsOpen ? ` open=""` : ""}><summary>${more}<span class="bp-more-hint" aria-hidden="true"></span></summary><div class="bp-facts">${facts}</div></details>` : `<div class="bp-facts">${facts}</div>`;
+    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${factsHtml}<div class="bp-ticket-foot">${foot}</div></div>`;
   }
 }

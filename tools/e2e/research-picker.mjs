@@ -339,6 +339,54 @@ const learnedWords = await words("Switches");
 await shot("09b-card-words-360");
 await p.setViewportSize({ width: 390, height: 844 });
 await p.waitForTimeout(400);
+// QA 2026-11-03 #3: on a phone the ticket's facts are folded under one line, so the list keeps most of the board, the
+// picked tag in view above the ticket; a tap on the line unfolds them (the ticket scrolls in itself), another folds.
+const room = () => p.evaluate(() => {
+  const body = document.querySelector(".board-body").getBoundingClientRect();
+  const sel = document.querySelector(".board-body .bp-node.selected")?.getBoundingClientRect();
+  const more = document.querySelector(".board-sheet .bp-more");
+  return { list: Math.round(body.height), inView: !!sel && sel.top >= body.top - 1 && sel.bottom <= body.bottom + 1, folded: !!more && !more.open, facts: !!more?.querySelector(".bp-makes")?.checkVisibility(), summary: more?.querySelector("summary")?.textContent.trim() };
+});
+await select("Train routes");
+const roomFolded = await room();
+await shot("09c-ticket-folded-390");
+await tap(".board-sheet .bp-more > summary");
+const roomOpen = await room();
+await shot("09c-ticket-unfolded-390");
+await tap(".board-sheet .bp-more > summary");
+const roomRefolded = await room();
+check("a phone's ticket: facts folded under one line, the list keeps 400+ px, the picked tag in view above the ticket", roomFolded.folded && !roomFolded.facts && roomFolded.list >= 400 && roomFolded.inView && /^Unlocks/.test(roomFolded.summary ?? ""), JSON.stringify(roomFolded));
+check("…a tap unfolds them (Unlocks shown), another folds them", !roomOpen.folded && roomOpen.facts && roomRefolded.folded, JSON.stringify([roomOpen, roomRefolded]));
+// QA 2026-11-03 #7: the ⓘ's legend at 390 px: a strip under the head (the list pushed down, none of it covered), each
+// key on one line with its word.
+await tap(".bp-legend-box summary");
+const legend = await p.evaluate(() => {
+  const l = document.querySelector(".board-panel > .bp-legend");
+  const r = l.getBoundingClientRect();
+  const body = document.querySelector(".board-body").getBoundingClientRect();
+  const items = [...l.querySelectorAll(".bp-legend-item")].map((i) => i.getBoundingClientRect());
+  return { shown: !l.hidden && r.height > 0, items: items.length, oneLine: items.every((i) => i.height <= 22), above: r.bottom <= body.top + 1 };
+});
+await shot("09d-legend-390");
+await tap(".bp-legend-box summary");
+const legendGone = await p.evaluate(() => document.querySelector(".board-panel > .bp-legend").hidden);
+check("the ⓘ at 390: a strip above the list (covering none of it), each key with its word on one line; a tap closes it", legend.shown && legend.items === 7 && legend.oneLine && legend.above && legendGone, JSON.stringify({ ...legend, legendGone }));
+// QA 2026-11-03 #8: a phone on its side opens the web scrolled to the picked tag from a column's edge, no card cut.
+await p.setViewportSize({ width: 844, height: 390 });
+await p.waitForFunction(() => !!document.querySelector(".bp-web-scroll .bp-node.selected"), null, { timeout: 20000, polling: 200 }).catch(() => {});
+await p.waitForTimeout(500);
+const sideways = await p.evaluate(() => {
+  const pane = document.querySelector(".bp-web-scroll");
+  if (!pane) return null;
+  const pr = pane.getBoundingClientRect();
+  const sel = pane.querySelector(".bp-node.selected")?.getBoundingClientRect();
+  const cut = [...pane.querySelectorAll(".bp-node:not(.hint)")].map((n) => n.getBoundingClientRect()).filter((r) => r.left < pr.left - 1 && r.right > pr.left + 1).length;
+  return { scrollLeft: pane.scrollLeft, cut, selInView: !!sel && sel.left >= pr.left - 1 && sel.right <= pr.right + 1 };
+});
+await shot("09e-web-sideways");
+check("on its side (844×390) the web opens on the picked tag, no card cut at its left edge", !!sideways && sideways.cut === 0 && sideways.selInView, JSON.stringify(sideways));
+await p.setViewportSize({ width: 390, height: 844 });
+await p.waitForTimeout(800);
 // Every chip's amount appears in the cost line, its good named: "\uE000 0/5" → "5 \uE000 planks"; "🪙 40" → "40 🪙 coins".
 const chipsInWords = (w) => !!w && w.chips.length > 0 && w.chips.every((c) => {
   const m = c.text.match(/^(\S+) (?:\d+\/)?(\d+)$/);
@@ -689,7 +737,8 @@ await p.evaluate(() => {
   pr.coins = 1000;
   w.hud.setCoins(pr.coins);
 });
-await tap(".research-pill");
+// (Opened by the pill and waited for, as `board` does: a tap that lands while a toast goes may not open it.)
+await board(true);
 await p.setViewportSize({ width: 360, height: 780 });
 await p.waitForTimeout(400);
 const juiceWords = await words("Juice works");

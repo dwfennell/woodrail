@@ -69,7 +69,7 @@ import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, costWords, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, removedText, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
+import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pillKey, pillResearch, pillView, removedText, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
@@ -2170,7 +2170,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     sheet.setWaiting(progress.offers.length);
   }
 
-  function learned(id: string): void {
+  /** A blueprint learned. `next`: the research the queue moved on to (`researched`), named in the same toast. */
+  function learned(id: string, next?: string): void {
     // Delivery vans: each station serving a town off the line by road gets its van now.
     if (id === "vans") deliveryVans.sync();
     if (id === "buses") buses.sync();
@@ -2186,12 +2187,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const opened = goals.openedBy(id, progress.learned);
     const tip = opened.some((g) => g.id === "two-trains") ? secondEngineTip(progress.available(game.world, "car:engine"), progress.owned.get("car:engine") ?? 0) : "";
     // (A feature says how to start using it: audit F4, "Tap a train, then Plan a route".)
-    const learnedLine = (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.how ?? t.blurb}`) + present;
     const goalLine = opened.length > 0 ? `New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
-    // Two News lines (what was learned, then the goal it opens), one toast saying both.
-    note({ kind: "milestone", text: learnedLine }, 3800, true);
+    const said = learnedText({ label: t.label, makes: makes.length > 0 ? makesLine(makes) : "", how: t.how, blurb: t.blurb, present, goal: goalLine, next: next && techOf(next)?.label });
+    // Two News lines (what was learned, then the goal it opens), one toast saying both (and what's studied next).
+    note({ kind: "milestone", text: said.line }, 3800, true);
     if (goalLine) note({ kind: "milestone", text: goalLine }, 0, true);
-    if (mode === "game") hud.toast(goalLine ? `${learnedLine} · ${goalLine}` : learnedLine, true, goalLine ? 5200 : 3800);
+    if (mode === "game") hud.toast(said.toast, true, goalLine || next ? 5200 : 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -2263,11 +2264,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function researched(id: string): void {
     game.economy.acceptsChanged();
     hud.setCoins(progress.coins);
-    learned(id);
-    const next = progress.research.current;
-    // (The next research's toast comes after the learned one: it says how to use a feature too, or that's lost.)
-    const how = techOf(id)!.how;
-    if (next) hud.toast(`Learned ${techOf(id)!.label}!${how ? ` ${how}.` : ""} Next: ${techOf(next)!.label}`, true, how ? 5200 : 3800);
+    // (What's studied next is said in the learned one's toast: one toast, not two.)
+    learned(id, progress.research.current ?? undefined);
     // Nothing under way or up next: the school's idle, said once (a tap opens the picker). The pill and the school's
     // card show it from then on.
     const idle = idleNotice.finished(progress, id, schoolName());
@@ -3996,7 +3994,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * The room the map has on screen (canvas pixels): below the top bar (and the goals), above the tray or a card, or
+   * The room the map has on screen (canvas pixels): below the top bar (and the goals), above the tray, a card or the
+   * camera coach (QA 2026-11-03: Show me framed a station under it), or
    * beside a card docked at the right (see `viewRoom`); the whole view where too little is left. One measure for every
    * framing (the director's too: `roomOf`).
    */
@@ -4006,7 +4005,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const b = e.getBoundingClientRect();
       return { left: b.left - r.left, top: b.top - r.top, right: b.right - r.left, bottom: b.bottom - r.top };
     };
-    const room = viewRoom(r.width, r.height, [...document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")].map(rel), [...document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card")].map(rel));
+    const room = viewRoom(r.width, r.height, [...document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")].map(rel), [...document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card, .hud .coach")].map(rel));
     return room && { ...room, width: r.width, height: r.height };
   }
   function mapRoom(): ViewRoom & { width: number; height: number } {
@@ -5015,6 +5014,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "TEXTAREA" || tag === "INPUT") return;
     if (e.key === "`") hud.perf.hidden = !hud.perf.hidden;
+    // Esc puts away the topmost thing: the ☰ menu first (it sits over the map and the board), then the map or board.
+    if (e.key === "Escape" && hud.menuOpen) {
+      hud.closeMenu();
+      return;
+    }
     if (e.key === "Escape" && mapView.open) closeMap(true, true);
     if (e.key === "Escape" && board.open) setBoardOpen(false);
     if (e.key === " " && !title.shown && tag !== "BUTTON") {
