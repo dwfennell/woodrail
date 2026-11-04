@@ -236,13 +236,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    (DESIGN.md spacing: 8 px inside the row of chips, 10 px between the rows.) */
 .engine-controls { display: grid; grid-template-columns: minmax(150px, 1fr) auto; gap: 10px; align-items: stretch; }
 .engine-controls .chip.go { width: auto; }
-.engine-controls .chip.continue { grid-column: 1 / -1; width: auto; }
+.engine-controls .chip.continue, .engine-controls .chip.leave-now { grid-column: 1 / -1; width: auto; }
 .engine-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: center; }
+/* A line with a train too many: Remove is the quick fix the status names ("…, or remove a train"), ringed. */
+.engine-actions .chip.remove.suggested { box-shadow: 0 0 0 3px #faf3e6, 0 0 0 5px #d9634d, 0 3px 8px rgba(120, 40, 20, 0.25); }
 .chip.go { width: 150px; height: 58px; font-size: 20px; font-weight: 800; gap: 8px; background: linear-gradient(180deg, #8fd47f, #5fb24f); color: #163b10; box-shadow: inset 0 -3px 0 rgba(30, 80, 20, 0.35), 0 3px 8px rgba(40, 90, 30, 0.25); }
 .chip.go.stop { background: linear-gradient(180deg, #f3a08f, #d9634d); color: #3b130b; box-shadow: inset 0 -3px 0 rgba(110, 30, 15, 0.35), 0 3px 8px rgba(120, 40, 20, 0.25); }
 .chip.go .go-icon { font-size: 16px; margin-right: 8px; }
 /* Continue (waiting to turn back where the track ends): the width of Go and the arrow together, a thumb tall. */
 .chip.continue { width: 218px; height: 48px; font-size: 18px; font-weight: 800; }
+/* Leave now (waiting for a full load): Continue's row and size. */
+.chip.leave-now { height: 48px; font-size: 18px; font-weight: 800; }
 .chip.way { position: relative; width: 58px; height: 58px; padding: 0; color: #4a3220; }
 /* A small ⇄ in the corner: the arrow can be turned round. */
 .chip.way .way-hint { position: absolute; right: 4px; bottom: 2px; font-size: 12px; line-height: 1; font-weight: 800; color: #8a6a4a; }
@@ -791,6 +795,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-yard { align-self: stretch; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; text-wrap: balance; }
+/* The workshop's keep steppers (while it shares): "Keeps − 7 + planks", Auto while you've set it. 44 px buttons. */
+.keep-rows { display: flex; flex-direction: column; gap: 4px; }
+.keep-row { display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; color: #4a3220; }
+.keep-row .chip { flex: none; min-width: 44px; padding: 0 10px; }
+.keep-row .keep-n { min-width: 2.2em; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; }
+.keep-row .keep-kind { min-width: 3.2em; }
+.keep-row .keep-auto { font-size: 13px; }
 /* A warehouse's goods: a row each (name and count over what it's set to; four 44 px choices), "Any other goods", and
    "+ Add a good" with its picker. The chosen way is green, as any chip that's on. */
 .depot-stock:empty { display: none; }
@@ -1378,6 +1389,12 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
    as the cloud card is (it's in charge while it's open): Go and Swap ends, Decouple and Remove under it all show, without
    a scroll, at 360 px tall. A long route still scrolls. With no route yet, "Plan a route" goes under them, alone (its
    words would take a line of their own). */
+/* A phone on its side: an industry's card is a sheet at the right, as the engine card is, coming down over the tray (QA
+   2026-11-04, 844x390: it had 165 px above the tray, a harbour's Buy buttons and the workshop's list under the fold).
+   Narrow enough to leave the goals bar and its Show me clear at the left. */
+@media (max-height: 520px) {
+  .depot-card { width: min(380px, calc(50vw - 24px)); box-sizing: border-box; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); }
+}
 @media (max-height: 520px) {
   :not(.planning) > .engine-card { width: auto; gap: 8px; padding-top: 12px; padding-bottom: 14px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); }
   :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }

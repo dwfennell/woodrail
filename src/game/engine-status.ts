@@ -303,6 +303,8 @@ const OR_MOVE_OTHER = ", or move the other train";
 
 /** A train not on the line standing in one of its passing loops: moving it gives the loop back, as laying one would. */
 const OR_MOVE = ", or move the parked train";
+/** A line with a train too many: the quick fix, the card's Remove (highlighted beside it). */
+const OR_REMOVE = ", or remove a train";
 
 /** Said once ever, when a line's trains wait for each other on a long stretch a signal could split (signals spec §7). */
 export const FOLLOW_TIP = "Trains on this line wait for the whole stretch. A signal here lets them follow · Show me where";
@@ -336,7 +338,7 @@ export function engineView(
   cantMove: CantMove | null = null,
   placeOf: (carId: number) => string = () => "",
   loadHints = false,
-): { status: string; blocker: Blocker | null; addStop?: number } {
+): { status: string; blocker: Blocker | null; addStop?: number; crowded?: true } {
   const found = sim.findCar(engineCarId);
   if (!found) return { status: "", blocker: null };
   const s = trainState(sim, economy, found.train, found.train.cars[found.index].lever, cantMove);
@@ -368,7 +370,11 @@ export function engineView(
   const blocker = blockerOf(sim, economy, s);
   // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
   const place = blocker && blocker.car >= 0 && (!blocker.line || blocker.how === "parked" || blocker.how === "stopped") ? placeOf(blocker.car) : "";
-  return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker };
+  // A line with a train too many (no passing loop for it): a loop is the lasting fix, but taking a train off the track
+  // is the quick one, offered on the card (QA 2026-11-04: two engines on the starter line). (Leaving the line isn't:
+  // the train still stands on its one track.)
+  const crowded = (s.kind === "stuck" && s.why === "too-many") || (s.kind === "needs-loop" && !s.spare && !s.pinned);
+  return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker, ...(crowded ? { crowded: true as const } : {}) };
 }
 
 /** What a breakdown crane is doing, said on its own train's card and on the card of the train it's for; null: none. */
@@ -434,7 +440,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.line) return `Waiting for the train on the ${s.line} to pass the points`;
       return who && who.car >= 0 ? `Waiting for ${blockerName(who, place)} to pass the points` : "Waiting for another train to pass the points";
     case "stuck":
-      if (s.why === "too-many") return "Stuck: this line has a train too many. Add a passing loop";
+      // (The quick fix named too, the card's Remove: QA 2026-11-04, two engines on the starter line both waited.)
+      if (s.why === "too-many") return `Stuck: this line has a train too many. Add a passing loop${OR_REMOVE}`;
       if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal";
       if (s.why === "parked") return `Stuck: ${who && who.car >= 0 ? inTheWay(who, place) : SPARE_CUT}`;
       // (Left standing, named by where it is: moving it is the fix. Two lines' trains with no passing loop where they
@@ -449,7 +456,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.spare && who) return `Waiting: ${inTheWay(who, place)}`;
       if (s.spare) return `Waiting: ${s.other ? OTHER_CUT : SPARE_CUT}`;
       if (s.pinned) return `Waiting: ${UNPIN}`;
-      return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? (s.other ? OR_MOVE_OTHER : OR_MOVE) : ""}`;
+      return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? (s.other ? OR_MOVE_OTHER : OR_MOVE) : OR_REMOVE}`;
     case "held-up":
       return who ? `Waiting: ${inTheWay(who, place)}` : "Waiting: something's in the way";
     case "running": {

@@ -63,6 +63,8 @@ export interface HudHandlers {
   swapEnds(): void;
   /** The engine card, waiting to turn back where the track ends: turn round now and run on to the next stop. */
   continueOn(): void;
+  /** The engine card, waiting for a full load: go now with what it has (this stop only). */
+  leaveNow(): void;
   /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
   decouple(): void;
   /** The wagon card's Empty: tip its goods out (thrown away), while its train stands. */
@@ -352,9 +354,14 @@ export class Hud {
   private readonly blockerRow = el("div", "engine-blocker");
   private readonly showBlockerBtn: HTMLButtonElement;
   private readonly sendCraneBtn: HTMLButtonElement;
+  /** The engine card's Remove (marked as the quick fix while its line has a train too many: `setCrowded`). */
+  private engineRemoveBtn!: HTMLButtonElement;
+  private crowdShown = false;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
   private readonly continueBtn: HTMLButtonElement;
+  /** Leave now (see `setLeaveNow`): a train waiting for a full load goes with what it has. Continue's row and look. */
+  private readonly leaveNowBtn: HTMLButtonElement;
   /** Swap ends and Decouple (the engine card's), and the wagon card's Decouple: greyed where they'd be refused. */
   private readonly swapBtn: HTMLButtonElement;
   private readonly engineDecoupleBtn: HTMLButtonElement;
@@ -662,6 +669,8 @@ export class Hud {
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
     this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
     this.continueBtn.hidden = true;
+    this.leaveNowBtn = button("Leave now ▸", "Stop waiting for a full load and go on with what it has (this stop only)", h.leaveNow, "chip text primary leave-now");
+    this.leaveNowBtn.hidden = true;
     // Swap ends, Decouple and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): under Go and
     // the arrow, or beside them on a phone on its side (style.css).
     this.swapBtn = button("Swap ends", SWAP_TITLE, h.swapEnds, "chip text swap-ends");
@@ -670,9 +679,9 @@ export class Hud {
     engineActions.append(
       this.swapBtn,
       this.engineDecoupleBtn,
-      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove"),
+      (this.engineRemoveBtn = button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove")),
     );
-    controls.append(this.goBtn, this.wayBtn, this.continueBtn, engineActions);
+    controls.append(this.goBtn, this.wayBtn, this.continueBtn, this.leaveNowBtn, engineActions);
     this.engineCard.appendChild(controls);
     this.engineExtra.hidden = true;
     this.engineCard.appendChild(this.engineExtra);
@@ -1856,6 +1865,16 @@ export class Hud {
     this.sendCraneBtn.hidden = !show;
   }
 
+  /**
+   * The open engine's line has a train too many (`engineView`'s `crowded`): its Remove is marked as the quick fix the
+   * status names ("…, or remove a train"). (Leaving the line wouldn't do: the train still stands on its one track.)
+   */
+  setCrowded(on: boolean): void {
+    if (on === this.crowdShown) return;
+    this.crowdShown = on;
+    this.engineRemoveBtn.classList.toggle("suggested", on);
+  }
+
   setGoNow(on: boolean): void {
     if (on === this.goNow) return;
     this.goNow = on;
@@ -1866,6 +1885,12 @@ export class Hud {
   setContinue(on: boolean): void {
     if (on === !this.continueBtn.hidden) return;
     this.continueBtn.hidden = !on;
+  }
+
+  /** Waiting under the crane for a full load (`Economy.waitingToFill`): Leave now shows. */
+  setLeaveNow(on: boolean): void {
+    if (on === !this.leaveNowBtn.hidden) return;
+    this.leaveNowBtn.hidden = !on;
   }
 
   /**

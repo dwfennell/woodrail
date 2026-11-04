@@ -2,6 +2,8 @@ import type { DepotRole } from "../economy";
 import { CELL, FEAT_FIELD, FEAT_TREE, isWater, type Landscape } from "../landscape";
 import { harbourWhy } from "./harbours";
 import type { PieceTypeId, Pose } from "../track";
+import { PROP_TABS } from "../catalogue/shelves";
+import type { PropStore } from "../props/store";
 import { INDUSTRY_ROLE, schoolTown, type World } from "./world";
 import { isTownLot, SCHOOL_REACH } from "./town-lots";
 
@@ -34,6 +36,36 @@ export interface SiteRule {
    * "Needs farm fields nearby: 2 of 4", which counted squares, beside two whole fields.
    */
   readonly per?: number;
+  /** Squares with a tree planted from Nature › Trees count too (a prop, not the map's own tree: `plantedCells`). */
+  readonly planted?: boolean;
+}
+
+/** Nature › Trees' props that a harvester can fell (all but the cactus). */
+export const PLANTED_TREES: ReadonlySet<string> = new Set(
+  PROP_TABS.flatMap((t) => t.shelves)
+    .filter((sh) => sh.label === "Trees")
+    .flatMap((sh) => sh.assets)
+    .filter((a) => a !== "scene-cactus"),
+);
+
+const plantedOf = new WeakMap<PropStore, { key: string; cells: ReadonlySet<number> }>();
+/**
+ * The squares with a planted tree on them (Sandbox's Nature › Trees: props, which the map's trees, `FEAT_TREE`, are
+ * not), for a harvester's count (QA 2026-11-04: trees planted beside one didn't count). Kept per store until a prop or
+ * the land changes.
+ */
+export function plantedCells(land: Landscape, props: PropStore): ReadonlySet<number> {
+  const key = `${props.version}#${land.grid.revision}`;
+  const known = plantedOf.get(props);
+  if (known?.key === key) return known.cells;
+  const cells = new Set<number>();
+  for (const p of props.all()) {
+    if (!PLANTED_TREES.has(p.asset)) continue;
+    const i = land.grid.cellAtWorld(p.x, p.z);
+    if (i !== -1) cells.add(i);
+  }
+  plantedOf.set(props, { key, cells });
+  return cells;
 }
 
 /**
@@ -52,7 +84,7 @@ export function amountText(rule: SiteRule, squares: number): string {
 export const leastOf = (rule: SiteRule): number => rule.least ?? Math.ceil(rule.need / 2);
 
 export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
-  forest: { what: "trees", counts: (land, i) => land.grid.feature[i] === FEAT_TREE, reach: 250, need: 10 },
+  forest: { what: "trees", counts: (land, i) => land.grid.feature[i] === FEAT_TREE, reach: 250, need: 10, planted: true },
   farm: { what: "farm fields", counts: (land, i) => land.grid.feature[i] === FEAT_FIELD, reach: 250, need: 8, per: 4 },
   // Stone is cut from the hills: raised squares nearby.
   quarry: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
@@ -89,7 +121,7 @@ export function yardMiddle(pose: Pose, l = 72): { x: number; z: number } {
 }
 
 /** How many of its resource an industry of `role` at `pose` has around it, and how many it needs; null if it needs none. */
-export function resourceAt(land: Landscape, role: DepotRole, pose: Pose): { count: number; need: number; rule: SiteRule } | null {
+export function resourceAt(land: Landscape, role: DepotRole, pose: Pose, planted?: ReadonlySet<number>): { count: number; need: number; rule: SiteRule } | null {
   const rule = SITE_RULES[role];
   if (!rule) return null;
   const g = land.grid;
@@ -102,7 +134,7 @@ export function resourceAt(land: Landscape, role: DepotRole, pose: Pose): { coun
     for (let dc = -r; dc <= r; dc++) {
       const i = g.index(col + dc, row + dr);
       if (i === -1 || Math.hypot(g.centreX(col + dc) - m.x, g.centreZ(row + dr) - m.z) > rule.reach) continue;
-      if (rule.counts(land, i)) count++;
+      if (rule.counts(land, i) || (rule.planted && planted?.has(i))) count++;
     }
   }
   return { count, need: rule.need, rule };
@@ -117,14 +149,14 @@ export function rateFor(count: number, need: number): number {
  * Why a piece can't stand here for want of its resource ("Needs trees nearby: 3 of 5"), or null. A school must be
  * beside a town, and one a town: `hasSchool` says whether a town has one already (not counting the one being moved).
  */
-export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchool: (townId: number) => boolean = () => false): string | null {
+export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchool: (townId: number) => boolean = () => false, planted?: ReadonlySet<number>): string | null {
   const role = INDUSTRY_ROLE[type];
   if (role === "school") {
     const at = schoolTown(land, pose);
     if (!at) return SCHOOL_TOO_FAR;
     return hasSchool(at.town.id) ? `${at.town.name} has a school` : null;
   }
-  const r = role && resourceAt(land, role, pose);
+  const r = role && resourceAt(land, role, pose, planted);
   if (!r) return null;
   const least = leastOf(r.rule);
   if (r.count < least) {
@@ -143,13 +175,14 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
  */
 export function updateRates(world: World, boost: (role: DepotRole) => number = () => 1): boolean {
   const own = new Set(world.depots.values());
+  const planted = plantedCells(world.landscape, world.props);
   let changed = false;
   for (const d of world.economy.allDepots()) {
     const piece = world.layout.getPiece(d.pieceId);
     if (!piece) continue;
     // Upgrades (Game mode's Harvesters II and the like) speed up every industry of their kind, the map's own too.
     // (A school makes nothing: its town is a place to stand, not a speed.)
-    const r = own.has(d.pieceId) || d.role === "school" ? null : resourceAt(world.landscape, d.role, piece.pose);
+    const r = own.has(d.pieceId) || d.role === "school" ? null : resourceAt(world.landscape, d.role, piece.pose, planted);
     const rate = (r ? rateFor(r.count, r.need) : 1) * boost(d.role);
     if (rate !== d.rate) {
       d.rate = rate;

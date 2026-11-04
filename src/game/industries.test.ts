@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FEAT_FIELD, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_TOWN } from "../landscape";
 import type { PieceTypeId } from "../track";
-import { amountText, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates } from "./industries";
+import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates } from "./industries";
 import { buildStarterWorld, depotName, INDUSTRY_ROLE, schoolTown, syncIndustries } from "./world";
 
 /** An open patch of grass on the starter map, cleared of features, and a pose for a depot whose yard sits on it. */
@@ -60,6 +60,41 @@ describe("industries near their resource", () => {
     expect(rateFor(8, 10)).toBe(0.8);
     for (const i of cells.slice(4, 8)) land.grid.feature[i] = FEAT_NONE;
     expect(siteWhy(land, "depot-forest", pose)).toBe("Needs trees nearby: 4 of 5");
+  });
+
+  it("trees planted from Nature › Trees (props) count for a harvester, as the map's own do (QA 2026-11-04, 5); a cactus doesn't", () => {
+    const { w, pose, near } = openPatch();
+    const land = w.landscape;
+    const cells = near(250);
+    for (const i of cells.slice(0, 4)) land.grid.feature[i] = FEAT_TREE;
+    const g = land.grid;
+    const at = (i: number) => ({ x: g.centreX(g.colOf(i)), z: g.centreZ(g.rowOf(i)), heading: 0, y: 0 });
+    expect(siteWhy(land, "depot-forest", pose, undefined, plantedCells(land, w.props))).toBe("Needs trees nearby: 4 of 5");
+    w.props.add("scene-cactus", at(cells[10]));
+    expect(siteWhy(land, "depot-forest", pose, undefined, plantedCells(land, w.props))).toBe("Needs trees nearby: 4 of 5");
+    const fir = w.props.add("scene-cone-fir", at(cells[11]));
+    expect(siteWhy(land, "depot-forest", pose, undefined, plantedCells(land, w.props))).toBeNull();
+    expect(resourceAt(land, "forest", pose, plantedCells(land, w.props))?.count).toBe(5);
+    // Two on one square count once, like the map's trees; on a square with a map tree, not again.
+    w.props.add("scene-lollipop-tree", at(cells[11]));
+    w.props.add("scene-birch", at(cells[0]));
+    expect(resourceAt(land, "forest", pose, plantedCells(land, w.props))?.count).toBe(5);
+    // A farm doesn't count trees.
+    expect(resourceAt(land, "farm", pose, plantedCells(land, w.props))?.count).toBe(0);
+    w.props.remove(fir.id);
+    w.props.remove(fir.id + 1);
+    expect(resourceAt(land, "forest", pose, plantedCells(land, w.props))?.count).toBe(4);
+  });
+
+  it("a harvester's rate counts planted trees too (updateRates)", () => {
+    const { w, pose, near } = openPatch();
+    const id = w.layout.addPiece("depot-forest", pose);
+    syncIndustries(w);
+    const d = w.economy.allDepots().find((x) => x.pieceId === id)!;
+    const g = w.landscape.grid;
+    for (const i of near(250).slice(0, 6)) w.props.add("scene-cone-fir", { x: g.centreX(g.colOf(i)), z: g.centreZ(g.rowOf(i)), heading: 0, y: 0 });
+    updateRates(w);
+    expect(d.rate).toBeCloseTo(0.6);
   });
 
   it("every industry bound to a resource says what it lacks (never refused without a reason)", () => {

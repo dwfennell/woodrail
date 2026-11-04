@@ -1,4 +1,4 @@
-import { BackSide, Box3, Color, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3, type Object3D } from "three";
+import { BackSide, Box3, Color, GreaterDepth, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3, type Object3D } from "three";
 import { CAR_KINDS, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { OUTLINE_TONES } from "./track-view";
@@ -24,6 +24,9 @@ interface CarEntry {
    */
   shells: Mesh[] | null;
   shown: 0 | 1 | 2 | 3;
+  /** Its ghost, drawn through whatever hides it while it's in a tunnel (made the first time it goes in), and if shown. */
+  ghosts: Mesh[] | null;
+  inTunnel: boolean;
 }
 
 /** How high (mm) a breakdown crane lifts a train clear of the track. */
@@ -82,6 +85,14 @@ export class TrainView {
   private readonly shellFlash = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.blocked), side: BackSide, transparent: true, opacity: 0, depthWrite: false });
   private readonly ringFlash = new MeshBasicMaterial({ color: new Color("#5a1a08"), side: BackSide, transparent: true, opacity: 0, depthWrite: false });
 
+  /**
+   * Is a car (its track base at x, y, z) in a tunnel? Then it's drawn as a ghost through the hill or the felt over it.
+   * Asked per car per drawn frame (only while something moves), so cheap; null for none.
+   */
+  underground: ((x: number, y: number, z: number) => boolean) | null = null;
+  // A car in a tunnel, seen through what hides it: a pale silhouette, only where something is in front of it.
+  private readonly ghost = new MeshBasicMaterial({ color: new Color("#eedfc2"), depthWrite: false, depthFunc: GreaterDepth });
+
   constructor(private readonly mats: Materials) {}
 
   /**
@@ -127,7 +138,7 @@ export class TrainView {
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
-        entry = { model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0 };
+        entry = { model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
         this.cars.set(id, entry);
       }
       const heading = snap.transforms[o + 3];
@@ -167,6 +178,14 @@ export class TrainView {
       entry.hoist = hoist;
       root.rotation.x = entry.tip * (Math.PI / 2) * (id % 2 ? 1 : -1);
       root.position.y = y + entry.tip * 12 + hoist * HOIST_HEIGHT;
+
+      // (Only a car that moved can have gone into or out of a tunnel.)
+      const under = this.underground ? this.underground(x, y, z) : false;
+      if (under !== entry.inTunnel) {
+        entry.inTunnel = under;
+        if (under) entry.ghosts ??= this.makeGhosts(root);
+        for (const g of entry.ghosts ?? []) g.visible = under;
+      }
 
       if (entry.model.lamp && lever !== entry.lastLever) {
         const [color, intensity] = LAMP_COLORS[snap.levers[i]] ?? LAMP_COLORS[0];
@@ -292,6 +311,31 @@ export class TrainView {
           return shell;
         }),
       );
+  }
+
+  /** A ghost of each part of a car (sharing its geometry): drawn only where something is in front of the part. */
+  private makeGhosts(root: Object3D): Mesh[] {
+    const parts: Mesh[] = [];
+    root.traverse((o) => {
+      const part = o as Mesh;
+      if (part.isMesh && !NamePlates.isPlate(part) && !part.userData.trainMatrix && !part.userData.ghost) parts.push(part);
+    });
+    return parts.map((part) => {
+      const g = new Mesh(part.geometry, this.ghost);
+      g.userData.ghost = true;
+      g.userData.sharedGeometry = true;
+      g.renderOrder = 6;
+      g.castShadow = false;
+      g.receiveShadow = false;
+      g.raycast = () => {};
+      part.add(g);
+      return g;
+    });
+  }
+
+  /** Is this car drawn as in a tunnel (its ghost shown)? */
+  inTunnel(carId: number): boolean {
+    return this.cars.get(carId)?.inTunnel ?? false;
   }
 
   carAt(object: Object3D): number {
