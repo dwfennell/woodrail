@@ -83,6 +83,7 @@ async function shot(name, { type, ends, leg, from, state, onPath, cars = ["engin
       }
       if (!spot) return { error: "no room" };
       const ids = spot.pieces.map((q) => w.editor().placeRun([{ type: q.type, pose: q.pose, y: 0, flipped: q.flipped }])[0]);
+      window.__laid = ids;
       const piece = ids[0];
       const legIds = {};
       spot.pieces.forEach((q, i) => {
@@ -90,8 +91,14 @@ async function shot(name, { type, ends, leg, from, state, onPath, cars = ["engin
       });
       w.layout.setSwitchState(piece, state);
       // The train on the leg's second piece, heading in (toward the piece).
-      const placed = w.sim.addTrain(cars, { pieceId: legIds[from][1], pathIndex: 0, s: 60, reversed: true });
+      // (Tried along the leg till the whole train fits on it.)
+      let placed = { kind: "none" };
+      for (const [k, sAt] of [[1, 200], [1, 150], [0, 200], [1, 100], [0, 120]]) {
+        placed = w.sim.addTrain(cars, { pieceId: legIds[from][k], pathIndex: 0, s: sAt, reversed: true });
+        if (placed.kind === "placed") break;
+      }
       if (placed.kind !== "placed") return { error: "no room for the train" };
+      window.__laid = ids;
       const tr = w.sim.getTrain(placed.trainId);
       const engine = tr.cars[0].id;
       w.sim.setLever(engine, 1);
@@ -116,6 +123,7 @@ async function shot(name, { type, ends, leg, from, state, onPath, cars = ["engin
   );
   if (r.error) {
     console.log(`${name}: ${r.error}`);
+    await p.evaluate(() => { const w = window.woodrail; for (const id of [...(window.__laid ?? [])].reverse()) if (w.layout.getPiece(id)) w.editor().remove(id); });
     return null;
   }
   await settle();
@@ -124,6 +132,14 @@ async function shot(name, { type, ends, leg, from, state, onPath, cars = ["engin
   const path = `${OUT}/${name}.jpg`;
   await p.screenshot({ path, type: "jpeg", quality: 82, timeout: 180000 });
   console.log(`${name}: ${path} ${JSON.stringify(r)}`);
+  // (Taken up again, the train first, so the next layout finds room near the view.)
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    const ids = window.__laid ?? [];
+    for (const id of w.sim.trainIds()) if (w.sim.getTrain(id).bogies.some((b) => ids.includes(b.pieceId))) w.sim.removeTrain(id);
+    for (let pass = 0; pass < 3; pass++) for (const id of [...ids].reverse()) if (w.layout.getPiece(id)) w.editor().remove(id);
+    w.invalidate();
+  });
   return path;
 }
 
@@ -180,8 +196,6 @@ const tt = await p.evaluate(async () => {
   const tap = { x: q.x + Math.cos(q.heading) * 108, z: q.z + Math.sin(q.heading) * 108 };
   const r = deckRoadAt(w.layout, road3, tap.x, tap.z);
   const turned = r ? w.sim.turnDeckTo(r.deck, r.road) : false;
-  // Part way round (the deck's model glides by the clock: the sim's ride a third of the way).
-  for (let i = 0; i < 12; i++) w.sim.tick();
   const V = w.camera.position.constructor;
   const c = w.layout.getPiece(deck).pose;
   w.lookAt(new V(c.x + 92 * Math.cos(c.heading), 0, c.z + 92 * Math.sin(c.heading)), 950, 0.95, -0.5);
@@ -190,18 +204,14 @@ const tt = await p.evaluate(async () => {
 });
 if (tt.error) console.log(`turntable: ${tt.error}`);
 else {
-  await p.waitForTimeout(350);
-  const path = `${OUT}/track-pieces-turntable-controls.jpg`;
-  await p.screenshot({ path, type: "jpeg", quality: 82, timeout: 180000 });
-  console.log(`turntable: ${path} ${JSON.stringify(tt)}`);
-  shots.push(path);
-  // And once it's there, the engine turned with it.
+  // (Once it's there, the engine turned with it: the deck's model glides by the clock, the sim by its ticks, so a
+  // picture part way would show them apart.)
   await p.evaluate(() => {
     for (let i = 0; i < 60; i++) window.woodrail.sim.tick();
     window.woodrail.invalidate();
   });
   await settle();
-  const after = `${OUT}/track-pieces-turntable-turned.jpg`;
+  const after = `${OUT}/track-pieces-turntable-controls.jpg`;
   await p.screenshot({ path: after, type: "jpeg", quality: 82, timeout: 180000 });
   shots.push(after);
 }
