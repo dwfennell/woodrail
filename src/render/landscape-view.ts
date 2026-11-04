@@ -557,10 +557,31 @@ export class LandscapeView {
     const group = new Group();
     const grid = this.land.grid;
     const shown = extentOf([...grid.plots, ...this.around]);
-    group.add(buildFeltGround(this.mats, shown, grid.plots));
+    group.add(buildFeltGround(this.mats, shown, grid.plots, this.feltHoles));
     // Felt rivers, roads and lanes in tiles, so the camera skips those out of view.
     group.add(this.feltOf("river"), this.feltOf("roads"), this.roadsGroup());
     return group;
+  }
+
+  /** Holes in the felt ground for the underpasses' trenches (world x/z outlines), and their key. */
+  private feltHoles: readonly { x: number; z: number }[][] = [];
+  private feltHolesKey = "";
+
+  /** Cut the underpasses' trenches into the felt: rebuilds only the ground sheet, and only when they've changed. */
+  setFeltHoles(holes: readonly { x: number; z: number }[][]): void {
+    const key = holes.map((h) => h.map((q) => `${q.x.toFixed(1)},${q.z.toFixed(1)}`).join(" ")).join("|");
+    if (key === this.feltHolesKey) return;
+    this.feltHolesKey = key;
+    this.feltHoles = holes;
+    const old = this.feltGroup.children[0];
+    if (!old) return;
+    const grid = this.land.grid;
+    const ground = buildFeltGround(this.mats, extentOf([...grid.plots, ...this.around]), grid.plots, holes);
+    this.feltGroup.remove(old);
+    disposeTree(old as Group);
+    this.feltGroup.add(ground);
+    // The new sheet first, where the old one was (the felt's tiles come after it).
+    this.feltGroup.children.unshift(this.feltGroup.children.pop()!);
   }
 
   /** Turned-wood toy trees, standing on whatever block they grew on (all the land's, as one instanced draw each). */

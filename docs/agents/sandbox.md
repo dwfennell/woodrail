@@ -68,6 +68,15 @@
 
 **Draw** lays only the straight ramp.
 
+**Low bridges (underpasses)** (spec: `docs/superpowers/specs/2026-11-03-low-bridge.md`):
+- A bridge one level up across a line on the ground digs an underpass under it (`planUnderpass`, `src/game/underpass-dig.ts`) and is drawn as a girder span (`girderOver`, `GIRDER_FLOORS`).
+- The rules are `TRAIN_HEADROOM` (76 between bases), the trench rule (`trenchClash`) and "dip" (flat ground only).
+- The trench is part of the piece's carved geometry; the felt gets a hole for it (`LandscapeView.setFeltHoles`).
+- A new straight under a standing one-level bridge lays straights on to an underpass (`planUnderpassAhead`). Draw lays a bridge where a line one level up meets ground track ("headroom") and digs at commit (`DrawHand.digsFor`). `Interaction.placement(…, ahead)` is false for Draw.
+- On a hilltop an underpass is cut into the hill (`cutsHills`, a per-cut bed width and bank in `HillShape`). Supports read `groundBeside`, which ignores trenches. Roads are refused both ways ("dip-road"; `RoadPlacer`'s "underpass").
+- Draw on the ground under a standing bridge: "under-bridge" leads to `DrawLine.underBridge`.
+- `npm run e2e:low-bridge`; pictures: `node tools/shots/low-bridge.mjs`.
+
 **Switch shelf:** the wye has a lever at each corner (#15, `cornerLevers`; its state a bit per corner, see rail-road.md). Saves carry `wyeLevers: 3`; older ones load their one-lever wye set the same at every corner.
 
 **Carving** stays in workers; the arch variants for levels 1–3 are carved in the background at load.
@@ -112,6 +121,25 @@
 7. Check that two simultaneous first PUTs give 200 + 409 on real R2.
 
 Before going wide: rate-limit HEAD/GET, and codes with nothing saved yet.
+
+**Chain hints (2026-11-02, `claude/sandbox-chains`; the user: "in sandbox mode it's kind of hard to get industry chains going").**
+- **What a new Sandbox player ran into** (headless, 390×844 and 1440×900, trying forest → sawmill → town, then dairy + mill → bakery):
+  1. **No industries to place.** The Industries tab was Game-only; a Sandbox map has only its own forest yards and sawmill. A mill, dairy or bakery couldn't be built, so the bread chain was impossible.
+  2. **Look-alikes that do nothing.** Buildings → "Farm & industry" has Sawmill, Dairy, Windmill and Warehouse *models*: decoration, no depot. (Not changed: the real ones are now one tab over.)
+  3. **Cards said nothing of the chain.** A sawmill's card was "🪵 Logs 0/12 · Planks 0/12" and two switches: not what it makes, from what, where logs come from, where planks go, or whether it's working. A town's listed all nine goods at "0/12".
+  4. **Nothing linked places on the map**; forests and the sawmill stand far apart with no sign they belong together.
+  5. **Why isn't anything moving:** a train of coaches (or hoppers) at the forest just runs ("Running"): nothing says logs need flatbeds. A routed train passing a sawmill not on its route says nothing either.
+  6. **None of Game mode's teaching in Sandbox:** no goals, Show me or goal toasts; only one toast ("Try a flatbed train…") after two towns are first joined. The warehouse and workshop words show only at those places.
+- **Built:**
+  - **An Industries tab in Sandbox** (`SANDBOX_INDUSTRY_GROUPS`, its own `TRAY_TABS` entry after Trains): every industry but the workshop, school and harbour (Game mode's research and boats). Free, and placed anywhere (Sandbox has no site rules), but each works from what's around it as in Game mode (`updateRates`: a harvester by trees, a farm yard by a field, a quarry or mine by hills): one placed short of it says so on its card in Game mode's words ("Needs trees nearby: 3 of 10", `siteWhy`). Tried first: every one working anywhere. That made a harvester on bare ground work, and main's working-industry animation then drew every frame till its yard was full; e2e:touch and e2e:click went from inside their time to over it under software GL (2 frames in 4.8 s at 1280×800, against 40 ms). Rates as Game mode's keep Sandbox's idle frames as main's. Game mode's industry models load the first time the tab opens, or on entering a map that has one (`ensureGameModels`).
+  - **The industry's card says the chain** (`src/game/chains.ts`: `chainOf`, `chainRows`, `stateWords`): a status pill (Working / Waiting for logs / Full of planks: a train can take them), then a row per good in ("🪵 Logs from the Forest yard", or "🍞 Flour: none made on the map yet. Place a Mill (Industries tab)") and out ("Planks go to Ashby and 4 more"), each with a 44 px **Show** that frames the place (the card stays open). A town's card lists only the goods it holds, and a row for each good something on the map makes for it. Worked out when the card is drawn (it opens, its piles change, an industry is placed or taken up), never per frame.
+  - **Hints on the map** (`src/render/chain-hints-view.ts`, one mesh, one draw call): while an industry's card is open, gold chevrons from its nearest supplier of each good and green chevrons to its nearest customer, with rings at the far ends; while an industry is held (tray or moved), gold rings round every place that makes what it uses and green round every place that takes what it makes. Built only when what it shows changes; hidden with the card or the drop. 0 frames in 3 s with the card and hints up and the game paused.
+  - **The engine card says why a train won't load** (`loadHint`, `engineView(…, loadHints)`, Sandbox only): "The forest yard's logs go on a flatbed wagon: add one to this train"; a routed train beside goods it could carry, not a stop: "Not picking up planks: the sawmill isn't on this route. Edit the route to add a stop here" (Game mode's "Not dropping…" words, turned round).
+  - **Tips, once each on a device** (`hintSeen`): the Industries tab first opened ("Industries make goods, some from other goods. Pick one up: gold rings show where its goods come from, green rings where they go"), the first industry put down ("Tap it to see what it needs…"); with the old "Try a flatbed train" toast, three at most.
+  - **☰ Chain hints: on/off** (Sandbox only, `woodrail.chainHints`): off, no chain block, map hints, load hints or tips. Free play stays free: no goals.
+  - Not built: a Chains panel (the goods graph) and badges over every industry on the map; the card's status and the hints covered what the investigation found.
+- **Pictures** (390×844, #seed-24; `node tools/shots/sandbox-chains.mjs [<out>]`): `docs/agents/shots/sandbox-chains-1-sawmill-card.jpg` (the card and its chevrons), `-2-held-sawmill-rings.jpg` (rings while held), `-3-harvester-needs-trees.jpg`, `-4-farm-needs-field.jpg`, `-5-bakery-waiting.jpg`.
+- **Checks:** `chains.test.ts`, `chain-hints-view.test.ts`, `tray-catalogue.test.ts` (Sandbox's tabs), `npm run e2e:sandbox-chains` (390×844: the tab and its tip, a Harvester and a Sawmill dragged out by touch with rings while held, track by the pathfinder, the sawmill's card and chevrons, Show, idle frames, coaches at the forest, a flatbed train routed by taps carrying logs in and planks to a town, a bakery's card, ☰ off and on; then the card at 1440×900).
 
 ## 4. Open items
 1. **curved-ramps:** `claude/curved-ramps-land` (curved-ramps-2-dont-land on main 0d5410e, plus the e2e fix) is ready to land: e2e:ramps 7/7 twice.

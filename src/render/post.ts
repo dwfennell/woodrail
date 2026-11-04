@@ -6,6 +6,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { BokehShader } from "three/examples/jsm/shaders/BokehShader.js";
 import { CopyShader } from "three/examples/jsm/shaders/CopyShader.js";
 import type { QualitySettings } from "./quality";
+import { shadowLook } from "./shadow-strength";
 
 /**
  * The "macro photo of a real toy" finish: a gentle warm grade (lifted, warm shadows and a soft S-curve), lens
@@ -122,6 +123,7 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
   composer.addPass(scenePass);
 
   let gtao: GTAOPass | null = null;
+  const aoStrength = shadowLook().contact;
   if (quality.ambientOcclusion) {
     gtao = new GTAOPass(scene, camera, 1, 1);
     // Normals come from the shared depth, not a second draw of the scene.
@@ -132,7 +134,7 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
     gtao.setSize = (w, h) => fullSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
     gtao.updateGtaoMaterial({ radius: 12, distanceExponent: 1.4, thickness: 5, scale: 1.2, samples: 16 });
     gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
-    gtao.blendIntensity = 1;
+    gtao.blendIntensity = aoStrength;
     composer.addPass(gtao);
   }
 
@@ -159,7 +161,7 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
     },
     setFocus(distance) {
       if (gtao) {
-        gtao.blendIntensity = aoFor(distance);
+        gtao.blendIntensity = aoFor(distance) * aoStrength;
         gtao.enabled = gtao.blendIntensity > 0;
       }
       if (!bokeh) return;

@@ -71,3 +71,22 @@ export function unmarkHintSeen(id: string): void {
     // storage unavailable: nothing was kept
   }
 }
+
+const CHAIN_HINTS_KEY = "woodrail.chainHints";
+
+/** Sandbox's chain hints (on unless switched off in ☰). */
+export function loadChainHints(): boolean {
+  try {
+    return localStorage.getItem(CHAIN_HINTS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function saveChainHints(on: boolean): void {
+  try {
+    localStorage.setItem(CHAIN_HINTS_KEY, on ? "1" : "0");
+  } catch {
+    // storage unavailable: the choice lasts for this session only
+  }
+}

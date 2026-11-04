@@ -11,10 +11,10 @@ import { Sim, SIM_DT } from "./sim";
  * through, up and down, pulling and pushing.
  */
 
-/** Pieces whose path rises, or that stand up on a deck: found from the catalogue, not listed by hand. */
+/** Pieces whose path rises (or dips: an underpass), or that stand up on a deck: found from the catalogue, not listed by hand. */
 const GRADE_PIECES: PieceTypeId[] = PIECE_TYPES.filter((t) => {
   const def = getPieceDef(t, false);
-  return def.paths.some((p) => p.geom.rise !== 0) || t === "bridge" || t === "bridge-curve";
+  return def.paths.some((p) => p.geom.rise !== 0 || (p.geom.kind === "line" && !!p.geom.dip)) || t === "bridge" || t === "bridge-curve";
 });
 
 interface Step {

@@ -47,7 +47,8 @@ function groundAlong(land: Landscape, type: PieceTypeId, flipped: boolean, pose:
     const n = Math.max(2, Math.ceil(len / 18));
     for (let k = 0; k <= n; k++) {
       samplePath(path.geom, (len * k) / n, bridgeSample);
-      out = pick(out, hillsOf(land.grid).groundAt(pose.x + bridgeSample.x * ch - bridgeSample.z * sh, pose.z + bridgeSample.x * sh + bridgeSample.z * ch));
+      // (An underpass's trench, cut into a hilltop, isn't ground anything stands in: its wooden block fills it.)
+      out = pick(out, hillsOf(land.grid).groundBeside(pose.x + bridgeSample.x * ch - bridgeSample.z * sh, pose.z + bridgeSample.x * sh + bridgeSample.z * ch));
     }
   }
   return Number.isFinite(out) ? out : 0;

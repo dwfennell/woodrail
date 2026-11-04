@@ -38,6 +38,12 @@ export interface HudHandlers {
   trayTabChanged(): void;
   /** The Track tab opened or closed (building: free track ends show their end boards). */
   trackTab?(open: boolean): void;
+  /** A tray tab opened (Sandbox's Industries tab loads the industries' models the first time). */
+  tabOpened?(id: string): void;
+  /** Depot card (Sandbox's chain hints): frame this place on the map (its Show button). */
+  showPlace?(depotId: number): void;
+  /** ☰ Chain hints switched on or off (Sandbox). */
+  toggleChainHints?(): void;
   undo(): void;
   redo(): void;
   rerailAll(): void;
@@ -320,6 +326,10 @@ export class Hud {
   private readonly depotStock = el("div", "depot-stock");
   /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
   private readonly depotHelp = el("div", "card-hint depot-help");
+  /** Sandbox's chain hints on a depot card: how it's doing, and where its goods come from and go (`setDepotChain`). */
+  private readonly depotChain = el("div", "depot-chain");
+  /** The ☰ menu's Chain hints switch (Sandbox only). */
+  private readonly chainItem: HTMLButtonElement;
   /** A warehouse's goods, each with what it lets trains do with it (`StoreView`), or hidden. */
   private readonly depotStore = el("div", "depot-store");
   /** What the warehouse rows show now (drawn again only when it changes), and its "+ Add a good" picker open. */
@@ -568,6 +578,11 @@ export class Hud {
     this.fullItem = narrow("Fullscreen", "Fill the screen with the game", toggleFullscreen);
     this.fullItem.hidden = this.fullBtn.hidden;
     this.menu.append(this.redoItem, this.landItem);
+    // Sandbox's chain hints (cards, the map, a few tips) can be switched off for free play.
+    this.chainItem = button("Chain hints: on", "Show where industries' goods come from and go", () => {
+      this.menu.hidden = true;
+      h.toggleChainHints?.();
+    }, "menu-item chain-item");
     onFullscreenChange((on) => this.setFullscreen(on));
     this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
       this.menu.hidden = true;
@@ -581,6 +596,7 @@ export class Hud {
       this.linesItem,
       this.soundItem,
       this.fullItem,
+      this.chainItem,
       quality,
       sep(),
       button("How to play", "Show help", () => {
@@ -713,9 +729,10 @@ export class Hud {
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
     this.depotYard.hidden = true;
+    this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.root.appendChild(this.depotCard);
 
@@ -957,6 +974,7 @@ export class Hud {
       this.tray.classList.toggle("draw-tab", tab.id === "track");
       if (tab.id !== "track" && this.drawing) this.handlers.trayDraw(false);
       this.handlers.trackTab?.(tab.id === "track");
+      this.handlers.tabOpened?.(tab.id);
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
       this.propsTab = tab.orient === "turn";
       this.hideLockNote();
@@ -1407,6 +1425,7 @@ export class Hud {
     this.modeTag.innerHTML = mode === "game" ? `Game <span class="beta">Beta</span>` : "Sandbox";
     this.modeTag.className = `mode-tag mode-${mode}`;
     for (const b of this.sandboxItems) b.hidden = mode !== "sandbox";
+    this.chainItem.hidden = mode !== "sandbox";
     for (const b of this.gameItems) b.hidden = mode !== "game";
     // (The help's line about goals: only Game has them.)
     const goalsHelp = this.help.querySelector<HTMLElement>(".help-goals");
@@ -2132,6 +2151,7 @@ export class Hud {
     this.depotExtra.innerHTML = "";
     this.depotYard.hidden = true;
     this.depotYard.innerHTML = "";
+    this.setDepotChain(null);
     this.setStore(null);
     this.storeAdding = false;
     // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
@@ -2160,6 +2180,45 @@ export class Hud {
     this.depotWaitBtn.hidden = waitFull === null;
     setToggle(this.depotWaitBtn, !!waitFull);
     this.depotWaitBtn.disabled = !auto;
+  }
+
+  /** The ☰ Chain hints item's words. */
+  setChainHints(on: boolean): void {
+    this.chainItem.textContent = on ? "Chain hints: on" : "Chain hints: off";
+  }
+
+  /** What the depot card's chain block last showed (redrawn only when it changes). */
+  private chainShown = "";
+
+  /**
+   * The depot card's chain block (Sandbox's chain hints), or none (null): how the industry is doing (`state`: its
+   * tone colours it), then a row per good in and out, each with a Show button for the place it names (−1: none).
+   */
+  setDepotChain(chain: { status: string; tone: "working" | "waiting" | "full" | null; rows: readonly { text: string; show: number }[] } | null): void {
+    const key = chain ? JSON.stringify(chain) : "";
+    if (key === this.chainShown) return;
+    this.chainShown = key;
+    this.depotChain.innerHTML = "";
+    this.depotChain.hidden = !chain || (!chain.status && chain.rows.length === 0);
+    if (!chain) return;
+    if (chain.status) {
+      const st = el("div", `chain-status${chain.tone ? ` ${chain.tone}` : ""}`);
+      st.textContent = chain.status;
+      st.setAttribute("aria-live", "polite");
+      this.depotChain.append(st);
+    }
+    for (const r of chain.rows) {
+      const row = el("div", "chain-row");
+      const text = el("span", "chain-text");
+      text.textContent = r.text;
+      row.append(text);
+      if (r.show >= 0) {
+        const show = button("Show", `Show on the map: ${r.text}`, () => this.handlers.showPlace?.(r.show), "chip text chain-show");
+        show.dataset.depot = String(r.show);
+        row.append(show);
+      }
+      this.depotChain.append(row);
+    }
   }
 
   /**
@@ -2248,7 +2307,11 @@ export class Hud {
     return null;
   }
 
+  /** The depot card was put away (Sandbox's chain hints on the map go with it). */
+  onDepotCardClosed: (() => void) | null = null;
+
   hideCards(): void {
+    if (!this.depotCard.hidden) this.onDepotCardClosed?.();
     // A toast waiting for room: once the cards are put away (and any card opening in their place is up), it comes on.
     if (this.toastWaitsForCard) requestAnimationFrame(() => this.flushToasts());
     this.root.classList.remove("card-open");

@@ -27,7 +27,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
-import { pinClocksIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { groups } from "../../scripts/e2e/lib/groups.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -48,6 +48,8 @@ async function boot() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
+  stillIndustriesIn(b);
 }
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];

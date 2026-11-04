@@ -1,4 +1,4 @@
-import { getPieceDef, pathLength, RISER_HEIGHT, TRACK_WIDTH, type PathGeom, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, pathLength, RISER_HEIGHT, TRACK_WIDTH, TRENCH_HALF, TRENCH_WALL, samplePath, type PathGeom, type PieceTypeId, type Pose } from "../track";
 import { CELL, isWater, MAX_HEIGHT, type LandscapeGrid } from "./grid";
 
 /** Half the width of a cutting's bed (mm): the track, and a little room each side. */
@@ -6,11 +6,16 @@ export const CUT_BED_HALF = TRACK_WIDTH / 2 + 4;
 /** A cutting's banks rise at this angle from the horizontal. */
 export const CUT_BANK_ANGLE = (60 * Math.PI) / 180;
 const BANK_RISE = Math.tan(CUT_BANK_ANGLE);
-/** How far beyond its bed a cutting can reach (its banks, through the tallest hill). */
-const CUT_REACH = CUT_BED_HALF + (MAX_HEIGHT * RISER_HEIGHT) / BANK_RISE + 1;
 
-/** Can this piece cut its way into a hill? Plain ramps can (not ramps standing up on arches). */
-export const cutsHills = (type: PieceTypeId): boolean => type === "ramp";
+/** Can this piece cut its way into a hill? Plain ramps can (not ramps standing up on arches), and underpasses. */
+export const cutsHills = (type: PieceTypeId): boolean => type === "ramp" || type === "underpass";
+
+/**
+ * An underpass on a hilltop is let into the hill as its trench is into the felt: cut straight down round the trench's
+ * outer walls (its wooden block stands in the hole, its rim level with the hilltop), to the bed of its dip.
+ */
+const TRENCH_OUTER = TRENCH_HALF + TRENCH_WALL;
+const VERTICAL = 1e6;
 
 /** A ramp let into the hills: the ground is cut down to its bed, with banks rising either side and round its ends. */
 export interface HillCut {
@@ -26,6 +31,9 @@ interface PreparedCut {
   cut: HillCut;
   geom: PathGeom;
   length: number;
+  /** Half its bed's width, and how steeply its banks rise (rise over run). */
+  half: number;
+  bank: number;
   cos: number;
   sin: number;
   x0: number;
@@ -46,15 +54,18 @@ function prepare(cut: HillCut, hill: (x: number, z: number) => number): Prepared
   const length = pathLength(geom);
   const cos = Math.cos(cut.pose.heading);
   const sin = Math.sin(cut.pose.heading);
+  const trench = cut.type === "underpass";
+  const half = trench ? TRENCH_OUTER : CUT_BED_HALF;
+  const bank = trench ? VERTICAL : BANK_RISE;
+  const reach = half + (trench ? 0 : (MAX_HEIGHT * RISER_HEIGHT) / BANK_RISE) + 1;
   let dug = false;
   const n = Math.max(1, Math.ceil(length / BED_STEP));
-  const m = Math.ceil((2 * CUT_BED_HALF) / BED_STEP);
+  const m = Math.ceil((2 * half) / BED_STEP);
   for (let i = 0; i <= n && !dug; i++) {
     const s = (length * i) / n;
-    const t = s / length;
-    const bed = cut.y + geom.y0 + geom.rise * t * t * (3 - 2 * t);
+    const bed = cut.y + samplePath(geom, s, bedSample).y;
     for (let j = 0; j <= m && !dug; j++) {
-      const across = -CUT_BED_HALF + (2 * CUT_BED_HALF * j) / m;
+      const across = -half + (2 * half * j) / m;
       if (hill(cut.pose.x + s * cos - across * sin, cut.pose.z + s * sin + across * cos) > bed + 0.3) dug = true;
     }
   }
@@ -64,12 +75,14 @@ function prepare(cut: HillCut, hill: (x: number, z: number) => number): Prepared
     cut,
     geom,
     length,
+    half,
+    bank,
     cos,
     sin,
-    x0: Math.min(ends[0].x, ends[1].x) - CUT_REACH,
-    z0: Math.min(ends[0].z, ends[1].z) - CUT_REACH,
-    x1: Math.max(ends[0].x, ends[1].x) + CUT_REACH,
-    z1: Math.max(ends[0].z, ends[1].z) + CUT_REACH,
+    x0: Math.min(ends[0].x, ends[1].x) - reach,
+    z0: Math.min(ends[0].z, ends[1].z) - reach,
+    x1: Math.max(ends[0].x, ends[1].x) + reach,
+    z1: Math.max(ends[0].z, ends[1].z) + reach,
   };
 }
 
@@ -85,11 +98,12 @@ function cutSurface(c: PreparedCut, x: number, z: number): number {
   const along = dx * c.cos + dz * c.sin;
   const across = -dx * c.sin + dz * c.cos;
   const s = along < 0 ? 0 : along > c.length ? c.length : along;
-  const t = c.length > 0 ? s / c.length : 0;
-  const bed = c.cut.y + c.geom.y0 + c.geom.rise * t * t * (3 - 2 * t);
-  const out = Math.hypot(Math.max(0, Math.abs(across) - CUT_BED_HALF), along - s);
-  return bed + out * BANK_RISE;
+  const bed = c.cut.y + samplePath(c.geom, s, bedSample).y;
+  const out = Math.hypot(Math.max(0, Math.abs(across) - c.half), along - s);
+  return bed + out * c.bank;
 }
+
+const bedSample = createSample();
 
 /**
  * Hill blocks have their outer corners rounded off where a hill's edge turns beside a river, so the hill follows the
@@ -133,6 +147,18 @@ export class HillShape {
   /** The ramps cut into the hills (from the layout: call when it changes). */
   setCuts(cuts: readonly HillCut[]): void {
     this.cuts = cuts.map((c) => prepare(c, this.hill)).filter((c): c is PreparedCut => c !== null);
+    this.cutsBeside = this.cuts.filter((c) => c.cut.type !== "underpass");
+  }
+
+  /** The cuttings but underpasses' trenches (see `groundBeside`). */
+  private cutsBeside: PreparedCut[] = [];
+
+  /**
+   * Ground height as what stands on it sees it: as `groundAt`, but an underpass's trench cut into a hilltop is filled
+   * by its wooden block, so it's the hilltop there (a bridge over it stands its supports on the hill).
+   */
+  groundBeside(x: number, z: number): number {
+    return this.groundWith(this.cutsBeside, x, z);
   }
 
   /** Height of the ground at a plan point: the hill there (minding rounded corners and cuttings), or the felt (0). */

@@ -18,6 +18,23 @@ export const RAMP_LENGTH = 144;
 /** Track over other track must be at least this much higher, so trains fit under (the tallest engine is ~72 mm). */
 export const TRAIN_CLEARANCE = 2 * RISER_HEIGHT;
 export const BRIDGE_LENGTH = 216;
+/**
+ * The tallest car stands 72.5 mm over its track's base (the double-decker coach; the electric's pantograph 71.6, the
+ * classic engine's chimney 66.7): track over track needs this much between their bases (a little to spare).
+ */
+export const TRAIN_HEADROOM = 76;
+/** An underpass sinks its middle this far into the board: one level (48) + this clears `TRAIN_HEADROOM`. */
+export const UNDERPASS_DIP = 30;
+/** Two 144 straights long: eased down over 96 at each end (no steeper than a ramp), flat for 96 in the middle. */
+export const UNDERPASS_LENGTH = 288;
+export const UNDERPASS_EASE = 96;
+/** Inner half-width of an underpass's trench, and its walls' thickness (mm). */
+export const TRENCH_HALF = TRACK_WIDTH / 2 + 4;
+export const TRENCH_WALL = 4;
+/** How far an underpass's trench starts in from each end (the dip is too shallow there to need one). */
+export const TRENCH_INSET = 10;
+/** A girder span's pier at each end: this long along its track (mm). */
+export const GIRDER_PIER = 14;
 export const BUFFER_LENGTH = 54;
 export const ADAPTER_LENGTH = 54;
 /** Double track: its two lines this far apart (a square), as the S-curve shifts a line. */

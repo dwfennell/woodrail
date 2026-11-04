@@ -522,14 +522,21 @@ export class DepotView {
   /**
    * The player asks for less motion (`prefers-reduced-motion`): what loops while an industry works (the saw, sails,
    * wheels, motes) stands still. Cranes still carry goods (that's play, not decoration).
+   *
+   * Test hook: `window.__woodrailStillIndustries = true` set before the game starts (`stillIndustries` in
+   * scripts/e2e/pin-clocks.mjs) holds them still the same way. Under software GL a frame takes about a second and the
+   * sim gets 0.1 s of it, so the map's own forest works (and its axe draws every frame while in view) for hours of a
+   * test's time: every `settled()` with it in view ran out its 60 s. e2e:life doesn't set it: it tests the motion.
    */
-  calm = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  calm =
+    !!(globalThis as { __woodrailStillIndustries?: unknown }).__woodrailStillIndustries ||
+    (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
 
   constructor(private readonly mats: Materials) {
     this.rebuildUnits();
     this.motes = new IndustryMotes(mats);
     this.group.add(this.motes.group);
-    if (typeof matchMedia === "function") matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", (e) => (this.calm = e.matches));
+    if (typeof matchMedia === "function") matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", (e) => (this.calm = e.matches || !!(globalThis as { __woodrailStillIndustries?: unknown }).__woodrailStillIndustries));
   }
 
   /**

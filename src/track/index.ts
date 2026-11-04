@@ -13,3 +13,4 @@ export * from "./splice";
 export * from "./spatial-hash";
 export * from "./stress-layout";
 export * from "./draw-path";
+export * from "./underpass";

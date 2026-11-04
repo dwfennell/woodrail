@@ -35,6 +35,10 @@ import {
   type ConnectorDef,
   type PathGeom,
   type PieceDef,
+  GIRDER_PIER,
+  TRENCH_HALF,
+  TRENCH_INSET,
+  TRENCH_WALL,
 } from "../track";
 import { nonIndexed } from "./non-indexed";
 
@@ -108,7 +112,7 @@ const ARC_STEP = (3 * Math.PI) / 180;
 /** Samples along a path, optionally extended straight past either end. */
 function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0): Frame[] {
   const len = pathLength(geom);
-  const curved = geom.kind !== "line" || geom.rise !== 0;
+  const curved = geom.kind !== "line" || geom.rise !== 0 || !!geom.dip;
   // An arc every 3° of turn (within 0.07 mm of true at the outer edge of a large curve: more only costs triangles, a
   // large curve's were a third of a busy map's), a balloon loop's big gentle curves every 6 mm, a slope every 3 mm.
   const steps = curved
@@ -320,6 +324,7 @@ evaluator.attributes = ["position", "normal", "uv"];
 function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[] | null): BufferGeometry {
   const path = def.paths[0].geom;
   const len = pathLength(path);
+  if (isGirder(floors)) return girderSupport(def, height);
   // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
   const inset = 3;
   const frames: Frame[] = [];
@@ -363,6 +368,67 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
     }
   });
   return result.geometry;
+}
+
+/**
+ * `archFloors` for a bridge drawn as a girder span: a one-level bridge over an underpass, open underneath for the
+ * train in the dip (its arches would be in the way), on a pier at each end.
+ */
+export const GIRDER_FLOORS: readonly number[] = [-1];
+export const isGirder = (floors: readonly number[] | null | undefined): boolean => floors?.length === 1 && floors[0] === -1;
+
+/** Pier length at each end of a girder span, and its side plates' thickness (mm). */
+const PIER = GIRDER_PIER;
+const GIRDER_PLATE = 4;
+/** How far the side plates stand above the deck's top. */
+const GIRDER_RISE = 5;
+
+/** A girder span: a slim beam under the deck, a solid pier at each end down to the ground. */
+function girderSupport(def: PieceDef, height: number): BufferGeometry {
+  const path = def.paths[0].geom;
+  const len = pathLength(path);
+  const frames = framesAlong(path, 0, 0).map((f) => ({ ...f }));
+  // Nothing below the deck (that's the headroom): a plate along each side, from the deck's underside up past its top.
+  const plate = (u0: number, u1: number): ProfilePoint[] => [
+    { u: u0, v: 0, smooth: false },
+    { u: u1, v: 0, smooth: false },
+    { u: u1, v: TRACK_THICKNESS + GIRDER_RISE, smooth: false },
+    { u: u0, v: TRACK_THICKNESS + GIRDER_RISE, smooth: false },
+  ];
+  const w = TRACK_WIDTH / 2;
+  let result = brush(sweep(plate(w - 0.5, w + GIRDER_PLATE), frames), PAINT);
+  result = csgEvaluate(evaluator, result, brush(sweep(plate(-w - GIRDER_PLATE, -w + 0.5), frames), PAINT), ADDITION);
+  const p = createSample();
+  for (const at of [PIER / 2 + 2, len - PIER / 2 - 2]) {
+    samplePath(path, at, p);
+    const pier = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(PIER, height + 1, TRACK_WIDTH - 2, 2, 2)));
+    pier.translate(0, p.y - (height + 1) / 2, 0);
+    pier.rotateY(-p.heading);
+    pier.translate(p.x, 0, p.z);
+    result = csgEvaluate(evaluator, result, brush(pier, PAINT), ADDITION);
+  }
+  return result.geometry;
+}
+
+/**
+ * An underpass's trench: a wooden block sunk into the board round the dip, its top a rim just proud of the felt (the
+ * felt has a hole there: `underpassHoles`), with a channel cut down to the track's bed as it dips. Piece-local.
+ */
+function trenchBrush(def: PieceDef): Brush {
+  const geom = def.paths[0].geom;
+  const len = pathLength(geom);
+  const depth = (geom.kind === "line" ? (geom.dip ?? 0) : 0) + 4;
+  const top = 0.6;
+  const outer = TRENCH_HALF + TRENCH_WALL;
+  const box = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(len - 2 * TRENCH_INSET, depth + top, 2 * outer, 2, 1.5)));
+  box.translate(len / 2, top - (depth + top) / 2, 0);
+  const channel: ProfilePoint[] = [
+    { u: -TRENCH_HALF, v: 0, smooth: false },
+    { u: TRENCH_HALF, v: 0, smooth: false },
+    { u: TRENCH_HALF, v: 40, smooth: false },
+    { u: -TRENCH_HALF, v: 40, smooth: false },
+  ];
+  return csgEvaluate(evaluator, brush(box), brush(sweep(channel, framesAlong(geom, 4, 4)), CUT), SUBTRACTION);
 }
 
 /** Cross-section of a bridge's viaduct (u across, v up from the deck), corners rounded. */
@@ -576,6 +642,8 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
     support.updateMatrixWorld();
     result = csgEvaluate(evaluator, result, support, ADDITION);
   }
+
+  if (def.type === "underpass") result = csgEvaluate(evaluator, result, trenchBrush(def), ADDITION);
 
   // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
   // across a curve's fine faces shatters the mesh (slow, and tens of thousands of triangles on a switch).
