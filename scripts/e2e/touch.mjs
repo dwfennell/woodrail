@@ -2609,6 +2609,11 @@ async function leaveNowWait(ctx, p) {
   // stands under the crane waiting to fill.
   await tapOn({ engine: setup.engine });
   await tapButton(".engine-card .go");
+  // (The Go taken: its lever set, before the game's ticks are run. Under load the tap's click came in but its lever
+  // wasn't set yet when they ran, and the train never moved: {"at":null,"loads":[0,0]}.)
+  const going = await p
+    .waitForFunction((e) => { const f = window.woodrail.sim.findCar(e); return !!f && f.train.cars[f.index].lever !== 0; }, setup.engine, { timeout: 60000 })
+    .then(() => true, () => false);
   const waiting = await p.evaluate((o) => {
     const w = window.woodrail;
     const t = () => w.sim.findCar(o.engine).train;
@@ -2620,11 +2625,11 @@ async function leaveNowWait(ctx, p) {
     const d = w.economy.waitingToFill(t().id);
     return { at: d?.id ?? null, loads: t().cars.filter((c) => c.kind === "timber").map((c) => w.economy.cargoOf(c.id).count) };
   }, setup);
-  check("leave-now: the hand-run train stands under the forest's crane waiting for a full load, a log or more on", waiting.at === setup.forest && waiting.loads[0] >= 1, JSON.stringify(waiting));
+  check("leave-now: the hand-run train stands under the forest's crane waiting for a full load, a log or more on", waiting.at === setup.forest && waiting.loads[0] >= 1, JSON.stringify({ ...waiting, going }));
   const shown = await p.waitForFunction(() => { const b = document.querySelector(".engine-card .leave-now"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 30000 }).then(() => true, () => false);
   const box = await p.evaluate(() => { const r = document.querySelector(".engine-card .leave-now")?.getBoundingClientRect(); return r ? { w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right) } : null; });
   check("leave-now: its card shows Leave now, 44 px or more and inside the phone's width", shown && box && box.h >= 44 && box.w >= 44 && box.right <= 390, JSON.stringify({ shown, box }));
-  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/leave-now.png` });
+  if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/leave-now.png`);
   const undoBefore = await p.evaluate(() => window.woodrail.editor().canUndo);
   await tapButton(".engine-card .leave-now");
   const after = await p.evaluate((o) => {
