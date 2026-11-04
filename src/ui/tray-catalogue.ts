@@ -91,6 +91,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["reefer"], label: "Cold van", unlearned: "hide" },
   // (Game mode's once Car carrier is learned.)
   { kind: "train", cars: ["carrier"], label: "Car carrier", unlearned: "hide" },
+  // (Game mode's once Post office is learned.)
+  { kind: "train", cars: ["mailvan"], label: "Mail van", unlearned: "hide" },
   // (Game mode's once Scenery kit is learned.)
   { kind: "train", cars: ["cleaner"], label: "Track cleaner", unlearned: "hide" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
@@ -126,7 +128,7 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   // ready-made set picks the cars for the player.
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2), modes: ["sandbox"] },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "carrier" || i.cars[0] === "cleaner")) },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "mailvan" || i.cars[0] === "carrier" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
@@ -178,6 +180,7 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-foundry", label: "Foundry" },
       { kind: "piece", type: "depot-brickworks", label: "Brickworks" },
       { kind: "piece", type: "depot-carworks", label: "Car factory" },
+      { kind: "piece", type: "depot-postoffice", label: "Post office" },
       { kind: "piece", type: "depot-carpenter", label: "Carpenter's yard" },
       { kind: "piece", type: "depot-smithy", label: "Smithy" },
       { kind: "piece", type: "depot-power", label: "Power station" },

@@ -66,6 +66,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:tanker": { label: "Milk tank wagon", cost: { planks: 3 }, tech: "dairy" },
   "car:reefer": { label: "Cold van", cost: { planks: 4 }, tech: "reefer" },
   "car:carrier": { label: "Car carrier", cost: { planks: 3, iron: 2 }, tech: "car-carrier" },
+  "car:mailvan": { label: "Mail van", cost: { planks: 3 }, tech: "post-office" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 10 }, coins: 300, tech: "sawmills" },
@@ -81,6 +82,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-creamery": { label: "Creamery", cost: { planks: 10 }, coins: 240, tech: "creamery" },
   "piece:depot-icecream": { label: "Ice cream factory", cost: { planks: 12 }, coins: 360, tech: "ice-cream" },
   "piece:depot-brickworks": { label: "Brickworks", cost: { planks: 10 }, coins: 320, tech: "brickworks" },
+  "piece:depot-postoffice": { label: "Post office", cost: { planks: 8 }, coins: 180, tech: "post-office" },
   "piece:depot-carworks": { label: "Car factory", cost: { planks: 12, iron: 4 }, coins: 420, tech: "car-factory" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },

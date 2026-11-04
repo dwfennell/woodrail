@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish" | "mail" | "post";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "mail", "post"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -35,6 +35,9 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   autos: { index: 17, label: "Cars" },
   // Fish, the catch the boats bring to your harbours once Fishing boats is learned: crates of fish on ice.
   fish: { index: 18, label: "Fish" },
+  // The post (Post office): sacks of letters a town posts, and the post a post office sorts of them for towns.
+  mail: { index: 19, label: "Mail" },
+  post: { index: 20, label: "Post" },
 };
 
 /**
@@ -68,6 +71,9 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   // Tech tree 3's goods (src/icons/u1F697-car, u1F41F-fish).
   autos: "🚗",
   fish: "🐟",
+  // The post's goods (src/icons/u2709-letter, u1F4EE-post).
+  mail: "✉️",
+  post: "📮",
 };
 
 /** Coins, beside goods in a cost. */
@@ -86,7 +92,12 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   reefer: ["cheese", "icecream", "fish"],
   // The car carrier: two decks of new cars, the only wagon they ride in.
   carrier: ["autos"],
+  // The mail van: a town's mail to the post office, and the sorted post on to towns. They ride in nothing else.
+  mailvan: ["mail", "post"],
 };
+
+/** The post's goods (Post office): a town's mail and the sorted post. Only a mail van carries them. */
+export const POSTAL: ReadonlySet<CargoKind> = new Set(["mail", "post"]);
 
 /** Can this kind of car carry cargo (any, or this kind)? */
 export function canCarry(kind: CarKind, cargo?: CargoKind): boolean {

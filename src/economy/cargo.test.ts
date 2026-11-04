@@ -7,7 +7,7 @@ const fs = async () => (await import(/* @vite-ignore */ "node:" + "fs")) as { re
 
 describe("cargo", () => {
   it("a kind of wagon per kind of goods: timber wagons take logs and planks, hoppers grain, vans flour", () => {
-    for (const k of CAR_KINDS) expect(canCarry(k), k).toBe(k === "timber" || k === "hopper" || k === "van" || k === "tanker" || k === "reefer" || k === "carrier");
+    for (const k of CAR_KINDS) expect(canCarry(k), k).toBe(k === "timber" || k === "hopper" || k === "van" || k === "tanker" || k === "reefer" || k === "carrier" || k === "mailvan");
     expect(canCarry("van", "flour")).toBe(true);
     expect(canCarry("van", "planks")).toBe(false);
     expect(canCarry("timber", "planks")).toBe(true);
