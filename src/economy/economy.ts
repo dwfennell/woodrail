@@ -2356,6 +2356,9 @@ export class Economy {
         continue;
       }
       if (!this.canUnload(d, s.carId) && this.loadKind(d, s.carId) === null) {
+        // A wagon passed over while the pile was full can drop its goods once the depot has used some: back to it
+        // before waiting for a load (feedback #26: a last log stayed aboard while the mill had room).
+        for (const car of train.cars) if (car.id !== s.carId && s.done.has(car.id) && this.canUnload(d, car.id)) s.done.delete(car.id);
         if (this.waitsForLoad(d, s.carId)) continue;
         s.done.add(s.carId);
         // Unloading done: the wagons that stood aside for it can wait for their load now.

@@ -1437,7 +1437,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // Back online: what's waiting goes up.
   addEventListener("online", () => void cloud?.flush());
 
-  const title = new TitleScreen(document.body, { play }, { thumbnails });
+  /**
+   * The title's "Load a cloud save" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
+   * it. Loaded, the game starts on that railway (Game's, else Sandbox's).
+   */
+  let titleCloud: CloudCard | null = null;
+  const loadCloud = cloud
+    ? () => {
+        titleCloud ??= new CloudCard(title.root, cloud, {
+          mode: () => "game",
+          reload: () => reloadInto(hasSave("game") ? "game" : "sandbox"),
+          toast: (m) => hud.toast(m),
+        });
+        title.root.classList.add("cloud-open");
+        titleCloud.showEntry(() => title.root.classList.remove("cloud-open"));
+      }
+    : undefined;
+  const title = new TitleScreen(document.body, { play, loadCloud }, { thumbnails });
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
   let pausedBeforeTitle = false;

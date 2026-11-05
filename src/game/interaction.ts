@@ -1531,6 +1531,7 @@ export class Interaction {
     if (!m) return;
     this.preview = null;
     this.previewAt = null;
+    this.previewFacing = null;
     this.game.scene.remove(m.ghost);
     this.treeKey = "";
     this.game.previewTrees(null);
@@ -1545,16 +1546,39 @@ export class Interaction {
     const flipped = !this.preview.flipped;
     const v = at.clone().project(this.game.camera);
     const r = this.game.canvas.getBoundingClientRect();
+    const facing = this.previewFacing;
     this.hidePreview();
-    this.preview = { ...this.pieceFromTray(item, -2), tapReach: TAP_REACH };
-    this.mirrorHeld(this.preview, flipped);
+    this.newPreview(facing);
+    this.mirrorHeld(this.preview!, flipped);
     this.showPreview(r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height, false, true);
-    if (this.preview?.ghost.visible) this.previewAt = at;
-    else this.hidePreview();
+    if (this.preview?.ghost.visible) {
+      this.previewAt = at;
+      this.previewFacing = facing;
+    } else this.hidePreview();
   }
 
   /** Where (world) the ghost was shown from: a tap on the ghost puts the piece down there. */
   private previewAt: Vector3 | null = null;
+  /** The heading the waiting ghost is held at (running on from the free end it waits at), or null for the tray's. */
+  private previewFacing: number | null = null;
+
+  /** A fresh waiting ghost for the ready tray piece, held at `facing` if given (else as the tray turns it). */
+  private newPreview(facing: number | null): void {
+    const item = this.armed;
+    if (item?.kind !== "piece") return;
+    this.hidePreview();
+    const m = { ...this.pieceFromTray(item, -2), tapReach: TAP_REACH };
+    if (facing !== null && this.guided?.type !== item.type) m.heading = facing;
+    this.preview = m;
+  }
+
+  /** The heading a tray piece has with its first end joined to free end `w` (so it runs on from it). */
+  private headingOnFrom(item: Extract<TrayItem, { kind: "piece" }>, w: WorldConnector): number {
+    const type: PieceTypeId = item.auto ? "straight-216" : item.type;
+    const flipped = this.trayFlipped && getPieceDef(type, false).flippable;
+    const c = getPieceDef(type, flipped).connectors[0].pose;
+    return normalizeAngle(w.heading + Math.PI - c.heading);
+  }
 
   /** True if screen point x, y is on the waiting ghost (or close by: it's a small thing to hit with a finger). */
   private onPreview(x: number, y: number): boolean {
@@ -1595,9 +1619,14 @@ export class Interaction {
         const sx = r.left + ((v.x + 1) / 2) * r.width;
         const sy = r.top + ((1 - v.y) / 2) * r.height;
         if (inView && (Math.abs(v.x) > 0.95 || Math.abs(v.y) > 0.95 || this.hud.isOverTray(sx, sy))) continue;
+        // Held running on from this end, not as the tray's Turn has it: turned across the line it's past the snap's
+        // turn limit, and waited there loose and crosswise (playthrough).
+        const facing = item?.kind === "piece" ? this.headingOnFrom(item, w) : null;
+        this.newPreview(facing);
         this.showPreview(sx, sy, false, !inView);
         if (this.preview?.ghost.visible) {
           this.previewAt = at;
+          this.previewFacing = facing;
           // (Said only now: a terminus, or a piece with no room at its ends, has nothing waiting, and is put away.)
           this.hintArmed();
           return;
