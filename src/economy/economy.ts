@@ -108,10 +108,10 @@ export const SCHOOL_SHARE = 0.6;
 const MAIL_LOOK = Math.round(1 / SIM_DT);
 /**
  * Seconds of running a sorting van takes per sack of mail on it (Game mode's Sorting van): its whole load turns to post
- * once it has run that long for each sack. Slower than a post office (6 s a sack, `RECIPES.postoffice`), and only while
+ * once it has run that long for each sack. Slower than a post office (10 s a sack, `RECIPES.postoffice`), and only while
  * its train is moving, so the van saves the stop but not the time.
  */
-export const SORT_SECONDS = 10;
+export const SORT_SECONDS = 15;
 
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
