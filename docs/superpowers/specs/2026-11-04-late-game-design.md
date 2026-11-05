@@ -238,3 +238,60 @@ New save fields are optional, so there's no `SAVE_VERSION` bump.
 8. **Special trains are gifts, one each, never bought** (rec.): yes or no.
 9. **Gates:** re-point the airport (to harbours plus 400 riders) and the radio (to electricity), since `trade` and
    `telegraph` aren't built (rec.), or build those first.
+
+## The user's answers (2026-11-05)
+
+- **Taken:**
+  - 1 A1, the gateway airport;
+  - 2 B1, the airship tour;
+  - 3 W1, sparks;
+  - 7 K1, the touring circus;
+  - 8 special trains are gifts;
+  - 9 re-point the gates (airport: harbours and 400 riders; radio: electricity).
+- **Paint (5):** the civic paint shop (`claude/civic`: preset colours by town level) stays. Once you have paint from
+  the Dye works, you can pick your own colours too: a picker for each engine and its wagons, at 1 paint a coat.
+- **Radio (4) and Clockmaker (6):** none of the options above landed. Fresh ones follow.
+
+### Radio, take 2: a payoff you can see, not a multiplier
+
+![guests](../../agents/shots/late-radio-guests.jpg) ![rc](../../agents/shots/late-radio-rc.jpg) ![lost](../../agents/shots/late-radio-lost.jpg)
+
+**RA. Special guests (recommended).** Now and then the radio says someone is waiting: "The Mayor of Elderwick is at
+Larkfield station and wants to go home."
+- **On the map:** the guest is a bigger peg on a gold disc.
+- **The payoff:** take her home in any coach for a thank-you gift (pieces, goods or coins) and a sticker. In first
+  class, her town also puts up something to remember it by (a statue, a bandstand).
+- **The collection:** there are about 12 guests (the band, a bride, the vet and so on), collected in the Journal.
+- **Cozy:** a guest nobody fetches goes home by herself after a while.
+- **Build: M.** A guest is one rider with a home town, so riders need a destination for this one case only. The peg
+  model, the toast, the card, the Journal page and the gifts (`learnGift`'s kind) are new.
+
+**RB. A radio-controlled engine.** The radio engine is a toy you drive yourself, anywhere in the mast's reach:
+- Ahead, Back and Stop, flip the next points, and drop or pick up a wagon;
+- it fetches stray wagons, shunts a yard, or just plays.
+- **Build: L.** It means hand-driving in the sim, phone controls, and keeping the router's locks and the train
+  invariants true while you steer.
+
+**RC. Lost and found.** The radio reports something lost out in the country: a crate of toys, a teddy, a lost dog.
+- **On the map:** it sits in a gold ring, always somewhere you haven't built yet.
+- **The payoff:** lay track to it, and the first train to stop beside it brings it home with a surprise inside.
+  The track then reaches new country.
+- **Build: M.** A spot search over empty land, a prop with its ring, a "train stopped near" check, and the
+  gifts.
+
+### Clockmaker, take 2: what clocks are for
+
+![speed](../../agents/shots/late-clock-speed.jpg) ![alarm](../../agents/shots/late-clock-alarm.jpg)
+
+**CA. Clocks run time faster (recommended).** The Clockmaker's first clock puts a time control on the HUD: 1×, 2×,
+and 3× once a city has a clock tower.
+- **Why:** the late game is waiting for goods to pile up, and this is the payoff everyone feels.
+- **Build: M.** The sim takes 2 or 3 steps a frame, and the economy's tick is scaled.
+- **Phones:** a train frame costs 2–3× the sim CPU. So 3× needs `perf:check` budgets of its own, and drops to 2× on
+  a slow phone.
+
+**CB. Alarm clocks.** Put an alarm on a yard ("when full"), a train ("when she's home") or a station ("when 6 are
+waiting"). It rings, and a tap takes the camera there. Each clock delivered gives one more alarm.
+- **Build: M.** The conditions are read on events the game already has, never per frame.
+
+**CC. Drop the Clockmaker.** The clock tower stays a town treat. **Build: none.**

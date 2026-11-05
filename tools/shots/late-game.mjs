@@ -64,6 +64,15 @@ await p.evaluate(async () => {
       o.add(k.box(P(TOY.cream), 46, 30, 36, 3, 44, 0, 0), k.box(P(TOY.blue), 52, 6, 42, 2, 44, 30, 0));
       return o;
     },
+    guest() {
+      return k.group(k.peg(TOY.purple, TOY.black, 0, 0, 0), k.cyl(P(TOY.yellow), 14, 3), k.ball(P(TOY.yellow), 4, 0, 46, 0));
+    },
+    crate() {
+      return k.group(k.box(k.wood, 34, 26, 26, 2), k.box(P(TOY.red), 35, 4, 27, 1, 0, 11, 0), k.ring(P(TOY.yellow), 60, 2.5, 0, 1, 0), k.ring(P(TOY.yellow), 80, 2, 0, 1, 0));
+    },
+    antenna() {
+      return k.group(k.cyl(P(TOY.black), 1.2, 40), k.ball(P(TOY.red), 3, 0, 41, 0));
+    },
     bigtop() {
       const o = k.group();
       for (let i = 0; i < 6; i++) o.add(k.cyl(P(i % 2 ? TOY.red : TOY.cream), 80, 10, 0, i * 10, 0, 80, 32));
@@ -323,6 +332,105 @@ await shot(
      <div class="mk-row">👥 Next rush<span class="mk-r">8 o'clock, in 0:40</span></div>
      <div class="mk-row">👥 A rush brings<span class="mk-r">6 riders at once</span></div>
      <div class="mk-row">🕰 12 clocks more: a clock tower<span class="mk-r">rushes ×2</span></div>
+   </div></div>`,
+);
+
+// Radio, take 2 (the user's ask, 2026-11-05): three fresh ideas.
+// R-A. Special guests: the radio tells you of someone waiting somewhere.
+await shot(
+  "radio-guests",
+  async () => {
+    const m = window.mock;
+    await m.put("made:mast", -330, 560, { ry: 0.5 });
+    await m.put("made:guest", -440, 190, { s: 1.6 });
+    await m.put("made:guest", -400, 210, { s: 1.0 });
+    return { x: -440, z: 190 };
+  },
+  { dist: 650, phi: 0.95, up: 90 },
+  `<div class="mock mk-top"><div class="mk-toast"><span class="mk-big">📻</span><div>On the radio: <b>the Mayor of Elderwick</b> is at Larkfield station and wants to go home.</div></div></div>
+   <div class="mock mk-bottom"><div class="mk-card">
+     <div class="mk-title">🎩 The Mayor of Elderwick</div>
+     <div class="mk-sub">Waiting at Larkfield. Any coach will do, but first class makes her day.</div>
+     <div class="mk-row">🎁 Bring her home<span class="mk-r">a thank-you gift + 🏷 sticker</span></div>
+     <div class="mk-row">⭐ In first class<span class="mk-r">a statue of her train in Elderwick</span></div>
+     <div class="mk-row">📒 Guests met<span class="mk-r">3 of 12: the band, a bride, the vet…</span></div>
+   </div></div>`,
+);
+// R-B. A radio-controlled engine you drive yourself.
+await shot(
+  "radio-rc",
+  async () => {
+    const m = window.mock;
+    await m.put("train-battery-engine", -760, -200, { ry: 0 });
+    await m.put("made:antenna", -748, -200, { y: 40 });
+    await m.put("train-flatbed-crates", -660, -200, { ry: 0 });
+    return { x: -720, z: -200 };
+  },
+  { dist: 600, phi: 0.95, up: 40 },
+  `<div class="mock mk-top"><div class="mk-toast"><span class="mk-big">🎮</span><div>You're driving <b>Sparky</b>, the radio engine. Anywhere in the mast's reach.</div></div></div>
+   <div class="mock mk-bottom"><div class="mk-card">
+     <div class="mk-title">📻 Radio engine</div>
+     <div class="mk-sub">Push it, pull it, couple and drop wagons by hand. It fetches strays and shunts yards for you.</div>
+     <div class="mk-chips"><div class="mk-chip">◀ Back</div><div class="mk-chip">⏸</div><div class="mk-chip mk-go">Ahead ▶</div></div>
+     <div class="mk-chips"><div class="mk-chip">⤴ Flip next points</div><div class="mk-chip">🔗 Drop wagon</div></div>
+   </div></div>`,
+);
+// R-C. Lost and found: something lost out in the country, heard on the radio.
+await shot(
+  "radio-lost",
+  async () => {
+    const m = window.mock;
+    await m.put("made:crate", 330, 580, { s: 1.5 });
+    return { x: 330, z: 580 };
+  },
+  { dist: 1000, phi: 0.95, up: 150 },
+  `<div class="mock mk-top"><div class="mk-toast"><span class="mk-big">📻</span><div>Lost and found: <b>a crate of toys</b> fell off a cart down by the river!</div></div></div>
+   <div class="mock mk-bottom"><div class="mk-card">
+     <div class="mk-title">📦 A lost crate</div>
+     <div class="mk-sub">Lay track to it. The first train to stop beside it brings it home.</div>
+     <div class="mk-row">🎁 Inside<span class="mk-r">a surprise: a rare piece, goods or a car</span></div>
+     <div class="mk-row">🗺 Each one is somewhere new<span class="mk-r">corners you haven't built in</span></div>
+     <div class="mk-row">📒 Found<span class="mk-r">5 crates · 1 teddy · 1 lost dog</span></div>
+   </div></div>`,
+);
+
+// Clockmaker, take 2: what clocks are for.
+// C-A. The clockmaker's clock runs time faster.
+await shot(
+  "clock-speed",
+  async () => {
+    const m = window.mock;
+    await m.put("bldg-station-clock", -620, 20, { ry: 0.3 });
+    return { x: -540, z: 60 };
+  },
+  { dist: 1400, phi: 0.95 },
+  `<div class="mock mk-top"><div class="mk-toast" style="justify-content:space-between"><span class="mk-big">🕰</span><div style="flex:1">Time<br><span style="font-weight:700;color:#74522f">Apr 2004</span></div>
+     <div class="mk-chip" style="flex:0 0 52px">1×</div><div class="mk-chip mk-go" style="flex:0 0 52px">2×</div><div class="mk-chip" style="flex:0 0 52px">3×</div></div></div>
+   <div class="mock mk-bottom"><div class="mk-card">
+     <div class="mk-title">🕰 The Clockmaker</div>
+     <div class="mk-sub">Bring it iron and planks and it makes the town clock. Then time is yours: run the railway 2× or 3× as fast.</div>
+     <div class="mk-row">⏩ 2× · fast<span class="mk-r">from the first clock</span></div>
+     <div class="mk-row">⏩ 3× · faster<span class="mk-r">clock tower in a city</span></div>
+     <div class="mk-row">⏸ Pausing stays free<span class="mk-r">as now</span></div>
+   </div></div>`,
+);
+// C-B. Alarm clocks: set one on anything, and it rings and shows you.
+await shot(
+  "clock-alarm",
+  async () => {
+    const m = window.mock;
+    await m.put("bldg-station-clock", -620, 20, { ry: 0.3 });
+    return { x: -540, z: 60 };
+  },
+  { dist: 1100, phi: 0.95 },
+  `<div class="mock mk-top"><div class="mk-toast"><span class="mk-big">⏰</span><div><b>Ring ring!</b> Larkfield sawmill is full of planks.<br><span style="color:#2f6fb5">Tap to go there</span></div></div></div>
+   <div class="mock mk-bottom"><div class="mk-card">
+     <div class="mk-title">⏰ Alarm clocks</div>
+     <div class="mk-sub">Put one on a yard, a station or a train. It rings, and the camera takes you there.</div>
+     <div class="mk-row">🪚 Larkfield sawmill<span class="mk-r">when full</span></div>
+     <div class="mk-row">🚂 Bluebell<span class="mk-r">when she's home</span></div>
+     <div class="mk-row">👥 Elderwick station<span class="mk-r">when 6 are waiting</span></div>
+     <div class="mk-row">⏰ Alarms<span class="mk-r">3 of 5 · more with each clock</span></div>
    </div></div>`,
 );
 
