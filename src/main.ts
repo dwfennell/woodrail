@@ -73,6 +73,10 @@ import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pil
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { airportLines, Airports, airportsOf, planePose } from "./game/airports";
+import { Airships, mastLines, mastsOf, TOUR_HEIGHT, TOUR_RADIUS, tourSights } from "./game/airship";
+import type { MastAt } from "./render/airship-view";
+import { MAST } from "./render/depot-view";
+import { depotPoint as yardPoint } from "./game/harbours";
 import type { AirportAt } from "./render/planes-view";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARRIES, COIN_ICON } from "./economy/cargo";
@@ -2561,6 +2565,32 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     phase: (id) => airports.phase(id, airports.lastUpdate < 0 ? 0 : game.simSeconds - airports.lastUpdate),
     place: planePose,
   };
+  // Airships at masts (late-game spec B1): their tours by the game's clock, moved on once a second.
+  const airships = new Airships();
+  let mastsAt: { key: string; list: MastAt[] } = { key: "", list: [] };
+  /** A mast's sights (counted as its tour takes off, and for its card while it's open). */
+  const sightsOf = (d: DepotState) => {
+    const piece = game.layout.getPiece(d.pieceId)!;
+    return tourSights(game.world, yardPoint(piece.pose, MAST.t, MAST.l));
+  };
+  game.shipSource = {
+    masts: () => {
+      if (mode !== "game") return [];
+      const key = `${game.layout.revision}|${game.economy.allDepots().length}`;
+      if (key !== mastsAt.key) {
+        const list: MastAt[] = [];
+        for (const d of mastsOf(game.world)) {
+          const piece = game.layout.getPiece(d.pieceId)!;
+          list.push({ id: d.id, pose: piece.pose, y: piece.y });
+        }
+        mastsAt = { key, list };
+      }
+      return mastsAt.list;
+    },
+    phase: (id) => airships.phase(id, airships.lastUpdate < 0 ? 0 : game.simSeconds - airships.lastUpdate),
+    radius: TOUR_RADIUS,
+    height: TOUR_HEIGHT,
+  };
   function passengersOn(): void {
     peopleClock.clear();
     harbourTrade.reset();
@@ -2641,6 +2671,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // (Goods sold to a boat are routine, as deliveries are: the coins show it, the News doesn't.)
         scheduleSave("progress");
       }
+    }
+    // Airships take off with their riders, and land: each rider pays the tour's fare.
+    for (const t of airships.update(game.world, progress, game.simSeconds, sightsOf)) {
+      hud.setCoins(progress.coins);
+      note({ kind: "event", key: `tour:${t.depotId}`, qty: t.paid, text: "", place: depotPlace(t.depotId), format: () => `An airship tour landed: ${t.riders} rider${t.riders === 1 ? "" : "s"}, +${t.paid} coins` });
+      scheduleSave("progress");
     }
     // Planes land at airports: the lounge flies off (paying), visitors get off for the trains.
     for (const v of airports.update(game.world, progress, game.simSeconds)) {
@@ -2832,6 +2868,39 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     line.textContent = text;
     box.append(line);
   }
+
+  /** The open mast card's lines, as drawn ("" for none). */
+  let mastShown = "";
+  /** A mast's card (Game mode): who's aboard, what there is to see, and the fare; or the tour in the air. */
+  function showMast(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    if (!d || d.role !== "mast") {
+      mastShown = "";
+      return;
+    }
+    // (The sights counted again only when the map or the trains change: a key, not a frame.)
+    const sk = `${d.id}|${game.layout.revision}|${game.sim.trainCount}`;
+    if (sk !== mastSightsKey) {
+      mastSightsKey = sk;
+      mastSights = sightsOf(d);
+    }
+    const lines = mastLines(d, airships.state(d.id), mastSights!);
+    const key = lines.join("\n");
+    if (key === mastShown && hud.depotExtra.childElementCount > 0) return;
+    mastShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    for (const text of lines) {
+      const line = document.createElement("div");
+      line.className = "station-waiting";
+      line.textContent = text;
+      box.append(line);
+    }
+  }
+  let mastSightsKey = "";
+  let mastSights: ReturnType<typeof tourSights> | null = null;
 
   /** The open airport card's lines, as drawn ("" for none): its countdown ticks in place. */
   let airportShown = "";
@@ -5514,6 +5583,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showSawmill();
       showHarbour();
       showAirport();
+      showMast();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     // Goals after the towns: a delivery that grows a town is announced (with its tick folded in) before the poll could
@@ -5549,7 +5619,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.

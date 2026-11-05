@@ -91,7 +91,8 @@ export function seatsIn(world: World, carId: number): number {
  * airport) pays `VISITOR_BONUS` times as much; one taken to an airport pays nothing here (the plane takes their fare).
  */
 export function fareFor(world: World, from: DepotState, to: DepotState, carId: number): number {
-  if (to.role === "airport") return 0;
+  // (Their plane, or their airship's tour, takes their fare.)
+  if (to.role === "airport" || to.role === "mast") return 0;
   const a = world.layout.getPiece(from.pieceId)?.pose;
   const b = world.layout.getPiece(to.pieceId)?.pose;
   // Whole coins for the ride, then first class and a dining car on top.

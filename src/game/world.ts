@@ -57,6 +57,7 @@ export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = {
   brickworks: "Brickworks",
   carworks: "Car factory",
   airport: "Airport",
+  mast: "Airship mast",
   // Sandbox's cargo machines (kit pieces): their own names are their kits' (`KitDef.name`).
   "loader-log": "Log loader",
   "loader-grain": "Grain loader",
@@ -90,6 +91,7 @@ export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
   "depot-brickworks": "brickworks",
   "depot-carworks": "carworks",
   "depot-airport": "airport",
+  "depot-mast": "mast",
 };
 
 /** A depot's name for cards, stops and the map: its kind's ("Workshop"), a school by its town ("Larkfield school"). */

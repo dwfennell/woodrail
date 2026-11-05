@@ -68,6 +68,10 @@ function firstSpot(layout: DepotLayout): PileSpot {
 }
 const firstSpots = new Map<DepotLayout, PileSpot>();
 
+/** An airship mast's mast (depot coordinates) and height above the pad: where the airship ties up (`AirshipView`). */
+export const MAST = { t: 170, l: 100 };
+export const MAST_HEIGHT = 110;
+
 /** Where everything stands at each kind of depot (depot coordinates; see PileSpot). */
 export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   forest: {
@@ -183,6 +187,14 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   // An airport (Game mode): a passenger stop, no piles. Its terminal and control tower at the far end; a little
   // baggage jib by the track; the planes park on the apron past the yard (`PlanesView`).
   airport: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 40, l: 40, height: 56 },
+    piles: {},
+    trackT: 108,
+  },
+  // An airship's mooring mast (Game mode): a passenger stop, no piles; the mast at the yard's far side, where the
+  // airship ties up (`AirshipView`).
+  mast: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 40, l: 40, height: 56 },
     piles: {},
@@ -1230,6 +1242,14 @@ export class DepotView {
       for (const t of [30, 80, 130, 180]) b.add(mats.lacquer("#3a3a3e"), place(new CylinderGeometry(2.5, 3, 7, 10), t, 110, PAD_H + 3.5));
       b.add(mats.lacquer("#e9e1cf"), place(new RoundedBoxGeometry(26, 24, 22, 2, 2.5), 184, 92, PAD_H + 12));
       b.add(mats.lacquer("#2f6fb0"), place(new RoundedBoxGeometry(30, 4, 26, 1, 1.5), 184, 92, PAD_H + 26));
+    }
+    if (site.depot.role === "mast") {
+      // A tall red mooring mast on a beech foot, a little waiting room by the platform.
+      b.add(mats.naturalWood, place(new CylinderGeometry(16, 18, 6, 20), MAST.t, MAST.l, PAD_H + 3));
+      b.add(mats.lacquer("#c8442f"), place(new CylinderGeometry(3.5, 5, MAST_HEIGHT, 12), MAST.t, MAST.l, PAD_H + MAST_HEIGHT / 2));
+      b.add(mats.lacquer("#e6b52c"), place(new CylinderGeometry(7, 7, 5, 16), MAST.t, MAST.l, PAD_H + MAST_HEIGHT));
+      b.add(mats.lacquer("#f0ebe0"), place(new RoundedBoxGeometry(44, 20, 26, 2, 2.5), 80, 88, PAD_H + 10));
+      b.add(mats.lacquer("#3f8f4a"), place(new RoundedBoxGeometry(50, 4, 32, 1, 1.5), 80, 88, PAD_H + 22));
     }
     if (site.depot.role === "airport") {
       // A white terminal with a blue roof by the platform, and a windsock on its pole.

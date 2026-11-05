@@ -39,10 +39,17 @@ interface Service {
   halted?: boolean;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "airport" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "airport" | "mast" | KitDepotRole;
 
 /** Most riders waiting in an airport's lounge for a plane (Game mode: src/game/airports.ts). Full, coaches keep them. */
 export const AIRPORT_LOUNGE = 12;
+/** Seats on the airship at a mooring mast (Game mode: src/game/airship.ts): riders board till it's full. */
+export const AIRSHIP_SEATS = 8;
+
+/** How many riders can wait at an airport or a mast (0: anything else). */
+export function loungeCap(d: Pick<DepotState, "role">): number {
+  return d.role === "airport" ? AIRPORT_LOUNGE : d.role === "mast" ? AIRSHIP_SEATS : 0;
+}
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -137,6 +144,8 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // An airport (Game mode): a passenger stop, no goods. Riders brought there wait in its lounge for a plane; planes
   // leave visitors there for a train to take on (`src/game/airports.ts`).
   airport: { takes: [], gives: [] },
+  // A mooring mast (Game mode): riders brought there board the airship for a tour (`src/game/airship.ts`).
+  mast: { takes: [], gives: [] },
   // A school (Game mode's research): goods go into the research, not onto piles. What it takes is the mode's say
   // (`accepts`: only what the research still lacks); each unit is handed to `intoSink` as it lands.
   school: { takes: CARGO_KINDS.filter((k) => k !== "log"), gives: [], cap: WORKSHOP_CAP, sink: true },
@@ -1015,7 +1024,7 @@ export class Economy {
     const r = this.riders.get(carId);
     // (A town's halts are its stops too: no one gets off in the town they got on in.)
     if (!r || !riderStop(d) || this.townOf(r.from) === stopTown(d)) return false;
-    if (d.role === "airport" && d.flyers >= AIRPORT_LOUNGE) return false;
+    if ((d.role === "airport" || d.role === "mast") && d.flyers >= loungeCap(d)) return false;
     const route = this.routeOfCar(carId);
     return !route || this.dropsAt(route, d, null);
   }
@@ -2193,7 +2202,7 @@ export class Economy {
           const from = this.depots[r!.from];
           this.setRiders(s.carId, r!.count - 1, r!.from);
           // (At an airport they wait in its lounge for a plane.)
-          if (d.role === "airport") d.flyers++;
+          if (d.role === "airport" || d.role === "mast") d.flyers++;
           if (from) this.onAlight?.(from, d, s.carId);
           this.stationNote("off", d.pieceId, s.trainId, s.carId);
         } else {
@@ -2505,10 +2514,10 @@ const stopsKey = (line: Line): string => line.stops.map((s) => s.depotId).join("
 
 /** Is this a stop where riders get on and off: a town's station or halt, or an airport? */
 export function riderStop(d: Pick<DepotState, "role">): boolean {
-  return d.role === "town" || d.role === "airport";
+  return d.role === "town" || d.role === "airport" || d.role === "mast";
 }
 
 /** The "town" a rider stop is for: its town's id, or for an airport its own (no town's: −2 less its depot id). */
 function stopTown(d: Pick<DepotState, "role" | "townId" | "id">): number {
-  return d.role === "airport" ? -2 - d.id : d.townId;
+  return d.role === "airport" || d.role === "mast" ? -2 - d.id : d.townId;
 }

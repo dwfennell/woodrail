@@ -295,7 +295,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "cargo-ships", label: "Cargo ships", branch: "water", tier: 3, plan: "later", needs: ["barges", "trade", "cranes3"], price: { planks: 30, coins: 200, goods: { iron: 20 } }, blurb: "Big ships take 24 loads a visit; a container crane loads them.", brings: "Cargo ship, container crane" }),
   // The gateway (late-game spec A1): planes call by themselves; trains bring riders to fly and take visitors on.
   row({ id: "airport", label: "Airport", branch: "water", tier: 3, school: "university", needs: ["electricity", "harbours"], price: { planks: 30, coins: 300, goods: { iron: 20 } }, requires: [count("riders", 400)], blurb: "Planes call by themselves: bring riders to fly away (12 coins each), and take their visitors on by train.", brings: "Airport, planes" }),
-  row({ id: "airship", label: "Airship", branch: "water", tier: 3, plan: "later", needs: ["airport"], price: { planks: 20, coins: 150 }, blurb: "A slow, grand airship over your railway.", brings: "Airship mast" }),
+  // The sightseeing tour (late-game spec B1): riders brought to a mast fly a loop over the railway.
+  row({ id: "airship", label: "Airship", branch: "water", tier: 3, school: "university", needs: ["airport"], price: { planks: 20, coins: 200 }, blurb: "Riders brought to its mast fly a loop over your railway: the more bridges, towns and trains to see, the more they pay.", brings: "Airship mast" }),
 
   // Passengers: researched, each once you've carried enough people. Light on planks (the towns need them), and from
   // tier 2 paid mostly in coins, which the passenger line earns (P5).

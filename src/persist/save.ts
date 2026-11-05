@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
-import { AIRPORT_LOUNGE, canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
+import { AIRPORT_LOUNGE, AIRSHIP_SEATS, canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
@@ -130,7 +130,7 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "airport", ...KIT_DEPOT_ROLES]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "airport", "mast", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -144,7 +144,7 @@ const saveSchema = z.object({
       /** A harbour's dock sheds. */
       sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
       /** An airport's lounge: riders waiting for a plane. */
-      flyers: z.number().int().min(0).max(AIRPORT_LOUNGE).optional(),
+      flyers: z.number().int().min(0).max(Math.max(AIRPORT_LOUNGE, AIRSHIP_SEATS)).optional(),
       /**
        * A warehouse's listed goods and what it lets trains do with each (`StoreMode`), and with goods not listed
        * (`others`). Optional: absent (saves from before them, and a warehouse never set), it takes and gives everything.
@@ -513,7 +513,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     state.waitFull = d.waitFull;
     state.takesAll = (d.role === "workshop" || d.role === "school") && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
-    if (d.role === "airport") state.flyers = d.flyers ?? 0;
+    if (d.role === "airport" || d.role === "mast") state.flyers = d.flyers ?? 0;
     // A workshop's keep amounts (older saves have none: the game's own).
     if (d.role === "workshop") for (const kind of CARGO_KINDS) state.keeps[CARGO[kind].index] = d.keeps?.[kind] ?? null;
     // A warehouse's store settings (older saves have none: it takes and gives everything).

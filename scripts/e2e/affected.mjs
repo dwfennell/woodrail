@@ -56,6 +56,7 @@ export const SUITES = {
   "low-bridge": { script: "e2e:low-bridge" },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   airport: { script: "e2e:airport", minutes: 8 },
+  airship: { script: "e2e:airship", minutes: 8 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -174,6 +175,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // The airship tour (late-game spec B1).
+  [["src/game/airship.ts", "src/game/passengers.ts", "src/render/airship-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airship"]],
   // The airport (late-game spec A1).
   [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
 ];

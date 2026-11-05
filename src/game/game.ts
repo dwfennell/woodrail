@@ -12,6 +12,8 @@ import { KitView } from "../render/kit-view";
 import { LoopShowView } from "../render/loop-show";
 import { ClockView, type ClockAt } from "../render/clock-view";
 import { PlanesView, type AirportAt, type PlacePlane } from "../render/planes-view";
+import { AirshipView, type MastAt } from "../render/airship-view";
+import type { ShipPhase } from "./airship";
 import type { PlanePhase } from "./airports";
 import type { ClockHands } from "../render/clock-hands";
 import { flatClockHands } from "../render/blender-models";
@@ -215,6 +217,10 @@ export class Game {
   readonly planesView: PlanesView;
   /** Where airports' planes are (Game mode's `Airports`, set by main): null, no planes. */
   planeSource: { airports(): readonly AirportAt[]; phase(id: number): PlanePhase; place: PlacePlane } | null = null;
+  /** Airships at masts (Game mode: see `AirshipView`, ambient motion). */
+  readonly airshipView: AirshipView;
+  /** Where masts' airships are (Game mode's `Airships`, set by main): null, none. */
+  shipSource: { masts(): readonly MastAt[]; phase(id: number): ShipPhase; radius: number; height: number } | null = null;
   /** The station house clock's hands (once the map's parts are loaded). */
   private stationHands: ClockHands | undefined;
   /** A prop being moved by hand: not drawn where it stood. */
@@ -381,6 +387,8 @@ export class Game {
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
     this.planesView = new PlanesView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.planesView.group);
+    this.airshipView = new AirshipView(this.mats, () => this.invalidate());
+    this.scene.add(this.airshipView.group);
     this.scene.add(this.boats.group);
     this.roadVehiclesView = new RoadVehiclesView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.roadVehiclesView.group);
@@ -431,6 +439,7 @@ export class Game {
     this.touchesPieces = this.touchesNext = -1;
     this.boats.clear();
     this.planesView.clear();
+    this.airshipView.clear();
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
@@ -1124,6 +1133,9 @@ export class Game {
     // Planes flying in view (by their airports' clocks; still while paused).
     const planes = this.planeSource;
     if (planes && this.planesView.update(planes.airports(), planes.phase, planes.place, this.ambientEye, this.paused)) ambient = true;
+    // Airships touring in view (by their masts' clocks; still while paused).
+    const ships = this.shipSource;
+    if (ships && this.airshipView.update(ships.masts(), ships.phase, ships.radius, ships.height, this.ambientEye, this.paused)) ambient = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;
