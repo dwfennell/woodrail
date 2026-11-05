@@ -70,7 +70,7 @@ import { givesBlockText, STORE_NO_ROUTE, WAGON_SAME_DONE, storeBlockText, storeS
 import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
-import { capAt, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
+import { capAt, isStore as isStoreRole, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
 import type { Stuck } from "./economy/stalls";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
@@ -82,12 +82,13 @@ import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
-import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
+import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, lighthouseNear, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
+import { attachWater, type WaterControls } from "./ui/water-controls";
 import { drawPlaceRows } from "./ui/places-row";
 import { PaintSheet } from "./ui/paint-sheet";
 import { paint, paintOpen } from "./game/paint-shop";
@@ -407,6 +408,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let editor = makeEditor();
   let saveTimer = 0;
   let interaction: Interaction;
+  /** River barges on screen (made once the HUD and interaction are: `attachWater`). */
+  let water: WaterControls | null = null;
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
@@ -1318,6 +1321,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction?.flushDraw();
     setExpanding(false);
     game.setWorld(world);
+    water?.reset();
     shownDelivered = new Map();
     announced = new Set();
     updateConnections(false);
@@ -2697,6 +2701,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const warnedHeavy = new Set<number>();
   // Harbours (Game mode): boats call by themselves and buy what's on the quay.
   const harbourTrade = new HarbourTrade();
+  // River barges (Game mode): the player's boats, their cards and planning (src/ui/water-controls.ts).
+  water = attachWater({
+    game,
+    hud,
+    interaction,
+    progress: () => progress,
+    isGame: () => mode === "game",
+    saved: () => scheduleSave(),
+    paid: () => scheduleSave("progress"),
+  });
   function passengersOn(): void {
     peopleClock.clear();
     harbourTrade.reset();
@@ -2768,7 +2782,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const sailed = simElapsed(harbourClock, game.simSeconds);
     if (mode !== "game" || !playing || game.paused || sailed <= 0) return;
     for (const e of harbourTrade.update(game.world, progress, sailed)) {
-      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
+      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL, e.ship);
       else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "gone") game.boats.remove(e.depotId);
       else if (e.kind === "bought") {
@@ -2789,6 +2803,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         scheduleSave("progress");
       }
     }
+    // The player's boats move on, drop and pick up.
+    water?.tick(sailed);
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
     // (The picker shows the counts only as requirements met, or riders: the workshop's clock sees those in its key.)
     counters.collect(game.economy, progress);
@@ -3189,7 +3205,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const d = game.economy.depot(id)!;
     const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
-    const text = harbourTrade.describe(id, progress.learned.has("fishing"), progress.learned.has("chocolate"));
+    const piece = game.layout.getPiece(d.pieceId);
+    const lit = !!piece && progress.learned.has("lighthouse") && lighthouseNear(game.world, piece.pose);
+    const text = harbourTrade.describe(id, progress.learned.has("fishing"), progress.learned.has("chocolate"), progress.learned.has("cargo-ships") && game.economy.shipsBuilt > 0, lit);
     const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
     // Goods the boats sell you (what you already make), and what's on order for the next one.
     const forSale = goodsForSale(game.world);
@@ -3402,7 +3420,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     { action: "pick", label: "Only pick up", tip: "Only picks goods up here" },
   ];
   /** Is this depot a warehouse (it trades only with trains on a route: see warehouse-text.ts)? */
-  const isStore = (depotId: number) => game.economy.depot(depotId)?.role === "warehouse";
+  const isStoreAt = (depotId: number) => { const role = game.economy.depot(depotId)?.role; return !!role && isStoreRole(role); };
   /**
    * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
    * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
@@ -4030,7 +4048,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             stopHintSeen = true;
             saveFlag(STOP_HINT_KEY);
           }
-          if (!storeHintSeen && isStore(st.depotId)) {
+          if (!storeHintSeen && isStoreAt(st.depotId)) {
             storeHintSeen = true;
             saveFlag(STORE_HINT_KEY);
           }
@@ -4150,7 +4168,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         box.append(hint);
       }
       // The first time, a word on what a chip does (till one is tapped); on a line with a warehouse, till its chip is.
-      const storeHint = !storeHintSeen && line.stops.some((st) => isStore(st.depotId));
+      const storeHint = !storeHintSeen && line.stops.some((st) => isStoreAt(st.depotId));
       if ((!stopHintSeen || storeHint) && stopPicked === -1 && !viaPicked && !planning) {
         const hint = document.createElement("div");
         hint.className = "route-hint";
@@ -4276,7 +4294,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // What it picks up and drops here, in words.
         if (plan[k]) box.append(Object.assign(document.createElement("div"), { className: "route-hint route-plan-words", textContent: planWords(plan[k]) }));
         // At a warehouse, what this stop's action does there.
-        if (isStore(st.depotId)) {
+        if (isStoreAt(st.depotId)) {
           const what = document.createElement("div");
           what.className = "route-hint route-store";
           what.textContent = storeStopText(st.action);
@@ -4290,7 +4308,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const d = plan[k] && (plan[k].notDrops.length || plan[k].notPicks.length) ? game.economy.depot(st.depotId) : undefined;
         if (!d) return;
         // (An industry set not to give a good: in its own words; set to give none, one line for it.)
-        if (d.role !== "warehouse") {
+        if (!isStoreRole(d.role)) {
           const name = DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES] ?? "industry";
           if (RECIPES[d.role].gives.every((g) => storeModeOf(d, g) === "off")) blocked.add(givesBlockText(name, null));
           else for (const g of plan[k].notPicks) blocked.add(givesBlockText(name, g));
@@ -5989,6 +6007,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showFarm();
       showSawmill();
       showHarbour();
+      water?.frame();
       showTracks();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);

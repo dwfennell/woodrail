@@ -7,9 +7,10 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { CAR_LOOKS, Sim } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, pilesOf, RECIPES, type CargoKind, type DepotState, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, isStore, pilesOf, RECIPES, type BoatState, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
 import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, pieceOfRef, relaxJoints, pathLength, angleDiff, isLift, type SignalStyle, type Pose, type RelaxOptions } from "../track";
+import { BARGE_LOADS, isBulk, isDock, MAX_BOATS } from "../game/boats";
 import { joinSavedLine, LINE_COLOURS, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, serializeLandscape } from "./landscape-data";
@@ -178,8 +179,44 @@ export function serializeWorld(world: World): SaveData {
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
     ...(world.economy.placePlans.size > 0 ? { placePlans: [...world.economy.placePlans].map(([townId, p]) => [townId, p.id, { ...p.got }] as [number, string, Record<string, number>]) } : {}),
     ...(lines.length > 0 ? { lines } : {}),
+    ...boatsOf(world, renumbered),
+    ...yardsOf(world, renumbered),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
+}
+
+/** The yards' orders (renumbered as the depots are) and what the shipyards have built. */
+function yardsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<SaveData, "yards" | "built"> {
+  const yards = [...world.economy.yardOrders]
+    .filter(([id]) => renumbered.has(id))
+    .map(([id, o]) => ({ depot: renumbered.get(id)!, build: o.build, got: Object.fromEntries(Object.entries(o.got).filter(([, n]) => (n ?? 0) > 0)) as Record<string, number> }));
+  const { shipsBuilt: ships, ferriesBuilt: ferries } = world.economy;
+  return { ...(yards.length > 0 ? { yards } : {}), ...(ships + ferries > 0 ? { built: { ships, ferries } } : {}) };
+}
+
+/** The boats, their stops renumbered as the depots are (a stop at a depot no longer on the map is left out). */
+function boatsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<SaveData, "boats"> {
+  const boats: NonNullable<SaveData["boats"]> = [];
+  for (const b of world.economy.boats.values()) {
+    const stops = b.stops.filter((st) => renumbered.has(st.depotId));
+    if (stops.length === 0) continue;
+    const from = Math.max(0, stops.indexOf(b.stops[b.from]));
+    const load: Record<string, number> = {};
+    for (const [k, n] of Object.entries(b.load)) if (n && isBulk(k as CargoKind)) load[k] = n;
+    boats.push({
+      name: b.name,
+      barges: b.barges,
+      load,
+      stops: stops.map((st) => [renumbered.get(st.depotId)!, st.action]),
+      from,
+      // (A boat that lost its next stop ties up at the one it left.)
+      docked: b.docked || stops.length !== b.stops.length,
+      t: b.docked || stops.length !== b.stops.length ? 0 : b.t,
+      going: b.going,
+      home: renumbered.get(b.home) ?? renumbered.get(stops[0].depotId)!,
+    });
+  }
+  return boats.length > 0 ? { boats: boats.slice(0, MAX_BOATS) } : {};
 }
 
 /**
@@ -350,7 +387,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     // A workshop's keep amounts (older saves have none: the game's own).
     if (d.role === "workshop") for (const kind of CARGO_KINDS) state.keeps[CARGO[kind].index] = d.keeps?.[kind] ?? null;
     // A warehouse's store settings (older saves have none: it takes and gives everything).
-    if (d.role === "warehouse") {
+    if (isStore(d.role)) {
       state.others = d.others ?? "both";
       for (const kind of CARGO_KINDS) state.modes[CARGO[kind].index] = d.modes?.[kind] ?? null;
     }
@@ -451,6 +488,35 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   }
   for (const l of save.lines ?? []) if (l.toldFull && economy.lines.has(l.id)) economy.sections.markToldFull(l.id);
   economy.sections.restored();
+  // The yards' orders, and what the shipyards have built.
+  for (const y of save.yards ?? []) {
+    const role = economy.depot(y.depot)?.role;
+    const fits = (role === "boatyard" && (y.build === "tug" || y.build === "barge")) || (role === "shipyard" && (y.build === "ship" || y.build === "ferry"));
+    if (!fits) continue;
+    const got: Partial<Record<CargoKind, number>> = {};
+    for (const [k, n] of Object.entries(y.got)) if ((CARGO_KINDS as readonly string[]).includes(k)) got[k as CargoKind] = n;
+    economy.yardOrders.set(y.depot, { build: y.build, got });
+  }
+  economy.shipsBuilt = save.built?.ships ?? 0;
+  economy.ferriesBuilt = save.built?.ferries ?? 0;
+  // The boats, at the depots they call at (one whose docks are all gone isn't brought back).
+  let boatId = 1;
+  for (const b of save.boats ?? []) {
+    const stops = b.stops.filter(([d]) => isDock(economy.depot(d))).map(([depotId, action]) => ({ depotId, action }));
+    if (stops.length === 0) continue;
+    const load: BoatState["load"] = {};
+    let room = b.barges * BARGE_LOADS;
+    for (const [k, n] of Object.entries(b.load)) {
+      if (!(CARGO_KINDS as readonly string[]).includes(k) || !isBulk(k as CargoKind)) continue;
+      const take = Math.min(n, room);
+      if (take > 0) load[k as CargoKind] = take;
+      room -= take;
+    }
+    const kept = stops.length === b.stops.length;
+    const from = kept ? Math.min(b.from, stops.length - 1) : 0;
+    const id = boatId++;
+    economy.boats.set(id, { id, name: b.name, barges: b.barges, load, stops, from, docked: kept ? b.docked : true, t: kept ? b.t : 0, going: b.going, home: isDock(economy.depot(b.home)) ? b.home : stops[0].depotId, loadedAt: {} });
+  }
   if (broughtBack.length > 0) {
     // (Pinned as the editor pins: map pieces, lifts, and track under a train.)
     const fixed = fixedPieces({ stations, depots, ruins });

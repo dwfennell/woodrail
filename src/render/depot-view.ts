@@ -371,6 +371,11 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   "loader-coal": KIT_DEPOT,
   "loader-planks": KIT_DEPOT,
   unloader: KIT_DEPOT,
+  // Water transport's kits (a landing, a ferry slip): their models do the drawing.
+  landing: KIT_DEPOT,
+  slip: KIT_DEPOT,
+  boatyard: KIT_DEPOT,
+  shipyard: KIT_DEPOT,
 };
 
 /** A layout turned across its track (l → −l): its crane and piles on the other side of the line. */

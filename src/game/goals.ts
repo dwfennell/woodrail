@@ -605,6 +605,33 @@ export const GOALS: readonly Goal[] = [
   openIndustry("quarry", "quarries", "Open a quarry", "Restore an old quarry, or build one by a hillside."),
   openIndustry("mine", "mines", "Open a mine", "Restore an old mine, or build one by a hillside."),
   openIndustry("harbour", "harbours", "Open a harbour", "Restore an old harbour, or build one by the sea."),
+  // Water transport (docs/superpowers/specs/2026-11-04-water-transport.md): once River barges is learned, a barge
+  // carries goods from one landing to another. An open goal, as the industries'.
+  {
+    id: "float-goods",
+    title: "Float goods down the river",
+    hint: "Build a boatyard and a landing (Industries, Water), bring the boatyard planks and iron by train for a tug and a barge, and route it to the landing.",
+    needs: ["barges"],
+    blueprint: "barges",
+    ring: "kit-landing",
+    check: (w) => ({ done: w.economy.boatDelivered > 0 }),
+    guide: (w) => {
+      const landings = w.economy.allDepots().filter((d) => d.role === "landing" && w.layout.getPiece(d.pieceId));
+      if (landings.length === 0) return { ...guideTrains(w), tab: "industries", shelf: "Water" };
+      const at = landings.map((d) => piecePoint(w, d.pieceId));
+      return { points: at, towns: [], marks: at };
+    },
+  },
+  // Once Cargo ships is learned: a ship takes goods off a harbour's quay, at a town's full price.
+  {
+    id: "ship-abroad",
+    title: "Send a ship abroad",
+    hint: "Build a cargo ship at a shipyard, and leave goods on a harbour's quay: it takes them, at a town's full price.",
+    needs: ["cargo-ships"],
+    blueprint: "cargo-ships",
+    check: (w) => ({ done: w.economy.shipLoads > 0 }),
+    guide: (w) => guideIndustry(w, "harbour"),
+  },
   // (No "Connect every town" since 2026-11-04, the owner's call: joining more towns is the stickers' Connected 5, 8 and
   // 12 towns and Every town (`TOWN_TIERS`). A save holding its id loads without it: `GoalTracker` drops unknown ids.)
 ];

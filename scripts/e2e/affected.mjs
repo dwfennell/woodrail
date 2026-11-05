@@ -49,6 +49,7 @@ export const SUITES = {
   stats: { script: "e2e:stats", minutes: 2 },
   workshop: { script: "e2e:workshop" },
   warehouse: { script: "e2e:warehouse", minutes: 6 },
+  water: { script: "e2e:water", minutes: 8 },
   "focus-ring": { script: "e2e:focus-ring", minutes: 4 },
   "hopper-load": { script: "e2e:hopper-load", minutes: 1.5 },
   locked: { script: "e2e:locked", minutes: 6 },
@@ -234,6 +235,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.
+  [["src/game/boats.ts", "src/game/ferry.ts", "src/game/harbours.ts", "src/ui/boat-card.ts", "src/ui/water-controls.ts", "src/render/river-boats-view.ts", "src/render/ferries-view.ts", "src/render/boats-view.ts", "src/economy/boats.ts", "src/catalogue/assets/water.ts", "src/catalogue/assets/boat-parts.ts", "src/game/yards.ts", "src/render/yards-view.ts"], ["water"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],
 ];

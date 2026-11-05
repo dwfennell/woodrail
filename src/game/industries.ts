@@ -1,3 +1,6 @@
+import { landingWhy } from "./boats";
+import { slipWhy } from "./ferry";
+import { boatyardWhy, shipyardWhy } from "./yards";
 import type { DepotRole } from "../economy";
 import { CELL, FEAT_FIELD, FEAT_TREE, isWater, type Landscape } from "../landscape";
 import { harbourWhy } from "./harbours";
@@ -153,6 +156,11 @@ export function rateFor(count: number, need: number): number {
  * beside a town, and one a town: `hasSchool` says whether a town has one already (not counting the one being moved).
  */
 export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchool: (townId: number) => boolean = () => false, planted?: ReadonlySet<number>): string | null {
+  // Water transport's kits: a landing's jetty over the water, a ferry slip's end at the sea.
+  if (type === "kit-landing") return landingWhy(land, pose);
+  if (type === "kit-ferry-slip") return slipWhy(land, pose);
+  if (type === "kit-boatyard") return boatyardWhy(land, pose);
+  if (type === "kit-shipyard") return shipyardWhy(land, pose);
   const role = INDUSTRY_ROLE[type];
   if (role === "school") {
     const at = schoolTown(land, pose);

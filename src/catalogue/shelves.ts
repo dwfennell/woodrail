@@ -161,6 +161,7 @@ export const PROP_TABS: readonly PropTab[] = [
         ],
       },
       { label: "Boats", assets: ["veh-rowing-boat", "veh-sailing-boat", "veh-fishing-boat", "veh-tugboat", "veh-paddle-steamer", "veh-car-ferry", "veh-cargo-ship", "veh-submarine"] },
+      { label: "River and sea", assets: ["water-river-tug", "water-barge", "water-barge-logs", "water-barge-stone", "water-barge-ore", "water-barge-coal", "water-barge-grain", "water-cargo-ship", "water-train-ferry", "water-landing", "water-ferry-slip", "water-boatyard", "water-shipyard", "water-tug-frame", "water-tug-planked", "water-ship-frame", "water-ship-planked"] },
       { label: "Air", assets: ["veh-propeller-plane", "veh-seaplane", "veh-helicopter", "veh-hot-air-balloon", "veh-airship", "veh-rocket-pad", "veh-space-shuttle"] },
     ],
   },

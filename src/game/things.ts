@@ -126,6 +126,13 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-power": { label: "Power station", cost: { planks: 12, iron: 6 }, coins: 380, tech: "electricity" },
   "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 9 }, coins: 280, tech: "warehouses" },
   "piece:depot-harbour": { label: "Harbour", cost: { planks: 15, stone: 10 }, coins: 480, tech: "harbours" },
+  // Water transport (docs/superpowers/specs/2026-11-04-water-transport.md): a river landing for the barges, a ferry
+  // slip for the train ferry, and a lighthouse by a harbour (ships call twice as often).
+  "piece:kit-landing": { label: "River landing", cost: { planks: 6 }, coins: 160, tech: "barges" },
+  "piece:kit-boatyard": { label: "Boatyard", cost: { planks: 8 }, coins: 180, tech: "barges" },
+  "piece:kit-shipyard": { label: "Shipyard", cost: { planks: 12, stone: 8 }, coins: 360, tech: "shipyards" },
+  "piece:kit-ferry-slip": { label: "Ferry slip", cost: { planks: 10, stone: 6 }, coins: 300, tech: "ferry" },
+  "prop:bldg-lighthouse": { label: "Lighthouse", cost: { planks: 6, stone: 6 }, tech: "lighthouse" },
   // The school, where blueprints are researched (src/game/research.ts): beside a town, one per town.
   "piece:depot-school": { label: "School", cost: {}, coins: SCHOOL_COINS },
 
