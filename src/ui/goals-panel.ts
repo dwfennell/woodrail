@@ -37,6 +37,8 @@ const SHEET = "(max-width: 560px), (max-height: 520px)";
 /** When a News entry happened, as the railway's date ("Mar 2001": its time is on the game's clock, in ms). */
 const when = (e: JournalEntry): string => dateText(e.time / 1000);
 
+const escapeHtml = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
 export function goalsCountText(done: number, total: number, locked: number): string {
   return `${done} / ${total + locked}`;
 }
@@ -48,9 +50,23 @@ export interface GoalsPanelHandlers {
   fly(place: JournalPlace): void;
   /** The Stickers tab was looked at: its new ones are seen. */
   stickersSeen(): void;
+  /** Show where the tip showing is used (its own Show me). */
+  showTip?(): void;
+  /** The tip was tapped away ("Got it"): it goes for good. */
+  tipDone?(id: string): void;
 }
 
-const escapeHtml = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+/** A tip shown on the Goals tab (`FeatureTip`, src/game/feature-tips.ts): a new system and how to use it. */
+export interface TipShown {
+  id: string;
+  title: string;
+  text: string;
+}
+
+/** The tip's row: 💡 its name and line, Show me and Got it. */
+export function tipRowHtml(t: TipShown): string {
+  return `<div class="goal tip" data-tip="${escapeHtml(t.id)}"><span class="goal-box tip-box" aria-hidden="true">💡</span><div><b>New: ${escapeHtml(t.title)}</b><p>${escapeHtml(t.text)}</p><span class="tip-buttons"><button class="chip text tip-show" title="Show me where to use it">Show me</button><button class="chip text tip-done" title="Hide this tip">Got it</button></span></div></div>`;
+}
 
 /**
  * Game mode's Journal, under the logo: a chip with the goal to do now (and a bell with the unread news), opening a
@@ -88,6 +104,9 @@ export class GoalsPanel {
   private readonly head: HTMLButtonElement;
   /** What's shown now, so an unchanged poll touches nothing. */
   private shownKey = "";
+  /** The tip showing (null: none), and whether a goal is (the chip's Show me is the goal's then). */
+  private tip: TipShown | null = null;
+  private goalShown = false;
 
   constructor(
     parent: HTMLElement,
@@ -134,7 +153,9 @@ export class GoalsPanel {
     this.showBtn.setAttribute("aria-label", "Show me where to do this goal");
     this.showBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      handlers.showMe();
+      // (With every goal done, the chip's Show me is the tip's.)
+      if (!this.goalShown && this.tip) handlers.showTip?.();
+      else handlers.showMe();
     });
     const top = document.createElement("div");
     top.className = "goals-top";
@@ -211,6 +232,17 @@ export class GoalsPanel {
       if (t.closest(".goals-stickers")) {
         e.stopPropagation();
         this.setTab("stickers");
+      }
+      if (t.closest(".tip-show")) {
+        e.stopPropagation();
+        this.setOpen(false);
+        handlers.showTip?.();
+      }
+      const gone = t.closest<HTMLElement>(".tip-done");
+      if (gone) {
+        e.stopPropagation();
+        const id = gone.closest<HTMLElement>("[data-tip]")?.dataset.tip;
+        if (id) handlers.tipDone?.(id);
       }
       if (t.closest(".goals-show")) {
         e.stopPropagation();
@@ -432,34 +464,45 @@ export class GoalsPanel {
     this.syncNews();
   }
 
+  /** The tip to show under the goals (null: none). Drawn with the next `show`; cheap when unchanged. */
+  setTip(tip: TipShown | null): void {
+    this.tip = tip;
+  }
+
   /**
    * Show the current goal (null when all are done) and its progress. `total`: the goals open or done; `lockedCount` more
    * wait for blueprints (`locked` says which to learn).
    */
   show(done: number, current: Goal | null, progress: GoalProgress | null, next: Goal | null, total = GOALS.length, locked: string | null = null, lockedCount = 0): void {
-    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${progress?.hint}|${next?.id}|${locked}|${this.stickers.open}|${this.stickers.earned.length}`;
+    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${progress?.hint}|${next?.id}|${locked}|${this.stickers.open}|${this.stickers.earned.length}|${this.tip?.id}`;
     if (key === this.shownKey) return;
     const fresh = this.shownKey !== "" && !this.shownKey.startsWith(`${done}|`);
     this.shownKey = key;
     this.count.textContent = goalsCountText(done, total, lockedCount);
-    this.now.textContent = current?.title ?? locked ?? (this.stickers.open ? `Goals ✓ · 🌟 ${this.stickers.earned.length} / ${STICKERS.length}` : "All done!");
-    this.showBtn.hidden = !current;
+    // (Every goal done, or one waiting for blueprints: a tip, folded, says itself on the chip, with its Show me.)
+    this.goalShown = !!current;
+    const tipChip = !current && this.tip ? `💡 ${this.tip.title}` : null;
+    this.now.textContent = current?.title ?? tipChip ?? locked ?? (this.stickers.open ? `Goals ✓ · 🌟 ${this.stickers.earned.length} / ${STICKERS.length}` : "All done!");
+    this.showBtn.hidden = !current && !this.tip;
+    this.showBtn.title = current || !this.tip ? "Show me where to do this goal" : `Show me where to use ${this.tip.title}`;
+    this.showBtn.setAttribute("aria-label", this.showBtn.title);
     this.fitShow();
+    const tipRow = this.tip ? tipRowHtml(this.tip) : "";
     // A goal still to come waits for blueprints: said in a line of its own ("Research Signals to unlock a goal").
     const lockedRow = locked ? `<div class="goal upcoming locked"><span class="goal-box">🔒</span><span>${locked}</span></div>` : "";
     if (!current && locked) {
-      this.pane.innerHTML = lockedRow;
+      this.pane.innerHTML = tipRow + lockedRow;
       return;
     }
     if (!current) {
       this.pane.innerHTML = `
         <div class="goal current all-done"><span class="goal-tick">✓</span><div><b>All goals done!</b><p>${this.stickers.open ? "Keep building, and collect stickers." : "Keep building."}</p></div></div>
-        ${this.stickers.open ? `<button class="chip text primary goals-stickers">See stickers</button>` : ""}`;
+        ${this.stickers.open ? `<button class="chip text primary goals-stickers">See stickers</button>` : ""}${tipRow}`;
       return;
     }
     const counted = progress?.target ? `<span class="goal-progress">${progress.count} / ${progress.target} ${progress.unit ?? ""}</span>` : "";
     this.pane.innerHTML = `
       <div class="goal current${fresh ? " arrive" : ""}"><span class="goal-box"></span><div><b>${current.title}</b>${counted}<p>${progress?.hint ?? current.hint}</p><button class="chip text goals-show" title="Show me where to do this goal">Show me</button></div></div>
-      ${next ? `<div class="goal upcoming"><span class="goal-box"></span><span>${next.title}</span></div>` : lockedRow}`;
+      ${next ? `<div class="goal upcoming"><span class="goal-box"></span><span>${next.title}</span></div>` : lockedRow}${tipRow}`;
   }
 }

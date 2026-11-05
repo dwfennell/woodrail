@@ -4,6 +4,7 @@ import type { Bag } from "../economy/goods";
 import { ENGINES, type EngineKind } from "../game/engines";
 import { speedWord } from "../game/train-summary";
 import { LIFT_NAME } from "../game/lift-notice";
+import { INDUSTRY_ROLE } from "../game/world";
 import type { CarKind, CarLook } from "../sim";
 import { isFit, isJoin, isKit, KITS, type KitTypeId, type PieceTypeId } from "../track";
 import type { TrayItem } from "./tray-catalogue";
@@ -140,6 +141,27 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-castle-gate": p("Castle gate", "Trains go in and out through the castle gate."),
 };
 
+/**
+ * Lineside furniture that does something (src/game/lineside.ts, buses.ts, crossings): what, in a line. Any other model
+ * is just a model.
+ */
+const PROP_INFO: Record<string, string> = {
+  "bldg-signal-box": "Tap it to work the points and signals near it.",
+  "mech-lever-frame": "Tap it to work the points and signals near it.",
+  "mech-telegraph-pole": "A chain of poles carries a signal box's reach.",
+  "mech-whistle-post": "Engines whistle as they pass it.",
+  "bldg-station-clock": "A clock for the platform.",
+  "mech-level-crossing": "Goes where track crosses a road.",
+  "mech-gated-crossing": "Goes where track crosses a road.",
+  "scene-bus-stop": "Near a station: a bus brings people from a town.",
+};
+
+/** Further lines for a tray item that does more than its detail says (Game mode's ways to use it). */
+const PIECE_FACTS: Partial<Record<PieceTypeId, string>> = {
+  "tunnel-mouth-short": "Or lay a Long straight up to a hill: it digs.",
+  "tunnel-mouth": "Or Draw across a hill: the line goes under.",
+};
+
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** A placed piece's name and what it does. Every piece type has one (pieces.test / piece-info.test). */
@@ -211,7 +233,7 @@ export function trayInfo(item: TrayItem): ItemInfo {
     case "tool":
       return p(item.label, item.tool === "move" ? "Drag trees, fields and the shed to move them." : item.tool === "raise" ? "Tap the land to raise it a block." : "Tap the land to lower it a block.");
     case "prop":
-      return p(item.label, "A model to put by your railway.");
+      return p(item.label, PROP_INFO[item.asset] ?? "A model to put by your railway.");
     case "signal":
       return p("Signal", "Drag onto a joint: trains wait there for the track ahead.");
   }
@@ -265,9 +287,11 @@ export function placeCardInfo(item: TrayItem): PlaceCardInfo {
     return { name: info.name, detail: e.electric ? "Pulls a train while the power is on." : "Pulls a train of wagons and coaches.", facts: [`Pulls ${e.pulls} cars · ${speedWord(e.speed)}`, ...(stat ? [stat] : [])] };
   }
   if (item.kind === "piece" && item.type.startsWith("depot-")) {
-    const role = item.type.slice("depot-".length) as DepotRole;
+    // (By the piece's role: a jam kitchen's is "jamworks", not "jam".)
+    const role = INDUSTRY_ROLE[item.type] ?? (item.type.slice("depot-".length) as DepotRole);
     const recipe = role in RECIPES ? recipeWords(role) : "";
     return { ...info, facts: recipe ? [recipe] : [] };
   }
-  return { ...info, facts: [] };
+  const fact = item.kind === "piece" ? PIECE_FACTS[item.type] : undefined;
+  return { ...info, facts: fact ? [fact] : [] };
 }

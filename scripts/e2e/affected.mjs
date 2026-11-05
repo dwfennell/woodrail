@@ -57,6 +57,7 @@ export const SUITES = {
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   crane: { script: "e2e:crane", minutes: 4 },
+  "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -147,11 +148,11 @@ export const RULES = [
   ["src/ui/map-view.ts", ["sites"]],
   ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share,route-ring"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
-  ["src/ui/goals-panel.ts", ["stickers", "research"]],
+  ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
   ["src/ui/store-rows.ts", ["warehouse"]],
   ["src/ui/town-ledger.ts", [...TOWNS]],
-  ["src/ui/piece-info.ts", ["names"]],
+  ["src/ui/piece-info.ts", ["names", "feature-tips"]],
 
   // Game rules (src/game: by file; anything else there falls to CORE).
   [["src/game/game.ts", "src/game/interaction.ts", "src/game/world.ts", "src/game/modes.ts"], [...CORE, "locked", "life"]],
@@ -174,6 +175,8 @@ export const RULES = [
   [["src/game/research*", "src/game/blueprints.ts", "src/game/tech.ts", "src/game/learn-text.ts"], ["research", "locked", "kits-game", "landscaping"]],
   [["src/game/goals.ts", "src/game/goal-ticks.ts", "src/game/rewards.ts", "src/game/progress.ts"], ["stickers", "stats", "research", "school", "sites"]],
   ["src/game/stickers.ts", ["stickers"]],
+  // Feature tips: the 💡 row under the goals, its Show me, and the Learned toast that says it.
+  ["src/game/feature-tips.ts", ["feature-tips"]],
   ["src/game/landscaping.ts", ["landscaping"]],
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],

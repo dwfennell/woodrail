@@ -66,6 +66,7 @@
     "e2e:signals": "node scripts/e2e/lib/run.mjs tools/e2e/signals.mjs",
     "e2e:sandbox-chains": "node scripts/e2e/lib/run.mjs tools/e2e/sandbox-chains.mjs",
     "e2e:life": "node scripts/e2e/lib/run.mjs tools/e2e/life.mjs",
+    "e2e:feature-tips": "node scripts/e2e/lib/run.mjs tools/e2e/feature-tips.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "build:itch": "node scripts/itch-build.mjs",
     "blueprints:page": "node scripts/blueprint-page.mjs"

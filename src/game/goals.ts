@@ -204,7 +204,7 @@ export function trayRing(goal: Goal | null | undefined, w: World): PieceTypeId |
 }
 
 /** Look at what's on the board: the trains (or failing that the track, or the first towns) and reach for a tab. */
-function guideTrains(w: World, tab?: GoalGuide["tab"], shelf?: string): GoalGuide {
+export function guideTrains(w: World, tab?: GoalGuide["tab"], shelf?: string): GoalGuide {
   const trains = trainPoints(w);
   const points = trains.length > 0 ? trains : trackPoints(w);
   if (points.length === 0) return { ...guideTowns(w, nextTowns(w)), tab, shelf };
