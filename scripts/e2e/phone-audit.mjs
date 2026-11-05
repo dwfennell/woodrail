@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { shot as picture } from "./lib/shot.mjs";
 
 const OUT = process.argv[2] ?? "audit";
 mkdirSync(OUT, { recursive: true });
@@ -56,7 +57,7 @@ function measure() {
 async function shot(p, tag, note = "") {
   await frames(p);
   const path = `${OUT}/${tag}.png`;
-  await p.screenshot({ path });
+  await picture(p, path);
   const m = await p.evaluate(measure);
   report.push({ tag, path, note, ...m });
   console.log(`\n## ${tag} ${note}\n  ${m.count} targets; small: ${m.small.length}; tight: ${m.tight.length}; tiny text: ${m.tiny.length}; hscroll: ${m.hscroll}`);

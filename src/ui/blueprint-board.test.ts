@@ -174,5 +174,18 @@ describe("a node's tag in the web", () => {
     expect(nodeTag(s)).toContain("price later");
     expect(nodeTag({ ...s, school: "College" })).toBe(`<span class="bp-tag school">🎓 College</span>`);
     expect(nodeTag({ ...s, school: "University" })).toBe(`<span class="bp-tag school">🏛️ University</span>`);
+    // What else it waits for, in place of a price it can't be bought for yet (QA 2026-11-05 #5).
+    expect(nodeTag({ ...s, gate: "🏙️ A city" })).toBe(`<span class="bp-tag gate">🏙️ A city</span>`);
+  });
+});
+
+describe("a ticket's foot with nothing to press (QA 2026-11-05 #4)", () => {
+  it("says what must happen first, with no button and no 'Researching'", () => {
+    const foot = researchFoot("jam", { chips: [], study: "45 s study", why: "Sugar beet needs a city first: grow a town into one", blocked: true }, false);
+    expect(foot).toContain(`<span class="bp-why">Sugar beet needs a city first: grow a town into one</span>`);
+    expect(foot).not.toContain("<button");
+    expect(foot).not.toContain("Researching");
+    // The one under way still says so.
+    expect(researchFoot("jam", { chips: [], study: "45 s study", fill: 0.5 }, false)).toContain("📘 Researching");
   });
 });

@@ -5,6 +5,11 @@ export interface LineRow {
   colour: string;
   trains: number;
   stops: number;
+  /**
+   * Why Reverse couldn't turn some of its trains round on a ring (they keep their way, the long way round to each
+   * stop), said under the row with a Turn round to try again; none when all were turned.
+   */
+  note?: string;
 }
 
 export interface LinesViewHandlers {
@@ -22,6 +27,8 @@ export interface LinesViewHandlers {
   copy(id: number): void;
   /** A line's stops the other way round (its via points with them). */
   reverse(id: number): void;
+  /** Try again to turn round the trains Reverse couldn't on a ring line (`LineRow.note`). */
+  turnRound(id: number): void;
   /** A new line: the nearest free train's card, planning. */
   newLine(): void;
   close(): void;
@@ -88,7 +95,7 @@ export class LinesView {
   /** List these lines (only redrawn when they've changed). */
   show(rows: readonly LineRow[]): void {
     if (this.root.hidden) return;
-    const key = `${this.picking}|${rows.map((r) => `${r.id}:${r.name}:${r.colour}:${r.trains}:${r.stops}`).join("|")}`;
+    const key = `${this.picking}|${rows.map((r) => `${r.id}:${r.name}:${r.colour}:${r.trains}:${r.stops}:${r.note ?? ""}`).join("|")}`;
     if (key === this.shownKey) return;
     // (Not while a name is being typed: it would lose the caret.)
     if (this.list.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === "INPUT") return;
@@ -172,8 +179,18 @@ export class LinesView {
     if (r.stops > 1) acts.append(act("Reverse", "Run its stops the other way round", () => this.handlers.reverse(r.id)));
     const wrap = document.createElement("div");
     wrap.className = "lines-row-wrap";
+    // (Reversed on a ring, a train that couldn't be turned round: why, and Turn round to try again.)
+    let note: HTMLElement | null = null;
+    if (r.note) {
+      note = document.createElement("div");
+      note.className = "lines-note";
+      note.setAttribute("role", "status");
+      const text = document.createElement("span");
+      text.textContent = r.note;
+      note.append(text, act("Turn round", "Try again to turn these trains round, so they run the line's new way", () => this.handlers.turnRound(r.id)));
+    }
     if (this.picking !== r.id) {
-      wrap.append(row, acts);
+      wrap.append(row, ...(note ? [note] : []), acts);
       return wrap;
     }
     const colours = document.createElement("div");
@@ -191,7 +208,7 @@ export class LinesView {
       });
       colours.append(b);
     }
-    wrap.append(row, colours, acts);
+    wrap.append(row, ...(note ? [note] : []), colours, acts);
     return wrap;
   }
 }

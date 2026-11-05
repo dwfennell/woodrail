@@ -52,10 +52,14 @@ export interface HudHandlers {
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
+  /** The open engine card's Paint (Game mode's paint shop, once a town is a Town): its sheet. */
+  paint?(): void;
   /** The open engine card's engine renamed (as typed: the sim tidies it). Returns the name it now has. */
   renameEngine(name: string): string;
   /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
   showBlocker(): void;
+  /** Send the breakdown crane to lift the train in the open engine's way off the line. */
+  sendCrane(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
@@ -277,6 +281,8 @@ export class Hud {
   private readonly pieceRow = el("div", "card-row");
   /** A signal box's or lever frame's card: the points and signals near it, each a chip to throw (see `showLevers`). */
   private readonly leverList = el("div", "card-row lever-list");
+  /** A signal box's card with the Telegraph: the trains in its reach, each with Call home (see `showReachTrains`). */
+  private readonly reachList = el("div", "card-row reach-list");
   private readonly doneBtn: HTMLButtonElement;
   private readonly deleteBtn: HTMLButtonElement;
   private readonly selectMoreBtn: HTMLButtonElement;
@@ -356,8 +362,11 @@ export class Hud {
    */
   private readonly blockerRow = el("div", "engine-blocker");
   private readonly showBlockerBtn: HTMLButtonElement;
+  private readonly sendCraneBtn: HTMLButtonElement;
   /** The engine card's Remove (marked as the quick fix while its line has a train too many: `setCrowded`). */
   private engineRemoveBtn!: HTMLButtonElement;
+  /** 🎨 Paint, on an engine's card (shown by the game once the paint shop is open: `paintBtn.hidden`). */
+  readonly paintBtn = el("button", "chip text paint-engine");
   private crowdShown = false;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
@@ -659,7 +668,9 @@ export class Hud {
     this.engineSummary.hidden = true;
     this.engineCard.appendChild(this.engineSummary);
     this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
-    this.blockerRow.append(this.showBlockerBtn);
+    this.sendCraneBtn = button("Send the crane", "The breakdown crane drives out and lifts the train in the way off the line", h.sendCrane, "chip text send-crane");
+    this.sendCraneBtn.hidden = true;
+    this.blockerRow.append(this.showBlockerBtn, this.sendCraneBtn);
     this.blockerRow.hidden = true;
     this.engineCard.appendChild(this.blockerRow);
     const controls = el("div", "engine-controls");
@@ -686,7 +697,16 @@ export class Hud {
       this.swapBtn,
       this.engineDecoupleBtn,
       (this.engineRemoveBtn = button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove")),
+      this.paintBtn,
     );
+    this.paintBtn.type = "button";
+    this.paintBtn.textContent = "🎨 Paint";
+    this.paintBtn.title = "Paint this engine in your own colours";
+    this.paintBtn.hidden = true;
+    this.paintBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      h.paint?.();
+    });
     controls.append(this.goBtn, this.wayBtn, this.continueBtn, this.leaveNowBtn, engineActions);
     this.engineCard.appendChild(controls);
     this.engineExtra.hidden = true;
@@ -736,7 +756,8 @@ export class Hud {
     this.doneBtn = button("Done", "Finish picking", h.doneSelecting, "chip text primary");
     this.groupRow.append(this.joinedBtn, this.doneBtn);
     this.leverList.hidden = true;
-    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.leverList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
+    this.reachList.hidden = true;
+    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.leverList, this.reachList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -748,11 +769,14 @@ export class Hud {
     this.depotExtra.hidden = true;
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
+    // (A metro stop's card: its line, shown through the ground for a moment. Main sets `onShowLine`.)
+    this.depotLineBtn = button("Show the line", "Show the metro line under the town", () => this.onShowLine?.(), "chip text primary depot-line");
+    this.depotLineBtn.hidden = true;
     this.depotYard.hidden = true;
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.depotPower.hidden = true;
     this.root.appendChild(this.depotCard);
@@ -1866,6 +1890,12 @@ export class Hud {
     this.showBlockerBtn.setAttribute("aria-label", title);
   }
 
+  /** A breakdown crane could lift the train in the open engine's way off the line: Send the crane shows. */
+  setSendCrane(show: boolean): void {
+    if (this.sendCraneBtn.hidden === !show) return;
+    this.sendCraneBtn.hidden = !show;
+  }
+
   /**
    * The open engine's line has a train too many (`engineView`'s `crowded`): its Remove is marked as the quick fix the
    * status names ("…, or remove a train"). (Leaving the line wouldn't do: the train still stands on its one track.)
@@ -2014,6 +2044,7 @@ export class Hud {
     this.groupHint.hidden = true;
     this.groupRow.hidden = true;
     this.leverList.hidden = true;
+    this.reachList.hidden = true;
     this.pieceCard.classList.remove("group");
   }
 
@@ -2026,6 +2057,27 @@ export class Hud {
       ...(levers.length === 0 ? [el("div", "card-hint", "No points or signals near: put it by a junction")] : levers.map((l, i) => button(l.label, l.title, () => onThrow(i), "chip text lever-chip"))),
     );
     this.leverList.hidden = false;
+  }
+
+  /**
+   * On a signal box's card, with the Telegraph: the trains in its reach (`trains`, nearest first), each a row with its
+   * name and Call home (`onCall` with its index); `called` marks those already on their way. Built on the tap and after
+   * each call, never per frame. An empty list says none are near.
+   */
+  showReachTrains(trains: readonly { name: string; called: boolean }[], onCall: (i: number) => void): void {
+    const head = el("div", "reach-head", `🔔 Trains in reach (${trains.length})`);
+    const rows =
+      trains.length === 0
+        ? [el("div", "card-hint", "No trains near: wire telegraph poles along the line to see further")]
+        : trains.map((t, i) => {
+            const row = el("div", "reach-row");
+            const call = button(t.called ? "Coming home" : "Call home", `Call ${t.name} home`, () => onCall(i), "chip text reach-call");
+            call.disabled = t.called;
+            row.append(el("span", "reach-name", `🚂 ${t.name}`), call);
+            return row;
+          });
+    this.reachList.replaceChildren(head, ...rows);
+    this.reachList.hidden = false;
   }
 
   /** The card while picking several pieces: how many, what a tap and a drag do, and what can be done to them all. */
@@ -2182,6 +2234,19 @@ export class Hud {
     );
   }
 
+  /**
+   * "Crash reports: on/off" in the menu (the build can send them: see feedback/crash.ts), after Copy map. A tap
+   * switches them, and the item says which.
+   */
+  addCrashItem(on: () => boolean, toggle: () => void): void {
+    const label = () => `Crash reports: ${on() ? "on" : "off"}`;
+    const item = button(label(), "If the game crashes, send us the error, your browser and screen size: never your map or save", () => {
+      toggle();
+      item.textContent = label();
+    }, "menu-item crash-item");
+    this.copyMapItem.after(item);
+  }
+
   /** Offer "Help improve Woodrail" in the menu (the build can send play stats: see stats/stats.ts). */
   addStatsItem(onTap: () => void): void {
     this.linesItem.after(
@@ -2264,6 +2329,7 @@ export class Hud {
   showDepotCard(title: string): void {
     this.hideCards();
     this.depotTitle.textContent = title;
+    this.depotLineBtn.hidden = true;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
     this.depotYard.hidden = true;
@@ -2420,6 +2486,14 @@ export class Hud {
 
   /** Called when a card changes size (as it opens, as its rows fill in): the view may make room for what it's for. */
   onCardResize: (() => void) | null = null;
+  /** The depot card's Show the line (a metro stop's): main draws its line through the ground. */
+  onShowLine: (() => void) | null = null;
+  readonly depotLineBtn: HTMLButtonElement;
+
+  /** The depot card's Show the line button: shown on a metro stop's card. */
+  setDepotLine(shown: boolean): void {
+    this.depotLineBtn.hidden = !shown;
+  }
 
   /** Where the open card for one thing (an engine, a car, a piece, a depot) is on screen, or null. */
   openCardRect(): DOMRect | null {

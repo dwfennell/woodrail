@@ -2,10 +2,14 @@ import type { Object3D } from "three";
 import { lerpAngle } from "../game/camera-director";
 import { easeInOutCubic, easeOutCubic, Spring } from "../lib/tween";
 
-/** A short cosmetic animation. `update` returns false when finished; `dispose` runs exactly once afterwards. */
+/**
+ * A short cosmetic animation. `update` returns false when finished; `dispose` runs exactly once afterwards. `shadows:
+ * false`: it moves nothing that casts a shadow (draw's ghosts), so frames are drawn for it without the shadow pass.
+ */
 export interface Flourish {
   update(dt: number): boolean;
   dispose(): void;
+  shadows?: boolean;
 }
 
 /** Runs flourishes each frame. Layout state never waits on them: they only move stand-in meshes. */
@@ -41,6 +45,13 @@ export class Flourishes {
 
   get count(): number {
     return this.list.length;
+  }
+
+  /** How many running move something that casts a shadow (all but those with `shadows: false`). */
+  get casting(): number {
+    let n = 0;
+    for (const f of this.list) if (f.shadows !== false) n++;
+    return n;
   }
 }
 

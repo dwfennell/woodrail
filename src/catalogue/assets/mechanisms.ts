@@ -1022,6 +1022,24 @@ const mechanisms: Asset[] = [
     },
   },
   {
+    id: "mech-telegraph-pole",
+    name: "Telegraph pole",
+    trayLabel: "Telegraph pole",
+    category: "Mechanisms",
+    tags: ["telegraph", "pole", "wires", "lineside", "signal box"],
+    notes: "A tall brown pole with two white cross-arms of insulators. In Game mode (the Telegraph), a chain of them carries a signal box's reach along the line: tap the box to work the points and signals by any pole wired to it.",
+    build: (k) => {
+      const wood = k.paint("#7a5a3a");
+      const g = k.group(k.box(k.paint(DARK_STONE), 9, 3, 9, 1.2), k.cyl(wood, 2, 86, 0, 1.5, 0, 1.8, 10));
+      for (const [y, w] of [[78, 30], [68, 24]] as const) {
+        g.add(k.box(k.paint(TOY.white), 3, 3, w, 1, 0, y, 0));
+        for (const z of [-w / 2 + 3, -w / 6, w / 6, w / 2 - 3]) if (Math.abs(z) > 3) g.add(k.cyl(k.paint(TOY.teal), 1.3, 4, 0, y + 3, z, 1.3, 8));
+      }
+      g.add(k.ball(wood, 2.2, 0, 88, 0));
+      return g;
+    },
+  },
+  {
     id: "mech-ticket-barrier",
     name: "Ticket barriers",
     category: "Mechanisms",

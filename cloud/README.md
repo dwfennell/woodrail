@@ -50,9 +50,21 @@ From the repo root, `npm run e2e:cloud` runs two browser devices against a local
 ci` first. To play against the local Worker, start the dev server with `VITE_CLOUD_URL=http://localhost:8787 npm run
 dev`.
 
-## Deploy (by hand, once there's a token)
+## Deploy
 
-Nothing deploys the Worker from CI. These are the steps to run once:
+Once it's set up, a push to `main` that changes `cloud/` deploys the Worker: **Deploy cloud Worker**
+(`.github/workflows/deploy-worker.yml`) runs the typecheck and tests, `wrangler deploy`, and checks it answers. To deploy
+without a change: **Actions → Deploy cloud Worker → Run workflow**. A deploy leaves the secrets alone; setting
+or changing one is still by hand (`npx wrangler secret put …`).
+
+For CI, once: make a second API token, from the "Create Custom Token" button, with only **Account → Workers Scripts:
+Edit** on the account. In the GitHub repo, **Settings → Secrets and variables → Actions**, add it as the secret
+`CLOUDFLARE_API_TOKEN`, and the account ID (dash.cloudflare.com → Workers & Pages, on the right) as the variable
+`CLOUDFLARE_ACCOUNT_ID`. CI never needs R2 or Analytics rights: the bucket and dataset already exist.
+
+### First setup (by hand)
+
+These are the steps to run once:
 
 1. Make an API token at dash.cloudflare.com → My Profile → API Tokens, from the "Edit Cloudflare Workers" template,
    with R2 edit rights added. Then:

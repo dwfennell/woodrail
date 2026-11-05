@@ -9,6 +9,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { quiet, shot } from "../../scripts/e2e/lib/shot.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/copy-map";
@@ -65,7 +66,10 @@ try {
   const before = await railway(a);
   check("the player's railway has the added piece", added >= 0 && before.pieces.includes("straight-216@1234,-987"), `${before.count} pieces`);
 
-  // 2. ☰ → Copy map for a bug report.
+  // 2. ☰ → Copy map for a bug report. (First the page's start-up tray pictures drawn, so the picture of the toast is
+  // taken at once: taken while they were, a screenshot waited 23–30 s under load for a frame, and on a slower box ran
+  // out after every check had passed. scripts/e2e/lib/shot.mjs.)
+  await quiet(a);
   await a.evaluate(() => document.querySelector('button[aria-label="Menu"]').click());
   await a.waitForTimeout(300);
   const item = await a.evaluate(() => {
@@ -78,7 +82,7 @@ try {
   await a.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("Copied"), null, { timeout: 10000 }).catch(() => {});
   const toast = await a.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
   check("the toast says Copied — paste it to us", toast.includes("Copied — paste it to us"), JSON.stringify(toast));
-  await a.screenshot({ path: `${OUT}/1-copied.png` }).catch(() => {});
+  await shot(a, `${OUT}/1-copied.png`);
   const text = await a.evaluate(() => navigator.clipboard.readText());
   check("the clipboard has the map", text.startsWith("woodrail-map:1:"), `${text.length} chars`);
 
@@ -90,7 +94,8 @@ try {
   check("it opens in Game mode with the same railway", after.pieces === before.pieces, `${after.count} pieces (was ${before.count})`);
   check("and the same coins", after.coins === 4321, `${after.coins}`);
   check("the link's #load= is cleared", await c.evaluate(() => !location.hash.startsWith("#load=")));
-  await c.screenshot({ path: `${OUT}/2-loaded.png` }).catch(() => {});
+  await quiet(c);
+  await shot(c, `${OUT}/2-loaded.png`);
 } catch (e) {
   failures++;
   console.log("FAIL", e.message);

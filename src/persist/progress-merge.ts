@@ -1,4 +1,4 @@
-import { isTaken, TAKEN_KEPT, type ProgressData, type Taken } from "../game/progress";
+import { isTaken, regated, REGATES, TAKEN_KEPT, type ProgressData, type Taken } from "../game/progress";
 import { costOf, type ResearchData } from "../game/research";
 import type { Merger } from "./cloud";
 
@@ -25,7 +25,8 @@ export function mergeProgress(base: ProgressData | undefined, local: ProgressDat
   const remote = undoTakes(theirs, bothTook(b, local, theirs));
   const latest = later === "local" ? local : remote;
   const sum = (bn: number | undefined, ln: number | undefined, rn: number | undefined) => Math.max(0, (bn ?? 0) + ((ln ?? 0) - (bn ?? 0)) + ((rn ?? 0) - (bn ?? 0)));
-  const learned = [...new Set([...local.learned, ...remote.learned])];
+  // (Each side's moves since it was written first: `regated`, as a load does.)
+  const learned = [...new Set([...local.learned, ...regated(local), ...remote.learned, ...regated(remote)])];
   return {
     owned: sumMaps(b.owned, local.owned, remote.owned),
     learned,
@@ -41,6 +42,7 @@ export function mergeProgress(base: ProgressData | undefined, local: ProgressDat
     counts: sumMaps(b.counts ?? [], local.counts ?? [], remote.counts ?? []),
     research: mergeResearch(local.research, remote.research, new Set(learned), base?.research),
     ...mergeTaken(local, theirs),
+    regates: REGATES,
   };
 }
 
@@ -211,7 +213,14 @@ export function mergeResearch(local: ResearchData | undefined, remote: ResearchD
     }
   }
   if (current !== null) held.delete(current);
-  return { current, next, got, study, ...(held.size > 0 ? { held: [...held] } : {}) };
+  // Goods collected ahead (Reading room), by research: the most either side has (the same goods seen twice), none for
+  // the one under way (they went into it as it started) or one learned.
+  const early = new Map<string, Bag>();
+  for (const [id, b] of [...(local.early ?? []), ...(remote.early ?? [])]) {
+    if (learned.has(id) || id === current) continue;
+    early.set(id, early.has(id) ? maxBags(early.get(id)!, b) : [...b]);
+  }
+  return { current, next, got, study, ...(held.size > 0 ? { held: [...held] } : {}), ...(early.size > 0 ? { early: [...early] } : {}) };
 }
 
 /**
