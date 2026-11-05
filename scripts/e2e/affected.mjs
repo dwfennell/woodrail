@@ -94,6 +94,7 @@ export const RULES = [
   [
     ["src/game/metro.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/progress.ts", "src/game/interaction.ts", "src/economy/economy.ts", "src/landscape/clearance.ts", "src/landscape/trees-aside.ts", "src/track/kits.ts", "src/render/props/library.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts"],
     ["metro"],
+  ],
   // Tech tree 5: the viaduct, the lift bridge, Lift and load, the sleeper and observation car, the observatory.
   [
     ["src/sim/sim.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/track/constants.ts", "src/track/overlap.ts", "src/landscape/support.ts", "src/landscape/clearance.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/game/upgrades.ts", "src/game/lift-bridges.ts", "src/game/engine-status.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/kit-motions.ts", "src/render/depot-view.ts", "src/render/train-models.ts", "src/catalogue/assets/observatory.ts", "src/catalogue/assets/observation-car.ts", "src/catalogue/assets/mechanisms.ts", "src/ui/tray-catalogue.ts"],
