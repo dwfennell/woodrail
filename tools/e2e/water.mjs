@@ -138,9 +138,12 @@ const dragOut = async (key, v) => {
   return true;
 };
 const pieceIds = (type) => p.evaluate((type) => [...window.woodrail.layout.pieceIds()].filter((id) => window.woodrail.layout.getPiece(id).type === type), type);
+/** Eighth turns given to the tray's next piece so far (it keeps them from one drag to the next). */
+let trayTurns = 0;
 /** The tray's ↻ Turn chip tapped `n` times (an eighth of a turn each: the next piece out turns with it). */
 const turnTray = async (n) => {
   for (let k = 0; k < n; k++) {
+    trayTurns = (trayTurns + 1) % 8;
     const at = await p.evaluate(() => {
       const e = [...document.querySelectorAll(".tray button.chip")].find((b) => b.textContent.includes("↻"));
       if (!e) return null;
@@ -467,7 +470,8 @@ if (sea) {
   if (slipAt) {
     await openShelf("Industries", "Water");
     // (The tray's next piece faces half way round: eighth turns to bring it to face the sea.)
-    const turns = (((Math.round((slipAt.heading - Math.PI) / (Math.PI / 4)) % 8) + 8) % 8);
+    const want = (((Math.round((slipAt.heading - Math.PI) / (Math.PI / 4)) % 8) + 8) % 8);
+    const turns = (want - trayTurns + 8) % 8;
     await turnTray(turns);
     await look(slipAt.mid, 1500);
     await dragOut("piece:kit-ferry-slip", slipAt.mid);
