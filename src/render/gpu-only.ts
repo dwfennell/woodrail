@@ -37,12 +37,15 @@ function emptyLike(array: ArrayLike<number>): ArrayLike<number> {
 function freeAfterUpload(this: BufferAttribute | InterleavedBuffer): void {
   const array = this.array as ArrayLike<number> & { byteLength: number };
   if (array.length === 0) {
-    if (this.count > 0) console.error("Woodrail: geometry uploaded again after its data was freed (see gpu-only.ts): it draws nothing");
+    if (this.count > 0) console.error("Woodrail: geometry uploaded again after its data was freed (see gpu-only.ts): it draws nothing", markedAt.get(this) ?? "");
     return;
   }
   gpuOnlyFreedBytes += array.byteLength;
   (this as { array: ArrayLike<number> }).array = emptyLike(array);
 }
+
+/** Dev builds: where each attribute was marked, for the error above. */
+const markedAt = new WeakMap<object, string>();
 
 function markAttribute(a: BufferAttribute | InterleavedBufferAttribute | null | undefined): void {
   if (!a) return;
@@ -50,6 +53,7 @@ function markAttribute(a: BufferAttribute | InterleavedBufferAttribute | null | 
   // Only static data: anything updated in place (instances, dynamic buffers) needs its array.
   if (target.usage !== StaticDrawUsage) return;
   target.onUploadCallback = freeAfterUpload;
+  if (import.meta.env.DEV) markedAt.set(target, new Error("marked").stack ?? "");
 }
 
 /**
@@ -78,14 +82,13 @@ export function gpuOnlyGeometry(g: BufferGeometry, opts: GpuOnlyOptions = {}): v
 
 /**
  * Mark every mesh's geometry under `root` as only drawn (see above), except geometry shared with something else
- * (`userData.sharedGeometry`, as models' copies are) unless `shared` says the sharing is with other drawn copies only.
+ * (`userData.sharedGeometry`: models' copies, caches' tiles), whose life isn't the mesh's.
  */
-export function gpuOnly(root: Object3D, opts: GpuOnlyOptions & { shared?: boolean } = {}): void {
+export function gpuOnly(root: Object3D, opts: GpuOnlyOptions = {}): void {
   if (!enabled) return;
   root.traverse((o) => {
     const m = o as Mesh;
-    if (!m.isMesh || !m.geometry) return;
-    if (m.userData.sharedGeometry && !opts.shared) return;
+    if (!m.isMesh || !m.geometry || m.userData.sharedGeometry) return;
     gpuOnlyGeometry(m.geometry, opts);
   });
 }

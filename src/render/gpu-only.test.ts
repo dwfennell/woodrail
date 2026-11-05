@@ -51,8 +51,6 @@ describe("gpuOnly", () => {
     expect(dynamic.getAttribute("position").array.length).toBeGreaterThan(0);
     expect(shared.geometry.userData.gpuOnly).toBeUndefined();
     expect(own.geometry.userData.gpuOnly).toBe(true);
-    gpuOnly(root, { shared: true });
-    expect(shared.geometry.userData.gpuOnly).toBe(true);
   });
 });
 

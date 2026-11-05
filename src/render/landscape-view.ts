@@ -539,7 +539,7 @@ export class LandscapeView {
     const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
     const group = buildRoadTiles(grids, roadMaterials(this.mats), this.roadTiles);
     group.name = "roads";
-    gpuOnly(group, { shared: true });
+    gpuOnly(group);
     return group;
   }
 
@@ -567,8 +567,8 @@ export class LandscapeView {
     group.add(buildFeltGround(this.mats, shown, grid.plots, this.feltHoles));
     // Felt rivers, roads and lanes in tiles, so the camera skips those out of view.
     group.add(this.feltOf("river"), this.feltOf("roads"), this.roadsGroup());
-    // (The felt tiles' cache shares their geometry only with the felt drawn.)
-    gpuOnly(group, { shared: true });
+    // (Not the felt's and roads' tiles: their cache's, and a build made ahead frees ones still drawn, so they're kept.)
+    gpuOnly(group);
     return group;
   }
 
@@ -646,7 +646,7 @@ export class LandscapeView {
     for (const part of this.backdrop!.parts) group.add(buildScenery([part], this.mats, this.landRect));
     const sea = this.seaPlane();
     if (sea) group.add(sea);
-    gpuOnly(group, { shared: true });
+    gpuOnly(group);
     return group;
   }
 
