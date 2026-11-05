@@ -2588,7 +2588,15 @@ async function leaveNowWait(ctx, p) {
     const ids0 = [s.addPiece("straight-216", { x: 0, z: 0, heading: 0 }, 0, false)];
     for (const t of ["straight-216", "straight-216", "depot-forest", "straight-216", "straight-216", "straight-216"]) ids0.push(appendPiece(s, t, false, connectorRef(ids0[ids0.length - 1], 1)));
     const poses = ids0.map((id) => s.getPiece(id));
-    const g = await window.__openGround(poses.flatMap((q) => [0, 108, 216].map((d) => [q.pose.x + d * Math.cos(q.pose.heading), q.pose.z + d * Math.sin(q.pose.heading)])));
+    const run = poses.flatMap((q) => [0, 108, 216].map((d) => [q.pose.x + d * Math.cos(q.pose.heading), q.pose.z + d * Math.sin(q.pose.heading)]));
+    // (The forest's reach on squares of the land (its yard's middle and 240 mm round it on the yard's side): past the
+    // land's edge, on the table, there are none for trees, and it never works. After earlier groups the open ground
+    // found was past the edge: its rate 0, trees planted or not.)
+    const { yardMiddle } = await import("/src/game/industries.ts");
+    const ym0 = yardMiddle(poses[3].pose);
+    const reach = [[0, 0], [0, 120], [0, 240], [-240, 0], [240, 0], [-170, 170], [170, 170]].map(([dx, dz]) => [ym0.x + dx, ym0.z + dz]);
+    const squares = (x, z) => reach.every(([dx, dz]) => w.landscape.grid.cellAtWorld(x + dx, z + dz) !== -1);
+    const g = await window.__openGround(run, { ok: squares });
     if (!g) throw new Error("no open ground for the run");
     // Harness shortcut (setup, not what's tested): the run laid through the editor, as dropping the pieces would; the
     // train put down in code, as the tray would; the forest set to wait for a full load (its card's switch; e2e:touch
@@ -2600,7 +2608,6 @@ async function leaveNowWait(ctx, p) {
     // none there or a few: at rate 0 it gave nothing and the train ran on by; at 0.1 to 0.5 it made no log in the time.
     // One to a square, the squares in its reach (`resourceAt`'s, 250 mm of its yard's middle) past the yard's far side
     // first, then beyond its ends.)
-    const { yardMiddle } = await import("/src/game/industries.ts");
     const fp = w.layout.getPiece(ids[3]).pose;
     const ym = yardMiddle(fp);
     const [c, sn] = [Math.cos(fp.heading), Math.sin(fp.heading)];
@@ -2621,6 +2628,7 @@ async function leaveNowWait(ctx, p) {
         if (rank >= 0) cells.push({ x, z, rank });
       }
     const spots = cells.sort((a, b) => a.rank - b.rank).slice(0, 12).map(({ x, z }) => ({ x, z, heading: 0, y: 0 }));
+    if (spots.length < 10) throw new Error(`only ${spots.length} squares round the forest for its trees`);
     // (Through the editor's props step, as a tree dropped from the tray is: the game recounts industries' speeds then.)
     const trees = [];
     w.editor().editProps({
