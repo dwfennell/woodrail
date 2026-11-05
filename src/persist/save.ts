@@ -1,36 +1,21 @@
-import { z } from "zod";
+import { saveSchemas } from "./schemas";
+import { MAX_RIDERS, MAX_SAVED_SPEED, SAVE_VERSION } from "./save-limits";
 import { err, ok, type Result } from "../lib/result";
 import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, INDUSTRY_ROLE, RUIN_STUB, STATION_CRANE_AT, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
-import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
+import { CAR_LOOKS, Sim } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, pilesOf, RECIPES, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
-/** The biggest pile any depot keeps (a warehouse's). */
-const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
-/** The fastest a train is saved going (mm/s): well over any engine's top speed. */
-const MAX_SAVED_SPEED = 1000;
-/** Most people saved riding one coach, or waiting at one station. */
-const MAX_RIDERS = 24;
-import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type SignalStyle, type Pose, type RelaxOptions } from "../track";
+import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, pieceOfRef, relaxJoints, pathLength, angleDiff, isLift, type SignalStyle, type Pose, type RelaxOptions } from "../track";
 import { joinSavedLine, LINE_COLOURS, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
-import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
+import { deserializeLandscape, serializeLandscape } from "./landscape-data";
 import { FEAT_NONE, FEAT_RUIN } from "../landscape";
 
-/**
- * Save format, version 15 (town buildings record the level they went up at, `Building.born`, and only some houses rise:
- * an older save's town storeys are dropped as it loads and given again by the new rule, `TOWN_STOREYS_FROM`; 14: car
- * ids and the sim's id counters, so ids last across a load: older saves load with fresh ids, as before; 13: the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
- * 12: research, the school a depot beside a town, saved with its town's id; 11: town
- * buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes with a colour and a name). Plain JSON validated with Zod; only this module
- * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
- * never regenerates it. No backward compatibility until the game reaches v1: a save older than `MIGRATES_FROM` is
- * turned away (`OLDER_SAVE`), and the game starts afresh.
- */
-export const SAVE_VERSION = 15;
+export { SAVE_VERSION } from "./save-limits";
 
 /**
  * Saves from before this version stacked nearly every house of a grown town: their town houses' storeys are dropped as
@@ -47,173 +32,8 @@ export const MIGRATES_FROM = 12;
 /** The error an older save gets (the title says so kindly). */
 export const OLDER_SAVE = "older version";
 
-const pieceSchema = z.object({
-  id: z.number().int().positive(),
-  type: z.enum(PIECE_TYPES as unknown as [PieceTypeId, ...PieceTypeId[]]),
-  x: z.number().finite(),
-  z: z.number().finite(),
-  heading: z.number().finite(),
-  y: z.number().finite(),
-  flipped: z.boolean(),
-});
-
-const trainSchema = z.object({
-  cars: z
-    .array(
-      z.object({
-        /** Its id (v14; optional: older saves, whose cars get fresh ids). */
-        id: z.number().int().positive().optional(),
-        kind: z.enum(CAR_KINDS as unknown as [CarKind, ...CarKind[]]),
-        facing: z.union([z.literal(1), z.literal(-1)]),
-        lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
-        look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
-        /** An engine's name (its plate and card title; optional: older saves' engines are given one as they load). */
-        name: z.string().min(1).max(64).optional(),
-        cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(MAX_WAGON_CAPACITY) }).optional(),
-        /** Goods a wagon is switched off for on its card (optional: absent, an older save's, it takes all it can carry). */
-        off: z.array(z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]])).max(CARGO_KINDS.length).optional(),
-        /** The harbour (economy depot id) its cargo was bought at: not unloaded back there. */
-        landedFrom: z.number().int().min(0).optional(),
-        /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
-        riders: z.object({ count: z.number().int().min(1).max(MAX_RIDERS), from: z.number().int().min(0) }).optional(),
-        /** The line an engine runs (its id in `lines`), and the stop it heads for. */
-        // (`joined`: when it came to its line, a count, the newest being the one held when there's no room; `held`: its
-        // line had no room for it. Optional: older saves work them out afresh.)
-        /** `via`: via points passed on the way to its next stop (routing spec §3.5). */
-        line: z.object({ id: z.number().int().min(1), next: z.number().int().min(0), joined: z.number().int().min(0).optional(), held: z.literal(true).optional(), via: z.number().int().min(1).optional() }).optional(),
-      }),
-    )
-    .min(1),
-  lead: z.object({
-    pieceId: z.number().int().positive(),
-    pathIndex: z.number().int().min(0),
-    reversed: z.boolean(),
-    s: z.number().finite(),
-  }),
-  /** How fast it was going (mm/s; optional: older saves, and trains standing, load at rest). */
-  speed: z.number().min(0).max(MAX_SAVED_SPEED).optional(),
-});
-
-const saveSchema = z.object({
-  version: z.literal(SAVE_VERSION),
-  landscape: landscapeSchema,
-  towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
-  pieces: z.array(pieceSchema),
-  switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])),
-  /**
-   * The joints, each as two ends (piece id, connector index): loaded joined as they were, even one joint play took a
-   * little past the joint tolerance (optional: older saves are seated afresh, by the tolerance alone).
-   */
-  joints: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])).optional(),
-  /** Pinned switches, by piece id: routed engines don't throw them (optional: older saves load with none). */
-  pinned: z.array(z.number().int().positive()).optional(),
-  /**
-   * Signal marks on joints (signals spec §9), each as the joint end it guards from (piece id, connector index), its
-   * style and whether it's held at red (optional: older saves have none).
-   */
-  signals: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.enum(["plain", "semaphore", "colour-light"]), z.boolean()])).optional(),
-  /**
-   * Points' defaults (the way the player last set them by hand, which routes put them back to), only where one differs
-   * from how the switch is set (optional: older saves, and points not named, default to how they're set).
-   */
-  switchDefaults: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])).optional(),
-  /**
-   * 3: a wye's switch state is its three levers, a bit for each corner (#15). Missing: a save from before, its wyes'
-   * one lever setting every corner alike (`cornersFromOneLever`).
-   */
-  wyeLevers: z.literal(3).optional(),
-  trains: z.array(trainSchema),
-  /** The sim's next car and train ids (v14; optional: older saves start afresh). */
-  ids: z.object({ car: z.number().int().positive(), train: z.number().int().positive() }).optional(),
-  /** Economy depots, in id order: the piece each works on and what it does. */
-  depots: z.array(
-    z.object({
-      id: z.number().int().min(0),
-      pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", ...KIT_DEPOT_ROLES]),
-      townId: z.number().int().min(-1),
-      auto: z.boolean(),
-      waitFull: z.boolean(),
-      /** A workshop that takes all the planks trains bring, or a school set to Research first (optional: absent, it shares with towns further on). */
-      takesAll: z.literal(true).optional(),
-      /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
-      piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_KINDS.length),
-      timer: z.number().int().min(0),
-      /** People waiting at a town's station. */
-      waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
-      /** A harbour's dock sheds. */
-      sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
-      /**
-       * A warehouse's listed goods and what it lets trains do with each (`StoreMode`), and with goods not listed
-       * (`others`). Optional: absent (saves from before them, and a warehouse never set), it takes and gives everything.
-       */
-      modes: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.enum(STORE_MODES as [StoreMode, ...StoreMode[]])).optional(),
-      others: z.enum(STORE_MODES as [StoreMode, ...StoreMode[]]).optional(),
-      /**
-       * A workshop's keep amounts set on its card, by kind (`DepotState.keeps`). Optional: absent (older saves, and a
-       * workshop never set), the game's own amounts. No new save version: it's simply missing from an older save.
-       */
-      keeps: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.number().int().min(0).max(MAX_PILE)).optional(),
-      /** Of its piles, what's landed there for trains to take away (a harbour's bought goods), in cargo order. */
-      landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_KINDS.length).optional(),
-      /** A station's van yard (roads spec D5): goods waiting for its delivery van (or riding it), by kind. */
-      vanYard: z.record(z.string(), z.number().int().min(0).max(MAX_PILE)).optional(),
-      /**
-       * An industry's further tracks (depot tracks): the pieces under its crane on each (`roads`), the rest of those
-       * tracks (`ends`), and the ladder joining them to the line. Optional: absent (older saves too), it has one track.
-       */
-      tracks: z.object({ roads: z.array(z.number().int().positive()).max(2), ends: z.array(z.number().int().positive()).max(8), ladder: z.array(z.number().int().positive()).max(64) }).optional(),
-    }),
-  ),
-  /** Plank bundles delivered, by town id. */
-  delivered: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])),
-  /** Everything delivered to each town, by kind (Game mode's town baskets). Older saves: planks only, in `delivered`. */
-  deliveredGoods: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
-  /** What each town received while joined by road to another (roads spec D2), by kind. Absent: none. */
-  roadGot: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
-  /** Lines: a colour, a name, and stops (depot indices in `depots`, what's done there, wait there to fill). */
-  lines: z
-    .array(
-      z.object({
-        id: z.number().int().min(1),
-        colour: z.string().max(16),
-        name: z.string().max(40),
-        /** A stop's 4th item, its via points (piece ids passed on the way to the next stop): left out where it has none. */
-        stops: z
-          .array(
-            z.union([
-              z.tuple([z.number().int().min(0), z.enum(["auto", "both", "drop", "pick"]), z.boolean()]),
-              z.tuple([z.number().int().min(0), z.enum(["auto", "both", "drop", "pick"]), z.boolean(), z.array(z.number().int().min(0)).max(MAX_VIAS)]),
-            ]),
-          )
-          .min(1),
-        /** Its player has been told it has no room for a train put on it (said once a line). */
-        toldFull: z.literal(true).optional(),
-      }),
-    )
-    .optional(),
-  /** Placed catalogue models (optional: saves from before props load with none). */
-  props: z
-    .array(
-      z.object({
-        id: z.number().int().positive(),
-        asset: z.string().max(64),
-        x: z.number().finite(),
-        z: z.number().finite(),
-        heading: z.number().finite(),
-        y: z.number().finite(),
-        building: z.number().int().min(0).optional(),
-        town: z.number().int().min(0).optional(),
-        variant: z.number().int().min(0).max(8).optional(),
-        scale: z.number().min(0.5).max(1).optional(),
-        /** A town house's storeys more than its model (its town grew: `props/storeys.ts`). */
-        storeys: z.number().int().min(0).max(8).optional(),
-      }),
-    )
-    .optional(),
-});
-
-export type SaveData = z.infer<typeof saveSchema>;
+export type { SaveData } from "./save-schema";
+import type { SaveData, SessionData } from "./save-schema";
 
 /** A workshop's keep amounts for its save: only those set (none: nothing). */
 function keepsOf(d: DepotState): { keeps?: Partial<Record<CargoKind, number>> } {
@@ -231,15 +51,6 @@ function keepsOf(d: DepotState): { keeps?: Partial<Record<CargoKind, number>> } 
 
 /** A depot's landed goods, for its save entry (none: nothing). */
 /** A warehouse's store settings for its save: only what isn't the default (nothing listed, everything taken and given). */
-/** An industry's further tracks as saved (depot tracks): their pieces still on the map; nothing with none. */
-function tracksSaved(world: World, depotId: number): { tracks?: { roads: number[]; ends: number[]; ladder: number[] } } {
-  const t = world.economy.tracksOf(depotId);
-  if (!t) return {};
-  const on = (id: number) => !!world.layout.getPiece(id);
-  const roads = t.roads.map((r) => r.pieceId).filter(on);
-  return roads.length > 0 ? { tracks: { roads, ends: t.ends.filter(on), ladder: t.ladder.filter(on) } } : {};
-}
-
 function storeOf(d: DepotState): { modes?: Partial<Record<CargoKind, StoreMode>>; others?: StoreMode } {
   const modes: Partial<Record<CargoKind, StoreMode>> = {};
   let any = false;
@@ -259,6 +70,15 @@ function landedOf(world: World, depotId: number): { landed?: number[] } {
 }
 
 /** A station's van yard (roads spec D5), its goods riding the van counted too (they're back on the yard on loading). */
+/** An industry's further tracks as saved (depot tracks): their pieces still on the map; nothing with none. */
+function tracksSaved(world: World, depotId: number): { tracks?: { roads: number[]; ends: number[]; ladder: number[] } } {
+  const t = world.economy.tracksOf(depotId);
+  if (!t) return {};
+  const on = (id: number) => !!world.layout.getPiece(id);
+  const roads = t.roads.map((r) => r.pieceId).filter(on);
+  return roads.length > 0 ? { tracks: { roads, ends: t.ends.filter(on), ladder: t.ladder.filter(on) } } : {};
+}
+
 function vanYardOf(world: World, depotId: number): { vanYard?: Record<string, number> } {
   const y = world.economy.vanYard.get(depotId);
   return y && Object.values(y).some((n) => (n ?? 0) > 0) ? { vanYard: { ...y } as Record<string, number> } : {};
@@ -327,6 +147,7 @@ export function serializeWorld(world: World): SaveData {
           lever: c.lever,
           ...(look !== "classic" ? { look } : {}),
           ...(c.kind === "engine" && sim.nameOf(c.id) ? { name: sim.nameOf(c.id) } : {}),
+          ...(c.kind === "engine" && sim.liveryOf(c.id) ? { livery: sim.liveryOf(c.id) } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
@@ -355,6 +176,7 @@ export function serializeWorld(world: World): SaveData {
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
+    ...(world.economy.placePlans.size > 0 ? { placePlans: [...world.economy.placePlans].map(([townId, p]) => [townId, p.id, { ...p.got }] as [number, string, Record<string, number>]) } : {}),
     ...(lines.length > 0 ? { lines } : {}),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
@@ -425,7 +247,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   if (typeof version === "number" && version < MIGRATES_FROM) return err(OLDER_SAVE);
   const oldStoreys = typeof version === "number" && version < TOWN_STOREYS_FROM;
   if (typeof version === "number" && version < SAVE_VERSION) data = { ...(data as object), version: SAVE_VERSION };
-  const parsed = saveSchema.safeParse(data);
+  const parsed = saveSchemas().saveSchema.safeParse(data);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return err(`invalid save: ${issue.path.join(".")} — ${issue.message}`);
@@ -569,6 +391,12 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.deliveredGoods.set(townId, goods);
   }
+  for (const [townId, id, bag] of save.placePlans ?? []) {
+    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    const got: Bag = {};
+    for (const k of CARGO_KINDS) if (bag[k]) got[k] = bag[k];
+    economy.placePlans.set(townId, { id, got });
+  }
   for (const [townId, bag] of save.roadGot ?? []) {
     if (!landscape.towns.some((t) => t.id === townId)) continue;
     const goods: Bag = {};
@@ -600,6 +428,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
       const name = t.cars[i].name;
       if (car.kind === "engine" && name) sim.setName(car.id, name);
+      const livery = t.cars[i].livery;
+      if (car.kind === "engine" && livery) sim.setLivery(car.id, livery);
       const on = t.cars[i].line;
       if (car.kind === "engine" && on) {
         joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next, on.via);
@@ -800,32 +630,7 @@ export function loadProgress(): unknown {
   }
 }
 
-/**
- * What goes on beside a mode's railway, saved with it (not in the save format: nothing in the world depends on it): the
- * game's clock (seconds played, the Journal's times are on it), whether it was paused, and the Journal.
- */
-const sessionEntry = z.object({
-  kind: z.enum(["event", "milestone"]),
-  text: z.string().max(2000),
-  place: z.object({ x: z.number().finite(), z: z.number().finite(), points: z.array(z.object({ x: z.number().finite(), z: z.number().finite() })).max(64).optional() }).optional(),
-  time: z.number().finite(),
-  key: z.string().max(500).optional(),
-  count: z.number().int().min(1),
-  qty: z.number().finite(),
-  seq: z.number().int().min(0),
-});
-const sessionJournal = z.object({
-  entries: z.array(sessionEntry).max(JOURNAL_CAP),
-  seq: z.number().int().min(0),
-  readSeq: z.number().int().min(0),
-});
-const sessionSchema = z.object({
-  clock: z.number().min(0).finite(),
-  paused: z.boolean(),
-  journal: sessionJournal,
-});
-
-export type SessionData = z.infer<typeof sessionSchema>;
+export type { SessionData } from "./save-schema";
 
 const sessionKey = (mode: GameMode): string => `${STORAGE_KEYS[mode]}.session`;
 
@@ -843,18 +648,19 @@ export function loadSession(mode: GameMode): SessionData | null {
     const raw = localStorage.getItem(sessionKey(mode));
     if (raw === null) return null;
     const data: unknown = JSON.parse(raw);
+    const { sessionSchema, sessionHead, sessionEntry, sessionCounts } = saveSchemas();
     const parsed = sessionSchema.safeParse(data);
     if (parsed.success) return parsed.data;
     // Something in it doesn't read (a Journal entry, most likely): keep the clock and the pause if they do, with the
     // entries that read (QA: one bad entry lost the whole session, so the date went back to Jan 2000).
-    const head = z.object({ clock: sessionSchema.shape.clock, paused: sessionSchema.shape.paused }).safeParse(data);
+    const head = sessionHead.safeParse(data);
     if (!head.success) return null;
     const j = (data as { journal?: { entries?: unknown; seq?: unknown; readSeq?: unknown } }).journal;
     const entries = (Array.isArray(j?.entries) ? j.entries : []).flatMap((e) => {
       const r = sessionEntry.safeParse(e);
       return r.success ? [r.data] : [];
     });
-    const counts = z.object({ seq: sessionJournal.shape.seq, readSeq: sessionJournal.shape.readSeq }).safeParse(j);
+    const counts = sessionCounts.safeParse(j);
     const seq = counts.success ? counts.data.seq : entries.reduce((m, e) => Math.max(m, e.seq), 0);
     return { ...head.data, journal: { entries: entries.slice(-JOURNAL_CAP), seq, readSeq: counts.success ? counts.data.readSeq : seq } };
   } catch {

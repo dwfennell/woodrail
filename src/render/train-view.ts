@@ -6,6 +6,8 @@ import { NamePlates } from "./name-plates";
 import { buildCarModel, carVariant, disposeObject, WHEEL_RADIUS, type CarModel } from "./train-models";
 
 interface CarEntry {
+  /** The livery it was built in ("": as it came). */
+  livery: string;
   model: CarModel;
   lastX: number;
   lastZ: number;
@@ -60,6 +62,8 @@ export class TrainView {
    * Cheap when no crane is at work (one size check).
    */
   hoistOf: (carId: number) => number = () => 0;
+  /** Each engine's livery from the paint shop (see `Sim.liveryOf`; null: as it came). */
+  liveryOf: (carId: number) => { id: string; body: string; trim: string } | null = () => null;
   /** Each engine's name, painted on its plates (see `Sim.nameOf`). */
   nameOf: (carId: number) => string = () => "";
   private readonly plates = new NamePlates();
@@ -130,7 +134,8 @@ export class TrainView {
         const kind = CAR_KINDS[snap.kinds[i]];
         // The colour scheme follows the car (its id survives being picked up and put down), not the order models were built.
         const look = this.lookOf(id);
-        const model = buildCarModel(kind, this.mats, carVariant(kind, id), look);
+        const livery = kind === "engine" ? this.liveryOf(id) : null;
+        const model = buildCarModel(kind, this.mats, carVariant(kind, id), look, false, livery ?? undefined);
         if (kind === "engine") {
           const plates = this.plates.make(id, this.nameOf(id), look);
           if (plates) model.root.add(plates);
@@ -138,7 +143,7 @@ export class TrainView {
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
-        entry = { model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
+        entry = { livery: livery?.id ?? "", model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
         this.cars.set(id, entry);
       }
       const heading = snap.transforms[o + 3];
@@ -205,6 +210,20 @@ export class TrainView {
       }
     }
     return tipping;
+  }
+
+  /**
+   * Engines painted (`Sim.liveriesVersion`): a car built in another livery is taken down, and built again in its new
+   * one on the next update (one car's model, from the lacquer cache). Not per frame.
+   */
+  syncLiveries(): void {
+    for (const [id, entry] of this.cars) {
+      if ((this.liveryOf(id)?.id ?? "") === entry.livery) continue;
+      this.group.remove(entry.model.root);
+      disposeObject(entry.model.root);
+      this.plates.release(id);
+      this.cars.delete(id);
+    }
   }
 
   /** Engines' names changed (`Sim.namesVersion`): plates showing an old name are painted again. Not per frame. */

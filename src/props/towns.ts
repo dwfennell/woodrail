@@ -4,6 +4,7 @@ import { footprintOf, townLooks, type Look } from "../render/dressing/buildings"
 import { COLOR_VARIANTS } from "../render/props/library";
 import type { PropStore } from "./store";
 import { landmarkOf } from "../game/landmarks";
+import { isPlace, placeOf } from "../game/places";
 import { scaleOf } from "../catalogue/scale";
 import { chanceOf, extraStyles, jitterOf, SPIRE_LEVEL, storeysFor, STYLES_BY_LEVEL } from "./storeys";
 
@@ -47,6 +48,21 @@ const BOX: Record<string, readonly [number, number, number, number]> = {
   "bldg-police-station": [-30.5, 42.2, -25, 25],
   "bldg-town-hall": [-35, 39, -40, 40],
   "bldg-hospital": [-60, 40, -40, 40],
+  // Places and treats (game/places.ts): what a town builds from its card.
+  "bldg-station-clock": [-10.6, 10.6, -6.8, 6.7],
+  "bldg-castle-gate": [-54, 54, -66, 66],
+  "bldg-lighthouse": [-26, 31, -26, 26],
+  "scene-bandstand": [-39.5, 43, -39.5, 39.5],
+  "scene-bunting": [-46, 46, -6, 6],
+  "scene-lily-pond": [-34, 34, -23.8, 23.8],
+  "scene-beach": [-14, 64, -64, 64],
+  "scene-flagpole": [-8.9, 37, -9, 9],
+  "scene-market-stall": [-26, 26, -38, 14],
+  "scene-playground": [-60, 60, -35, 35],
+  "scene-fountain": [-30, 30, -30, 30],
+  "scene-clock-post": [-5.7, 5.7, -10, 10],
+  "scene-statue": [-14, 14, -14, 14],
+  "scene-picnic": [-20, 20, -16, 16],
 };
 
 /** A town model's box as modelled (see `BOX`), or undefined for one not used in towns. */
@@ -74,15 +90,18 @@ function lotRoom(squares: number): [number, number] {
  * doesn't fit, the largest that does, down to 1 (a landmark on a smaller lot than it wants is a little smaller there,
  * but itself). Null if it doesn't fit even at 1.
  */
-export function fitScale(asset: string, squares: number): number | null {
+export function fitScale(asset: string, squares: number, min = 1): number | null {
   const b = BOX[asset];
   if (!b) return null;
   const dims = [b[1] - b[0], b[3] - b[2]];
   const [short, long] = [Math.min(...dims), Math.max(...dims)];
   const [roomShort, roomLong] = lotRoom(squares);
   const k = Math.min(scaleOf(asset), roomShort / short, roomLong / long);
-  return k >= 1 ? k : null;
+  return k >= min ? k : null;
 }
+
+/** A place or treat (game/places.ts) may stand a little smaller than modelled where its lot is tight. */
+export const PLACE_MIN_FIT = 0.8;
 
 /** Does this model fit a lot of 1 square, 2 side by side, or 4 (2×2), lying along it, at the size it's drawn? */
 export function fitsLot(asset: string, squares: number): boolean {
@@ -169,17 +188,19 @@ export function townProps(land: Landscape, town: Town, dressing: TownDressing = 
     // (Half the new buildings of a bigger town in its new styles, so they show: one draw either way.)
     const extra = plain && fresh && level > 0 ? extraStyles(level, squares) : [];
     // A landmark: its own model, the first of its list that's in the catalogue and fits its lot (others stand in).
-    const mark = b.landmark ? landmarkOf(b.landmark) : undefined;
+    const mark = b.landmark ? (landmarkOf(b.landmark) ?? placeOf(b.landmark)) : undefined;
     // (On a smaller lot than it wants, still itself: drawn as large as fits there.)
     const list = mark && (squares === 4 ? [...(mark.models.four ?? []), ...mark.models.two] : squares === 2 ? mark.models.two : mark.models.one);
-    const marked = list?.find((a) => fitScale(a, squares) !== null);
+    // (A place may stand a little smaller than modelled: `PLACE_MIN_FIT`.)
+    const min = b.landmark && isPlace(b.landmark) ? PLACE_MIN_FIT : 1;
+    const marked = list?.find((a) => fitScale(a, squares, min) !== null);
     let asset = marked ?? (extra.length > 0 ? pickOf(own, extra, r()) : pick(own));
     // A city's church, on its first new house lot of two squares or more.
     if (!church && !mark && plain && fresh && squares >= 2) {
       asset = "bldg-church";
       church = true;
     }
-    const fit = marked ? fitScale(marked, squares)! / scaleOf(marked) : 1;
+    const fit = marked ? fitScale(marked, squares, min)! / scaleOf(marked) : 1;
     const variant = Math.floor(r() * (COLOR_VARIANTS + 1));
     return { asset, ...poseFor(land, town, b, looks[k], asset, fit), building: b.id, town: town.id, variant, ...(fit < 1 - 1e-6 ? { scale: fit } : {}) };
   });

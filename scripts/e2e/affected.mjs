@@ -21,9 +21,9 @@ export const SUITES = {
   names: { script: "e2e:names", minutes: 12 },
   cloud: { script: "e2e:cloud", groups: true, minutes: 20 },
   tutorial: { script: "e2e:tutorial" },
-  joints: { script: "e2e:joints" },
+  joints: { script: "e2e:joints", groups: true },
   ramps: { script: "e2e:ramps" },
-  tray: { script: "e2e:tray" },
+  tray: { script: "e2e:tray", groups: true },
   decks: { script: "e2e:decks" },
   kits: { script: "e2e:kits", minutes: 12 },
   "kits-game": { script: "e2e:kits-game" },
@@ -44,6 +44,7 @@ export const SUITES = {
   "train-parts": { script: "e2e:train-parts" },
   "train-summary": { script: "e2e:train-summary", minutes: 8 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
+  civic: { script: "e2e:civic", minutes: 5 },
   stickers: { script: "e2e:stickers" },
   stats: { script: "e2e:stats", minutes: 2 },
   workshop: { script: "e2e:workshop" },
@@ -66,7 +67,9 @@ export const CORE = ["touch", "click"];
 export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore"];
 
 // Touch's groups that plan, run or show routes and lines.
-const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring";
+const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way";
+// Touch's groups for the tech tree's track pieces (scripts/e2e/track-pieces.mjs).
+const TOUCH_PIECES = "touch:slips,double-three-way,turntable-taps";
 const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade", "sites"];
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
@@ -77,6 +80,7 @@ export const RULES = [
   ["scripts/e2e/pin-clocks.mjs", ["touch", "click", "station-clock", "signals", "life"]],
   ["scripts/e2e/affected.mjs", []],
   ["scripts/e2e/phone-audit.mjs", []],
+  ["scripts/e2e/track-pieces.mjs", [TOUCH_PIECES]],
   ["tools/e2e/**", []], // (each file maps to its own suite: see suiteOfScript)
 
   // Build and page.
@@ -88,9 +92,13 @@ export const RULES = [
   // Simulation and routing.
   ["src/sim/**", ["touch", "click:model-train,routes", "signals", "train-summary", "train-parts", "lift", "loop", "kits", "decks"]],
   ["src/sim/engine-names.ts", ["engine-names"]],
+  // Town places, treats and the paint shop (spec 2026-11-04-civic-leisure-design.md).
+  [["src/game/places.ts", "src/game/place-row.ts", "src/game/paint-shop.ts", "src/ui/places-row.ts", "src/ui/paint-sheet.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/render/train-models.ts", "src/render/train-view.ts"], ["civic"]],
   ["src/routing/**", [TOUCH_ROUTES, "click:routes", "signals", "warehouse", "depot-tracks"]],
   ["src/track/**", ["touch", "click", "draw", "joints", "ramps", "kits", "decks", "lift", "loop", "low-bridge"]],
   ["src/track/underpass.ts", ["low-bridge"]],
+  // Turntable controls: a tap on a road turns a deck to it.
+  ["src/game/deck-roads.ts", ["touch:turntable-taps", "decks"]],
   ["src/editor/**", ["touch", "click", "draw", "joints", "ramps", "landscaping"]],
   ["src/landscape/**", ["click", "draw", "roads", "landscaping", "sites", "touch:select-drag,trap"]],
   [["src/landscape/clearance.ts", "src/landscape/support.ts"], ["low-bridge"]],
@@ -129,7 +137,9 @@ export const RULES = [
   [["src/render/ruins-view.ts", "src/render/goal-marks.ts", "src/render/halt-reach-view.ts"], ["sites", "big-stations"]],
   ["src/render/thumbnails.ts", ["tray", "names"]],
   ["src/render/train-models.ts", ["train-parts", "train-summary", "hopper-load"]],
-  ["src/render/track-geometry.ts", ["low-bridge", "ramps"]],
+  [["src/render/track-geometry.ts", "src/render/piece-carve.ts"], ["low-bridge", "ramps", "tunnels"]],
+  // The main thread's carver, loaded on its own (join pieces carved when first wanted): the tray's pictures, joints.
+  ["src/render/carver.ts", ["tray", "joints"]],
   ["src/render/chain-hints-view.ts", ["sandbox-chains"]],
 
   // UI.
@@ -188,6 +198,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // The tests' setup (what the game loads on its own, loaded before each test file).
+  ["src/test-setup.ts", []],
 ];
 
 // A tiny glob: ** any depth, * within a path segment.

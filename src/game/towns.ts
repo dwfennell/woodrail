@@ -1,5 +1,6 @@
 import type { CargoKind } from "../economy/cargo";
 import { covers, minus, plus, times, total, type Bag } from "../economy/goods";
+import { BANK_SHARE, smileShare } from "./places";
 
 /**
  * Game mode's towns: what each wants, and how it grows. A table, so a new good or level is a row, not code. A level's
@@ -47,12 +48,28 @@ export interface TownStatus {
   fill: number;
 }
 
-/** Where a town stands, from everything it has received. Pure: a save holds only what was received. */
-export function townStatus(received: Bag): TownStatus {
+/**
+ * What a town wants for level `n` with `smiles` (game/places.ts): each 😊 a twentieth less of every good, rounded up,
+ * never less than one.
+ */
+export function wantsWith(n: number, smiles = 0): Bag {
+  const wants = townLevel(n).wants;
+  if (smiles <= 0) return wants;
+  const share = smileShare(smiles);
+  const out: Bag = {};
+  for (const k of Object.keys(wants) as (keyof Bag)[]) out[k] = Math.max(1, Math.ceil(wants[k]! * share - 1e-9));
+  return out;
+}
+
+/**
+ * Where a town stands, from everything it has received (and its smiles: what its places cut from each level's
+ * wants). Pure: a save holds only what was received; smiles are read from the buildings standing.
+ */
+export function townStatus(received: Bag, smiles = 0): TownStatus {
   let level = 0;
   let spent: Bag = {};
   for (;;) {
-    const wants = townLevel(level).wants;
+    const wants = wantsWith(level, smiles);
     const next = plus(spent, wants);
     if (!covers(received, next)) {
       const got: Bag = {};
@@ -110,7 +127,9 @@ export function payFor(kind: CargoKind, status: TownStatus): number {
   return (status.wants[kind] ?? 0) > 0 || FULL_PAY.has(kind) ? price : Math.ceil(price / 2);
 }
 
-/** Coins for the next plot of land: dearer the more land you have (a new game's land is four plots). */
-export function plotPrice(plots: number): number {
-  return 60 + 30 * Math.max(0, plots - 4);
+/** Coins for the next plot of land: dearer the more land you have (a new game's land is four plots); with a bank, a quarter less. */
+export function plotPrice(plots: number, bank = false): number {
+  const price = 60 + 30 * Math.max(0, plots - 4);
+  // (A bank on the map: a quarter less, game/places.ts.)
+  return bank ? Math.round(price * BANK_SHARE) : price;
 }

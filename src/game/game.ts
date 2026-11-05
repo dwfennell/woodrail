@@ -70,6 +70,7 @@ import { firstTrainMark, TOUCH_TRACK_CLEARANCE } from "./touches";
 import { nearTrack } from "../landscape/trees-aside";
 import { hillsOf } from "../landscape/hill-shape";
 import { TouchCamera } from "./touch-camera";
+import { liveryOf } from "./paint-shop";
 import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlot, type World } from "./world";
 
 /** The station house clock's hands' key in `ClockView` (a map part's, not a prop's). */
@@ -327,6 +328,7 @@ export class Game {
     this.trainView.lookOf = (id) => this.sim.lookOf(id);
     this.trainView.hoistOf = (id) => this.economy.breakdown.hoistOf(id);
     this.trainView.nameOf = (id) => this.sim.nameOf(id);
+    this.trainView.liveryOf = (id) => liveryOf(this.sim.liveryOf(id));
     this.trainView.underground = (x, y, z) => inTunnel(this.landscape, x, z, y);
     this.scene.add(this.trainView.group);
     this.tunnelsView = new TunnelsView(this.mats.bridgePaint);
@@ -1087,6 +1089,12 @@ export class Game {
     this.sim.writeSnapshot(this.snapshot);
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
+    // An engine painted (or a save's liveries put back): its model built again, once (drawn from the next frame).
+    if (this.sim.liveriesVersion !== this.liveriesShown) {
+      this.liveriesShown = this.sim.liveriesVersion;
+      this.trainView.syncLiveries();
+      this.invalidate();
+    }
     // An engine renamed (or a save's names put back): its plates painted again, once.
     if (this.sim.namesVersion !== this.namesShown) {
       this.namesShown = this.sim.namesVersion;
@@ -1237,6 +1245,10 @@ export class Game {
     const detail = detailReach(dist);
     const landCulled = this.landscapeView.cull(this.camera, reach, detail);
     const culled = cullTiles([this.depotView.group, this.ruinsView.group, this.touches.group], this.camera, reach, detail) || landCulled;
+    // Track too small to see its carving is drawn in its far version (a tenth of the triangles). (Not the shadows':
+    // they're cast by plain blocks either way.)
+    const pixelsHigh = this.canvas.clientHeight * Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio);
+    this.trackView.setDetail(this.camera.position, pixelsHigh / (2 * Math.tan((this.camera.fov * Math.PI) / 360)));
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
     // The very first frame draws no shadows (it's behind the loading screen), and the next one does: three draws the
     // shadow pass before it sets the frame's lights up, so on a scene's first frame its depth shaders were compiled for
@@ -1505,6 +1517,7 @@ export class Game {
   /** The sim's signal aspects last drawn (see `Sim.signalsVersion`). */
   private signalsShown = -1;
   private namesShown = -1;
+  private liveriesShown = 0;
 
   /** The sim's mark aspects, for the marks' view (the sim is replaced on a new world: read through `this`). */
   private markAspects(): { markClear(id: number): boolean; readonly signalsVersion: number } {
