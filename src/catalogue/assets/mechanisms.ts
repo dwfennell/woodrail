@@ -1198,6 +1198,22 @@ const mechanisms: Asset[] = [
     },
   },
   {
+    id: "mech-radio-mast",
+    name: "Radio mast",
+    category: "Mechanisms",
+    tags: ["radio", "mast", "aerial", "town", "power", "tall"],
+    notes:
+      "A red and white mast with yellow rings at the top, and a little cream hut with a blue roof at its foot. In a town in Game mode, with a spark of power, it tells everyone about the trains: more people come to its stations.",
+    build: (k) => {
+      const g = k.group(k.cyl(k.wood, 26, 6, 0, 0, 0, 24));
+      for (let i = 0; i < 6; i++) g.add(k.cyl(k.paint(i % 2 ? TOY.white : TOY.red), 5 - i * 0.45, 32, 0, 6 + i * 32, 0, 4.6 - i * 0.45, 12));
+      g.add(k.ball(k.paint(TOY.yellow), 5, 0, 202, 0));
+      for (const r of [16, 25]) g.add(k.ring(k.paint(TOY.yellow), r, 1.3, 0, 202, 0));
+      g.add(k.box(k.paint(TOY.cream), 34, 22, 26, 2, 32, 0, 0), k.box(k.paint(TOY.blue), 38, 4, 30, 1.5, 32, 22, 0));
+      return g;
+    },
+  },
+  {
     id: "mech-wind-turbine",
     name: "Wind turbine",
     category: "Mechanisms",

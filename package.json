@@ -61,6 +61,7 @@
     "e2e:train-summary": "node scripts/e2e/lib/run.mjs tools/e2e/train-summary.mjs",
     "e2e:engine-names": "node scripts/e2e/lib/run.mjs tools/e2e/engine-names.mjs",
     "e2e:civic": "node scripts/e2e/lib/run.mjs tools/e2e/civic.mjs",
+    "e2e:paint-picker": "node scripts/e2e/lib/run.mjs tools/e2e/paint-picker.mjs",
     "e2e:stickers": "node scripts/e2e/lib/run.mjs tools/e2e/stickers.mjs",
     "e2e:stats": "node scripts/e2e/lib/run.mjs tools/e2e/stats.mjs",
     "e2e:workshop": "node scripts/e2e/lib/run.mjs tools/e2e/workshop-modes.mjs",
@@ -73,7 +74,10 @@
     "e2e:sandbox-chains": "node scripts/e2e/lib/run.mjs tools/e2e/sandbox-chains.mjs",
     "e2e:life": "node scripts/e2e/lib/run.mjs tools/e2e/life.mjs",
     "e2e:airport": "node scripts/e2e/lib/run.mjs tools/e2e/airport.mjs",
+    "e2e:circus": "node scripts/e2e/lib/run.mjs tools/e2e/circus.mjs",
+    "e2e:clockmaker": "node scripts/e2e/lib/run.mjs tools/e2e/clockmaker.mjs",
     "e2e:power": "node scripts/e2e/lib/run.mjs tools/e2e/power.mjs",
+    "e2e:radio": "node scripts/e2e/lib/run.mjs tools/e2e/radio.mjs",
     "e2e:post": "node scripts/e2e/lib/run.mjs tools/e2e/post.mjs",
     "e2e:gl-lost": "node scripts/e2e/lib/run.mjs tools/e2e/gl-lost.mjs",
     "e2e:gl-lost-desktop": "node scripts/e2e/lib/run.mjs tools/e2e/gl-lost-desktop.mjs",
@@ -106,6 +110,7 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
+    "meshoptimizer": "^1.1.1",
     "polygon-clipping": "^0.15.7",
     "three": "^0.186.1",
     "three-bvh-csg": "^0.0.18",

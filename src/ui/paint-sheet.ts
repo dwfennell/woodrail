@@ -1,4 +1,4 @@
-import { LIVERIES, paintState, stripeColours, type PaintState, type Stripe } from "../game/paint-shop";
+import { LIVERIES, ownColours, PAINT_COLOURS, paintState, stripeColours, type PaintState, type Stripe } from "../game/paint-shop";
 import type { Progress } from "../game/progress";
 import { townLevel } from "../game/towns";
 
@@ -10,6 +10,10 @@ export class PaintSheet {
   readonly root = document.createElement("div");
   private carId = -1;
   private chosen = "";
+  /** Your own colours (Paint your trains learned): the body and trim picked, which the grid sets, and the wagons too? */
+  private own = { body: PAINT_COLOURS[11], trim: PAINT_COLOURS[1], part: "body" as "body" | "trim", wagons: true };
+  /** Just opened: its next draw slides up (a redraw at a tap doesn't). */
+  private opening = false;
   /** When it opened: the tap that opened it isn't a tap on its backdrop (a phone's click follows the touch). */
   private openedAt = 0;
 
@@ -20,6 +24,14 @@ export class PaintSheet {
       progress(): Progress;
       liveryOf(carId: number): string;
       nameOf(carId: number): string;
+      /** Your own colours open (Paint your trains learned)? */
+      ownOpen(): boolean;
+      /** The wagons in engine `carId`'s train that can be painted. */
+      wagonsOf(carId: number): number[];
+      /** Pots of paint at the workshops. */
+      pots(): number;
+      /** Paint cars `carIds` in your own colours (a pot a car). True if it did. */
+      paintOwn(carIds: number[], body: string, trim: string): boolean;
     },
   ) {
     this.root.className = "growth-sheet paint-sheet";
@@ -37,7 +49,10 @@ export class PaintSheet {
   show(carId: number): void {
     this.carId = carId;
     this.chosen = this.on.liveryOf(carId);
+    const own = ownColours(this.chosen);
+    if (own) Object.assign(this.own, own);
     this.openedAt = performance.now();
+    this.opening = true;
     this.root.hidden = false;
     this.draw();
   }
@@ -95,6 +110,12 @@ export class PaintSheet {
       });
       grid.append(b);
     };
+    if (this.on.ownOpen()) {
+      const t = document.createElement("h3");
+      t.className = "paint-title";
+      t.textContent = "Ready-made";
+      grid.before(t);
+    }
     swatch("", "As it came", "#2d6b3f", "#c8442f", current === "" ? "✓" : "Free", current === "" ? "have" : "paint");
     for (const l of LIVERIES) {
       const s = paintState(p, l, current);
@@ -113,7 +134,93 @@ export class PaintSheet {
     go.addEventListener("click", () => {
       if (this.on.paint(this.carId, chosen)) this.draw();
     });
-    panel.append(head, sub, grid, go);
+    panel.append(head, sub, ...(this.on.ownOpen() ? this.ownBlock() : []), grid, go);
+    // (Drawn afresh at each tap: scrolled where it was, and not sliding up again: the sheet's slide is for its opening.
+    // Replayed, it moved the buttons under a quick second tap, which then took a colour instead of Trim.)
+    const old = this.root.firstElementChild as HTMLElement | null;
+    const scrolled = this.opening ? 0 : (old?.scrollTop ?? 0);
+    if (!this.opening) panel.style.animation = "none";
+    this.opening = false;
     this.root.replaceChildren(panel);
+    panel.scrollTop = scrolled;
+  }
+
+  /**
+   * Your own colours: a swatch of the engine as it'd look, Body and Trim to pick which the grid sets, a grid of
+   * `PAINT_COLOURS`, "and its N wagons", and Paint (a pot of paint a car, from the workshop).
+   */
+  private ownBlock(): HTMLElement[] {
+    const o = this.own;
+    const t = document.createElement("h3");
+    t.className = "paint-title";
+    t.textContent = "Your own colours";
+    const row = document.createElement("div");
+    row.className = "paint-own-row";
+    const look = document.createElement("i");
+    look.className = "paint-own-look";
+    look.style.background = `linear-gradient(135deg, ${o.body} 0 62%, ${o.trim} 62% 100%)`;
+    row.append(look);
+    for (const part of ["body", "trim"] as const) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `chip text paint-part${o.part === part ? " on" : ""}`;
+      b.dataset.part = part;
+      b.setAttribute("aria-pressed", String(o.part === part));
+      const dot = document.createElement("i");
+      dot.style.background = o[part];
+      b.append(dot, part === "body" ? "Body" : "Trim");
+      b.addEventListener("click", () => {
+        o.part = part;
+        this.draw();
+      });
+      row.append(b);
+    }
+    const grid = document.createElement("div");
+    grid.className = "paint-colours";
+    for (const c of PAINT_COLOURS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `paint-colour${o[o.part] === c ? " chosen" : ""}`;
+      b.dataset.colour = c;
+      b.title = c;
+      b.setAttribute("aria-label", `${o.part === "body" ? "Body" : "Trim"} ${c}`);
+      b.style.background = c;
+      b.addEventListener("click", () => {
+        o[o.part] = c;
+        this.draw();
+      });
+      grid.append(b);
+    }
+    const wagons = this.on.wagonsOf(this.carId);
+    const extra: HTMLElement[] = [];
+    if (wagons.length > 0) {
+      const w = document.createElement("button");
+      w.type = "button";
+      w.className = `chip text paint-wagons${o.wagons ? " on" : ""}`;
+      w.setAttribute("aria-pressed", String(o.wagons));
+      w.textContent = `${o.wagons ? "✓ " : ""}And its ${wagons.length === 1 ? "wagon" : `${wagons.length} wagons`}`;
+      w.addEventListener("click", () => {
+        o.wagons = !o.wagons;
+        this.draw();
+      });
+      extra.push(w);
+    }
+    const cars = [this.carId, ...(o.wagons ? wagons : [])];
+    const pots = this.on.pots();
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "chip text primary paint-own-go";
+    go.textContent = pots < cars.length ? `Needs ${cars.length} 🎨 paint at the workshop (has ${pots})` : `Paint ${cars.length === 1 ? "it" : `all ${cars.length}`} · ${cars.length} 🎨 paint`;
+    go.disabled = pots < cars.length;
+    go.addEventListener("click", () => {
+      if (this.on.paintOwn(cars, o.body, o.trim)) {
+        this.chosen = this.on.liveryOf(this.carId);
+        this.draw();
+      }
+    });
+    const foot = document.createElement("div");
+    foot.className = "paint-own-foot";
+    foot.append(...extra, go);
+    return [t, row, grid, foot];
   }
 }

@@ -1,4 +1,6 @@
 import { Group, Mesh, type BufferGeometry, type Material } from "three";
+import { compact, weld } from "../compact";
+import { useFarDetail } from "../far-detail";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, outsideDistance, type OuterBlock, type OuterTree, type Rect, type Surroundings } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
@@ -104,7 +106,7 @@ export function buildScenery(parts: readonly SceneryPart[], mats: Materials, lan
   if (beech.length > 0) group.add(blockMeshes(beech, CELL, RISER_HEIGHT, wood, false));
   group.add(blockMeshes(plain, CELL, RISER_HEIGHT, mats.scenery, false));
   const shadows = parts.map((p) => p.shadow).filter((g): g is BufferGeometry => g !== null);
-  if (shadows.length > 0) group.add(shadowProxyMesh(shadows.length === 1 ? shadows[0].clone() : mergeGeometries(shadows)));
+  if (shadows.length > 0) group.add(shadowProxyMesh(weld(shadows.length === 1 ? shadows[0].clone() : mergeGeometries(shadows))));
 
   const trees: TreePlacement[] = parts.flatMap((p) => p.trees).map((t) => {
     const v = t.variant;
@@ -135,7 +137,7 @@ export function buildScenery(parts: readonly SceneryPart[], mats: Materials, lan
   for (const [material, list] of byMaterial) {
     const merged = list.length === 1 ? list[0].clone() : mergeGeometries(list);
     if (!merged) continue;
-    const mesh = new Mesh(merged, material);
+    const mesh = useFarDetail(new Mesh(compact(merged), material));
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     group.add(mesh);

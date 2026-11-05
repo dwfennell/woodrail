@@ -137,7 +137,8 @@ export class TrainView {
         const kind = CAR_BY_INDEX[snap.kinds[i]];
         // The colour scheme follows the car (its id survives being picked up and put down), not the order models were built.
         const look = this.lookOf(id);
-        const livery = kind === "engine" ? this.liveryOf(id) : null;
+        // (Engines from the paint shop's liveries; any car in your own colours.)
+        const livery = this.liveryOf(id);
         const model = buildCarModel(kind, this.mats, carVariant(kind, id), look, false, livery ?? undefined);
         if (kind === "engine") {
           const plates = this.plates.make(id, this.nameOf(id), look);

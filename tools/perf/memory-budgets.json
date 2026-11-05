@@ -39,14 +39,14 @@
     "mobile.gpu.totalMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 263.5,
-      "max": 280
+      "measured": 193.6,
+      "max": 205.3
     },
     "mobile.gpu.geometryMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 134.1,
-      "max": 143
+      "measured": 64.3,
+      "max": 68.2
     },
     "mobile.gpu.texturesMB": {
       "kind": "size",
@@ -75,14 +75,14 @@
     "mobile.js.arrayBuffersMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 243.4,
-      "max": 260
+      "measured": 170.5,
+      "max": 180.8
     },
     "mobile.counts.geometries": {
       "kind": "count",
       "unit": "",
-      "measured": 822,
-      "max": 864
+      "measured": 711,
+      "max": 754
     },
     "mobile.counts.textures": {
       "kind": "count",
@@ -99,8 +99,8 @@
     "mobile.counts.glBuffers": {
       "kind": "count",
       "unit": "",
-      "measured": 3476,
-      "max": 3650
+      "measured": 3135,
+      "max": 3324
     },
     "mobile.counts.glTextures": {
       "kind": "count",
@@ -141,14 +141,14 @@
     "desktop.gpu.totalMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 382.8,
-      "max": 406
+      "measured": 288.1,
+      "max": 305.4
     },
     "desktop.gpu.geometryMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 163.1,
-      "max": 173
+      "measured": 68.3,
+      "max": 72.4
     },
     "desktop.gpu.texturesMB": {
       "kind": "size",
@@ -177,14 +177,14 @@
     "desktop.js.arrayBuffersMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 330,
-      "max": 350
+      "measured": 181.9,
+      "max": 192.9
     },
     "desktop.counts.geometries": {
       "kind": "count",
       "unit": "",
-      "measured": 857,
-      "max": 900
+      "measured": 739,
+      "max": 784
     },
     "desktop.counts.textures": {
       "kind": "count",
@@ -201,8 +201,8 @@
     "desktop.counts.glBuffers": {
       "kind": "count",
       "unit": "",
-      "measured": 3609,
-      "max": 3790
+      "measured": 3252,
+      "max": 3448
     },
     "desktop.counts.glTextures": {
       "kind": "count",

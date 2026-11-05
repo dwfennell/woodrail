@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
+import { BoxGeometry, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import { CELL, CORNER_RADIUS, CORNERS, insideBlock } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { roundedChamferedBox } from "./chamfer";
+import { withoutUnderside } from "./blocks";
 
 const GAP = 0.8;
 
@@ -27,6 +28,43 @@ describe("rounded hill blocks as drawn", () => {
           expect(hit, `corners ${corners} @ ${x},${z}`).toBe(insideBlock(corners, x, z));
         }
       }
+    }
+  });
+});
+
+describe("block shapes drawn without their undersides", () => {
+  const ray = new Raycaster();
+  const hits = (g: ReturnType<typeof withoutUnderside>, from: Vector3, dir: Vector3) => {
+    ray.set(from, dir);
+    return ray.intersectObject(new Mesh(g, new MeshBasicMaterial())).length;
+  };
+  it("a box loses its bottom's two triangles and nothing else", () => {
+    const g = withoutUnderside(new BoxGeometry(10, 4, 10));
+    expect(g.getAttribute("position").count).toBe(30);
+    // Seen from above and the side as before (single-sided: one face each way).
+    expect(hits(g, new Vector3(1.3, 10, 2.7), new Vector3(0, -1, 0))).toBe(1);
+    expect(hits(g, new Vector3(20, 0.7, 1.9), new Vector3(-1, 0, 0))).toBe(1);
+  });
+  it("a rounded block loses its flat bottom only: its bevels and rounded corners stay", () => {
+    for (const corners of [0, 1, 6, 15]) {
+      const whole = roundedChamferedBox(CELL - GAP, RISER_HEIGHT - GAP, CELL - GAP, 2.5, corners, CORNER_RADIUS - GAP / 2);
+      const n = whole.getAttribute("position").count;
+      const g = withoutUnderside(whole.clone());
+      const left = g.getAttribute("position").count;
+      expect(left).toBeLessThan(n);
+      // Only triangles facing straight down went.
+      const pos = whole.getAttribute("position");
+      let down = 0;
+      for (let t = 0; t < n; t += 3) {
+        const a = new Vector3().fromBufferAttribute(pos, t);
+        const e1 = new Vector3().fromBufferAttribute(pos, t + 1).sub(a);
+        const e2 = new Vector3().fromBufferAttribute(pos, t + 2).sub(a);
+        const nrm = e1.cross(e2).normalize();
+        if (nrm.y < -0.9998) down++;
+      }
+      expect(down).toBeGreaterThan(0);
+      expect((n - left) / 3).toBe(down);
+      expect(hits(g, new Vector3(3.1, 100, 7.3), new Vector3(0, -1, 0))).toBe(1);
     }
   });
 });

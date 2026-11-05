@@ -45,6 +45,7 @@ export const SUITES = {
   "train-summary": { script: "e2e:train-summary", minutes: 8 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
   civic: { script: "e2e:civic", minutes: 5 },
+  "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
   stickers: { script: "e2e:stickers" },
   stats: { script: "e2e:stats", minutes: 2 },
   workshop: { script: "e2e:workshop" },
@@ -63,7 +64,10 @@ export const SUITES = {
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   airport: { script: "e2e:airport", minutes: 8 },
+  circus: { script: "e2e:circus", minutes: 6 },
+  clockmaker: { script: "e2e:clockmaker", minutes: 4 },
   power: { script: "e2e:power", minutes: 6 },
+  radio: { script: "e2e:radio", minutes: 6 },
   crane: { script: "e2e:crane", minutes: 4 },
   tunnels: { script: "e2e:tunnels", minutes: 6 },
   rack: { script: "e2e:rack", minutes: 3 },
@@ -122,7 +126,7 @@ export const RULES = [
   ["src/sim/**", ["touch", "click:model-train,routes", "signals", "train-summary", "train-parts", "lift", "loop", "kits", "decks"]],
   ["src/sim/engine-names.ts", ["engine-names"]],
   // Town places, treats and the paint shop (spec 2026-11-04-civic-leisure-design.md).
-  [["src/game/places.ts", "src/game/place-row.ts", "src/game/paint-shop.ts", "src/ui/places-row.ts", "src/ui/paint-sheet.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/render/train-models.ts", "src/render/train-view.ts"], ["civic"]],
+  [["src/game/places.ts", "src/game/place-row.ts", "src/game/paint-shop.ts", "src/ui/places-row.ts", "src/ui/paint-sheet.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/render/train-models.ts", "src/render/train-view.ts"], ["civic", "paint-picker"]],
   ["src/routing/**", [TOUCH_ROUTES, "click:routes", "signals", "warehouse", "depot-tracks"]],
   ["src/track/**", ["touch", "click", "draw", "joints", "ramps", "kits", "decks", "lift", "loop", "low-bridge"]],
   ["src/track/underpass.ts", ["low-bridge"]],
@@ -175,6 +179,9 @@ export const RULES = [
   // The main thread's carver, loaded on its own (join pieces carved when first wanted): the tray's pictures, joints.
   ["src/render/carver.ts", ["tray", "joints"]],
   ["src/render/chain-hints-view.ts", ["sandbox-chains"]],
+  // Static geometry welded, quantised, and drawn far in fewer triangles: towns, yards, ruins, props, kits, clocks.
+  [["src/render/compact.ts", "src/render/far-*.ts", "src/render/dressing/batcher.ts"], ["kits", "station-clock", "sites", "growth", "locked"]],
+  ["src/render/dressing/blocks.ts", ["low-bridge", "landscaping"]],
 
   // UI.
   ["src/ui/**", ["touch", "click"]],
@@ -244,6 +251,12 @@ export const RULES = [
   ["src/game/dev-checks.ts", []],
   // The airport (late-game spec A1).
   [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
+  // The touring circus (late-game spec K1).
+  [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
+  // Time control (late-game spec, Clockmaker CA).
+  [["src/game/time-scale.ts", "src/game/game.ts", "src/ui/hud.ts", "src/main.ts"], ["clockmaker"]],
+  // The radio mast (the user's pick: a powered mast brings a town more riders).
+  [["src/game/radio.ts", "src/game/power.ts", "src/game/passengers.ts", "src/main.ts", "src/game/interaction.ts"], ["radio"]],
   // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.
   [["src/game/boats.ts", "src/game/ferry.ts", "src/game/harbours.ts", "src/ui/boat-card.ts", "src/ui/water-controls.ts", "src/render/river-boats-view.ts", "src/render/ferries-view.ts", "src/render/boats-view.ts", "src/economy/boats.ts", "src/catalogue/assets/water.ts", "src/catalogue/assets/boat-parts.ts", "src/game/yards.ts", "src/render/yards-view.ts"], ["water"]],
   // Power as sparks and the wind farm (late-game spec W1).

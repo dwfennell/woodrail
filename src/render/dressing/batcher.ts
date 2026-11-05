@@ -2,7 +2,9 @@ import { BufferAttribute, BufferGeometry, Color, Group, Mesh, type Material } fr
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { shadowProxyMesh } from "./blocks";
 import { nonIndexed } from "../non-indexed";
+import { compact, weld } from "../compact";
 import { floatVertices } from "../compact-vertices";
+import { useFarDetail } from "../far-detail";
 
 /** Parts smaller than this every way (mm) cast no shadow of their own: window frames, sills, signs' letters. */
 const STAND_IN_MIN = 8;
@@ -97,7 +99,8 @@ export class Batcher {
 
   /**
    * Vertices collected so far, per material bucket (as `build` will key its meshes). Marked between additions, they
-   * let a `drawRange` show only what came before the mark (see the waiting passengers on a platform).
+   * let a `drawRange` show only what came before the mark (see the waiting passengers on a platform). (`build` welds
+   * the merged mesh into an indexed one that keeps each vertex's place: the same count of indices.)
    */
   vertexCounts(): Map<Material, number> {
     const out = new Map<Material, number>();
@@ -122,7 +125,8 @@ export class Batcher {
     for (const [material, list] of this.buckets) {
       const merged = mergeGeometries(list);
       if (!merged) continue;
-      const mesh = new Mesh(merged, material);
+      // Finished: welded and quantised (see `compact`), about a third of the bytes.
+      const mesh = useFarDetail(new Mesh(compact(merged), material));
       mesh.castShadow = castShadow && !standIns;
       mesh.receiveShadow = true;
       group.add(mesh);
@@ -131,7 +135,7 @@ export class Batcher {
     this.buckets.clear();
     if (standIns) {
       const merged = mergeGeometries(this.standIns);
-      if (merged) group.add(shadowProxyMesh(merged));
+      if (merged) group.add(shadowProxyMesh(weld(merged)));
     }
     for (const g of this.standIns) g.dispose();
     this.standIns = [];

@@ -21,6 +21,8 @@ export const TURBINE_SPARKS = 1;
 export const POWERED_RATE = 1.5;
 /** The wind turbine's catalogue model (a prop, made at the workshop once Wind farm is learned; on a hilltop only). */
 export const WIND_TURBINE = "mech-wind-turbine";
+/** The radio mast's catalogue model (a prop: src/game/radio.ts). Each takes a spark, after the engines. */
+export const RADIO_MAST = "mech-radio-mast";
 /** Engine looks that run on power. */
 const ELECTRIC = "electric";
 
@@ -43,6 +45,9 @@ export interface PowerPlan {
   /** Electric engines on the map (car ids, oldest first), and those with a spark. */
   readonly engines: readonly number[];
   readonly enginesOn: ReadonlySet<number>;
+  /** Radio masts standing (prop ids, oldest first), and those with a spark. */
+  readonly masts: readonly number[];
+  readonly mastsOn: ReadonlySet<number>;
   /** Yards asked to be powered (depot ids, in the order asked), and those with a spark. */
   readonly yards: readonly number[];
   readonly yardsOn: ReadonlySet<number>;
@@ -75,6 +80,13 @@ function workingStations(world: Pick<World, "economy" | "layout">): number {
   return n;
 }
 
+/** Radio masts standing: prop ids, oldest first. */
+export function mastsOf(world: Pick<World, "props">): number[] {
+  const out: number[] = [];
+  for (const p of world.props.all()) if (p.asset === RADIO_MAST) out.push(p.id);
+  return out.sort((a, b) => a - b);
+}
+
 /** Wind turbines standing. */
 export function turbinesOf(world: Pick<World, "props">): number {
   let n = 0;
@@ -82,8 +94,8 @@ export function turbinesOf(world: Pick<World, "props">): number {
   return n;
 }
 
-/** Share out the sparks: `stations` working, `turbines` standing, to `engines` then `yards` (each in order). */
-export function sharePower(stations: number, turbines: number, engines: readonly number[], yards: readonly number[]): PowerPlan {
+/** Share out the sparks: `stations` working, `turbines` standing, to `engines`, then radio `masts`, then `yards` (each in order). */
+export function sharePower(stations: number, turbines: number, engines: readonly number[], yards: readonly number[], masts: readonly number[] = []): PowerPlan {
   const fromCoal = stations * STATION_SPARKS;
   const fromWind = turbines * TURBINE_SPARKS;
   const made = fromCoal + fromWind;
@@ -94,13 +106,19 @@ export function sharePower(stations: number, turbines: number, engines: readonly
     enginesOn.add(id);
     left--;
   }
+  const mastsOn = new Set<number>();
+  for (const id of masts) {
+    if (left <= 0) break;
+    mastsOn.add(id);
+    left--;
+  }
   const yardsOn = new Set<number>();
   for (const id of yards) {
     if (left <= 0) break;
     yardsOn.add(id);
     left--;
   }
-  return { stations, fromCoal, turbines, fromWind, made, engines, enginesOn, yards, yardsOn, used: made - left, spare: left };
+  return { stations, fromCoal, turbines, fromWind, made, engines, enginesOn, masts, mastsOn, yards, yardsOn, used: made - left, spare: left };
 }
 
 /** The plan for the map as it is now (counted afresh). */
@@ -110,6 +128,7 @@ export function planPower(world: PowerWorld): PowerPlan {
     turbinesOf(world),
     electricEngines(world),
     askedYards(world).map((d) => d.id),
+    mastsOf(world),
   );
 }
 
@@ -123,6 +142,7 @@ export class PowerGrid {
   private key = "";
   private propsVersion = -1;
   private turbines = 0;
+  private masts: number[] = [];
   version = 0;
 
   /** Count again, on the map `w`; the plan (a new one only if anything changed). */
@@ -132,14 +152,15 @@ export class PowerGrid {
     if (version !== this.propsVersion) {
       this.propsVersion = version;
       this.turbines = w.props ? turbinesOf(w) : 0;
+      this.masts = w.props ? mastsOf(w) : [];
     }
     const stations = workingStations(w);
     const engines = electricEngines(w);
     const yards = askedYards(w).map((d) => d.id);
-    const key = `${stations}|${this.turbines}|${engines.join(",")}|${yards.join(",")}`;
+    const key = `${stations}|${this.turbines}|${engines.join(",")}|${yards.join(",")}|${this.masts.join(",")}`;
     if (key !== this.key) {
       this.key = key;
-      this.plan = sharePower(stations, this.turbines, engines, yards);
+      this.plan = sharePower(stations, this.turbines, engines, yards, this.masts);
       this.version++;
     }
     return this.plan;

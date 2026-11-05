@@ -37,7 +37,8 @@ describe("the loop-the-loop kit", () => {
     const lib = new PropLibrary(mats);
     const model = (await lib.load(kitModelKey(LOOP)))!;
     const asset = (await loadAsset("mech-loop-the-loop"))!;
-    const verts = (parts: { geometry: BufferGeometry }[]) => parts.reduce((n, p) => n + p.geometry.getAttribute("position").count, 0);
+    // (Vertices drawn: welded models share theirs, as many as their floats match exactly.)
+    const verts = (parts: { geometry: BufferGeometry }[]) => parts.reduce((n, p) => n + (p.geometry.index?.count ?? p.geometry.getAttribute("position").count), 0);
     const built = asset.build(new Kit(mats, 0.5));
     const all = verts(bake(built, mats, { slabs: false }).parts);
     const noCar = verts(bake(built, mats, { slabs: false, without: new Set(["car"]) }).parts);

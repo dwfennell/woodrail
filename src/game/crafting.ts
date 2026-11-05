@@ -4,7 +4,8 @@ import { covers, kindsOf, minus, total, type Bag } from "../economy/goods";
 import { costTag } from "../ui/cost-tag";
 import type { Progress } from "./progress";
 import { costOf as researchCost } from "./research";
-import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
+import { PAINT_KEPT } from "./paint-shop";
+import { isFree, isGift, ruleOf, THING_RULES, type ThingId } from "./things";
 import type { World } from "./world";
 
 /** Seconds of play to make one thing, once its goods are taken. */
@@ -212,7 +213,8 @@ export function shopSpare(p: Progress, world?: Pick<World, "layout" | "depots">,
  * owed: stone): what's needed (`shopNeeds`) less what their yards hold. 0 once that's covered.
  */
 export function shopOwes(world: World, p: Progress, kind: CargoKind): number {
-  const need = shopNeeds(p, kind, world);
+  // Paint: pots for coats in your own colours (game/paint-shop.ts), once Paint your trains is learned.
+  const need = kind === "paint" ? (p.learned.has("paint-trains") ? PAINT_KEPT : 0) : shopNeeds(p, kind, world);
   if (need <= 0) return 0;
   let have = 0;
   for (const d of world.economy.allDepots()) if (d.role === "workshop" && world.layout.getPiece(d.pieceId)) have += d.piles[CARGO[kind].index];
@@ -339,7 +341,7 @@ export class Crafting {
   }
 
   order(id: ThingId): void {
-    if (ruleOf(id) && !isFree(id) && this.progress.knows(id)) this.progress.orders.push(id);
+    if (ruleOf(id) && !isFree(id) && !isGift(id) && this.progress.knows(id)) this.progress.orders.push(id);
   }
 
   /** Take the last order of this kind off the list (not one already being made). */
