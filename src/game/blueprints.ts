@@ -246,7 +246,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "scenery", label: "Scenery kit", branch: "craft", tier: 1, needs: ["carpentry"], price: { planks: 5 }, blurb: "Sights for the line (a castle gate, a train wash, a weighbridge, a track cleaner) and furniture beside it (clocks, whistle posts, signal boxes).", brings: "Castle gate, train wash, weighbridge, track cleaner, lineside furniture" }),
   row({ id: "paint-trains", label: "Paint your trains", branch: "craft", tier: 2, plan: "later", needs: ["paint"], price: { planks: 6, coins: 20 }, blurb: "Paint engines, wagons and stations in your own colours.", brings: "A paint pot on every card" }),
   row({ id: "smithy", label: "Smithy", branch: "craft", tier: 3, school: "college", needs: ["foundry", "carpentry"], price: { coins: 60, goods: { iron: 10 } }, blurb: "A smithy makes tools from iron, and your wagons hold 5 instead of 3.", brings: "Smithy, tools, heavy wagons", feature: { label: "Wagons hold 5", icon: "🧰" } }),
-  row({ id: "clockmaker", label: "Clockmaker", branch: "craft", tier: 3, plan: "later", needs: ["smithy", "college"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Clocks for every station: trains keep a timetable.", brings: "Station clocks, timetables" }),
+  // Time control (late-game spec, Clockmaker CA): a clock on the HUD, 2×; the Clock tower, 3×.
+  row({ id: "clockmaker", label: "Clockmaker", branch: "craft", tier: 3, school: "college", needs: ["smithy", "college"], price: { planks: 20, coins: 150, goods: { iron: 10 } }, blurb: "A clock for your railway: tap it to run everything twice as fast.", brings: "2× speed (the clock by Pause)", feature: { label: "The clock by Pause: 2×", icon: "⏱" } }),
 
   // Learning
   // (The school is the building you place, not a blueprint; beside a city it grows a library wing, for tier 3.)
@@ -267,7 +268,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "hospital", label: "Hospital", branch: "civic", tier: 3, plan: "later", needs: ["college", "town-hall"], price: { planks: 24, coins: 100 }, blurb: "An ambulance on the roads; doctors ride the trains.", brings: "Hospital, ambulance" }),
   row({ id: "bank", label: "Bank", branch: "civic", tier: 3, plan: "later", needs: ["warehouses", "town-hall"], price: { planks: 20, coins: 150 }, blurb: "Coins earn a little while they wait; land costs less.", brings: "Bank" }),
   row({ id: "museum", label: "Museum", branch: "civic", tier: 3, plan: "later", needs: ["university"], price: { planks: 24, coins: 120 }, blurb: "Every building and train you've found, on show.", brings: "Museum" }),
-  row({ id: "clock-tower", label: "Clock tower", branch: "civic", tier: 3, plan: "later", needs: ["clockmaker", "town-hall"], price: { planks: 30, coins: 120, goods: { iron: 10 } }, blurb: "The town keeps time: every train leaves on the dot.", brings: "Clock tower" }),
+  row({ id: "clock-tower", label: "Clock tower", branch: "civic", tier: 3, school: "university", needs: ["clockmaker"], price: { planks: 30, coins: 250, goods: { iron: 10 } }, requires: [CITY], blurb: "A city keeps time for the railway: the clock runs at 3× too.", brings: "3× speed", feature: { label: "The clock by Pause: 3×", icon: "⏱" } }),
 
   // Leisure and sports
   row({ id: "park", label: "Park and bandstand", branch: "leisure", tier: 2, plan: "soon", needs: ["carpentry"], price: { planks: 12, coins: 30 }, blurb: "Towns with a park grow a little faster.", brings: "Park, bandstand" }),

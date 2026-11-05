@@ -55,6 +55,7 @@ export const SUITES = {
   life: { script: "e2e:life", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge" },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
+  clockmaker: { script: "e2e:clockmaker", minutes: 4 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -173,6 +174,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // Time control (late-game spec, Clockmaker CA).
+  [["src/game/time-scale.ts", "src/game/game.ts", "src/ui/hud.ts", "src/main.ts"], ["clockmaker"]],
 ];
 
 // A tiny glob: ** any depth, * within a path segment.

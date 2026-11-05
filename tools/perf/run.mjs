@@ -423,6 +423,13 @@ async function runMap(id) {
   result.idle = await stretch(page, cdp, IDLE_S, null, `${id}-idle`);
   result.idle.trainsRunning = trainsRunning;
 
+  // 2b. At 3× (Game mode's time control, src/game/time-scale.ts): what running fast costs a phone, the same view.
+  await page.evaluate(() => (window.woodrail.timeScale = 3));
+  result.fast = await stretch(page, cdp, Math.min(IDLE_S, 10), null, `${id}-fast`);
+  result.fast.simMs = await page.evaluate(() => window.woodrail.simMs);
+  await page.evaluate(() => (window.woodrail.timeScale = 1));
+  await settle(page);
+
   // 3. Paused, as still as the game gets (the idle floor).
   if (trainsRunning) {
     await page.evaluate(() => (window.woodrail.paused = true));
@@ -668,6 +675,9 @@ function table(run) {
     ["idle: browser CPU % of a core", "idle.browserCpuPct"],
     ["idle: frame ms p50 / p95", (m) => fmt2(get(m, "idle.frameMs.p50"), get(m, "idle.frameMs.p95"))],
     ["idle: sim ms (last frame)", "idle.simMs"],
+    ["3×: main thread %", "fast.mainThreadPct"],
+    ["3×: frame ms p50 / p95", (m) => fmt2(get(m, "fast.frameMs.p50"), get(m, "fast.frameMs.p95"))],
+    ["3×: sim ms (last frame)", "fast.simMs"],
     ["paused: frames / main thread %", (m) => (m.paused ? `${m.paused.framesDrawn} / ${m.paused.mainThreadPct}` : "–")],
     ["pan: fps", "pan.fps"],
     ["pan: frame ms p50 / p95", (m) => fmt2(get(m, "pan.frameMs.p50"), get(m, "pan.frameMs.p95"))],

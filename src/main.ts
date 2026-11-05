@@ -71,6 +71,7 @@ import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, lacking as researchLacking, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
 import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pillKey, pillResearch, pillView, removedText, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
+import { nextSpeed, slower, speedsOpen } from "./game/time-scale";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARRIES, COIN_ICON } from "./economy/cargo";
@@ -464,6 +465,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       togglePause: () => {
         game.paused = !game.paused;
         hud.setPaused(game.paused);
+      },
+      toggleSpeed: () => {
+        game.timeScale = nextSpeed(game.timeScale, speedsOpen(progress));
+        syncSpeed();
       },
       lever: (v) => interaction.setLever(v),
       follow: () => interaction.toggleFollow(),
@@ -2419,6 +2424,24 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return pickerKey(progress, schoolName(), goals.current()?.id ?? "");
   }
 
+  /** People coming to stations, on game time (see `simElapsed`). */
+  const peopleSeconds: StudyClock = { at: null };
+  /**
+   * The time control (src/game/time-scale.ts): the speeds open (Clockmaker, Clock tower), the HUD's clock showing the
+   * speed. Outside Game mode, or a speed no longer open, back to 1×. Cheap: called once a second and on a tap.
+   */
+  function syncSpeed(): void {
+    const open = mode === "game" ? speedsOpen(progress) : [1 as const];
+    if (!open.includes(game.timeScale as 1)) game.timeScale = 1;
+    hud.setSpeed(game.timeScale, open.length > 1, nextSpeed(game.timeScale, open));
+  }
+  // A phone too slow for the speed: a speed slower, said.
+  game.onTooSlow = () => {
+    game.timeScale = slower(game.timeScale);
+    hud.toast(`Your phone is working hard: back to ${game.timeScale}×`, false, 3600);
+    syncSpeed();
+  };
+
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
   const CRAFT_STEP = 0.25;
   /** The research's study clock, on the world's game time (see `simElapsed`). */
@@ -2440,6 +2463,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     setSpeed(progress, researchSpeed(game.world, progress.learned));
   }
   setInterval(() => {
+    syncSpeed();
     if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
     if (mode === "game") refreshPill();
     showDate();
@@ -2629,7 +2653,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (why) warnedHeavy.add(id);
       else warnedHeavy.delete(id);
     }
-    peopleArrive(game.world, progress, 1, peopleClock);
+    // (On game time: at 2× people come twice as fast, as everything else does.)
+    peopleArrive(game.world, progress, simElapsed(peopleSeconds, game.simSeconds), peopleClock);
     // A bus at a station's stop goes for the people waiting in its town off the line.
     if (mode === "game" && !game.paused) buses.update();
     // (Placed again only when what the towns have had or the land changed: a key compared, else nothing.)

@@ -11,6 +11,7 @@ import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
 import { LoopShowView } from "../render/loop-show";
 import { ClockView, type ClockAt } from "../render/clock-view";
+import { SlowWatch } from "./time-scale";
 import type { ClockHands } from "../render/clock-hands";
 import { flatClockHands } from "../render/blender-models";
 import { STATION_CLOCK_PART } from "../render/dressing/buildings";
@@ -214,6 +215,13 @@ export class Game {
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
   paused = false;
+  /**
+   * How fast the railway runs (Game mode's time control: src/game/time-scale.ts): the sim takes this many times the
+   * steps a frame. `onTooSlow`: the sim fell behind at more than 1× (a slow phone): main goes a speed slower.
+   */
+  timeScale = 1;
+  onTooSlow: (() => void) | null = null;
+  private readonly slowWatch = new SlowWatch();
   /** Seconds the world has run (it stops while paused): game time: the date (calendar.ts) and the Journal's times. */
   simSeconds = 0;
   /** Called once per frame after the simulation steps, before rendering. */
@@ -1020,16 +1028,21 @@ export class Game {
     const dt = Math.min(elapsed, 0.1);
     const t0 = performance.now();
     if (!this.paused) {
-      this.accumulator += dt;
+      this.accumulator += dt * this.timeScale;
+      // (Faster, more steps a frame: the cap grows with the speed.)
+      const cap = MAX_STEPS_PER_FRAME * this.timeScale;
       let steps = 0;
-      while (this.accumulator >= SIM_DT && steps < MAX_STEPS_PER_FRAME) {
+      while (this.accumulator >= SIM_DT && steps < cap) {
         this.sim.tick();
         this.economy.tick();
         this.simSeconds += SIM_DT;
         this.accumulator -= SIM_DT;
         steps++;
       }
-      if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
+      if (steps === cap) this.accumulator = 0;
+      // At more than 1×, a phone whose sim keeps falling behind goes slower (said by main).
+      if (this.timeScale > 1 && this.slowWatch.record(steps === cap, performance.now() - t0)) this.onTooSlow?.();
+      else if (this.timeScale === 1) this.slowWatch.reset();
     }
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     // Signal marks: worked out again only when a mark, the track or an aspect changed.
