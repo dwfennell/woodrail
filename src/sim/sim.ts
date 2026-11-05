@@ -531,6 +531,26 @@ export class Sim {
     return true;
   }
 
+  /**
+   * Each engine's livery from the paint shop, by car id (game/paint-shop.ts: a colour scheme's id; none: as it came).
+   * Looks only: the sim never reads it, but it follows the car, as names and looks do.
+   */
+  private readonly liveries = new Map<number, string>();
+  /** Goes up whenever an engine is painted (its model is built again). */
+  liveriesVersion = 0;
+
+  liveryOf(carId: number): string {
+    return this.liveries.get(carId) ?? "";
+  }
+
+  /** Paint an engine (`""`: back as it came). */
+  setLivery(carId: number, livery: string): void {
+    if ((this.liveries.get(carId) ?? "") === livery) return;
+    if (livery) this.liveries.set(carId, livery);
+    else this.liveries.delete(carId);
+    this.liveriesVersion++;
+  }
+
   /** Give a new engine a name no other engine on the track has. */
   private nameEngine(carId: number): void {
     const taken = new Set<string>();

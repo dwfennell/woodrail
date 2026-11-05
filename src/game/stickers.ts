@@ -1,6 +1,6 @@
 import { townLinks } from "../roads/graph";
-import { townStatus } from "./towns";
-import { growthOf } from "./town-life";
+import { statusOf } from "./town-life";
+import { MAX_SMILES, townPlaces, townSmiles } from "./places";
 import { fixedPieces, type World } from "./world";
 import { largestNetwork, running } from "./goals";
 import type { DepotRole } from "../economy";
@@ -56,7 +56,7 @@ export function ownTrack(w: World): number {
 
 /** Every town's level (0 a hamlet, 1 a village, 2 a town, 3 a city, 4 City ★…). */
 export function townLevels(w: World): number[] {
-  return w.landscape.towns.map((t) => townStatus(growthOf(w, t.id)).level);
+  return w.landscape.towns.map((t) => statusOf(w, t.id).level);
 }
 
 const count = (ctx: StickerContext, key: string) => ctx.counts.get(key) ?? 0;
@@ -228,7 +228,22 @@ export const STICKERS: readonly Sticker[] = [
     check: (_w, c) => exported(c) + imported(c) >= SEA_TRADER,
   },
   { id: "scholar", title: "Scholar", how: `Learn ${SCHOLAR} blueprints`, icon: "🎓", theme: "economy", deps: ["learned"], check: (_w, c) => c.learned.size >= SCHOLAR },
+  // A town's places (game/places.ts).
+  { id: "happy-town", title: "Happy town", how: `Give a town ${MAX_SMILES} smiles with its places`, icon: "😊", theme: "towns", deps: ["towns"], check: (w) => w.landscape.towns.some((t) => townSmiles(t) >= MAX_SMILES) },
+  { id: "day-out", title: "Day out", how: "Take visitors by coach to a town with a leisure place", icon: "🎟️", theme: "trains", deps: ["counts"], check: (_w, c) => count(c, "visitors") > 0 },
+  {
+    id: "civic-pride",
+    title: "Civic pride",
+    how: "A town hall, fire station, police station and hospital in one town",
+    icon: "🏛️",
+    theme: "towns",
+    deps: ["towns"],
+    check: (w) => w.landscape.towns.some((t) => CIVIC_PRIDE.every((id) => townPlaces(t).has(id))),
+  },
 ];
+
+/** Civic pride's four places. */
+const CIVIC_PRIDE = ["town-hall", "fire-station", "police", "hospital"];
 
 /** The inputs each dep reads, as a key: a check whose deps' keys are all as last time is skipped. */
 export function depKeys(w: World, ctx: StickerContext, goalsDone: number): Record<StickerDep, string> {
@@ -236,12 +251,15 @@ export function depKeys(w: World, ctx: StickerContext, goalsDone: number): Recor
   let towns = 0;
   for (const n of w.economy.delivered.values()) towns += n;
   for (const bag of w.economy.deliveredGoods.values()) for (const n of Object.values(bag)) towns += n ?? 0;
+  // (And their places: one put up, or a plain building opened as one.)
+  let places = 0;
+  for (const t of w.landscape.towns) for (const b of t.buildings) if (b.landmark) places++;
   return {
     // (And the joints: a piece dragged into a line joins it without a piece added, for the Connected … towns.)
     pieces: `${w.layout.piecesVersion}:${w.layout.jointsVersion}`,
-    towns: `${w.landscape.towns.length}:${towns}`,
+    towns: `${w.landscape.towns.length}:${towns}:${places}`,
     coins: String(ctx.coins),
-    counts: `${count(ctx, "loadsMoved")}:${count(ctx, "planksSawn")}`,
+    counts: `${count(ctx, "loadsMoved")}:${count(ctx, "planksSawn")}:${count(ctx, "visitors")}`,
     learned: String(ctx.learned.size),
     goals: String(goalsDone),
     land: String(w.landscape.grid.revision),

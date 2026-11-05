@@ -439,6 +439,18 @@ export class Economy {
   toVan: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
   /** A unit went on a station's van yard (the van loads up and goes). */
   onVanYard: ((d: DepotState) => void) | null = null;
+  /**
+   * Town id → the place under way there (Game mode's civic and leisure places, game/places.ts): its id and the goods it
+   * has had so far, by kind. Saved (`placePlans`).
+   */
+  readonly placePlans = new Map<number, { id: string; got: Bag }>();
+  /**
+   * How many more of `kind` town `townId`'s place under way wants (Game mode: `TownLife`; null: none). Such a unit,
+   * landing at the town's station, goes into the place (unpaid, not toward growth) before anything else.
+   */
+  placeWants: ((townId: number, kind: CargoKind) => number) | null = null;
+  /** A unit went into a town's place under way. */
+  onPlaceGoods: ((d: DepotState) => void) | null = null;
   private readonly services = new Map<number, Service>();
   /** Each stop list's `Later`s (see `laterOf`), and the counters they're keyed on. */
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
@@ -1188,6 +1200,16 @@ export class Economy {
   private put(slot: CargoSlot, kind: CargoKind): void {
     if (slot.kind === "pile") {
       const d = this.depots[slot.depotId];
+      // Goods for the town's place under way (game/places.ts): into the place, not onto the pile or toward growth.
+      if (d.role === "town" && this.placeWants && this.placeWants(d.townId, kind) > 0) {
+        const plan = this.placePlans.get(d.townId);
+        if (plan) {
+          plan.got[kind] = (plan.got[kind] ?? 0) + 1;
+          this.wantsStamp++;
+          this.onPlaceGoods?.(d);
+          return;
+        }
+      }
       // Goods for a station's delivery van (roads spec D5): onto its yard, for a town off the line (not this one).
       if (d.role === "town" && this.toVan?.(d, kind)) {
         const yard = this.vanYard.get(d.id) ?? {};

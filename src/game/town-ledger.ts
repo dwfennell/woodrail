@@ -3,8 +3,8 @@ import { kindsOf } from "../economy/goods";
 import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
 import { ruleOf, type ThingId } from "./things";
-import { growthOf } from "./town-life";
-import { FULL_PAY, townLevel, townStatus } from "./towns";
+import { statusOf } from "./town-life";
+import { FULL_PAY, townLevel } from "./towns";
 import { DEPOT_NAMES, depotName, type World } from "./world";
 import { townLinks } from "../roads/graph";
 
@@ -108,7 +108,7 @@ function howToGet(kind: CargoKind, learned: ReadonlySet<string>): string {
 export function townLedger(world: World, d: DepotState, ctx: LedgerContext): TownLedger | null {
   const town = world.landscape.towns.find((t) => t.id === d.townId);
   if (!town) return null;
-  const status = townStatus(growthOf(world, town.id));
+  const status = statusOf(world, town.id);
   const goods = kindsOf(status.wants).map((kind) => ({ kind, icon: GOODS_ICON[kind], label: CARGO[kind].label, have: status.got[kind] ?? 0, need: status.wants[kind]! }));
   const have = goods.reduce((t, g) => t + g.have, 0);
   const need = goods.reduce((t, g) => t + g.need, 0);

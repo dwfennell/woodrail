@@ -44,6 +44,7 @@ export const SUITES = {
   "train-parts": { script: "e2e:train-parts" },
   "train-summary": { script: "e2e:train-summary", minutes: 8 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
+  civic: { script: "e2e:civic", minutes: 5 },
   stickers: { script: "e2e:stickers" },
   stats: { script: "e2e:stats", minutes: 2 },
   workshop: { script: "e2e:workshop" },
@@ -86,6 +87,8 @@ export const RULES = [
   // Simulation and routing.
   ["src/sim/**", ["touch", "click:model-train,routes", "signals", "train-summary", "train-parts", "lift", "loop", "kits", "decks"]],
   ["src/sim/engine-names.ts", ["engine-names"]],
+  // Town places, treats and the paint shop (spec 2026-11-04-civic-leisure-design.md).
+  [["src/game/places.ts", "src/game/place-row.ts", "src/game/paint-shop.ts", "src/ui/places-row.ts", "src/ui/paint-sheet.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/render/train-models.ts", "src/render/train-view.ts"], ["civic"]],
   ["src/routing/**", [TOUCH_ROUTES, "click:routes", "signals", "warehouse"]],
   ["src/track/**", ["touch", "click", "draw", "joints", "ramps", "kits", "decks", "lift", "loop", "low-bridge"]],
   ["src/track/underpass.ts", ["low-bridge"]],

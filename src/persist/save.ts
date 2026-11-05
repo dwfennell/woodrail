@@ -69,6 +69,8 @@ const trainSchema = z.object({
         look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
         /** An engine's name (its plate and card title; optional: older saves' engines are given one as they load). */
         name: z.string().min(1).max(64).optional(),
+        /** An engine's paint from the paint shop (game/paint-shop.ts). Absent: as it came. */
+        livery: z.string().min(1).max(24).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(MAX_WAGON_CAPACITY) }).optional(),
         /** Goods a wagon is switched off for on its card (optional: absent, an older save's, it takes all it can carry). */
         off: z.array(z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]])).max(CARGO_KINDS.length).optional(),
@@ -166,6 +168,8 @@ const saveSchema = z.object({
   deliveredGoods: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
   /** What each town received while joined by road to another (roads spec D2), by kind. Absent: none. */
   roadGot: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
+  /** Each town's place under way (game/places.ts): town id, the place's id, and the goods it has had. Absent: none. */
+  placePlans: z.array(z.tuple([z.number().int().min(0), z.string().max(40), z.record(z.string(), z.number().int().min(0))])).optional(),
   /** Lines: a colour, a name, and stops (depot indices in `depots`, what's done there, wait there to fill). */
   lines: z
     .array(
@@ -313,6 +317,7 @@ export function serializeWorld(world: World): SaveData {
           lever: c.lever,
           ...(look !== "classic" ? { look } : {}),
           ...(c.kind === "engine" && sim.nameOf(c.id) ? { name: sim.nameOf(c.id) } : {}),
+          ...(c.kind === "engine" && sim.liveryOf(c.id) ? { livery: sim.liveryOf(c.id) } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
@@ -341,6 +346,7 @@ export function serializeWorld(world: World): SaveData {
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
+    ...(world.economy.placePlans.size > 0 ? { placePlans: [...world.economy.placePlans].map(([townId, p]) => [townId, p.id, { ...p.got }] as [number, string, Record<string, number>]) } : {}),
     ...(lines.length > 0 ? { lines } : {}),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
@@ -549,6 +555,12 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.deliveredGoods.set(townId, goods);
   }
+  for (const [townId, id, bag] of save.placePlans ?? []) {
+    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    const got: Bag = {};
+    for (const k of CARGO_KINDS) if (bag[k]) got[k] = bag[k];
+    economy.placePlans.set(townId, { id, got });
+  }
   for (const [townId, bag] of save.roadGot ?? []) {
     if (!landscape.towns.some((t) => t.id === townId)) continue;
     const goods: Bag = {};
@@ -580,6 +592,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
       const name = t.cars[i].name;
       if (car.kind === "engine" && name) sim.setName(car.id, name);
+      const livery = t.cars[i].livery;
+      if (car.kind === "engine" && livery) sim.setLivery(car.id, livery);
       const on = t.cars[i].line;
       if (car.kind === "engine" && on) {
         joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next, on.via);
