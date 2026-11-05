@@ -55,7 +55,7 @@ import { DepotView, inStationFootprint } from "../render/depot-view";
 import { RuinsView, type ShownRuin } from "../render/ruins-view";
 import type { RuinOnMap } from "./map-markers";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { inTunnel, setTunnels, tunnelsOn, archFloors, bridgeLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
+import { inTunnel, setTunnels, tunnelsOn, archFloors, bridgeLevels, plinthLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
 import type { Prop, PropPose } from "../props/store";
 import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
@@ -594,7 +594,9 @@ export class Game {
   }
 
   /** How many riser heights a placed bridge's arches reach down to the ground (0 for other pieces). */
-  readonly bridgeLevelsOf = (p: PlacedPiece): number => bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
+  readonly bridgeLevelsOf = (p: PlacedPiece): number =>
+    // (An underpass off a hill's edge: how many levels its block's plinth reaches down, drawn as its own variant.)
+    p.type === "underpass" ? plinthLevels(this.landscape, p.type, p.flipped, p.pose, p.y) : bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
   /** How far down a placed bridge's arch openings reach, over a hill's edge (null: all its levels). */
   readonly archFloorsOf = (p: PlacedPiece, levels = this.bridgeLevelsOf(p)): number[] | null =>
     // (One level over an underpass: on a hilltop the ground under it is cut lower, so its levels can read more.)

@@ -56,10 +56,15 @@ rest still run (before, one throw ended the run with no last line).
 found on the map), `phone-drag` (7), `phone` (7b, the phone on its side), `specials` (ramps and bridges), QA's
 replays a group each (`qa-slant-23-there`, `qa-slant-30-back`, `qa-slant-10-back`, `qa-slant-m23-back`,
 `qa-slant-10-there`, `qa-slant-40-back`, `qa-terrace`, `qa-terrace-2`: each on a fresh page, about 7 min; once one group,
-`qa-slant`), `terrace-repeat`, `terrace-qa`, `junctions` (on a fresh page), `loop`, `ghosts`. `lift` runs only when
+`qa-slant`), `terrace-repeat`, `terrace-qa`, `junctions` (on a fresh page), `loop`, `under-slant` (a line drawn at a slant under a bridge one level up, on a phone page of its own), `ghosts`. `lift` runs only when
 named (`extra`, below): the old subset that isn't in a full run. The old `E2E_ONLY=junctions` ran junctions, loop,
 ghosts and lift on the first page: now `E2E_ONLY=junctions,loop,ghosts,lift`. The old `E2E_ONLY=qa-slant`: the eight
 `qa-*` groups and `terrace-repeat,terrace-qa`.
+
+**low-bridge** (`tools/e2e/low-bridge.mjs`, about 12 min): one Sandbox phone page; each group builds its own place:
+`square`, `diagonal`, `curved`, `curved-end`, `curve-under`, `points`, `train`, `signal`, `laid-under`, `draw-ramp`,
+`hilltop`, `hill-edge`, `hill-edge-curved`, `hillside`, `road`, `road-over`, `draw-under`, `costs` (road-over and costs
+put down an underpass first when run alone).
 
 **roads** (`scripts/e2e/roads.mjs`): `sandbox` (A–J on one page, each section on the roads the ones before laid) and
 `game` (K–X, each on the route N laid). They're one chain each, so two groups; `game` alone opens Sandbox first only

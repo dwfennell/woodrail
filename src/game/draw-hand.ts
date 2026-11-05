@@ -3,7 +3,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
-import { bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight, tunnelsOn } from "../landscape";
+import { bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight, plinthLevels, tunnelsOn } from "../landscape";
 import { dustPuff } from "../render/dust";
 import { delayed, settle } from "../render/flourishes";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
@@ -951,7 +951,7 @@ export class DrawHand {
       // A bridge (or a ramp up off the ground) on its arches. (Its arches all the way down: arches cut short over a
       // hill's edge are another geometry, built on the move that needed it, up to 36 ms in QA's replay; the piece put
       // down has them.)
-      const levels = canStandOnArches(p.type) ? bridgeLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : 0;
+      const levels = canStandOnArches(p.type) ? bridgeLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : p.type === "underpass" ? plinthLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : 0;
       const floors = null;
       // A ramp, let into a hill, is drawn over it (its cutting isn't made till it's put down: making it on each move
       // that changed the line's last ramp took up to 118 ms on a terrace, QA N2).

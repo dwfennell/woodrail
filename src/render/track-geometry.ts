@@ -414,11 +414,13 @@ function girderSupport(def: PieceDef, height: number): BufferGeometry {
 /**
  * An underpass's trench: a wooden block sunk into the board round the dip, its top a rim just proud of the felt (the
  * felt has a hole there: `underpassHoles`), with a channel cut down to the track's bed as it dips. Piece-local.
+ * `plinth`: how far down its block reaches off a hill's edge (mm below its ends), standing on the ground there.
  */
-function trenchBrush(def: PieceDef): Brush {
+function trenchBrush(def: PieceDef, plinth = 0): Brush {
   const geom = def.paths[0].geom;
   const len = pathLength(geom);
-  const depth = (geom.kind === "line" ? (geom.dip ?? 0) : 0) + 4;
+  // Off a hill's edge, the block reaches on down to the ground below (`plinthLevels`): on the hill, it's hidden in it.
+  const depth = Math.max((geom.kind === "line" ? (geom.dip ?? 0) : 0) + 4, plinth);
   const top = 0.6;
   const outer = TRENCH_HALF + TRENCH_WALL;
   const box = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(len - 2 * TRENCH_INSET, depth + top, 2 * outer, 2, 1.5)));
@@ -664,14 +666,15 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
   // A ramp brings its own support: a sloping viaduct from the ground up under its high end (so it stands, and turns,
   // without a riser). Up off the ground, it stands on arches as a bridge does.
   const ownSupport = isRamp(def.type) && def.paths.length === 1;
-  if ((levels > 0 || ownSupport) && def.paths.length === 1) {
+  if ((levels > 0 || ownSupport) && def.paths.length === 1 && def.type !== "underpass") {
     // Keep the viaduct's own (painted) group through the union.
     const support = new CsgBrush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [PAINT, PAINT, PAINT]);
     support.updateMatrixWorld();
     result = csgEvaluate(evaluator, result, support, ADDITION);
   }
 
-  if (def.type === "underpass") result = csgEvaluate(evaluator, result, trenchBrush(def), ADDITION);
+  // (`levels` for an underpass: its block's plinth down off a hill's edge.)
+  if (def.type === "underpass") result = csgEvaluate(evaluator, result, trenchBrush(def, levels * RISER_HEIGHT), ADDITION);
   if (isTunnelMouth(def.type)) result = csgEvaluate(evaluator, result, mouthBrush(def), ADDITION);
 
   // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
