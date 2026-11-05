@@ -2,17 +2,22 @@ import {
   BackSide,
   BufferAttribute,
   Color,
+  DepthFormat,
+  DepthTexture,
   DirectionalLight,
   Group,
   HemisphereLight,
+  LessEqualCompare,
+  LinearFilter,
   Mesh,
   MeshBasicMaterial,
   PMREMGenerator,
   Scene,
   SphereGeometry,
+  UnsignedIntType,
+  WebGLRenderTarget,
   type Camera,
   type WebGLRenderer,
-  type WebGLRenderTarget,
 } from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
@@ -63,6 +68,25 @@ function buildSky(): Mesh {
   return sky;
 }
 
+/**
+ * The sun's shadow map, made here as three's WebGLShadowMap would make it for a PCF directional light (a depth texture
+ * compared in the shader), rather than by three on the first shadow pass. The game skips the first frame's shadow pass
+ * (see `Game.frame`), and with no map yet three bound its plain empty texture to every material's `sampler2DShadow`:
+ * Chrome refused each of those draws (GL_INVALID_OPERATION, "Mismatch between texture format and sampler type",
+ * ~440 on the late map). Made beforehand, the sampler always has a depth texture to compare against.
+ */
+export function shadowTarget(size: number): WebGLRenderTarget {
+  const target = new WebGLRenderTarget(size, size);
+  const depth = new DepthTexture(size, size, UnsignedIntType);
+  depth.name = "sun.shadowMap";
+  depth.format = DepthFormat;
+  depth.compareFunction = LessEqualCompare;
+  depth.minFilter = LinearFilter;
+  depth.magFilter = LinearFilter;
+  target.depthTexture = depth;
+  return target;
+}
+
 /** Lights, sky and haze: the world around the toys. */
 export function createStage(scene: Scene, renderer: WebGLRenderer, quality: QualitySettings): Stage {
   installHaze();
@@ -98,6 +122,10 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   sun.shadow.radius = 2.5;
   sun.shadow.blurSamples = 12;
   sun.shadow.intensity = shades.sunShadow;
+  const shadowMap = shadowTarget(quality.shadowMapSize);
+  sun.shadow.map = shadowMap;
+  // (Allocated now, so the first frame binds it: an unallocated one binds as nothing.)
+  renderer.initRenderTarget(shadowMap);
   // The shadow camera also sees the shadow-only stand-ins (see SHADOW_PROXY_LAYER).
   sun.shadow.camera.layers.enable(SHADOW_PROXY_LAYER);
   // three tests a caster's layers against the view's camera, not the shadow camera: during the shadow pass only, the
@@ -153,6 +181,7 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
     // (The old one's GL objects went with the lost context: dropped, not disposed, which would only warn.)
     environment = null;
     renewEnvironment();
+    if (sun.shadow.map === shadowMap) renderer.initRenderTarget(shadowMap);
     patchShadows();
   };
 

@@ -80,10 +80,15 @@ textures again when it comes, but:
 
 ### Also seen
 
-- **Frame 0's refused draws**: on the very first frame (behind the loading cover) the game skips the shadow pass (to
-  save compiling every depth shader twice), so every shadow-receiving draw has a `sampler2DShadow` bound to three's
-  plain empty texture: Chrome refuses about 440 draws with `GL_INVALID_OPERATION: Mismatch between texture format and
-  sampler type`. Only that frame, never after (`gl-errors.mjs`), and it draws nothing anyone sees. Left as it is.
+- **Frame 0's refused draws** (fixed, commit 3): on the very first frame (behind the loading cover) the game skips
+  the shadow pass (to save compiling every depth shader twice). three makes the sun's shadow map only in its first
+  shadow pass, so every shadow-receiving draw had its `sampler2DShadow` bound to no depth texture, and Chrome refused
+  444 draws on the late map with `GL_INVALID_OPERATION: Mismatch between texture format and sampler type` (QA's ~200
+  warnings a load). Only that frame (`gl-errors.mjs`), and Chrome's ANGLE refuses them before any driver sees them,
+  so it's unlikely to be the crash, but a stricter path could treat it worse. Now `stage.ts` makes the shadow map
+  itself, as three would for PCF (a depth texture with a compare function), and allocates it before the first frame
+  (`renderer.initRenderTarget`, again after a restored context): 0 refused draws, and the same picture (screenshot
+  pair on the late map, identical).
 - On this emulator the resolution governor steps the pixel ratio down to 1.5 within minutes; a Pixel 10's GPU probably
   holds 2.
 
