@@ -23,8 +23,11 @@ import { CHECK_TICKS, type Sections } from "./sections";
  * Giving way (2026-11-05, the user: "so easy to get into a deadlock ... everything stops even though it could easily
  * keep going"): a ring that has held `YIELD_S` (before it's said) is broken where the track allows, by one of its trains
  * turning round where it stands, as at the end of the line (`Sim.turnNow`), and going another way:
- * - **A hand-run train** (lever on, no route: it "goes anywhere") gives way first, to anyone, wherever there's room to
- *   turn it. It then runs on as the points lie, as ever.
+ * - **A hand-run train** (lever on, no route: it "goes anywhere") gives way first, to anyone: by another road where the
+ *   facing points just ahead of it can be thrown to one that's free and holds it (`Router.giveWayRoad`; the points go
+ *   back to the player's way once it's passed), else by turning round where there's room. It then runs on as the points
+ *   lie, as ever. (The user's map, 2026-11-05: a hand-run train back from the forest yard stood at the points, which lay
+ *   for the branch the routed train waited on, while the mill spur on their other road was free.)
  * - **A routed train** gives way only where, turned, it has a way to its next stop with no turn-back and not over the
  *   train in its way (`wayRound`: round a ring, a loop round, a wye or a balloon). Else turning would only bring it back.
  * No livelock: a train that gave way doesn't again for `YIELD_AGAIN_S`, and never again to the same train till that one
@@ -81,6 +84,11 @@ export interface StallsHost {
   routed?(engine: number): boolean;
   /** The piece a routed engine heads for next (its stop, or the via point it's aimed at); −1: none on the map. */
   goal?(engine: number): number;
+  /**
+   * A hand-run train (its id) giving way by another road: the facing points just ahead thrown to a free road clear of
+   * `by`'s train (`Router.giveWayRoad`). True if thrown.
+   */
+  otherRoad?(trainId: number, by: number): boolean;
 }
 
 /** A train's name in waits: its engine, or its first car if it has none (as sections name trains). */
@@ -107,6 +115,8 @@ export class Stalls {
   gaveWay = 0;
   /** Of those, routed trains (gone a way round). */
   gaveWayRouted = 0;
+  /** Of those, hand-run trains that took another road (points thrown ahead of them) rather than turn. */
+  gaveWayRoad = 0;
   /** Trains that gave way, by `trainKey` (it lasts through a turn): when (tick). */
   private readonly yielded = new Map<number, number>();
   /**
@@ -298,8 +308,11 @@ export class Stalls {
           const was = this.gaveTo.get(trainKey(t));
           if (was && was.by === byKey && was.goal === progress.goal && was.turn === progress.turn) continue;
           if (pass && (!host.goal || !wayRound(sim.layout, t, host.goal(engine), sim.piecesUnder(by.id)))) continue;
-          const turned = sim.turnNow(id);
+          // (A hand-run train takes another road at the points just ahead, if one's free; else it turns round.)
+          const road = !pass && !!host.otherRoad?.(id, by.id);
+          const turned = road ? t : sim.turnNow(id);
           if (!turned) continue;
+          if (road) this.gaveWayRoad++;
           gave = turned;
           this.gaveTo.set(trainKey(turned), { by: byKey, ...progress });
           if (pass) this.gaveWayRouted++;

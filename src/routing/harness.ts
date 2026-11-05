@@ -332,6 +332,10 @@ export class HarnessRun implements InvariantWorld {
       routeWait: (engine) => this.router.waitingOn(engine),
       routed: (engine) => this.routes.has(engine),
       goal: (engine) => this.target(engine),
+      otherRoad: (id, by) => {
+        const t = sim.getTrain(id);
+        return !!t && this.router.giveWayRoad(t, sim.piecesUnder(by));
+      },
     });
   }
 
