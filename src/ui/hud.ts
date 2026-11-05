@@ -2506,7 +2506,25 @@ export class Hud {
   /** The depot card was put away (Sandbox's chain hints on the map go with it). */
   onDepotCardClosed: (() => void) | null = null;
 
+  /** Cards of other modules' (a boat's: src/ui/boat-card.ts), put away with the HUD's own. */
+  private readonly ownCards: HTMLElement[] = [];
+
+  /** Add another module's card to the HUD: it sits where the HUD's cards do, and goes with them (`hideCards`). */
+  addCard(card: HTMLElement): void {
+    card.hidden = true;
+    this.ownCards.push(card);
+    this.root.appendChild(card);
+  }
+
+  /** Put the HUD's own cards away (not the other modules' added ones): before one of those opens. */
+  hideOwnCards(): void {
+    const others = this.ownCards.map((c) => c.hidden);
+    this.hideCards();
+    this.ownCards.forEach((c, i) => (c.hidden = others[i]));
+  }
+
   hideCards(): void {
+    for (const c of this.ownCards) if (!c.hidden) c.hidden = true;
     if (!this.depotCard.hidden) this.onDepotCardClosed?.();
     // A toast waiting for room: once the cards are put away (and any card opening in their place is up), it comes on.
     if (this.toastWaitsForCard) requestAnimationFrame(() => this.flushToasts());

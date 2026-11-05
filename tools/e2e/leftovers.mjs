@@ -137,7 +137,9 @@ async function phone() {
     await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
   };
   /**
-   * Setup (not what's tested): track between the first two towns' stations, laid by the player's own pathfinder; a
+   * Setup (not what's tested): track between two towns' stations, laid by the player's own pathfinder (the nearest
+   * pair it can join, trying each pair nearest-first, then again allowed more pieces: on some random Sandbox maps the
+   * first two towns can't be joined, a river or hills in the way); a
    * straight on the way swapped for a post office where `office` says "line" (as a drop splices one in), or a post
    * office put down far off the line where it says "far" (towns post only while one stands); a train of `cars` at the
    * first station, lever off. A run-ahead of the game's own sim and economy ticks (`__run`), counting the cranes'
@@ -150,19 +152,41 @@ async function phone() {
         const { rulesFor } = await import("/src/play/rules.ts");
         const { connectorRef } = await import("/src/track/layout.ts");
         const w = window.woodrail;
-        const towns = w.world.landscape.towns.filter((t) => w.world.stations.has(t.id));
-        if (towns.length < 2) return { error: "fewer than two towns with stations" };
-        const st = (k) => w.world.stations.get(towns[k].id);
+        const withStations = w.world.landscape.towns.filter((t) => w.world.stations.has(t.id));
+        if (withStations.length < 2) return { error: "fewer than two towns with stations" };
+        // Every pair of towns, nearest first (by their stations).
+        const at = (t) => w.layout.getPiece(w.world.stations.get(t.id)).pose;
+        const pairs = [];
+        for (let a = 0; a < withStations.length; a++)
+          for (let b = a + 1; b < withStations.length; b++) {
+            const [p0, p1] = [at(withStations[a]), at(withStations[b])];
+            pairs.push({ pair: [withStations[a], withStations[b]], d: Math.hypot(p0.x - p1.x, p0.z - p1.z) });
+          }
+        pairs.sort((x, y) => x.d - y.d);
+        let towns = null;
         let laid = null;
-        for (const [i, j] of [[1, 0], [1, 1], [0, 0], [0, 1]]) {
-          const before = new Set(w.layout.pieceIds());
-          const r = play(w.world.layout, w.editor(), connectorRef(st(0), i), connectorRef(st(1), j), { blocked: rulesFor(w.world), maxPieces: 120, fiddle: 3 });
-          if (r.ok) {
-            laid = [...w.layout.pieceIds()].filter((id) => !before.has(id));
-            break;
+        let tried = 0;
+        search: for (const maxPieces of [120, 240]) {
+          for (const { pair } of pairs) {
+            const [s0, s1] = pair.map((t) => w.world.stations.get(t.id));
+            for (const [i, j] of [[1, 0], [1, 1], [0, 0], [0, 1]]) {
+              tried++;
+              const before = new Set(w.layout.pieceIds());
+              const r = play(w.world.layout, w.editor(), connectorRef(s0, i), connectorRef(s1, j), { blocked: rulesFor(w.world), maxPieces, fiddle: 3 });
+              const fresh = [...w.layout.pieceIds()].filter((id) => !before.has(id));
+              // A line of its own, long enough for the trains and with a straight to swap for a post office (two
+              // stations already joined by the map's own track give none: taken up again, and the next tried).
+              if (r.ok && fresh.length >= 4 && fresh.some((id) => w.layout.getPiece(id).type === "straight-216")) {
+                laid = fresh;
+                towns = pair;
+                break search;
+              }
+              for (const id of fresh.reverse()) w.editor().remove(id);
+            }
           }
         }
-        if (!laid) return { error: "no track between the stations" };
+        if (!laid) return { error: `no track between any two towns' stations (${tried} tries)` };
+        const st = (k) => w.world.stations.get(towns[k].id);
         let depot = null;
         if (office === "line") {
           const straights = laid.filter((id) => w.layout.getPiece(id).type === "straight-216");

@@ -49,6 +49,7 @@ export const SUITES = {
   stats: { script: "e2e:stats", minutes: 2 },
   workshop: { script: "e2e:workshop" },
   warehouse: { script: "e2e:warehouse", minutes: 6 },
+  water: { script: "e2e:water", minutes: 8 },
   "focus-ring": { script: "e2e:focus-ring", minutes: 4 },
   "hopper-load": { script: "e2e:hopper-load", minutes: 1.5 },
   locked: { script: "e2e:locked", minutes: 6 },
@@ -58,6 +59,7 @@ export const SUITES = {
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   post: { script: "e2e:post", minutes: 5 },
   "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
+  "gl-lost-desktop": { script: "e2e:gl-lost-desktop", minutes: 2 },
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   power: { script: "e2e:power", minutes: 6 },
@@ -66,6 +68,8 @@ export const SUITES = {
   tunnels: { script: "e2e:tunnels", minutes: 6 },
   rack: { script: "e2e:rack", minutes: 3 },
   metro: { script: "e2e:metro", minutes: 3 },
+  "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
+  "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -91,6 +95,11 @@ export const RULES = [
   [
     ["src/game/metro.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/progress.ts", "src/game/interaction.ts", "src/economy/economy.ts", "src/landscape/clearance.ts", "src/landscape/trees-aside.ts", "src/track/kits.ts", "src/render/props/library.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts"],
     ["metro"],
+  ],
+  // Tech tree 5: the viaduct, the lift bridge, Lift and load, the sleeper and observation car, the observatory.
+  [
+    ["src/sim/sim.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/track/constants.ts", "src/track/overlap.ts", "src/landscape/support.ts", "src/landscape/clearance.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/game/upgrades.ts", "src/game/lift-bridges.ts", "src/game/engine-status.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/kit-motions.ts", "src/render/depot-view.ts", "src/render/train-models.ts", "src/catalogue/assets/observatory.ts", "src/catalogue/assets/observation-car.ts", "src/catalogue/assets/mechanisms.ts", "src/ui/tray-catalogue.ts"],
+    ["tech-tree-5"],
   ],
   // The suites themselves, and what they share.
   ["scripts/e2e/lib/**", CORE],
@@ -143,7 +152,9 @@ export const RULES = [
   // Rendering.
   ["src/render/**", ["touch", "click", "life"]],
   // The drawing lost and back, the card to reload, and lean settings after (and what the post-processing makes).
-  [["src/render/post.ts", "src/render/quality.ts", "src/render/stage.ts", "src/ui/context-lost.ts", "src/game/game.ts"], ["gl-lost"]],
+  [["src/render/post.ts", "src/render/quality.ts", "src/render/stage.ts", "src/ui/context-lost.ts", "src/game/game.ts"], ["gl-lost", "gl-lost-desktop"]],
+  // Drawn-only geometry freed on phones, kept on desktops (in-place restore): both of gl-lost's paths.
+  [["src/render/gpu-only.ts", "tools/e2e/gl-lost.mjs", "tools/e2e/gl-lost-desktop.mjs"], ["gl-lost", "gl-lost-desktop"]],
   ["src/render/clock-*", ["station-clock"]],
   ["src/render/hopper-load.ts", ["hopper-load"]],
   ["src/render/station-touches.ts", ["station-touches"]],
@@ -180,11 +191,11 @@ export const RULES = [
   ["src/ui/map-view.ts", ["sites"]],
   ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share,route-ring"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
-  ["src/ui/goals-panel.ts", ["stickers", "research"]],
+  ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
   ["src/ui/store-rows.ts", ["warehouse"]],
   ["src/ui/town-ledger.ts", [...TOWNS]],
-  ["src/ui/piece-info.ts", ["names"]],
+  ["src/ui/piece-info.ts", ["names", "feature-tips"]],
 
   // Game rules (src/game: by file; anything else there falls to CORE).
   [["src/game/game.ts", "src/game/interaction.ts", "src/game/world.ts", "src/game/modes.ts"], [...CORE, "locked", "life"]],
@@ -211,6 +222,8 @@ export const RULES = [
   [["src/game/research*", "src/game/blueprints.ts", "src/game/tech.ts", "src/game/learn-text.ts"], ["research", "locked", "kits-game", "landscaping"]],
   [["src/game/goals.ts", "src/game/goal-ticks.ts", "src/game/rewards.ts", "src/game/progress.ts"], ["stickers", "stats", "research", "school", "sites"]],
   ["src/game/stickers.ts", ["stickers"]],
+  // Feature tips: the 💡 row under the goals, its Show me, and the Learned toast that says it.
+  ["src/game/feature-tips.ts", ["feature-tips"]],
   ["src/game/landscaping.ts", ["landscaping"]],
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],
@@ -231,6 +244,8 @@ export const RULES = [
   ["src/game/dev-checks.ts", []],
   // The radio mast (the user's pick: a powered mast brings a town more riders).
   [["src/game/radio.ts", "src/game/power.ts", "src/game/passengers.ts", "src/main.ts", "src/game/interaction.ts"], ["radio"]],
+  // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.
+  [["src/game/boats.ts", "src/game/ferry.ts", "src/game/harbours.ts", "src/ui/boat-card.ts", "src/ui/water-controls.ts", "src/render/river-boats-view.ts", "src/render/ferries-view.ts", "src/render/boats-view.ts", "src/economy/boats.ts", "src/catalogue/assets/water.ts", "src/catalogue/assets/boat-parts.ts", "src/game/yards.ts", "src/render/yards-view.ts"], ["water"]],
   // Power as sparks and the wind farm (late-game spec W1).
   [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).

@@ -67,6 +67,7 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "rack", label: "Rack" },
   { kind: "piece", type: "rack-short", label: "Short rack" },
   { kind: "piece", type: "bridge", label: "Bridge" },
+  { kind: "piece", type: "viaduct", label: "Stone viaduct" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
   { kind: "piece", type: "underpass", label: "Underpass" },
   { kind: "piece", type: "tunnel-mouth-short", label: "Short tunnel mouth" },
@@ -116,6 +117,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
   { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
   { kind: "train", cars: ["passenger"], looks: ["first-class"], label: "First class" },
+  { kind: "train", cars: ["passenger"], looks: ["observation"], label: "Observation car" },
   { kind: "train", cars: ["caboose"], label: "Caboose", gameDetail: CABOOSE_DETAIL },
   { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay caboose", gameDetail: CABOOSE_DETAIL },
 ];
@@ -178,7 +180,7 @@ export const ROAD_GROUPS: TrayGroup[] = [
 ];
 
 /** The track bridges: a shelf of the Track tab (with the catalogue's decorative bridges after it, in Sandbox). */
-export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve", "underpass", "tunnel-mouth-short", "tunnel-mouth") }];
+export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve", "viaduct", "underpass", "tunnel-mouth-short", "tunnel-mouth") }];
 
 /** Industries the player builds (Game mode): depot pieces placed like track. */
 export const INDUSTRY_GROUPS: TrayGroup[] = [
@@ -254,6 +256,7 @@ export const GAME_TRACK_KITS: TrayGroup = {
     kit("kit-turntable", "Turntable"),
     kit("kit-transfer-table", "Transfer table"),
     kit("kit-train-lift", "Train lift"),
+    kit("kit-lift-bridge", "Lift bridge"),
     kit("kit-loop-the-loop", "Loop-the-loop"),
     kit("kit-buffer-stop-lamp", "Buffer stop"),
   ],
@@ -291,8 +294,13 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
     ],
   },
   {
+    // Water transport: a landing for the barges (bought on its card), a ferry slip, a lighthouse by a harbour.
+    label: "Water",
+    items: [kit("kit-landing", "River landing"), kit("kit-boatyard", "Boatyard"), kit("kit-shipyard", "Shipyard"), kit("kit-ferry-slip", "Ferry slip"), furniture("bldg-lighthouse", "Lighthouse")],
+  },
+  {
     label: "Halts",
-    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform"), kit("kit-lookout", "Lookout halt"), kit("kit-metro-stop", "Metro stop")],
+    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform"), kit("kit-lookout", "Lookout halt"), kit("kit-observatory", "Observatory"), kit("kit-metro-stop", "Metro stop")],
   },
   {
     label: "Lineside",

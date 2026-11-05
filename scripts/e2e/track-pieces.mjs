@@ -246,7 +246,25 @@ async function tapLever(f, h, id, k, spot) {
   }, spot);
   await h.still();
   await h.settled();
-  const l = await leverAt(p, id, k);
+  // (Tapped once a fingertip there picks this lever: the view as the groups before left it can be too far out or too
+  // flat for that (a double three-way's two levers, ~19 px apart, both picked as its first: the gate of 2026-11-05).
+  // Framed closer and more from above, a few steps, till it does. The check is on the tap's pick as before.)
+  let l = await leverAt(p, id, k);
+  const mine = (l) => l?.pick?.kind === "lever" && l.pick.pieceId === id && l.pick.corner === k;
+  for (const [mm, phi] of [[480, 0.75], [360, 0.6], [260, 0.45]]) {
+    if (mine(l)) break;
+    await p.evaluate(
+      async ({ x, z, mm, phi }) => {
+        const w = window.woodrail;
+        const { frameDistance } = await import("/src/game/camera-director.ts");
+        w.director.glideTo(w.controls.target.clone().set(x, 0, z), frameDistance(mm, w.camera.fov, w.camera.aspect), { phi, duration: 0.2 });
+      },
+      { ...spot, mm, phi },
+    );
+    await h.still();
+    await h.settled();
+    l = await leverAt(p, id, k);
+  }
   const was = await state(p, id);
   if (!l) return { was, now: was, l };
   await h.tapAt(l.at);

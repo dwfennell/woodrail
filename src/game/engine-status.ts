@@ -21,6 +21,8 @@ export type TrainState =
   | { kind: "at-stop"; pieceId: number }
   /** Carried by a train lift, or waiting for its platform (on it, about to go; or at its far end). */
   | { kind: "lift"; riding: boolean }
+  /** Held at a lift bridge's end while its span is up for a boat. */
+  | { kind: "lift-bridge" }
   | { kind: "too-heavy" }
   /** Standing short of a rack it has no rack engine to climb (`Sim.rackHeld`). */
   | { kind: "rack"; pieceId: number }
@@ -115,6 +117,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   const lift = sim.liftState(train.id);
   if (lift) return { kind: "lift", riding: lift === "riding" };
+  if (sim.bridgeWait(train.id)) return { kind: "lift-bridge" };
   if (lever !== 0) {
     const rack = sim.rackHeld(train.id);
     if (rack !== -1) return { kind: "rack", pieceId: rack };
@@ -434,6 +437,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     }
     case "lift":
       return s.riding ? "Riding the train lift" : "Waiting for the train lift";
+    case "lift-bridge":
+      return "Waiting: the lift bridge is up for a boat";
     case "rack":
       return RACK_WAIT;
     case "too-heavy":
