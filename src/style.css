@@ -619,6 +619,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goal.upcoming { opacity: 0.72; font-size: 13px; font-weight: 700; align-items: center; }
 .goal.upcoming .goal-box { width: 16px; height: 16px; margin: 0 2px; }
 .goal.upcoming.locked .goal-box { background: none; box-shadow: none; font-size: 12px; line-height: 16px; text-align: center; }
+/* A tip for a system just learned (feature-tips.ts): a quieter card under the goals, its own Show me and Got it. */
+.goal.feature-tip { margin-top: 4px; padding: 8px 10px; border-radius: 10px; background: #fbf1dc; box-shadow: inset 0 0 0 1.5px #e3c896; }
+.goal.feature-tip b { font-size: 14px; }
+.goal.feature-tip .tip-box { background: none; box-shadow: none; font-size: 16px; line-height: 20px; text-align: center; }
+.tip-buttons { display: flex; gap: 6px; margin-top: 6px; }
+.tip-buttons .chip { height: 44px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.tip-done { opacity: 0.8; }
 .goal.arrive { animation: goal-arrive 0.5s cubic-bezier(0.3, 1.4, 0.5, 1); }
 @keyframes goal-arrive { from { opacity: 0; transform: translateY(14px); } }
 .goals.ticked .goals-count { animation: goal-pop 0.6s ease-out; }

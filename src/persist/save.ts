@@ -609,6 +609,27 @@ export function loadStickersSeen(): string[] {
   }
 }
 
+/** Game mode's feature tips (src/game/feature-tips.ts): those done (used or tapped away) and those toasted. This device only. */
+const TIPS_KEY = "woodrail.game.tips.v1";
+
+export function saveTips(tips: { done: readonly string[]; shown: readonly string[] }): void {
+  try {
+    localStorage.setItem(TIPS_KEY, JSON.stringify(tips));
+  } catch {
+    // storage unavailable: a tip may show again next time
+  }
+}
+
+export function loadTips(): { done: string[]; shown: string[] } {
+  const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((id): id is string => typeof id === "string") : []);
+  try {
+    const t = JSON.parse(localStorage.getItem(TIPS_KEY) ?? "{}") as { done?: unknown; shown?: unknown } | null;
+    return { done: ids(t?.done), shown: ids(t?.shown) };
+  } catch {
+    return { done: [], shown: [] };
+  }
+}
+
 /** Game mode: the toy box, blueprints learned and the workshop's orders (see `Progress`), beside the game's autosave. */
 const PROGRESS_KEY = "woodrail.game.progress.v1";
 

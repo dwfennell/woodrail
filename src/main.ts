@@ -17,11 +17,11 @@ import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landsc
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
-import { GoalTracker, goalTickTitle, payGoal, secondEngineTip, trayRing } from "./game/goals";
+import { GoalTracker, goalTickTitle, payGoal, secondEngineTip, trayRing, type GoalGuide } from "./game/goals";
 import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
@@ -56,7 +56,8 @@ import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, si
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
-import { copyLine, editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseLine, sameLines, snapshotLines, stopLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
+import { copyLine, editLine, isRingLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseLine, sameLines, snapshotLines, stopLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
@@ -1661,6 +1662,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The stickers seen in their tab (the chip's dot is for the rest), and whether the tab is out yet (core goals done). */
   let stickersSeen = new Set(loadStickersSeen());
   let stickersOpen = false;
+  /** Feature tips (src/game/feature-tips.ts): a 💡 row under the goals for a system just learned, till it's used. */
+  let tips = ((t) => new TipTracker(t.done, t.shown))(loadTips());
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
   // Refusals aren't logged: they stay plain `hud.toast`s.
   // On game time: "2 min ago" means two minutes of play (it stands still while paused).
@@ -1674,6 +1677,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         stickersSeen = new Set(stickers.ids());
         saveStickersSeen([...stickersSeen]);
         showStickers();
+      },
+      showTip: () => showTip(),
+      tipDone: (id) => {
+        tips.finish(id);
+        saveTips(tips.toJSON());
+        checkGoals(false);
       },
     },
     journal,
@@ -1881,8 +1890,54 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }
     }
     checkStickers(announce, fresh.length > 0);
+    checkTips(announce);
     const current = goals.current();
     goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next(), goals.total, goals.lockedHint(), goals.lockedCount);
+  }
+
+  /** A ring line with a train on it (for its tip), by the lines' stops and the track: kept while they're the same. */
+  let ringSeen: { key: string; id: number | null } = { key: "", id: null };
+  function ringLineNow(): number | null {
+    const e = game.economy;
+    let key = `${game.layout.piecesVersion}`;
+    for (const [id, line] of e.lines) key += `|${id}:${line.stops.map((st) => st.depotId).join(",")}`;
+    if (key !== ringSeen.key) {
+      let id: number | null = null;
+      for (const [lineId, line] of e.lines) if (trainsOn(e, lineId).length > 0 && isRingLine(e, line.stops)) id = lineId;
+      ringSeen = { key, id };
+    }
+    // (A line's trains come and go without its stops changing: asked each time, cheap.)
+    return ringSeen.id !== null && trainsOn(e, ringSeen.id).length > 0 ? ringSeen.id : null;
+  }
+  /** A train waiting under a crane for a full load (its engine's car id), or null: Leave now's tip. */
+  function waitingEngineNow(): number | null {
+    for (const id of game.sim.trainIds()) {
+      const t = game.sim.getTrain(id);
+      const engine = t?.cars.find((c) => c.kind === "engine");
+      if (engine && game.economy.waitingToFill(id)) return engine.id;
+    }
+    return null;
+  }
+  function tipContext(): TipContext {
+    return {
+      learned: progress.learned,
+      goalDone: (id) => goals.isDone(id),
+      queued: progress.research.next === null ? 0 : 1 + progress.research.later.length,
+      // (Only looked for while their tips may show.)
+      waitingEngine: tips.isDone("leave-now") ? null : waitingEngineNow(),
+      ringLine: tips.isDone("ring-reverse") ? null : ringLineNow(),
+    };
+  }
+  /**
+   * The tips, with the goals (never per frame): one used goes; the first left that's useful shows under the goals. A
+   * tip with no blueprint (Leave now, a ring line's Reverse) is toasted the first time it shows.
+   */
+  function checkTips(announce: boolean): void {
+    const { first, changed } = tips.update(game.world, tipContext());
+    if (changed) saveTips(tips.toJSON());
+    if (first && announce) hud.toast(`💡 ${first.text}`, false, 6000, () => showTip());
+    const t = tips.current();
+    goalsPanel.setTip(t ? { id: t.id, title: t.title, text: t.text } : null);
   }
 
   // Game mode's toy box and workshop: what you own (worked out against what's on the map), and what's being made.
@@ -2326,11 +2381,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const tip = opened.some((g) => g.id === "two-trains") ? secondEngineTip(progress.available(game.world, "car:engine"), progress.owned.get("car:engine") ?? 0) : "";
     // (A feature says how to start using it: audit F4, "Tap a train, then Plan a route".)
     const goalLine = opened.length > 0 ? `New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
-    const said = learnedText({ label: t.label, makes: makes.length > 0 ? makesLine(makes) : "", how: t.how, blurb: t.blurb, present, goal: goalLine, next: next && techOf(next)?.label });
+    // A system with a tip (feature-tips.ts) says how to start using it, once, on its toast (the tip then waits under the goals).
+    const tipText = tipFor(id)?.text;
+    const said = learnedText({ label: t.label, makes: makes.length > 0 ? makesLine(makes) : "", how: t.how, blurb: t.blurb, present, goal: goalLine, tip: tipText, next: next && techOf(next)?.label });
     // Two News lines (what was learned, then the goal it opens), one toast saying both (and what's studied next).
     note({ kind: "milestone", text: said.line }, 3800, true);
     if (goalLine) note({ kind: "milestone", text: goalLine }, 0, true);
-    if (mode === "game") hud.toast(said.toast, true, goalLine || next ? 5200 : 3800);
+    if (mode === "game") hud.toast(said.toast, true, goalLine || next || said.tipped ? 5200 : 3800);
     // A place's blueprint: plain buildings already standing in its model become it, free (game/places.ts).
     if (mode === "game") openPlaces(id);
     // An upgrade takes effect at once: industries' rates and the cranes.
@@ -3393,6 +3450,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const found = carId === -1 ? null : game.sim.findCar(carId);
     if (!found || !game.economy.leaveNow(found.train.id)) return;
     hud.setLeaveNow(false);
+    // (Its tip has done its job.)
+    if (!tips.isDone("leave-now")) {
+      tips.finish("leave-now");
+      saveTips(tips.toJSON());
+    }
     game.invalidate();
   }
 
@@ -4863,6 +4925,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const r = out as ReturnType<typeof reverseLine>;
       if (!r) return;
       lineNotes.delete(id);
+      if (r.ring && !tips.isDone("ring-reverse")) {
+        tips.finish("ring-reverse");
+        saveTips(tips.toJSON());
+      }
       if (r.stuck.length > 0) {
         lineNotes.set(id, { order: stopOrder(id), engines: r.stuck.map((s) => s.engine), text: notTurnedText(r.stuck) });
         hud.toast(`${line.name} runs the other way round now, but ${r.stuck.length === 1 ? "one train" : `${r.stuck.length} trains`} couldn't be turned round: see why under it`, false, 4000);
@@ -5236,7 +5302,28 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       setBoardOpen(true, pick);
       return;
     }
-    const guide = goal.guide(game.world);
+    showGuide(goal.guide(game.world));
+  }
+
+  /** The tip's Show me: where to use it (an industry's card, a hill by the line, the tray's shelf, the research board). */
+  function showTip(): void {
+    const tip = tips.current();
+    if (!tip) return;
+    const guide: TipGuide = tip.guide(game.world, tipContext());
+    if (guide.board !== undefined) {
+      setBoardOpen(true, guide.board === true ? undefined : guide.board);
+      return;
+    }
+    if (guide.lines) {
+      openLines();
+      return;
+    }
+    if (guide.engine !== undefined) interaction.openEngineCard(guide.engine);
+    showGuide(guide);
+  }
+
+  /** Glide to where a guide points, flash its towns, mark its places, open its tray tab and card. */
+  function showGuide(guide: GoalGuide): void {
     interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
     // The card to choose from ("Make a switch": the workshop's, its Switch row there to tap).
@@ -5285,6 +5372,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     stickersSeen = new Set();
     saveStickersSeen([]);
     stickersOpen = false;
+    tips = new TipTracker();
+    saveTips(tips.toJSON());
     journal.clear();
     growth = null;
     ticks = new GoalTicks();
@@ -5937,7 +6026,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
