@@ -163,6 +163,16 @@ await p.evaluate((goods) => {
 const sent = await run(2, `() => !!window.woodrail.economy.breakdown.jobFor(${at.goods})`);
 check("1. the idle crane train sets out by itself for the derailed train", sent && (await p.evaluate((c) => window.woodrail.economy.breakdown.jobOf(c)?.kind, at.crane)) === "rerail");
 check("1. a toast says the crane is on its way", await toastSeen("breakdown crane is on its way"), JSON.stringify(await p.evaluate(() => window.__toasts)));
+// (QA 2026-11-05 #8: the Re-rail chip shows under the goals bar at the right, not beside it: the goal keeps its width.)
+const chip = await p.evaluate(() => {
+  const r = (e) => e.getBoundingClientRect();
+  const b = [...document.querySelectorAll("button")].find((x) => x.textContent === "Re-rail" && !x.hidden);
+  const goals = document.querySelector(".goals");
+  const text = document.querySelector(".goals-now");
+  return b && goals ? { chip: r(b).toJSON(), goals: r(goals).toJSON() } : null;
+});
+// (Under it, and the goals bar still reaching the chip's right edge: not cut short to make room beside it.)
+check("1. the Re-rail chip shows under the goals bar, which keeps its width", !!chip && chip.chip.top >= chip.goals.bottom - 1 && chip.chip.right <= 390 && Math.abs(chip.goals.right - chip.chip.right) < 3, JSON.stringify(chip));
 // (The crane train's card: a tap on a derailed car puts it back at once, the quick way, as before.)
 await openCard(at.crane);
 const craneSays = await status();

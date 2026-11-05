@@ -1,11 +1,13 @@
 import { BackSide, Box3, Color, GreaterDepth, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3, type Object3D } from "three";
-import { CAR_KINDS, type CarLook, type SimSnapshot } from "../sim";
+import { CAR_BY_INDEX, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { OUTLINE_TONES } from "./track-view";
 import { NamePlates } from "./name-plates";
 import { buildCarModel, carVariant, disposeObject, WHEEL_RADIUS, type CarModel } from "./train-models";
 
 interface CarEntry {
+  /** The livery it was built in ("": as it came). */
+  livery: string;
   model: CarModel;
   lastX: number;
   lastZ: number;
@@ -60,6 +62,10 @@ export class TrainView {
    * Cheap when no crane is at work (one size check).
    */
   hoistOf: (carId: number) => number = () => 0;
+  /** A car's hoist changed in the last `update` (a crane lifting it). */
+  hoisted = false;
+  /** Each engine's livery from the paint shop (see `Sim.liveryOf`; null: as it came). */
+  liveryOf: (carId: number) => { id: string; body: string; trim: string; stripes?: readonly string[] } | null = () => null;
   /** Each engine's name, painted on its plates (see `Sim.nameOf`). */
   nameOf: (carId: number) => string = () => "";
   private readonly plates = new NamePlates();
@@ -116,6 +122,7 @@ export class TrainView {
   /** Draw the cars where the sim has them. True while a derailed car is still toppling over. */
   update(snap: SimSnapshot, dt: number): boolean {
     let tipping = false;
+    this.hoisted = false;
     const seen = this.seen;
     seen.clear();
     for (let i = 0; i < snap.count; i++) {
@@ -127,10 +134,11 @@ export class TrainView {
       const y = snap.transforms[o + 1];
       const z = snap.transforms[o + 2];
       if (!entry) {
-        const kind = CAR_KINDS[snap.kinds[i]];
+        const kind = CAR_BY_INDEX[snap.kinds[i]];
         // The colour scheme follows the car (its id survives being picked up and put down), not the order models were built.
         const look = this.lookOf(id);
-        const model = buildCarModel(kind, this.mats, carVariant(kind, id), look);
+        const livery = kind === "engine" ? this.liveryOf(id) : null;
+        const model = buildCarModel(kind, this.mats, carVariant(kind, id), look, false, livery ?? undefined);
         if (kind === "engine") {
           const plates = this.plates.make(id, this.nameOf(id), look);
           if (plates) model.root.add(plates);
@@ -138,7 +146,7 @@ export class TrainView {
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
-        entry = { model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
+        entry = { livery: livery?.id ?? "", model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
         this.cars.set(id, entry);
       }
       const heading = snap.transforms[o + 3];
@@ -174,7 +182,9 @@ export class TrainView {
       else entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
       if (Math.abs(targetTip - entry.tip) < 0.002) entry.tip = targetTip;
       else tipping = true;
-      if (hoist !== entry.hoist) tipping = true;
+      // (A car lifted higher by a crane: its loads follow it, but the frames are the crane's to ask for, where it's
+      // seen: `Game.poseCranes`.)
+      if (hoist !== entry.hoist) this.hoisted = true;
       entry.hoist = hoist;
       root.rotation.x = entry.tip * (Math.PI / 2) * (id % 2 ? 1 : -1);
       root.position.y = y + entry.tip * 12 + hoist * HOIST_HEIGHT;
@@ -205,6 +215,20 @@ export class TrainView {
       }
     }
     return tipping;
+  }
+
+  /**
+   * Engines painted (`Sim.liveriesVersion`): a car built in another livery is taken down, and built again in its new
+   * one on the next update (one car's model, from the lacquer cache). Not per frame.
+   */
+  syncLiveries(): void {
+    for (const [id, entry] of this.cars) {
+      if ((this.liveryOf(id)?.id ?? "") === entry.livery) continue;
+      this.group.remove(entry.model.root);
+      disposeObject(entry.model.root);
+      this.plates.release(id);
+      this.cars.delete(id);
+    }
   }
 
   /** Engines' names changed (`Sim.namesVersion`): plates showing an old name are painted again. Not per frame. */

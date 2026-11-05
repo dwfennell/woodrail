@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Smile</title>
+<circle cx="12" cy="12" r="10.6" fill="#7a4f12"/>
+<circle cx="12" cy="12" r="9.4" fill="#f0b847"/>
+<ellipse cx="8.6" cy="9.6" rx="1.3" ry="1.7" fill="#3a2a1c"/>
+<ellipse cx="15.4" cy="9.6" rx="1.3" ry="1.7" fill="#3a2a1c"/>
+<path d="M6.4 13 C7.4 19 16.6 19 17.6 13 L16 13 C15 16.8 9 16.8 8 13 Z" fill="#3a2a1c"/>
+<ellipse cx="6.4" cy="14.2" rx="1.6" ry="1" fill="#e98a5f"/>
+<ellipse cx="17.6" cy="14.2" rx="1.6" ry="1" fill="#e98a5f"/>
+</svg>

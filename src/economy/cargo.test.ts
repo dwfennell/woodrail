@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { CAR_KINDS, CAR_SPECS } from "../sim";
-import { CARGO, CARGO_KINDS, COIN_ICON, GOODS_ICON, canCarry } from "./cargo";
+import { CAR_BY_INDEX, CAR_KINDS, CAR_SPECS } from "../sim";
+import { CARGO, CARGO_KINDS, CARGO_SLOTS, COIN_ICON, GOODS_ICON, canCarry } from "./cargo";
 
 // Node's fs, typed here (the project has no Node types), as bugmaps.test.ts reads files: vitest gives a `?raw` CSS import as "".
 const fs = async () => (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string; existsSync(path: URL): boolean; readdirSync(path: URL): string[] };
 
 describe("cargo", () => {
   it("a kind of wagon per kind of goods: timber wagons take logs and planks, hoppers grain, vans flour", () => {
-    for (const k of CAR_KINDS) expect(canCarry(k), k).toBe(k === "timber" || k === "hopper" || k === "van" || k === "tanker" || k === "reefer" || k === "carrier" || k === "oiltank");
+    for (const k of CAR_KINDS) expect(canCarry(k), k).toBe(k === "timber" || k === "hopper" || k === "van" || k === "tanker" || k === "reefer" || k === "carrier" || k === "oiltank" || k === "mailvan" || k === "sortvan");
     expect(canCarry("van", "flour")).toBe(true);
     expect(canCarry("van", "planks")).toBe(false);
     expect(canCarry("timber", "planks")).toBe(true);
@@ -60,8 +60,12 @@ describe("cargo", () => {
     for (const m of lists) expect(m[1], m[0]).toMatch(/"Woodrail Icons", $/);
   });
 
-  it("cargo kinds and car kinds are indexed in snapshot order", () => {
-    CARGO_KINDS.forEach((k, i) => expect(CARGO[k].index).toBe(i));
-    CAR_KINDS.forEach((k, i) => expect(CAR_SPECS[k].index).toBe(i));
+  it("cargo kinds and car kinds are indexed in snapshot order (rising, each its own; a branch's range may leave a gap)", () => {
+    CARGO_KINDS.forEach((k, i) => i > 0 && expect(CARGO[k].index).toBeGreaterThan(CARGO[CARGO_KINDS[i - 1]].index));
+    CAR_KINDS.forEach((k, i) => i > 0 && expect(CAR_SPECS[k].index).toBeGreaterThan(CAR_SPECS[CAR_KINDS[i - 1]].index));
+    // Arrays by index have room for the highest (and masks of goods, `1 << index`, a bit for each).
+    expect(CARGO_SLOTS).toBe(Math.max(...CARGO_KINDS.map((k) => CARGO[k].index)) + 1);
+    expect(CARGO_SLOTS).toBeLessThanOrEqual(32);
+    CAR_KINDS.forEach((k) => expect(CAR_BY_INDEX[CAR_SPECS[k].index]).toBe(k));
   });
 });

@@ -1,4 +1,5 @@
 import { CRANE_TEXT } from "./game/crane-text";
+import { placeNear, type Place as NearPlace } from "./game/place-near";
 import { installDevChecks, recentBreaks } from "./game/dev-checks";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
@@ -15,6 +16,7 @@ import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, resto
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
+import { loadSaveSchemas } from "./persist/schemas";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
@@ -24,16 +26,18 @@ import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
-import { dateText } from "./game/calendar";
+import { dateOf, dateText } from "./game/calendar";
 import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
-import { growthOf, TownLife } from "./game/town-life";
+import { statusOf, TownLife } from "./game/town-life";
 import { DeliveryVans } from "./game/delivery-vans";
 import { Buses } from "./game/buses";
 import { TownCars } from "./game/town-cars";
-import { plotPrice, townStatus } from "./game/towns";
+import { plotPrice } from "./game/towns";
+import { hasBank, PLACES, type Place } from "./game/places";
+import type { Town } from "./landscape";
 import { firstFoodNews } from "./game/food-text";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { atSchool, landmarkOf, schoolTakesFor, schoolHowTo, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
@@ -44,7 +48,8 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, LOOKOUT_KIT, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
@@ -78,19 +83,26 @@ import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summar
 import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
-import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
+import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
+import { drawPlaceRows } from "./ui/places-row";
+import { PaintSheet } from "./ui/paint-sheet";
+import { paint, paintOpen } from "./game/paint-shop";
+import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
+import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
 import { costTag, refundText, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
-import { qualityFor, saveQualityOverride } from "./render/quality";
+import { noteContextLost, qualityFor, saveQualityOverride } from "./render/quality";
+import { ContextLostCard } from "./ui/context-lost";
+import { CrashReporter, crashReportsOff, setCrashReportsOff } from "./feedback/crash";
 import { drawnKey, modelKey, type PropModel } from "./render/props/library";
 import { CLOCK_ASSETS } from "./render/clock-hands";
 import { renderThumbnails, renderThumbnailsAsync, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
-import { texturesMade, useTextureCache } from "./render/textures";
+import { forgetTextureCache, texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
@@ -102,6 +114,7 @@ import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpar
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
 import { MAX_TRACKS, planTracks, TRACK_PRICES, TRACK_ROLES, TRACKS_TECH, tracksAfter, type TracksPlan } from "./game/depot-tracks";
+import { TURNTABLE_CONTROLS } from "./game/deck-roads";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
 import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, saveMuted } from "./ui/prefs";
@@ -115,6 +128,7 @@ import { CloudCard } from "./ui/cloud-card";
 import { FeedbackSheet } from "./ui/feedback-sheet";
 import { StatsCard } from "./ui/stats-card";
 import { pageStats } from "./stats/stats";
+import { gpuOnlyEnabled } from "./render/gpu-only";
 import "./style.css";
 // The icon font (style.css) loads with the game, not on the first card that shows an icon.
 void document.fonts?.load('16px "Woodrail Icons"', GOODS_ICON.planks).catch(() => undefined);
@@ -247,6 +261,22 @@ const cloud = ((): CloudSync | null => {
 const stats = pageStats(((import.meta.env.VITE_STATS_URL ?? import.meta.env.VITE_CLOUD_URL ?? "") as string).trim(), __BUILD_ID__ || "dev");
 addEventListener("error", (e) => stats.record({ e: "error", msg: String(e.message || e.error || "error").slice(0, 200) }));
 addEventListener("unhandledrejection", (e) => stats.record({ e: "error", msg: String((e.reason as Error | undefined)?.message ?? e.reason).slice(0, 200) }));
+/**
+ * Crash reports (feedback/crash.ts): an uncaught error or a lost drawing, one a session, to the Worker feedback goes to
+ * (none in a build without one). Listening from here, before the game is made, so a failure while loading is sent too.
+ */
+const crashUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
+/** What the crash report says of the drawing, once the game is made. */
+let crashDrawing = (): { pixelRatio: number; quality: string } => ({ pixelRatio: 0, quality: "" });
+const crashes = crashUrl
+  ? new CrashReporter(crashUrl, () => ({
+      build: __BUILD_ID__ || "dev",
+      userAgent: navigator.userAgent,
+      screen: { width: screen.width, height: screen.height, dpr: devicePixelRatio },
+      ...crashDrawing(),
+    }))
+  : null;
+crashes?.listen();
 /** The cloud's copies checked against this device's while the game loads, so a newer one is the one loaded. */
 const cloudStarted = cloud ? cloud.start().catch(() => ({})) : Promise.resolve({});
 /** How long the game waits on that check, past its own loading (ms): a slow cloud never holds it up. */
@@ -283,6 +313,8 @@ let reports: Reporter | null = null;
 
 function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>, cloudNotes: CloudNotes): void {
   const game = new Game(canvas, opening.world);
+  // With drawn-only geometry freed after upload (gpu-only.ts), a lost context can't be rebuilt in place: reload instead.
+  game.restoreInPlace = !gpuOnlyEnabled();
   // Dev builds (the dev server, or `?dev`): the train invariants checked as the game runs, a red badge when one breaks
   // (src/game/dev-checks.ts). In a production build without `?dev` they never run (8.9 KB of the bundle).
   let devChecks: { frame(): void } | null = null;
@@ -472,6 +504,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
       renameEngine: (name) => interaction.renameSelectedEngine(name),
+      paint: () => {
+        if (interaction.openEngineCarId !== -1) paintSheet.show(interaction.openEngineCarId);
+      },
       showBlocker: () => showBlocker(),
       sendCrane: () => sendCrane(),
       showPlace: (id) => showPlace(id),
@@ -760,6 +795,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.onTurned = () => audio.rotate();
   interaction.onDepart = () => audio.bell();
   interaction.onSwitched = () => scheduleSave();
+  interaction.onCalledHome = () => scheduleSave();
   interaction.onLeverThrown = () => audio.switchClunk(0.7, 0);
   // Telegraph poles carry a signal box's reach (the Telegraph; Sandbox has every toy).
   interaction.telegraph = () => mode !== "game" || progress.learned.has("telegraph");
@@ -774,7 +810,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const haltReach = new HaltReachView(game.scene, HALT_REACH);
   interaction.onHeld = (type) => {
     heldChains(type);
-    const show = mode === "game" && type !== null && HALT_KITS.has(type);
+    const show = mode === "game" && type !== null && HALT_KITS.has(type) && type !== LOOKOUT_KIT && type !== METRO_KIT;
     if (show === haltReach.showing) return;
     if (show) haltReach.show(game.landscape);
     else haltReach.hide();
@@ -961,14 +997,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     interaction.showSquare(i);
     const g = game.landscape.grid;
-    const why = lowerRefusal(game.landscape, interaction.landEditor(), i, progress.coins);
+    const why = lowerRefusal(game.landscape, interaction.landEditor(), i, progress.coins, hasBank(game.landscape));
     if (why) {
       lowerCard(why);
       audio.refuse();
       hud.haptic("refuse");
     } else {
       lowerAt = i;
-      lowerCard(lowerQuestion(g.height[i], progress.coins), lowerPrice(g.height[i]));
+      lowerCard(lowerQuestion(g.height[i], progress.coins, hasBank(game.landscape)), lowerPrice(g.height[i], hasBank(game.landscape)));
       audio.tap();
     }
     game.invalidate();
@@ -979,13 +1015,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const i = lowerAt;
     if (i === -1) return;
     const editor = interaction.landEditor();
-    const why = lowerRefusal(game.landscape, editor, i, progress.coins);
+    const why = lowerRefusal(game.landscape, editor, i, progress.coins, hasBank(game.landscape));
     if (why) {
       lowerAt = -1;
       lowerCard(why);
       return;
     }
-    const price = lowerPrice(game.landscape.grid.height[i]);
+    const price = lowerPrice(game.landscape.grid.height[i], hasBank(game.landscape));
     if (editor.apply(i, -1)) return;
     progress.coins -= price;
     hud.setCoins(progress.coins);
@@ -995,8 +1031,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     audio.putdown(true);
     lowerAt = -1;
     const h = game.landscape.grid.height[i];
-    lowerCard(h > 0 ? `Lowered a step. ${lowerQuestion(h, progress.coins)}` : "Lowered: it's flat now. Tap another hill square.", h > 0 && progress.coins >= lowerPrice(h) ? lowerPrice(h) : 0);
-    if (h > 0 && progress.coins >= lowerPrice(h)) lowerAt = i;
+    const bank = hasBank(game.landscape);
+    lowerCard(h > 0 ? `Lowered a step. ${lowerQuestion(h, progress.coins, bank)}` : "Lowered: it's flat now. Tap another hill square.", h > 0 && progress.coins >= lowerPrice(h, bank) ? lowerPrice(h, bank) : 0);
+    if (h > 0 && progress.coins >= lowerPrice(h, bank)) lowerAt = i;
     interaction.showSquare(i);
     scheduleSave();
   }
@@ -1087,7 +1124,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     chosen = p;
     game.landscapeView.showForSale(forSale, chosen);
-    const price = plotPrice(game.landscape.grid.plots.length);
+    const price = plotPrice(game.landscape.grid.plots.length, hasBank(game.landscape));
     const priced = mode === "game" ? ` · ${price} coins (you have ${progress.coins})` : "";
     addLandCard(describeLand(landForSale(game.landscape, p.px, p.pz)) + priced, mode !== "game" || progress.coins >= price);
     game.invalidate();
@@ -1251,7 +1288,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     if (!chosen) return;
     // Game mode: land costs coins.
-    const price = plotPrice(game.landscape.grid.plots.length);
+    const price = plotPrice(game.landscape.grid.plots.length, hasBank(game.landscape));
     if (mode === "game") {
       if (progress.coins < price) {
         hud.toast(`That land costs ${price} coins: you have ${progress.coins}. Towns pay for deliveries`, false, 3600);
@@ -1320,6 +1357,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function onChange(): void {
     game.trackChanged();
     industriesChanged();
+    // Game mode: squares of town newly dug under (a metro's tunnels) are paid for now they're down (checked first:
+    // `digWhy`, in the site rule).
+    if (mode === "game") {
+      const paid = settleDigging(progress, squaresDugUnder(game.world));
+      if (paid > 0) {
+        hud.setCoins(progress.coins);
+        hud.toast(`Dug under the town: ${paid}🪙`, false, 2200);
+      }
+    }
     updateConnections(true);
     checkGoals(true);
     hud.setHistory(editor.canUndo, editor.canRedo);
@@ -1436,6 +1482,26 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   addEventListener("pageshow", () => (savedOnLeaving = false));
   // Back online: what's waiting goes up.
   addEventListener("online", () => void cloud?.flush());
+
+  // The drawing lost (WebGL context: on a phone, most often short of memory): saved at once, lean from the next load
+  // (render/quality.ts), and if it isn't back in a moment, a card to reload (the railway kept).
+  const lostCard = new ContextLostCard(() => {
+    if (playing) {
+      saveOnLeaving();
+      reloadInto(mode);
+    } else location.reload();
+  });
+  crashDrawing = () => ({ pixelRatio: game.renderer.getPixelRatio(), quality: `${game.quality.tier}${game.quality.lean ? "-lean" : ""}` });
+  game.onContextLost = () => {
+    crashes?.report("context-lost", { message: "WebGL context lost" });
+    noteContextLost();
+    save();
+    lostCard.lost(game.restoreInPlace);
+  };
+  // (A scene that can't be uploaded again keeps the card: only a reload brings it back.)
+  game.onContextRestored = () => {
+    if (game.restoreInPlace) lostCard.restored();
+  };
 
   /**
    * The title's "Load a cloud save" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
@@ -1664,6 +1730,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     vanTakes: (d, kind) => deliveryVans.takes(d, kind),
     vanYard: (d) => deliveryVans.yardFilled(d),
     vanShare: (d) => deliveryVans.share(d),
+    // A place's last goods are in (or a treat bought): it stands in the town now (game/places.ts).
+    placeBuilt: (town, place, at) => placeUp(town, place, at),
+    placeStuck: (town, place) => hud.toast(`${place.name}: no room in ${town.name} yet. It goes up as soon as there is.`, false, 4200),
     received: (town, kind, n, before) => {
       const firstFlour = !progress.firstFlour;
       payDelivery(progress, kind, n, before, town);
@@ -2044,21 +2113,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    */
   function yardModel(asset: string): { parts: PropModel["parts"] } | null | undefined {
     const m = game.propLibrary.model(asset);
-    if (m === undefined)
-      void game.propLibrary.load(asset).then(
-        () => {
-          game.depotView.setWorld(game.economy, game.layout);
-          game.invalidate();
-        },
-        () => {},
-      );
+    // (Each asset waited for once, however many yards ask for it while it loads; the yards drawn again once when the
+    // last of those loading is in, not once an asset and a yard: each `setWorld` builds every yard on the map.)
+    if (m === undefined && !yardsLoading.has(asset)) {
+      yardsLoading.add(asset);
+      const done = () => {
+        yardsLoading.delete(asset);
+        if (yardsLoading.size > 0) return;
+        game.depotView.setWorld(game.economy, game.layout);
+        game.invalidate();
+      };
+      void game.propLibrary.load(asset).then(done, done);
+    }
     return m;
   }
+  /** Catalogue models yards are waiting for (`yardModel`). */
+  const yardsLoading = new Set<string>();
 
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
   /** How the yards look (`industriesChanged`), as last drawn: null, never drawn by it. */
   let industryLook: string | null = null;
+  /** Each metro train's seconds since it last drew a coal (metro.ts). */
+  const metroClock = new Map<number, number>();
   function industriesChanged(): void {
     const added = syncIndustries(game.world, mode === "game");
     let key = "";
@@ -2074,7 +2151,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     // A town's touches of life grow in number with its level (Game mode's; Sandbox's towns go by their size).
     if ((game.touchLevel !== null) !== (mode === "game")) {
-      game.touchLevel = mode === "game" ? (town) => townStatus(growthOf(game.world, town.id)).level : null;
+      game.touchLevel = mode === "game" ? (town) => statusOf(game.world, town.id).level : null;
       game.touchLevelsVersion++;
     }
     game.depotView.building = schoolHouse;
@@ -2254,6 +2331,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     note({ kind: "milestone", text: said.line }, 3800, true);
     if (goalLine) note({ kind: "milestone", text: goalLine }, 0, true);
     if (mode === "game") hud.toast(said.toast, true, goalLine || next ? 5200 : 3800);
+    // A place's blueprint: plain buildings already standing in its model become it, free (game/places.ts).
+    if (mode === "game") openPlaces(id);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -2373,6 +2452,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return makes;
   }
 
+  /**
+   * A station's `makes`, worked out when the board first reads it (only the selected ticket shows them, and the
+   * pictures for every blueprint were 40 ms of the first tap at 4× CPU): a getter, left out of the board's keys and of
+   * spreads (not enumerable).
+   */
+  function withMakes(station: Station, t: (typeof TECHS)[number]): Station {
+    Object.defineProperty(station, "makes", { get: () => makesOf(t), enumerable: false, configurable: true });
+    return station;
+  }
+
   const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
 
   function refreshBoard(): void {
@@ -2388,8 +2477,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const level = n.kind === "landmark" ? (n.id === COLLEGE_SCHOOL_ID ? "college" : n.id === UNIVERSITY_SCHOOL_ID ? "university" : null) : null;
       return level ? `${describeNeed(n)}: ${schoolHowTo(game.world, progress.learned, level)}` : describeNeed(n);
     };
-    const stations: Station[] = TECHS.map((t) => {
-      const makes = makesOf(t);
+    const stations: Station[] = TECHS.map((t) => withMakes(stationOf(t), t));
+    function stationOf(t: (typeof TECHS)[number]): Station {
+      // (Its `makes` put on after, when it's asked for: see `withMakes`.)
+      const makes: Station["makes"] = [];
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
       // Its price is its research: every good brought to a school, and from tier 2 coins (left out once paid: one
       // started and set aside keeps them).
@@ -2411,8 +2502,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             : "Later";
       // Locked till you have the school it's studied at (tech tree 3): its tag says which.
       const gate = t.school && unmet.includes(SCHOOL_NEED[t.school]) ? (t.school === "university" ? "University" : "College") : undefined;
-      return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : {}) };
-    });
+      // Else, with what it needs learned, the first thing it waits for (a city, goods delivered), not a price it can't
+      // be bought for yet (QA 2026-11-05 #5).
+      const other = !gate && missing.length === 0 ? unmet[0] : undefined;
+      return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : other ? { gate: other.kind === "delivered" && GOODS_ICON[other.good as CargoKind] ? `${GOODS_ICON[other.good as CargoKind]} ${other.n} ${other.good}` : needTag(other) } : {}) };
+    }
     const focus = goalPick(progress, goalTech, school !== null);
     board.show({
       stations,
@@ -2562,10 +2656,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       (d, id) => schoolTakesFor(game.world, d, progress.learned, id),
     );
-    attachPassengers(game.world, () => progress, () => {
-      hud.setCoins(progress.coins);
-      scheduleSave("progress");
-    });
+    attachPassengers(
+      game.world,
+      () => progress,
+      () => {
+        hud.setCoins(progress.coins);
+        scheduleSave("progress");
+      },
+      // (Visitors' seasons go by the railway's calendar.)
+      () => dateOf(game.simSeconds).month,
+    );
   }
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
   let planksKept = false;
@@ -2644,6 +2744,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else warnedHeavy.delete(id);
     }
     peopleArrive(game.world, progress, 1, peopleClock);
+    // Metro trains draw power: a coal from a power station now and then, as they run (not while paused: they stand,
+    // though they keep their speed for after).
+    if (!game.paused) metroDraw(game.world, 1, metroClock);
+    // (A town grown out over a line two levels down: those squares weren't dug for it, so nothing's paid.)
+    if (mode === "game") settleDigging(progress, squaresDugUnder(game.world), false);
     // A bus at a station's stop goes for the people waiting in its town off the line.
     if (mode === "game" && !game.paused) buses.update();
     // (Placed again only when what the towns have had or the land changed: a key compared, else nothing.)
@@ -2697,15 +2802,99 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   };
   const townCard = {
     // (Its station's upgrade row follows the track, the land and what's learned: drawn again when they change.)
-    key: (d: DepotState) => (Math.imul(ledgerKey(game.world, d, ledgerOf()), 31) + (canUpgrade(d) ? game.layout.revision * 7919 + game.landscape.grid.revision : 0)) | 0,
+    key: (d: DepotState) => {
+      const town = townOfDepot(d);
+      const places = town ? placeRowKey(game.world, progress, town) : 0;
+      return (Math.imul(Math.imul(ledgerKey(game.world, d, ledgerOf()), 31) + (canUpgrade(d) ? game.layout.revision * 7919 + game.landscape.grid.revision : 0), 31) + places) | 0;
+    },
     show: (d: DepotState) => {
       const v = townLedger(game.world, d, ledgerOf());
       if (!v) return;
       hud.depotExtra.hidden = false;
       drawLedger(hud.depotExtra, v, { school: (id) => interaction.openDepotCard(id), lines: () => openLines() });
       if (canUpgrade(d)) drawUpgrades(d);
+      drawPlaces(d);
     },
   };
+
+  // ---- a town's places and treats (spec 2026-11-04-civic-leisure-design.md): src/game/places.ts -----------------
+
+  /** The town of a town card's depot. */
+  const townOfDepot = (d: DepotState) => game.landscape.towns.find((t) => t.id === d.townId);
+
+  /** The Places and Treats rows on a town's card (Game mode). */
+  function drawPlaces(d: DepotState): void {
+    const town = townOfDepot(d);
+    if (!town || mode !== "game") return;
+    const level = statusOf(game.world, town.id).level;
+    drawPlaceRows(hud.depotExtra, placeRow(game.world, progress, town, level), {
+      build: (id) => {
+        const r = startPlace(game.world, townLife, progress, town, level, id);
+        const place = PLACES.find((p) => p.id === id)!;
+        if (r === "no-room") {
+          hud.toast(`No room in ${town.name} for a ${place.name.toLowerCase()} just now`, false, 3600);
+          audio.refuse();
+          return;
+        }
+        if (r === "not-now") return audio.refuse();
+        hud.setCoins(progress.coins);
+        if (r === "started") hud.toast(`${place.icon} ${place.name} for ${town.name}: trains bring its goods to the station`, false, 4200);
+        audio.tap();
+        scheduleSave();
+        scheduleSave("progress");
+      },
+      stop: () => {
+        const place = stopPlace(game.world, progress, town);
+        if (!place) return;
+        hud.setCoins(progress.coins);
+        hud.toast(`Stopped the ${place.name.toLowerCase()}: ${place.coins} 🪙 back`, false, 3200);
+        scheduleSave();
+        scheduleSave("progress");
+      },
+      treat: (id) => {
+        const r = buyTreat(game.world, townLife, progress, town, level, id);
+        const treat = PLACES.find((p) => p.id === id)!;
+        if (r === "no-room") {
+          hud.toast(`No room in ${town.name} for a ${treat.name.toLowerCase()} just now`, false, 3600);
+          audio.refuse();
+          return;
+        }
+        if (r === "not-now") return audio.refuse();
+        hud.setCoins(progress.coins);
+        scheduleSave("progress");
+      },
+    });
+  }
+
+  /** A place stands in a town now: the News, a chime, the goals, and saved. */
+  function placeUp(town: Town, place: Place, at: { x: number; z: number }): void {
+    const what = place.kind === "treat" ? "" : place.smile ? " +1 😊: it needs fewer goods to grow" : place.visitors ? ": visitors come by coach" : `: ${place.blurb}`;
+    note({ kind: "milestone", text: `${place.icon} ${town.name} has a new ${place.name.toLowerCase()}!${what}`, place: at }, 4200);
+    game.flourishes.add(game.landscapeView.flash([town.id]));
+    game.touchLevelsVersion++;
+    audio.chime();
+    checkGoals(true);
+    scheduleSave();
+    scheduleSave("progress");
+    cloud?.edited(mode, "progress");
+    game.invalidate();
+  }
+
+  /** Blueprint `id` learned: plain look-alikes of its places open, free; and growth stops building plain ones. */
+  function openPlaces(id: string): void {
+    for (const place of PLACES) {
+      if (place.tech !== id) continue;
+      const towns = townLife.openFree(place);
+      if (towns.length > 0) note({ kind: "milestone", text: `${place.icon} ${towns.map((t) => t.name).join(" and ")}: the ${place.name.toLowerCase()} opens!${place.smile ? " +1 😊" : ""}` }, 4200);
+    }
+    syncPlaceStyles();
+    if (game.landscape.towns.length > 0) scheduleSave();
+  }
+
+  /** Models that are places once their blueprint is learned aren't built as plain houses any more. */
+  function syncPlaceStyles(): void {
+    retireStyles(mode === "game" ? PLACES.flatMap((p) => (p.opensFree && p.tech && progress.learned.has(p.tech) ? [p.opensFree] : [])) : []);
+  }
 
   // ---- a town's station upgraded in place (Big stations learned): src/game/station-upgrade.ts ------------------
 
@@ -3386,7 +3575,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // A line with a train too many: Remove beside the status (with the status it belongs to).
     if (status === latest) hud.setCrowded(!!view.crowded);
     // (A train in the way, and a crane train on the map to lift it off: Send the crane.)
-    hud.setSendCrane(!!b && b.car >= 0 && status.startsWith("Stuck") && game.economy.breakdown.cranes().some((c) => c.train.cars.every((x) => x.id !== carId)) && !game.economy.breakdown.jobFor(b.car));
+    hud.setSendCrane(!!b && b.car >= 0 && status.startsWith("Stuck") && game.economy.breakdown.canLift(b.car, carId) && !game.economy.breakdown.jobFor(b.car));
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
     let angle = 0;
@@ -3425,34 +3614,39 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * `PLACE_NEAR` ("Elder", "the sawmill"); "" when nowhere's that near. Asked only for a train in another's way.
    */
   function trainPlace(carId: number): string {
-    const at = carAt(carId, _a);
-    if (!at) return "";
-    let best = "";
-    let bestD = PLACE_NEAR * PLACE_NEAR;
-    const consider = (x: number, z: number, name: string) => {
-      const d = (x - at.x) ** 2 + (z - at.z) ** 2;
-      if (d < bestD && name.length <= PLACE_NAME) {
-        bestD = d;
-        best = name;
-      }
+    const snap = game.snapshot;
+    let i = 0;
+    while (i < snap.count && snap.ids[i] !== carId) i++;
+    if (i === snap.count) return "";
+    const o = i * 6;
+    // (Each place by its stretch of track, its piece's two ends: a town by its station's.)
+    const places: NearPlace[] = [];
+    const add = (pieceId: number | undefined, name: string) => {
+      const p = pieceId === undefined ? undefined : game.layout.getPiece(pieceId);
+      if (!p) return;
+      const a = game.layout.worldConnector(connectorRef(p.id, 0), createWorldConnector());
+      const b = game.layout.worldConnector(connectorRef(p.id, 1), createWorldConnector());
+      places.push({ name, a: { x: a.x, z: a.z }, b: { x: b.x, z: b.z } });
     };
-    for (const t of game.world.landscape.towns) consider(t.station.x, t.station.z, t.name);
+    for (const t of game.world.landscape.towns) add(game.world.stations.get(t.id), t.name);
     for (const st of routeStops(game.world)) {
       const d = game.economy.depot(st.depotId);
-      const p = d && game.layout.getPiece(d.pieceId);
-      if (!d || !p || d.role === "town") continue;
-      consider(p.pose.x, p.pose.z, `the ${st.name.toLowerCase()}`);
+      if (!d || d.role === "town") continue;
+      add(d.pieceId, `the ${st.name.toLowerCase()}`);
     }
-    return best;
+    return placeNear({ x: snap.transforms[o], z: snap.transforms[o + 2] }, snap.transforms[o + 3], places, PLACE_NEAR, PLACE_NAME);
   }
 
   /** What the breakdown cranes did (src/economy/breakdown.ts): a toast each, and a save once a train is put right. */
   function showCraneNews(): void {
+    // (And trains called home by the Telegraph, come home: game/telegraph.ts.)
+    for (const engine of game.economy.drainCameHome()) hud.toast(`${game.sim.nameOf(engine)} is home`);
     for (const e of game.economy.breakdown.drainEvents()) {
       if (e.kind === "sent") {
         if (e.auto) hud.toast(CRANE_TEXT.auto);
       } else if (e.kind === "rerailed" || e.kind === "removed") {
-        hud.toast(CRANE_TEXT[e.kind]);
+        const engine = e.kind === "rerailed" && e.goes ? game.sim.findCar(e.target)?.train.cars.find((c) => c.kind === "engine") : undefined;
+        hud.toast(engine ? CRANE_TEXT.carriesOn(game.sim.nameOf(engine.id)) : CRANE_TEXT[e.kind]);
         scheduleSave();
       } else hud.toast(CRANE_TEXT[e.why]);
     }
@@ -3498,7 +3692,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.flashBlocker(b.car, b.points);
   }
 
+  // The paint shop's sheet (game/paint-shop.ts): an engine painted from its card.
+  const paintSheet = new PaintSheet({
+    progress: () => progress,
+    liveryOf: (id) => game.sim.liveryOf(id),
+    nameOf: (id) => game.sim.nameOf(id),
+    paint: (carId, id) => {
+      if (!paint(progress, game.sim, carId, id)) {
+        audio.refuse();
+        return false;
+      }
+      hud.setCoins(progress.coins);
+      audio.chime();
+      scheduleSave();
+      scheduleSave("progress");
+      return true;
+    },
+  });
+
   hud.onEngineCardShown = () => {
+    // The paint shop (Game mode, once a town is a Town): 🎨 on the engine's card.
+    hud.paintBtn.hidden = !(mode === "game" && paintOpen(progress));
     showRoute();
     showEngineView();
     showSummary();
@@ -5083,6 +5297,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     resetGoals();
     saveLastBuilt("game", null);
     setWorld(freshGameWorld());
+    syncPlaceStyles();
     townLife.reset();
     passengersOn();
     save();
@@ -5202,22 +5417,33 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
     // (A school stands beside a town, one a town: the one being moved doesn't count against itself.)
     interaction.siteRule =
-      mode === "game" ? (type, pose, ignoreId) => siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id)), plantedCells(game.landscape, game.world.props)) ?? haltWhy(game.landscape, type, pose) : null;
+      mode === "game"
+        ? (type, pose, ignoreId, y) =>
+            siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id)), plantedCells(game.landscape, game.world.props)) ??
+            haltWhy(game.landscape, type, pose) ??
+            // (Two levels under a town: the digging's paid for as it goes down, and refused if the coins are short.)
+            (y !== undefined ? digWhy(game.world, progress, type, pose, y) : null)
+        : null;
     // Tunnels: learned in Game mode, always in Sandbox.
     game.setTunnels(mode === "sandbox" || progress.learned.has("tunnels"));
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
     interaction.tunnelStock = mode === "game" ? () => pieceStock("tunnel-mouth-short") : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
+    // A tap on a road turns a turntable to it (Game mode's Turntable controls blueprint; Sandbox, always).
+    interaction.deckRoads = () => mode !== "game" || progress.learned.has(TURNTABLE_CONTROLS);
     // Road squares cost coins (Game mode's Roads blueprint): a square beyond those in the box is bought as it goes down.
     interaction.roadTill = mode === "game" ? { refuse: (added) => roadRefusal(added) } : null;
     if (mode === "game") {
       ensureGameModels();
+      syncPlaceStyles();
       townLife.reset();
       passengersOn();
       progress.coverMap(game.world);
       // (The lanes the map came with are yours: a new game's, or a save's from before roads were bought.)
       progress.coverRoads(roadsOnMap(game.landscape.grid));
+      // (Squares dug under towns before digging was paid for (an older save's tunnels): counted as paid.)
+      progress.dug = Math.max(progress.dug, squaresDugUnder(game.world));
       // (A save from before first-time gifts: its towns' levels were reached already.)
       for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
       // (A save from before the first-flour bonus whose towns have had flour: it's had its first.)
@@ -5236,6 +5462,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       refreshBoard();
     } else {
       townLife.clear();
+      retireStyles([]);
       detachResearch(game.economy);
       detachPassengers(game.world);
       detachEngines(game.world);
@@ -5715,6 +5942,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
   const feedbackUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
+  if (crashes) hud.addCrashItem(() => !crashReportsOff(), () => setCrashReportsOff(!crashReportsOff()));
   if (feedbackUrl) {
     const sheet = new FeedbackSheet(hud.root, feedbackUrl, {
       map: async () => {
@@ -5960,6 +6188,8 @@ requestAnimationFrame(() =>
       loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (loadBar.set("thumbnails", 1), t)),
       models(),
       texturesKept,
+      // (Zod and the save's schemas, not in the first download: wanted before the save is read, below.)
+      loadSaveSchemas(),
     ]).then(async ([, thumbs]) => {
       // The cloud check, under way all this while: waited for only a little longer than the rest took.
       const cloudNotes = { ...takeCloudNote(), ...((await Promise.race([cloudStarted, sleep(CLOUD_WAIT_MS).then(() => ({}))])) as CloudNotes) };
@@ -5984,6 +6214,8 @@ requestAnimationFrame(() =>
       boot(thumbs, opening, cloudNotes);
       const madeTextures = texturesMade();
       if (madeTextures) void saveCached("textures", __BUILD_ID__, madeTextures);
+      // (The game's materials are made: the pixels kept for them can go.)
+      forgetTextureCache();
     });
   }, 30),
 );

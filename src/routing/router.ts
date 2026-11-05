@@ -13,7 +13,7 @@
  * short of them and waits (`RouteWait`), as a routed train does, for as long as that train holds them. Nothing turns it
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
-import { connectorRef, getPieceDef, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
+import { connectorRef, getPieceDef, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, trainKey, type Cursor, type Sim, type Train } from "../sim";
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
@@ -266,7 +266,7 @@ export class Router {
       const from = this.deferred.get(pieceId) === lock ? this.defaultOf(pieceId) : layout.switchState(pieceId);
       // (A wye: only the tapped corner's lever, from the way it's shown; its other corners keep their defaults.)
       const bit = 1 << corner;
-      this.defaults.set(pieceId, def.cornerLevers ? (this.defaultOf(pieceId) & ~bit) | (~from & bit) : (from + 1) % ways);
+      this.defaults.set(pieceId, def.cornerLevers ? (this.defaultOf(pieceId) & ~bit) | (~from & bit) : def.pairLevers ? pairLeverState(from, corner) : (from + 1) % ways);
       this.deferred.set(pieceId, lock);
       return { deferred: true, by: lock.holders.values().next().value! };
     }

@@ -10,7 +10,7 @@ import { pick, setSpeed, studyLeft, tick } from "./research";
 import { payDelivery } from "./rewards";
 import { canResearch } from "./research";
 import { TownLife, type TownLifeHost } from "./town-life";
-import { townStatus } from "./towns";
+import { townLevel, townStatus } from "./towns";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 
 /** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
@@ -46,7 +46,7 @@ describe("town landmarks", () => {
     deliver({ planks: 26, flour: 6 });
     expect(townStatus({ planks: 26, flour: 6 }).level).toBe(3);
     expect([...townLandmarks(t)]).toEqual(["market"]);
-    expect(LANDMARKS.map((m) => m.id)).toEqual(["market"]);
+    expect(LANDMARKS.map((m) => m.id)).toEqual(["market", "bunting"]);
     // Its market has its own model (or a stand-in from the catalogue).
     const b = t.buildings.find((x) => x.landmark === "market")!;
     const asset = townProps(w.landscape, t).find((p) => p.building === b.id)!.asset;
@@ -61,6 +61,36 @@ describe("town landmarks", () => {
     w.economy.deliveredGoods.set(t.id, { planks: 26, flour: 6 });
     town.update();
     expect([...townLandmarks(t)]).toEqual(["market"]);
+  });
+});
+
+describe("City ★★'s bunting (the civic spec's free gift)", () => {
+  it("goes up by itself as a town grows to City ★★, on a lot of its own, as the catalogue's bunting; none before", () => {
+    const w = buildStarterWorld();
+    const { town } = life(w);
+    const t = w.landscape.towns[0];
+    /** All a town has had by the time it reaches `level`, through the levels' wants. */
+    const upTo = (level: number) => {
+      const bag: Record<string, number> = {};
+      for (let i = 0; i < level; i++) for (const [g, n] of Object.entries(townLevel(i).wants)) bag[g] = (bag[g] ?? 0) + n!;
+      return bag;
+    };
+    const deliver = (bag: Record<string, number>) => {
+      w.economy.delivered.set(t.id, bag.planks ?? 0);
+      w.economy.deliveredGoods.set(t.id, { ...bag });
+      town.update();
+    };
+    deliver(upTo(4));
+    expect(townStatus(upTo(4)).level).toBe(4);
+    expect(townLandmarks(t).has("bunting")).toBe(false);
+    deliver(upTo(5));
+    expect(townStatus(upTo(5)).level).toBe(5);
+    expect(townLandmarks(t).has("bunting")).toBe(true);
+    const b = t.buildings.find((x) => x.landmark === "bunting")!;
+    expect(townProps(w.landscape, t).find((p) => p.building === b.id)!.asset).toBe("scene-bunting");
+    // Free: nothing to buy, no blueprint.
+    expect(LANDMARKS.find((m) => m.id === "bunting")).toMatchObject({ level: 5 });
+    expect(LANDMARKS.find((m) => m.id === "bunting")!.tech).toBeUndefined();
   });
 });
 

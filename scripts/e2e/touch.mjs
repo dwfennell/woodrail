@@ -9,6 +9,7 @@ import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
 import { shot } from "./lib/shot.mjs";
 import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
+import { doubleThreeWayGroup, slipsGroup, turntableGroup } from "./track-pieces.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -1226,7 +1227,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // game-shelves (a touch tap on each shelf and Back, in each mode), and Sandbox's checks by name: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
-// wait (a train waiting at points set for another), wye (a wye's three levers, #15), stuck (two trains of a line head
+// wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
@@ -4129,7 +4130,11 @@ async function routeUx(ctx, p) {
     const scratch = new Layout();
     const o = S.oval(scratch);
     const ids = o.ids;
-    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    // (On squares of the land, as a player lays it: past its edge, on the table, the view can't go far enough out over
+    // it to frame the route above the card (the director keeps what it looks at over the land, half a plot past its
+    // edge). After earlier groups the open ground found was past the edge: F5 failed, a glide's goal 713 mm past it.)
+    const land = (x, z) => ids.every((i) => { const q = scratch.getPiece(i).pose; return [0, 108, 216].every((d) => w.landscape.grid.cellAtWorld(x + q.x + d * Math.cos(q.heading), z + q.z + d * Math.sin(q.heading)) !== -1); });
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500, ok: land });
     if (!g) throw new Error("no open ground for the oval");
     const types = { 0: "depot-forest", 7: "depot-sawmill", 9: "depot-forest" };
     const placed = w.editor().placeRun(ids.map((i, k) => {
@@ -5214,6 +5219,10 @@ const SANDBOX = {
   "route-reorder": (f) => routeReorder(f.ctx, f.p),
   "route-share": (f) => routeShare(f.ctx, f.p),
   "route-ring": (f) => routeRing(f.ctx, f.p),
+  // The tech tree's track pieces (track-pieces.mjs): slips, the double three-way, a turntable turned by a tap on a road.
+  slips: (f) => slipsGroup(f, check),
+  "double-three-way": (f) => doubleThreeWayGroup(f, check),
+  "turntable-taps": (f) => turntableGroup(f, check),
 };
 let fixture = null;
 const FRESH = process.env.E2E_FRESH === "1";

@@ -35,7 +35,7 @@ export const TRACK_PRICES: Readonly<Record<2 | 3, Bag>> = { 2: { planks: 10 }, 3
  * Which depots can have more tracks: every industry a train loads or unloads at by crane. Not a town's station (it
  * has big stations), a school (a few research loads), nor a Sandbox loader (a kit).
  */
-export const TRACK_ROLES: ReadonlySet<DepotRole> = new Set<DepotRole>(["forest", "sawmill", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks"]);
+export const TRACK_ROLES: ReadonlySet<DepotRole> = new Set<DepotRole>(["forest", "sawmill", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", "postoffice"]);
 
 export interface NewPiece {
   type: PieceTypeId;
@@ -109,7 +109,8 @@ export function planTracks(w: Pick<World, "layout" | "sim" | "economy">, depot: 
     let reached = 0;
     for (let guard = 0; guard < 40 && reached < need - 0.5; guard++) {
       const other = layout.joinedConnector(ref);
-      if (other === -1) return `${words}: the line ends`;
+      // (No track joined there yet, or what's there stops short. QA 2026-11-05 #6: "the line ends" said neither.)
+      if (other === -1) return `${words}: ${guard === 0 ? "lay track there first" : "the track stops short there"}`;
       const pid = pieceOfRef(other);
       const p = layout.getPiece(pid);
       if (!p) return words;
