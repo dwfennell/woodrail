@@ -59,7 +59,7 @@ export const SUITES = {
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   post: { script: "e2e:post", minutes: 5 },
   "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
-  "gl-lost-desktop": { script: "e2e:gl-lost:desktop", minutes: 2 },
+  "gl-lost-desktop": { script: "e2e:gl-lost-desktop", minutes: 2 },
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   power: { script: "e2e:power", minutes: 6 },

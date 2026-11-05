@@ -13,7 +13,7 @@
 // read with the Worker's own parser (its handling is cloud/test/crash.test.ts's); a new session is a cleared flag.
 //
 // A phone frees its drawn-only geometry once uploaded (gpu-only.ts, the mobile tier only), so a loss there goes to the
-// card at once. `npm run e2e:gl-lost:desktop` (GL_LOST_DESKTOP=1) runs on a desktop instead (1440×900, a mouse, the
+// card at once. `npm run e2e:gl-lost-desktop` (GL_LOST_DESKTOP=1) runs on a desktop instead (1440×900, a mouse, the
 // high tier): its copies are kept, and a brief loss comes back in place, the scene drawn again with no card; then it
 // stops (what follows is the phone's: the reload into a lean phone).
 //
