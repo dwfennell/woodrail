@@ -80,6 +80,7 @@ import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pil
 import { TelegraphWires } from "./render/telegraph-wires";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { BIG_TOP, bigTopSpot, CIRCUS_FARE, circusTick } from "./game/circus";
+import { nextSpeed, slower, speedsOpen } from "./game/time-scale";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { canPower, POWERED_RATE, powerOf } from "./game/power";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
@@ -506,6 +507,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       togglePause: () => {
         game.paused = !game.paused;
         hud.setPaused(game.paused);
+      },
+      toggleSpeed: () => {
+        game.timeScale = nextSpeed(game.timeScale, speedsOpen(progress, game.landscape.towns));
+        syncSpeed();
       },
       lever: (v) => interaction.setLever(v),
       follow: () => interaction.toggleFollow(),
@@ -2588,6 +2593,24 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return pickerKey(progress, schoolName(), goals.current()?.id ?? "");
   }
 
+  /** People coming to stations, on game time (see `simElapsed`). */
+  const peopleSeconds: StudyClock = { at: null };
+  /**
+   * The time control (src/game/time-scale.ts): the speeds open (Clockmaker, Clock tower), the HUD's clock showing the
+   * speed. Outside Game mode, or a speed no longer open, back to 1×. Cheap: called once a second and on a tap.
+   */
+  function syncSpeed(): void {
+    const open = mode === "game" ? speedsOpen(progress, game.landscape.towns) : [1 as const];
+    if (!open.includes(game.timeScale as 1)) game.timeScale = 1;
+    hud.setSpeed(game.timeScale, open.length > 1, nextSpeed(game.timeScale, open));
+  }
+  // A phone too slow for the speed: a speed slower, said.
+  game.onTooSlow = () => {
+    game.timeScale = slower(game.timeScale);
+    hud.toast(`Your phone is working hard: back to ${game.timeScale}×`, false, 3600);
+    syncSpeed();
+  };
+
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
   const CRAFT_STEP = 0.25;
   /** The research's study clock, on the world's game time (see `simElapsed`). */
@@ -2609,6 +2632,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     setSpeed(progress, researchSpeed(game.world, progress.learned));
   }
   setInterval(() => {
+    syncSpeed();
     if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
     if (mode === "game") refreshPill();
     showDate();
@@ -2821,14 +2845,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (why) warnedHeavy.add(id);
       else warnedHeavy.delete(id);
     }
-    peopleArrive(game.world, progress, 1, peopleClock);
+    // (On game time: at 2× people come twice as fast, as everything else does.)
+    const gameSeconds = simElapsed(peopleSeconds, game.simSeconds);
+    peopleArrive(game.world, progress, gameSeconds, peopleClock);
     // The circus (late-game spec K1): a show opens where its train stands at a town, and closes after three months.
     if (mode === "game" && progress.learned.has("circus")) tickCircus();
     // Sparks: a power station's coal may have run out (or come), a train put on or away (src/game/power.ts).
     syncPower();
     // Metro trains draw power: a coal from a power station now and then, as they run (not while paused: they stand,
-    // though they keep their speed for after).
-    if (!game.paused) metroDraw(game.world, 1, metroClock);
+    // though they keep their speed for after). On game time too.
+    if (!game.paused) metroDraw(game.world, gameSeconds, metroClock);
     // (A town grown out over a line two levels down: those squares weren't dug for it, so nothing's paid.)
     if (mode === "game") settleDigging(progress, squaresDugUnder(game.world), false);
     // A bus at a station's stop goes for the people waiting in its town off the line.
