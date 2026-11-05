@@ -155,6 +155,10 @@ export class PropsView {
    * then the model is drawn). `pxScale`: see `updateFarDetail`. Returns true if any prop changed version.
    */
   setDetail(eye: Vector3, pxScale: number, moving = true): boolean {
+    // A still camera, and no prop or far version added since: nothing to look at again (a train running costs nothing).
+    const key = `${this.syncedFor}|${this.farMade}|${pxScale}`;
+    if (!moving && key === this.detailSeen) return false;
+    this.detailSeen = key;
     let changed = false;
     for (const d of this.drawn.values()) {
       const dist = Math.max(1, eye.distanceTo(d.at) - d.radius * this.scaleOf(d));
@@ -191,6 +195,9 @@ export class PropsView {
   }
 
   private readonly farAsked = new Set<string>();
+  /** Far versions made so far (see `setDetail`'s key). */
+  private farMade = 0;
+  private detailSeen = "";
 
   /**
    * Make a model's parts' far versions (off the main thread: `farIndexLater`) and put them in their batches (once).
@@ -215,6 +222,7 @@ export class PropsView {
           const far = farGeometryOf(g, index);
           makeRoom(batch.mesh, batch.room, far);
           batch.farOf.set(key, batch.mesh.addGeometry(far));
+          this.farMade++;
           far.dispose();
         }),
       );
@@ -222,6 +230,7 @@ export class PropsView {
     // (One that couldn't be made: nothing far for it.)
     void Promise.all(asked).then(() => {
       for (const b of this.batches.values()) if (b.geometryOf.has(key) && !b.farOf.has(key)) b.farOf.set(key, null);
+      this.farMade++;
     });
   }
 
