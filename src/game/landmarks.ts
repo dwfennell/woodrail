@@ -34,6 +34,15 @@ export const LANDMARKS: readonly Landmark[] = [
     blurb: "Pays half again for everything delivered to this town.",
     models: { four: ["bldg-market-hall"], two: ["bldg-market-hall", "bldg-post-office"], one: ["bldg-corner-shop"] },
   },
+  // City ★★'s free gift (spec 2026-11-04-civic-leisure §4): bunting strung over a street, in flags of every colour.
+  {
+    id: "bunting",
+    name: "Bunting",
+    level: 5,
+    blurb: "Flags over its streets, for the biggest towns of all.",
+    // (A one-square lot is too short for the bunting's string: a flagpole there.)
+    models: { two: ["scene-bunting"], one: ["scene-flagpole"] },
+  },
 ];
 
 /**

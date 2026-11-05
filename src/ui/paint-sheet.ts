@@ -1,4 +1,4 @@
-import { LIVERIES, paintState, type PaintState } from "../game/paint-shop";
+import { LIVERIES, paintState, stripeColours, type PaintState, type Stripe } from "../game/paint-shop";
 import type { Progress } from "../game/progress";
 import { townLevel } from "../game/towns";
 
@@ -70,7 +70,7 @@ export class PaintSheet {
     const grid = document.createElement("div");
     grid.className = "paint-swatches";
     const states = new Map<string, PaintState>();
-    const swatch = (id: string, label: string, body: string, trim: string, note: string, state: PaintState) => {
+    const swatch = (id: string, label: string, body: string, trim: string, note: string, state: PaintState, stripe?: Stripe) => {
       states.set(id, state);
       const b = document.createElement("button");
       b.type = "button";
@@ -78,7 +78,12 @@ export class PaintSheet {
       b.dataset.livery = id || "as-it-came";
       b.disabled = state === "locked";
       const dot = document.createElement("i");
-      dot.style.background = `linear-gradient(135deg, ${body} 0 62%, ${trim} 62% 100%)`;
+      // (A stripe across the middle: a gold line, or the rainbow's bands.)
+      const bands = stripe ? stripeColours(stripe) : [];
+      const w = bands.length > 1 ? 4 : 3;
+      const top = 50 - (bands.length * w) / 2;
+      const stripes = bands.map((c, i) => `linear-gradient(to bottom, transparent ${top + i * w}%, ${c} ${top + i * w}% ${top + (i + 1) * w}%, transparent ${top + (i + 1) * w}%)`);
+      dot.style.background = [...stripes, `linear-gradient(135deg, ${body} 0 62%, ${trim} 62% 100%)`].join(", ");
       const l = document.createElement("span");
       l.textContent = label;
       const n = document.createElement("small");
@@ -94,7 +99,7 @@ export class PaintSheet {
     for (const l of LIVERIES) {
       const s = paintState(p, l, current);
       const note = s === "have" ? "✓" : s === "locked" ? `🔒 ${townLevel(l.level).name}` : `${l.price} 🪙`;
-      swatch(l.id, l.label, l.body, l.trim, note, s);
+      swatch(l.id, l.label, l.body, l.trim, note, s, l.stripe);
     }
     const go = document.createElement("button");
     go.type = "button";

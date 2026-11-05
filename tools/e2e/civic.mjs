@@ -256,7 +256,7 @@ for (let k = 0; k < 3 && (await p.evaluate(() => document.querySelector(".paint-
   await tap(".paint-engine");
 }
 check("5. the paint shop opens", (await p.evaluate(() => !document.querySelector(".paint-sheet")?.hidden)) === true);
-check("5. City colours open, City ★ ones locked", (await p.evaluate(() => [...document.querySelectorAll(".paint-swatch")].map((s) => `${s.dataset.livery}:${s.classList.contains("locked")}`).join(","))).includes("plum:false,black:false,gold:true"));
+check("5. City colours open, City ★ ones locked", (await p.evaluate(() => [...document.querySelectorAll(".paint-swatch")].map((s) => `${s.dataset.livery}:${s.classList.contains("locked")}`).join(","))).includes("plum:false,black:false,lining:false,gold:true"));
 await tap('.paint-swatch[data-livery="red"]');
 await shot("5-paint-shop");
 const coins5 = await p.evaluate(() => window.woodrail.progress().coins);

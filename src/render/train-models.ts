@@ -1,4 +1,5 @@
-import { BoxGeometry, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, type Material, type Object3D } from "three";
+import { Box3, BoxGeometry, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Material, type Object3D } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { CarKind, CarLook } from "../sim";
 import { TRACK_THICKNESS } from "../track";
 import { Kit } from "../catalogue/kit";
@@ -7,7 +8,7 @@ import { buildMilkTanker, milkTankerBogies } from "../catalogue/assets/milk-tank
 import { buildColdVan, coldVanBogies } from "../catalogue/assets/cold-van";
 import { buildOilTanker, oilTankerBogies } from "../catalogue/assets/oil-tanker";
 import { breakdownCraneBogies, buildBreakdownCrane } from "../catalogue/assets/breakdown-crane";
-import { buildMailVan, mailVanBogies } from "../catalogue/assets/mail-van";
+import { buildMailVan, buildSortingVan, mailVanBogies } from "../catalogue/assets/mail-van";
 import { buildCarCarrier, carCarrierBogies } from "../catalogue/assets/car-carrier";
 import { blenderCar } from "./blender-models";
 import type { Materials } from "./materials";
@@ -89,11 +90,59 @@ function rackCog(mats: Materials): Object3D {
   return cog;
 }
 
+/** A body panel shorter or lower than this (mm) gets no stripe (a dome, a handrail, a lamp's box). */
+const STRIPE_MIN_LENGTH = 14;
+const STRIPE_MIN_HEIGHT = 7;
+/** One band of a stripe: its height and how far it stands off the panel (mm). */
+const BAND = 1.1;
+const BAND_DEPTH = 0.5;
+
+/**
+ * A livery's painted stripe (paint shop's Lined and Rainbow): along each side of every body-coloured panel big enough
+ * for one (`body`: the livery's body material), a band of `colours` stacked top to bottom, at the panel's middle
+ * height and widest point (on a boiler too: a band where its round side stands out most). Built once with the car's
+ * model (paint is rare): one merged mesh per colour, lacquer materials from the shared cache.
+ */
+export function addStripes(root: Object3D, mats: Materials, body: readonly Material[], colours: readonly string[]): number {
+  if (body.length === 0 || colours.length === 0) return 0;
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const panels: Box3[] = [];
+  root.traverse((o) => {
+    const m = o as Mesh;
+    if (!m.isMesh || !body.includes(m.material as Material)) return;
+    m.geometry.computeBoundingBox();
+    const box = m.geometry.boundingBox!.clone().applyMatrix4(m.matrixWorld).applyMatrix4(inv);
+    if (box.max.x - box.min.x >= STRIPE_MIN_LENGTH && box.max.y - box.min.y >= STRIPE_MIN_HEIGHT) panels.push(box);
+  });
+  const parts: BufferGeometry[][] = colours.map(() => []);
+  for (const box of panels) {
+    const length = box.max.x - box.min.x - 4;
+    // The band: its colours stacked, no more than half the panel's height.
+    const band = Math.min(BAND, ((box.max.y - box.min.y) * 0.5) / colours.length);
+    const mid = (box.min.y + box.max.y) / 2 + (band * colours.length) / 2;
+    const x = (box.min.x + box.max.x) / 2;
+    colours.forEach((_, i) => {
+      for (const z of [box.max.z + BAND_DEPTH / 2 - 0.1, box.min.z - BAND_DEPTH / 2 + 0.1]) parts[i].push(new BoxGeometry(length, band, BAND_DEPTH).translate(x, mid - band * (i + 0.5), z));
+    });
+  }
+  let made = 0;
+  colours.forEach((c, i) => {
+    if (parts[i].length === 0) return;
+    const mesh = new Mesh(mergeGeometries(parts[i])!, mats.lacquer(c));
+    mesh.name = "livery-stripe";
+    mesh.castShadow = false;
+    root.add(mesh);
+    made++;
+  });
+  return made;
+}
+
 /** Colours of a car's slots (the van's body). */
 const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { body: "#2f6db5" } };
 
 /** Car facing +x, centred on its two axles, y = 0 at the track base. The models must be loaded (loadBlenderModels). */
-export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic", loaded = false, livery?: { body: string; trim: string }): CarModel {
+export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic", loaded = false, livery?: { body: string; trim: string; stripes?: readonly string[] }): CarModel {
   if (kind === "cleaner") return cleanerModel(mats);
   if (kind === "tanker") return codeCarModel(mats, "tanker", buildMilkTanker, milkTankerBogies);
   if (kind === "reefer") return codeCarModel(mats, "reefer", buildColdVan, coldVanBogies);
@@ -101,6 +150,7 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   if (kind === "crane") return codeCarModel(mats, "crane", buildBreakdownCrane, breakdownCraneBogies);
   if (kind === "carrier") return codeCarModel(mats, "carrier", buildCarCarrier, carCarrierBogies);
   if (kind === "mailvan") return codeCarModel(mats, "mailvan", buildMailVan, mailVanBogies);
+  if (kind === "sortvan") return codeCarModel(mats, "sortvan", buildSortingVan, mailVanBogies);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
   const rack = kind === "engine" && look === "rack";
   const metro = look === "metro";
@@ -114,6 +164,8 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
     model.root.add(cog);
     model.wheels.push(cog);
   }
+  // (A lined or rainbow livery: its stripe painted along the body's sides.)
+  if (kind === "engine" && livery?.stripes?.length) addStripes(model.root, mats, LIVERY_SLOTS[look] ? [mats.lacquer(livery.body)] : [], livery.stripes);
   model.root.traverse((o) => (o.userData.carKind = kind));
   if (kind === "hopper" && !loaded) hideModelledLoad(model.root);
   return model;
