@@ -581,6 +581,9 @@ export class Economy {
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.router.waitingOn(engine),
+      // (A train with no stops goes anywhere: it gives way first.)
+      routed: (engine) => (this.routes.get(engine)?.stops.length ?? 0) > 0,
+      goal: (engine) => this.goalOf(engine, 0),
     });
     this.breakdown = new Breakdown(layout, sim, {
       onLine: (engine) => this.lineIdOf.has(engine),

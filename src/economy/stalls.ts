@@ -1,4 +1,5 @@
-import type { Sim, Train } from "../sim";
+import { trainKey, type Sim, type Train } from "../sim";
+import { wayRound } from "../routing/give-way";
 import { CHECK_TICKS, type Sections } from "./sections";
 
 /**
@@ -19,8 +20,22 @@ import { CHECK_TICKS, type Sections } from "./sections";
  * its own, or is the player's. Unless it doesn't: a train that has stood waiting `STARVED_S`, on a train under way, is
  * stuck "in the way" of that one (kept waiting by trains that come and go). One through a red signal goes on to the train in its block (`heldBy` "signal").
  *
+ * Giving way (2026-11-05, the user: "so easy to get into a deadlock ... everything stops even though it could easily
+ * keep going"): a ring that has held `YIELD_S` (before it's said) is broken where the track allows, by one of its trains
+ * turning round where it stands, as at the end of the line (`Sim.turnNow`), and going another way:
+ * - **A hand-run train** (lever on, no route: it "goes anywhere") gives way first, to anyone, wherever there's room to
+ *   turn it. It then runs on as the points lie, as ever.
+ * - **A routed train** gives way only where, turned, it has a way to its next stop with no turn-back and not over the
+ *   train in its way (`wayRound`: round a ring, a loop round, a wye or a balloon). Else turning would only bring it back.
+ * No livelock: a train that gave way doesn't again for `YIELD_AGAIN_S`, and never again to the same train till that one
+ * has got somewhere (come to its next stop, or turned at the end of the line): boxed in, it would only come back to it
+ * (a hand-run train between a buffer and the train whose stop is behind it). A ring then is broken by another of its
+ * trains, or said stuck as before. A ring nobody can break (single track, no way round, no room to turn) is said stuck, as
+ * before; so is one through signals (adding a signal is the fix) and a parked train's (the player's).
+ *
  * Cost: nothing per frame. Every `CHECK_TICKS`, with two or more trains, each standing train's chain is followed (each
- * waits on at most one, so O(trains)). A stall must hold `STUCK_S` before it's said, so ordinary meets never are.
+ * waits on at most one, so O(trains)). A stall must hold `STUCK_S` before it's said, so ordinary meets never are. A ring
+ * held `YIELD_S` tries its trains (a room check, and for a routed one a plan search) at most every `YIELD_RETRY_S`.
  */
 
 /** A wait that can't end must hold this long (s) before its trains are said to be stuck. */
@@ -30,6 +45,12 @@ export const STUCK_S = 5;
  * waiting by trains that come and go (one going round non-stop, taking what it waits for each time it comes by).
  */
 export const STARVED_S = 120;
+/** A ring of waits that has held this long (s) is broken by a train in it giving way, where one can (see above). */
+export const YIELD_S = 2;
+/** A train that gave way doesn't again for this long (s), to anyone: no train turning back and forth between two. */
+export const YIELD_AGAIN_S = 10;
+/** A ring nobody in could break is tried again this often (s): a train in it may have come off its cool-down. */
+export const YIELD_RETRY_S = 2;
 
 /** Why a train is stuck. */
 export type Stuck =
@@ -56,6 +77,10 @@ export interface StallsHost {
   lineOf(engine: number): number;
   /** The train (an engine) a routed engine waits for short of points (`Router.waitingOn`); null: none. */
   routeWait(engine: number): { engine: number } | null;
+  /** Is this engine run by a route (else, its lever on, it's hand-run: it goes anywhere)? Absent: nobody gives way. */
+  routed?(engine: number): boolean;
+  /** The piece a routed engine heads for next (its stop, or the via point it's aimed at); −1: none on the map. */
+  goal?(engine: number): number;
 }
 
 /** A train's name in waits: its engine, or its first car if it has none (as sections name trains). */
@@ -78,6 +103,19 @@ export class Stalls {
   private readonly waiting = new Map<number, number>();
   /** Stalls begun (each a set of trains newly stuck at one check), for tests and the play-through. */
   begun = 0;
+  /** Trains that gave way (turned round to break a ring), for tests and the play-through. */
+  gaveWay = 0;
+  /** Of those, routed trains (gone a way round). */
+  gaveWayRouted = 0;
+  /** Trains that gave way, by `trainKey` (it lasts through a turn): when (tick). */
+  private readonly yielded = new Map<number, number>();
+  /**
+   * Whom each train last gave way to, by `trainKey`: that train's key, and its goal and last end-of-line turn then (it
+   * has got somewhere once either has changed).
+   */
+  private readonly gaveTo = new Map<number, { by: number; goal: number; turn: number }>();
+  /** Rings nobody in could break, by their trains (sorted ids, joined): when last tried (tick). */
+  private readonly tried = new Map<string, number>();
   /** Told when trains come to be stuck (once a stall): their engines, and why the first is. */
   onStuck: ((engines: readonly number[], why: Stuck) => void) | null = null;
 
@@ -144,6 +182,8 @@ export class Stalls {
     for (const id of this.waiting.keys()) if (!on.has(id)) this.waiting.delete(id);
     for (const id of on.keys()) if (!this.waiting.has(id)) this.waiting.set(id, now);
     const found = new Map<number, Stuck>();
+    /** Rings of waits (signals' aside), by their trains (sorted ids, joined): their trains, in order of waiting. */
+    const rings = new Map<string, number[]>();
     for (const start of on.keys()) {
       const chain: number[] = [];
       let x = start;
@@ -161,6 +201,9 @@ export class Stalls {
         }
         if (chain.includes(y)) {
           why = "ring";
+          const ring = chain.slice(chain.indexOf(y));
+          const key = [...ring].sort((a, b) => a - b).join(",");
+          if (!rings.has(key)) rings.set(key, ring);
           break;
         }
         if (!standing.has(y)) {
@@ -194,6 +237,9 @@ export class Stalls {
         found.set(engine, signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
+    // (Rings that have held `YIELD_S`: one of their trains gives way, where one can. Its ring's trains aren't stuck.)
+    if (rings.size > 0) this.giveWay(rings, on, found, now);
+    else if (this.tried.size > 0) this.tried.clear();
     // (Said once it has held `STUCK_S`.)
     for (const e of this.since.keys()) if (!found.has(e)) this.since.delete(e);
     const stuck = new Map<number, Stuck>();
@@ -211,6 +257,76 @@ export class Stalls {
       this.begun++;
       this.onStuck?.(fresh, stuck.get(fresh[0])!);
     }
+  }
+
+  /**
+   * Each ring of waits (not through signals) that has held `YIELD_S`: a hand-run train in it turns round where there's
+   * room, else a routed one with a way round to its next stop (`wayRound`), none that gave way in the last
+   * `YIELD_AGAIN_S`. Broken, its trains are dropped from `found` (not stuck). Nobody able: tried again `YIELD_RETRY_S` on.
+   */
+  private giveWay(rings: Map<string, number[]>, on: Map<number, number>, found: Map<number, Stuck>, now: number): void {
+    const { sim, host } = this;
+    if (!host.routed) return;
+    for (const k of this.tried.keys()) if (!rings.has(k)) this.tried.delete(k);
+    for (const [k, t] of this.yielded) if (now - t >= YIELD_AGAIN_S * 120) this.yielded.delete(k);
+    if (this.gaveTo.size > 0) for (const [k, g] of this.gaveTo) if (!sim.trainByKey(k) || !sim.trainByKey(g.by)) this.gaveTo.delete(k);
+    for (const [key, ring] of rings) {
+      // (Held long enough: since its first train was found in it. Through a red signal: adding a signal is the fix.)
+      let held = Infinity;
+      let signals = false;
+      for (const id of ring) {
+        if (sim.heldHow(id) === "signal") signals = true;
+        const t = sim.getTrain(id);
+        const s = t && this.since.get(this.lineEngine(t));
+        held = Math.min(held, s ? now - s.tick : 0);
+      }
+      if (signals || held < YIELD_S * 120) continue;
+      const last = this.tried.get(key);
+      if (last !== undefined && now - last < YIELD_RETRY_S * 120) continue;
+      let gave: Train | null = null;
+      // (Hand-run trains first: they go anywhere. Then routed ones with a way round.)
+      for (const pass of [false, true]) {
+        for (const id of ring) {
+          const t = sim.getTrain(id);
+          if (!t || this.yielded.has(trainKey(t))) continue;
+          const engine = this.lineEngine(t);
+          if (engine < 0 || host.routed(engine) !== pass) continue;
+          const by = sim.getTrain(on.get(id)!);
+          if (!by) continue;
+          const byKey = trainKey(by);
+          const progress = this.progressOf(by);
+          const was = this.gaveTo.get(trainKey(t));
+          if (was && was.by === byKey && was.goal === progress.goal && was.turn === progress.turn) continue;
+          if (pass && (!host.goal || !wayRound(sim.layout, t, host.goal(engine), sim.piecesUnder(by.id)))) continue;
+          const turned = sim.turnNow(id);
+          if (!turned) continue;
+          gave = turned;
+          this.gaveTo.set(trainKey(turned), { by: byKey, ...progress });
+          if (pass) this.gaveWayRouted++;
+          break;
+        }
+        if (gave) break;
+      }
+      if (!gave) {
+        this.tried.set(key, now);
+        continue;
+      }
+      this.gaveWay++;
+      this.yielded.set(trainKey(gave), now);
+      this.tried.delete(key);
+      for (const id of ring) {
+        const t = id === gave.id ? gave : sim.getTrain(id);
+        const e = t ? this.lineEngine(t) : -1;
+        if (e >= 0) found.delete(e);
+      }
+    }
+  }
+
+  /** How far a train has got: its goal (a routed one's next stop or aim; −1: none) and its last end-of-line turn (tick). */
+  private progressOf(t: Train): { goal: number; turn: number } {
+    const e = this.lineEngine(t);
+    const routed = e >= 0 && !!this.host.routed?.(e);
+    return { goal: routed && this.host.goal ? this.host.goal(e) : -1, turn: t.lastTurn?.tick ?? -1 };
   }
 
   /** The train (its id) a standing train waits for: its line's, the router's, the sim's, or short of one ahead. */
