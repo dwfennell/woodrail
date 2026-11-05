@@ -2,6 +2,7 @@ import { BatchedMesh, Group, Matrix4, Quaternion, Vector3, type Material, type O
 import type { Prop, PropStore } from "../../props/store";
 import { drawnKey, type PropLibrary } from "./library";
 import { compacted, makeRoom, type BatchRoom } from "../compact";
+import { FAR_ASK_FRAMES, farGeometry, FAR_HYSTERESIS, FAR_PX_PER_MM, whenIdle } from "../far-detail";
 
 /** What the view draws: the store, or anything shaped like it (the kit pieces, see `KitView`). */
 export type PropSource = Pick<PropStore, "version" | "get"> & { all(): Iterable<Prop> };
@@ -13,6 +14,8 @@ interface Batch {
   geometryOf: Map<string, number>;
   /** Prop id of each instance. */
   propOf: Map<number, number>;
+  /** Geometry id of each model's part's far version (`farGeometry`) in this batch; null if it has none. */
+  farOf: Map<string, number | null>;
   /** Room for this many vertices and indices of geometry (see `makeRoom`). */
   room: BatchRoom;
 }
@@ -23,6 +26,13 @@ interface Drawn {
   instances: { batch: Batch; id: number }[];
   key: string;
   visible: boolean;
+  /** Where it stands (world) and how far from there its model reaches, for its distance from the eye. */
+  at: Vector3;
+  radius: number;
+  /** Drawn in its far version (see `setDetail`). */
+  isFar: boolean;
+  /** Frames the camera moved in that it's wanted its far version before it's made (see `FAR_ASK_FRAMES`). */
+  wanted: number;
 }
 
 const m = new Matrix4();
@@ -94,7 +104,8 @@ export class PropsView {
           continue;
         }
         if (model === null) continue;
-        d = { asset: key, instances: [], key: "", visible: true };
+        const box = model.footprint;
+        d = { asset: key, instances: [], key: "", visible: true, at: new Vector3(), radius: Math.hypot(Math.abs(box.cx) + box.hw, Math.abs(box.cz) + box.hd, model.height), isFar: false, wanted: 0 };
         for (const part of model.parts) {
           const batch = this.batchFor(part.material);
           let gid = batch.geometryOf.get(key);
@@ -115,6 +126,7 @@ export class PropsView {
       const poseKey = `${p.x}|${p.z}|${p.heading}|${p.y}|${p.scale ?? 1}`;
       if (poseKey !== d.key) {
         d.key = poseKey;
+        d.at.set(p.x, p.y, p.z);
         q.setFromAxisAngle(up, -p.heading);
         m.compose(pos.set(p.x, p.y, p.z), q, p.scale ? sized.setScalar(p.scale) : one);
         for (const inst of d.instances) {
@@ -130,6 +142,73 @@ export class PropsView {
     }
     for (const b of touched) b.mesh.computeBoundingSphere();
     return true;
+  }
+
+  /**
+   * On a drawn frame: each prop drawn in its model's far version (the same within `FAR_ERROR` mm, a fifth of the
+   * triangles or fewer) where a millimetre at its nearest is under `FAR_PX_PER_MM` pixels, back 10% nearer. Far versions
+   * are made once wanted on `FAR_ASK_FRAMES` frames drawn while the camera moved (`moving`), when the page is idle (until
+   * then the model is drawn). `pxScale`: see `updateFarDetail`. Returns true if any prop changed version.
+   */
+  setDetail(eye: Vector3, pxScale: number, moving = true): boolean {
+    let changed = false;
+    for (const d of this.drawn.values()) {
+      const dist = Math.max(1, eye.distanceTo(d.at) - d.radius * this.scaleOf(d));
+      const wantFar = pxScale / dist < FAR_PX_PER_MM * (d.isFar ? FAR_HYSTERESIS : 1);
+      if (!wantFar) d.wanted = 0;
+      if (wantFar === d.isFar) continue;
+      if (wantFar && !this.farReady(d, moving && ++d.wanted >= FAR_ASK_FRAMES)) continue;
+      d.isFar = wantFar;
+      for (const inst of d.instances) {
+        const near = inst.batch.geometryOf.get(d.asset)!;
+        const far = inst.batch.farOf.get(d.asset);
+        inst.batch.mesh.setGeometryIdAt(inst.id, wantFar && far != null ? far : near);
+      }
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** A prop's scale (its model's size drawn bigger or smaller), from its pose key. */
+  private scaleOf(d: Drawn): number {
+    const s = Number(d.key.slice(d.key.lastIndexOf("|") + 1));
+    return s > 0 ? s : 1;
+  }
+
+  /** Are a prop's model's far versions made (in each batch it's in)? If not, they're asked for (if `ask`). */
+  private farReady(d: Drawn, ask: boolean): boolean {
+    let ready = true;
+    for (const inst of d.instances) {
+      if (inst.batch.farOf.has(d.asset)) continue;
+      ready = false;
+      if (ask) this.askFar(d.asset);
+    }
+    return ready;
+  }
+
+  private readonly farAsked = new Set<string>();
+
+  /** Make a model's parts' far versions and put them in their batches, when the page is idle (once). */
+  private askFar(key: string): void {
+    if (this.farAsked.has(key)) return;
+    this.farAsked.add(key);
+    whenIdle(() => {
+      const model = this.library.model(key);
+      for (const part of model?.parts ?? []) {
+        const batch = this.batches.get(part.material);
+        if (!batch || !batch.geometryOf.has(key)) continue;
+        const far = farGeometry(compacted(part.geometry));
+        if (!far) {
+          batch.farOf.set(key, null);
+          continue;
+        }
+        makeRoom(batch.mesh, batch.room, far);
+        batch.farOf.set(key, batch.mesh.addGeometry(far));
+        far.dispose();
+      }
+      // (A part in no batch yet, or none: nothing far for it.)
+      for (const b of this.batches.values()) if (b.geometryOf.has(key) && !b.farOf.has(key)) b.farOf.set(key, null);
+    });
   }
 
   /** The prop id an intersected batch instance stands for (or −1). */
@@ -148,7 +227,7 @@ export class PropsView {
       mesh.sortObjects = material.transparent;
       mesh.name = "props";
       this.group.add(mesh);
-      batch = { mesh, geometryOf: new Map(), propOf: new Map(), room: { vertices: START_VERTICES, indices: START_INDICES } };
+      batch = { mesh, geometryOf: new Map(), propOf: new Map(), farOf: new Map(), room: { vertices: START_VERTICES, indices: START_INDICES } };
       this.batches.set(material, batch);
     }
     return batch;

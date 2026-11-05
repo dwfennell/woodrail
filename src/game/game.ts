@@ -34,6 +34,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
+import { updateFarDetail } from "../render/far-detail";
 import { BIG_STATIONS, StationTouchesView } from "../render/station-touches";
 import { departures } from "./departures";
 import { routeStops } from "./route-stops";
@@ -1204,6 +1205,13 @@ export class Game {
       this.renderer.shadowMap.needsUpdate = false;
       this.dirty = true;
     }
+    // Far off, static meshes and props are drawn in their far versions (the same within half a millimetre, in a
+    // fraction of the triangles), where a millimetre is under half a pixel: made once the camera's moved out there. Their shadows are drawn from whichever is
+    // drawn when they're next drawn (a camera move alone doesn't redraw them).
+    const pxScale = (this.canvas.clientHeight * Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio)) / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
+    updateFarDetail(this.camera.position, pxScale, moved);
+    this.propsView.setDetail(this.camera.position, pxScale, moved);
+    this.kitView.setDetail(this.camera.position, pxScale, moved);
     this.stage.update(this.camera);
     pulseBeacons(this.mats, now);
     this.post.setFocus(dist);

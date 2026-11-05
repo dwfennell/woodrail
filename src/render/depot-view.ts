@@ -1,5 +1,6 @@
 import { Box3, BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedBufferAttribute, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
 import { compact } from "./compact";
+import { useFarDetail } from "./far-detail";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
@@ -963,7 +964,7 @@ export class DepotView {
     for (const [m, list] of buckets) {
       const merged = list.length === 1 ? list[0].clone() : mergeGeometries(list);
       if (!merged) continue;
-      const mesh = new Mesh(compact(merged), m);
+      const mesh = useFarDetail(new Mesh(compact(merged), m));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       statics.add(mesh);

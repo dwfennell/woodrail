@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { shadowProxyMesh } from "./blocks";
 import { nonIndexed } from "../non-indexed";
 import { compact, unquantise, weld } from "../compact";
+import { useFarDetail } from "../far-detail";
 
 /** Parts smaller than this every way (mm) cast no shadow of their own: window frames, sills, signs' letters. */
 const STAND_IN_MIN = 8;
@@ -125,7 +126,7 @@ export class Batcher {
       const merged = mergeGeometries(list);
       if (!merged) continue;
       // Finished: welded and quantised (see `compact`), about a third of the bytes.
-      const mesh = new Mesh(compact(merged), material);
+      const mesh = useFarDetail(new Mesh(compact(merged), material));
       mesh.castShadow = castShadow && !standIns;
       mesh.receiveShadow = true;
       group.add(mesh);

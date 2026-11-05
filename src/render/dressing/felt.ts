@@ -1,5 +1,6 @@
 import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, ShapeGeometry, Vector2, type BufferGeometry, type Material } from "three";
 import { compact } from "../compact";
+import { useFarDetail } from "../far-detail";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, PLOT_DEPTH, PLOT_WIDTH, type LandscapeGrid, type PlotCoord, type Rect } from "../../landscape";
 import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop, type LoopPoint } from "../../landscape/outline";
@@ -264,7 +265,7 @@ export function buildFeltTiles(
     }
     if (!tile.geometry) continue;
     // The cache owns the geometry: the mesh mustn't free it.
-    const mesh = new Mesh(tile.geometry, material);
+    const mesh = useFarDetail(new Mesh(tile.geometry, material));
     mesh.receiveShadow = true;
     mesh.userData.sharedGeometry = true;
     setCullRects(mesh, [{ x0: tc * TILE_WIDTH, z0: tr * TILE_DEPTH, x1: (tc + 1) * TILE_WIDTH, z1: (tr + 1) * TILE_DEPTH }], 4);

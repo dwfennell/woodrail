@@ -1,5 +1,6 @@
 import { Group, Mesh, type BufferGeometry, type Material } from "three";
 import { compact, weld } from "../compact";
+import { useFarDetail } from "../far-detail";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, outsideDistance, type OuterBlock, type OuterTree, type Rect, type Surroundings } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
@@ -129,7 +130,7 @@ export function buildScenery(parts: readonly SceneryPart[], mats: Materials, lan
   for (const [material, list] of byMaterial) {
     const merged = list.length === 1 ? list[0].clone() : mergeGeometries(list);
     if (!merged) continue;
-    const mesh = new Mesh(compact(merged), material);
+    const mesh = useFarDetail(new Mesh(compact(merged), material));
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     group.add(mesh);
