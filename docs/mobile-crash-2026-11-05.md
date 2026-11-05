@@ -98,6 +98,8 @@ textures again when it comes, but:
   there's nothing between the scene and the lens pass, so the lens reads the scene's own target and draws to the
   screen. No composer: its buffer and the full-screen copy into it are gone, and no depth texture is resolved (a
   depth buffer instead). The same picture. Desktop (high tier) is unchanged.
+- **The shadow map's colour attachment** (made by `stage.ts` now, see below) is R8, not RGBA8: three gives every render
+  target one, and the shadow pass never samples it. 16 → 4 MB at a phone's 2048² (64 → 16 MB on desktop). Same picture.
 - **PMREM's working target freed** after the environment map is made (`stage.ts`): 6 MB.
 - **Lean settings** (`quality.ts` `leanOf`) for the mobile tier when the phone reports 4 GB or less
   (`navigator.deviceMemory`), or when this device's drawing was lost in the last 3 days (`noteContextLost`): pixel
@@ -111,7 +113,7 @@ textures again when it comes, but:
 | Late map, Pixel 10 page | GPU tracked | canvas |
 | --- | ---: | ---: |
 | main | 325 MB | 17 MB |
-| this branch | 300 MB | 17 MB |
+| this branch | 300 MB (288 MB with the R8 attachment) | 17 MB |
 | this branch, lean | 219 MB | 10 MB |
 
 Tested: `npm run e2e:gl-lost` (lost and back: draws again, no card; lost for good: the card, Tap to reload, back in
