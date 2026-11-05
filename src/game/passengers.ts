@@ -1,5 +1,6 @@
 import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
+import { VISITOR_BONUS } from "./airports";
 import { circusFare, circusRiders } from "./circus";
 import { isBridge, OBSERVATORY_KIT, RISER_HEIGHT } from "../track";
 import { CELL } from "../landscape/grid";
@@ -139,8 +140,13 @@ export function visitorsFor(world: World, from: DepotState, to: DepotState, mont
   return from.townId === to.townId ? 1 : visitorsAt(world, to, month);
 }
 
-/** One rider's fare from station `from` to station `to`, riding coach `carId` (in `month`, for visitors' seasons). */
+/**
+ * One rider's fare from station `from` to station `to`, riding coach `carId` (in `month`, for visitors' seasons). A
+ * visitor off a plane (`from` an airport) pays `VISITOR_BONUS` times as much; one taken to an airport pays nothing here
+ * (the plane takes their fare), and so does one taken to an airship's mast (the tour takes it).
+ */
 export function fareFor(world: World, from: DepotState, to: DepotState, carId: number, month?: number): number {
+  if (to.role === "airport" || to.role === "mast") return 0;
   const a = world.layout.getPiece(from.pieceId)?.pose;
   const b = world.layout.getPiece(to.pieceId)?.pose;
   // Whole coins for the ride, then first class and a dining car on top.
@@ -154,6 +160,7 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
     if (world.economy.ridersOf(carId).scenic && hasObservation(world, found.train.cars)) fare *= OBSERVATION;
   }
+  if (from.role === "airport") fare *= VISITOR_BONUS;
   // Getting off at a town with a leisure place, from another town: a visitor, who pays more.
   fare *= visitorsFor(world, from, to, month);
   if (world.economy.isLookout(to)) fare *= world.layout.getPiece(to.pieceId)?.type === OBSERVATORY_KIT ? STARGAZER_FARE : LOOKOUT_FARE;

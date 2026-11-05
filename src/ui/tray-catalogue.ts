@@ -223,6 +223,8 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "prop", asset: "mech-wind-turbine", label: "Wind turbine", unlearned: "hide" },
       { kind: "prop", asset: "mech-radio-mast", label: "Radio mast", unlearned: "hide" },
       { kind: "piece", type: "depot-harbour", label: "Harbour" },
+      { kind: "piece", type: "depot-airport", label: "Airport" },
+      { kind: "piece", type: "depot-mast", label: "Airship mast" },
       { kind: "piece", type: "depot-warehouse", label: "Warehouse" },
     ],
   },
@@ -237,7 +239,7 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
 export const SANDBOX_INDUSTRY_GROUPS: TrayGroup[] = [
   {
     label: "Industries",
-    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour", "depot-chocolate"].includes(i.type)),
+    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour", "depot-chocolate", "depot-airport", "depot-mast"].includes(i.type)),
   },
 ];
 

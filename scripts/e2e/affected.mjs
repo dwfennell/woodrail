@@ -63,6 +63,8 @@ export const SUITES = {
   "gl-lost-desktop": { script: "e2e:gl-lost-desktop", minutes: 2 },
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
+  airport: { script: "e2e:airport", minutes: 8 },
+  airship: { script: "e2e:airship", minutes: 8 },
   circus: { script: "e2e:circus", minutes: 6 },
   clockmaker: { script: "e2e:clockmaker", minutes: 4 },
   power: { script: "e2e:power", minutes: 6 },
@@ -248,6 +250,10 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // The airship tour (late-game spec B1).
+  [["src/game/airship.ts", "src/game/passengers.ts", "src/render/airship-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airship"]],
+  // The airport (late-game spec A1).
+  [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
   // The touring circus (late-game spec K1).
   [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
   // Time control (late-game spec, Clockmaker CA).

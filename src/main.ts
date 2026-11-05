@@ -82,6 +82,12 @@ import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/
 import { BIG_TOP, bigTopSpot, CIRCUS_FARE, circusTick } from "./game/circus";
 import { nextSpeed, slower, speedsOpen } from "./game/time-scale";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
+import { airportLines, Airports, airportsOf, planePose } from "./game/airports";
+import { Airships, mastLines, mastsOf, TOUR_HEIGHT, TOUR_RADIUS, tourSights } from "./game/airship";
+import type { MastAt } from "./render/airship-view";
+import { MAST } from "./render/depot-view";
+import { depotPoint as yardPoint } from "./game/harbours";
+import type { AirportAt } from "./render/planes-view";
 import { canPower, POWERED_RATE, powerOf } from "./game/power";
 import { radioRiders, radioTowns } from "./game/radio";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
@@ -2731,6 +2737,54 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const warnedHeavy = new Set<number>();
   // Harbours (Game mode): boats call by themselves and buy what's on the quay.
   const harbourTrade = new HarbourTrade();
+  // Airports' planes (late-game spec A1): their clocks are game time, moved on once a second; the view poses the
+  // planes from them on frames drawn anyway.
+  const airports = new Airports();
+  /** The airports the view draws planes for, kept till the map's pieces change. */
+  let airportsAt: { key: string; list: AirportAt[] } = { key: "", list: [] };
+  game.planeSource = {
+    airports: () => {
+      if (mode !== "game") return [];
+      const key = `${game.layout.revision}|${game.economy.allDepots().length}`;
+      if (key !== airportsAt.key) {
+        const list: AirportAt[] = [];
+        for (const d of airportsOf(game.world)) {
+          const piece = game.layout.getPiece(d.pieceId)!;
+          list.push({ id: d.id, pose: piece.pose, y: piece.y });
+        }
+        airportsAt = { key, list };
+      }
+      return airportsAt.list;
+    },
+    phase: (id) => airports.phase(id, airports.lastUpdate < 0 ? 0 : game.simSeconds - airports.lastUpdate),
+    place: planePose,
+  };
+  // Airships at masts (late-game spec B1): their tours by the game's clock, moved on once a second.
+  const airships = new Airships();
+  let mastsAt: { key: string; list: MastAt[] } = { key: "", list: [] };
+  /** A mast's sights (counted as its tour takes off, and for its card while it's open). */
+  const sightsOf = (d: DepotState) => {
+    const piece = game.layout.getPiece(d.pieceId)!;
+    return tourSights(game.world, yardPoint(piece.pose, MAST.t, MAST.l));
+  };
+  game.shipSource = {
+    masts: () => {
+      if (mode !== "game") return [];
+      const key = `${game.layout.revision}|${game.economy.allDepots().length}`;
+      if (key !== mastsAt.key) {
+        const list: MastAt[] = [];
+        for (const d of mastsOf(game.world)) {
+          const piece = game.layout.getPiece(d.pieceId)!;
+          list.push({ id: d.id, pose: piece.pose, y: piece.y });
+        }
+        mastsAt = { key, list };
+      }
+      return mastsAt.list;
+    },
+    phase: (id) => airships.phase(id, airships.lastUpdate < 0 ? 0 : game.simSeconds - airships.lastUpdate),
+    radius: TOUR_RADIUS,
+    height: TOUR_HEIGHT,
+  };
   // River barges (Game mode): the player's boats, their cards and planning (src/ui/water-controls.ts).
   water = attachWater({
     game,
@@ -2832,6 +2886,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // (Goods sold to a boat are routine, as deliveries are: the coins show it, the News doesn't.)
         scheduleSave("progress");
       }
+    }
+    // Airships take off with their riders, and land: each rider pays the tour's fare.
+    for (const t of airships.update(game.world, progress, game.simSeconds, sightsOf)) {
+      hud.setCoins(progress.coins);
+      note({ kind: "event", key: `tour:${t.depotId}`, qty: t.paid, text: "", place: depotPlace(t.depotId), format: () => `An airship tour landed: ${t.riders} rider${t.riders === 1 ? "" : "s"}, +${t.paid} coins` });
+      scheduleSave("progress");
+    }
+    // Planes land at airports: the lounge flies off (paying), visitors get off for the trains.
+    for (const v of airports.update(game.world, progress, game.simSeconds)) {
+      if (v.paid > 0) {
+        hud.setCoins(progress.coins);
+        note({ kind: "event", key: `flew:${v.depotId}`, qty: v.paid, text: "", place: depotPlace(v.depotId), format: () => `A plane took ${v.flew} rider${v.flew === 1 ? "" : "s"}: +${v.paid} coins` });
+      }
+      if (v.paid > 0 || v.visitors > 0) scheduleSave("progress");
     }
     // The player's boats move on, drop and pick up.
     water?.tick(sailed);
@@ -3113,6 +3181,64 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     line.className = "station-waiting";
     line.textContent = text;
     box.append(line);
+  }
+
+  /** The open mast card's lines, as drawn ("" for none). */
+  let mastShown = "";
+  /** A mast's card (Game mode): who's aboard, what there is to see, and the fare; or the tour in the air. */
+  function showMast(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    if (!d || d.role !== "mast") {
+      mastShown = "";
+      return;
+    }
+    // (The sights counted again only when the map or the trains change: a key, not a frame.)
+    const sk = `${d.id}|${game.layout.revision}|${game.sim.trainCount}`;
+    if (sk !== mastSightsKey) {
+      mastSightsKey = sk;
+      mastSights = sightsOf(d);
+    }
+    const lines = mastLines(d, airships.state(d.id), mastSights!);
+    const key = lines.join("\n");
+    if (key === mastShown && hud.depotExtra.childElementCount > 0) return;
+    mastShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    for (const text of lines) {
+      const line = document.createElement("div");
+      line.className = "station-waiting";
+      line.textContent = text;
+      box.append(line);
+    }
+  }
+  let mastSightsKey = "";
+  let mastSights: ReturnType<typeof tourSights> | null = null;
+
+  /** The open airport card's lines, as drawn ("" for none): its countdown ticks in place. */
+  let airportShown = "";
+  /** An airport's card (Game mode): its next plane, its lounge, its visitors. Drawn again only when its text changes. */
+  function showAirport(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    if (!d || d.role !== "airport") {
+      airportShown = "";
+      return;
+    }
+    const lines = airportLines(d, airports.nextIn(d.id));
+    const key = lines.join("\n");
+    if (key === airportShown && hud.depotExtra.childElementCount > 0) return;
+    airportShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    for (const text of lines) {
+      const line = document.createElement("div");
+      line.className = "station-waiting";
+      line.textContent = text;
+      box.append(line);
+    }
   }
 
   /** The circus's second of play: its big top put up or taken down, and what's said (src/game/circus.ts). */
@@ -6197,6 +6323,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showFarm();
       showSawmill();
       showHarbour();
+      showAirport();
+      showMast();
       water?.frame();
       showPower();
       showTracks();
@@ -6236,7 +6364,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.

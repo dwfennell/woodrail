@@ -18,6 +18,10 @@ import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
 import { LoopShowView } from "../render/loop-show";
 import { ClockView, type ClockAt } from "../render/clock-view";
+import { PlanesView, type AirportAt, type PlacePlane } from "../render/planes-view";
+import { AirshipView, type MastAt } from "../render/airship-view";
+import type { ShipPhase } from "./airship";
+import type { PlanePhase } from "./airports";
 import { SlowWatch } from "./time-scale";
 import { TurbinesView } from "../render/turbines-view";
 import type { ClockHands } from "../render/clock-hands";
@@ -255,6 +259,14 @@ export class Game {
   readonly loopShow = new LoopShowView();
   /** Station clocks' hands, showing the player's real time (see `ClockView`: a timer a minute, nothing per frame). */
   readonly clockView: ClockView;
+  /** Planes calling at airports (Game mode: see `PlanesView`, ambient motion). */
+  readonly planesView: PlanesView;
+  /** Where airports' planes are (Game mode's `Airports`, set by main): null, no planes. */
+  planeSource: { airports(): readonly AirportAt[]; phase(id: number): PlanePhase; place: PlacePlane } | null = null;
+  /** Airships at masts (Game mode: see `AirshipView`, ambient motion). */
+  readonly airshipView: AirshipView;
+  /** Where masts' airships are (Game mode's `Airships`, set by main): null, none. */
+  shipSource: { masts(): readonly MastAt[]; phase(id: number): ShipPhase; radius: number; height: number } | null = null;
   /** Wind turbines' rotors (see `TurbinesView`: ambient motion). */
   readonly turbinesView: TurbinesView;
   /** The station house clock's hands (once the map's parts are loaded). */
@@ -462,6 +474,10 @@ export class Game {
     this.watchHidden();
     this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
+    this.planesView = new PlanesView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.planesView.group);
+    this.airshipView = new AirshipView(this.mats, () => this.invalidate());
+    this.scene.add(this.airshipView.group);
     this.scene.add(this.boats.group);
     this.riverBoats = new RiverBoatsView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.riverBoats.group);
@@ -517,6 +533,8 @@ export class Game {
     this.stationTouches.clear();
     this.touchesPieces = this.touchesNext = -1;
     this.boats.clear();
+    this.planesView.clear();
+    this.airshipView.clear();
     this.riverBoats.clear();
     this.ferriesView.clear();
     this.yardsView.clear();
@@ -1288,6 +1306,12 @@ export class Game {
     }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
     if (this.boats.update(this.camera, this.ambientEye)) ambient = true;
+    // Planes flying in view (by their airports' clocks; still while paused).
+    const planes = this.planeSource;
+    if (planes && this.planesView.update(planes.airports(), planes.phase, planes.place, this.ambientEye, this.paused)) ambient = true;
+    // Airships touring in view (by their masts' clocks; still while paused).
+    const ships = this.shipSource;
+    if (ships && this.airshipView.update(ships.masts(), ships.phase, ships.radius, ships.height, this.ambientEye, this.paused)) ambient = true;
     // The player's boats: placed by game time since the fleet's last tick (still while paused).
     const sinceTick = Math.min(2, Math.max(0, this.simSeconds - this.fleet.tickedAt));
     if (this.riverBoats.update(this.fleet, this.economy.boats, sinceTick, this.camera, this.ambientEye, this.layout.piecesVersion)) ambient = true;
