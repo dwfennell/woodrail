@@ -5,7 +5,7 @@ import { copyPointerMotion, createPointerMotion, facingAlong, notePointer, type 
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
-import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
+import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type LeverPost, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
@@ -54,8 +54,9 @@ import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
-import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode } from "../economy";
-import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
+import { progressOf, YARD_COSTS } from "./yards";
+import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, isStore, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode, type YardBuild, type YardOrder } from "../economy";
+import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestKnob, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 import { givesBlockText, GIVES_HELP, STORE_HELP, storeStock } from "./warehouse-text";
 import { SHOP_HELP } from "./workshop-text";
@@ -457,6 +458,10 @@ export class Interaction {
   onLeavePlanning: (() => void) | null = null;
   /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
   onPickPlace: ((depotId: number) => boolean) | null = null;
+  /** The player's boat within a fingertip of a point on the canvas (client px), or −1 (Game mode's River barges). */
+  boatAt: ((x: number, y: number) => number) | null = null;
+  /** A boat tapped: its card opens. */
+  onBoatTap: ((boatId: number) => void) | null = null;
   /** Planning a route: plain track tapped (or a via point's disc), a via point (true: taken as one). */
   onPickVia: ((pieceId: number) => boolean) | null = null;
   /** Do signal boxes reach along telegraph poles (the Telegraph learned, or Sandbox)? Null: no. */
@@ -1903,6 +1908,13 @@ export class Interaction {
       this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, press: hit } : null;
       return;
     }
+    // A boat on the water (no piece or model there): a tap opens its card; a drag pans, as on the floor.
+    // (Over the track or a dock's model too: a boat tied up at a landing lies over its jetty. Not over a train or a lever.)
+    const boat = (!hit || hit.kind === "piece" || hit.kind === "depot") && !this.onPickPlace ? (this.boatAt?.(e.clientX, e.clientY) ?? -1) : -1;
+    if (boat !== -1) {
+      this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, boat } : null;
+      return;
+    }
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
       // double tap focuses on that spot.
@@ -2393,6 +2405,13 @@ export class Interaction {
       // or a careful child, takes its time.
       const still = !f.moved && Math.hypot(e.clientX - f.x, e.clientY - f.y) < dragSlop(e.pointerType);
       if (still && e.timeStamp - f.t < FLOOR_TAP_MS && this.touches.size <= 1) {
+        // A boat: its card.
+        if (f.boat !== undefined) {
+          this.clearSelection();
+          this.onBoatTap?.(f.boat);
+          this.lastTap = null;
+          return;
+        }
         // Planning, on a place (or a disc, or a train at its station): that's the tap.
         if (f.press) {
           this.tap(f.press);
@@ -2534,7 +2553,7 @@ export class Interaction {
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; signal?: boolean; carry?: boolean; press?: Press; moved?: boolean } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; signal?: boolean; carry?: boolean; press?: Press; moved?: boolean; boat?: number } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;
@@ -2697,7 +2716,7 @@ export class Interaction {
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
       // (A town's station upgraded to a big station's kit still opens its town's card.)
       // (A metro stop opens its stop's card, with Show the line: its track is two levels down, out of sight.)
-      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId) && !g.economy.isMetro(depot);
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId) && !g.economy.isMetro(depot) && depot.role !== "landing" && depot.role !== "slip" && depot.role !== "boatyard" && depot.role !== "shipyard";
       const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
       else if (ruin !== -1 && this.onRuinTap) {
@@ -3041,7 +3060,7 @@ export class Interaction {
       this.townCard.show(d);
       return;
     }
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.role === "warehouse" || givesChoice(d.role) ? storeKey(d) : d.sheds;
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : isStore(d.role) || givesChoice(d.role) ? storeKey(d) : d.role === "boatyard" || d.role === "shipyard" ? yardKey(this.game.economy.yardOrders.get(d.id)) : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
     // this per-frame check.
@@ -3068,9 +3087,14 @@ export class Interaction {
     // A harbour's quay takes any good: it lists only what's there. (So does a town's card in Sandbox, which has no
     // ledger: a row for each of the nine goods a town takes was a wall of "0/12". Its chain rows say what can come.)
     if (d.role === "harbour" || d.role === "town") piles = piles.filter((p) => p.count > 0);
+    // A yard building: what the hull has had against what it needs (its goods go in as they come, so its piles would
+    // read 0 while the card says what's still to come).
+    const building = (d.role === "boatyard" || d.role === "shipyard") && economy.yardOrders.get(d.id);
+    if (building)
+      piles = Object.entries(YARD_COSTS[building.build]).map(([k, n]) => ({ label: `${GOODS_ICON[k as CargoKind]} ${CARGO[k as CargoKind].label}`, count: Math.min(n ?? 0, building.got[k as CargoKind] ?? 0), cap: n ?? 0 }));
     // A warehouse: how to use it, and a row for each good it holds or lists (its count, and what it lets trains do with
     // it), "Any other goods", and "+ Add a good" (goods the map makes, not shown yet). "Empty" while it holds nothing.
-    if (d.role === "warehouse") {
+    if (isStore(d.role)) {
       const stock = storeStock(piles);
       this.hud.updateDepotCard([], d.auto, d.waitFull, stock === "Empty" ? stock : "", false, STORE_HELP);
       const shown = CARGO_KINDS.filter((k) => d.piles[CARGO[k].index] > 0 || storeListed(d, k));
@@ -3114,7 +3138,7 @@ export class Interaction {
   /** The open warehouse's card: what it lets trains do with a good (listing it), or with `kind` null, any other good. */
   setStoreMode(kind: CargoKind | null, mode: StoreMode): void {
     const d = this.game.economy.depot(this.selectedDepot);
-    if (!d || (d.role !== "warehouse" && !givesChoice(d.role))) return;
+    if (!d || (!isStore(d.role) && !givesChoice(d.role))) return;
     this.game.economy.setStoreMode(d.id, kind, mode);
     this.refreshDepotCard();
     this.changed();
@@ -3123,7 +3147,7 @@ export class Interaction {
   /** The open warehouse's card: a good taken off its list. */
   unlistStore(kind: CargoKind): void {
     const d = this.game.economy.depot(this.selectedDepot);
-    if (!d || d.role !== "warehouse") return;
+    if (!d || !isStore(d.role)) return;
     this.game.economy.unlistStore(d.id, kind);
     this.refreshDepotCard();
     this.changed();
@@ -3290,7 +3314,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     g.scene.add(mesh);
     g.trackView.setHidden(id, true);
@@ -3909,7 +3933,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     mesh.position.set(p.pose.x, p.y, p.pose.z);
     mesh.rotation.y = -p.pose.heading;
@@ -4070,7 +4094,7 @@ export class Interaction {
     });
     // Stand-ins lift and shrink away where the pieces were (a few, for a big sweep).
     for (const p of pieces.slice(0, 24)) {
-      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
       mesh.position.set(p.pose.x, p.y, p.pose.z);
       mesh.rotation.y = -p.pose.heading;
       g.scene.add(mesh);
@@ -4284,7 +4308,7 @@ export class Interaction {
     if (!this.editor().removeGroup(ids)) return;
     // Stand-ins lift and shrink away where the pieces were (a few, for a big group).
     for (const p of pieces.slice(0, 24)) {
-      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
       mesh.position.set(p.pose.x, p.y, p.pose.z);
       mesh.rotation.y = -p.pose.heading;
       g.scene.add(mesh);
@@ -4921,7 +4945,7 @@ export class Interaction {
     // The stand-in stops sharing the held-piece material (the next piece picked up re-tints that): plain wood when
     // it's going down, see-through red when it's refused.
     const refused = final !== null || m.overTray;
-    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint];
+    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone];
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
@@ -5615,7 +5639,18 @@ export class Interaction {
     const piece = g.layout.getPiece(pieceId);
     const pd = piece && getPieceDef(piece.type, piece.flipped);
     if (pd?.signal) g.sim.toggleSignal(pieceId, road);
-    else if (pd?.isSwitch && !pd.gated) {
+    else if (pd?.drawbridge) {
+      // A lift bridge goes up for a while and comes down by itself; not with a train on it or coming in.
+      if (g.paused) {
+        this.hud.toast("The lift bridge works while the game's running");
+        return;
+      }
+      if (!g.sim.toggleSwitch(pieceId)) {
+        this.hud.toast(g.sim.bridgeRaised(pieceId) ? "The lift bridge is up: it comes down by itself" : "The lift bridge stays down while a train is on it or coming");
+        return;
+      }
+      this.hud.toast("Up goes the lift bridge, for a boat");
+    } else if (pd?.isSwitch && !pd.gated) {
       // Points: the router's gate. They never move under a train (it would split): they wait till it's off them. Set
       // for a routed train, they stay set for it (it keeps its route), and go the tapped way once it has passed.
       const r = g.economy.router.lever(pieceId, corner);
@@ -5667,6 +5702,14 @@ export class Interaction {
       this.hintPinHow();
     }
     this.onSwitched?.();
+  }
+
+  /** Is (x, z) on a lift bridge's span (within the track's width of its line), for a tap that raises it? */
+  private onSpan(pieceId: number, x: number, z: number): boolean {
+    const piece = this.game.layout.getPiece(pieceId);
+    if (!piece || !getPieceDef(piece.type, piece.flipped).drawbridge) return false;
+    const { x: px, z: pz, heading } = piece.pose;
+    return Math.abs(-(x - px) * Math.sin(heading) + (z - pz) * Math.cos(heading)) <= TRACK_WIDTH / 2 + 4;
   }
 
   /**
@@ -5966,6 +6009,12 @@ export class Interaction {
     // from the side, one stands in front of the other's knob, so neither the ray nor the nearest upright can tell.)
     const corner = won === "lever" ? this.nearestKnob(x, y, posts, lever.id, post?.corner) : undefined;
     if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(corner ? { corner } : {}), slack: lever.d };
+    // (Right on one of a piece's levers, by the ray: still the one whose knob is nearest. The ray meets whichever stands
+    // in front, its stick across the other's knob: a tap 8 px off a double three-way's back knob threw the front one.)
+    if (won === "exact" && exact?.kind === "lever" && exact.road === undefined) {
+      const k = this.nearestKnob(x, y, posts, exact.pieceId, exact.corner);
+      return { kind: "lever", pieceId: exact.pieceId, ...(k ? { corner: k } : {}) };
+    }
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
   }
 
@@ -5996,25 +6045,21 @@ export class Interaction {
   }
 
   /**
-   * Of piece `pieceId`'s levers (`posts`), the corner of the one whose knob (its top) is nearest (x, y) on screen;
-   * `fallback` when it has one lever. Asked once a tap.
+   * Of piece `pieceId`'s levers (`posts`), the corner of the one whose knob, where it's drawn (leaning over toward the
+   * way it's set), is nearest (x, y) on screen (`nearestKnob`); `fallback` when it has one lever. Asked once a tap.
    */
-  private nearestKnob(x: number, y: number, posts: { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[], pieceId: number, fallback: number | undefined): number | undefined {
+  private nearestKnob(x: number, y: number, posts: readonly LeverPost[], pieceId: number, fallback: number | undefined): number | undefined {
     const own = posts.filter((p) => p.pieceId === pieceId);
     if (own.length < 2) return fallback;
     const r = this.game.canvas.getBoundingClientRect();
     const v = new Vector3();
-    let best = fallback;
-    let bestD = Infinity;
-    for (const p of own) {
-      v.set(p.x, p.y + p.height, p.z).project(this.game.camera);
-      const d = Math.hypot(r.left + ((v.x + 1) / 2) * r.width - x, r.top + ((1 - v.y) / 2) * r.height - y);
-      if (d < bestD) {
-        bestD = d;
-        best = p.corner;
-      }
-    }
-    return best;
+    const knobs = own.map((p) => {
+      if (p.knob) v.set(p.knob.x, p.knob.y, p.knob.z);
+      else v.set(p.x, p.y + p.height, p.z);
+      v.project(this.game.camera);
+      return { corner: p.corner, sx: r.left + ((v.x + 1) / 2) * r.width, sy: r.top + ((1 - v.y) / 2) * r.height };
+    });
+    return nearestKnob(x, y, knobs, fallback);
   }
 
   /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
@@ -6155,8 +6200,13 @@ export class Interaction {
       // other kit's model is passed through, to the track or ground behind it.
       const kitPiece = g.kitView.pieceAt(h.object, h.batchId);
       if (kitPiece !== -1) {
+        // A lift bridge: a tap on its span sends it up for a boat (on its towers, its piece's: passed through).
+        if (this.onSpan(kitPiece, h.point.x, h.point.z)) return { kind: "piece", pieceId: kitPiece, deck: true };
         const road = signalRoadAt(g.layout, kitPiece, h.point.x, h.point.z);
         if (road !== -1) return { kind: "lever", pieceId: kitPiece, road };
+        // (A river landing's or a ferry slip's model, its quay or pier: the piece, whose card a tap opens.)
+        const role = g.economy.depotAtPiece(kitPiece)?.role;
+        if (role === "landing" || role === "slip" || role === "boatyard" || role === "shipyard") return { kind: "piece", pieceId: kitPiece };
         // (A metro stop's entrance is all there is of it to see: a tap on it is a tap on the stop.)
         if (g.layout.getPiece(kitPiece)?.type === METRO_KIT) return { kind: "piece", pieceId: kitPiece };
         continue;
@@ -6167,6 +6217,7 @@ export class Interaction {
       const propId = g.propsView.propAt(h.object, h.batchId);
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
+      if (pieceId !== -1 && this.onSpan(pieceId, h.point.x, h.point.z)) return { kind: "piece", pieceId, deck: true, at: { x: h.point.x, z: h.point.z } };
       if (pieceId !== -1) return { kind: "piece", pieceId, at: { x: h.point.x, z: h.point.z } };
       // An old industry's ruin: its stub's (a tap opens its card; it stays put). One on land not yet bought: passed
       // through, to the ground.
@@ -6308,4 +6359,12 @@ function storeKey(d: DepotState): number {
   let key = STORE_MODES.indexOf(d.others) + 1;
   for (const m of d.modes) key = key * 5 + (m === null ? 0 : STORE_MODES.indexOf(m) + 1);
   return key;
+}
+
+const YARD_KEYS: readonly YardBuild[] = ["tug", "barge", "ship", "ferry"];
+
+/** A yard's card key: what it builds and how far (goods go from its piles into the hull, so its piles alone miss the
+ * order starting, stopping and finishing). */
+function yardKey(o: YardOrder | undefined): number {
+  return o ? 1 + YARD_KEYS.indexOf(o.build) * 10000 + Math.round(progressOf(o) * 1000) : 0;
 }

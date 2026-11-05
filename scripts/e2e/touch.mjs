@@ -1250,7 +1250,9 @@ let openContext = null;
  * line, restore's and wait's, 2 to 2.6 m). So a spot's points may each be on the land where the game's own rule
  * (`checkPlacement`) would take a straight there, either way round (no hill, road, river, town, field or site), or
  * past the land's edge on the flat table (harness shortcut, setup only: a player can't lay track there, but it's flat
- * and nothing hides it), and inside the view's bounds (where the view can go). Each point clear of every piece and
+ * and nothing hides it), and inside the view's bounds (where the view can go). (Refused for every group, ten groups
+ * found no ground: the land has no room for their runs. A group whose checks frame the view over its run keeps it on
+ * the land itself, with `ok` or `onLand`: the view can't frame what's on the table.) Each point clear of every piece and
  * model. Searched over all of it, outward from the view's target (where the steps before left it): null if there's
  * none anywhere.
  */
@@ -5128,10 +5130,32 @@ async function openMode(mode, { settle = false } = {}) {
     // (On a phone the favourites come first: a shelf may be scrolled out of view.)
     await p.evaluate((sel) => document.querySelector(sel)?.scrollIntoView({ inline: "center" }), selector);
     await frames(p);
-    const el = await p.$(selector);
-    if (!el) throw new Error(`no ${selector}`);
-    const box = await el.boundingBox();
-    await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
+    if (!(await p.$(selector))) throw new Error(`no ${selector}`);
+    // (Tapped where it's the element itself the finger hits: its middle, once nothing's over it there. A tap that lands
+    // on something else (the map, under a card) makes no click, and `tapped` waited its 60 s for one: e2e:touch's
+    // feedback group, the gate of 2026-11-05, ☰'s Report a bug never tapped. Now what's on top is said, in 15 s.)
+    const hit = await p
+      .waitForFunction((sel) => {
+        const e = document.querySelector(sel);
+        const r = e?.getBoundingClientRect();
+        if (!r || r.width === 0) return null;
+        const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
+        const top = document.elementFromPoint(x, y);
+        return top && (e === top || e.contains(top)) ? [x, y] : null;
+      }, selector, { timeout: 15000 })
+      .then((h) => h.jsonValue(), () => null);
+    if (!hit) {
+      const over = await p.evaluate((sel) => {
+        const r = document.querySelector(sel)?.getBoundingClientRect();
+        const top = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        const say = (e) => (e ? `${e.tagName.toLowerCase()}.${[...e.classList].join(".")}` : "nothing");
+        const v = window.visualViewport;
+        const view = `viewport ${innerWidth}×${innerHeight}, visual ${Math.round(v.width)}×${Math.round(v.height)} at ${Math.round(v.offsetLeft)},${Math.round(v.offsetTop)} ×${v.scale.toFixed(2)}, scrolled ${scrollX},${scrollY}`;
+        return r ? `${say(top)} (in ${say(top?.parentElement)}) at ${Math.round(r.left + r.width / 2)},${Math.round(r.top + r.height / 2)}; ${view}` : `no box; ${view}`;
+      }, selector);
+      throw new Error(`${selector} isn't what a tap on it would hit: ${over}`);
+    }
+    await tapped(p, () => p.touchscreen.tap(hit[0], hit[1]));
   };
   return { mode, ctx, p, tapOn };
 }
@@ -5155,10 +5179,19 @@ async function shelves({ mode, p, tapOn }) {
  * run goes on. Then what it laid is taken up (harness shortcut, setup only: the trains on it, then its pieces, places
  * with them), so the small Sandbox map has room for the next, whatever the checks before did.
  */
+/** The Sandbox page's phone, as `openMode` opens it. */
+const PHONE = { width: 390, height: 844 };
 async function step(name, p, fn) {
   // (Pieces by type and where they lie: a reload, as some checks make, gives out piece and car ids afresh.)
   const pieceKeys = () => p.evaluate(() => [...window.woodrail.layout.pieceIds()].map((i) => { const q = window.woodrail.layout.getPiece(i); return `${q.type}@${Math.round(q.pose.x)},${Math.round(q.pose.z)}`; }));
   const before = await pieceKeys();
+  // (The phone a fresh page has, as when the group runs alone: groups that try a 360×740 phone left it so, and the
+  // gate's feedback group then tapped ☰'s Report a bug at y 754, below a 740 px page: no click, a 60 s wait.)
+  const size = p.viewportSize();
+  if (size.width !== PHONE.width || size.height !== PHONE.height) {
+    await p.setViewportSize(PHONE);
+    await frames(p);
+  }
   try {
     await fn();
   } catch (e) {

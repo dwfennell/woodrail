@@ -7,6 +7,8 @@
   const texBytes = new Map();
   const rbBytes = new Map();
   const texDims = new Map();
+  /** Textures attached to a framebuffer: render targets (the scene's, the shadow map, post passes), not maps. */
+  const rtTex = new Set();
   /** Which context made each object: a context lost (the loading screen's, on purpose) takes its objects with it. */
   const owner = new Map();
   const forget = (gl) => {
@@ -14,6 +16,7 @@
       if (g !== gl) continue;
       bufBytes.delete(o);
       texBytes.delete(o);
+      rtTex.delete(o);
       rbBytes.delete(o);
       owner.delete(o);
     }
@@ -35,6 +38,12 @@
   window.__gpu = {
     buffers: () => sum(bufBytes),
     textures: () => sum(texBytes),
+    /** Of `textures()`, those drawn into (attached to a framebuffer): render targets. */
+    targetTextures: () => {
+      let s = 0;
+      for (const t of rtTex) if (texBytes.has(t)) s += sum(new Map([[0, texBytes.get(t)]]));
+      return s;
+    },
     renderbuffers: () => sum(rbBytes),
     drawingBuffer: () => {
       let s = 0;
@@ -43,7 +52,7 @@
     },
     /** Each live texture: [bytes, width, height, format, levels or faces], biggest first. */
     textureList: () => [...texDims].filter(([t]) => texBytes.has(t)).map(([t, d]) => [sum(new Map([[0, texBytes.get(t)]])), ...d]).sort((a, b) => b[0] - a[0]),
-    counts: () => ({ buffers: bufBytes.size, textures: texBytes.size, renderbuffers: rbBytes.size }),
+    counts: () => ({ buffers: bufBytes.size, textures: texBytes.size, targetTextures: [...rtTex].filter((t) => texBytes.has(t)).length, renderbuffers: rbBytes.size }),
   };
   const getContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (type, attrs) {
@@ -152,6 +161,13 @@
     });
     wrap("deleteTexture", function ([tx]) {
       texBytes.delete(tx);
+      rtTex.delete(tx);
+    });
+    wrap("framebufferTexture2D", function ([, , , tx]) {
+      if (tx) rtTex.add(tx);
+    });
+    wrap("framebufferTextureLayer", function ([, , tx]) {
+      if (tx) rtTex.add(tx);
     });
     wrap("bindRenderbuffer", function ([, rb]) {
       boundRb.set(this, rb);
