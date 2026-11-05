@@ -1367,6 +1367,10 @@ async function ghostMatch() {
     const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t0 + 0.016 * ti++, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
     await touch("touchStart", pts[0][0], pts[0][1]);
     for (const [x, y] of pts.slice(1)) await touch("touchMove", x, y);
+    // (The last move in: Chrome hands touch moves to the page lined up with its frames, and one sent while no frame
+    // was due came a frame later, after the ghosts were read: they showed the line one move short, and the lift laid
+    // it with that move. A frame or two asked for, it's in.)
+    await q.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     // (The finger resting a moment: the ghosts are worked out a slice a frame, and catch up within a frame or two.)
     await q.waitForFunction(() => window.woodrail.interaction.draw.ghostsCaughtUp ?? true, null, { timeout: 10000 }).catch(() => {});
     // (The ghosts' pieces: `shown`, or on a build before it, the line's own pieces, which were all its ghosts showed.)
