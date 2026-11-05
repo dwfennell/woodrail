@@ -57,12 +57,27 @@ const setup = await p.evaluate(async (frame) => {
       const a = (k * Math.PI) / 4;
       const x = Math.round((Math.cos(a) * ring * 400) / 18) * 18;
       const z = Math.round((Math.sin(a) * ring * 400) / 18) * 18;
+      // Clear of the map's props (houses, trees) and on flat ground with no hill near (the opening map differs from run
+      // to run), so nothing stands between the view and the deck: a house in front of it took a tap on the engine's
+      // middle, and a hill hid the deck (a tap on it hidden by a hill isn't the deck's: see `hiddenByHills`).
+      if ([...w.props.all()].some((q) => Math.hypot(q.x - x, q.z - z) < 800)) continue;
+      const grid = w.landscape.grid;
+      let hilly = false;
+      for (let dx = -800; dx <= 800 && !hilly; dx += 50)
+        for (let dz = -800; dz <= 800 && !hilly; dz += 50) {
+          const i = grid.cellAtWorld(x + dx, z + dz);
+          if (i !== -1 && grid.groundY(i) > 0) hilly = true;
+        }
+      if (hilly) continue;
       const id = w.editor().place("kit-turntable", poseForCentre("kit-turntable", false, x, z, 0), 0, false);
       if (id === -1 || id === undefined || id === null) continue;
       await w.kitView.load("kit-turntable");
       w.syncKits(true);
       const centre = { x, y: 0, z };
-      w.director.glideTo(new w.camera.position.constructor(x, 0, z), frameDistance(frame, w.camera.fov, w.camera.aspect), { duration: 0.2 });
+      // Looked at from a set side (`theta`), not from wherever the map's opening view faced: from some sides the engine
+      // and the pit's rim cover the deck's free end on screen, and a tap there lands on the rim (QA's taps are on the
+      // deck as it's seen).
+      w.director.glideTo(new w.camera.position.constructor(x, 0, z), frameDistance(frame, w.camera.fov, w.camera.aspect), { duration: 0.2, theta: 2.73 });
       const near = nearestCursor(w.layout, x, z, 60, 0);
       const r = near && w.sim.addTrainAround(["engine"], near.cursor);
       w.invalidate();
@@ -140,8 +155,10 @@ async function tapCase(name, along, how) {
   const rep = await report();
   check(`${name}: not picked up`, after.mode === "idle" && !after.derailed, `${JSON.stringify(after)} ${JSON.stringify(rep)}`);
   check(`${name}: the deck turned`, after.deck !== before.deck, `deck ${before.deck} → ${after.deck}; toasts ${JSON.stringify(rep.toasts)}`);
-  // Let the deck finish turning (and the engine ride round) before the next tap.
-  await p.waitForFunction((id) => !window.woodrail.sim.deckRefusal(id), setup.id, { timeout: 60000 });
+  // Let the deck finish turning (and the engine ride round) before the next tap. (By the game's time: a loaded
+  // machine's software rendering, a frame every second or so, each a tenth of a second of game time at most, can take
+  // minutes over it.)
+  await p.waitForFunction((id) => !window.woodrail.sim.deckRefusal(id), setup.id, { timeout: 300000 });
 }
 if (process.env.PROBE) {
   for (const a of [-90, -80, -60, -40, 0, 40, 60, 70, 80, 86, 90]) {

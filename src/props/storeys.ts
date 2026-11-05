@@ -126,11 +126,22 @@ export const STYLES_BY_LEVEL: readonly { level: number; one: readonly string[]; 
   { level: 4, one: ["bldg-townhouse"], two: ["bldg-apartment-block"], four: ["bldg-hospital", "bldg-town-hall"] },
 ];
 
+/**
+ * Models a town no longer builds plain houses in (Game mode): a fire station, police station, hospital or town hall
+ * once its place's blueprint is learned, so a building that looks like one is one (game/places.ts, `opensFree`). Set
+ * by the game as blueprints are learned and on loading; empty in Sandbox and in the headless play-throughs.
+ */
+const retired = new Set<string>();
+export function retireStyles(assets: Iterable<string>): void {
+  retired.clear();
+  for (const a of assets) retired.add(a);
+}
+
 /** The extra styles a town of `level` builds with on lots of `squares` (1, 2 or 4). */
 export function extraStyles(level: number, squares: number): string[] {
   const out: string[] = [];
   for (const s of STYLES_BY_LEVEL) if (level >= s.level) out.push(...(squares >= 4 ? s.four : squares === 2 ? s.two : s.one));
-  return out;
+  return retired.size > 0 ? out.filter((a) => !retired.has(a)) : out;
 }
 
 /** From this level a town wants a tower over its roofs: a church (its spire) on its next two-square house lot. */

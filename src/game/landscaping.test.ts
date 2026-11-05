@@ -25,7 +25,7 @@ describe("Landscaping: lowering hills for coins", () => {
   });
 
   it("costs 200, 300 or 400 coins a step: more for a higher hill", () => {
-    expect([1, 2, 3].map(lowerPrice)).toEqual([200, 300, 400]);
+    expect([1, 2, 3].map((h) => lowerPrice(h))).toEqual([200, 300, 400]);
     expect(lowerQuestion(2, 900)).toBe("Lower this hill a step, from level 2 to 1? It costs 300 coins (you have 900).");
   });
 

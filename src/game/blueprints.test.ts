@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLUEPRINTS, BRANCHES, describeNeed, describePrice } from "./blueprints";
+import { BLUEPRINTS, BRANCHES, describeNeed, describePrice, needTag } from "./blueprints";
 import { Progress } from "./progress";
 import { built, ready, seenOf, techOf, unlocksOf } from "./tech";
 import { THING_RULES } from "./things";
@@ -54,7 +54,8 @@ describe("the blueprint catalogue", () => {
     let seen = seenOf(p);
     expect(seen.get("switches")).toBe("shown");
     expect(seen.get("signals")).toBe("shown"); // key
-    expect(seen.get("telegraph")).toBe("hint"); // after signals
+    expect(seen.get("signal-boxes")).toBe("hint"); // after signals
+    expect(seen.get("telegraph")).toBe("unseen"); // after signal boxes
     expect(seen.get("radio")).toBe("unseen");
     p.learned.add("switches");
     p.learned.add("passengers");
@@ -83,5 +84,9 @@ describe("the blueprint catalogue", () => {
     expect(describePrice({ coins: 60, goods: { iron: 10 } })).toBe("10 iron + 60 coins");
     expect(describeNeed({ kind: "count", stat: "loadsMoved", n: 200 })).toBe("200 loads moved");
     expect(describeNeed({ kind: "level", level: 4, towns: 3 })).toBe("3 cities ★");
+    // A locked card's tag in the web, short (QA 2026-11-05 #5).
+    expect(needTag({ kind: "level", level: 3 })).toBe("🏙️ A city");
+    expect(needTag({ kind: "delivered", good: "furniture", n: 30 })).toBe("📦 30 furniture");
+    expect(needTag({ kind: "count", stat: "loadsMoved", n: 200 })).toBe("200 loads moved");
   });
 });

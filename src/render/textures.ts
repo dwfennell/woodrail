@@ -1,5 +1,6 @@
-import { CanvasTexture, LinearSRGBColorSpace, RepeatWrapping, SRGBColorSpace, type Texture } from "three";
+import { CanvasTexture, Color, LinearSRGBColorSpace, RepeatWrapping, SRGBColorSpace, type Texture } from "three";
 import { rng } from "../lib/rng";
+import { gpuOnlyEnabled } from "./gpu-only";
 
 export { rng };
 
@@ -63,6 +64,31 @@ export function texturesMade(): Map<string, Uint8ClampedArray[]> | null {
   return all;
 }
 
+/**
+ * Let go of the pixels kept for the texture cache (once `texturesMade` has handed them over to be saved, and the
+ * game's materials are made): a few MB the page needn't hold. Textures made after this are generated afresh.
+ */
+export function forgetTextureCache(): void {
+  cached = new Map();
+  made.clear();
+  fresh.clear();
+}
+
+/**
+ * Half the size, for the mobile tier: what the GPU's first mip level would have been anyway, so it looks the same at
+ * play zoom on a phone (only right up close is the grain a little softer), in a quarter of the memory.
+ */
+function halved(c: HTMLCanvasElement): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = Math.max(1, c.width >> 1);
+  out.height = Math.max(1, c.height >> 1);
+  const ctx = out.getContext("2d")!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(c, 0, 0, out.width, out.height);
+  return out;
+}
+
 interface Canvases {
   color: HTMLCanvasElement;
   rough: HTMLCanvasElement;
@@ -92,7 +118,7 @@ function toTextures(c: Canvases, repeatX: number, repeatY: number, anisotropy: n
     t.repeat.set(repeatX, repeatY);
     t.colorSpace = srgb ? SRGBColorSpace : LinearSRGBColorSpace;
     t.anisotropy = anisotropy;
-    return t;
+    return freedOnUpload(t);
   };
   return { map: tex(c.color, true), roughnessMap: tex(c.rough, false), bumpMap: tex(c.bump, false) };
 }
@@ -209,35 +235,88 @@ function feltFibres(): { bump: HTMLCanvasElement; pixels: ImageData } {
   return fibres;
 }
 
+/** The felt's colour speckle goes from this much to this much more of its colour (with the fibres' light and shade). */
+const SPECKLE_LOW = 0.86;
+const SPECKLE_HIGH = 1.12;
+/** The speckle's map holds (k / SPECKLE_HIGH)^SPECKLE_GAMMA, the felt's colour SPECKLE_HIGH^SPECKLE_GAMMA more of itself. */
+const SPECKLE_GAMMA = 2.2;
+
+/** The felt's two tiles, shared by every felt of a set of materials (its own repeat a clone each: one upload). */
+export interface FeltTiles {
+  bump: Texture;
+  speckle: Texture;
+}
+
+/** A set of materials' felt tiles (its own canvases: nothing shared with another renderer's set). */
+export function feltTileTextures(small: boolean): FeltTiles {
+  const { bump: fibreCanvas, pixels: bi } = feltFibres();
+  // The speckle, the same for every colour: the colour is the material's (see `feltTextures`).
+  const speckle = document.createElement("canvas");
+  speckle.width = speckle.height = FELT_N;
+  const sc = speckle.getContext("2d")!;
+  const si = sc.createImageData(FELT_N, FELT_N);
+  for (let i = 0; i < FELT_N * FELT_N * 4; i += 4) {
+    const k = SPECKLE_LOW + (bi.data[i] / 255) * (SPECKLE_HIGH - SPECKLE_LOW);
+    // Stored as sRGB: three decodes it to (k / SPECKLE_HIGH)^SPECKLE_GAMMA, near enough (within 2 levels of 255).
+    const v = Math.round(linearToSrgb((k / SPECKLE_HIGH) ** SPECKLE_GAMMA) * 255);
+    si.data[i] = si.data[i + 1] = si.data[i + 2] = v;
+    si.data[i + 3] = 255;
+  }
+  sc.putImageData(si, 0, 0);
+  const make = (c: HTMLCanvasElement, srgb: boolean) => {
+    const tex = new CanvasTexture(c);
+    tex.wrapS = tex.wrapT = RepeatWrapping;
+    tex.colorSpace = srgb ? SRGBColorSpace : LinearSRGBColorSpace;
+    return freedOnUpload(tex);
+  };
+  // (The fibres' canvas is the page's, drawn once: this set's is a copy, halved or not.)
+  return { bump: make(small ? halved(fibreCanvas) : copied(fibreCanvas), false), speckle: make(small ? halved(speckle) : speckle, true) };
+}
+
+function copied(c: HTMLCanvasElement): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = c.width;
+  out.height = c.height;
+  out.getContext("2d")!.drawImage(c, 0, 0);
+  return out;
+}
+
+/**
+ * Free a generated texture's canvas once the GPU has it (while drawn-only geometry is freed too, `gpuOnlyEnabled`:
+ * a lost context is then restored by reloading, never by uploading again). A canvas's pixels are the page's memory
+ * as well as the GPU's. Clones share the upload (same source and settings), so they need it no more than it does.
+ */
+export function freedOnUpload(t: Texture): Texture {
+  t.onUpdate = () => {
+    if (!gpuOnlyEnabled()) return;
+    const c = t.image as HTMLCanvasElement | undefined;
+    if (c && "width" in c && c.width > 1) {
+      c.width = 1;
+      c.height = 1;
+    }
+  };
+  return t;
+}
+
+function linearToSrgb(l: number): number {
+  return l <= 0.0031308 ? 12.92 * l : 1.055 * l ** (1 / 2.4) - 0.055;
+}
+
 /**
  * Felt: a tile of short, randomly oriented fibres (about 0.2 mm per pixel at the default repeat) for the bump and a
  * matching speckle in the colour map. Broad colour mottling is added separately in world space (see `mottleTexture`).
+ * Every felt shares the two tiles (one upload each): its colour is `color`, for the material, which the speckle
+ * shades as a colour map of its own once did (to within 2 levels of 255).
  */
-export function feltTextures(anisotropy: number, base: string, repeat: number): { map: Texture; bumpMap: Texture } {
-  const N = FELT_N;
-  const { bump, pixels: bi } = feltFibres();
-  const color = document.createElement("canvas");
-  color.width = color.height = N;
-  const cc = color.getContext("2d")!;
-  const ci = cc.createImageData(N, N);
-  const rgb = hex(base);
-  for (let i = 0; i < N * N * 4; i += 4) {
-    const k = 0.86 + (bi.data[i] / 255) * 0.26;
-    ci.data[i] = Math.min(255, rgb[0] * k);
-    ci.data[i + 1] = Math.min(255, rgb[1] * k);
-    ci.data[i + 2] = Math.min(255, rgb[2] * k);
-    ci.data[i + 3] = 255;
-  }
-  cc.putImageData(ci, 0, 0);
-  const make = (c: HTMLCanvasElement, srgb: boolean) => {
-    const t = new CanvasTexture(c);
-    t.wrapS = t.wrapT = RepeatWrapping;
-    t.repeat.set(repeat, repeat);
-    t.colorSpace = srgb ? SRGBColorSpace : LinearSRGBColorSpace;
-    t.anisotropy = anisotropy;
-    return t;
+export function feltTextures(anisotropy: number, base: string, repeat: number, tiles: FeltTiles): { map: Texture; bumpMap: Texture; color: Color } {
+  const clone = (t: Texture) => {
+    const c = t.clone();
+    c.repeat.set(repeat, repeat);
+    c.anisotropy = anisotropy;
+    return c;
   };
-  return { map: make(color, true), bumpMap: make(bump, false) };
+  const color = new Color(base).multiplyScalar(SPECKLE_HIGH ** SPECKLE_GAMMA);
+  return { map: clone(tiles.speckle), bumpMap: clone(tiles.bump), color };
 }
 
 /** Soft, tileable low-frequency noise (linear, centred on 0.5) for broad colour variation across large surfaces. */

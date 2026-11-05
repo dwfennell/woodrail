@@ -1,7 +1,8 @@
 import { Box3, Raycaster, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { BRIDGE_LENGTH, createSample, getPieceDef, pathLength, RAMP_LENGTH, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH } from "../track";
-import { buildPegGeometry, buildPieceGeometry, GROOVE_DEPTH, PEG_HEIGHT, withPegs } from "./track-geometry";
+import { buildPegGeometry, GROOVE_DEPTH, PEG_HEIGHT, withPegs } from "./track-geometry";
+import { buildPieceGeometry } from "./piece-carve";
 
 function topHeightAt(geomMesh: Mesh, x: number, z: number): number | null {
   const ray = new Raycaster(new Vector3(x, 500, z), new Vector3(0, -1, 0));

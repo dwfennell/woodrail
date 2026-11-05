@@ -1,5 +1,6 @@
 import type { CargoKind } from "../economy/cargo";
 import { covers, minus, plus, times, total, type Bag } from "../economy/goods";
+import { BANK_SHARE, smileShare } from "./places";
 
 /**
  * Game mode's towns: what each wants, and how it grows. A table, so a new good or level is a row, not code. A level's
@@ -47,12 +48,28 @@ export interface TownStatus {
   fill: number;
 }
 
-/** Where a town stands, from everything it has received. Pure: a save holds only what was received. */
-export function townStatus(received: Bag): TownStatus {
+/**
+ * What a town wants for level `n` with `smiles` (game/places.ts): each 😊 a twentieth less of every good, rounded up,
+ * never less than one.
+ */
+export function wantsWith(n: number, smiles = 0): Bag {
+  const wants = townLevel(n).wants;
+  if (smiles <= 0) return wants;
+  const share = smileShare(smiles);
+  const out: Bag = {};
+  for (const k of Object.keys(wants) as (keyof Bag)[]) out[k] = Math.max(1, Math.ceil(wants[k]! * share - 1e-9));
+  return out;
+}
+
+/**
+ * Where a town stands, from everything it has received (and its smiles: what its places cut from each level's
+ * wants). Pure: a save holds only what was received; smiles are read from the buildings standing.
+ */
+export function townStatus(received: Bag, smiles = 0): TownStatus {
   let level = 0;
   let spent: Bag = {};
   for (;;) {
-    const wants = townLevel(level).wants;
+    const wants = wantsWith(level, smiles);
     const next = plus(spent, wants);
     if (!covers(received, next)) {
       const got: Bag = {};
@@ -73,20 +90,21 @@ export function housesBy(level: number): number {
 }
 
 /** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
-export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13, icecream: 20, bricks: 12, autos: 24, fish: 7 };
+export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13, icecream: 20, bricks: 12, autos: 24, fish: 7, oil: 7, water: 4, sugar: 4, jam: 14, chocolate: 18, flowers: 4, paint: 8, toys: 22, post: 8 };
 
 /**
- * Everyday food a town always wants (the dairy chain, the orchard, the juice works, the creamery, the ice cream factory, and the harbours' fish): it takes all a train brings
+ * Everyday food a town always wants (the dairy chain, the orchard, the juice works, the creamery, the ice cream factory, the harbours' fish, and the goods chains' sugar, jam and
+ * chocolate): it takes all a train brings
  * and pays the full price, at any level. Not needed to grow (no level asks for them), so a game without them grows as
  * before.
  */
-export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit", "juice", "cheese", "icecream", "fish"]);
+export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit", "juice", "cheese", "icecream", "fish", "sugar", "jam", "chocolate"]);
 
 /**
  * Goods a town always buys at the full price, at any level, and never needs to grow: everyday food, building goods
- * (bricks) and new cars. The town card's "Always buys …" line, the News's first-of-a-good milestone and pay read this.
+ * (bricks), new cars, oil and water (Tank wagons), the toy chain's flowers, paint and toys (2026-11-04), and the post. The town card's "Always buys …" line, the News's first-of-a-good milestone and pay read this.
  */
-export const FULL_PAY: ReadonlySet<CargoKind> = new Set([...FOODS, "bricks", "autos"]);
+export const FULL_PAY: ReadonlySet<CargoKind> = new Set([...FOODS, "bricks", "autos", "oil", "water", "flowers", "paint", "toys", "post"]);
 
 /** Goods a town always takes (and pays for), wanted for growth or not: made goods (treats) and the full-pay goods. */
 export const LUXURIES: ReadonlySet<CargoKind> = new Set(["furniture", "tools", ...FULL_PAY]);
@@ -109,7 +127,9 @@ export function payFor(kind: CargoKind, status: TownStatus): number {
   return (status.wants[kind] ?? 0) > 0 || FULL_PAY.has(kind) ? price : Math.ceil(price / 2);
 }
 
-/** Coins for the next plot of land: dearer the more land you have (a new game's land is four plots). */
-export function plotPrice(plots: number): number {
-  return 60 + 30 * Math.max(0, plots - 4);
+/** Coins for the next plot of land: dearer the more land you have (a new game's land is four plots); with a bank, a quarter less. */
+export function plotPrice(plots: number, bank = false): number {
+  const price = 60 + 30 * Math.max(0, plots - 4);
+  // (A bank on the map: a quarter less, game/places.ts.)
+  return bank ? Math.round(price * BANK_SHARE) : price;
 }

@@ -1,0 +1,507 @@
+{
+ "about": "tools/perf/feature-map.mjs: the late Game map with the newer features added. Each feature: a centre (world mm) and a camera distance (mm) that frames it, and ids to measure it by. Car ids stay the same after a reload; train ids don't.",
+ "base": "late-game.txt",
+ "map": "features.txt",
+ "expected": {
+  "depots": {
+   "sawmill": 2,
+   "forest": 2,
+   "town": 10,
+   "school": 1,
+   "workshop": 1,
+   "farm": 1,
+   "mill": 1,
+   "quarry": 1,
+   "mine": 1,
+   "harbour": 1,
+   "postoffice": 1,
+   "metro-stop": 2,
+   "power": 1,
+   "waterpump": 1,
+   "oilwell": 1,
+   "beetfield": 1,
+   "jamworks": 1,
+   "chocworks": 1,
+   "flowerfield": 1,
+   "dyeworks": 1,
+   "toyworks": 1
+  },
+  "pieces": {
+   "station": 9,
+   "depot-sawmill": 2,
+   "depot-forest": 2,
+   "curve-large": 41,
+   "straight-216": 52,
+   "depot-school": 1,
+   "depot-workshop": 1,
+   "switch": 6,
+   "ramp": 13,
+   "straight-72": 5,
+   "curve-small": 7,
+   "depot-farm": 1,
+   "bridge": 2,
+   "depot-mill": 1,
+   "kit-country-halt": 1,
+   "straight-144": 7,
+   "depot-quarry": 1,
+   "depot-mine": 1,
+   "join-216-72": 2,
+   "depot-harbour": 1,
+   "buffer-turnback": 12,
+   "straight-126": 1,
+   "straight-108": 10,
+   "tunnel-mouth-short": 2,
+   "straight-198": 2,
+   "straight-36": 2,
+   "depot-postoffice": 1,
+   "tunnel-mouth": 2,
+   "kit-metro-stop": 2,
+   "depot-power": 1,
+   "crossover": 4,
+   "buffer": 4,
+   "depot-waterpump": 1,
+   "depot-oilwell": 1,
+   "depot-beet": 1,
+   "depot-jam": 1,
+   "depot-chocolate": 1,
+   "depot-flowers": 1,
+   "depot-dyeworks": 1,
+   "depot-toyworks": 1,
+   "riser": 1,
+   "underpass": 1
+  },
+  "cars": {
+   "crane": 1,
+   "engine": 6,
+   "passenger": 6,
+   "timber": 3,
+   "hopper": 3,
+   "van": 1,
+   "mailvan": 2
+  },
+  "trains": 6,
+  "props": {
+   "bldg-signal-box": 1,
+   "mech-telegraph-pole": 4,
+   "bldg-town-hall": 1,
+   "scene-bandstand": 1,
+   "scene-fountain": 1
+  },
+  "places": {
+   "Larkfield": [
+    "fountain",
+    "market",
+    "park",
+    "town-hall"
+   ]
+  },
+  "towns": 9
+ },
+ "features": [
+  {
+   "id": "tunnel",
+   "centre": {
+    "x": 2880,
+    "z": 288
+   },
+   "dist": 1100,
+   "pieces": [
+    900558,
+    900559,
+    900560,
+    900561,
+    900562,
+    900563,
+    900564,
+    900565,
+    900566,
+    900567,
+    900568
+   ],
+   "mouths": [
+    900562,
+    900565
+   ],
+   "engine": 36,
+   "cars": [
+    36,
+    37,
+    38
+   ],
+   "portals": 2,
+   "dashes": 18,
+   "ghostSeen": true,
+   "lowest": -48
+  },
+  {
+   "id": "post",
+   "centre": {
+    "x": 3610,
+    "z": -954
+   },
+   "dist": 1654,
+   "towns": [
+    7,
+    8
+   ],
+   "stations": [
+    900555,
+    900556
+   ],
+   "townDepots": [
+    18,
+    19
+   ],
+   "office": 903123,
+   "postOffice": 20,
+   "pieces": [
+    900555,
+    900556,
+    901985,
+    903118,
+    903120,
+    903122,
+    903123,
+    903124,
+    903125
+   ],
+   "engine": 39,
+   "cars": [
+    39,
+    40,
+    41
+   ],
+   "postVans": [
+    {
+     "id": 1,
+     "town": 7
+    },
+    {
+     "id": 2,
+     "town": 8
+    }
+   ]
+  },
+  {
+   "id": "metro",
+   "centre": {
+    "x": 792,
+    "z": -612
+   },
+   "dist": 1750,
+   "town": 2,
+   "townName": "Thimble Cross",
+   "z": -612,
+   "dug": 480,
+   "pieces": [
+    903126,
+    903127,
+    903128,
+    903130,
+    903132,
+    903133,
+    903134,
+    903135,
+    903136,
+    903137,
+    903138
+   ],
+   "stops": [
+    903135,
+    903136
+   ],
+   "stopDepots": [
+    21,
+    22
+   ],
+   "power": {
+    "piece": 903139,
+    "depot": 23,
+    "pose": {
+     "x": 1944,
+     "z": -702,
+     "heading": 0
+    }
+   },
+   "engine": 42,
+   "cars": [
+    42,
+    43,
+    44
+   ]
+  },
+  {
+   "id": "gantry",
+   "centre": {
+    "x": 1044,
+    "z": 978
+   },
+   "dist": 1300,
+   "depot": 24,
+   "piece": 903143,
+   "tracks": 3,
+   "gantryL": -30,
+   "roads": [
+    903156,
+    903173
+   ]
+  },
+  {
+   "id": "crane",
+   "centre": {
+    "x": -1666,
+    "z": 1184
+   },
+   "dist": 800,
+   "pieces": [
+    903175,
+    903176,
+    903177,
+    903178,
+    903179,
+    903180
+   ],
+   "points": 903176,
+   "siding": 903180,
+   "crane": 45,
+   "engine": 46
+  },
+  {
+   "id": "pumps",
+   "centre": {
+    "x": 1890,
+    "z": 702
+   },
+   "dist": 700,
+   "waterpump": {
+    "piece": 903181,
+    "depot": 25,
+    "working": true,
+    "at": {
+     "x": 1692,
+     "z": 630
+    }
+   },
+   "oilwell": {
+    "piece": 903182,
+    "depot": 26,
+    "working": true,
+    "at": {
+     "x": 2088,
+     "z": 774
+    }
+   }
+  },
+  {
+   "id": "telegraph",
+   "centre": {
+    "x": 1548,
+    "z": -1854
+   },
+   "dist": 950,
+   "line": [
+    903183,
+    903184,
+    903185,
+    903186,
+    903187,
+    903188
+   ],
+   "points": 903186,
+   "box": 142,
+   "poles": [
+    143,
+    144,
+    145,
+    146
+   ]
+  },
+  {
+   "id": "chains",
+   "centre": {
+    "x": 2295,
+    "z": -729
+   },
+   "dist": 1427,
+   "yards": [
+    {
+     "type": "depot-beet",
+     "role": "beetfield",
+     "piece": 903189,
+     "depot": 27,
+     "at": {
+      "x": 2376,
+      "z": -1044
+     },
+     "working": true
+    },
+    {
+     "type": "depot-jam",
+     "role": "jamworks",
+     "piece": 903191,
+     "depot": 28,
+     "at": {
+      "x": 2376,
+      "z": -612
+     },
+     "working": true
+    },
+    {
+     "type": "depot-chocolate",
+     "role": "chocworks",
+     "piece": 903193,
+     "depot": 29,
+     "at": {
+      "x": 2376,
+      "z": -180
+     },
+     "working": true
+    },
+    {
+     "type": "depot-flowers",
+     "role": "flowerfield",
+     "piece": 903194,
+     "depot": 30,
+     "at": {
+      "x": 2214,
+      "z": -1278
+     },
+     "working": true
+    },
+    {
+     "type": "depot-dyeworks",
+     "role": "dyeworks",
+     "piece": 903196,
+     "depot": 31,
+     "at": {
+      "x": 2214,
+      "z": -846
+     },
+     "working": true
+    },
+    {
+     "type": "depot-toyworks",
+     "role": "toyworks",
+     "piece": 903198,
+     "depot": 32,
+     "at": {
+      "x": 2214,
+      "z": -414
+     },
+     "working": true
+    }
+   ],
+   "lines": [
+    [
+     903189,
+     903190,
+     903191,
+     903192,
+     903193
+    ],
+    [
+     903194,
+     903195,
+     903196,
+     903197,
+     903198
+    ]
+   ]
+  },
+  {
+   "id": "underpass",
+   "centre": {
+    "x": 3948,
+    "z": -44
+   },
+   "dist": 850,
+   "hill": {
+    "X": 3528,
+    "Z": 36,
+    "edge": 4032,
+    "squares": 56
+   },
+   "ramp": 903203,
+   "bridge": 903207,
+   "underpass": [
+    903205
+   ],
+   "plinth": [
+    1
+   ],
+   "line": [
+    903199,
+    903204,
+    903205,
+    903206,
+    903208,
+    903209
+   ],
+   "engine": 47,
+   "cars": [
+    47,
+    48
+   ]
+  },
+  {
+   "id": "civic",
+   "centre": {
+    "x": -502,
+    "z": -55
+   },
+   "dist": 1000,
+   "town": 0,
+   "townName": "Larkfield",
+   "station": 2,
+   "stationPiece": 1,
+   "places": [
+    "fountain",
+    "park",
+    "town-hall"
+   ],
+   "buildings": [
+    {
+     "landmark": "market",
+     "id": 48
+    },
+    {
+     "landmark": "town-hall",
+     "id": 122
+    },
+    {
+     "landmark": "park",
+     "id": 123
+    },
+    {
+     "landmark": "fountain",
+     "id": 124
+    }
+   ],
+   "props": [
+    {
+     "id": 147,
+     "asset": "bldg-town-hall",
+     "x": -213,
+     "z": -144
+    },
+    {
+     "id": 148,
+     "asset": "scene-bandstand",
+     "x": -756,
+     "z": -146
+    },
+    {
+     "id": 149,
+     "asset": "scene-fountain",
+     "x": -792,
+     "z": 36
+    }
+   ],
+   "livery": {
+    "engine": 27,
+    "livery": "red"
+   }
+  }
+ ],
+ "depotIdsAsLoaded": true
+}

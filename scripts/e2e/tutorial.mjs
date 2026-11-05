@@ -6,6 +6,7 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { shot } from "./lib/shot.mjs";
 
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
@@ -71,7 +72,7 @@ const hold = async (p, key, ms) => {
   check("a first visit shows the camera tutorial, not the help card", !!c0 && !(await helpShown(p)) && /Move around/.test(c0.title) && !c0.touch, JSON.stringify(c0));
   const b0 = await box(p);
   check("1280×800: it keeps off the middle of the map", b0.onScreen && !b0.middle, JSON.stringify(b0));
-  if (OUT) await p.screenshot({ path: `${OUT}/coach-1280.png` });
+  if (OUT) await shot(p, `${OUT}/coach-1280.png`);
   // A camera change that isn't the player's (a glide) doesn't count.
   await p.evaluate(() => { const w = window.woodrail; const t = w.controls.target; w.director.glideTo(t.clone().setX(t.x + 600), w.camera.position.distanceTo(t), { duration: 0.2 }); });
   await settle(p);
@@ -186,7 +187,7 @@ for (const [w, h] of [[360, 740], [667, 375]]) {
   const p = await firstVisit(ctx);
   const c0 = await coach(p);
   const b0 = await box(p);
-  if (OUT) await p.screenshot({ path: `${OUT}/coach-${w}x${h}.png` });
+  if (OUT) await shot(p, `${OUT}/coach-${w}x${h}.png`);
   check(`${w}×${h}: the tutorial shows with the fingers' hints, off the middle of the map`, !!c0 && c0.touch && /one finger/.test(c0.text) && b0.onScreen && !b0.middle, `${JSON.stringify(c0)} ${JSON.stringify(b0)}`);
   if (w === 360) {
     // One finger across the map: Move ticks.
@@ -221,7 +222,7 @@ for (const [w, h] of [[360, 740], [667, 375]]) {
       const ys = pts.map((q) => Math.round(((1 - new V(q.x, 0, q.z).project(w.camera).y) / 2) * innerHeight));
       return { ys, y: Math.max(...ys), coachTop: Math.round(c.top), coachShown: c.height > 0 };
     });
-    if (OUT) await p.screenshot({ path: `${OUT}/coach-show-me-${w}.png` });
+    if (OUT) await shot(p, `${OUT}/coach-show-me-${w}.png`);
     check("Show me with the coach up frames the goal above the coach", framed.coachShown && framed.ys.length > 0 && framed.y < framed.coachTop - 20, JSON.stringify(framed));
     const tb = await p.evaluate(() => { const r = document.querySelector(".coach .coach-skip").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
     await p.touchscreen.tap(tb[0], tb[1]);

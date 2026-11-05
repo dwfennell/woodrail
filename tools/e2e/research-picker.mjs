@@ -11,7 +11,9 @@
 // Farming isn't learned), Farming taken out takes Mills too with a toast, and the chain learned through. Then the next
 // nodes: Juice works' ticket in words, and Creamery then Cold van researched by taps and deliveries. Then tech tree 3: the
 // gates (a node locked at a schoolhouse, open at a College; one waiting for a University), the University (a third fewer
-// goods for hard lessons, the whole board shown), the Car carrier, the Car factory and Fishing boats.
+// goods for hard lessons, the whole board shown), the Car carrier, the Car factory and Fishing boats. Then Tank wagons and
+// the Breakdown crane, and their wagons and wells on the tray. Then the goods chains: Sugar beet, Jam kitchen, Chocolate
+// factory, Dye works and Toy workshop, and their six buildings unlocked.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // A tap on a card shows what it unlocks and its full cost in words, at 360 px (#11). A research needing three goods:
@@ -896,6 +898,120 @@ await tap(".tabs button", "Industries");
 await tap(".tray-item.tray-group", "Industries");
 const industries = await trayLocked();
 check("the car factory is on the Industries shelf, unlocked", industries["piece:depot-carworks"] === false, JSON.stringify(industries));
+
+// 13. Tank wagons and the Breakdown crane (claude/tank-crane). Setup shortcut (not under test): what the crane needs
+// learned (Goods engine, Quicker cranes; Dairy farm is already). Both researched by taps and deliveries; the payoff on the
+// tray: the tank wagon and the breakdown crane on the Wagons shelf, the oil well and the water pump unlocked.
+await p.evaluate(() => {
+  const w = window.woodrail;
+  for (const id of ["goods-engine", "cranes1"]) if (!w.progress().learned.has(id)) w.learn(id);
+  const pr = w.progress();
+  pr.coins = Math.max(pr.coins, 1000);
+  w.hud.setCoins(pr.coins);
+});
+const tanks = await researchByTaps("Tank wagons", "tankers");
+check("Tank wagons: researched by taps and learned", tanks.first?.name === "Tank wagons" && (await p.evaluate(() => window.woodrail.progress().learned.has("tankers"))), JSON.stringify(tanks));
+const crane = await researchByTaps("Breakdown crane", "breakdown");
+check("Breakdown crane: researched by taps and learned", crane.first?.name === "Breakdown crane" && (await p.evaluate(() => window.woodrail.progress().learned.has("breakdown"))), JSON.stringify(crane));
+await tap(".tabs button", "Trains");
+await tap(".tray-item.tray-group", "Wagons");
+const wagons2 = await trayLocked();
+check("the tank wagon and the breakdown crane are on the Wagons shelf", wagons2["train:Tank wagon"] === false && wagons2["train:Breakdown crane"] === false, JSON.stringify(wagons2));
+await shot("23-tank-crane-wagons-shelf");
+await tap(".tabs button", "Industries");
+await tap(".tray-item.tray-group", "Industries");
+const industries2 = await trayLocked();
+check("the oil well and the water pump are on the Industries shelf, unlocked", industries2["piece:depot-oilwell"] === false && industries2["piece:depot-waterpump"] === false, JSON.stringify(industries2));
+// 14. The goods chains (2026-11-04): Sugar beet, Jam kitchen, Chocolate factory, Dye works and Toy workshop researched
+// by taps and deliveries to the school (now a University in a city). Setup shortcut (not under test): what they need
+// first that isn't theirs (Juice works, Carpenter's bench) learned, and the 20 furniture the Toy workshop asks for
+// counted as delivered. Before Dye works the Toy workshop is a "?"/locked; after, it opens at the University. The payoff:
+// all six buildings unlocked on the Industries shelf.
+await p.evaluate(() => {
+  const w = window.woodrail;
+  for (const id of ["juice", "carpentry"]) w.learn(id);
+  const pr = w.progress();
+  pr.counts.set("delivered:furniture", 20);
+  pr.coins = 3000;
+  w.hud.setCoins(pr.coins);
+});
+await tap(".tabs button", "Trains");
+for (const [name, id] of [["Sugar beet", "sugar"], ["Jam kitchen", "jam"], ["Chocolate factory", "chocolate"], ["Dye works", "paint"], ["Toy workshop", "toys"]]) {
+  const r = await researchByTaps(name, id);
+  check(`${name}: researched by taps and learned`, r.first?.name === name && (await p.evaluate((id) => window.woodrail.progress().learned.has(id), id)), JSON.stringify(r));
+}
+await board(true);
+await select("Toy workshop");
+await shot("25-goods-chains-board");
+await board(false);
+await tap(".tabs button", "Industries");
+await tap(".tray-item.tray-group", "Industries");
+const chainShelf = await trayLocked();
+const chainPieces = ["depot-beet", "depot-jam", "depot-chocolate", "depot-flowers", "depot-dyeworks", "depot-toyworks"];
+check("the goods chains' six buildings are on the Industries shelf, unlocked", chainPieces.every((t) => chainShelf[`piece:${t}`] === false), JSON.stringify(chainPieces.map((t) => [t, chainShelf[`piece:${t}`]])));
+await shot("26-goods-chains-industries-shelf");
+
+// 15. Tech tree 4. The Reading room researched by taps (College is learned). Then Telegraph tapped: one tap queues
+// Signal boxes, then Telegraph (Signals and Routes are learned). One delivery of 10 planks: Signal boxes takes its 4 and
+// the school reads ahead for Telegraph with the other 6 (its card says so); Signal boxes learned, Telegraph starts with
+// its goods all in and is learned with nothing more brought (the payoff: no gap between the two). The signal box and
+// the telegraph pole on the tray's Lineside shelf, unlocked. Then Mines II, Foundry II and Joinery by taps at the
+// College (setup shortcut, not under test: the coal dug, iron cast and furniture delivered they ask for).
+await p.evaluate(() => {
+  const w = window.woodrail;
+  const pr = w.progress();
+  pr.coins = 3000;
+  pr.counts.set("coalDug", 60);
+  pr.counts.set("ironCast", 40);
+  pr.counts.set("delivered:furniture", 30);
+  w.learn("carpentry");
+  // (What earlier steps left under way or queued: learned, so this step starts with the school idle.)
+  const r = pr.research;
+  for (const id of [r.current, r.next, ...r.later]) if (id) w.learn(id);
+  w.hud.setCoins(pr.coins);
+});
+await p.waitForFunction(() => window.woodrail.progress().research.current === null, null, { timeout: 30000 }).catch(() => {});
+const readingRoom = await researchByTaps("Reading room", "reading-room", 6);
+check("Reading room: researched by taps and learned", readingRoom.first?.name === "Reading room" && (await p.evaluate(() => window.woodrail.progress().learned.has("reading-room"))), JSON.stringify(readingRoom));
+await quiet();
+await board(true);
+await select("Telegraph");
+t = await ticket();
+check("Telegraph: one tap queues Signal boxes, then Telegraph", /Signal boxes/.test(t?.buttons[0]?.text ?? ""), JSON.stringify(t));
+await tap(".board-sheet button[data-act=pick]", t?.buttons[0]?.text);
+check("…Signal boxes under way, Telegraph up next", JSON.stringify(await queued()) === JSON.stringify(["signal-boxes", "telegraph"]), JSON.stringify(await queued()));
+await shot("23-signal-boxes-then-telegraph");
+await board(false);
+await p.evaluate(() => (window.woodrail.paused = true));
+await deliverGoods({ planks: 10 });
+const ahead = await p.evaluate(() => {
+  const r = window.woodrail.progress().research;
+  return { got: r.got.planks ?? 0, early: r.early.get("telegraph")?.planks ?? 0 };
+});
+check("…10 planks: 4 into Signal boxes, 6 read ahead for Telegraph", ahead.got === 4 && ahead.early === 6, JSON.stringify(ahead));
+// The school's card says what it's reading ahead.
+const schoolNote = await p.evaluate(async () => (await import("/src/game/research-text.ts")).schoolCard(window.woodrail.progress()).note);
+check("…the school's card says it's reading ahead for Telegraph", /Reading ahead for Telegraph: \uE0006\/6/.test(schoolNote ?? ""), String(schoolNote));
+await p.evaluate(() => (window.woodrail.paused = false));
+await p.waitForFunction(() => window.woodrail.progress().learned.has("telegraph"), null, { timeout: 200000 }).catch(() => null);
+const both = await p.evaluate(() => ({ boxes: window.woodrail.progress().learned.has("signal-boxes"), telegraph: window.woodrail.progress().learned.has("telegraph") }));
+check("…Signal boxes and then Telegraph learned, Telegraph with nothing more brought", both.boxes && both.telegraph, JSON.stringify(both));
+await quiet();
+await tap(".tabs button", "Industries");
+await tap(".tray-item.tray-group", "Lineside");
+const lineside = await trayLocked();
+check("the signal box and the telegraph pole are on the Lineside shelf, unlocked", lineside["prop:bldg-signal-box"] === false && lineside["prop:mech-telegraph-pole"] === false, JSON.stringify(lineside));
+await shot("24-lineside-telegraph");
+for (const [name, id] of [
+  ["Mines II", "mines2"],
+  ["Foundry II", "foundry2"],
+  ["Joinery", "joinery"],
+]) {
+  await quiet();
+  const r = await researchByTaps(name, id, 14);
+  const learned = await p.evaluate((id) => window.woodrail.progress().learned.has(id), id);
+  check(`${name}: researched by taps and learned`, r.first?.name === name && learned, JSON.stringify(r));
+}
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

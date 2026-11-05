@@ -37,6 +37,8 @@ export class Progress {
    * Those not on the map are in the box, free to lay.
    */
   roads = 0;
+  /** Squares of town dug under for track two levels down (the metro's tunnels: src/game/metro.ts), paid for. */
+  dug = 0;
   /** People carried to another town by coach, all game (they unlock the passenger line of blueprints). */
   riders = 0;
   /**
@@ -111,7 +113,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}), ...(this.circus ? { circus: { ...this.circus } } : {}), ...(this.circusLast >= 0 ? { circusLast: this.circusLast } : {}), ...(this.circusTowns.size > 0 ? { circusTowns: [...this.circusTowns] } : {}) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), ...(this.dug > 0 ? { dug: this.dug } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), regates: REGATES, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}), ...(this.circus ? { circus: { ...this.circus } } : {}), ...(this.circusLast >= 0 ? { circusLast: this.circusLast } : {}), ...(this.circusTowns.size > 0 ? { circusTowns: [...this.circusTowns] } : {}) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -128,6 +130,8 @@ export class Progress {
     // Blueprints renamed since (risers joined bridges, turning loops joined junctions) come back as what they became.
     const known = (t: unknown): string | null => (typeof t === "string" ? (techOf(RENAMED[t] ?? t) ? (RENAMED[t] ?? t) : null) : null);
     if (d && Array.isArray(d.learned)) for (const t of d.learned) if (known(t)) p.learned.add(known(t)!);
+    // Things moved to a new blueprint since the save was written: it keeps them, its new blueprint learned with them.
+    for (const t of regated(d)) p.learned.add(t);
     if (d && Array.isArray(d.offers)) {
       for (const o of d.offers) {
         const offer = offerFromJSON(o);
@@ -144,6 +148,7 @@ export class Progress {
     p.coins = Number.isInteger(d?.coins) && d!.coins! > 0 ? d!.coins! : 0;
     p.fieldsPlanted = Number.isInteger(d?.fieldsPlanted) && d!.fieldsPlanted! > 0 ? d!.fieldsPlanted! : 0;
     p.roads = Number.isInteger(d?.roads) && d!.roads! > 0 ? d!.roads! : 0;
+    p.dug = Number.isInteger(d?.dug) && d!.dug! > 0 ? d!.dug! : 0;
     p.riders = Number.isInteger(d?.riders) && d!.riders! > 0 ? d!.riders! : 0;
     p.bestLevel = Number.isInteger(d?.bestLevel) && d!.bestLevel! > 0 ? d!.bestLevel! : 0;
     if (d && Array.isArray(d.counts)) for (const e of d.counts) if (Array.isArray(e) && typeof e[0] === "string" && Number.isFinite(e[1]) && e[1] > 0) p.counts.set(e[0], e[1]);
@@ -172,6 +177,7 @@ export interface ProgressData {
   fieldsPlanted?: number;
   /** Road squares owned (absent: none beyond the map's lanes, covered on load). */
   roads?: number;
+  dug?: number;
   riders?: number;
   bestLevel?: number;
   firstFlour?: boolean;
@@ -184,6 +190,25 @@ export interface ProgressData {
   circus?: { town: number; left: number; prop: number };
   circusLast?: number;
   circusTowns?: number[];
+  /** How many of `REGATE_LIST`'s moves the save was written after (absent: none, an older save). */
+  regates?: number;
+}
+
+/**
+ * Things moved from one blueprint to a new one, in the order they were moved: a save written before a move, that had
+ * learned a blueprint it moved from, gets the new one learned too, so nothing it could make goes away.
+ */
+export const REGATE_LIST: readonly { readonly from: readonly string[]; readonly to: string }[] = [
+  // Tech tree 4: the signal box and lever frame, from the Scenery kit to Signal boxes.
+  { from: ["scenery"], to: "signal-boxes" },
+];
+export const REGATES = REGATE_LIST.length;
+
+/** The blueprints a save gets for the moves made since it was written (`REGATE_LIST`): none for a save written since. */
+export function regated(d: Partial<ProgressData> | null | undefined): string[] {
+  const seen = Number.isInteger(d?.regates) ? d!.regates! : 0;
+  const learned = new Set(Array.isArray(d?.learned) ? d.learned : []);
+  return REGATE_LIST.slice(seen).filter((g) => g.from.some((t) => learned.has(t))).map((g) => g.to);
 }
 
 /** A reward taken: its offer (town and level) and what it gave (coins, things, goods to research `to`). */
@@ -207,7 +232,7 @@ export function isTaken(t: unknown): t is Taken {
 
 /** How many of a thing are on the map. */
 export function inUse(world: World, id: ThingId): number {
-  const kind = id.slice(0, id.indexOf(":")) as "piece" | "car" | "prop";
+  const kind = id.slice(0, id.indexOf(":")) as "piece" | "car" | "prop" | "look";
   const name = id.slice(id.indexOf(":") + 1);
   let n = 0;
   if (kind === "prop") {
@@ -217,6 +242,9 @@ export function inUse(world: World, id: ThingId): number {
     for (const pid of world.layout.pieceIds()) if (world.layout.getPiece(pid)!.type === name) n++;
     // A generated depot isn't the player's: only count pieces they could have placed.
     if (name.startsWith("depot-")) for (const pid of world.depots.values()) if (world.layout.getPiece(pid)?.type === name) n--;
+  } else if (kind === "look") {
+    // (A train in that look: its engines in it, one each.)
+    for (const tid of world.sim.trainIds()) for (const c of world.sim.getTrain(tid)!.cars) if (c.kind === "engine" && world.sim.lookOf(c.id) === name) n++;
   } else {
     for (const tid of world.sim.trainIds()) for (const c of world.sim.getTrain(tid)!.cars) if (c.kind === name) n++;
   }

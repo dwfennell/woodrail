@@ -14,8 +14,15 @@ export const MAKER_LABEL: Partial<Record<DepotRole, string>> = {
   farm: "Farm yard",
   mill: "Mill",
   dairy: "Dairy farm",
+  oilwell: "Oil well",
+  waterpump: "Water pump",
   bakery: "Bakery",
   orchard: "Orchard",
+  beetfield: "Sugar beet field",
+  jamworks: "Jam kitchen",
+  flowerfield: "Flower field",
+  dyeworks: "Dye works",
+  toyworks: "Toy workshop",
   quarry: "Quarry",
   mine: "Mine",
   foundry: "Foundry",
@@ -116,7 +123,8 @@ export function chainOf(d: DepotState, all: readonly DepotState[], placeOf: Plac
       if (from.length > 0) inputs.push(link(kind, from));
     }
   } else if (!NOT_CHAIN.has(d.role)) for (const kind of uses) inputs.push(link(kind, nearest(d, all, placeOf, (o) => gives(o.role, kind))));
-  const outputs = NOT_CHAIN.has(d.role) ? [] : r.gives.map((kind) => link(kind, nearest(d, all, placeOf, (o) => takes(o.role, kind))));
+  // (A town's mail only once something on the map takes it: a post office.)
+  const outputs = NOT_CHAIN.has(d.role) ? [] : r.gives.map((kind) => link(kind, nearest(d, all, placeOf, (o) => takes(o.role, kind)))).filter((l) => d.role !== "town" || l.place !== null);
   let state: ChainState | null = null;
   let short: CargoKind[] = [];
   const makes = r.cycle ? (Object.keys(r.cycle.makes) as CargoKind[]) : [];
