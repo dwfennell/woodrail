@@ -52,6 +52,8 @@ function setup() {
   w.economy.setCargo(b, "log", 2);
   const p = Progress.fresh();
   p.coins = 100;
+  // (A ferry built at a shipyard for it.)
+  w.economy.ferriesBuilt = 1;
   return { w, pose, slip, train, engine, a, b, p, ferries: new Ferries() };
 }
 
@@ -100,6 +102,12 @@ describe("the train ferry", () => {
     expect(ferries.tripAt(slip.id)).toBeNull();
     // Still standing on the slip, it isn't taken aboard again till it has left.
     for (let t = 0; t < 5; t++) expect(ferries.tick(w, p, 1)).toEqual([]);
+  });
+
+  it("has the train wait with no ferry built for the slip", () => {
+    const { w, p, ferries } = setup();
+    w.economy.ferriesBuilt = 0;
+    expect(ferries.tick(w, p, 1)).toEqual([]);
   });
 
   it("leaves a train that isn't routed there", () => {

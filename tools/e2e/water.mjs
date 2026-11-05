@@ -185,6 +185,7 @@ const river = await p.evaluate(async () => {
   w.progress().coins = 400;
   w.hud.setCoins(400);
   w.progress().add("piece:kit-landing", 2);
+  w.progress().add("piece:kit-boatyard", 1);
   w.hud.refreshTrayBadges();
   const { siteWhy } = await import("/src/game/industries.ts");
   const g = w.world.landscape.grid;
@@ -217,12 +218,15 @@ const river = await p.evaluate(async () => {
   for (const a of spots)
     for (const b of spots)
       if (waterAt(w.world.landscape, { x: a.mid.x, z: a.mid.z + 100 }) === waterAt(w.world.landscape, { x: b.mid.x, z: b.mid.z + 100 }) && Math.abs(a.x - b.x) > 500 && (!best || Math.abs(a.x - b.x) > Math.abs(best[0].x - best[1].x))) best = [a, b];
-  return best ? { a: best[0], b: best[1], n: spots.length } : { n: spots.length, why };
+  // A boatyard's spot on the same water, clear of both.
+  const wet = (s) => waterAt(w.world.landscape, { x: s.mid.x, z: s.mid.z + 100 });
+  const c = best && spots.filter((s) => wet(s) === wet(best[0]) && Math.abs(s.x - best[0].x) > 320 && Math.abs(s.x - best[1].x) > 320).sort((u, v) => Math.abs(u.x - best[0].x) - Math.abs(v.x - best[0].x))[0];
+  return best && c ? { a: best[0], b: best[1], c, n: spots.length } : { n: spots.length, why };
 });
 check("a straight run of river with room for two landings", !!river.a, JSON.stringify(river));
 // (WATER_SKIP_RIVER=1: on to the sea, for working on its groups.)
 if (river.a && !process.env.WATER_SKIP_RIVER) {
-  const { a, b: bb } = river;
+  const { a, b: bb, c: cc } = river;
   // The Water shelf.
   const shelfOk = await openShelf("Industries", "Water");
   check("the Industries tab has a Water shelf once River barges is learned", shelfOk);
@@ -265,24 +269,72 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     const card = await p.evaluate(() => document.querySelector(".depot-card:not(.boat-card):not([hidden]) .card-title")?.textContent ?? null);
     if (process.env.WATER_DEBUG) console.log("cards", await p.evaluate(() => [...document.querySelectorAll(".card:not([hidden])")].map((c) => c.className + ":" + c.textContent.slice(0, 60)).join(" || ")));
     check("a tap on the landing opens its card", card === "River landing", String(card));
-    await p.waitForSelector(".landing-buy", { timeout: 20000 }).catch(() => {});
-    const coins0 = await p.evaluate(() => window.woodrail.progress().coins);
     await shot("2-landing-card");
-    await tapButton(".landing-buy");
-    const bought = await p.evaluate(() => {
+    // A boatyard from the Water shelf onto the bank (the tray still turned to face the water).
+    await openShelf("Industries", "Water");
+    await look(cc.mid, 1500);
+    await dragOut("piece:kit-boatyard", cc.mid);
+    const C = await p.evaluate(() => {
       const w = window.woodrail;
-      const boats = [...w.economy.boats.values()];
-      return { n: boats.length, coins: w.progress().coins, load: boats[0]?.load, card: !document.querySelector(".boat-card").hidden, planning: !!w.interaction.onPickPlace };
+      const id = [...w.layout.pieceIds()].find((i) => w.layout.getPiece(i).type === "kit-boatyard");
+      return id === undefined ? null : { piece: id, depot: w.economy.depotAtPiece(id)?.id, role: w.economy.depotAtPiece(id)?.role, x: w.layout.getPiece(id).pose.x, z: w.layout.getPiece(id).pose.z, heading: w.layout.getPiece(id).pose.heading };
     });
-    check("+ New barge: a boat bought for 80 coins, loaded with the logs on the jetty, its card open and planning", bought.n === 1 && bought.coins === coins0 - 80 && bought.load?.log === 4 && bought.card && bought.planning, JSON.stringify(bought));
-    await shot("3-boat-bought");
-    // The second landing tapped: stop 2. Done.
+    check("a boatyard dragged from the Water shelf onto the bank", C?.role === "boatyard", JSON.stringify({ C, toast: await toast() }));
+    if (!C) throw new Error("no boatyard");
+    // Its card: build a tug and a barge.
+    await look(quay(C), 1100);
+    await tapWorld(quay(C));
+    await p.waitForSelector(".yard-build[data-build=tug]", { timeout: 20000 }).catch(() => {});
+    await tapButton(".yard-build[data-build=tug]");
+    const ordered = await p.evaluate((id) => window.woodrail.economy.yardOrders.get(id)?.build ?? null, C.depot);
+    check("its card: Build a tug and a barge, ordered", ordered === "tug", String(ordered));
+    // Half the goods, as trains bring them (setup: on its piles, as a train's crane would leave them): half built.
+    const bringTo = (id, goods) =>
+      p.evaluate(
+        async ([id, goods]) => {
+          const { CARGO } = await import("/src/economy/cargo.ts");
+          const d = window.woodrail.economy.depot(id);
+          for (const [k, n] of Object.entries(goods)) d.piles[CARGO[k].index] += n;
+        },
+        [id, goods],
+      );
+    await bringTo(C.depot, { planks: 10, iron: 2 });
+    const half = await playUntil(
+      async (id) => {
+        const { progressOf } = await import("/src/game/yards.ts");
+        const o = window.woodrail.economy.yardOrders.get(id);
+        return o && progressOf(o) >= 0.5 ? { needs: document.querySelector(".yard-needs")?.textContent ?? "" } : null;
+      },
+      C.depot,
+      10,
+    );
+    check("…half the goods in: half built, the card saying what's still to come by train", !!half && /Still to come by train: 10.*planks.*2.*iron/.test(half.needs), JSON.stringify(half));
+    await p.waitForTimeout(1500);
+    await shot("3-yard-building");
+    await bringTo(C.depot, { planks: 10, iron: 2 });
+    const launched = await playUntil(() => (window.woodrail.economy.boats.size > 0 ? [...window.woodrail.economy.boats.values()][0] : null), null, 10);
+    check("…the rest in: the tug and its barge slide into the river at the yard (the payoff)", !!launched && launched.home === C.depot && launched.barges === 1, JSON.stringify(launched));
+    await p.waitForTimeout(1200);
+    await shot("4-launched");
+    // Its route: from the boat's chip on the yard's card, ✎ Route, the two landings, Done; the first landing set to
+    // drop and pick up (a tap on its chip).
+    await tapButton(".landing-boat-chips .chip");
+    await tapButton(".boat-card .route-plan");
+    await look(quay(A), 1300);
+    await tapWorld(quay(A));
     await look(quay(B), 1300);
     await tapWorld(quay(B));
-    await shot("4-planning");
+    await shot("5-planning");
     await tapButton(".boat-card .route-plan.on");
+    const chip2 = await p.evaluate(() => {
+      const e = document.querySelectorAll(".boat-card .route-chip")[1];
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return [r.left + r.width / 2, r.top + r.height / 2];
+    });
+    if (chip2) await tapped(() => p.touchscreen.tap(...chip2));
     const route = await p.evaluate(() => [...window.woodrail.economy.boats.values()][0].stops);
-    check("the route planned by taps: the first landing (Pick up), the second (Only drop)", route.length === 2 && route[0].depotId === A.depot && route[1].depotId === B.depot && route[0].action === "pick" && route[1].action === "drop", JSON.stringify(route));
+    check("the route planned by taps: the yard, the first landing (drop and pick up), the second (only drop)", route.length === 3 && route[0].depotId === C.depot && route[1].depotId === A.depot && route[2].depotId === B.depot && route[1].action === "both" && route[2].action === "drop", JSON.stringify(route));
     // It sails, by game time, and drops the logs at the second landing.
     await look({ x: (A.x + B.x) / 2 + 108, z: A.z + 120 }, 2200);
     await p.evaluate(() => window.woodrail.hud.hideCards());
@@ -295,7 +347,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
       return o ? { x: o.position.x, z: o.position.z } : null;
     });
     if (tow) await look(tow, 1100);
-    await shot("5-sailing");
+    await shot("6-sailing");
     const delivered = await playUntil(
       async (B) => {
         const { CARGO } = await import("/src/economy/cargo.ts");
@@ -310,7 +362,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     const goal = await playUntil(() => window.woodrail.goals().isDone("float-goods"), null, 10);
     check("…and Float goods down the river is ticked", !!goal);
     await look(quay(B), 1000);
-    await shot("6-delivered");
+    await shot("7-delivered");
     // A tap on the boat: its card.
     const tug = await p.evaluate(() => {
       const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
@@ -322,11 +374,15 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     }
     const boatCard = await p.evaluate(() => (document.querySelector(".boat-card")?.hidden === false ? document.querySelector(".boat-card .boat-name")?.textContent : null));
     check("a tap on the boat opens its card", !!boatCard, String(boatCard));
-    await shot("7-boat-card");
-    // + Barge.
-    if (boatCard) await tapButton(".boat-card .boat-actions .chip");
-    const barges = await p.evaluate(() => [...window.woodrail.economy.boats.values()][0].barges);
-    check("+ Barge on its card: a second barge", barges === 2, String(barges));
+    await shot("8-boat-card");
+    // Another barge, built at the boatyard from 8 planks.
+    await look(quay(C), 1100);
+    await tapWorld(quay(C));
+    await p.waitForSelector(".yard-build[data-build=barge]", { timeout: 20000 }).catch(() => {});
+    await tapButton(".yard-build[data-build=barge]");
+    await bringTo(C.depot, { planks: 8 });
+    const barges = await playUntil(() => ([...window.woodrail.economy.boats.values()][0].barges === 2 ? 2 : null), null, 10);
+    check("a barge built at the boatyard from 8 planks joins the tug", barges === 2, String(barges));
     // Paused: it holds still (its place by game time).
     await p.evaluate(() => (window.woodrail.paused = true));
     const at0 = await p.evaluate(() => JSON.stringify(window.woodrail.fleet.poses([...window.woodrail.economy.boats.values()][0], 0)));
@@ -362,7 +418,8 @@ const sea = await p.evaluate(async () => {
   const { CARGO } = await import("/src/economy/cargo.ts");
   const coast = w.world.landscape.coast;
   for (const q of plotsForSale(w.world.landscape)) if ((coast.side === "s" && q.pz === coast.plot) || (coast.side === "n" && q.pz === -coast.plot) || (coast.side === "e" && q.px === coast.plot) || (coast.side === "w" && q.px === -coast.plot)) w.unlockPlot(q.px, q.pz);
-  for (const r of ["warehouses", "bridges", "harbours", "cargo-ships", "lighthouse", "junctions", "ferry"]) w.learn(r);
+  for (const r of ["warehouses", "bridges", "harbours", "shipyards", "cargo-ships", "lighthouse", "junctions", "ferry"]) w.learn(r);
+  w.progress().add("piece:kit-shipyard", 1);
   w.progress().add("prop:bldg-lighthouse", 1);
   w.progress().add("piece:kit-ferry-slip", 1);
   w.progress().coins = 400;
@@ -391,8 +448,6 @@ const sea = await p.evaluate(async () => {
   syncIndustries(w.world, true);
   w.depotView.setWorld(w.economy, w.layout);
   const d = w.economy.depotAtPiece(id);
-  d.piles[CARGO.planks.index] = 14;
-  d.piles[CARGO.stone.index] = 6;
   // Where a lighthouse could stand: land a few squares from the quay, clear of the harbour's yard.
   const q = { x: harbour.x + Math.cos(harbour.heading) * QUAY.t - Math.sin(harbour.heading) * QUAY.l, z: harbour.z + Math.sin(harbour.heading) * QUAY.t + Math.cos(harbour.heading) * QUAY.l };
   let light = null;
@@ -406,7 +461,26 @@ const sea = await p.evaluate(async () => {
       if (Math.hypot(x - (harbour.x + Math.cos(harbour.heading) * 108), z - (harbour.z + Math.sin(harbour.heading) * 108)) < 200) continue;
       light = { x, z };
     }
-  return { harbour, depot: d.id, quay: q, light, coins: w.progress().coins };
+  // A shipyard's spot on the shore, well clear of the harbour: its ways (out across its line) down into the sea.
+  const { shipyardWhy } = await import("/src/game/yards.ts");
+  let yard = null;
+  for (let i = 0; i < g.cellCount && !yard; i++) {
+    if (g.surface[i] !== 5) continue;
+    for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const c = Math.cos(heading);
+      const s = Math.sin(heading);
+      const pose = { x: g.centreX(g.colOf(i)) - c * 108 + s * 130, z: g.centreZ(g.rowOf(i)) - s * 108 - c * 130, heading };
+      if (Math.hypot(pose.x - harbour.x, pose.z - harbour.z) < 600) continue;
+      const under = g.cellAtWorld(pose.x + c * 108, pose.z + s * 108);
+      if (under === -1 || g.surface[under] === 5) continue;
+      const shifted = [[0, 0], [36, 0], [-36, 0], [0, 54], [0, -54]].map(([side, along]) => ({ x: pose.x - s * side + c * along, z: pose.z + c * side + s * along, heading }));
+      if (shifted.some((q) => shipyardWhy(w.world.landscape, q) !== null)) continue;
+      if (w.interaction.placeWhy("kit-shipyard", pose, g.groundY(under), -1)) continue;
+      yard = { ...pose, mid: { x: pose.x + c * 108, z: pose.z + s * 108 } };
+      break;
+    }
+  }
+  return { harbour, depot: d.id, quay: q, light, yard, coins: w.progress().coins };
 });
 check("the coast bought and a harbour by the sea", !!sea, JSON.stringify(sea));
 if (sea) {
@@ -424,10 +498,61 @@ if (sea) {
     return lighthouseNear(w.world, w.layout.getPiece(w.economy.depot(id).pieceId).pose);
   }, sea.depot);
   check("…near the harbour: its ships come twice as often", card === true);
+  // A shipyard from the Water shelf onto the shore: a cargo ship built there from goods brought by train, then a ferry.
+  if (sea.yard) {
+    await openShelf("Industries", "Water");
+    const want = (((Math.round((sea.yard.heading - Math.PI) / (Math.PI / 4)) % 8) + 8) % 8);
+    await turnTray((want - trayTurns + 8) % 8);
+    await look(sea.yard.mid, 1600);
+    await dragOut("piece:kit-shipyard", sea.yard.mid);
+  }
+  const Y = await p.evaluate(() => {
+    const w = window.woodrail;
+    const id = [...w.layout.pieceIds()].find((i) => w.layout.getPiece(i).type === "kit-shipyard");
+    return id === undefined ? null : { depot: w.economy.depotAtPiece(id)?.id, role: w.economy.depotAtPiece(id)?.role, pose: w.layout.getPiece(id).pose };
+  });
+  check("a shipyard dragged from the Water shelf onto the shore", Y?.role === "shipyard", JSON.stringify({ Y, yard: sea.yard, toast: await toast() }));
+  if (Y) {
+    const yq = { x: Y.pose.x + Math.cos(Y.pose.heading) * 108 - Math.sin(Y.pose.heading) * 50, z: Y.pose.z + Math.sin(Y.pose.heading) * 108 + Math.cos(Y.pose.heading) * 50 };
+    const build = async (what, goods) => {
+      await look(yq, 1400);
+      await tapWorld({ ...yq, y: 12 });
+      await p.waitForSelector(`.yard-build[data-build=${what}]`, { timeout: 20000 }).catch(() => {});
+      await tapButton(`.yard-build[data-build=${what}]`);
+      await p.evaluate(
+        async ([id, goods]) => {
+          const { CARGO } = await import("/src/economy/cargo.ts");
+          const d = window.woodrail.economy.depot(id);
+          for (const [k, n] of Object.entries(goods)) d.piles[CARGO[k].index] += n;
+        },
+        [Y.depot, goods],
+      );
+    };
+    // (Setup: the goods put on its piles, as trains' cranes would leave them; first half the iron, for its picture.)
+    await build("ship", { iron: 15, planks: 20, tools: 6 });
+    await p.waitForTimeout(2500);
+    await shot("9-shipyard-building");
+    await p.evaluate(async (id) => {
+      const { CARGO } = await import("/src/economy/cargo.ts");
+      window.woodrail.economy.depot(id).piles[CARGO.iron.index] += 15;
+    }, Y.depot);
+    const ships = await playUntil(() => window.woodrail.economy.shipsBuilt || null, null, 10);
+    check("a cargo ship built at the shipyard from iron, planks and tools, launched into the sea", ships === 1, String(ships));
+    await build("ferry", { iron: 20, planks: 16, tools: 4 });
+    const ferries = await playUntil(() => window.woodrail.economy.ferriesBuilt || null, null, 10);
+    check("…and a train ferry", ferries === 1, String(ferries));
+  }
+  // Planks and stone on the quay (as trains would leave them), once there's a cargo ship.
+  await p.evaluate(async (id) => {
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    const d = window.woodrail.economy.depot(id);
+    d.piles[CARGO.planks.index] = 14;
+    d.piles[CARGO.stone.index] = 6;
+  }, sea.depot);
   // The cargo ship calls, takes the goods and pays a town's full price.
   await look(sea.quay, 1600);
   const coins0 = await p.evaluate(() => window.woodrail.progress().coins);
-  const sold = await playUntil(() => (window.woodrail.economy.shipLoads > 0 ? { loads: window.woodrail.economy.shipLoads, coins: window.woodrail.progress().coins } : null), null, 120);
+  const sold = await playUntil(() => (window.woodrail.economy.shipLoads > 0 ? { loads: window.woodrail.economy.shipLoads, coins: window.woodrail.progress().coins } : null), null, 220);
   const full = await p.evaluate(async () => {
     const { PRICES } = await import("/src/game/towns.ts");
     return 14 * PRICES.planks + 6 * PRICES.stone;
@@ -437,7 +562,7 @@ if (sea) {
   check("…and Send a ship abroad is ticked", !!goal);
   await p.evaluate(() => window.woodrail.hud.hideCards());
   await p.waitForTimeout(1500);
-  await shot("8-cargo-ship");
+  await shot("10-cargo-ship");
 
   // ——— 3. Ferry ———
   // A ferry slip from the Water shelf onto the shore, turned to face the sea.
@@ -529,7 +654,7 @@ if (sea) {
         const plankPrice = await p.evaluate(async () => (await import("/src/game/towns.ts")).PRICES.planks);
         check("aboard the ferry: its planks sold abroad at a town's full price, the train off the line", !!aboard && aboard.coins - coins1 === 6 * plankPrice && aboard2, JSON.stringify({ aboard, aboard2, coins1 }));
         await p.waitForTimeout(6000);
-        await shot("9-ferry-out");
+        await shot("11-ferry-out");
         const back = await playUntil(
           (cars) => {
             const w = window.woodrail;
@@ -541,7 +666,7 @@ if (sea) {
         );
         check("back from abroad with its wagons full of goods from abroad, on the line again", !!aboard && !!back && back.loads[1].count > 0 && back.loads[1].kind !== "planks" && back.loads[2].count > 0 && back.visible === true, JSON.stringify(back));
         await look(slipAt.mid, 1200);
-        await shot("10-ferry-back");
+        await shot("12-ferry-back");
       }
     }
   }

@@ -5,7 +5,7 @@ import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./con
 import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
-import type { BoatState } from "./boats";
+import type { BoatState, YardOrder } from "./boats";
 import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
@@ -40,7 +40,7 @@ interface Service {
   halted?: boolean;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "landing" | "slip" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "landing" | "slip" | "boatyard" | "shipyard" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -143,6 +143,10 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // A ferry slip (Game mode's Train ferry, src/game/ferry.ts): a train routed there rides the ferry abroad and back.
   // Nothing is craned on or off: the ferry sells its load abroad and brings goods back in its wagons.
   slip: { takes: [], gives: [] },
+  // Yards (src/game/yards.ts): trains bring a boatyard planks and iron for tugs and barges, a shipyard iron, planks and
+  // tools for cargo ships and ferries; the yard's order uses them up.
+  boatyard: { takes: ["planks", "iron"], gives: [], cap: 24 },
+  shipyard: { takes: ["planks", "iron", "tools"], gives: [], cap: 40 },
   // Sandbox's cargo machines: an endless heap of one good, and somewhere goods vanish.
   "loader-log": { takes: [], gives: ["log"], endless: true },
   "loader-grain": { takes: [], gives: ["grain"], endless: true },
@@ -430,6 +434,11 @@ export class Economy {
   boatDelivered = 0;
   /** Cars whose trains are held still where they stand, whatever else says (a train on the ferry abroad). */
   readonly held = new Set<number>();
+  /** What each yard is building (by its depot id), saved with the map: src/game/yards.ts. */
+  readonly yardOrders = new Map<number, YardOrder>();
+  /** Cargo ships and train ferries built at shipyards (they call at harbours, sail from slips). */
+  shipsBuilt = 0;
+  ferriesBuilt = 0;
   /** Loads cargo ships have taken from harbours (the goal "Send a ship abroad"). */
   shipLoads = 0;
   readonly lineIdOf = new Map<number, number>();

@@ -131,7 +131,7 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "landing", "slip", ...KIT_DEPOT_ROLES]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "landing", "slip", "boatyard", "shipyard", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -208,6 +208,12 @@ const saveSchema = z.object({
     )
     .max(MAX_BOATS)
     .optional(),
+  /** What each yard is building (its depot index in `depots`) and the goods gone in; absent: none. */
+  yards: z
+    .array(z.object({ depot: z.number().int().min(0), build: z.enum(["tug", "barge", "ship", "ferry"]), got: z.record(z.string(), z.number().int().min(0).max(100)) }))
+    .optional(),
+  /** Cargo ships and train ferries built at shipyards; absent: none. */
+  built: z.object({ ships: z.number().int().min(0).max(999), ferries: z.number().int().min(0).max(999) }).optional(),
   /** Placed catalogue models (optional: saves from before props load with none). */
   props: z
     .array(
@@ -364,8 +370,18 @@ export function serializeWorld(world: World): SaveData {
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
     ...(lines.length > 0 ? { lines } : {}),
     ...boatsOf(world, renumbered),
+    ...yardsOf(world, renumbered),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
+}
+
+/** The yards' orders (renumbered as the depots are) and what the shipyards have built. */
+function yardsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<SaveData, "yards" | "built"> {
+  const yards = [...world.economy.yardOrders]
+    .filter(([id]) => renumbered.has(id))
+    .map(([id, o]) => ({ depot: renumbered.get(id)!, build: o.build, got: Object.fromEntries(Object.entries(o.got).filter(([, n]) => (n ?? 0) > 0)) as Record<string, number> }));
+  const { shipsBuilt: ships, ferriesBuilt: ferries } = world.economy;
+  return { ...(yards.length > 0 ? { yards } : {}), ...(ships + ferries > 0 ? { built: { ships, ferries } } : {}) };
 }
 
 /** The boats, their stops renumbered as the depots are (a stop at a depot no longer on the map is left out). */
@@ -646,6 +662,17 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   }
   for (const l of save.lines ?? []) if (l.toldFull && economy.lines.has(l.id)) economy.sections.markToldFull(l.id);
   economy.sections.restored();
+  // The yards' orders, and what the shipyards have built.
+  for (const y of save.yards ?? []) {
+    const role = economy.depot(y.depot)?.role;
+    const fits = (role === "boatyard" && (y.build === "tug" || y.build === "barge")) || (role === "shipyard" && (y.build === "ship" || y.build === "ferry"));
+    if (!fits) continue;
+    const got: Partial<Record<CargoKind, number>> = {};
+    for (const [k, n] of Object.entries(y.got)) if ((CARGO_KINDS as readonly string[]).includes(k)) got[k as CargoKind] = n;
+    economy.yardOrders.set(y.depot, { build: y.build, got });
+  }
+  economy.shipsBuilt = save.built?.ships ?? 0;
+  economy.ferriesBuilt = save.built?.ferries ?? 0;
   // The boats, at the depots they call at (one whose docks are all gone isn't brought back).
   let boatId = 1;
   for (const b of save.boats ?? []) {

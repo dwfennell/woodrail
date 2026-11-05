@@ -32,7 +32,8 @@ const UNLOCKS: Record<string, ThingId[]> = {
   "road-crossings": ["prop:mech-level-crossing", "prop:mech-gated-crossing"],
   buses: ["prop:scene-bus-stop"],
   // Water transport (docs/superpowers/specs/2026-11-04-water-transport.md).
-  barges: ["piece:kit-landing"],
+  barges: ["piece:kit-landing", "piece:kit-boatyard"],
+  shipyards: ["piece:kit-shipyard"],
   ferry: ["piece:kit-ferry-slip"],
   lighthouse: ["prop:bldg-lighthouse"],
   // Sandbox's kits brought into Game mode behind research (tech-tree spec step 2), looks only at first.
@@ -88,7 +89,7 @@ describe("railway kits in Game mode", () => {
   });
 
   it("water transport's landing and ferry slip are depots in Game mode as in Sandbox", () => {
-    for (const [type, role] of [["kit-landing", "landing"], ["kit-ferry-slip", "slip"]] as const) {
+    for (const [type, role] of [["kit-landing", "landing"], ["kit-ferry-slip", "slip"], ["kit-boatyard", "boatyard"], ["kit-shipyard", "shipyard"]] as const) {
       for (const game of [true, false]) {
         const w = buildStarterWorld();
         const station = w.stations.get(w.landscape.towns[0].id)!;
@@ -101,7 +102,7 @@ describe("railway kits in Game mode", () => {
 
   it("cargo loaders and unloaders are looks only in Game mode: no depot, so no endless heap and nothing vanishes", () => {
     // (Not water transport's landing and ferry slip: Game mode's own depots, see the next test.)
-    const loaders = (Object.keys(KITS) as PieceTypeId[]).filter((t) => kitOf(t)!.depot && t !== "kit-landing" && t !== "kit-ferry-slip");
+    const loaders = (Object.keys(KITS) as PieceTypeId[]).filter((t) => kitOf(t)!.depot && !["kit-landing", "kit-ferry-slip", "kit-boatyard", "kit-shipyard"].includes(t));
     expect(loaders).toHaveLength(10);
     for (const type of loaders) {
       for (const game of [true, false]) {

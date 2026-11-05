@@ -511,6 +511,34 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     splices: true,
     depot: "landing",
   },
+  // A boatyard: the landing's siding, quay and jetty, with an open boat shed and the ways a hull slides down sideways
+  // into the river (src/catalogue/assets/water.ts). Tugs and barges are built there, and tie up there.
+  "kit-boatyard": {
+    asset: "water-boatyard",
+    name: "boatyard",
+    track: straight("kit-boatyard", 216),
+    rails: "track",
+    place: { t: 108, l: LANDING_TRACK },
+    footprint: [
+      { t: 108, l: 38, w: 216, d: 36 },
+      { t: 138, l: 92, w: 80, d: 44 },
+    ],
+    wetFrom: LANDING_WET,
+    splices: true,
+    depot: "boatyard",
+  },
+  // A shipyard: a stone quay by the sea, a gantry crane over a long berth whose ways run down into the water.
+  "kit-shipyard": {
+    asset: "water-shipyard",
+    name: "shipyard",
+    track: straight("kit-shipyard", 216),
+    rails: "track",
+    place: { t: 108, l: LANDING_TRACK },
+    footprint: [{ t: 108, l: 38, w: 216, d: 36 }],
+    wetFrom: LANDING_WET,
+    splices: true,
+    depot: "shipyard",
+  },
   // A ferry slip: a stone pier carrying the line to the shore's edge, its hinged ramp and the frame that holds it out
   // over the sea past the track's end (the pier's end, the model's x 55, at the piece's far end).
   "kit-ferry-slip": {

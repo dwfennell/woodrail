@@ -257,7 +257,7 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
   {
     // Water transport: a landing for the barges (bought on its card), a ferry slip, a lighthouse by a harbour.
     label: "Water",
-    items: [kit("kit-landing", "River landing"), kit("kit-ferry-slip", "Ferry slip"), furniture("bldg-lighthouse", "Lighthouse")],
+    items: [kit("kit-landing", "River landing"), kit("kit-boatyard", "Boatyard"), kit("kit-shipyard", "Shipyard"), kit("kit-ferry-slip", "Ferry slip"), furniture("bldg-lighthouse", "Lighthouse")],
   },
   {
     label: "Halts",

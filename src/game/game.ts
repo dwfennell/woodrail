@@ -6,6 +6,7 @@ import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
 import { RiverBoatsView } from "../render/river-boats-view";
 import { FerriesView } from "../render/ferries-view";
+import { YardsView } from "../render/yards-view";
 import { Ferries } from "./ferry";
 import { Fleet, type Waters } from "./boats";
 import { AMBIENT_FRAME_MS, AmbientEye } from "../render/ambient";
@@ -208,6 +209,8 @@ export class Game {
   /** The train ferries (Game mode's Train ferry): their trips, and how they're drawn. */
   readonly ferries = new Ferries();
   readonly ferriesView: FerriesView;
+  /** The yards' hulls on their ways, and launches. */
+  readonly yardsView: YardsView;
   /** Road vehicles drawn (vans and buses: roads spec §3); they move in the economy's tick (`Economy.roadVehicles`). */
   readonly roadVehiclesView: RoadVehiclesView;
   /** Road vehicles' trips: their ways out and back, cached, and checked again after a road or track edit. */
@@ -388,6 +391,8 @@ export class Game {
     this.scene.add(this.riverBoats.group);
     this.ferriesView = new FerriesView(this.propLibrary, this.mats, () => this.invalidate(), (id) => this.trainView.carObject(id));
     this.scene.add(this.ferriesView.group);
+    this.yardsView = new YardsView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.yardsView.group);
     this.roadVehiclesView = new RoadVehiclesView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.roadVehiclesView.group);
     this.vans = new Vans(
@@ -438,6 +443,7 @@ export class Game {
     this.boats.clear();
     this.riverBoats.clear();
     this.ferriesView.clear();
+    this.yardsView.clear();
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
@@ -1133,6 +1139,8 @@ export class Game {
     if (this.riverBoats.update(this.fleet, this.economy.boats, sinceTick, this.camera, this.ambientEye, this.layout.piecesVersion)) ambient = true;
     // The train ferries, at their slips or out at sea (nothing to do with no slip on the map: a look at the depots).
     if (this.ferriesView.update(this.ferries, this.economy, this.layout, this.sim, sinceTick, this.camera, this.ambientEye)) ambient = true;
+    // The yards: a hull on the ways (placed when its stage changes), a launch sliding into the water (a short flourish).
+    if (this.yardsView.update(this as unknown as Waters, this.layout.piecesVersion)) active = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;

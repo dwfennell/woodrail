@@ -108,6 +108,8 @@ export class Ferries {
       if (d.role !== "slip" || !layout.getPiece(d.pieceId)) continue;
       const trip = this.trips.get(d.id);
       if (!trip) {
+        // (A ferry for each slip, built at a shipyard: a slip with none waiting has trains wait.)
+        if (this.trips.size >= economy.ferriesBuilt) continue;
         // A train routed here, standing on the slip: aboard.
         const train = this.trainAt(world, d.id, d.pieceId);
         if (!train) continue;

@@ -3,7 +3,8 @@ import type { BoatStopAction } from "../economy";
 /**
  * A boat's card (Game mode's River barges; docs/superpowers/specs/2026-11-04-water-transport.md §7): its name and
  * barges, what it carries, what it's doing, its route as numbered chips (a tap on one changes what it does there),
- * ✎ Route to plan (taps on landings add stops), + Barge, Go/Stop and Sell. Laid out as the engine card is; drawn again
+ * ✎ Route to plan (taps on landings add stops), and Go/Stop; more barges are built for it at a boatyard. Laid out as
+ * the engine card is; drawn again
  * only when what it shows changes (`show` compares a key), never per frame for nothing.
  */
 
@@ -24,11 +25,9 @@ export interface BoatCardView {
   status: string;
   stops: BoatCardStop[];
   planning: boolean;
-  /** + Barge's price, or null at the most barges. */
-  bargePrice: number | null;
-  canAddBarge: boolean;
+  /** How it gets more barges (built at a boatyard), or "" at the most. */
+  more: string;
   going: boolean;
-  sellsFor: number;
 }
 
 export interface BoatCardHandlers {
@@ -36,9 +35,7 @@ export interface BoatCardHandlers {
   plan(on: boolean): void;
   cycleStop(index: number): void;
   removeStop(index: number): void;
-  addBarge(): void;
   goStop(): void;
-  sell(): void;
 }
 
 /** The boats' route colour (the river's blue, darker so it reads on wood). */
@@ -107,14 +104,10 @@ export class BoatCard {
     stops.append(button(`chip text route-plan${v.planning ? " on" : ""}`, v.planning ? "Done" : "✎ Route", v.planning ? "Done planning" : "Plan this boat's route: tap landings in order", () => this.h.plan(!v.planning)));
     el.append(stops);
     const row = div("card-row boat-actions");
-    if (v.bargePrice !== null) {
-      const add = button("chip text", `+ Barge · ${v.bargePrice} 🪙`, "Another barge: 4 more loads", () => this.h.addBarge());
-      add.disabled = !v.canAddBarge;
-      row.append(add);
-    }
     const go = button(`chip text${v.going ? "" : " primary"}`, v.going ? `<span class="go-icon">■</span> Stop` : "Go", v.going ? "Stop the boat where it is" : "Set the boat going", () => this.h.goStop());
-    row.append(go, button("chip text", `Sell · ${v.sellsFor} 🪙`, "Sell the boat: half what it cost back", () => this.h.sell()));
+    row.append(go);
     el.append(row);
+    if (v.more) el.append(text("card-hint boat-more", v.more));
     el.append(button("close", "✕", "Close", () => this.h.close()));
   }
 }

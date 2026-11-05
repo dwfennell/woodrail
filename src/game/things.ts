@@ -97,6 +97,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // Water transport (docs/superpowers/specs/2026-11-04-water-transport.md): a river landing for the barges, a ferry
   // slip for the train ferry, and a lighthouse by a harbour (ships call twice as often).
   "piece:kit-landing": { label: "River landing", cost: { planks: 6 }, coins: 160, tech: "barges" },
+  "piece:kit-boatyard": { label: "Boatyard", cost: { planks: 8 }, coins: 180, tech: "barges" },
+  "piece:kit-shipyard": { label: "Shipyard", cost: { planks: 12, stone: 8 }, coins: 360, tech: "shipyards" },
   "piece:kit-ferry-slip": { label: "Ferry slip", cost: { planks: 10, stone: 6 }, coins: 300, tech: "ferry" },
   "prop:bldg-lighthouse": { label: "Lighthouse", cost: { planks: 6, stone: 6 }, tech: "lighthouse" },
   // The school, where blueprints are researched (src/game/research.ts): beside a town, one per town.

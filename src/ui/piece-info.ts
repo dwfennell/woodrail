@@ -102,6 +102,8 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-harbour-station": p("Harbour station", "A station by the water."),
   "kit-landing": p("River landing", "Trains and barges leave goods here for each other."),
   "kit-ferry-slip": p("Ferry slip", "Trains ride the ferry abroad from here."),
+  "kit-boatyard": p("Boatyard", "Builds tugs and barges from goods trains bring."),
+  "kit-shipyard": p("Shipyard", "Builds cargo ships and ferries from goods trains bring."),
   "kit-two-platform-station": p("Two-platform station", "A station on two lines."),
   "kit-grand-terminus": p("Grand terminus", "A big station at the end of the line."),
   "kit-engine-shed": p("Engine shed", "A home for engines to rest in."),

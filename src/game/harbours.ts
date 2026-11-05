@@ -257,7 +257,8 @@ export class HarbourTrade {
       }
       if (!boat) this.boats.set(d.id, (boat = { phase: "away", left: FIRST_BOAT, way: null, at }));
       // (Cargo ships, once learned: 24 loads at a town's full price. A lighthouse near: the wait between boats halved.)
-      const ship = p.learned.has("cargo-ships");
+      // (Once one's been built at a shipyard: src/game/yards.ts.)
+      const ship = p.learned.has("cargo-ships") && world.economy.shipsBuilt > 0;
       const every = this.everyFor(world, piece.pose, p);
       boat.left -= seconds;
       if (boat.left > 0) continue;

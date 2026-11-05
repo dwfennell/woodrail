@@ -2,7 +2,6 @@ import { capAt, CARGO, RECIPES, storeLetsIn, storeLetsOut, type BoatState, type 
 import { isWater, type Landscape } from "../landscape";
 import type { Pose } from "../track";
 import { depotPoint, QUAY } from "./harbours";
-import type { Progress } from "./progress";
 import type { World } from "./world";
 
 /**
@@ -19,10 +18,6 @@ export const BULK: readonly CargoKind[] = ["log", "stone", "coal", "ore", "grain
 export const BARGE_LOADS = 4;
 /** Most barges a tug tows. */
 export const MAX_BARGES = 3;
-/** A tug and one barge, bought at a landing (coins). */
-export const BOAT_PRICE = 80;
-/** Another barge for a tug (coins). */
-export const BARGE_PRICE = 40;
 /** Most boats on a map (draw calls: spec §8). */
 export const MAX_BOATS = 12;
 /** How fast a tug goes (mm/s): about half a goods engine's top speed. */
@@ -46,7 +41,7 @@ type Point = { x: number; z: number };
 export type Waters = Pick<World, "economy" | "layout" | "landscape">;
 
 /** Can boats call at this kind of depot (a dock)? */
-export const isDock = (d: DepotState | undefined): d is DepotState => d?.role === "landing" || d?.role === "harbour";
+export const isDock = (d: DepotState | undefined): d is DepotState => d?.role === "landing" || d?.role === "harbour" || d?.role === "boatyard";
 
 /** A good barges carry. */
 export const isBulk = (kind: CargoKind): boolean => BULK.includes(kind);
@@ -66,7 +61,7 @@ export function mooring(world: Waters, depotId: number): (Point & { heading: num
   const d = world.economy.depot(depotId);
   const piece = d && world.layout.getPiece(d.pieceId);
   if (!d || !piece) return null;
-  const at = d.role === "harbour" ? QUAY : { t: LANDING_MOOR.t, l: landingMoorL(world.landscape, piece.pose) };
+  const at = d.role === "harbour" ? QUAY : { t: d.role === "boatyard" ? LANDING_MOOR.t - 60 : LANDING_MOOR.t, l: landingMoorL(world.landscape, piece.pose) };
   return { ...depotPoint(piece.pose, at.t, at.l), heading: piece.pose.heading };
 }
 
@@ -254,18 +249,12 @@ export class Fleet {
     return this.all().filter((b) => b.home === depotId || b.stops.some((s) => s.depotId === depotId));
   }
 
-  /** Why a boat can't be bought at this dock (or null): coins, or the most on the map. */
-  whyNotBuy(depotId: number, p: Progress): string | null {
-    if (!isDock(this.economy.depot(depotId))) return "Boats are bought at a landing";
-    if (this.economy.boats.size >= MAX_BOATS) return `${MAX_BOATS} boats is the most`;
-    if (p.coins < BOAT_PRICE) return `A tug and a barge cost ${BOAT_PRICE} coins`;
-    return null;
-  }
-
-  /** Buy a tug and a barge at a dock: it waits there, its route that one stop, for the player to give it more. */
-  buy(depotId: number, p: Progress): BoatState | null {
-    if (this.whyNotBuy(depotId, p)) return null;
-    p.coins -= BOAT_PRICE;
+  /**
+   * A tug and its first barge, just built at a boatyard (src/game/yards.ts): it waits there, its route that one stop,
+   * for the player to give it more. Null at the most boats a map has.
+   */
+  launch(depotId: number): BoatState | null {
+    if (this.economy.boats.size >= MAX_BOATS || !isDock(this.economy.depot(depotId))) return null;
     const ids = [...this.economy.boats.keys()];
     const id = ids.length > 0 ? Math.max(...ids) + 1 : 1;
     const used = new Set(this.all().map((b) => b.name));
@@ -275,23 +264,9 @@ export class Fleet {
     return b;
   }
 
-  /** Another barge for a tug (up to `MAX_BARGES`), for `BARGE_PRICE` coins; false if it can't. */
-  addBarge(boatId: number, p: Progress): boolean {
-    const b = this.economy.boats.get(boatId);
-    if (!b || b.barges >= MAX_BARGES || p.coins < BARGE_PRICE) return false;
-    p.coins -= BARGE_PRICE;
-    b.barges++;
-    return true;
-  }
-
-  /** Sell a boat (half what it cost back); what it carried goes with it. */
-  sell(boatId: number, p: Progress): number {
-    const b = this.economy.boats.get(boatId);
-    if (!b) return 0;
-    const back = Math.floor((BOAT_PRICE + (b.barges - 1) * BARGE_PRICE) / 2);
-    p.coins += back;
+  /** Take a boat apart (its goods go with it): the card's Scrap. */
+  scrap(boatId: number): void {
     this.economy.boats.delete(boatId);
-    return back;
   }
 
   /** Can this boat get to this dock by water from where it is (its home dock's water)? */
@@ -540,7 +515,7 @@ export function depotLabel(world: Waters, depotId: number): string {
   const d = world.economy.depot(depotId);
   const piece = d && world.layout.getPiece(d.pieceId);
   if (!d || !piece) return "a dock";
-  const what = d.role === "harbour" ? "harbour" : "landing";
+  const what = d.role === "harbour" ? "harbour" : d.role === "boatyard" ? "boatyard" : "landing";
   let best: { name: string; dist: number } | null = null;
   for (const t of world.landscape.towns) {
     const dist = Math.hypot(t.centre.x - piece.pose.x, t.centre.z - piece.pose.z);

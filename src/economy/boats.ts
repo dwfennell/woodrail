@@ -14,6 +14,15 @@ export interface BoatStop {
   action: BoatStopAction;
 }
 
+/** What a yard builds: a tug (and its first barge), a barge for a tug, a cargo ship, a train ferry. */
+export type YardBuild = "tug" | "barge" | "ship" | "ferry";
+
+/** A yard's order: what it's building, and the goods gone into it so far. */
+export interface YardOrder {
+  build: YardBuild;
+  got: Partial<Record<CargoKind, number>>;
+}
+
 export interface BoatState {
   readonly id: number;
   name: string;

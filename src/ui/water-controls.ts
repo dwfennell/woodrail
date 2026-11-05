@@ -1,6 +1,8 @@
 import { describe as describeGoods } from "../economy/goods";
 import type { BoatState } from "../economy";
-import { BARGE_PRICE, BOAT_PRICE, BULK, capacityOf, depotLabel, loaded, MAX_BARGES, type Fleet } from "../game/boats";
+import { BULK, capacityOf, depotLabel, loaded, MAX_BARGES, type Fleet } from "../game/boats";
+import { BUILD_LABEL, cancel as cancelOrder, isYard, order as orderBuild, progressOf, stillNeeds, tickYards, whyNotOrder, YARD_BUILDS, YARD_COSTS } from "../game/yards";
+import type { YardBuild } from "../economy";
 import type { Game } from "../game/game";
 import type { Interaction } from "../game/interaction";
 import type { Progress } from "../game/progress";
@@ -53,30 +55,11 @@ export function attachWater(ctx: WaterContext): WaterControls {
       fleet.removeStop(open, i);
       ctx.saved();
     },
-    addBarge: () => {
-      const p = ctx.progress();
-      if (!fleet.addBarge(open, p)) {
-        hud.toast(p.coins < BARGE_PRICE ? `A barge costs ${BARGE_PRICE} coins: you have ${p.coins}` : `${MAX_BARGES} barges is the most a tug tows`, false, 3200);
-        return;
-      }
-      hud.setCoins(p.coins);
-      ctx.paid();
-      ctx.saved();
-    },
     goStop: () => {
       const b = game.economy.boats.get(open);
       if (!b) return;
       b.going = !b.going;
       ctx.saved();
-    },
-    sell: () => {
-      const p = ctx.progress();
-      const back = fleet.sell(open, p);
-      hud.setCoins(p.coins);
-      hud.toast(`Sold: ${back} coins back`);
-      ctx.paid();
-      ctx.saved();
-      hud.hideCards();
     },
   });
   hud.addCard(card.el);
@@ -107,7 +90,6 @@ export function attachWater(ctx: WaterContext): WaterControls {
   }
 
   function viewOf(b: BoatState): BoatCardView {
-    const p = ctx.progress();
     const n = loaded(b);
     const what = BULK.filter((k) => (b.load[k] ?? 0) > 0);
     const load = n === 0 ? "Empty: barges carry logs, stone, coal, ore and grain" : `Carrying ${n} of ${capacityOf(b)}: ${describeGoods(Object.fromEntries(what.map((k) => [k, b.load[k]])))}`;
@@ -121,74 +103,103 @@ export function attachWater(ctx: WaterContext): WaterControls {
       status: fleet.status(b),
       stops: b.stops.map((s, i) => ({ label: depotLabel(game, s.depotId), action: s.action, current: i === current })),
       planning,
-      bargePrice: b.barges < MAX_BARGES ? BARGE_PRICE : null,
-      canAddBarge: b.barges < MAX_BARGES && p.coins >= BARGE_PRICE,
+      more: b.barges < MAX_BARGES ? "More barges: build them at a boatyard (each carries 4 loads)." : "",
       going: b.going,
-      sellsFor: Math.floor((BOAT_PRICE + (b.barges - 1) * BARGE_PRICE) / 2),
     };
   }
 
-  /** The open landing's boats row, as drawn (a key), so it's made again only when it changes. */
-  let landingShown = "";
-  function showLanding(): void {
+  /** The open dock's or yard's row (its boats; a yard's build), as drawn (a key): made again only when it changes. */
+  let dockShown = "";
+  function showDock(): void {
     const id = ctx.isGame() ? interaction.openDepotId : -1;
     const d = id === -1 ? undefined : game.economy.depot(id);
-    if (!d || d.role !== "landing" || !hud.depotCardOpen) {
-      landingShown = "";
+    const role = d?.role;
+    if (!d || !hud.depotCardOpen || (role !== "landing" && role !== "boatyard" && role !== "shipyard")) {
+      dockShown = "";
       return;
     }
-    const boats = fleet.callingAt(id);
-    const why = fleet.whyNotBuy(id, ctx.progress());
-    const key = `${id}|${boats.map((b) => `${b.id}:${b.name}:${b.docked && b.stops[b.from]?.depotId === id}`).join()}|${why}`;
+    const boats = role === "shipyard" ? [] : fleet.callingAt(id);
+    const o = game.economy.yardOrders.get(id);
+    const builds = isYard(d) ? YARD_BUILDS[d.role as "boatyard" | "shipyard"] : [];
+    const whys = builds.map((b) => whyNotOrder(game, d, b));
+    const key = `${id}|${boats.map((b) => `${b.id}:${b.name}`).join()}|${o ? `${o.build}:${JSON.stringify(o.got)}` : ""}|${whys.join()}|${game.economy.shipsBuilt},${game.economy.ferriesBuilt}`;
     const box = hud.depotExtra;
-    if (key === landingShown && box.querySelector("[data-landing]")) return;
-    landingShown = key;
+    if (key === dockShown && box.querySelector("[data-dock]")) return;
+    dockShown = key;
     box.hidden = false;
     box.innerHTML = "";
     const row = document.createElement("div");
     row.className = "landing-boats";
-    row.dataset.landing = String(id);
-    const label = document.createElement("div");
-    label.className = "card-hint";
-    label.textContent = boats.length > 0 ? "Boats here:" : "Buy a tug and a barge here, then give it a route to another landing on this river.";
-    row.append(label);
-    const chips = document.createElement("div");
-    chips.className = "card-row landing-boat-chips";
-    for (const b of boats) {
-      const chip = document.createElement("button");
-      chip.className = "chip text";
-      chip.textContent = `⛵ ${b.name}`;
-      chip.title = `${b.name}'s card`;
-      chip.addEventListener("click", (e) => {
+    row.dataset.dock = String(id);
+    const line = (cls: string, text: string) => {
+      const e = document.createElement("div");
+      e.className = cls;
+      e.textContent = text;
+      row.append(e);
+      return e;
+    };
+    if (o) {
+      // Under way: the hull on the ways, and the goods still to come by train (as a town's building under way).
+      const left = stillNeeds(o);
+      line("yard-building", `Building ${aOrAnLabel(o.build)}: ${Math.round(progressOf(o) * 100)}% done`);
+      line("card-hint yard-needs", Object.keys(left).length > 0 ? `Still to come by train: ${describeGoods(left)}` : "Launching!");
+      const stop = document.createElement("button");
+      stop.className = "chip text yard-cancel";
+      stop.textContent = "Stop building";
+      stop.title = "Stop building: the goods gone into it are lost";
+      stop.addEventListener("click", (e) => {
         e.stopPropagation();
-        openBoat(b.id);
+        cancelOrder(game, id);
+        ctx.saved();
       });
-      chips.append(chip);
+      row.append(stop);
+    } else if (builds.length > 0) {
+      line("card-hint", role === "boatyard" ? "Build a boat: trains bring the goods here, and it slides into the river when it's done." : "Build a ship: trains bring the goods here, and it's launched into the sea when it's done.");
+      const chips = document.createElement("div");
+      chips.className = "card-row yard-builds";
+      builds.forEach((b, k) => {
+        const btn = document.createElement("button");
+        btn.className = "chip text yard-build";
+        btn.dataset.build = b;
+        btn.textContent = `${BUILD_LABEL[b]}: ${describeGoods(YARD_COSTS[b])}`;
+        btn.title = whys[k] ?? `Build ${aOrAnLabel(b)} here`;
+        btn.disabled = !!whys[k];
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (!orderBuild(game, d, b)) {
+            hud.toast(whyNotOrder(game, d, b) ?? "The yard can't build that now", false, 3200);
+            return;
+          }
+          ctx.saved();
+        });
+        chips.append(btn);
+      });
+      row.append(chips);
     }
-    const buy = document.createElement("button");
-    buy.className = "chip text primary landing-buy";
-    buy.innerHTML = `⛵ New barge · ${BOAT_PRICE} <span aria-label="coins">🪙</span>`;
-    buy.title = why ?? "A tug and a barge, bought here";
-    buy.disabled = !!why && !why.includes("coins");
-    buy.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const p = ctx.progress();
-      const b = fleet.buy(id, p);
-      if (!b) {
-        hud.toast(fleet.whyNotBuy(id, p) ?? "Can't buy a boat here", false, 3200);
-        return;
+    if (role === "shipyard") line("card-hint", `Built here: ${game.economy.shipsBuilt} cargo ship${game.economy.shipsBuilt === 1 ? "" : "s"}, ${game.economy.ferriesBuilt} train ferr${game.economy.ferriesBuilt === 1 ? "y" : "ies"}.`);
+    if (role !== "shipyard") {
+      line("card-hint", boats.length > 0 ? "Boats here:" : role === "landing" ? "Tugs and barges are built at a boatyard: give one a route to call here." : "");
+      const chips = document.createElement("div");
+      chips.className = "card-row landing-boat-chips";
+      for (const b of boats) {
+        const chip = document.createElement("button");
+        chip.className = "chip text";
+        chip.textContent = `⛵ ${b.name}`;
+        chip.title = `${b.name}'s card`;
+        chip.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openBoat(b.id);
+        });
+        chips.append(chip);
       }
-      // (It loads at its landing at once: what's on the jetty for it.)
-      fleet.serve(b, b.stops[0]);
-      hud.setCoins(p.coins);
-      ctx.paid();
-      ctx.saved();
-      game.invalidate();
-      openBoat(b.id);
-    });
-    chips.append(buy);
-    row.append(chips);
+      row.append(chips);
+    }
     box.append(row);
+  }
+
+  /** "a tug and a barge", "a cargo ship". */
+  function aOrAnLabel(b: YardBuild): string {
+    return `a ${BUILD_LABEL[b].toLowerCase()}`;
   }
 
   interaction.boatAt = (x, y) => (ctx.isGame() && game.economy.boats.size > 0 ? game.riverBoats.boatAt(x, y, game.camera, game.canvas.getBoundingClientRect()) : -1);
@@ -196,7 +207,7 @@ export function attachWater(ctx: WaterContext): WaterControls {
 
   return {
     frame() {
-      showLanding();
+      showDock();
       if (open === -1) return;
       const b = game.economy.boats.get(open);
       if (card.el.hidden || !b) {
@@ -216,6 +227,12 @@ export function attachWater(ctx: WaterContext): WaterControls {
         if (e.kind === "boarded") hud.toast(e.sold > 0 ? `Off abroad on the ferry: its ${e.sold} loads sold for ${e.coins} coins` : "Off abroad on the ferry", false, 3600);
         else hud.toast(Object.keys(e.goods).length > 0 ? `Back from abroad with ${describeGoods(e.goods)} (${e.coins} coins)` : "Back from abroad", false, 3600);
         game.invalidate();
+      }
+      // The yards: goods into their hulls; a finished one slides into the water.
+      for (const e of tickYards(game.world, fleet)) {
+        game.yardsView.launch(e.depotId, e.build);
+        hud.toast(`Launched: ${aOrAnLabel(e.build)}!`, true, 3600);
+        ctx.saved();
       }
       const events = fleet.tick(seconds);
       fleet.tickedAt = game.simSeconds;

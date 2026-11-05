@@ -392,6 +392,88 @@ function ferrySlip(k: Kit): Group {
   return g;
 }
 
+// ——— Yards: where boats are built ———
+
+/** A yard's berth: where a hull being built lies, along its line, on cradles at the water's edge (z out from the line). */
+export const YARD_BERTH = { boatyard: { x: 30, z: 52 }, shipyard: { x: 0, z: 66 } } as const;
+
+/** Timber cradles and the greased ways a hull slides down sideways into the water (`len` along x, from z0 out to z1). */
+function ways(k: Kit, x: number, len: number, z0: number, z1: number, top: number): Group {
+  const g = new Group();
+  const run = z1 - z0;
+  const drop = top;
+  const slope = Math.atan2(drop, run);
+  for (const dx of [-len * 0.35, 0, len * 0.35]) {
+    const plank = k.box(k.wood, 8, 3, Math.hypot(run, drop), 0.6, 0, 0, 0);
+    plank.position.set(x + dx, top / 2, (z0 + z1) / 2);
+    plank.rotation.x = slope;
+    g.add(plank);
+    // A cradle block under the hull, at the top of the ways.
+    g.add(k.box(k.paint(TOY.brown), 10, 6, 12, 1, x + dx, top - 2, z0 + 6));
+  }
+  return g;
+}
+
+/** A yard's stacked goods: planks and iron bars waiting to go into a hull. */
+function yardGoods(k: Kit, x: number, y: number, z: number): Group {
+  const g = new Group();
+  for (let i = 0; i < 4; i++) g.add(k.box(k.wood, 30, 2.6, 12, 0.4, x, y + i * 2.8, z));
+  for (let i = 0; i < 3; i++) g.add(k.box(k.paint(TOY.grey), 22, 3, 4, 0.4, x + 22, y + i * 3.2, z - 4 + i * 4));
+  return g;
+}
+
+function boatyard(k: Kit): Group {
+  const g = landing(k);
+  // (The landing's base: its siding, quay and jetty. Its shed and crates make way for the yard's own.)
+  for (const c of [...g.children]) if (c.position.x > 40 && c.position.x < 100 && c.position.z > -10 && c.position.z < 25 && c.position.y >= QUAY) g.remove(c);
+  const b = YARD_BERTH.boatyard;
+  g.add(ways(k, b.x, 80, b.z - 18, b.z + 26, QUAY));
+  // An open boat shed over the berth's back: posts and a red roof.
+  for (const x of [b.x - 44, b.x + 44]) for (const z of [-14, 22]) g.add(k.cyl(k.wood, 1.8, 34, x, QUAY, z, 1.8, 10));
+  g.add(k.roof(k.paint(TOY.red), 100, 44, 12, b.x, QUAY + 34, 4));
+  g.add(yardGoods(k, -60, QUAY, 10));
+  return g;
+}
+
+function shipyard(k: Kit): Group {
+  const g = new Group();
+  const sea = k.box(k.water, 260, 1.2, 90, 0.6, 0, -0.4, 110);
+  sea.userData.underlay = true;
+  g.add(sea);
+  g.add(k.trackSlab(216, 0, 0, -40));
+  // The yard: a wide stone quay, the ship's berth on its cradles at the water's edge.
+  g.add(k.box(k.paint(STONE), 216, QUAY, 70, 1.5, 0, 0, 12));
+  const b = YARD_BERTH.shipyard;
+  g.add(ways(k, b.x, 220, b.z - 22, b.z + 40, QUAY));
+  // A red gantry crane straddling the berth, its trolley over the hull.
+  for (const x of [-110, 110]) for (const z of [20, 104]) g.add(k.box(k.paint(TOY.red), 6, 70, 6, 1, x, 0, z));
+  for (const z of [20, 104]) g.add(k.box(k.paint(TOY.red), 226, 6, 6, 1, 0, 70, z));
+  const trolley = pivot("trolley", 0, 76, 62, k.box(k.paint(TOY.yellow), 16, 8, 92, 1, 0, 0, 0), k.cyl(k.paint(TOY.black), 0.6, 30, 0, -30, 0, 0.6, 6), k.box(k.paint(TOY.orange), 8, 6, 8, 1, 0, -36, 0));
+  g.add(trolley);
+  // A brick shed at the back, and goods waiting.
+  g.add(k.box(k.paint("#b5553a"), 50, 26, 22, 2, -70, QUAY, -8), k.roof(k.paint(TOY.grey), 54, 26, 10, -70, QUAY + 26, -8));
+  g.add(yardGoods(k, 40, QUAY, -8));
+  return g;
+}
+
+/** A hull being built (`stage` 0: a keel and its ribs; 1: planked, unpainted), `len` × `w`, lying along x. */
+function hullFrame(k: Kit, len: number, w: number, h: number, stage: 0 | 1): Group {
+  const g = new Group();
+  g.add(k.box(k.paint(TOY.brown), len, 3, 6, 0.8, 0, 0, 0));
+  const n = Math.round(len / 12);
+  for (let i = 0; i <= n; i++) {
+    const x = -len / 2 + (i * len) / n;
+    const f = 1 - (Math.abs(x) / (len / 2)) ** 3 * (x > 0 ? 0.8 : 0.2);
+    const half = (w / 2) * f;
+    for (const s of [-1, 1]) g.add(k.box(k.wood, 2.4, h, 2.4, 0.4, x, 2, s * half));
+    g.add(k.box(k.wood, 2.4, 2, half * 2, 0.4, x, 2, 0));
+  }
+  // Scaffolding poles at the corners.
+  for (const s of [-1, 1]) for (const x of [-len / 2 - 6, len / 2 + 6]) g.add(k.cyl(k.wood, 1, h + 14, x, 0, s * (w / 2 + 6), 1, 8));
+  if (stage === 1) g.add(flat(k, k.wood, hullOutline(len, w, 1), h * 0.7, 2));
+  return g;
+}
+
 // ——— The assets ———
 
 const BARGES: [BargeLoad, string, string][] = [
@@ -451,6 +533,58 @@ export const ASSETS: Asset[] = [
       const j = part(root, "jib");
       if (j) j.rotation.y = -1.2 + Math.sin(t * 0.4) * 0.5;
     },
+  },
+  {
+    id: "water-boatyard",
+    name: "Boatyard",
+    category: "Stations & buildings",
+    tags: ["boatyard", "slipway", "river", "tug", "barge", "water"],
+    notes: "A riverside yard with a siding, an open boat shed and greased ways down to the water: trains bring it planks and iron, and tugs and barges are built there and slide into the river.",
+    build: boatyard,
+  },
+  {
+    id: "water-shipyard",
+    name: "Shipyard",
+    category: "Stations & buildings",
+    tags: ["shipyard", "slipway", "sea", "ship", "ferry", "gantry", "water"],
+    notes: "A seaside yard with a red gantry crane over a long berth: trains bring it iron, planks and tools, and cargo ships and ferries are built there and launched sideways into the sea.",
+    build: shipyard,
+    animate: (root, t) => {
+      const tr = part(root, "trolley");
+      if (tr) tr.position.x = Math.sin(t * 0.3) * 60;
+    },
+  },
+  {
+    id: "water-tug-frame",
+    name: "Tug being built",
+    category: "Vehicles",
+    tags: ["tug", "hull", "frame", "boatyard", "water"],
+    notes: "A tug's keel and ribs on the boatyard's ways: half built.",
+    build: (k) => hullFrame(k, TUG_LEN, TUG_W, 10, 0),
+  },
+  {
+    id: "water-tug-planked",
+    name: "Tug, planked",
+    category: "Vehicles",
+    tags: ["tug", "hull", "boatyard", "water"],
+    notes: "A tug's hull planked, nearly done: next it's painted and slides into the river.",
+    build: (k) => hullFrame(k, TUG_LEN, TUG_W, 10, 1),
+  },
+  {
+    id: "water-ship-frame",
+    name: "Ship being built",
+    category: "Vehicles",
+    tags: ["ship", "hull", "frame", "shipyard", "water"],
+    notes: "A cargo ship's keel and ribs on the shipyard's ways, under the gantry: half built.",
+    build: (k) => hullFrame(k, SHIP_LEN, SHIP_W, 16, 0),
+  },
+  {
+    id: "water-ship-planked",
+    name: "Ship, planked",
+    category: "Vehicles",
+    tags: ["ship", "hull", "shipyard", "water"],
+    notes: "A ship's hull planked, nearly done: next it's painted and launched sideways into the sea.",
+    build: (k) => hullFrame(k, SHIP_LEN, SHIP_W, 16, 1),
   },
   {
     id: "water-ferry-slip",

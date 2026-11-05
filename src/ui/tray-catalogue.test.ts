@@ -107,7 +107,7 @@ describe("Game mode's railway kits on the tray", () => {
     const yard = keys(tab("industries").groups.find((g) => g.label === "Yard")!);
     // (Water transport's landing and ferry slip are real depots in Game mode: on the Water shelf.)
     const water = keys(tab("industries").groups.find((g) => g.label === "Water")!);
-    for (const id of Object.keys(THING_RULES)) if (id.startsWith("piece:kit-") && kitOf(id.slice(6) as PieceTypeId)?.depot) expect(id === "piece:kit-landing" || id === "piece:kit-ferry-slip" ? water : yard, id).toContain(id);
+    for (const id of Object.keys(THING_RULES)) if (id.startsWith("piece:kit-") && kitOf(id.slice(6) as PieceTypeId)?.depot) expect(["piece:kit-landing", "piece:kit-ferry-slip", "piece:kit-boatyard", "piece:kit-shipyard"].includes(id) ? water : yard, id).toContain(id);
     expect(yard).toContain("piece:kit-goods-shed");
   });
 

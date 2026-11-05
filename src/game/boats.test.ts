@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy";
 import { SURF_RIVER } from "../landscape";
-import { BARGE_LOADS, BARGE_PRICE, BOAT_PRICE, BOAT_SPEED, DOCK_SECONDS, Fleet, landingWhy, MAX_BARGES, waterAt, waterPath } from "./boats";
+import { BARGE_LOADS, BOAT_SPEED, DOCK_SECONDS, Fleet, landingWhy, MAX_BARGES, waterAt, waterPath } from "./boats";
 import { siteWhy } from "./industries";
 import { Progress } from "./progress";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
@@ -57,29 +57,19 @@ describe("river landings", () => {
 });
 
 describe("boats", () => {
-  it("are bought at a landing for coins, with one barge, and take more barges up to three", () => {
-    const { A, progress, fleet } = setup();
-    const b = fleet.buy(A, progress)!;
-    expect(progress.coins).toBe(500 - BOAT_PRICE);
-    expect([b.barges, b.stops.map((s) => s.depotId), b.docked]).toEqual([1, [A], true]);
-    for (let i = 1; i < MAX_BARGES; i++) expect(fleet.addBarge(b.id, progress)).toBe(true);
-    expect(fleet.addBarge(b.id, progress)).toBe(false);
-    expect(progress.coins).toBe(500 - BOAT_PRICE - (MAX_BARGES - 1) * BARGE_PRICE);
-  });
-
-  it("can't be bought without the coins", () => {
-    const { A, progress, fleet } = setup();
-    progress.coins = BOAT_PRICE - 1;
-    expect(fleet.whyNotBuy(A, progress)).toMatch(/coins/);
-    expect(fleet.buy(A, progress)).toBeNull();
+  it("are launched at a dock with one barge, waiting there, their route that one stop", () => {
+    const { A, fleet } = setup();
+    const b = fleet.launch(A)!;
+    expect([b.barges, b.stops.map((s) => s.depotId), b.docked, b.home]).toEqual([1, [A], true, A]);
+    expect(MAX_BARGES).toBe(3);
   });
 
   it("find their way by water between landings, and only to docks on the same water", () => {
-    const { w, a, b, A, B, progress, fleet } = setup();
+    const { w, a, b, A, B, fleet } = setup();
     const way = waterPath(w.landscape, a, b)!;
     expect(way.length).toBeGreaterThan(2);
     for (const p of way.slice(1, -1)) expect(waterAt(w.landscape, p), "every point of the way on the water").not.toBe(-1);
-    const boat = fleet.buy(A, progress)!;
+    const boat = fleet.launch(A)!;
     expect(fleet.addStop(boat.id, B)).toBeNull();
     // A station is no dock.
     const station = w.economy.depotAtPiece(w.stations.get(w.landscape.towns[0].id)!)!.id;
@@ -88,12 +78,12 @@ describe("boats", () => {
   });
 
   it("carry logs down the river: picked up at one landing, dropped at the other, by the clock", () => {
-    const { w, A, B, progress, fleet } = setup();
+    const { w, A, B, fleet } = setup();
     const from = w.economy.depot(A)!;
     const to = w.economy.depot(B)!;
     from.piles[CARGO.log.index] = 10;
-    const boat = fleet.buy(A, progress)!;
-    fleet.addBarge(boat.id, progress);
+    const boat = fleet.launch(A)!;
+    boat.barges++;
     fleet.addStop(boat.id, B);
     expect(boat.stops.map((s) => s.action)).toEqual(["pick", "drop"]);
     // (Picking up happens on arriving: it was bought there, so it takes its first load when it next calls. Serve it now
@@ -118,19 +108,19 @@ describe("boats", () => {
   });
 
   it("carry only bulk goods: planks stay on the jetty", () => {
-    const { w, A, progress, fleet } = setup();
+    const { w, A, fleet } = setup();
     const from = w.economy.depot(A)!;
     from.piles[CARGO.planks.index] = 5;
     from.piles[CARGO.stone.index] = 2;
-    const boat = fleet.buy(A, progress)!;
+    const boat = fleet.launch(A)!;
     fleet.serve(boat, boat.stops[0]);
     expect(boat.load).toEqual({ stone: 2 });
     expect(from.piles[CARGO.planks.index]).toBe(5);
   });
 
   it("stop where they are when stopped, and hold still with no time passing (a paused game)", () => {
-    const { A, B, progress, fleet } = setup();
-    const boat = fleet.buy(A, progress)!;
+    const { A, B, fleet } = setup();
+    const boat = fleet.launch(A)!;
     fleet.addStop(boat.id, B);
     for (let i = 0; i < DOCK_SECONDS + 5; i++) fleet.tick(1);
     expect(boat.docked).toBe(false);
@@ -144,8 +134,8 @@ describe("boats", () => {
   });
 
   it("drop a landing taken up from their route, and go when no dock is left", () => {
-    const { w, A, B, progress, fleet } = setup();
-    const boat = fleet.buy(A, progress)!;
+    const { w, A, B, fleet } = setup();
+    const boat = fleet.launch(A)!;
     fleet.addStop(boat.id, B);
     w.layout.removePiece(w.economy.depot(B)!.pieceId);
     fleet.tick(1);
@@ -155,23 +145,21 @@ describe("boats", () => {
     expect(w.economy.boats.size).toBe(0);
   });
 
-  it("sell for half what they cost", () => {
-    const { A, progress, fleet } = setup();
-    const boat = fleet.buy(A, progress)!;
-    fleet.addBarge(boat.id, progress);
-    const before = progress.coins;
-    expect(fleet.sell(boat.id, progress)).toBe((BOAT_PRICE + BARGE_PRICE) / 2);
-    expect(progress.coins).toBe(before + (BOAT_PRICE + BARGE_PRICE) / 2);
+  it("are scrapped from their card: gone, with what they carried", () => {
+    const { w, A, fleet } = setup();
+    const boat = fleet.launch(A)!;
+    fleet.scrap(boat.id);
+    expect(w.economy.boats.size).toBe(0);
   });
 });
 
 describe("boats in a save", () => {
   it("come back where they were: their route, barges, load and how far they'd sailed", async () => {
     const { deserializeWorld, serializeWorld } = await import("../persist/save");
-    const { w, A, B, progress, fleet } = setup();
+    const { w, A, B, fleet } = setup();
     w.economy.depot(A)!.piles[CARGO.coal.index] = 3;
-    const boat = fleet.buy(A, progress)!;
-    fleet.addBarge(boat.id, progress);
+    const boat = fleet.launch(A)!;
+    boat.barges++;
     fleet.addStop(boat.id, B);
     fleet.serve(boat, boat.stops[0]);
     for (let i = 0; i < DOCK_SECONDS + 4; i++) fleet.tick(1);

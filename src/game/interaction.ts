@@ -2695,7 +2695,7 @@ export class Interaction {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
       // (A town's station upgraded to a big station's kit still opens its town's card.)
-      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId) && depot.role !== "landing" && depot.role !== "slip";
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId) && depot.role !== "landing" && depot.role !== "slip" && depot.role !== "boatyard" && depot.role !== "shipyard";
       const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
       else if (ruin !== -1 && this.onRuinTap) {
@@ -6059,7 +6059,7 @@ export class Interaction {
         if (road !== -1) return { kind: "lever", pieceId: kitPiece, road };
         // (A river landing's or a ferry slip's model, its quay or pier: the piece, whose card a tap opens.)
         const role = g.economy.depotAtPiece(kitPiece)?.role;
-        if (role === "landing" || role === "slip") return { kind: "piece", pieceId: kitPiece };
+        if (role === "landing" || role === "slip" || role === "boatyard" || role === "shipyard") return { kind: "piece", pieceId: kitPiece };
         continue;
       }
       // A level crossing's style (its barriers or gates) is its prop's.

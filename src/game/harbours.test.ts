@@ -79,6 +79,13 @@ describe("harbours", () => {
     d.piles[CARGO.stone.index] = 10;
     const p = Progress.fresh();
     p.learned.add("cargo-ships");
+    // Learned, but none built yet: the rowing boat still calls.
+    const before = new HarbourTrade();
+    for (let t = 1; t <= 60; t++) for (const e of before.update(w, p)) expect(e.kind === "arrive" && e.ship).toBeFalsy();
+    d.piles[CARGO.planks.index] = 20;
+    d.piles[CARGO.stone.index] = 10;
+    // One built at a shipyard: it calls instead.
+    w.economy.shipsBuilt = 1;
     const trade = new HarbourTrade();
     const log: { t: number; e: HarbourEvent }[] = [];
     for (let t = 1; t <= 400; t++) for (const e of trade.update(w, p)) log.push({ t, e });

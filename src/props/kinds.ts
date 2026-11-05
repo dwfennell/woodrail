@@ -19,6 +19,10 @@ const WATER: ReadonlySet<string> = new Set([
   "water-barge-grain",
   "water-cargo-ship",
   "water-train-ferry",
+  "water-tug-frame",
+  "water-tug-planked",
+  "water-ship-frame",
+  "water-ship-planked",
   "life-swans",
   "life-fish-jumping",
 ]);
@@ -36,6 +40,8 @@ const ANY: ReadonlySet<string> = new Set([
   "mech-trestle",
   "mech-river-ford",
   "water-landing",
+  "water-boatyard",
+  "water-shipyard",
   "water-ferry-slip",
   "life-ducks",
 ]);

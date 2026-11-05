@@ -611,7 +611,7 @@ export const GOALS: readonly Goal[] = [
   {
     id: "float-goods",
     title: "Float goods down the river",
-    hint: "Build a river landing (Industries, Water), buy a barge on its card and route it to another landing on the river.",
+    hint: "Build a boatyard and a landing (Industries, Water), bring the boatyard planks and iron by train for a tug and a barge, and route it to the landing.",
     needs: ["barges"],
     blueprint: "barges",
     ring: "kit-landing",
@@ -627,7 +627,7 @@ export const GOALS: readonly Goal[] = [
   {
     id: "ship-abroad",
     title: "Send a ship abroad",
-    hint: "Leave goods on a harbour's quay: the next cargo ship takes them, at a town's full price.",
+    hint: "Build a cargo ship at a shipyard, and leave goods on a harbour's quay: it takes them, at a town's full price.",
     needs: ["cargo-ships"],
     blueprint: "cargo-ships",
     check: (w) => ({ done: w.economy.shipLoads > 0 }),
