@@ -8,6 +8,7 @@ import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
 import { shot } from "./lib/shot.mjs";
+import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -25,6 +26,9 @@ async function boot() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
+  watchBrowser(b);
+  watchServer(server);
   // (Industries' axes and saws held still: none of this tests them, and in view they kept `settled()` waiting its 60 s.)
   stillIndustriesIn(b);
 }
@@ -5214,12 +5218,15 @@ const closeFixture = async () => {
 const inMode = (mode, fn, { settle = true } = {}) => async () => {
   if (!fixture || fixture.mode !== mode || FRESH) {
     await closeFixture();
+    const opening = Date.now();
     try {
       fixture = await openMode(mode, { settle });
     } catch (e) {
-      // (As before the groups: a page that can't open fails "<mode>: ran to the end".)
-      await closeFixture();
+      // (As before the groups: a page that can't open fails "<mode>: ran to the end". What the page and the dev server
+      // did meanwhile, printed after it: a crash, a navigation, a reload.)
       check(`${mode}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
+      printEvents(opening, `${mode}: page and server events while it opened`);
+      await closeFixture();
       return;
     }
   }

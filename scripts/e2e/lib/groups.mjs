@@ -26,6 +26,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { printEvents } from "./page-watch.mjs";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".e2e-cache");
@@ -164,6 +165,8 @@ export function groups(suite, { results, errors = [], check }) {
         const seconds = Math.round((Date.now() - t0) / 1000);
         const ok = mine.every((r) => r.ok) && errors.length === e0;
         console.log(`group ${g.name}: ${ok ? "pass" : "FAIL"} (${mine.length} checks, ${seconds}s)${errors.length > e0 ? ` — page errors: ${errors.slice(e0).join(" | ")}` : ""}`);
+        // (What the pages and the dev server did meanwhile, for a suite that watches them: lib/page-watch.mjs.)
+        if (!ok) printEvents(t0, `${g.name}: page and server events while it ran`);
         if (ok && mine.length) {
           state.groups[g.name] = { checks: mine.length, seconds, at: new Date().toISOString() };
           save();
