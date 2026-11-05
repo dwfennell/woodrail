@@ -5,17 +5,17 @@ import { AMBIENT_MIN_PX, type AmbientEye } from "./ambient";
 import { shadowLook } from "./shadow-strength";
 
 /** The catalogue models (they face +x and stand on y = 0, about 70–85 mm long: drawn at `SCALE`). */
-export const VEHICLE_ASSET: Record<VehicleKind, string> = { van: "veh-delivery-van", bus: "veh-town-bus", car: "veh-family-car" };
+export const VEHICLE_ASSET: Record<VehicleKind, string> = { van: "veh-delivery-van", bus: "veh-town-bus", car: "veh-family-car", post: "veh-post-van" };
 /** Drawn at about half the catalogue's size: a van fits its side of a road (felt 56 mm wide). */
 const SCALE = 0.5;
 /** Room round a vehicle's middle for the whole of it, asking if it's in view. */
 const REACH = 60;
 /** A vehicle's length as drawn (mm), for the ambient rule: one smaller on screen than `AMBIENT_MIN_PX.vehicle` moves on unseen. */
 const SIZE = 40;
-const KINDS: readonly VehicleKind[] = ["van", "bus", "car"];
-const CAP = VEHICLE_CAP.van + VEHICLE_CAP.bus + VEHICLE_CAP.car;
+const KINDS: readonly VehicleKind[] = ["van", "bus", "car", "post"];
+const CAP = VEHICLE_CAP.van + VEHICLE_CAP.bus + VEHICLE_CAP.car + VEHICLE_CAP.post;
 /**
- * A town's cars (life on its streets, not a delivery) ask for frames only this near the camera (mm): further off
+ * A town's cars and post vans (life on its streets, not a delivery) ask for frames only this near the camera (mm): further off
  * they're too small to see drive, and move on unseen (as the touches do: `TOUCH_REACH`). Nearer, they're ambient
  * motion like the vans and buses: on screen and at least `AMBIENT_MIN_PX.vehicle` across (`AmbientEye`).
  */
@@ -162,7 +162,7 @@ export class RoadVehiclesView {
       if (was && was[0] === v.x && was[1] === v.z && was[2] === v.heading) continue;
       this.drawnAt.set(v, [v.x, v.z, v.heading]);
       if (inView || !frustum.intersectsSphere(sphere.set(p.set(v.x, v.y, v.z), REACH))) continue;
-      if (v.kind === "car" && camera.position.distanceTo(p) > CAR_REACH) continue;
+      if ((v.kind === "car" || v.kind === "post") && camera.position.distanceTo(p) > CAR_REACH) continue;
       if (eye && eye.pixels(v.x, v.y, v.z, SIZE) < AMBIENT_MIN_PX.vehicle) continue;
       inView = true;
     }

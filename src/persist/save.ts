@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, CARGO_SLOTS, Economy, givesChoice, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
@@ -130,14 +130,14 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", ...KIT_DEPOT_ROLES]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", "postoffice", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
       /** A workshop that takes all the planks trains bring, or a school set to Research first (optional: absent, it shares with towns further on). */
       takesAll: z.literal(true).optional(),
       /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
-      piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_KINDS.length),
+      piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_SLOTS),
       timer: z.number().int().min(0),
       /** People waiting at a town's station. */
       waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
@@ -155,7 +155,7 @@ const saveSchema = z.object({
        */
       keeps: z.partialRecord(z.enum(CARGO_KINDS as [CargoKind, ...CargoKind[]]), z.number().int().min(0).max(MAX_PILE)).optional(),
       /** Of its piles, what's landed there for trains to take away (a harbour's bought goods), in cargo order. */
-      landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_KINDS.length).optional(),
+      landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_SLOTS).optional(),
       /** A station's van yard (roads spec D5): goods waiting for its delivery van (or riding it), by kind. */
       vanYard: z.record(z.string(), z.number().int().min(0).max(MAX_PILE)).optional(),
       /**

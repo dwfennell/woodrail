@@ -9,8 +9,8 @@ import { joinFrom } from "./road-paths";
  * Nothing when idle: a parked vehicle isn't ticked at all (`moving` is 0, and `tick` returns at once).
  */
 
-/** Vans and buses (roads spec §3), and the cars a town bought (tech tree 3: `TownCars`). */
-export type VehicleKind = "van" | "bus" | "car";
+/** Vans and buses (roads spec §3), and the cars a town bought (tech tree 3: `TownCars`) and its post vans (Post office). */
+export type VehicleKind = "van" | "bus" | "car" | "post";
 
 /**
  * Where a vehicle is in its trip: parked at home, loading at home (about to leave: a timer, no moving), driving out,
@@ -62,9 +62,9 @@ export interface RoadVehicle {
 }
 
 /** mm per second: a little slower than a train (`ENGINE_SPEED` 120). */
-export const VEHICLE_SPEED: Record<VehicleKind, number> = { van: 90, bus: 80, car: 100 };
+export const VEHICLE_SPEED: Record<VehicleKind, number> = { van: 90, bus: 80, car: 100, post: 90 };
 /** Most vehicles of each kind on a map (spec §3: one InstancedMesh each, whatever the number). */
-export const VEHICLE_CAP: Record<VehicleKind, number> = { van: 8, bus: 4, car: 8 };
+export const VEHICLE_CAP: Record<VehicleKind, number> = { van: 8, bus: 4, car: 8, post: 8 };
 /** Seconds a vehicle stands at the far end before coming back. */
 export const DWELL = 1.5;
 

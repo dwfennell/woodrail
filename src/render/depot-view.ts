@@ -258,6 +258,15 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  postoffice: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      mail: { t: 46, l: 64, y: YARD, across: 3, axis: "t" },
+      post: { t: 74, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   icecream: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -498,6 +507,11 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
   carworks: [
     { asset: "bldg-goods-shed", t: 162, l: 86 },
     { asset: "veh-family-car", t: 116, l: 100, turn: 0.4, scale: 0.6 },
+  ],
+  // The post office: the catalogue's, a postie with a sack at its door.
+  postoffice: [
+    { asset: "bldg-post-office", t: 160, l: 86 },
+    { asset: "life-postie", t: 116, l: 100, turn: 0.5 },
   ],
   // The ice cream factory: the catalogue's kiosk (its cone turns in the catalogue; here it stands) and a seller.
   icecream: [
@@ -784,6 +798,15 @@ export class DepotView {
       water: [
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.6, SACK_WIDTH / 2 - 0.6, CRATE_HEIGHT - 0.6, 14), mats.lacquer("#3d86b8")],
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.3, SACK_WIDTH / 2 - 0.3, 1.6, 14), mats.lacquer("#f6f3ec")],
+      ],
+      // a sack of mail (pale canvas, a red tie), and a red crate of sorted post, letters on top;
+      mail: [
+        [sack, mats.lacquer("#e9e1cf")],
+        [tie, strapMat],
+      ],
+      post: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2, SACK_WIDTH, 1, 0.8).translate(0, -1, 0), mats.lacquer("#c8442f")],
+        [mergeGeometries([-1, 0, 1].map((i) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH / 3 - 1, 1.2, SACK_WIDTH - 4, 1, 0.3).translate((i * SACK_LENGTH) / 3, CRATE_HEIGHT / 2 - 1.4 + Math.abs(i) * 0.3, 0))))!, mats.lacquer("#f6f3ec")],
       ],
       // a tub of ice cream (pink, a cream lid);
       icecream: [
@@ -1576,6 +1599,13 @@ export class DepotView {
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(62, 28, 36, 2, 3), 162, 88, PAD_H + 14));
       for (const t of [144, 162, 180]) b.add(mats.lacquer("#cfc6b6"), place(new RoundedBoxGeometry(16, 8, 40, 1, 1.5), t, 88, PAD_H + 31));
       b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(20, 7, 11, 1, 2), 116, 100, PAD_H + 5));
+      return;
+    }
+    if (role === "postoffice") {
+      // A cream post office with a red roof, and a red pillar box by its door.
+      b.add(mats.lacquer("#efe4cf"), place(new RoundedBoxGeometry(50, 30, 36, 2, 3), 160, 88, PAD_H + 15));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(56, 5, 42, 1, 2), 160, 88, PAD_H + 32));
+      b.add(mats.lacquer("#c8442f"), place(new CylinderGeometry(4, 4, 16, 12), 120, 104, PAD_H + 8));
       return;
     }
     if (role === "icecream") {

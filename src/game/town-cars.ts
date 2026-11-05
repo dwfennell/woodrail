@@ -1,13 +1,15 @@
+import type { Bag } from "../economy/goods";
 import { SURF_ROAD } from "../landscape";
 import { roadAt } from "../roads/graph";
 import { VAN_REACH } from "../roads/road-paths";
 import { VEHICLE_CAP, type RoadVehicle, type RoadVehicles } from "../roads/vehicles";
+import { postVansFor } from "./post";
 import type { Trip, Vans } from "./vans";
 import type { World } from "./world";
 
 /**
  * A town's own cars (tech tree 3): the cars a car factory makes, brought to a town by car carrier, drive about its
- * streets. One car once a town has had any, another every `CARS_EVERY` more, up to `CARS_PER_TOWN` (and the map's
+ * streets. Its post vans the same (Post office: `postVansFor`, of the post it's had), red, a street or two along. One car once a town has had any, another every `CARS_EVERY` more, up to `CARS_PER_TOWN` (and the map's
  * `VEHICLE_CAP.car`). Each parks on one of the town's streets, rests a while, drives to another of its streets and
  * back, and rests again: life on the roads, nothing carried.
  *
@@ -28,6 +30,14 @@ const STREETS_TRIED = 12;
 /** How many cars a town that's had `n` cars delivered has on its streets. */
 export function carsFor(n: number): number {
   return n <= 0 ? 0 : Math.min(CARS_PER_TOWN, 1 + Math.floor((n - 1) / CARS_EVERY));
+}
+
+/** What drives about a town's streets: its cars (of the cars delivered), and its post vans (of the post: src/game/post.ts). */
+type StreetKind = "car" | "post";
+const STREET_KINDS: readonly StreetKind[] = ["car", "post"];
+/** How many of each a town has, of what it's had delivered. */
+function streetCount(kind: StreetKind, bag: Bag | undefined): number {
+  return kind === "car" ? carsFor(bag?.autos ?? 0) : postVansFor(bag?.post ?? 0);
 }
 
 export interface CarTrip extends Trip {
@@ -51,20 +61,21 @@ export class TownCars {
   private streets = new Map<number, number[]>();
 
   constructor(private readonly host: CarHost) {
-    host.vans.on.car = {
-      // Home: rest, then go again.
-      home: (v) => this.vehicles.load(v, CAR_REST),
-      ready: (v, trip) => this.go(v, trip as CarTrip),
-    };
+    for (const kind of STREET_KINDS)
+      host.vans.on[kind] = {
+        // Home: rest, then go again.
+        home: (v) => this.vehicles.load(v, CAR_REST),
+        ready: (v, trip) => this.go(v, trip as CarTrip),
+      };
   }
 
   private get vehicles(): RoadVehicles {
     return this.host.vans.vehicles;
   }
 
-  /** The cars on a town's streets. */
-  carsOf(townId: number): RoadVehicle[] {
-    return this.vehicles.list.filter((v) => v.kind === "car" && (v.data as CarTrip | null)?.townId === townId);
+  /** The cars (or post vans) on a town's streets. */
+  carsOf(townId: number, kind: StreetKind = "car"): RoadVehicle[] {
+    return this.vehicles.list.filter((v) => v.kind === kind && (v.data as CarTrip | null)?.townId === townId);
   }
 
   /** Place the towns' cars again if what they've had, the land or the towns changed. Call once a second. */
@@ -73,7 +84,7 @@ export class TownCars {
     const s = this.seen;
     const known = this.host.knows();
     let delivered = "";
-    if (known) for (const [id, bag] of w.economy.deliveredGoods) if ((bag.autos ?? 0) > 0) delivered += `${id}:${carsFor(bag.autos ?? 0)},`;
+    if (known) for (const [id, bag] of w.economy.deliveredGoods) if ((bag.autos ?? 0) > 0 || (bag.post ?? 0) > 0) delivered += `${id}:${carsFor(bag.autos ?? 0)}:${postVansFor(bag.post ?? 0)},`;
     if (s.economy === w.economy && s.known === known && s.revision === w.landscape.grid.revision && s.towns === w.landscape.towns.length && s.delivered === delivered) return;
     const landChanged = s.revision !== w.landscape.grid.revision || s.towns !== w.landscape.towns.length || s.economy !== w.economy;
     Object.assign(s, { economy: w.economy, known, revision: w.landscape.grid.revision, towns: w.landscape.towns.length, delivered });
@@ -81,27 +92,29 @@ export class TownCars {
     const rv = this.vehicles;
     // Parked cars whose town has none now (another mode, a new world) or whose street went, taken away.
     for (const v of [...rv.list]) {
-      if (v.kind !== "car") continue;
+      if (v.kind !== "car" && v.kind !== "post") continue;
       const trip = v.data as CarTrip;
-      const ok = known && trip.k < carsFor(w.economy.deliveredGoods.get(trip.townId)?.autos ?? 0) && this.streetsOf(trip.townId).includes(trip.home);
+      const ok = known && trip.k < streetCount(v.kind, w.economy.deliveredGoods.get(trip.townId)) && this.streetsOf(trip.townId).includes(trip.home);
       if (!ok && (v.leg === "home" || v.leg === "loading" || !known)) rv.remove(v);
     }
     if (!known) return;
-    for (const [townId, bag] of w.economy.deliveredGoods) {
-      const want = carsFor(bag.autos ?? 0);
-      const have = this.carsOf(townId);
-      for (let k = 0; k < want; k++) {
-        if (have.some((v) => (v.data as CarTrip).k === k)) continue;
-        if (rv.count("car") >= VEHICLE_CAP.car) return;
-        const streets = this.streetsOf(townId);
-        if (streets.length < 2) break;
-        const home = streets[(k * 5) % streets.length];
-        const trip: CarTrip = { home, goalKey: "", goal: () => false, reach: VAN_REACH, to: -1, townId, k, n: 0 };
-        const v = this.host.vans.park("car", home, trip);
-        // (Off at once: the first car is the payoff of the first delivery.)
-        if (v) this.go(v, trip);
+    for (const kind of STREET_KINDS)
+      for (const [townId, bag] of w.economy.deliveredGoods) {
+        const want = streetCount(kind, bag);
+        const have = want > 0 ? this.carsOf(townId, kind) : [];
+        for (let k = 0; k < want; k++) {
+          if (have.some((v) => (v.data as CarTrip).k === k)) continue;
+          if (rv.count(kind) >= VEHICLE_CAP[kind]) break;
+          const streets = this.streetsOf(townId);
+          if (streets.length < 2) break;
+          // (A post van parks a street or two along from where the town's cars do.)
+          const home = streets[(k * 5 + (kind === "post" ? 2 : 0)) % streets.length];
+          const trip: CarTrip = { home, goalKey: "", goal: () => false, reach: VAN_REACH, to: -1, townId, k, n: 0 };
+          const v = this.host.vans.park(kind, home, trip);
+          // (Off at once: the first car, or post van, is the payoff of the first delivery.)
+          if (v) this.go(v, trip);
+        }
       }
-    }
   }
 
   /** A town's streets, nearest its middle first: road squares in its cells. */
