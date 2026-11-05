@@ -139,8 +139,18 @@ const out = await page.evaluate((TOP) => {
     const pos = g.attributes.position;
     if (!pos) return;
     const per = (g.index ? g.index.count : pos.count) / 3;
-    const n = o.isInstancedMesh ? o.count : 1;
-    const t = Math.min(per, Number.isFinite(g.drawRange.count) ? g.drawRange.count / 3 : per) * n;
+    let n = o.isInstancedMesh ? o.count : 1;
+    let t = Math.min(per, Number.isFinite(g.drawRange.count) ? g.drawRange.count / 3 : per) * n;
+    // A batch: its instances' own geometries' triangles (its buffers have room to spare).
+    if (o.isBatchedMesh) {
+      t = 0;
+      n = 0;
+      for (const info of o._instanceInfo) {
+        if (!info.active || !info.visible) continue;
+        t += o.getGeometryRangeAt(info.geometryIndex).count / 3;
+        n++;
+      }
+    }
     const ms = Array.isArray(o.material) ? o.material : [o.material];
     const m = ms[0];
     const textured = ms.some((x) => x && (x.map || x.normalMap || x.roughnessMap || x.aoMap || x.bumpMap || x.alphaMap || x.emissiveMap));

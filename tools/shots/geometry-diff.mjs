@@ -107,6 +107,16 @@ async function shoot(root, tag) {
           info.autoReset = true;
           return n;
         };
+        // (Far versions are asked for once wanted while the camera moves, as by a camera moving out: the view nudged a
+        // millimetre and back, frame by frame, then left where it was.)
+        for (let k = 0; k < 16; k++) {
+          const f = w.framesDrawn;
+          // (A millimetre off first, back last: each step a move, so each draws a frame.)
+          w.director.glideTo(new w.camera.position.constructor(c.x + (k % 2 === 0 ? 1 : 0), 0, c.z), v.dist, { duration: 0.01, phi: v.phi, theta: v.theta });
+          w.invalidate();
+          while (w.framesDrawn === f) await new Promise((r) => requestAnimationFrame(r));
+        }
+        await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 30000))]);
         let triangles = await frame();
         for (let k = 0; k < 8; k++) {
           await new Promise((r) => setTimeout(r, 1500));
@@ -120,7 +130,7 @@ async function shoot(root, tag) {
       { v, c },
     );
     const file = `${OUT}/${v.name}-${tag}.png`;
-    const png = await p.screenshot({ path: file, timeout: 300000, animations: "allow", caret: "initial" });
+    const png = await p.screenshot({ path: file, timeout: 0, animations: "allow", caret: "initial" });
     out[v.name] = { ...info, file, png: png.toString("base64") };
   }
   await ctx.close();
