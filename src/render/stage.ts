@@ -2,14 +2,21 @@ import {
   BackSide,
   BufferAttribute,
   Color,
+  DepthFormat,
+  DepthTexture,
   DirectionalLight,
   Group,
   HemisphereLight,
+  LessEqualCompare,
+  LinearFilter,
   Mesh,
   MeshBasicMaterial,
   PMREMGenerator,
+  RedFormat,
   Scene,
   SphereGeometry,
+  UnsignedIntType,
+  WebGLRenderTarget,
   type Camera,
   type WebGLRenderer,
 } from "three";
@@ -32,6 +39,13 @@ export interface Stage {
   readonly shadowFit: { x: number; z: number; radius: number };
   /** Keep the sky centred on the camera (call once per frame, before rendering). */
   update(camera: Camera): void;
+  /**
+   * Make the environment map again: after a lost WebGL context comes back, what was drawn into a render target (as
+   * the environment map was) is gone, and three can't upload it again as it does a texture from an image.
+   */
+  renewEnvironment(): void;
+  /** After a lost context is back (three's new shadow map renderer): the environment map made again, shadows as before. */
+  restored(): void;
 }
 
 /** A sky dome coloured by elevation: haze at and below the horizon, rising to pale blue. */
@@ -55,14 +69,44 @@ function buildSky(): Mesh {
   return sky;
 }
 
+/**
+ * The sun's shadow map, made here as three's WebGLShadowMap would make it for a PCF directional light (a depth texture
+ * compared in the shader), rather than by three on the first shadow pass. The game skips the first frame's shadow pass
+ * (see `Game.frame`), and with no map yet three bound its plain empty texture to every material's `sampler2DShadow`:
+ * Chrome refused each of those draws (GL_INVALID_OPERATION, "Mismatch between texture format and sampler type",
+ * ~440 on the late map). Made beforehand, the sampler always has a depth texture to compare against.
+ */
+export function shadowTarget(size: number): WebGLRenderTarget {
+  // (three gives every render target a colour attachment; the depth pass needs none, so the smallest renderable one: one
+  // byte a texel, not four: 4 MB at 2048², not 16.)
+  const target = new WebGLRenderTarget(size, size, { format: RedFormat, generateMipmaps: false });
+  const depth = new DepthTexture(size, size, UnsignedIntType);
+  depth.name = "sun.shadowMap";
+  depth.format = DepthFormat;
+  depth.compareFunction = LessEqualCompare;
+  depth.minFilter = LinearFilter;
+  depth.magFilter = LinearFilter;
+  target.depthTexture = depth;
+  return target;
+}
+
 /** Lights, sky and haze: the world around the toys. */
 export function createStage(scene: Scene, renderer: WebGLRenderer, quality: QualitySettings): Stage {
   installHaze();
   const group = new Group();
   scene.add(group);
 
-  const pmrem = new PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  let environment: WebGLRenderTarget | null = null;
+  const renewEnvironment = () => {
+    environment?.dispose();
+    const pmrem = new PMREMGenerator(renderer);
+    environment = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    scene.environment = environment.texture;
+    // (Its working target and shaders aren't needed again: 6 MB of GPU memory, a 768×1024 half-float target, kept for
+    // nothing otherwise. The environment map made is kept.)
+    pmrem.dispose();
+  };
+  renewEnvironment();
   scene.environmentIntensity = 0.22;
   scene.background = new Color(HAZE_COLOR);
   // The land it hazes around is set by the game (see `setHazeLand`).
@@ -81,20 +125,28 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   sun.shadow.radius = 2.5;
   sun.shadow.blurSamples = 12;
   sun.shadow.intensity = shades.sunShadow;
+  const shadowMap = shadowTarget(quality.shadowMapSize);
+  sun.shadow.map = shadowMap;
+  // (Allocated now, so the first frame binds it: an unallocated one binds as nothing.)
+  renderer.initRenderTarget(shadowMap);
   // The shadow camera also sees the shadow-only stand-ins (see SHADOW_PROXY_LAYER).
   sun.shadow.camera.layers.enable(SHADOW_PROXY_LAYER);
   // three tests a caster's layers against the view's camera, not the shadow camera: during the shadow pass only, the
   // view's camera sees the stand-ins too. (They still never reach the screen: its list is made before the shadow pass.)
-  const renderShadows = renderer.shadowMap.render.bind(renderer.shadowMap);
-  renderer.shadowMap.render = (lights, scene, camera) => {
-    const had = camera.layers.isEnabled(SHADOW_PROXY_LAYER);
-    camera.layers.enable(SHADOW_PROXY_LAYER);
-    try {
-      renderShadows(lights, scene, camera);
-    } finally {
-      if (!had) camera.layers.disable(SHADOW_PROXY_LAYER);
-    }
+  // (Installed again after a lost context comes back: three makes a new shadow map renderer then.)
+  const patchShadows = () => {
+    const renderShadows = renderer.shadowMap.render.bind(renderer.shadowMap);
+    renderer.shadowMap.render = (lights, scene, camera) => {
+      const had = camera.layers.isEnabled(SHADOW_PROXY_LAYER);
+      camera.layers.enable(SHADOW_PROXY_LAYER);
+      try {
+        renderShadows(lights, scene, camera);
+      } finally {
+        if (!had) camera.layers.disable(SHADOW_PROXY_LAYER);
+      }
+    };
   };
+  patchShadows();
   scene.add(sun);
   scene.add(sun.target);
   scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), shades.fill));
@@ -128,5 +180,13 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
     sky.updateMatrixWorld();
   };
 
-  return { group, sun, fitShadow, shadowFit, update };
+  const restored = () => {
+    // (The old one's GL objects went with the lost context: dropped, not disposed, which would only warn.)
+    environment = null;
+    renewEnvironment();
+    if (sun.shadow.map === shadowMap) renderer.initRenderTarget(shadowMap);
+    patchShadows();
+  };
+
+  return { group, sun, fitShadow, shadowFit, update, renewEnvironment, restored };
 }

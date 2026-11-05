@@ -2206,6 +2206,19 @@ export class Hud {
     );
   }
 
+  /**
+   * "Crash reports: on/off" in the menu (the build can send them: see feedback/crash.ts), after Copy map. A tap
+   * switches them, and the item says which.
+   */
+  addCrashItem(on: () => boolean, toggle: () => void): void {
+    const label = () => `Crash reports: ${on() ? "on" : "off"}`;
+    const item = button(label(), "If the game crashes, send us the error, your browser and screen size: never your map or save", () => {
+      toggle();
+      item.textContent = label();
+    }, "menu-item crash-item");
+    this.copyMapItem.after(item);
+  }
+
   /** Offer "Help improve Woodrail" in the menu (the build can send play stats: see stats/stats.ts). */
   addStatsItem(onTap: () => void): void {
     this.linesItem.after(

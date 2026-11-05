@@ -6,6 +6,7 @@
  *   HEAD /v1/saves/:mode         just its headers: what's there, without the bytes
  *   POST /v1/stats               anonymous play stats, from players who said yes (stats.ts)
  *   /feedback…                   "Report a bug or give feedback": reports, their maps and pictures (feedback.ts)
+ *   /crash                       crash reports: an error's message and stack, the device's screen (crash.ts)
  *
  * The sync code is the only key: sent in `X-Woodrail-Code` (never in the URL, so it stays out of logs), and stored only
  * as an HMAC under the Worker's secret `CODE_KEY` (so the bucket's keys can't be tried against codes without it). The bundle is opaque here: the game gzips it, and checks it when it loads it. What the Worker keeps beside
@@ -20,6 +21,7 @@
  */
 
 import { readCapped } from "./body";
+import { handleCrash } from "./crash";
 import { handleFeedback, type FeedbackEnv } from "./feedback";
 import { MAX_BYTES, MIN_PUT_INTERVAL_MS, MODES } from "./limits";
 import { handleStats, type StatsEnv } from "./stats";
@@ -53,9 +55,11 @@ export default {
     // Feedback (feedback.ts): from the saves' pages and the game's other homes; a request with no Origin (curl, the
     // fetch script) is let through, as for saves. Its maps and pictures are read by unguessable id, from anywhere.
     const path = new URL(request.url).pathname;
-    if (path === "/feedback" || path.startsWith("/feedback/")) {
+    if (path === "/feedback" || path.startsWith("/feedback/") || path === "/crash") {
       const pageOk = origin === null || allowed || FEEDBACK_HOSTS.test(origin);
       const cors: Record<string, string> = origin !== null && pageOk ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : { "Access-Control-Allow-Origin": "*" };
+      // Crash reports (crash.ts): from the same pages as feedback.
+      if (path === "/crash") return handleCrash(request, env, cors, pageOk);
       return handleFeedback(request, env, cors, pageOk);
     }
     const cors = (res: Response): Response => {

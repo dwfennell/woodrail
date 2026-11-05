@@ -57,6 +57,7 @@ export const SUITES = {
   "low-bridge": { script: "e2e:low-bridge", groups: true },
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   post: { script: "e2e:post", minutes: 5 },
+  "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   crane: { script: "e2e:crane", minutes: 4 },
   rack: { script: "e2e:rack", minutes: 3 },
@@ -90,7 +91,7 @@ export const RULES = [
   // The suites themselves, and what they share.
   ["scripts/e2e/lib/**", CORE],
   ["scripts/e2e/feedback-flow.mjs", ["touch:feedback", "click:feedback"]],
-  ["scripts/e2e/pin-clocks.mjs", ["touch", "click", "station-clock", "signals", "life"]],
+  ["scripts/e2e/pin-clocks.mjs", ["touch", "click", "station-clock", "signals", "life", "gl-lost"]],
   ["scripts/e2e/affected.mjs", []],
   ["scripts/e2e/phone-audit.mjs", []],
   ["scripts/e2e/track-pieces.mjs", [TOUCH_PIECES]],
@@ -101,6 +102,8 @@ export const RULES = [
   ["src/main.ts", CORE],
   ["src/style.css", [...CORE, "names", "locked", "focus-ring"]],
   ["cloud/**", ["cloud", "stats", "touch:feedback", "click:feedback"]],
+  // Crash reports: sent on a lost drawing and on errors, and the ☰ switch (e2e:gl-lost).
+  [["src/feedback/crash.ts", "cloud/src/crash.ts"], ["gl-lost"]],
 
   // Simulation and routing.
   ["src/sim/**", ["touch", "click:model-train,routes", "signals", "train-summary", "train-parts", "lift", "loop", "kits", "decks"]],
@@ -135,6 +138,8 @@ export const RULES = [
 
   // Rendering.
   ["src/render/**", ["touch", "click", "life"]],
+  // The drawing lost and back, the card to reload, and lean settings after (and what the post-processing makes).
+  [["src/render/post.ts", "src/render/quality.ts", "src/render/stage.ts", "src/ui/context-lost.ts", "src/game/game.ts"], ["gl-lost"]],
   ["src/render/clock-*", ["station-clock"]],
   ["src/render/hopper-load.ts", ["hopper-load"]],
   ["src/render/station-touches.ts", ["station-touches"]],

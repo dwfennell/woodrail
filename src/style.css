@@ -1577,3 +1577,11 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .paint-engine { min-height: 40px; }
 /* (The cloud card open over the title: the cards and the link wait behind it, out of the way.) */
 .title-screen.cloud-open :is(.title-cards, .title-foot) { visibility: hidden; }
+
+/* The drawing lost and not back (ui/context-lost.ts): over everything, a card to reload. */
+.gl-lost { position: fixed; inset: 0; z-index: 60; background: rgba(40, 28, 16, 0.45); display: grid; place-items: center; padding: 16px; }
+.gl-lost[hidden] { display: none; }
+.gl-lost-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); border-radius: 22px; padding: 22px 24px; max-width: 360px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+.gl-lost-card h2 { margin: 0; font-size: 22px; }
+.gl-lost-card p { margin: 0; line-height: 1.4; color: var(--ink-soft); }
+.gl-lost-card .chip { align-self: center; font-size: 17px; padding: 12px 22px; }

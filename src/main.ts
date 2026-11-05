@@ -94,7 +94,9 @@ import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
 import { costTag, refundText, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
-import { qualityFor, saveQualityOverride } from "./render/quality";
+import { noteContextLost, qualityFor, saveQualityOverride } from "./render/quality";
+import { ContextLostCard } from "./ui/context-lost";
+import { CrashReporter, crashReportsOff, setCrashReportsOff } from "./feedback/crash";
 import { drawnKey, modelKey, type PropModel } from "./render/props/library";
 import { CLOCK_ASSETS } from "./render/clock-hands";
 import { renderThumbnails, renderThumbnailsAsync, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
@@ -257,6 +259,22 @@ const cloud = ((): CloudSync | null => {
 const stats = pageStats(((import.meta.env.VITE_STATS_URL ?? import.meta.env.VITE_CLOUD_URL ?? "") as string).trim(), __BUILD_ID__ || "dev");
 addEventListener("error", (e) => stats.record({ e: "error", msg: String(e.message || e.error || "error").slice(0, 200) }));
 addEventListener("unhandledrejection", (e) => stats.record({ e: "error", msg: String((e.reason as Error | undefined)?.message ?? e.reason).slice(0, 200) }));
+/**
+ * Crash reports (feedback/crash.ts): an uncaught error or a lost drawing, one a session, to the Worker feedback goes to
+ * (none in a build without one). Listening from here, before the game is made, so a failure while loading is sent too.
+ */
+const crashUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
+/** What the crash report says of the drawing, once the game is made. */
+let crashDrawing = (): { pixelRatio: number; quality: string } => ({ pixelRatio: 0, quality: "" });
+const crashes = crashUrl
+  ? new CrashReporter(crashUrl, () => ({
+      build: __BUILD_ID__ || "dev",
+      userAgent: navigator.userAgent,
+      screen: { width: screen.width, height: screen.height, dpr: devicePixelRatio },
+      ...crashDrawing(),
+    }))
+  : null;
+crashes?.listen();
 /** The cloud's copies checked against this device's while the game loads, so a newer one is the one loaded. */
 const cloudStarted = cloud ? cloud.start().catch(() => ({})) : Promise.resolve({});
 /** How long the game waits on that check, past its own loading (ms): a slow cloud never holds it up. */
@@ -1459,6 +1477,26 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   addEventListener("pageshow", () => (savedOnLeaving = false));
   // Back online: what's waiting goes up.
   addEventListener("online", () => void cloud?.flush());
+
+  // The drawing lost (WebGL context: on a phone, most often short of memory): saved at once, lean from the next load
+  // (render/quality.ts), and if it isn't back in a moment, a card to reload (the railway kept).
+  const lostCard = new ContextLostCard(() => {
+    if (playing) {
+      saveOnLeaving();
+      reloadInto(mode);
+    } else location.reload();
+  });
+  crashDrawing = () => ({ pixelRatio: game.renderer.getPixelRatio(), quality: `${game.quality.tier}${game.quality.lean ? "-lean" : ""}` });
+  game.onContextLost = () => {
+    crashes?.report("context-lost", { message: "WebGL context lost" });
+    noteContextLost();
+    save();
+    lostCard.lost(game.restoreInPlace);
+  };
+  // (A scene that can't be uploaded again keeps the card: only a reload brings it back.)
+  game.onContextRestored = () => {
+    if (game.restoreInPlace) lostCard.restored();
+  };
 
   /**
    * The title's "Load a cloud save" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
@@ -5884,6 +5922,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
   const feedbackUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
+  if (crashes) hud.addCrashItem(() => !crashReportsOff(), () => setCrashReportsOff(!crashReportsOff()));
   if (feedbackUrl) {
     const sheet = new FeedbackSheet(hud.root, feedbackUrl, {
       map: async () => {
