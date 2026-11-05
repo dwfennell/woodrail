@@ -173,7 +173,7 @@ describe("the Learned toast says the tip once", () => {
 describe("the tip's row on the Goals tab", () => {
   it("names it, says what to do, with Show me and Got it", () => {
     const html = tipRowHtml({ id: "jam", title: "Jam kitchen", text: "Bring it <fruit> & sugar" });
-    expect(html).toContain('class="goal feature-tip" data-tip="jam"');
+    expect(html).toContain('class="goal feature-tip" data-feature-tip="jam"');
     expect(html).toContain("<b>New: Jam kitchen</b>");
     expect(html).toContain("Bring it &lt;fruit&gt; &amp; sugar");
     expect(html).toContain('class="chip text tip-show"');
