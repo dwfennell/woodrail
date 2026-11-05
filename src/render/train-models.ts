@@ -52,11 +52,42 @@ export const LIVERY_SLOTS: Readonly<Partial<Record<CarLook, { body: readonly str
   metro: { body: ["#c8442f"], trim: ["#f0ebe0"] },
 };
 
+/**
+ * Wagons' modelled body and trim colours (tools/blender/trains.py), by kind and look, for your own colours from the
+ * paint shop (game/paint-shop.ts). The code-modelled wagons (tank wagons, cold van, car carrier, …) aren't painted.
+ */
+export const WAGON_SLOTS: Readonly<Partial<Record<CarKind, Partial<Record<CarLook, { body: readonly string[]; trim: readonly string[] }>>>>> = {
+  hopper: { classic: { body: ["#e6b52c"], trim: ["#2f6db5"] } },
+  passenger: {
+    classic: { body: ["#2f6db5"], trim: ["#f0ebe0"] },
+    dining: { body: ["#7a2a3a"], trim: ["#f0ebe0"] },
+    sleeper: { body: ["#1f3f73"], trim: ["#e6b52c"] },
+    "double-decker": { body: ["#2d6b3f"], trim: ["#f0ebe0"] },
+    "first-class": { body: ["#6e1f2e", "#4a1823"], trim: ["#d9a93a"] },
+  },
+  caboose: { classic: { body: ["#c8442f"], trim: ["#f0ebe0"] }, "bay-window": { body: ["#e6b52c"], trim: ["#7a4a2a"] } },
+  timber: { classic: { body: ["#c8442f"], trim: [] } },
+  van: { classic: { body: ["#2f6db5"], trim: ["#f0ebe0"] } },
+};
+
+/** Can a car of `kind` and `look` be painted (an engine, or a wagon with its colours in `WAGON_SLOTS`)? */
+export const paintable = (kind: CarKind, look: CarLook): boolean => (kind === "engine" ? !!LIVERY_SLOTS[look] : !!WAGON_SLOTS[kind]?.[look]);
+
 /** A livery's recolour map for an engine of `look` (body and trim to the livery's). */
 export function liveryRecolor(look: CarLook, livery: { body: string; trim: string }): Record<string, string> {
   const slots = LIVERY_SLOTS[look];
   const out: Record<string, string> = {};
   if (!slots) return out;
+  for (const c of slots.body) out[c] = livery.body;
+  for (const c of slots.trim) out[c] = livery.trim;
+  return out;
+}
+
+/** A wagon's recolour map to a livery's colours (null: one that can't be painted). */
+export function wagonRecolor(kind: CarKind, look: CarLook, livery: { body: string; trim: string }): Record<string, string> | null {
+  const slots = WAGON_SLOTS[kind]?.[look];
+  if (!slots) return null;
+  const out: Record<string, string> = {};
   for (const c of slots.body) out[c] = livery.body;
   for (const c of slots.trim) out[c] = livery.trim;
   return out;
@@ -159,8 +190,11 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   // (Painted at the paint shop: its livery; else the classic engine's second scheme on every other one. The rack engine
   // is the tank engine's model in its own colours, with a cog under it; the metro train is the electric engine and a
   // coach in silver and red.)
-  const recolor = kind === "engine" && livery ? liveryRecolor(look, livery) : rack ? RACK_SCHEME : metro ? METRO_SCHEME : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
-  const model = blenderCar(kind, rack ? "tank" : metro ? (kind === "engine" ? "electric" : "classic") : look, mats, lamp, recolor, CAR_SLOTS[kind]);
+  const wagon = kind !== "engine" && livery ? wagonRecolor(kind, look, livery) : null;
+  const recolor = kind === "engine" && livery ? liveryRecolor(look, livery) : wagon ? wagon : rack ? RACK_SCHEME : metro ? METRO_SCHEME : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
+  // (A van painted: its body slot in the livery's colour.)
+  const slots = kind === "van" && livery ? { body: livery.body } : CAR_SLOTS[kind];
+  const model = blenderCar(kind, rack ? "tank" : metro ? (kind === "engine" ? "electric" : "classic") : look, mats, lamp, recolor, slots);
   if (rack) {
     const cog = rackCog(mats);
     model.root.add(cog);

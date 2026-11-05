@@ -148,7 +148,7 @@ export function serializeWorld(world: World): SaveData {
           lever: c.lever,
           ...(look !== "classic" ? { look } : {}),
           ...(c.kind === "engine" && sim.nameOf(c.id) ? { name: sim.nameOf(c.id) } : {}),
-          ...(c.kind === "engine" && sim.liveryOf(c.id) ? { livery: sim.liveryOf(c.id) } : {}),
+          ...(sim.liveryOf(c.id) ? { livery: sim.liveryOf(c.id) } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
@@ -469,7 +469,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       const name = t.cars[i].name;
       if (car.kind === "engine" && name) sim.setName(car.id, name);
       const livery = t.cars[i].livery;
-      if (car.kind === "engine" && livery) sim.setLivery(car.id, livery);
+      if (livery) sim.setLivery(car.id, livery);
       const on = t.cars[i].line;
       if (car.kind === "engine" && on) {
         joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next, on.via);

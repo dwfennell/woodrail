@@ -92,7 +92,8 @@ import { drawLedger } from "./ui/town-ledger";
 import { attachWater, type WaterControls } from "./ui/water-controls";
 import { drawPlaceRows } from "./ui/places-row";
 import { PaintSheet } from "./ui/paint-sheet";
-import { paint, paintOpen } from "./game/paint-shop";
+import { paintable } from "./render/train-models";
+import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
 import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
@@ -3863,6 +3864,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     progress: () => progress,
     liveryOf: (id) => game.sim.liveryOf(id),
     nameOf: (id) => game.sim.nameOf(id),
+    ownOpen: () => ownColoursOpen(progress),
+    wagonsOf: (carId) => {
+      const t = game.sim.findCar(carId)?.train;
+      return t ? t.cars.filter((c) => c.id !== carId && c.kind !== "engine" && paintable(c.kind, game.sim.lookOf(c.id))).map((c) => c.id) : [];
+    },
+    pots: () => paintPots(game.world),
+    paintOwn: (cars, body, trim) => {
+      if (!paintOwn(progress, game.world, game.sim, cars, body, trim)) {
+        audio.refuse();
+        return false;
+      }
+      audio.chime();
+      scheduleSave();
+      return true;
+    },
     paint: (carId, id) => {
       if (!paint(progress, game.sim, carId, id)) {
         audio.refuse();
