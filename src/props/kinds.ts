@@ -1,5 +1,11 @@
-/** Where a model may stand: on land, floating on the river (its middle over water), or either (a bridge spans it). */
-export type PlaceOn = "land" | "water" | "any";
+/**
+ * Where a model may stand: on land, floating on the river (its middle over water), either (a bridge spans it), or on a
+ * hill's top only (a wind turbine: `hill`).
+ */
+export type PlaceOn = "land" | "water" | "any" | "hill";
+
+/** Models that stand only on a hill's top. */
+const HILL: ReadonlySet<string> = new Set(["mech-wind-turbine"]);
 
 const WATER: ReadonlySet<string> = new Set([
   "veh-rowing-boat",
@@ -47,5 +53,5 @@ const ANY: ReadonlySet<string> = new Set([
 ]);
 
 export function placeOn(asset: string): PlaceOn {
-  return WATER.has(asset) ? "water" : ANY.has(asset) ? "any" : "land";
+  return WATER.has(asset) ? "water" : ANY.has(asset) ? "any" : HILL.has(asset) ? "hill" : "land";
 }

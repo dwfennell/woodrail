@@ -18,6 +18,7 @@ import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
 import { LoopShowView } from "../render/loop-show";
 import { ClockView, type ClockAt } from "../render/clock-view";
+import { TurbinesView } from "../render/turbines-view";
 import type { ClockHands } from "../render/clock-hands";
 import { flatClockHands } from "../render/blender-models";
 import { STATION_CLOCK_PART } from "../render/dressing/buildings";
@@ -228,6 +229,8 @@ export class Game {
   readonly loopShow = new LoopShowView();
   /** Station clocks' hands, showing the player's real time (see `ClockView`: a timer a minute, nothing per frame). */
   readonly clockView: ClockView;
+  /** Wind turbines' rotors (see `TurbinesView`: ambient motion). */
+  readonly turbinesView: TurbinesView;
   /** The station house clock's hands (once the map's parts are loaded). */
   private stationHands: ClockHands | undefined;
   /** A prop being moved by hand: not drawn where it stood. */
@@ -398,6 +401,8 @@ export class Game {
     this.scene.add(this.loopShow.group);
     this.clockView = new ClockView((key) => this.clockHands(key));
     this.scene.add(this.clockView.group);
+    this.turbinesView = new TurbinesView(this.propLibrary);
+    this.scene.add(this.turbinesView.group);
     this.wireClocks();
     // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
     this.propLibrary.onLoaded = (key) => {
@@ -405,11 +410,13 @@ export class Game {
       else {
         this.propsView.sync(this.shownProps(), this.hiddenProp, true);
         this.clockView.sync(this.props, this.hiddenProp, true);
+        this.turbinesView.sync(this.props, this.hiddenProp, true);
       }
       this.invalidate();
     };
     this.propsView.sync(this.shownProps());
     this.clockView.sync(this.props);
+    this.turbinesView.sync(this.props);
     this.watchHidden();
     this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
@@ -485,6 +492,7 @@ export class Game {
     this.worldsSeen++;
     this.propsView.sync(this.shownProps(), -1, true);
     this.clockView.sync(this.props, -1, true);
+    this.turbinesView.sync(this.props, -1, true);
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
@@ -1240,6 +1248,8 @@ export class Game {
     if (this.ferriesView.update(this.ferries, this.economy, this.layout, this.sim, sinceTick, this.camera, this.ambientEye)) ambient = true;
     // The yards: a hull on the ways (placed when its stage changes), a launch sliding into the water (a short flourish).
     if (this.yardsView.update(this as unknown as Waters, this.layout.piecesVersion)) active = true;
+    // Wind turbines' rotors: turning only in view and near enough to see, never while paused.
+    if (this.turbinesView.update(dt, this.paused, this.ambientEye)) ambient = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;
@@ -1590,6 +1600,7 @@ export class Game {
   propsChanged(hidden = this.hiddenProp): void {
     this.hiddenProp = hidden;
     this.clockView.sync(this.props, hidden);
+    this.turbinesView.sync(this.props, hidden);
     // Crossing props style the crossings they're on (one in the hand doesn't, for now).
     this.styleCrossings();
     if (this.propsView.sync(this.shownProps(), hidden)) this.invalidate();

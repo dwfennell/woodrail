@@ -6,6 +6,7 @@ import type { Footprint } from "../props/placement";
 import { ENGINE_SPEED, Sim } from "../sim";
 import { appendPiece, connectorRef, Layout } from "../track";
 import { tooHeavy, topSpeed } from "./engines";
+import { powerOf } from "./power";
 import { dueLandmarks } from "./landmarks";
 import { Progress } from "./progress";
 import { ready, techOf } from "./tech";
@@ -71,7 +72,7 @@ describe("Phase C, the rest", () => {
     expect(w.economy.wagonCapacity).toBe(MAX_WAGON_CAPACITY);
   });
 
-  it("an electric engine runs only while a power station has coal", () => {
+  it("an electric engine runs fast while a power station has coal, and at steam speed without (never stopped)", () => {
     const layout = new Layout();
     let last = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
     for (let i = 0; i < 6; i++) last = appendPiece(layout, "straight-216", false, connectorRef(last, 1));
@@ -84,9 +85,11 @@ describe("Phase C, the rest", () => {
     const economy = new Economy(layout, sim);
     const power = economy.addDepot("power", powerPiece);
     const w = { layout, sim, economy } as unknown as World;
-    expect(topSpeed(w, train)).toBe(0);
-    expect(tooHeavy(w, train)).toMatch(/No power/);
+    expect(topSpeed(w, train)).toBeCloseTo(ENGINE_SPEED);
+    expect(tooHeavy(w, train)).toBeNull();
     power.piles[CARGO.coal.index] = 2;
+    // (The sparks are counted again once a second in the game: here, by hand.)
+    powerOf(w).refresh(w);
     expect(topSpeed(w, train)).toBeCloseTo(ENGINE_SPEED * 1.4);
   });
 });

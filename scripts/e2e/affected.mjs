@@ -61,6 +61,7 @@ export const SUITES = {
   "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
+  power: { script: "e2e:power", minutes: 6 },
   crane: { script: "e2e:crane", minutes: 4 },
   tunnels: { script: "e2e:tunnels", minutes: 6 },
   rack: { script: "e2e:rack", minutes: 3 },
@@ -161,6 +162,7 @@ export const RULES = [
   ["src/game/depot-tracks.ts", ["depot-tracks"]],
   [["src/render/road-vehicles-view.ts", "src/render/crossings-view.ts"], ["roads"]],
   ["src/render/ambient.ts", ["life", "roads"]],
+  ["src/render/turbines-view.ts", ["life"]],
   [["src/render/ruins-view.ts", "src/render/goal-marks.ts", "src/render/halt-reach-view.ts"], ["sites", "big-stations"]],
   ["src/render/thumbnails.ts", ["tray", "names"]],
   ["src/render/train-models.ts", ["train-parts", "train-summary", "hopper-load"]],
@@ -237,6 +239,8 @@ export const RULES = [
   ["src/game/dev-checks.ts", []],
   // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.
   [["src/game/boats.ts", "src/game/ferry.ts", "src/game/harbours.ts", "src/ui/boat-card.ts", "src/ui/water-controls.ts", "src/render/river-boats-view.ts", "src/render/ferries-view.ts", "src/render/boats-view.ts", "src/economy/boats.ts", "src/catalogue/assets/water.ts", "src/catalogue/assets/boat-parts.ts", "src/game/yards.ts", "src/render/yards-view.ts"], ["water"]],
+  // Power as sparks and the wind farm (late-game spec W1).
+  [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],
 ];

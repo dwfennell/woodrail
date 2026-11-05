@@ -111,6 +111,8 @@ export const saveSchema = z.object({
       waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
       /** A harbour's dock sheds. */
       sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
+      /** Asked to be powered (Game mode's sparks): the nth ask. */
+      power: z.number().int().min(1).optional(),
       /**
        * A warehouse's listed goods and what it lets trains do with each (`StoreMode`), and with goods not listed
        * (`others`). Optional: absent (saves from before them, and a warehouse never set), it takes and gives everything.

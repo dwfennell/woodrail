@@ -105,7 +105,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-flowers": p("Flower field", "Rows of flowers, picked into crates for flatbeds."),
   "depot-dyeworks": p("Dye works", "Boils flowers into bright paint, in tins."),
   "depot-toyworks": p("Toy workshop", "Makes toys from planks and paint."),
-  "depot-power": p("Power station", "Burns coal so electric engines can run."),
+  "depot-power": p("Power station", "Burns coal for 4 sparks: electric engines, faster yards."),
   "depot-harbour": p("Harbour", "Ships bring and take goods here."),
   "depot-warehouse": p("Warehouse", "Keeps goods until a train takes them."),
 };
@@ -226,7 +226,7 @@ const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
 function engineDetail(look: CarLook): string {
   const e = ENGINES[look] ?? ENGINES.classic!;
   const speed = e.speed === 1 ? "usual speed" : e.speed > 1 ? `${e.speed}× as fast` : `${e.speed}× speed`;
-  return `Pulls ${e.pulls} cars, ${speed}${e.quick >= 2 ? ", quick to start" : ""}.${e.electric ? " Needs power on." : ""}`;
+  return `Pulls ${e.pulls} cars, ${speed}${e.quick >= 2 ? ", quick to start" : ""}.${e.electric ? " Needs a spark of power." : ""}`;
 }
 
 /** A tray item's name and what it does (the details a long press or hover shows). */
@@ -272,7 +272,7 @@ export function engineKeyStat(e: EngineKind): string {
   const all = Object.values(ENGINES) as EngineKind[];
   const classic = ENGINES.classic!;
   if (e.quick >= 2) return `Starts and stops in ${e.quick === 2 ? "half" : `1/${e.quick} of`} the time.`;
-  if (e.electric) return "Runs only while a power station has coal.";
+  if (e.electric) return "Needs a spark of power: at steam speed without.";
   if (e.speed >= Math.max(...all.map((x) => x.speed))) return "The fastest engine.";
   if (e.pulls >= Math.max(...all.map((x) => x.pulls))) return e.quick < 1 ? "Pulls the most cars, but slow to start." : "Pulls the most cars.";
   if (e === classic) return "A good all-round engine.";
@@ -302,7 +302,7 @@ export function placeCardInfo(item: TrayItem): PlaceCardInfo {
   if (item.kind === "train" && item.cars.length === 1 && item.cars[0] === "engine") {
     const e = ENGINES[item.looks?.[0] ?? "classic"] ?? ENGINES.classic!;
     const stat = engineKeyStat(e);
-    return { name: info.name, detail: e.electric ? "Pulls a train while the power is on." : "Pulls a train of wagons and coaches.", facts: [`Pulls ${e.pulls} cars · ${speedWord(e.speed)}`, ...(stat ? [stat] : [])] };
+    return { name: info.name, detail: e.electric ? "Pulls a train fast with a spark, at steam speed without." : "Pulls a train of wagons and coaches.", facts: [`Pulls ${e.pulls} cars · ${speedWord(e.speed)}`, ...(stat ? [stat] : [])] };
   }
   if (item.kind === "piece" && item.type.startsWith("depot-")) {
     // (By the piece's role: a jam kitchen's is "jamworks", not "jam".)

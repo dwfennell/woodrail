@@ -1,7 +1,7 @@
 import { landingWhy } from "./boats";
 import { slipWhy } from "./ferry";
 import { boatyardWhy, shipyardWhy } from "./yards";
-import type { DepotRole } from "../economy";
+import type { DepotRole, DepotState } from "../economy";
 import { CELL, FEAT_FIELD, FEAT_TREE, isWater, type Landscape } from "../landscape";
 import { harbourWhy } from "./harbours";
 import type { PieceTypeId, Pose } from "../track";
@@ -187,7 +187,7 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
  * `boost` for its kind (upgrades). Cheap:
  * a few hundred squares per industry; call when industries or the land change. Returns true if any rate changed.
  */
-export function updateRates(world: World, boost: (role: DepotRole) => number = () => 1): boolean {
+export function updateRates(world: World, boost: (role: DepotRole, d: DepotState) => number = () => 1): boolean {
   const own = new Set(world.depots.values());
   const planted = plantedCells(world.landscape, world.props);
   let changed = false;
@@ -197,7 +197,7 @@ export function updateRates(world: World, boost: (role: DepotRole) => number = (
     // Upgrades (Game mode's Harvesters II and the like) speed up every industry of their kind, the map's own too.
     // (A school makes nothing: its town is a place to stand, not a speed.)
     const r = own.has(d.pieceId) || d.role === "school" ? null : resourceAt(world.landscape, d.role, piece.pose, planted);
-    const rate = (r ? rateFor(r.count, r.need) : 1) * boost(d.role);
+    const rate = (r ? rateFor(r.count, r.need) : 1) * boost(d.role, d);
     if (rate !== d.rate) {
       d.rate = rate;
       changed = true;

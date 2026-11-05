@@ -172,6 +172,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "prop:bldg-signal-box": { label: "Signal box", cost: { planks: 4 }, tech: "signal-boxes" },
   "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "signal-boxes" },
   "prop:mech-telegraph-pole": { label: "Telegraph pole", cost: { planks: 1 }, tech: "telegraph" },
+  // A spark of power with no coal (src/game/power.ts): only on a hilltop.
+  "prop:mech-wind-turbine": { label: "Wind turbine", cost: { planks: 4, iron: 2 }, coins: 60, tech: "wind" },
   // Big stations: passenger stops of their own (looks only for now: not a town's halt).
   "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
   "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },

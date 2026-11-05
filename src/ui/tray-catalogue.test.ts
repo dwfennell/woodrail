@@ -11,7 +11,7 @@ describe("tray tabs", () => {
     expect(trayTabs("game").filter((t) => t.gameTech).map((t) => [t.id, t.gameTech])).toEqual([["roads", "roads"]]);
     expect(trayTabs("game")[0].props).toBeUndefined();
     // Props only as Game mode's lineside furniture (hidden till learned), on the Industries tab.
-    for (const tab of trayTabs("game")) for (const g of tab.groups) for (const item of g.items) if (item.kind === "prop") expect([tab.id, g.label === "Water" ? "Lineside" : g.label, item.unlearned]).toEqual(["industries", "Lineside", "hide"]);
+    for (const tab of trayTabs("game")) for (const g of tab.groups) for (const item of g.items) if (item.kind === "prop") expect([tab.id, g.label === "Water" ? "Lineside" : g.label, item.unlearned]).toEqual(["industries", item.asset === "mech-wind-turbine" ? "Industries" : "Lineside", "hide"]);
   });
 
   it("every shelf has items, and no item is on two shelves of one tab", () => {
@@ -123,7 +123,8 @@ describe("Game mode's railway kits on the tray", () => {
     // Learned: there they are.
     const water = (i: TrayItem) => trayKey(i) === "piece:kit-water-tower";
     expect(shownGroups(tab("industries").groups, water).map((g) => [g.label, g.items.length])).toEqual([
-      ["Industries", INDUSTRY_GROUPS[0].items.length],
+      // (Less the wind turbine: hidden till Wind farm is learned.)
+      ["Industries", INDUSTRY_GROUPS[0].items.length - 1],
       ["Railway", 1],
     ]);
   });
@@ -136,9 +137,11 @@ describe("the Industries shelf in Game mode (QA 2026-11-05 #7)", () => {
     const known = (i: TrayItem) => learned.has(trayKey(i));
     const shelf = shownGroups(tab("industries").groups, known).find((g) => g.label === "Industries")!;
     expect(shelf.items.slice(0, 4).map(trayKey)).toEqual(["piece:depot-workshop", "piece:depot-sawmill", "piece:depot-oilwell", "piece:depot-waterpump"]);
-    expect(shelf.items).toHaveLength(INDUSTRY_GROUPS[0].items.length);
+    // (Less the wind turbine: hidden till Wind farm is learned.)
+    const turbine = (k: string) => k.endsWith("mech-wind-turbine");
+    expect(shelf.items).toHaveLength(INDUSTRY_GROUPS[0].items.length - 1);
     const rest = shelf.items.slice(4).map(trayKey);
-    expect(rest).toEqual(INDUSTRY_GROUPS[0].items.map(trayKey).filter((k) => !learned.has(k)));
+    expect(rest).toEqual(INDUSTRY_GROUPS[0].items.map(trayKey).filter((k) => !learned.has(k) && !turbine(k)));
     // Other shelves keep their order (the track's Switch stays where it is, Locked or not).
     const track = shownGroups(tab("track").groups, () => false);
     expect(track.find((g) => g.label === "Switch")!.items.map(trayKey)).toEqual(tab("track").groups.find((g) => g.label === "Switch")!.items.map(trayKey));
