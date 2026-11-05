@@ -1,8 +1,8 @@
 /**
  * How much depth of field (the bokeh pass's blur on what's off focus, high tier only):
  *
- * - `today`: as it was: near and far both blur, up to `maxblur` of the screen.
- * - `half`: half the aperture and half the most blur.
+ * - `today`: as it was until 2026-11: near and far both blur, up to `maxblur` of the screen.
+ * - `half` (the default, picked from `docs/agents/shots/dof-sheet-*.jpg`): half the aperture and half the most blur.
  * - `tilt`: a tilt-shift hint: nothing nearer than the focus blurs, nor anything within `dead` × the focus distance
  *   beyond it; only the far edge of the view softens, a little.
  * - `off`: no depth-of-field pass at all.
@@ -28,7 +28,7 @@ export const DOF_LOOKS: Record<DofLevel, DofLook> = {
 };
 
 /** The level the game uses. */
-export const DOF_LEVEL: DofLevel = "today";
+export const DOF_LEVEL: DofLevel = "half";
 
 /** The look in use: `DOF_LEVEL`, or in a dev server `?dof=<level>` (for comparing them). */
 export function dofLook(): DofLook {
