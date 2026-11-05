@@ -45,6 +45,9 @@ export const LIVERY_SLOTS: Readonly<Partial<Record<CarLook, { body: readonly str
   diesel: { body: ["#e6b52c"], trim: [] },
   electric: { body: ["#c8442f"], trim: ["#f0ebe0"] },
   express: { body: ["#1f5aa6"], trim: ["#e6b52c"] },
+  // (The rack engine is the tank engine's model, the metro's the electric's: painted, their own schemes give way.)
+  rack: { body: ["#2f6db5"], trim: ["#c8442f"] },
+  metro: { body: ["#c8442f"], trim: ["#f0ebe0"] },
 };
 
 /** A livery's recolour map for an engine of `look` (body and trim to the livery's). */
@@ -104,7 +107,7 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   // (Painted at the paint shop: its livery; else the classic engine's second scheme on every other one. The rack engine
   // is the tank engine's model in its own colours, with a cog under it; the metro train is the electric engine and a
   // coach in silver and red.)
-  const recolor = rack ? RACK_SCHEME : metro ? METRO_SCHEME : kind === "engine" && livery ? liveryRecolor(look, livery) : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
+  const recolor = kind === "engine" && livery ? liveryRecolor(look, livery) : rack ? RACK_SCHEME : metro ? METRO_SCHEME : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
   const model = blenderCar(kind, rack ? "tank" : metro ? (kind === "engine" ? "electric" : "classic") : look, mats, lamp, recolor, CAR_SLOTS[kind]);
   if (rack) {
     const cog = rackCog(mats);
