@@ -4,9 +4,10 @@
 //    on the same line sets out by itself: a toast says so, and the derailed train's card (opened by a tap on it) says
 //    the crane is on its way. The crane drives up, lifts the train and sets it down: the payoff is the goods train back
 //    on the track (not derailed, its cars and their order kept), a toast, and the crane train standing within reach.
-// 2. Two trains nose to nose on single track, levers on: stuck. A stuck engine's card says so and offers "Send the
-//    crane"; a tap sends it: it drives out and lifts the train in the way off the line (back into the box). The payoff:
-//    that train is gone, and the stuck train runs again.
+// 2. A train runs nose to nose with the goods train, left standing (lever off) on the single track: stuck. (Two with
+//    their levers on would no longer stand there: one gives way, stalls.ts.) The stuck engine's card says so and offers
+//    "Send the crane"; a tap sends it: it drives out and lifts the train in the way off the line (back into the box).
+//    The payoff: that train is gone, and the stuck train runs again.
 //
 // Setup shortcuts (not under test): the blueprints learned, the track put down by the editor, the trains put on the
 // track by the sim (as the tray's drop does), the sim stepped by hand while paused (so a slow software-GL page keeps
@@ -204,13 +205,14 @@ check("1. the Re-rail chip is gone (nothing off the rails)", await p.evaluate(()
 await settle();
 await shot("3-back-on");
 
-// 2. Stuck: the goods train set going, and a third train coming the other way, nose to nose with it on the single
-// line. The third train's card says it's stuck and offers Send the crane; a tap sends the crane (behind the goods
-// train), which lifts the goods train, the one in the way, off the line.
+// 2. Stuck: the goods train left standing on the single line, lever off, and a third train coming the other way, nose
+// to nose with it. The third train's card says it's stuck and offers Send the crane; a tap sends the crane (behind the
+// goods train), which lifts the goods train, the one in the way, off the line. (Both with their levers on, the goods
+// train gave way since 2026-11-05: turned round and ran back to the crane train standing behind it.)
 const stuck = await p.evaluate((goods) => {
   const w = window.woodrail;
   const ids = window.__ids;
-  // (Its lever on, toward the line's far end, where a train with its lever on comes the other way.)
+  // (Left standing, lever off; the other train, its lever on, comes up the line to it.)
   const g = w.sim.findCar(goods).train;
   // (As far down the line as it goes, facing back up it.)
   let other = { kind: "none" };
@@ -218,8 +220,6 @@ const stuck = await p.evaluate((goods) => {
   if (other.kind !== "placed") return { error: "no room", at: g.world.map((q) => Math.round(q.x)) };
   const oe = w.sim.getTrain(other.trainId).cars[0];
   w.sim.setLever(oe.id, oe.facing);
-  const ge = g.cars[0];
-  w.sim.setLever(ge.id, ge.facing);
   return { other: oe.id };
 }, at.goods);
 check("2. setup: a train nose to nose with the goods train", !stuck.error, JSON.stringify(stuck));

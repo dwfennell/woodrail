@@ -165,7 +165,7 @@ export class ThumbnailStudio {
 /** A tray subject as a model to photograph, and how to put it away after. */
 function subjectModel(s: ThumbnailSubject, mats: Materials, withPiece: (type: PieceTypeId) => Object3D | null): { subject: Object3D; done: () => void } {
   if (s.kind === "piece") {
-    const mesh = new Mesh(pieceGeometry(s.type, false, isBridge(s.type) ? 1 : 0), [mats.track, mats.trackCut, mats.bridgePaint]);
+    const mesh = new Mesh(pieceGeometry(s.type, false, isBridge(s.type) ? 1 : 0), [mats.track, mats.trackCut, mats.bridgePaint, mats.viaductStone]);
     const extra = withPiece(s.type);
     if (extra) mesh.add(extra);
     // Long pieces lie diagonally so they fill the square tile.

@@ -14,6 +14,7 @@ import { buildStarterWorld, syncIndustries } from "./world";
 const UNLOCKS: Record<string, ThingId[]> = {
   signals: ["piece:signal", "piece:kit-semaphore-signal"],
   electricity: ["piece:depot-power", "piece:kit-colour-light-signal"],
+  wind: ["prop:mech-wind-turbine"],
   junctions: ["piece:switch-3way", "piece:crossing", "piece:crossing-45", "piece:crossover", "piece:wye", "piece:double-straight", "piece:double-curve", "piece:balloon-loop", "piece:balloon-loop-small", "piece:kit-signal-gantry"],
   "engine-shed": ["piece:kit-engine-shed", "piece:kit-water-tower", "piece:kit-coal-stage", "piece:kit-water-crane", "piece:kit-coaling-crane"],
   turntable: ["piece:kit-turntable", "piece:kit-roundhouse-segment", "piece:kit-transfer-table"],
@@ -32,6 +33,11 @@ const UNLOCKS: Record<string, ThingId[]> = {
   // The crossing styles moved from Scenery kit to the Roads branch's Crossing gates (roads spec, decision 3).
   "road-crossings": ["prop:mech-level-crossing", "prop:mech-gated-crossing"],
   buses: ["prop:scene-bus-stop"],
+  // Water transport (docs/superpowers/specs/2026-11-04-water-transport.md).
+  barges: ["piece:kit-landing", "piece:kit-boatyard"],
+  shipyards: ["piece:kit-shipyard"],
+  ferry: ["piece:kit-ferry-slip"],
+  lighthouse: ["prop:bldg-lighthouse"],
   // The rack's lookout halt (Mountain railway): the mountain station's chalet, on a hilltop.
   rack: ["piece:rack", "piece:rack-short", "piece:kit-lookout"],
   metro: ["piece:kit-metro-stop", "look:metro"],
@@ -39,6 +45,8 @@ const UNLOCKS: Record<string, ThingId[]> = {
   "big-stations": ["piece:kit-two-platform-station", "piece:kit-grand-terminus"],
   "fun-track": ["piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"],
   "fuel-stop": ["piece:kit-fuel-station"],
+  "lift-bridge": ["piece:kit-lift-bridge"],
+  observatory: ["piece:kit-observatory"],
   "loading-kits": ["piece:kit-log-loader", "piece:kit-grain-elevator", "piece:kit-drop-hopper", "piece:kit-goods-shed"],
   "big-cranes": ["piece:kit-gantry-crane", "piece:kit-magnet-crane", "piece:kit-harbour-crane", "piece:kit-cargo-conveyor", "piece:kit-tipping-dump", "piece:kit-coal-chute"],
 };
@@ -65,10 +73,10 @@ describe("railway kits in Game mode", () => {
     for (const id of kits) expect(Object.keys(UNLOCKS), id).toContain(ruleOf(id)!.tech);
   });
 
-  it("their blueprints are built now (no longer coming soon), on their tiers; the viaduct and the lift bridge still wait", () => {
+  it("their blueprints are built now (no longer coming soon), on their tiers; the viaduct and the lift bridge too (tech tree 5)", () => {
     for (const id of Object.keys(UNLOCKS)) expect(built(techOf(id)!), id).toBe(true);
     expect([techOf("signals")!.tier, techOf("junctions")!.tier, techOf("engine-shed")!.tier, techOf("turntable")!.tier, techOf("scenery")!.tier]).toEqual([1, 1, 2, 2, 1]);
-    for (const id of ["viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeDefined();
+    for (const id of ["viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeUndefined();
     const halts = techOf("halts")!;
     expect([halts.branch, halts.needs]).toEqual(["passengers", ["passengers"]]);
     expect(BLUEPRINTS.filter((b) => b.id === "halts")).toHaveLength(1);
@@ -87,8 +95,21 @@ describe("railway kits in Game mode", () => {
     }
   });
 
+  it("water transport's landing and ferry slip are depots in Game mode as in Sandbox", () => {
+    for (const [type, role] of [["kit-landing", "landing"], ["kit-ferry-slip", "slip"], ["kit-boatyard", "boatyard"], ["kit-shipyard", "shipyard"]] as const) {
+      for (const game of [true, false]) {
+        const w = buildStarterWorld();
+        const station = w.stations.get(w.landscape.towns[0].id)!;
+        const piece = appendPiece(w.layout, type, false, connectorRef(station, 0));
+        syncIndustries(w, game);
+        expect(w.economy.depotAtPiece(piece)?.role, `${type} game ${game}`).toBe(role);
+      }
+    }
+  });
+
   it("cargo loaders and unloaders are looks only in Game mode: no depot, so no endless heap and nothing vanishes", () => {
-    const loaders = (Object.keys(KITS) as PieceTypeId[]).filter((t) => kitOf(t)!.depot);
+    // (Not water transport's landing and ferry slip: Game mode's own depots, see the next test.)
+    const loaders = (Object.keys(KITS) as PieceTypeId[]).filter((t) => kitOf(t)!.depot && !["kit-landing", "kit-ferry-slip", "kit-boatyard", "kit-shipyard"].includes(t));
     expect(loaders).toHaveLength(10);
     for (const type of loaders) {
       for (const game of [true, false]) {

@@ -1,5 +1,5 @@
 import type { Object3D } from "three";
-import { LIFT_RISE } from "../track/kits";
+import { LIFT_BRIDGE_RISE, LIFT_RISE } from "../track/kits";
 
 /** A lift's platform this close (mm) to an end counts as there, for its stop boards (it's eased in: exactly, at its end). */
 const LIFT_STOP_SLACK = 1e-3;
@@ -220,6 +220,19 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
       each(p, "gear", (o) => (o.rotation.z = y / 8));
       each(p, "stop0", (o) => (o.visible = y > LIFT_STOP_SLACK));
       each(p, "stop1", (o) => (o.visible = y < LIFT_RISE - LIFT_STOP_SLACK));
+    },
+  }),
+  // The lift bridge's span stands where the sim has raised it (0 down, 1 up: `Sim.liftPosition`), its counterweights
+  // going down as it goes up; its stop boards show while it's off the ground.
+  "mech-lift-bridge": stateMotion(["span", "cw00", "cw01", "cw10", "cw11", "stop0", "stop1"], {
+    source: "ride",
+    glide: 0,
+    value: (k) => k,
+    pose: (p, f) => {
+      each(p, "span", (o) => (o.position.y = f * LIFT_BRIDGE_RISE));
+      for (const n of ["cw00", "cw01", "cw10", "cw11"]) each(p, n, (o) => (o.position.y = -f * LIFT_BRIDGE_RISE * 0.6));
+      each(p, "stop0", (o) => (o.visible = f > LIFT_STOP_SLACK));
+      each(p, "stop1", (o) => (o.visible = f > LIFT_STOP_SLACK));
     },
   }),
   "mech-train-wash": {

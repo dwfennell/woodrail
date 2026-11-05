@@ -17,11 +17,11 @@ import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landsc
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
-import { GoalTracker, goalTickTitle, payGoal, secondEngineTip, trayRing } from "./game/goals";
+import { GoalTracker, goalTickTitle, payGoal, secondEngineTip, trayRing, type GoalGuide } from "./game/goals";
 import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
@@ -48,7 +48,7 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, LOOKOUT_KIT, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
@@ -56,7 +56,8 @@ import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, si
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
-import { copyLine, editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseLine, sameLines, snapshotLines, stopLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
+import { copyLine, editLine, isRingLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseLine, sameLines, snapshotLines, stopLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
@@ -69,7 +70,7 @@ import { givesBlockText, STORE_NO_ROUTE, WAGON_SAME_DONE, storeBlockText, storeS
 import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
-import { capAt, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
+import { capAt, isStore as isStoreRole, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
 import type { Stuck } from "./economy/stalls";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
@@ -79,14 +80,16 @@ import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pil
 import { TelegraphWires } from "./render/telegraph-wires";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
+import { canPower, POWERED_RATE, powerOf } from "./game/power";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
-import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
+import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, lighthouseNear, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
+import { attachWater, type WaterControls } from "./ui/water-controls";
 import { drawPlaceRows } from "./ui/places-row";
 import { PaintSheet } from "./ui/paint-sheet";
 import { paint, paintOpen } from "./game/paint-shop";
@@ -406,6 +409,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let editor = makeEditor();
   let saveTimer = 0;
   let interaction: Interaction;
+  /** River barges on screen (made once the HUD and interaction are: `attachWater`). */
+  let water: WaterControls | null = null;
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
@@ -810,7 +815,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const haltReach = new HaltReachView(game.scene, HALT_REACH);
   interaction.onHeld = (type) => {
     heldChains(type);
-    const show = mode === "game" && type !== null && HALT_KITS.has(type) && type !== LOOKOUT_KIT && type !== METRO_KIT;
+    const show = mode === "game" && type !== null && HALT_KITS.has(type) && !isSightStop(type) && type !== METRO_KIT;
     if (show === haltReach.showing) return;
     if (show) haltReach.show(game.landscape);
     else haltReach.hide();
@@ -1317,6 +1322,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction?.flushDraw();
     setExpanding(false);
     game.setWorld(world);
+    water?.reset();
     shownDelivered = new Map();
     announced = new Set();
     updateConnections(false);
@@ -1661,6 +1667,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The stickers seen in their tab (the chip's dot is for the rest), and whether the tab is out yet (core goals done). */
   let stickersSeen = new Set(loadStickersSeen());
   let stickersOpen = false;
+  /** Feature tips (src/game/feature-tips.ts): a 💡 row under the goals for a system just learned, till it's used. */
+  let tips = ((t) => new TipTracker(t.done, t.shown))(loadTips());
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
   // Refusals aren't logged: they stay plain `hud.toast`s.
   // On game time: "2 min ago" means two minutes of play (it stands still while paused).
@@ -1674,6 +1682,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         stickersSeen = new Set(stickers.ids());
         saveStickersSeen([...stickersSeen]);
         showStickers();
+      },
+      showTip: () => showTip(),
+      tipDone: (id) => {
+        tips.finish(id);
+        saveTips(tips.toJSON());
+        checkGoals(false);
       },
     },
     journal,
@@ -1881,8 +1895,54 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }
     }
     checkStickers(announce, fresh.length > 0);
+    checkTips(announce);
     const current = goals.current();
     goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next(), goals.total, goals.lockedHint(), goals.lockedCount);
+  }
+
+  /** A ring line with a train on it (for its tip), by the lines' stops and the track: kept while they're the same. */
+  let ringSeen: { key: string; id: number | null } = { key: "", id: null };
+  function ringLineNow(): number | null {
+    const e = game.economy;
+    let key = `${game.layout.piecesVersion}`;
+    for (const [id, line] of e.lines) key += `|${id}:${line.stops.map((st) => st.depotId).join(",")}`;
+    if (key !== ringSeen.key) {
+      let id: number | null = null;
+      for (const [lineId, line] of e.lines) if (trainsOn(e, lineId).length > 0 && isRingLine(e, line.stops)) id = lineId;
+      ringSeen = { key, id };
+    }
+    // (A line's trains come and go without its stops changing: asked each time, cheap.)
+    return ringSeen.id !== null && trainsOn(e, ringSeen.id).length > 0 ? ringSeen.id : null;
+  }
+  /** A train waiting under a crane for a full load (its engine's car id), or null: Leave now's tip. */
+  function waitingEngineNow(): number | null {
+    for (const id of game.sim.trainIds()) {
+      const t = game.sim.getTrain(id);
+      const engine = t?.cars.find((c) => c.kind === "engine");
+      if (engine && game.economy.waitingToFill(id)) return engine.id;
+    }
+    return null;
+  }
+  function tipContext(): TipContext {
+    return {
+      learned: progress.learned,
+      goalDone: (id) => goals.isDone(id),
+      queued: progress.research.next === null ? 0 : 1 + progress.research.later.length,
+      // (Only looked for while their tips may show.)
+      waitingEngine: tips.isDone("leave-now") ? null : waitingEngineNow(),
+      ringLine: tips.isDone("ring-reverse") ? null : ringLineNow(),
+    };
+  }
+  /**
+   * The tips, with the goals (never per frame): one used goes; the first left that's useful shows under the goals. A
+   * tip with no blueprint (Leave now, a ring line's Reverse) is toasted the first time it shows.
+   */
+  function checkTips(announce: boolean): void {
+    const { first, changed } = tips.update(game.world, tipContext());
+    if (changed) saveTips(tips.toJSON());
+    if (first && announce) hud.toast(`💡 ${first.text}`, false, 6000, () => showTip());
+    const t = tips.current();
+    goalsPanel.setTip(t ? { id: t.id, title: t.title, text: t.text } : null);
   }
 
   // Game mode's toy box and workshop: what you own (worked out against what's on the map), and what's being made.
@@ -2170,10 +2230,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
     // (Props too: trees planted from Nature count for a harvester.)
-    const rateKey = `${key}#${game.landscape.grid.revision}#${game.world.props.version}#${mode === "game" ? upgradeKey(progress) : ""}`;
+    // (And powered yards, Game mode's sparks: a yard with one works `POWERED_RATE` times as fast.)
+    const grid = mode === "game" ? powerOf(game.world) : null;
+    const rateKey = `${key}#${game.landscape.grid.revision}#${game.world.props.version}#${mode === "game" ? upgradeKey(progress) : ""}#${grid ? [...grid.current.yardsOn].join(",") : ""}`;
     if (rateKey !== rateKeyShown) {
       rateKeyShown = rateKey;
-      if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
+      if (updateRates(game.world, grid ? (role, d) => boostOf(progress, role) * (grid.yardOn(d.id) ? POWERED_RATE : 1) : undefined)) game.invalidate();
     }
     hud.refreshTrayBadges();
     // A school placed (or taken up), or grown with its town: tier 3 may open, study may go faster, and the pill shows
@@ -2326,11 +2388,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const tip = opened.some((g) => g.id === "two-trains") ? secondEngineTip(progress.available(game.world, "car:engine"), progress.owned.get("car:engine") ?? 0) : "";
     // (A feature says how to start using it: audit F4, "Tap a train, then Plan a route".)
     const goalLine = opened.length > 0 ? `New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
-    const said = learnedText({ label: t.label, makes: makes.length > 0 ? makesLine(makes) : "", how: t.how, blurb: t.blurb, present, goal: goalLine, next: next && techOf(next)?.label });
+    // A system with a tip (feature-tips.ts) says how to start using it, once, on its toast (the tip then waits under the goals).
+    const tipText = tipFor(id)?.text;
+    const said = learnedText({ label: t.label, makes: makes.length > 0 ? makesLine(makes) : "", how: t.how, blurb: t.blurb, present, goal: goalLine, tip: tipText, next: next && techOf(next)?.label });
     // Two News lines (what was learned, then the goal it opens), one toast saying both (and what's studied next).
     note({ kind: "milestone", text: said.line }, 3800, true);
     if (goalLine) note({ kind: "milestone", text: goalLine }, 0, true);
-    if (mode === "game") hud.toast(said.toast, true, goalLine || next ? 5200 : 3800);
+    if (mode === "game") hud.toast(said.toast, true, goalLine || next || said.tipped ? 5200 : 3800);
     // A place's blueprint: plain buildings already standing in its model become it, free (game/places.ts).
     if (mode === "game") openPlaces(id);
     // An upgrade takes effect at once: industries' rates and the cranes.
@@ -2640,6 +2704,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const warnedHeavy = new Set<number>();
   // Harbours (Game mode): boats call by themselves and buy what's on the quay.
   const harbourTrade = new HarbourTrade();
+  // River barges (Game mode): the player's boats, their cards and planning (src/ui/water-controls.ts).
+  water = attachWater({
+    game,
+    hud,
+    interaction,
+    progress: () => progress,
+    isGame: () => mode === "game",
+    saved: () => scheduleSave(),
+    paid: () => scheduleSave("progress"),
+  });
   function passengersOn(): void {
     peopleClock.clear();
     harbourTrade.reset();
@@ -2711,7 +2785,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const sailed = simElapsed(harbourClock, game.simSeconds);
     if (mode !== "game" || !playing || game.paused || sailed <= 0) return;
     for (const e of harbourTrade.update(game.world, progress, sailed)) {
-      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
+      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL, e.ship);
       else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "gone") game.boats.remove(e.depotId);
       else if (e.kind === "bought") {
@@ -2732,6 +2806,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         scheduleSave("progress");
       }
     }
+    // The player's boats move on, drop and pick up.
+    water?.tick(sailed);
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
     // (The picker shows the counts only as requirements met, or riders: the workshop's clock sees those in its key.)
     counters.collect(game.economy, progress);
@@ -2744,6 +2820,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else warnedHeavy.delete(id);
     }
     peopleArrive(game.world, progress, 1, peopleClock);
+    // Sparks: a power station's coal may have run out (or come), a train put on or away (src/game/power.ts).
+    syncPower();
     // Metro trains draw power: a coal from a power station now and then, as they run (not while paused: they stand,
     // though they keep their speed for after).
     if (!game.paused) metroDraw(game.world, 1, metroClock);
@@ -3132,7 +3210,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const d = game.economy.depot(id)!;
     const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
-    const text = harbourTrade.describe(id, progress.learned.has("fishing"), progress.learned.has("chocolate"));
+    const piece = game.layout.getPiece(d.pieceId);
+    const lit = !!piece && progress.learned.has("lighthouse") && lighthouseNear(game.world, piece.pose);
+    const text = harbourTrade.describe(id, progress.learned.has("fishing"), progress.learned.has("chocolate"), progress.learned.has("cargo-ships") && game.economy.shipsBuilt > 0, lit);
     const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
     // Goods the boats sell you (what you already make), and what's on order for the next one.
     const forSale = goodsForSale(game.world);
@@ -3201,6 +3281,87 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave();
     });
     box.append(build);
+  }
+
+  /** The open depot card's power, as drawn (a key of its inputs), or "" for none. */
+  let powerShown = "";
+  /** The power grid's version last acted on (the yards' rates follow it). */
+  let powerVersion = -1;
+  /**
+   * Game mode's sparks (src/game/power.ts), once a second and after a tap: counted again, and the yards' rates set again
+   * if who has a spark changed.
+   */
+  function syncPower(): void {
+    if (mode !== "game") return;
+    const grid = powerOf(game.world);
+    grid.refresh(game.world);
+    if (grid.version === powerVersion) return;
+    powerVersion = grid.version;
+    industriesChanged();
+  }
+  /**
+   * A depot card's power (Game mode, once Electricity is learned): a power station's sparks, made and used; a yard's
+   * Power it, and whether it has a spark. Drawn again only when its key changes (cheap: a key a frame).
+   */
+  function showPower(): void {
+    const id = mode === "game" && hud.depotCardOpen ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    const learned = progress.learned.has("electricity");
+    const show = !!d && learned && (d.role === "power" || canPower(d));
+    const grid = show ? powerOf(game.world) : null;
+    const key = show && grid ? `${id}|${grid.version}|${d!.powerAsk}|${progress.learned.has("wind")}` : "";
+    const box = hud.depotPower;
+    if (key === powerShown && (key === "" || box.childElementCount > 0)) return;
+    powerShown = key;
+    box.innerHTML = "";
+    box.hidden = !show;
+    if (!show || !grid || !d) return;
+    const p = grid.current;
+    const line = (html: string) => {
+      const e = document.createElement("div");
+      e.className = "power-line";
+      e.innerHTML = html;
+      box.append(e);
+    };
+    if (d.role === "power") {
+      const wind = progress.learned.has("wind");
+      if (p.made === 0) line(wind ? "⚡ No sparks: bring coal, or put wind turbines on the hilltops" : "⚡ No sparks: bring coal");
+      else {
+        const meter = document.createElement("div");
+        meter.className = "power-meter";
+        meter.innerHTML = `<i class="coal" style="width:${(100 * p.fromCoal) / p.made}%"></i><i class="wind" style="width:${(100 * p.fromWind) / p.made}%"></i>`;
+        box.append(meter);
+        line(`⚡ <b>${p.made}</b> spark${p.made === 1 ? "" : "s"}: ${p.fromCoal} from coal${wind || p.fromWind > 0 ? `, ${p.fromWind} from the wind` : ""}`);
+      }
+      if (p.engines.length > 0) {
+        const slow = p.engines.length - p.enginesOn.size;
+        line(`🚂 Electric engines: <b>${p.engines.length}</b>${slow > 0 ? `, ${slow} at steam speed` : ", all powered"}`);
+      }
+      if (p.yards.length > 0) {
+        const waiting = p.yards.length - p.yardsOn.size;
+        line(`🏭 Powered yards: <b>${p.yardsOn.size}</b>${waiting > 0 ? `, ${waiting} waiting for a spark` : ""}`);
+      }
+      line(p.spare > 0 ? `<b>${p.spare}</b> spare: Power a yard on its card to speed it up` : p.made > 0 ? "No sparks spare" : "");
+      return;
+    }
+    // A yard: ask for a spark, or stop asking.
+    const on = grid.yardOn(d.id);
+    const asked = d.powerAsk > 0;
+    line(on ? `⚡ Powered: works ${POWERED_RATE}× as fast` : asked ? "⚡ Waiting for a spare spark of power" : `⚡ ${p.spare > 0 ? `${p.spare} spark${p.spare === 1 ? "" : "s"} spare` : "No sparks spare"}: a powered yard works ${POWERED_RATE}× as fast`);
+    const b = document.createElement("button");
+    b.className = asked ? "chip text" : "chip text primary";
+    b.dataset.power = asked ? "off" : "on";
+    b.textContent = asked ? "Stop powering it" : "⚡ Power this yard";
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      grid.ask(game.world, d, !asked);
+      syncPower();
+      if (!asked && !grid.yardOn(d.id)) hud.toast("No spark spare: it'll be powered when one is", false, 3200);
+      audio.chime();
+      scheduleSave();
+      showPower();
+    });
+    box.append(b);
   }
 
   /** The school's card's choice as drawn (its depot and setting), or "" for none: drawn again only when it changes. */
@@ -3345,7 +3506,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     { action: "pick", label: "Only pick up", tip: "Only picks goods up here" },
   ];
   /** Is this depot a warehouse (it trades only with trains on a route: see warehouse-text.ts)? */
-  const isStore = (depotId: number) => game.economy.depot(depotId)?.role === "warehouse";
+  const isStoreAt = (depotId: number) => { const role = game.economy.depot(depotId)?.role; return !!role && isStoreRole(role); };
   /**
    * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
    * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
@@ -3393,6 +3554,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const found = carId === -1 ? null : game.sim.findCar(carId);
     if (!found || !game.economy.leaveNow(found.train.id)) return;
     hud.setLeaveNow(false);
+    // (Its tip has done its job.)
+    if (!tips.isDone("leave-now")) {
+      tips.finish("leave-now");
+      saveTips(tips.toJSON());
+    }
     game.invalidate();
   }
 
@@ -3968,7 +4134,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             stopHintSeen = true;
             saveFlag(STOP_HINT_KEY);
           }
-          if (!storeHintSeen && isStore(st.depotId)) {
+          if (!storeHintSeen && isStoreAt(st.depotId)) {
             storeHintSeen = true;
             saveFlag(STORE_HINT_KEY);
           }
@@ -4088,7 +4254,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         box.append(hint);
       }
       // The first time, a word on what a chip does (till one is tapped); on a line with a warehouse, till its chip is.
-      const storeHint = !storeHintSeen && line.stops.some((st) => isStore(st.depotId));
+      const storeHint = !storeHintSeen && line.stops.some((st) => isStoreAt(st.depotId));
       if ((!stopHintSeen || storeHint) && stopPicked === -1 && !viaPicked && !planning) {
         const hint = document.createElement("div");
         hint.className = "route-hint";
@@ -4214,7 +4380,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // What it picks up and drops here, in words.
         if (plan[k]) box.append(Object.assign(document.createElement("div"), { className: "route-hint route-plan-words", textContent: planWords(plan[k]) }));
         // At a warehouse, what this stop's action does there.
-        if (isStore(st.depotId)) {
+        if (isStoreAt(st.depotId)) {
           const what = document.createElement("div");
           what.className = "route-hint route-store";
           what.textContent = storeStopText(st.action);
@@ -4228,7 +4394,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const d = plan[k] && (plan[k].notDrops.length || plan[k].notPicks.length) ? game.economy.depot(st.depotId) : undefined;
         if (!d) return;
         // (An industry set not to give a good: in its own words; set to give none, one line for it.)
-        if (d.role !== "warehouse") {
+        if (!isStoreRole(d.role)) {
           const name = DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES] ?? "industry";
           if (RECIPES[d.role].gives.every((g) => storeModeOf(d, g) === "off")) blocked.add(givesBlockText(name, null));
           else for (const g of plan[k].notPicks) blocked.add(givesBlockText(name, g));
@@ -4863,6 +5029,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const r = out as ReturnType<typeof reverseLine>;
       if (!r) return;
       lineNotes.delete(id);
+      if (r.ring && !tips.isDone("ring-reverse")) {
+        tips.finish("ring-reverse");
+        saveTips(tips.toJSON());
+      }
       if (r.stuck.length > 0) {
         lineNotes.set(id, { order: stopOrder(id), engines: r.stuck.map((s) => s.engine), text: notTurnedText(r.stuck) });
         hud.toast(`${line.name} runs the other way round now, but ${r.stuck.length === 1 ? "one train" : `${r.stuck.length} trains`} couldn't be turned round: see why under it`, false, 4000);
@@ -5236,7 +5406,28 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       setBoardOpen(true, pick);
       return;
     }
-    const guide = goal.guide(game.world);
+    showGuide(goal.guide(game.world));
+  }
+
+  /** The tip's Show me: where to use it (an industry's card, a hill by the line, the tray's shelf, the research board). */
+  function showTip(): void {
+    const tip = tips.current();
+    if (!tip) return;
+    const guide: TipGuide = tip.guide(game.world, tipContext());
+    if (guide.board !== undefined) {
+      setBoardOpen(true, guide.board === true ? undefined : guide.board);
+      return;
+    }
+    if (guide.lines) {
+      openLines();
+      return;
+    }
+    if (guide.engine !== undefined) interaction.openEngineCard(guide.engine);
+    showGuide(guide);
+  }
+
+  /** Glide to where a guide points, flash its towns, mark its places, open its tray tab and card. */
+  function showGuide(guide: GoalGuide): void {
     interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
     // The card to choose from ("Make a switch": the workshop's, its Switch row there to tap).
@@ -5285,6 +5476,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     stickersSeen = new Set();
     saveStickersSeen([]);
     stickersOpen = false;
+    tips = new TipTracker();
+    saveTips(tips.toJSON());
     journal.clear();
     growth = null;
     ticks = new GoalTicks();
@@ -5900,6 +6093,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showFarm();
       showSawmill();
       showHarbour();
+      water?.frame();
+      showPower();
       showTracks();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
@@ -5937,7 +6132,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
