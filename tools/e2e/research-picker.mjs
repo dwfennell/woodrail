@@ -310,8 +310,8 @@ for (const state of ["locked", "soon"]) {
 }
 check("learned: Learned, no button", states.learned?.state === "learned" && states.learned.buttons.length === 0, JSON.stringify(states.learned));
 check("researching: live progress, no button", states.researching?.state === "researching" && /\uE000 1\/10/.test(states.researching.foot) && states.researching.buttons.length === 0, JSON.stringify(states.researching));
-check("next: after Bridges, its coins chip short, Remove and Research now", states.next?.state === "next" && /Next up, after Bridges · 40🪙 short/.test(states.next.foot) && /🪙 40/.test(states.next.foot) && states.next.buttons.map((x) => x.text).join("|") === "✕ Remove|Research now", JSON.stringify(states.next));
-check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /\uE000 0\/4/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
+check("next: after Bridges, its coins chip short, Remove and Research now", states.next?.state === "next" && /Next up, after Bridges · 60🪙 short/.test(states.next.foot) && /🪙 60/.test(states.next.foot) && states.next.buttons.map((x) => x.text).join("|") === "✕ Remove|Research now", JSON.stringify(states.next));
+check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /\uE000 0\/6/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
 check("locked: what it waits for", states.locked?.state === "locked" && states.locked.buttons.length === 0, JSON.stringify(states.locked));
 check("soon: coming soon", states.soon?.state === "soon" && states.soon.buttons.length === 0, JSON.stringify(states.soon));
 // 6b. A tap on a card says what it unlocks and everything it costs, in words (#11), fitting a 360 px phone: the
