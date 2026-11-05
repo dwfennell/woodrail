@@ -2,7 +2,7 @@ import { BatchedMesh, Group, Matrix4, Quaternion, Vector3, type Material, type O
 import type { Prop, PropStore } from "../../props/store";
 import { drawnKey, type PropLibrary } from "./library";
 import { compacted, makeRoom, type BatchRoom } from "../compact";
-import { FAR_ASK_FRAMES, farGeometry, FAR_HYSTERESIS, FAR_PX_PER_MM, whenIdle } from "../far-detail";
+import { FAR_ASK_FRAMES, farGeometryOf, farIndexLater, FAR_HYSTERESIS, FAR_PX_PER_MM } from "../far-detail";
 
 /** What the view draws: the store, or anything shaped like it (the kit pieces, see `KitView`). */
 export type PropSource = Pick<PropStore, "version" | "get"> & { all(): Iterable<Prop> };
@@ -188,25 +188,33 @@ export class PropsView {
 
   private readonly farAsked = new Set<string>();
 
-  /** Make a model's parts' far versions and put them in their batches, when the page is idle (once). */
+  /** Make a model's parts' far versions (off the main thread: `farIndexLater`) and put them in their batches (once). */
   private askFar(key: string): void {
     if (this.farAsked.has(key)) return;
     this.farAsked.add(key);
-    whenIdle(() => {
-      const model = this.library.model(key);
-      for (const part of model?.parts ?? []) {
-        const batch = this.batches.get(part.material);
-        if (!batch || !batch.geometryOf.has(key)) continue;
-        const far = farGeometry(compacted(part.geometry));
-        if (!far) {
-          batch.farOf.set(key, null);
-          continue;
-        }
-        makeRoom(batch.mesh, batch.room, far);
-        batch.farOf.set(key, batch.mesh.addGeometry(far));
-        far.dispose();
-      }
-      // (A part in no batch yet, or none: nothing far for it.)
+    const model = this.library.model(key);
+    const asked: Promise<void>[] = [];
+    for (const part of model?.parts ?? []) {
+      const batch = this.batches.get(part.material);
+      if (!batch || !batch.geometryOf.has(key)) continue;
+      const g = compacted(part.geometry);
+      asked.push(
+        farIndexLater(g).then((index) => {
+          // (The view put away meanwhile: nothing to add to.)
+          if (this.batches.get(part.material) !== batch) return;
+          if (!index) {
+            batch.farOf.set(key, null);
+            return;
+          }
+          const far = farGeometryOf(g, index);
+          makeRoom(batch.mesh, batch.room, far);
+          batch.farOf.set(key, batch.mesh.addGeometry(far));
+          far.dispose();
+        }),
+      );
+    }
+    // (A part in no batch yet, or none: nothing far for it.)
+    void Promise.all(asked).then(() => {
       for (const b of this.batches.values()) if (b.geometryOf.has(key) && !b.farOf.has(key)) b.farOf.set(key, null);
     });
   }

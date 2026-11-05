@@ -123,7 +123,7 @@ export const RULES = [
   ["src/render/track-geometry.ts", ["low-bridge", "ramps"]],
   ["src/render/chain-hints-view.ts", ["sandbox-chains"]],
   // Static geometry welded, quantised, and drawn far in fewer triangles: towns, yards, ruins, props, kits, clocks.
-  [["src/render/compact.ts", "src/render/far-detail.ts", "src/render/dressing/batcher.ts"], ["kits", "station-clock", "sites", "growth"]],
+  [["src/render/compact.ts", "src/render/far-*.ts", "src/render/dressing/batcher.ts"], ["kits", "station-clock", "sites", "growth", "locked"]],
   ["src/render/dressing/blocks.ts", ["low-bridge", "landscaping"]],
 
   // UI.

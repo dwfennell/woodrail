@@ -12,7 +12,8 @@ function stubMaterials(): Materials {
   return new Proxy({ lacquer } as unknown as Materials, { get: (t, k) => (k in t ? t[k as keyof Materials] : m()) });
 }
 
-const idle = () => new Promise((r) => setTimeout(r, 200));
+// (Far versions are made when the page is idle: here, with no worker, on this thread.)
+const idle = () => new Promise((r) => setTimeout(r, 1000));
 
 describe("props far off", () => {
   it("are drawn in their models' far versions under half a pixel a millimetre, back 10% nearer", async () => {

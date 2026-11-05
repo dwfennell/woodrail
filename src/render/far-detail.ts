@@ -1,5 +1,6 @@
 import { Box3, BufferAttribute, BufferGeometry, type Mesh, type Vector3 } from "three";
 import type { MeshoptSimplifier as Simplifier } from "meshoptimizer/simplifier";
+import { simplifyIndex, type FarAnswer, type FarJob } from "./far-simplify";
 
 /**
  * Far versions of finished static meshes (towns, industries' yards, ruins, the felt, the scenery around, props): the
@@ -9,9 +10,10 @@ import type { MeshoptSimplifier as Simplifier } from "meshoptimizer/simplifier";
  * far version: see claude/perf-4's `TrackView.setDetail`).
  *
  * A plain mesh's far version is only a new index over its own vertices (`farIndex`): its attributes are shared, so on
- * the GPU it costs that index alone. They're made once wanted for a while (`FAR_ASK_FRAMES` drawn frames: a camera
- * moving out), one per idle moment (`whenIdle`), so loading costs nothing more, a still game makes none, and a view
- * zoomed out a long way draws the real meshes until theirs are made. The simplifier (55 kB) is fetched then too.
+ * the GPU it costs that index alone. They're made once wanted for a while (`FAR_ASK_FRAMES` frames drawn with the
+ * camera moving: zooming out), by a worker (`far-worker.ts`; the main thread only copies the arrays over), so loading
+ * costs nothing more, a still game makes none, nothing holds up a tap, and a view zoomed out a long way draws the real
+ * meshes until theirs are made. The simplifier (55 kB) is fetched with the worker.
  */
 export const FAR_PX_PER_MM = 0.5;
 export const FAR_HYSTERESIS = 1.1;
@@ -23,13 +25,10 @@ export const FAR_ERROR = 0.5;
  * pays nothing while idle or paused).
  */
 export const FAR_ASK_FRAMES = 12;
-/** A far version saving less than this share of the triangles isn't worth its index. */
-const MIN_SAVING = 0.25;
-
 let simplifier: typeof Simplifier | null = null;
 let loading: Promise<void> | null = null;
 
-/** Fetch the simplifier (once). */
+/** Fetch the simplifier (once), for making far versions on the main thread (where there's no worker: tests). */
 export function loadSimplifier(): Promise<void> {
   loading ??= import("meshoptimizer/simplifier")
     .then(async ({ MeshoptSimplifier }) => {
@@ -41,36 +40,79 @@ export function loadSimplifier(): Promise<void> {
 }
 
 /**
- * A far version's triangles for an indexed geometry (one material, all of it drawn): an index over the same vertices.
- * Null if it can't be made (not indexed, groups, a draw range, the simplifier not loaded) or saves too little.
+ * What a far version is made from (copies, to hand to a worker): the index, the positions, the normals as floats.
+ * Null if it can't have one (not indexed, groups, positions not floats).
  */
-export function farIndex(g: BufferGeometry, error = FAR_ERROR): Uint32Array | null {
+function farInputs(g: BufferGeometry): { index: Uint32Array; positions: Float32Array; normals: Float32Array | null } | null {
   const pos = g.getAttribute("position");
-  if (!simplifier || !g.index || g.groups.length > 0 || !(pos instanceof BufferAttribute) || !(pos.array instanceof Float32Array) || pos.itemSize !== 3) return null;
-  const index = g.index.array instanceof Uint32Array ? g.index.array : Uint32Array.from(g.index.array);
-  // The normals count as well as the surface (a normal turned by a tenth counts as a tenth of a millimetre astray), so
-  // the far version is shaded as the real one is, not only shaped like it (position alone left a fifth more triangles
-  // out, and far-off houses a shade lighter or darker).
+  if (!g.index || g.groups.length > 0 || !(pos instanceof BufferAttribute) || !(pos.array instanceof Float32Array) || pos.itemSize !== 3) return null;
   const n = g.getAttribute("normal");
-  if (!n) return pick(simplifier.simplify(index, pos.array, 3, 0, error, ["ErrorAbsolute"])[0], index);
-  const normals = new Float32Array(n.count * 3);
-  for (let i = 0; i < n.count; i++) for (let j = 0; j < 3; j++) normals[i * 3 + j] = n.getComponent(i, j);
-  return pick(simplifier.simplifyWithAttributes(index, pos.array, 3, normals, 3, NORMAL_WEIGHTS, null, 0, error, ["ErrorAbsolute"])[0], index);
+  let normals: Float32Array | null = null;
+  if (n) {
+    normals = new Float32Array(n.count * 3);
+    for (let i = 0; i < n.count; i++) for (let j = 0; j < 3; j++) normals[i * 3 + j] = n.getComponent(i, j);
+  }
+  return { index: Uint32Array.from(g.index.array), positions: pos.array.slice(), normals };
 }
 
-const NORMAL_WEIGHTS = [1, 1, 1];
+/**
+ * A far version's triangles for an indexed geometry (one material, all of it drawn), made here and now: an index over
+ * the same vertices. Null if it can't be made (not indexed, groups, the simplifier not loaded) or saves too little.
+ */
+export function farIndex(g: BufferGeometry, error = FAR_ERROR): Uint32Array | null {
+  const input = simplifier && farInputs(g);
+  return input ? simplifyIndex(simplifier!, input.index, input.positions, input.normals, error) : null;
+}
 
-function pick(out: Uint32Array, index: Uint32Array): Uint32Array | null {
-  return out.length <= index.length * (1 - MIN_SAVING) ? out : null;
+let worker: Worker | null | undefined;
+let nextJob = 1;
+const answers = new Map<number, (index: Uint32Array | null) => void>();
+
+/** The far worker (made once); null where there are no module workers (tests), or it couldn't start. */
+function farWorker(): Worker | null {
+  if (worker !== undefined) return worker;
+  worker = null;
+  if (typeof Worker === "undefined") return null;
+  try {
+    worker = new Worker(new URL("./far-worker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (e: MessageEvent<FarAnswer>) => {
+      answers.get(e.data.id)?.(e.data.index);
+      answers.delete(e.data.id);
+    };
+    worker.onerror = () => {
+      // (It failed to start: what it was asked is made here instead, and from now on.)
+      worker = null;
+      const waiting = [...answers.values()];
+      answers.clear();
+      for (const done of waiting) done(null);
+    };
+  } catch {
+    worker = null;
+  }
+  return worker;
+}
+
+/**
+ * A far version's index, made off the main thread (the far worker: a town tile's simplification is a long task, and
+ * on the main thread it held up taps), or where there's no worker, here when the page is idle. Null as `farIndex`.
+ */
+export function farIndexLater(g: BufferGeometry, error = FAR_ERROR): Promise<Uint32Array | null> {
+  const w = farWorker();
+  const input = w ? farInputs(g) : null;
+  if (!w || !input) return new Promise((done) => whenIdle(() => done(farIndex(g, error))));
+  const id = nextJob++;
+  return new Promise((done) => {
+    answers.set(id, done);
+    const job: FarJob = { id, ...input, error };
+    w.postMessage(job, [input.index.buffer, input.positions.buffer, ...(input.normals ? [input.normals.buffer] : [])]);
+  });
 }
 
 /**
  * A far version as a geometry of its own, only the vertices it uses (for a `BatchedMesh`, which copies each geometry
- * in: an index over the whole model's vertices would copy them all). Null as `farIndex`.
+ * in: an index over the whole model's vertices would copy them all), from its index (`farIndex`).
  */
-export function farGeometry(g: BufferGeometry, error = FAR_ERROR): BufferGeometry | null {
-  const index = farIndex(g, error);
-  if (!index) return null;
+export function farGeometryOf(g: BufferGeometry, index: Uint32Array): BufferGeometry {
   const remap = new Int32Array(g.getAttribute("position").count).fill(-1);
   const used: number[] = [];
   for (let i = 0; i < index.length; i++) {
@@ -95,7 +137,13 @@ export function farGeometry(g: BufferGeometry, error = FAR_ERROR): BufferGeometr
   return out;
 }
 
-/** Run `job` when the page is idle (one job a moment, in the order asked). */
+/** `farGeometryOf` made here and now (null as `farIndex`). */
+export function farGeometry(g: BufferGeometry, error = FAR_ERROR): BufferGeometry | null {
+  const index = farIndex(g, error);
+  return index ? farGeometryOf(g, index) : null;
+}
+
+/** Run `job` when the page is idle (one job a moment, in the order asked), with the simplifier loaded. */
 const jobs: (() => void)[] = [];
 let scheduled = false;
 export function whenIdle(job: () => void): void {
@@ -190,15 +238,14 @@ export function updateFarDetail(eye: Vector3, pxScale: number, moving = true): n
   return far;
 }
 
-/** Make `near`'s far version when the page is idle (once). */
+/** Make `near`'s far version (once), off the main thread where it can be (`farIndexLater`). */
 function ask(near: BufferGeometry): void {
   if (pendingFor.has(near)) return;
   pendingFor.add(near);
   let freed = false;
   near.addEventListener("dispose", () => (freed = true));
-  whenIdle(() => {
+  void farIndexLater(near).then((index) => {
     if (freed) return;
-    const index = farIndex(near);
     if (!index) {
       farOf.set(near, null);
       for (const e of entries.values()) if (e.near === near) e.far = null;
