@@ -100,7 +100,7 @@ describe("Game mode's railway kits on the tray", () => {
   it("track kits on the Track tab, buildings and services on the Industries tab's railway shelves", () => {
     expect(keys(tab("track").groups.find((g) => g.label === "Railway kit")!)).toEqual(["piece:kit-turntable", "piece:kit-transfer-table", "piece:kit-train-lift", "piece:kit-lift-bridge", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"]);
     expect(tab("industries").groups.map((g) => g.label)).toEqual(["Industries", "Railway", "Stations", "Yard", "Halts", "Lineside"]);
-    expect(keys(tab("industries").groups.find((g) => g.label === "Halts")!)).toEqual(["piece:kit-country-halt", "piece:kit-mountain-station", "piece:kit-harbour-station", "piece:kit-platform-furnished", "piece:kit-lookout"]);
+    expect(keys(tab("industries").groups.find((g) => g.label === "Halts")!)).toEqual(["piece:kit-country-halt", "piece:kit-mountain-station", "piece:kit-harbour-station", "piece:kit-platform-furnished", "piece:kit-lookout", "piece:kit-observatory"]);
   });
 
   it("Sandbox's cargo loaders and unloaders (the goods shed among them) are on the Yard shelf, as looks (no depot in Game mode: kit-unlocks.test.ts)", () => {

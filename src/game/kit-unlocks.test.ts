@@ -39,6 +39,7 @@ const UNLOCKS: Record<string, ThingId[]> = {
   "fun-track": ["piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"],
   "fuel-stop": ["piece:kit-fuel-station"],
   "lift-bridge": ["piece:kit-lift-bridge"],
+  observatory: ["piece:kit-observatory"],
   "loading-kits": ["piece:kit-log-loader", "piece:kit-grain-elevator", "piece:kit-drop-hopper", "piece:kit-goods-shed"],
   "big-cranes": ["piece:kit-gantry-crane", "piece:kit-magnet-crane", "piece:kit-harbour-crane", "piece:kit-cargo-conveyor", "piece:kit-tipping-dump", "piece:kit-coal-chute"],
 };
