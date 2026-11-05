@@ -12,6 +12,8 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | `node tools/perf/compare.mjs <before.json> <after.json>` | Two runs side by side, the main measures per map with the change: for a commit message. |
 | `node tools/perf/profile-top.mjs <file.cpuprofile> [<regex>]` | The top functions of a `--profile` CPU profile, by total and self time. |
 | `node tools/perf/scene.mjs [<root>] [<map file>]` | What the scene holds to draw: its biggest meshes by triangles (instances counted), what casts shadows. Use an unminified build for names. |
+| `node tools/perf/geometry.mjs [--root <dir>] [--map late] [--json <file>]` | What the map's geometry costs: the GPU's vertex and index buffers in all (every `bufferData`), the scene's meshes by owner (`landscapeView`, `propsView`, …) ranked by triangles × instances and by buffer bytes, their index and attribute formats, copies of one geometry kept apart. For the audit below. |
+| `node tools/shots/geometry-diff.mjs --before <dir> --after <dir> [--out <dir>]` | The late map from two builds at the same seven views (390×844, DPR 2 held, paused from the start, clock fixed, trains hidden): pictures, the pixels that differ (by more than 24 and 8 of 255), a full frame's triangles each. Same build twice for the noise floor. For geometry changes that should look the same. |
 | `node tools/perf/threads.mjs [<s>]` | Which Chromium threads are busy while the game sits idle (a worker, the GPU process, audio). |
 | `node tools/perf/idle-frames.mjs`, `idle-cpu.mjs` | Older, narrower checks: frames drawn and CPU over 20 s idle; audio threads. |
 
