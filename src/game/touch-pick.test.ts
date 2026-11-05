@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carNearTap, deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_ON_TRACK_PX, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearestOnScreen, nearLeverWins, PIN_SLACK_PX, pressPins, slackTapThrows } from "./touch-pick";
+import { carNearTap, deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_ON_TRACK_PX, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearestKnob, nearestOnScreen, nearLeverWins, PIN_SLACK_PX, pressPins, slackTapThrows } from "./touch-pick";
 import { PIN_HOLD_MS } from "./touch-hold";
 
 // Two short cars end to end along y = 100 (a train 10–20 px a car, as at the default zoom on a phone).
@@ -199,5 +199,28 @@ describe("lever slack: double taps, pins and what can't be seen (QA on switch cl
     expect(hiddenByHills(eye, { x: 300, y: 96 + 18, z: 0 }, ground, 144, 18)).toBe(false);
     // Seen from high above, over the hill.
     expect(hiddenByHills({ x: 120, y: 3000, z: 0 }, { x: 100, y: 18, z: 0 }, ground, 144, 18)).toBe(false);
+  });
+});
+
+describe("which of a piece's levers a tap means (`nearestKnob`)", () => {
+  // A double three-way's two knobs as drawn at the default zoom on a phone: 21 px apart, the second leaning toward the
+  // way it's set (its post's top would be at 184, 410: QA, a tap 8 px off its drawn knob went to the other lever).
+  const knobs = [
+    { sx: 184, sy: 418 },
+    { corner: 1, sx: 213, sy: 421 },
+  ];
+  it("the knob nearest the tap, as drawn", () => {
+    expect(nearestKnob(213, 421, knobs)).toBe(1);
+    expect(nearestKnob(205, 421, knobs)).toBe(1);
+    expect(nearestKnob(186, 425, knobs)).toBeUndefined();
+  });
+  it("a fingertip up to 8 px off either knob, any way round, still means that lever", () => {
+    for (const [i, k] of knobs.entries())
+      for (let a = 0; a < 8; a++)
+        for (const d of [4, 8]) expect(nearestKnob(k.sx + d * Math.cos((a * Math.PI) / 4), k.sy + d * Math.sin((a * Math.PI) / 4), knobs)).toBe(i === 0 ? undefined : 1);
+  });
+  it("one lever, or none: the fallback", () => {
+    expect(nearestKnob(100, 100, [], 2)).toBe(2);
+    expect(nearestKnob(100, 100, [{ corner: 2, sx: 300, sy: 300 }])).toBe(2);
   });
 });

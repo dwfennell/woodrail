@@ -395,6 +395,21 @@ export function endBoardModel(mats: Materials): Group {
 }
 
 const SWITCH_LEVER_OFFSET = TRACK_WIDTH / 2 + 9;
+/**
+ * A double three-way's two levers (mm along the piece, first choice and where there's a road): staggered, one by the
+ * first end and one further along, each on its branch's side and further out than a switch's lever, beside the trunk
+ * before the branch has left it. Side by side they were 58 mm apart across the track, and at the default zoom on a
+ * phone 11–17 px apart on screen: a fingertip a few px off threw the other one (tools/shots/lever-taps.mjs: 21 of 176
+ * taps). So they're 95 mm apart, 17–29 px on screen (3 of 176 with `nearestKnob`'s drawn knobs: 0).
+ */
+const PAIR_LEVER_XS: readonly (readonly number[])[] = [
+  [6, 30],
+  [54, 30],
+];
+/** …this much further out than a switch's lever (mm): clear of its branch's outer rail where it stands. */
+const PAIR_LEVER_OUT = 12;
+/** A lever's knob (the middle of its ball), up its stick (mm): what a fingertip aims at. */
+const LEVER_KNOB_Y = 31;
 const SIGNAL_HEIGHT = 54;
 /** A lever's height to the top of its knob (mm). */
 const LEVER_HEIGHT = 36;
@@ -408,7 +423,7 @@ function switchLeverGeometry(): BufferGeometry {
   const stick = new CylinderGeometry(1.8, 1.8, 26, 12);
   stick.translate(0, 13 + 4, 0);
   const knob = new SphereGeometry(5, 20, 14);
-  knob.translate(0, 31, 0);
+  knob.translate(0, LEVER_KNOB_Y, 0);
   return mergeGeometries([base, stick, knob].map(nonIndexed).map((g) => {
     g.deleteAttribute("uv");
     return g;
@@ -830,6 +845,18 @@ function leverLean(def: PieceDef, state: number): number {
 }
 
 /** A switch's chevrons and lever as drawn: its slot in the chevron mesh, its route poses, the lever's place. */
+/** A lever or semaphore post, for a fingertip's slack: its foot, height and (a piece with more than one) its knob. */
+export interface LeverPost {
+  pieceId: number;
+  corner?: number;
+  x: number;
+  y: number;
+  z: number;
+  height: number;
+  /** Where its knob is drawn (the lean included): set for the levers of a piece with more than one. */
+  knob?: { x: number; y: number; z: number };
+}
+
 interface SwitchShown {
   /** First chevron instance (as many as `switchArrows` gives in its state), or −1. */
   first: number;
@@ -1497,7 +1524,8 @@ export class TrackView {
         leverAt.length = 0;
         for (let k = 0; k < 2; k++) {
           const side = Math.sign(def.connectors[k + 2].pose.z) || 1;
-          leverAt.push(new Matrix4().makeTranslation(this.clearX(p, [30, 6], side * SWITCH_LEVER_OFFSET), 0, side * SWITCH_LEVER_OFFSET));
+          const z = side * (SWITCH_LEVER_OFFSET + PAIR_LEVER_OUT);
+          leverAt.push(new Matrix4().makeTranslation(this.clearX(p, PAIR_LEVER_XS[k], z), 0, z));
         }
       }
 
@@ -1606,13 +1634,19 @@ export class TrackView {
    * lever and its signal, a signal piece's post. For a fingertip's slack (`Interaction.pick`): at the default zoom
    * they're only a few pixels across.
    */
-  leverPosts(): { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[] {
-    const out: { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[] = [];
+  leverPosts(): LeverPost[] {
+    const out: LeverPost[] = [];
     const v = new Vector3();
     for (const [id, s] of this.shown) {
       for (let k = 0; k < s.leverAt.length; k++) {
         v.set(0, 0, 0).applyMatrix4(scratch.copy(s.piece).multiply(s.leverAt[k]));
-        out.push({ pieceId: id, ...(k > 0 ? { corner: k } : {}), x: v.x, y: v.y, z: v.z, height: LEVER_HEIGHT });
+        const post: LeverPost = { pieceId: id, ...(k > 0 ? { corner: k } : {}), x: v.x, y: v.y, z: v.z, height: LEVER_HEIGHT };
+        // (Its knob as drawn, leaning over toward the way it's set: a set one's is ~13 mm off its post's top.)
+        if (s.leverAt.length > 1) {
+          v.set(0, LEVER_KNOB_Y, 0).applyMatrix4(scratch.copy(s.piece).multiply(s.leverAt[k]).multiply(scratch2.makeRotationX(s.lean[k] ?? 0)));
+          post.knob = { x: v.x, y: v.y, z: v.z };
+        }
+        out.push(post);
       }
     }
     for (const [id, signal] of this.signals) {
