@@ -3,7 +3,7 @@ import { capAt, capOf, CARGO, SHED_CAP } from "../economy";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { isWater, SURF_RIVER } from "../landscape";
 import { siteWhy } from "./industries";
-import { BOAT_DOCKED, BOAT_EVERY, BOAT_LOADS, BOAT_SAIL, boatPays, buyPrice, depotPoint, goodsForSale, HarbourTrade, loadBoat, QUAY, waterWay, type HarbourEvent } from "./harbours";
+import { BOAT_DOCKED, BOAT_EVERY, BOAT_LOADS, BOAT_SAIL, boatPays, LIGHTHOUSE_ASSET, SHIP_LOADS, buyPrice, depotPoint, goodsForSale, HarbourTrade, loadBoat, QUAY, waterWay, type HarbourEvent } from "./harbours";
 import { Progress } from "./progress";
 import { buildStarterWorld, syncIndustries } from "./world";
 import { coastWorld, harbourSite } from "./harbours-testing";
@@ -67,6 +67,60 @@ describe("harbours", () => {
     expect(sold.e.kind === "sold" && sold.e.goods).toEqual({ planks: 6 });
     expect(p.coins).toBe(12 + 4);
     expect(p.counts.get("exported")).toBe(8);
+  });
+
+  it("cargo ships, once learned: 24 loads a visit at a town's full price, and a lighthouse near brings them twice as often", () => {
+    const w = coastWorld();
+    const pose = harbourSite(w);
+    const id = w.layout.addPiece("depot-harbour", pose);
+    syncIndustries(w);
+    const d = w.economy.depotAtPiece(id)!;
+    d.piles[CARGO.planks.index] = 20;
+    d.piles[CARGO.stone.index] = 10;
+    const p = Progress.fresh();
+    p.learned.add("cargo-ships");
+    // Learned, but none built yet: the rowing boat still calls.
+    const before = new HarbourTrade();
+    for (let t = 1; t <= 60; t++) for (const e of before.update(w, p)) expect(e.kind === "arrive" && e.ship).toBeFalsy();
+    d.piles[CARGO.planks.index] = 20;
+    d.piles[CARGO.stone.index] = 10;
+    // One built at a shipyard: it calls instead.
+    w.economy.shipsBuilt = 1;
+    const trade = new HarbourTrade();
+    const log: { t: number; e: HarbourEvent }[] = [];
+    for (let t = 1; t <= 400; t++) for (const e of trade.update(w, p)) log.push({ t, e });
+    const sold = log.find((l) => l.e.kind === "sold")!.e;
+    if (sold.kind !== "sold") throw new Error("no sale");
+    expect(sold.ship).toBe(true);
+    expect((sold.goods.planks ?? 0) + (sold.goods.stone ?? 0)).toBe(SHIP_LOADS);
+    expect(SHIP_LOADS).toBe(24);
+    // A town's full price: twice what a rowing boat pays for the same.
+    expect(sold.coins).toBe(boatPays(sold.goods, true));
+    expect(boatPays({ planks: 14, stone: 10 }, true)).toBe(2 * boatPays({ planks: 14, stone: 10 }));
+    // (Two ships call in 400 s: the second takes the 6 left.)
+    expect(w.economy.shipLoads).toBe(30);
+    expect(log.find((l) => l.e.kind === "arrive")!.e).toMatchObject({ ship: true });
+    // A lighthouse a few squares from the quay, once Lighthouse is learned: half the wait between ships.
+    const arrivals = (lit: boolean) => {
+      const w2 = coastWorld();
+      const at = harbourSite(w2);
+      w2.layout.addPiece("depot-harbour", at);
+      syncIndustries(w2);
+      const p2 = Progress.fresh();
+      if (lit) {
+        p2.learned.add("lighthouse");
+        const q = depotPoint(at, QUAY.t, QUAY.l - 200);
+        w2.props.add(LIGHTHOUSE_ASSET, { x: q.x, z: q.z, heading: 0, y: 0 });
+      }
+      const t2 = new HarbourTrade();
+      const times: number[] = [];
+      for (let t = 1; t <= 700; t++) for (const e of t2.update(w2, p2)) if (e.kind === "arrive") times.push(t);
+      return times;
+    };
+    const dark = arrivals(false);
+    const lit = arrivals(true);
+    expect(dark[1] - dark[0]).toBe(BOAT_SAIL + BOAT_DOCKED + BOAT_SAIL + BOAT_EVERY);
+    expect(lit[1] - lit[0]).toBe(BOAT_SAIL + BOAT_DOCKED + BOAT_SAIL + BOAT_EVERY / 2);
   });
 
   it("dock sheds hold more of every good for the boats, and are saved", () => {

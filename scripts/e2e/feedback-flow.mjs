@@ -34,6 +34,8 @@ export async function feedbackFlow(p, { press, check, label }) {
   // ☰ → Report a bug or give feedback.
   await press('button[aria-label="Menu"]');
   await p.waitForFunction(() => !document.querySelector(".menu").hidden, null, { timeout: 10000 });
+  // (Popped in before an item's tapped: its box is where the finger goes.)
+  await p.evaluate(() => Promise.all(document.querySelector(".menu").getAnimations().map((a) => a.finished)));
   check(`${label}: ☰ has Report a bug or give feedback, beside Copy map`, await p.evaluate(() => {
     const items = [...document.querySelectorAll(".menu .menu-item")].map((x) => x.textContent);
     const i = items.indexOf("Report a bug or give feedback");
