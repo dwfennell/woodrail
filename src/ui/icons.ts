@@ -78,6 +78,7 @@ const CAR_COLORS: Record<CarKind, [string, string]> = {
   tanker: ["#f6f3ec", "#2f6db5"],
   reefer: ["#f6f3ec", "#2f6db5"],
   carrier: ["#e6b52c", "#c8442f"],
+  cage: ["#c8442f", "#e6b52c"],
 };
 
 /** Side-view SVG of a car or a short train. */
@@ -113,6 +114,12 @@ export function trainIcon(kinds: readonly CarKind[]): string {
         body += `<rect x="${cx - 5}" y="${cy - 2}" width="10" height="5" rx="2" fill="${trim}"/>`;
         body += `<rect x="${cx - 3.5}" y="${cy - 1}" width="7" height="3" rx="1" fill="#bfe0f2"/>`;
       }
+    } else if (k === "cage") {
+      // A red wagon, yellow bars, a lion's mane behind them.
+      body += `<rect x="${x + 2}" y="18" width="${L - 4}" height="5" rx="2" fill="${main}"/>`;
+      body += `<rect x="${x + 2}" y="42" width="${L - 4}" height="5" rx="2" fill="${main}"/>`;
+      body += `<circle cx="${x + L / 2}" cy="32" r="7" fill="#e07a2e"/><circle cx="${x + L / 2}" cy="32" r="4" fill="#e6b52c"/>`;
+      for (let i = 0; i < 6; i++) body += `<rect x="${x + 5 + (i * (L - 12)) / 5}" y="22" width="2.4" height="21" rx="1" fill="${trim}"/>`;
     } else if (k === "tanker") {
       // A white barrel with two blue bands and a dome.
       body += `<rect x="${x + 4}" y="24" width="${L - 8}" height="22" rx="11" fill="${main}" stroke="#c9c2b4" stroke-width="1.5"/>`;

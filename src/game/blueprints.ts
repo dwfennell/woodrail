@@ -194,7 +194,6 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "boilers", label: "Better boilers", branch: "trains", tier: 2, needs: ["goods-engine"], price: { planks: 6, coins: 150 }, requires: [count("loadsMoved", 400)], blurb: "All your engines go a bit faster.", brings: "Faster engines", feature: { label: "Every engine 1.1× as fast", icon: "🔥" } }),
   // Tech tree 3 (2026-11-03): iron's chain gets an end, as ice cream's did, the wagon first (cars ride in nothing else).
   row({ id: "car-carrier", label: "Car carrier", branch: "trains", tier: 3, school: "college", needs: ["foundry"], price: { planks: 6, coins: 160 }, blurb: "A yellow wagon with two decks, for new cars. They ride in nothing else.", brings: "Car carrier" }),
-  row({ id: "circus-train", label: "Circus train", branch: "trains", tier: 3, plan: "later", needs: ["circus"], price: { planks: 20, coins: 80 }, blurb: "The circus tours your towns: crowds wherever it stops.", brings: "Circus train" }),
 
   // Logistics
   row({ id: "routes", label: "Train routes", branch: "logistics", tier: 2, key: true, needs: ["switches"], price: { planks: 5, coins: 40 }, blurb: "Give a train its stops: it sets the switches on its way.", brings: "Routes on the engine card", how: "Tap a train, then Plan a route", feature: { label: "Routes on the engine card", icon: "🗺️" } }),
@@ -279,7 +278,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "golf", label: "Golf course", branch: "leisure", tier: 3, plan: "later", needs: ["park", "bank"], price: { planks: 20, coins: 120 }, blurb: "Quiet visitors who pay first-class fares.", brings: "Golf course" }),
   row({ id: "cinema", label: "Cinema", branch: "leisure", tier: 3, plan: "later", needs: ["electricity"], price: { planks: 20, coins: 80 }, blurb: "Evening crowds to the city.", brings: "Cinema" }),
   row({ id: "theatre", label: "Theatre", branch: "leisure", tier: 3, plan: "later", needs: ["college", "stations"], price: { planks: 24, coins: 100 }, blurb: "A city's theatre draws visitors from far away.", brings: "Theatre" }),
-  row({ id: "circus", label: "Circus", branch: "leisure", tier: 3, plan: "later", needs: ["toys", "goods-engine"], price: { planks: 20, coins: 80 }, blurb: "A big top that moves from town to town.", brings: "Big top" }),
+  // The touring circus (late-game spec K1): its train is a gift, two cage wagons, never bought.
+  row({ id: "circus", label: "Circus", branch: "leisure", tier: 3, school: "college", needs: ["goods-engine", "first-class"], price: { planks: 16, coins: 200 }, requires: [level(2, 2)], blurb: "Two circus cages, a gift: where a train with them comes to a town, the big top goes up. Fares there pay double.", brings: "Circus train (two cage wagons)", feature: { label: "Circus cages (Trains tab, Wagons)", icon: "✨" } }),
   row({ id: "funfair", label: "Funfair", branch: "leisure", tier: 3, plan: "later", needs: ["toys", "bakery"], price: { planks: 24, coins: 100 }, blurb: "A carousel and stalls: visitors from every town.", brings: "Carousel, stalls" }),
   row({ id: "zoo", label: "Zoo and safari park", branch: "leisure", tier: 3, plan: "later", needs: ["trade", "farming2"], price: { planks: 30, coins: 150 }, blurb: "Animals arrive by ship and train; visitors follow.", brings: "Zoo, animal wagons" }),
   row({ id: "ski", label: "Ski resort and cable car", branch: "leisure", tier: 3, plan: "later", needs: ["rack", "stations"], price: { planks: 30, coins: 150, goods: { iron: 20 } }, blurb: "On the tallest hill: skiers by mountain railway.", brings: "Ski lodge, cable car" }),

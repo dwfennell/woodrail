@@ -90,7 +90,7 @@ export const PROP_TABS: readonly PropTab[] = [
       { label: "Plants & flowers", assets: ["scene-bush-trio", "scene-hedge", "scene-flower-bed", "scene-tulip-row", "scene-toadstool", "scene-pumpkin-patch"] },
       { label: "Rocks & water", assets: ["scene-rocks", "scene-mountain", "scene-cliff", "scene-waterfall", "scene-lily-pond", "scene-river-bend", "scene-beach"] },
       { label: "Farm", assets: ["scene-crop-rows", "scene-haystacks", "scene-scarecrow", "scene-beehives"] },
-      { label: "Outdoors", assets: ["scene-tent", "scene-campfire", "scene-picnic", "scene-snowman"] },
+      { label: "Outdoors", assets: ["scene-big-top", "scene-tent", "scene-campfire", "scene-picnic", "scene-snowman"] },
     ],
   },
   {

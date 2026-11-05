@@ -9,7 +9,7 @@ import { MARKET_BONUS, townLandmarks } from "./landmarks";
 import { TAKEN_KEPT, type Progress, type Taken } from "./progress";
 import { deliver, lacking, lacks } from "./research";
 import { techOf } from "./tech";
-import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
+import { isFree, isGift, ruleOf, THING_RULES, type ThingId } from "./things";
 import { payFor, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 import type { CarKind } from "../sim";
@@ -56,7 +56,7 @@ const isBuilding = (id: ThingId) => id.startsWith("piece:depot-");
 export function crateFor(p: Progress, level: number, random: () => number, except?: ThingId): [ThingId, number][] {
   // No engine before Signals: on one line a second train only meets the first head on (it comes with Signals).
   const engineOk = p.learned.has("signals");
-  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => id !== except && !isBuilding(id) && !isFree(id) && p.knows(id) && (engineOk || id !== "car:engine"));
+  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => id !== except && !isBuilding(id) && !isFree(id) && !isGift(id) && p.knows(id) && (engineOk || id !== "car:engine"));
   const out: [ThingId, number][] = [];
   while (out.length < level + 1 && known.length > 0) {
     const id = known.splice(Math.floor(random() * known.length), 1)[0];
@@ -95,6 +95,12 @@ export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
  * can share a line), unless you've two already. Returns what was given (into the toy box), or empty.
  */
 export function learnGift(p: Progress, id: string): [ThingId, number][] {
+  // The circus train's cages (late-game spec K1: special trains are gifts, one each, never bought).
+  if (id === "circus") {
+    if ((p.owned.get("car:cage") ?? 0) > 0) return [];
+    p.add("car:cage", 2);
+    return [["car:cage", 2]];
+  }
   if (id !== "signals" || (p.owned.get("car:engine") ?? 0) >= 2) return [];
   p.add("car:engine", 1);
   return [["car:engine", 1]];
@@ -180,7 +186,7 @@ export function rareGood(p: Progress, world: World): CargoKind | null {
 
 /** Wagons a card can give (known ones; not the engine, which a city gives, nor the track cleaner). */
 function wagonsKnown(p: Progress): ThingId[] {
-  return (Object.keys(THING_RULES) as ThingId[]).filter((id) => id.startsWith("car:") && id !== "car:engine" && id !== "car:cleaner" && p.knows(id));
+  return (Object.keys(THING_RULES) as ThingId[]).filter((id) => id.startsWith("car:") && id !== "car:engine" && id !== "car:cleaner" && !isGift(id) && p.knows(id));
 }
 
 /** A card of `kind` for a town that grew to `level`, or null if that kind can't be offered now. */

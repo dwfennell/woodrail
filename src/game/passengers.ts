@@ -1,5 +1,6 @@
 import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
+import { circusFare, circusRiders } from "./circus";
 import type { Progress } from "./progress";
 import { townStatus } from "./towns";
 import { growthOf } from "./town-life";
@@ -64,7 +65,7 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
       clock.set(townId, 0);
       continue;
     }
-    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy);
+    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy) / circusRiders(p, townId);
     let t = (clock.get(townId) ?? 0) + seconds;
     while (t >= every && waiting < cap) {
       t -= every;
@@ -101,7 +102,8 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
 
 /** Someone got off: pay their fare and count them. Returns the coins paid. */
 export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number): number {
-  const fare = fareFor(world, from, to, carId);
+  // (The circus's town pays double: src/game/circus.ts.)
+  const fare = fareFor(world, from, to, carId) * circusFare(p, to);
   p.coins += fare;
   p.riders++;
   return fare;

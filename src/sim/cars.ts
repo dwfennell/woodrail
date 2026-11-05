@@ -1,4 +1,4 @@
-export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner" | "tanker" | "reefer" | "carrier";
+export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner" | "tanker" | "reefer" | "carrier" | "cage";
 export type Pole = "N" | "S";
 
 export interface CarSpec {
@@ -30,6 +30,8 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
   reefer: { kind: "reefer", index: 8, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
   // A car carrier (Game mode's Car carrier): the van's length and running gear, two open decks of new cars.
   carrier: { kind: "carrier", index: 9, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
+  // A circus cage wagon (Game mode's Circus train, a gift: late-game spec K1): the van's length, a lion inside.
+  cage: { kind: "cage", index: 10, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
 };
 
 /**
@@ -48,11 +50,12 @@ export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
   tanker: ["classic"],
   reefer: ["classic"],
   carrier: ["classic"],
+  cage: ["classic"],
 };
 export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods"];
 
 /** In snapshot-index order. */
-export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier"];
+export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier", "cage"];
 
 /** Gap between two coupled cars' end faces (mm). */
 export const COUPLER_GAP = 2;

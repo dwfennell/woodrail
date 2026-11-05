@@ -162,6 +162,7 @@ const CAR_DETAIL: Record<CarKind, string> = {
   tanker: "Carries milk from a dairy farm.",
   reefer: "Keeps cheese, fish and ice cream cold on the way.",
   carrier: "Carries new cars from a car factory, on two decks.",
+  cage: "The circus's lion: where it stops, the big top goes up.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {

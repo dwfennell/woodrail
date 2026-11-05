@@ -55,6 +55,7 @@ export const SUITES = {
   life: { script: "e2e:life", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge" },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
+  circus: { script: "e2e:circus", minutes: 6 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -173,6 +174,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // The touring circus (late-game spec K1).
+  [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
 ];
 
 // A tiny glob: ** any depth, * within a path segment.
