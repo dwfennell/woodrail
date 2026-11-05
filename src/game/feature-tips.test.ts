@@ -33,8 +33,7 @@ describe("feature tips: light onboarding for the systems after the core goals", 
     expect(tipFor("tunnels")?.text).toBe(TUNNELS_TIP);
   });
 
-  it("aren't goals: the core goal count is unchanged (23)", () => {
-    expect(GOALS.length).toBe(23);
+  it("aren't goals: no tip is a goal", () => {
     for (const t of FEATURE_TIPS) expect(GOALS.some((g) => g.id === t.id), t.id).toBe(false);
   });
 

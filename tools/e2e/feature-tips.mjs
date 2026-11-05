@@ -147,7 +147,9 @@ const gotIt = async (id) => {
 await p.goto(PAGE);
 await enterGame();
 const fresh = await p.evaluate(() => ({ row: !!document.querySelector(".goal.feature-tip"), tip: window.woodrail.tips().current()?.id ?? null, count: document.querySelector(".goals-count")?.textContent }));
-check("a new game: no tip under the goals; the count is the core goals' (23)", !fresh.row && fresh.tip === null && /\/ 23$/.test(fresh.count ?? ""), JSON.stringify(fresh));
+// (The count is the core goals' only: tips add none. Read from the page, not a number fixed here: new systems add goals.)
+const goalsTotal = await p.evaluate(async () => (await import("/src/game/goals.ts")).GOALS.length);
+check("a new game: no tip under the goals; the count is the core goals'", !fresh.row && fresh.tip === null && new RegExp(`/ ${goalsTotal}$`).test(fresh.count ?? ""), JSON.stringify({ ...fresh, goalsTotal }));
 
 // Setup (shortcuts, not what's tested): open ground for a straight line (8 straights, the mill, 3 straights, the
 // workshop, a straight: room on its −l side for more tracks), and for an oval (a forest, two straights, round, the
