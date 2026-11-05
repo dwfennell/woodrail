@@ -3591,6 +3591,7 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     const b = appendPiece(L, "depot-sawmill", false, connectorRef(east[1], 1));
     appendPiece(L, "buffer-turnback", false, connectorRef(b, 1));
     const gap = loop.side[1];
+    const near = [loop.side[0], gap, loop.side[2]];
     // (Open, flat ground for the line, anywhere the view can go (`__openGround`), the run turned any of four ways; the
     // gap on the land itself, where the player can lay track: the table past the land's edge may take the rest.)
     const scratch = [...L.pieceIds()].filter((id) => id !== gap);
@@ -3606,9 +3607,12 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
           const q = L.getPiece(id);
           const t = turned(q.pose, turn);
           const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
-          return c.kind === "clear" || (id !== gap && c.reason === "off-mat");
+          return c.kind === "clear" || (!near.includes(id) && c.reason === "off-mat");
         });
-      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(gap), ok });
+      // (The gap and the loop's curves either side of it on the land, not just the gap: a gap at the land's edge took the
+      // dragged straight's ghost past it, and it didn't snap. Where the line went hung on what earlier groups left on
+      // the map (2026-11-05: after `routes`, 29 mm further along, it failed).)
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: near.flatMap(pts), ok });
     }
     if (!g) throw new Error("no open ground for the line, its gap on the land");
     const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
