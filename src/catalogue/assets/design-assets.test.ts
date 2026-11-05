@@ -6,6 +6,9 @@ import { fileOf } from "../registry";
 import { PROP_TABS } from "../shelves";
 import { ASSETS as grand } from "./grand";
 import { ASSETS as paths } from "./paths";
+import { ASSETS as royal, ROYAL_ENGINE_LENGTH, ROYAL_SALOON_LENGTH } from "./royal-train";
+import { Box3 } from "three";
+import { CAR_SPECS } from "../../sim/cars";
 import { ASSETS as secrets } from "./secrets";
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
@@ -54,7 +57,22 @@ describe("design assets: grand projects, secret sites, path landmarks", () => {
   }
 
   it("every grand project has its three stages, and every secret its hidden and found states", () => {
-    for (const p of ["grand-exhibition", "grand-cathedral", "grand-central", "grand-ferris-wheel", "grand-royal-train"]) for (const n of [1, 2, 3]) expect(grand.some((a) => a.id === `${p}-${n}`), `${p}-${n}`).toBe(true);
+    for (const [p, last] of [["grand-exhibition", 4], ["grand-cathedral", 4], ["grand-central", 3], ["grand-ferris-wheel", 3], ["grand-royal-train", 3]] as const)
+      for (let n = 1; n <= last; n++) expect(grand.some((a) => a.id === `${p}-${n}`), `${p}-${n}`).toBe(true);
     for (const a of secrets.filter((s) => !s.id.endsWith("-hidden"))) expect(secrets.some((s) => s.id === `${a.id}-hidden`), a.id).toBe(true);
+  });
+
+  it("the Royal Train's cars are car-ready: the engine's and the coach's lengths, wheels' feet on y = 0, a bogies node, few triangles", () => {
+    expect(ROYAL_ENGINE_LENGTH).toBe(CAR_SPECS.engine.length);
+    expect(ROYAL_SALOON_LENGTH).toBe(CAR_SPECS.passenger.length);
+    for (const a of royal) {
+      const root = a.build(kit);
+      expect(root.getObjectByName("bogies"), a.id).toBeTruthy();
+      root.updateMatrixWorld(true);
+      const box = new Box3().setFromObject(root);
+      expect(box.min.y, a.id).toBeGreaterThan(-0.5);
+      expect(box.min.y, a.id).toBeLessThan(2);
+      expect(triangles(root), a.id).toBeLessThan(4000);
+    }
   });
 });

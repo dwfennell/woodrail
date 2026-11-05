@@ -186,7 +186,7 @@ const findOpen = (w, d, nx, nz, used = []) =>
             const i = g.cellAtWorld(x, z);
             if (i < 0) return no("out");
             if (g.surface[i] !== 0) return no("surface");
-            if (g.height[i] > 1) return no("height");
+            if (g.height[i] > 2) return no("height");
             cells++;
             if (g.feature[i] > 1) return no("feature");
             if (g.feature[i] === 1) trees++;
@@ -261,29 +261,80 @@ const GRAND = [
   ["grand-central", "Grand Central station", "Bricks and iron for the front and the shed, stone for the tower, and passengers carried across the map.", "Every line's trains meet under the clock at noon; the station's busier for good."],
   ["grand-ferris-wheel", "World's Fair wheel", "Iron and tools for the wheel, then ice cream, juice and fish for the fair, and riders from every town.", "Fair week: crowds by train from every town, and the wheel turns for good."],
 ];
+const LAST = { "grand-exhibition": [4, "Opening day"], "grand-cathedral": [4, "Stained glass"] };
+const CONTEXT = {
+  "grand-exhibition": "Beside the city: the hall on its opening day.",
+  "grand-cathedral": "The biggest thing in the city: its spires over every roof.",
+  "grand-royal-train": "On the line out of the city, the crowned saloon behind its engine.",
+  "grand-central": "Grand Central at the city's heart.",
+  "grand-ferris-wheel": "The wheel over the city's roofs in fair week.",
+};
 if (want("grand")) {
-  const spot = await findOpen(1300, 440, MID.x, MID.z);
-  console.log("grand spot", JSON.stringify(spot));
+  await growAll(3);
   for (const [id, name, goods, day] of GRAND) {
     if (!pick(id)) continue;
+    const [n, lastName] = LAST[id] ?? [3, "Finished"];
+    const names = ["Foundations", "Half built", "Finished", lastName].slice(0, n);
+    if (n === 3) names[2] = lastName;
+    const gap = id === "grand-cathedral" ? 560 : id === "grand-exhibition" ? 470 : 430;
+    // Three in a column up the screen; four in a 2 × 2 grid (stage 1 top left, reading order).
+    const zgap = id === "grand-cathedral" ? 380 : 300;
+    let spot = n === 4 ? null : await findOpen(gap * n + 120, 460, MID.x, MID.z);
+    const grid = !spot;
+    if (grid) spot = await findOpen(2 * gap + 60, 2 * zgap + 60, MID.x, MID.z);
+    console.log(id, "spot", JSON.stringify(spot), grid ? "grid" : "column");
     const [cx, cz] = spot;
-    const xs = [cx - 430, cx, cx + 430];
+    // (Up the screen is −x; right is −z.)
+    const xs = names.map((_, i) => (grid ? cx + (Math.floor(i / 2) - 0.5) * gap : cx + (i - (n - 1) / 2) * gap));
+    const zs = names.map((_, i) => (grid ? cz + (0.5 - (i % 2)) * zgap : cz));
     // (The wheel turns in its own plane: stood across the view so it's seen face on.)
     const heading = id === "grand-ferris-wheel" ? Math.PI / 2 : 0;
-    const ids = await put(xs.map((x, i) => [`${id}-${i + 1}`, x, cz, heading]));
-    await look(cx + 120, cz, 2500, 0.75, UP);
+    const ids = await put(xs.map((x, i) => [`${id}-${i + 1}`, x, zs[i], heading]));
+    await look(cx + 120, cz, grid ? 2600 * (id === "grand-cathedral" ? 1.15 : 1) : 2500, 0.75, UP);
     const pins = [];
     for (const [i, x] of xs.entries()) {
-      const s = await screenOf(x, cz + 120, 10);
-      pins.push(`<div class="pin" style="left:${Math.min(330, Math.max(60, s.x))}px;top:${s.y}px">${i + 1} · ${["Foundations", "Half built", "Finished"][i]}</div>`);
+      const s = await screenOf(x + (grid ? 150 : 0), zs[i] + (grid ? 0 : 150), 10);
+      pins.push(`<div class="pin" style="left:${Math.min(330, Math.max(70, s.x))}px;top:${s.y}px">${i + 1} · ${names[i]}</div>`);
     }
     await overlay(`${pins.join("")}<div class="title"><b>${name}</b><span>${goods}</span></div>`, false);
     await shot(`grand-${id.slice(6)}-stages`);
-    await look(cx + 430 + (id === "grand-cathedral" ? 40 : 0), cz, id === "grand-royal-train" ? 950 : 1350, 0.95, id === "grand-ferris-wheel" ? Math.PI / 4 + Math.PI / 2 : Math.PI / 4);
+    // The close-up: the last stage alone, the camera the game's own (from a corner).
+    await takeAway(ids.slice(0, n - 1));
+    const close = id === "grand-royal-train" ? 900 : id === "grand-cathedral" ? 2200 : id === "grand-exhibition" ? 1500 : 1350;
+    await frame(xs[n - 1] + (id === "grand-exhibition" ? 50 : 0), zs[n - 1], close, 0.95, id === "grand-ferris-wheel" ? Math.PI / 4 + Math.PI / 2 : Math.PI / 4, 195, 420);
     await overlay(`<div class="title"><b>${name}</b><span>${day}</span></div>`, true);
     await shot(`grand-${id.slice(6)}`);
     await overlay("", false);
-    await takeAway(ids);
+    await takeAway(ids.slice(n - 1));
+    // In context: the finished one beside a city.
+    const t = TOWNS[id === "grand-cathedral" ? 0 : id === "grand-exhibition" ? 2 : 1];
+    const size = id === "grand-cathedral" ? [440, 380] : id === "grand-exhibition" ? [470, 300] : [360, 260];
+    const near = await findOpen(size[0], size[1], t.x + 250, t.z + 250);
+    const cid = await put([[`${id}-${n}`, near[0], near[1], heading]]);
+    let rails = null;
+    if (id === "grand-royal-train") {
+      // On a line: real track on from either end of its display track.
+      rails = await p.evaluate(({ x, z }) => {
+        const w = window.woodrail;
+        const run = [];
+        for (let i = 0; i < 2; i++) run.push({ type: "straight-216", pose: { x: x + 156 + i * 216, z, heading: 0 }, y: 0, flipped: false });
+        for (let i = 1; i <= 2; i++) run.push({ type: "straight-216", pose: { x: x - 156 - i * 216, z, heading: 0 }, y: 0, flipped: false });
+        return w.editor().placeRun(run);
+      }, { x: near[0], z: near[1] });
+      await settle();
+    }
+    // The project low in the view, its city behind it.
+    await frame(near[0], near[1], id === "grand-royal-train" ? 1500 : id === "grand-cathedral" ? 2600 : 2300, 0.85, Math.PI / 4, 195, 560);
+    await overlay(`<div class="title"><b>${name} · ${t.name}</b><span>${CONTEXT[id]}</span></div>`, true);
+    await shot(`grand-${id.slice(6)}-city`);
+    if (id === "grand-royal-train") {
+      await frame(near[0] + 60, near[1], 620, 1.05, Math.PI / 2 + 0.6, 195, 400);
+      await overlay(`<div class="title"><b>The Royal Train</b><span>Claret lined in gold, polished brass, a crest on the cab, a crowned saloon and an observation balcony.</span></div>`, true);
+      await shot("grand-royal-train-track");
+      await p.evaluate((ids) => window.woodrail.editor().removeGroup(ids), rails);
+    }
+    await overlay("", false);
+    await takeAway(cid);
   }
 }
 
@@ -498,6 +549,53 @@ if (want("options")) {
   await hide();
   await shot("design-option-events");
   await takeAway(tents);
+}
+
+// ---- The City choice sheet, and the Journal's achievements (HTML over the game) -------------------------------------
+if (want("choice")) {
+  await growAll(3);
+  const hide = () => p.evaluate(() => document.querySelectorAll(".goals, .tray, .toast, .card, .reward-badge, .growth-sheet").forEach((el) => (el.style.visibility = "hidden")));
+  const t = TOWNS[1];
+  await frame(t.x, t.z, 1500, 0.85, Math.PI / 4, 195, 190);
+  const opt = (icon, name, what, state, extra = "") =>
+    `<div class="choice ${state}"><div class="ic">${icon}</div><div style="flex:1"><div class="t">${name} ${extra}</div><div class="d">${what}</div></div></div>`;
+  await overlay(
+    `<div class="sheet" style="top:150px;padding-bottom:12px">
+       <h2>${t.name} is a city!</h2>
+       <div class="sub">Choose its speciality. It's for good; every kind stays open to your other cities.</div>
+       ${opt("🧺", "Market town", "A guildhall and market. 2× riders; food pays more. Grows on bread and cheese.", "ok", '<span class="sugg">Suggested</span>')}
+       ${opt("🏭", "Industrial city", "An engine works. Industries near it work 1.25× as fast. Grows on iron and bricks.", "ok")}
+       ${opt("🏖️", "Resort", "A pier and pavilion. Summer crowds; riders who come count toward growth.", "ok")}
+       ${opt("⚓", "Port city", "🔒 Needs a harbour within 12 squares. Build one by the river to choose this.", "locked")}
+       ${opt("🎓", "University city", "🔒 Needs its school to be a College (learn College).", "locked")}
+       <div class="line" style="text-align:center">Suggested from what it's been brought: 46 food, 24 iron and coal, 18 riders.</div>
+       <div class="btns"><span class="btn soft">Choose later</span></div>
+     </div>`,
+    false,
+  );
+  await p.addStyleTag({ content: "#mock .choice{display:flex;gap:10px;align-items:center;background:#fffaf0;border-radius:14px;box-shadow:inset 0 -4px 0 rgba(176,122,68,.28),0 2px 8px rgba(60,40,20,.12);padding:8px 12px;margin-top:8px}#mock .choice .ic{font-size:28px;width:40px;text-align:center}#mock .choice .t{font-weight:900;font-size:15.5px}#mock .choice .d{font-size:12.5px;color:#5e4128;line-height:1.3;margin-top:2px}#mock .choice.locked{opacity:.55;background:#f1e8d8}#mock .sugg{display:inline-block;background:#e9b949;color:#3a2a1c;border-radius:999px;padding:1px 8px;font-size:11.5px;margin-left:4px;vertical-align:2px}" });
+  await hide();
+  await shot("design-character-city-choice");
+
+  // The Journal's Achievements tab: each grand project, its stage, its reward.
+  await look(MID.x, MID.z, 3600, 0.75, Math.PI / 4);
+  const ach = (icon, name, stage, n, reward, state) =>
+    `<div class="ach ${state}"><div class="ic">${icon}</div><div style="flex:1"><div class="t">${name}</div><div class="pips">${Array.from({ length: n }, (_, i) => `<i class="${i < stage ? "on" : ""}"></i>`).join("")}<span>${state === "done" ? "Built!" : state === "now" ? `stage ${stage + 1} of ${n}` : "not started"}</span></div><div class="d">🎁 ${reward}</div></div></div>`;
+  await overlay(
+    `<div class="sheet" style="top:96px">
+       <h2>Journal</h2>
+       <div class="tabs2"><span>News</span><span class="on">Achievements</span><span>Stickers</span></div>
+       ${ach("🏛️", "The Great Exhibition", 4, 4, "Every town grew a step. (Earned)", "done")}
+       ${ach("⛪", "The Cathedral", 2, 4, "Every town grows on a tenth fewer goods, for good.", "now")}
+       ${ach("👑", "The Royal Train", 0, 3, "The Royal Train is yours to run; riders on it pay double.", "")}
+       ${ach("🚉", "Grand Central", 0, 3, "Its station takes three trains at once; riders on lines through it pay a quarter more.", "")}
+       ${ach("🎡", "The World's Fair wheel", 0, 3, "Fair week each summer: 3× riders to its city, and 60 coins a month.", "")}
+     </div>`,
+    false,
+  );
+  await p.addStyleTag({ content: "#mock .tabs2{display:flex;gap:6px;justify-content:center;margin:10px 0 4px}#mock .tabs2 span{padding:6px 12px;border-radius:10px;background:#efe2cc;font-weight:800;font-size:13px}#mock .tabs2 span.on{background:#3a2a1c;color:#fff}#mock .ach{display:flex;gap:10px;align-items:center;background:#fffaf0;border-radius:14px;box-shadow:inset 0 -4px 0 rgba(176,122,68,.28);padding:9px 12px;margin-top:9px}#mock .ach .ic{font-size:28px;width:40px;text-align:center}#mock .ach .t{font-weight:900;font-size:15px}#mock .ach .d{font-size:12.5px;color:#5e4128;margin-top:3px;line-height:1.3}#mock .ach.done{background:#eef7e8}#mock .ach.done .t::after{content:' ✓';color:#2f5a27}#mock .pips{display:flex;gap:4px;align-items:center;margin-top:4px}#mock .pips i{width:18px;height:7px;border-radius:4px;background:#e4d6bd;display:block}#mock .pips i.on{background:#e9b949}#mock .ach.done .pips i.on{background:#8fd08a}#mock .pips span{font-size:11.5px;font-weight:800;color:#74522f;margin-left:4px}" });
+  await hide();
+  await shot("design-character-achievements");
 }
 
 await b.close();

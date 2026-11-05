@@ -1,7 +1,8 @@
 import { Group, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
-import { goodsStacks, hoarding, named, pennant, plinth, ribs, scaffold, stick, towerCrane, vault } from "../build-parts";
+import { goodsStacks, named, pennant, plinth, ribs, scaffold, stick, towerCrane, vault } from "../build-parts";
 import type { Asset } from "../types";
+import { ROYAL_ENGINE_LENGTH, ROYAL_SALOON_LENGTH, buildRoyalEngine, buildRoyalSaloon } from "./royal-train";
 
 /** Glass as the toys paint it: a pale sky-blue lacquer (the game's glass material draws dark in the props' batches). */
 const GLASS = "#bcdcea";
@@ -13,8 +14,7 @@ const GLASS = "#bcdcea";
  * Sandbox's Buildings tab only. About 3 to 4 hill blocks across (a block is 72 mm).
  */
 
-export type Stage = 1 | 2 | 3;
-export const STAGES: readonly Stage[] = [1, 2, 3];
+export type Stage = 1 | 2 | 3 | 4;
 
 const CAT = "Stations & buildings" as const;
 
@@ -136,6 +136,99 @@ function siteFence(k: Kit, w: number, d: number, x = 0, z = 0): Group {
   return g;
 }
 
+/** A string of bunting from (x0, z0) to (x1, z1) at height y: a cord and little triangles in the toy's colours. */
+function bunting(k: Kit, x0: number, z0: number, x1: number, z1: number, y: number): Group {
+  const g = new Group();
+  const len = Math.hypot(x1 - x0, z1 - z0);
+  const cord = k.box(k.paint(TOY.white), len, 0.6, 0.6, 0, 0, 0, 0);
+  cord.position.set((x0 + x1) / 2, y, (z0 + z1) / 2);
+  cord.rotation.y = -Math.atan2(z1 - z0, x1 - x0);
+  g.add(cord);
+  const n = Math.max(3, Math.round(len / 9));
+  const colors = [TOY.red, TOY.yellow, TOY.blue, TOY.green, TOY.orange];
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    const tri = k.extrude(k.paint(colors[i % colors.length]), [[-3, 0], [3, 0], [0, -6]], 0.6, 0, 0, 0, 0);
+    tri.position.set(x0 + (x1 - x0) * t, y, z0 + (z1 - z0) * t);
+    tri.rotation.y = -Math.atan2(z1 - z0, x1 - x0);
+    g.add(tri);
+  }
+  return g;
+}
+
+/** An elm: a turned trunk and three big leaf balls (the 1851 hall kept its elms). */
+function elm(k: Kit, x: number, z: number): Group {
+  const g = new Group();
+  g.add(k.cyl(k.paint(TOY.cream), 7, 3, 0, 0, 0, 7, 10), k.cyl(k.paint("#8a5a34"), 3, 34, 0, 3, 0, 2.4, 8));
+  for (const [dx, dy, dz, r] of [[0, 44, 0, 16], [-7, 34, 5, 11]] as const) g.add(k.ball(k.paint(TOY.leaf), r, dx, dy, dz));
+  return k.at(g, x, 0, z);
+}
+
+/** A statue on a plinth: a stone block and a gilded figure with its arm raised. */
+function statue(k: Kit, x: number, y: number, z: number): Group {
+  const g = new Group();
+  const gilt = k.paint("#d9a441");
+  g.add(k.box(k.paint(STONE), 12, 14, 12, 0, 0, 0, 0), k.box(k.paint(FRAME), 14, 2, 14, 0, 0, 14, 0));
+  g.add(k.cyl(gilt, 3.6, 11, 0, 16, 0, 2.8, 10), k.ball(gilt, 2.8, 0, 29, 0));
+  const arm = k.box(gilt, 1.6, 8, 1.6, 0, 0, 0, 0);
+  arm.position.set(2.6, 28, 0);
+  arm.rotation.z = -0.5;
+  g.add(arm);
+  return k.at(g, x, y, z);
+}
+
+/** A little exhibit stand: a counter under a striped awning, things to show on it. */
+function stand(k: Kit, x: number, z: number, a: string, ry = 0): Group {
+  const g = new Group();
+  g.add(k.box(k.wood, 18, 10, 10, 0, 0, 0, 0));
+  for (let j = 0; j < 4; j++) g.add(k.box(k.paint(j % 2 ? TOY.white : a), 4.8, 1.2, 14, 0, -7.2 + j * 4.8, 22, 0));
+  for (const dx of [-8, 8]) g.add(k.cyl(k.wood, 0.8, 12, dx, 10, -5, 0.8, 6));
+  g.add(k.ball(k.paint(TOY.red), 2.4, -4, 12.4, 0), k.box(k.paint(TOY.blue), 4, 4, 4, 0, 3, 10, 0), k.cyl(k.paint(TOY.yellow), 2, 5, 7, 10, 1, 2, 8));
+  return k.at(g, x, 0, z, ry);
+}
+
+/** The Exhibition's last flourishes (stage 4): what its opening day adds. */
+function flourishes(k: Kit, L: number, W: number, top: number, y0: number): Group {
+  const g = new Group();
+  const iron = k.paint(IRON);
+  const gold = k.paint("#d9a441");
+  const fx = L / 2 + 26;
+  // The path on to the gates, lamps along it, bunting between them.
+  g.add(k.box(k.paint("#d9cdb6"), 90, 1, 22, 0.4, fx + 45, y0, 0));
+  for (const s of [-1, 1]) {
+    g.add(lampPost(k, fx + 60, y0, s * 16));
+    g.add(bunting(k, fx + 10, s * 18, fx + 30, s * 16, y0 + 26), bunting(k, fx + 30, s * 16, fx + 60, s * 16, y0 + 26), bunting(k, fx + 60, s * 16, fx + 86, s * 20, y0 + 26));
+  }
+  // The crystal fountain: a stone basin, water, glassy tiers and a sparkle on top.
+  const cx = fx + 45;
+  g.add(k.cyl(k.paint(STONE), 15, 5, cx, y0, 0, 15, 16), k.cyl(k.water, 13, 1, cx, y0 + 4.6, 0, 13, 16));
+  g.add(k.lathe(k.paint(GLASS), [[0.1, 0], [3, 0], [3, 10], [9, 12], [2.4, 14], [2.4, 22], [6, 24], [1.6, 26], [0.1, 30]], cx, y0 + 5, 0, 12));
+  g.add(k.ball(k.paint(FRAME), 2.4, cx, y0 + 36, 0));
+  // Ornate iron gates with a crest: stone piers with gold balls, an arch of iron, railings.
+  const gx = fx + 90;
+  for (const s of [-1, 1]) {
+    g.add(k.box(k.paint(STONE), 9, 28, 9, 0, gx, y0, s * 19), k.ball(gold, 3, gx, y0 + 31, s * 19));
+    for (let i = 0; i < 4; i++) g.add(k.box(iron, 1.2, 20, 1.2, 0, gx, y0, s * (5 + i * 3.4)));
+    g.add(k.box(iron, 1.4, 1.4, 14, 0, gx, y0 + 18, s * 10));
+    for (let i = 0; i < 4; i++) g.add(k.box(iron, 1.2, 14, 1.2, 0, gx, y0, s * (28 + i * 6)));
+    g.add(k.box(iron, 1.4, 1.4, 24, 0, gx, y0 + 13, s * 37));
+  }
+  g.add(k.at(k.ring(iron, 15, 1.6, 0, 0, 0, true, Math.PI), gx, y0 + 22, 0, Math.PI / 2));
+  g.add(k.cylX(gold, 5, 1.6, gx, y0 + 40, 0, 14), k.cylX(k.paint("#b0283a"), 3, 2, gx, y0 + 40, 0, 10));
+  // Statues on plinths inside the gates.
+  for (const s of [-1, 1]) g.add(statue(k, gx - 14, y0, s * 30));
+  // An arched clock over the entrance: a gold-rimmed face on the glass front.
+  g.add(k.cylX(k.paint(FRAME), 10, 1.6, L / 2 + 2, top + 3 + 22, 0, 18), k.at(k.ring(gold, 10.5, 1.2, 0, 0, 0, true), L / 2 + 2.6, top + 25, 0, Math.PI / 2));
+  g.add(k.box(k.paint(TOY.black), 1, 8, 1, 0, L / 2 + 3, top + 25, 0), k.box(k.paint(TOY.black), 1, 1, 6, 0, L / 2 + 3, top + 25, 2.4));
+  // Exhibit stands outside the long sides, and elms by the transept's ends.
+  for (const s of [-1, 1]) {
+    g.add(stand(k, 60, s * (W / 2 + 22), s > 0 ? TOY.red : TOY.blue, s > 0 ? 0 : Math.PI));
+    g.add(elm(k, -50, s * (W / 2 + 62)));
+  }
+  g.add(k.peg(TOY.green, null, cx - 14, y0, 10), k.peg(TOY.pink, TOY.yellow, cx + 14, y0, -10), k.peg(TOY.yellow, TOY.red, gx + 8, y0, 4));
+  return g;
+}
+
 function exhibition(k: Kit, stage: Stage): Object3D {
   const g = new Group();
   const L = 220;
@@ -170,8 +263,8 @@ function exhibition(k: Kit, stage: Stage): Object3D {
   const top = y0 + WALL;
   // A cornice the vault springs from.
   for (const s of [-1, 1]) g.add(k.box(k.paint(TOY.white), L + 4, 3, 10, 1, 0, top, s * (W / 2 - 3)));
-  g.add(glassVault(k, W / 2, L, 0, top + 3, 0, stage === 3 ? L : L * 0.45));
-  if (stage === 3) {
+  g.add(glassVault(k, W / 2, L, 0, top + 3, 0, stage >= 3 ? L : L * 0.45));
+  if (stage >= 3) {
     g.add(vaultEnd(k, W / 2, -L / 2, top + 3), vaultEnd(k, W / 2, L / 2, top + 3));
     // The transept: a taller crossing across the middle, glazed, with its own glass ends.
     const T = 64;
@@ -197,6 +290,7 @@ function exhibition(k: Kit, stage: Stage): Object3D {
     g.add(k.box(k.paint("#d9cdb6"), 22, 1, 20, 0.4, L / 2 + 37, y0, 0));
     for (const s of [-1, 1]) g.add(lampPost(k, L / 2 + 36, y0, s * 18));
     g.add(k.peg(TOY.red, TOY.black, L / 2 + 40, y0, 6), k.peg(TOY.blue, null, L / 2 + 44, y0, -6), k.peg(TOY.purple, TOY.yellow, L / 2 + 34, y0, -2));
+    if (stage === 4) g.add(flourishes(k, L, W, top, y0));
   } else {
     // Half built: the far half's glass not on yet, scaffolding over it, a crane and goods.
     g.add(scaffold(k, L * 0.55, W + 14, W / 2 + WALL + 10, L * 0.22, 0));
@@ -207,115 +301,194 @@ function exhibition(k: Kit, stage: Stage): Object3D {
   return g;
 }
 
-// ——— The cathedral ———
+// ——— The cathedral: the biggest thing in a city ———
 
-function cathedral(k: Kit, stage: Stage): Object3D {
+/** Stained glass: the toy's jewel colours. */
+const JEWELS = ["#b0283a", "#2f5fb5", "#e3a92c", "#2d8a55", "#7a3f9a"] as const;
+const CLEAR = "#5d7488";
+
+/** A pointed lancet window (flat, `w` wide, `h` tall) facing ±z at z; jewel-coloured once glazed. */
+function lancet(k: Kit, x: number, y: number, z: number, w: number, h: number, color: string): Group {
   const g = new Group();
-  const stone = k.paint("#d8cdb8");
-  const dark = k.paint("#a99d88");
-  const roof = k.paint("#4f6a8a");
-  const L = 220;
-  const W = 64;
-  const H = stage === 1 ? 10 : stage === 2 ? 44 : 70;
-  g.add(plinth(k, L + 30, W + 90, 5, -10, 0, "#bdb4a3"));
-  const base = 5;
-  // Nave and aisles.
-  g.add(k.box(stone, L, H, W, 1.5, 0, base, 0));
-  for (const s of [-1, 1]) g.add(k.box(dark, L - 20, H * 0.6, 18, 1, -10, base, s * (W / 2 + 9)));
-  // Transept.
-  g.add(k.box(stone, 60, H, W + 80, 1.5, -40, base, 0));
-  // West towers, at the front (+x).
-  const TH = stage === 1 ? 14 : stage === 2 ? 70 : 128;
-  for (const s of [-1, 1]) {
-    g.add(k.box(stone, 38, TH, 38, 1.5, L / 2 + 6, base, s * 30));
-    if (stage === 3) {
-      for (const [px, pz] of [[-14, -14], [14, -14], [-14, 14], [14, 14]]) g.add(k.cone(dark, 4, 16, L / 2 + 6 + px, base + TH, s * 30 + pz, 4));
-      g.add(k.cone(roof, 16, 30, L / 2 + 6, base + TH, s * 30, 4));
-      for (const y of [40, 80]) g.add(k.box(k.cut, 2, 18, 8, 0, L / 2 + 25, base + y, s * 30));
-    }
-  }
-  if (stage === 3) {
-    // Roofs, the spire over the crossing, the rose window and the doors.
-    g.add(k.roof(roof, L, W + 6, 34, 0, base + H, 0, 3));
-    const tr = k.roof(roof, W + 80, 66, 34, 0, 0, 0, 3);
-    tr.rotation.y = Math.PI / 2;
-    g.add(k.at(tr, -40, base + H, 0));
-    g.add(k.box(stone, 30, 30, 30, 1, -40, base + H + 20, 0));
-    g.add(k.cone(roof, 18, 90, -40, base + H + 50, 0, 8));
-    g.add(k.cyl(k.paint(TOY.yellow), 1, 14, -40, base + H + 138, 0, 1, 6), k.box(k.paint(TOY.yellow), 1.6, 1.6, 9, 0, -40, base + H + 147, 0));
-    const rose = k.cylX(k.paint(TOY.blue), 15, 2, L / 2 + 1, base + 50, 0, 16);
-    g.add(rose, k.cylX(k.paint(TOY.red), 8, 2.6, L / 2 + 1.5, base + 50, 0, 12), k.cylX(k.paint(TOY.yellow), 3, 3, L / 2 + 2, base + 50, 0, 8));
-    g.add(k.extrude(k.paint(TOY.brown), [[-11, 0], [11, 0], [11, 18], [0, 28], [-11, 18]], 3, 0, 0, 0, 0.4).rotateY(Math.PI / 2).translateZ(L / 2 + 1).translateY(base));
-    // Lancet windows down the sides.
-    for (let i = 0; i < 6; i++) for (const s of [-1, 1]) g.add(k.box(k.paint("#3d5d86"), 7, 22, 1, 0, -L / 2 + 20 + i * 26, base + 32, s * (W / 2 + 0.6)));
-    g.add(k.peg(TOY.purple, TOY.black, L / 2 + 30, 0, 0), k.peg(TOY.cream, null, L / 2 + 36, 0, 10));
-  } else {
-    g.add(scaffold(k, 80, W + 10, H + 26, 40, 0));
-    for (const s of [-1, 1]) g.add(scaffold(k, 44, 44, TH + 20, L / 2 + 6, s * 30));
-    g.add(goodsStacks(k, -L / 2 - 4, W / 2 + 30));
-    g.add(towerCrane(k, stage === 1 ? 110 : 150, 120, -60, -W / 2 - 44, 0));
-    if (stage === 1) g.add(hoarding(k, L + 40, W + 100, TOY.red, -10, 0));
-  }
-  return g;
+  const pts: [number, number][] = [[-w / 2, 0], [w / 2, 0], [w / 2, h - w * 0.7], [0, h], [-w / 2, h - w * 0.7]];
+  g.add(k.extrude(k.paint(color), pts, 1.4, 0, 0, 0, 0));
+  return k.at(g, x, y, z);
 }
 
-// ——— The Royal Train: an engine and two saloons, gold and crimson, on its display track ———
+/** A round window facing +x (rotate for ±z): a stone ring, a pane, and in stained glass a ring of jewel petals. */
+function rose(k: Kit, r: number, stained: boolean, x: number, y: number, z: number, ry = 0): Group {
+  const g = new Group();
+  g.add(k.ring(k.paint("#e8dfcc"), r, 2.2, 0, 0, 0, true));
+  g.add(k.cylZ(k.paint(stained ? "#2f5fb5" : CLEAR), r, 1.2, 0, 0, 0, 16));
+  if (stained) {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      g.add(k.cylZ(k.paint(JEWELS[i % JEWELS.length]), r * 0.26, 1.8, Math.cos(a) * r * 0.62, Math.sin(a) * r * 0.62, 0, 10));
+    }
+    g.add(k.cylZ(k.paint("#e3a92c"), r * 0.28, 2, 0, 0, 0, 10));
+  } else {
+    for (const a of [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4]) {
+      const bar = k.box(k.paint("#e8dfcc"), 2 * r, 1.6, 2, 0, 0, 0, 0);
+      bar.position.set(0, 0, 0);
+      bar.rotation.z = a;
+      g.add(bar);
+    }
+  }
+  // (Built facing ±z; turned to face +x by default.)
+  return k.at(g, x, y, z, ry);
+}
+
+function cathedral(k: Kit, stage: number): Object3D {
+  const g = new Group();
+  const stone = k.paint("#ded3bd");
+  const trim = k.paint("#c4b79d");
+  const roofM = k.paint("#556a80");
+  const gold = k.paint("#e3a92c");
+  const stained = stage >= 4;
+  const glass = (i: number) => (stained ? JEWELS[i % JEWELS.length] : CLEAR);
+  // Nave along x (the west front at +x), aisles either side, transept across, an apse at the east end.
+  const L = 200, W = 56, AW = 26, H = 80, AH = 42;
+  const TX = -40, TW = 56, TL = W + 2 * AW + 60;
+  const TOWER = 42, TH = 175;
+  g.add(k.box(k.paint(STONE), L + 140, 2, TL + 50, 0.8, -10, 0, 0));
+  g.add(k.box(k.wood, L + 130, 2, TL + 40, 1, -10, 2, 0));
+  const y0 = 4;
+  if (stage === 1) {
+    // The footings laid out: low walls on the plan, stone stacked, a crane, the masons' hut.
+    g.add(siteFence(k, L + 120, TL + 30, -10, 0));
+    const low = 9;
+    for (const s of [-1, 1]) {
+      g.add(k.box(trim, L, low, 6, 0, 0, y0, s * (W / 2)));
+      g.add(k.box(trim, L - 20, low, 6, 0, -10, y0, s * (W / 2 + AW)));
+      g.add(k.box(trim, TOWER, low + 6, TOWER, 1, L / 2 + TOWER / 2 - 4, y0, s * (W / 2 + AW - TOWER / 2)));
+    }
+    g.add(k.box(trim, 6, low, TL, 0, TX - TW / 2, y0, 0), k.box(trim, 6, low, TL, 0, TX + TW / 2, y0, 0));
+    g.add(k.cyl(trim, W / 2, low, -L / 2, y0, 0, W / 2, 10));
+    g.add(goodsStacks(k, 0, 0), goodsStacks(k, TX, TL / 2 - 20));
+    g.add(siteHut(k, L / 2 + 40, -TL / 2 + 6));
+    g.add(towerCrane(k, 150, 130, -L / 2 - 40, -TL / 2 + 10, 0));
+    g.add(k.peg(TOY.orange, TOY.yellow, 20, y0, 10), k.peg(TOY.orange, TOY.yellow, -50, y0, -20), k.peg(TOY.cream, TOY.black, 40, y0, -30));
+    return grander(g);
+  }
+  const part = stage === 2 ? 0.55 : 1;
+  const h = H * part, ah = AH * Math.min(1, part * 1.4), th = stage === 2 ? 90 : TH;
+  // Aisles, nave, transept and apse.
+  for (const s of [-1, 1]) g.add(k.box(stone, L - 20, ah, AW, 2, -10, y0, s * (W / 2 + AW / 2)));
+  g.add(k.box(stone, L, h, W, 2, 0, y0, 0));
+  g.add(k.box(stone, TW, h, TL, 2, TX, y0, 0));
+  g.add(k.cyl(stone, W / 2, h, -L / 2, y0, 0, W / 2, 12));
+  // Buttress piers down each side, and pinnacles on them.
+  const bays = [-70, -10, 20, 50, 80];
+  for (const s of [-1, 1])
+    for (const bx of bays) {
+      g.add(k.box(trim, 9, Math.min(ah + 8, AH + 8), 9, 1, bx, y0, s * (W / 2 + AW + 3)));
+      if (stage >= 3) g.add(k.cone(trim, 5, 14, bx, y0 + AH + 8, s * (W / 2 + AW + 3), 4));
+    }
+  // West towers flanking the front.
+  for (const s of [-1, 1]) g.add(k.box(stone, TOWER, th, TOWER, 2, L / 2 + TOWER / 2 - 4, y0, s * (W / 2 + AW - TOWER / 2)));
+  // Windows: aisle lancets, and (once the walls are up) the clerestory's tall ones.
+  let wi = 0;
+  for (const s of [-1, 1])
+    for (const bx of [-55, -25, 5, 35, 65]) {
+      g.add(lancet(k, bx, y0 + 10, s * (W / 2 + AW + 0.4), 9, Math.min(24, ah - 14), glass(wi++)));
+      if (stage >= 3) g.add(lancet(k, bx, y0 + AH + 10, s * (W / 2 + 0.4), 10, 26, glass(wi++)));
+    }
+  if (stage === 2) {
+    g.add(scaffold(k, 90, W + 2 * AW + 16, h + 26, 20, 0));
+    for (const s of [-1, 1]) g.add(scaffold(k, TOWER + 10, TOWER + 10, th + 20, L / 2 + TOWER / 2 - 4, s * (W / 2 + AW - TOWER / 2)));
+    g.add(towerCrane(k, 190, 150, -L / 2 - 30, -TL / 2 - 10, 0));
+    g.add(goodsStacks(k, TX, TL / 2 + 16), goodsStacks(k, L / 2 + 50, -40));
+    g.add(siteHut(k, L / 2 + 50, TL / 2 - 10));
+    return grander(g);
+  }
+  // Roofs: steep slate over the nave, the transept and the aisles; a cone over the apse.
+  const top = y0 + H;
+  g.add(k.roof(roofM, L, W + 6, 50, 0, top, 0, 3.5));
+  const tr = k.roof(roofM, TL, TW + 6, 50, 0, 0, 0, 3.5);
+  tr.rotation.y = Math.PI / 2;
+  g.add(k.at(tr, TX, top, 0));
+  for (const s of [-1, 1]) {
+    const ar = k.box(roofM, L - 20, 3, AW + 8, 1, 0, 0, 0);
+    ar.position.set(-10, y0 + AH + 6, s * (W / 2 + AW / 2));
+    ar.rotation.x = s * 0.45;
+    g.add(ar);
+  }
+  g.add(k.cone(roofM, W / 2 + 3, 40, -L / 2, top, 0, 12));
+  // Flying buttresses: an arch from each pier up to the nave wall.
+  for (const s of [-1, 1])
+    for (const bx of bays) {
+      const fly = k.ring(trim, AW + 3, 2.4, 0, 0, 0, true, Math.PI / 2);
+      fly.rotation.y = s > 0 ? -Math.PI / 2 : Math.PI / 2;
+      fly.position.set(bx, y0 + AH + 6, s * (W / 2));
+      g.add(fly);
+    }
+  // The crossing: a lantern tower and a slender spire.
+  g.add(k.box(stone, 34, 30, 34, 2, TX, top + 30, 0));
+  for (const s of [-1, 1]) g.add(lancet(k, TX, top + 36, s * 17.4, 8, 18, glass(wi++)));
+  g.add(k.cone(roofM, 22, 90, TX, top + 60, 0, 8));
+  g.add(k.box(gold, 1.6, 16, 1.6, 0, TX, top + 150, 0), k.box(gold, 1.6, 1.6, 9, 0, TX, top + 160, 0));
+  // The towers' tops: a band, belfry openings, pinnacles and spires.
+  for (const s of [-1, 1]) {
+    const tx = L / 2 + TOWER / 2 - 4, tz = s * (W / 2 + AW - TOWER / 2);
+    g.add(k.box(trim, TOWER + 4, 4, TOWER + 4, 1, tx, y0 + TH - 40, tz));
+    for (const d of [-1, 1]) g.add(lancet(k, tx + d * 9, y0 + TH - 32, tz + s * (TOWER / 2 + 0.4), 7, 24, "#2b3644"));
+    for (const [px, pz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(k.cone(trim, 5, 22, tx + px * (TOWER / 2 - 4), y0 + TH, tz + pz * (TOWER / 2 - 4), 4));
+    g.add(k.cone(roofM, 18, 64, tx, y0 + TH, tz, 4).rotateY(Math.PI / 4));
+    g.add(k.ball(gold, 2.4, tx, y0 + TH + 66, tz));
+  }
+  // The west front between the towers: a gable, the rose window, three portals.
+  const fx = L / 2;
+  g.add(k.extrude(stone, [[-W / 2, 0], [W / 2, 0], [0, 50]], 6, 0, 0, 0, 0).rotateY(Math.PI / 2).translateY(top).translateZ(fx));
+  g.add(rose(k, 17, stained, fx + 0.8, y0 + 56, 0, Math.PI / 2));
+  for (const [z, w, hh] of [[0, 18, 34], [-(W / 2 + AW - TOWER / 2), 12, 26], [W / 2 + AW - TOWER / 2, 12, 26]] as const) {
+    const portal = k.extrude(k.paint("#5a3a22"), [[-w / 2, 0], [w / 2, 0], [w / 2, hh - w * 0.6], [0, hh], [-w / 2, hh - w * 0.6]], 2, 0, 0, 0, 0);
+    g.add(k.at(portal, z === 0 ? fx + 1 : fx + TOWER - 3, y0, z, Math.PI / 2));
+  }
+  // Rose windows in the transept ends.
+  for (const s of [-1, 1]) g.add(rose(k, 14, stained, TX, y0 + 52, s * (TL / 2 + 0.8)));
+  if (stained) {
+    // Its day: bunting to the gate, a wedding party at the door.
+    g.add(pennant(k, TOY.red, 22, fx + 30, y0, -26), pennant(k, TOY.blue, 22, fx + 30, y0, 26));
+    g.add(k.box(k.paint("#d9cdb6"), 40, 1, 22, 0.4, fx + 30, y0, 0));
+    g.add(k.peg(TOY.white, null, fx + 24, y0, 3), k.peg(TOY.black, TOY.black, fx + 24, y0, -5), k.peg(TOY.pink, TOY.yellow, fx + 34, y0, 8), k.peg(TOY.purple, null, fx + 36, y0, -9));
+  }
+  return grander(g);
+}
+
+/** The cathedral is drawn a fifth bigger than it's modelled: the biggest thing in a city (as BUILDING_SCALE does). */
+function grander(g: Group): Group {
+  g.scale.setScalar(CATHEDRAL_SCALE);
+  return g;
+}
+const CATHEDRAL_SCALE = 1.2;
+
+// ——— The Royal Train: built at the engine works, then run (src/catalogue/assets/royal-train.ts) ———
 
 function royalTrain(k: Kit, stage: Stage): Object3D {
   const g = new Group();
-  const pane = k.paint(GLASS);
-  const CAR = 92;
-  g.add(k.trackSlab(3 * CAR + 40, 0, 0, 0));
-  const crimson = stage === 3 ? k.paint("#9c1f2e") : k.wood;
-  const gold = stage === 3 ? k.paint("#d9a72c") : k.wood;
-  const cream = stage === 3 ? k.paint(TOY.cream) : k.wood;
-  const frame = k.paint(TOY.black);
-  const y0 = 12;
-  const wheelColor = stage === 3 ? "#d9a72c" : TOY.red;
-  const cars: number[] = [CAR, 0, -CAR];
-  // Frames and wheels go on first.
-  for (const cx of cars) {
-    g.add(k.box(frame, CAR - 8, 4, 26, 0.6, cx, y0 + 2, 0));
-    for (const x of [-(CAR / 2 - 18), CAR / 2 - 18]) for (const z of [-13, 13]) g.add(k.wheel(6, cx + x, y0 + 7.5, z, wheelColor));
-  }
+  const E = ROYAL_ENGINE_LENGTH;
+  const S = ROYAL_SALOON_LENGTH;
+  // Engine, saloon with the crown, observation saloon, coupled (2 mm apart) along x on a display track.
+  const xs = [E / 2 + 2 + S / 2 - 2, -2, -2 - (S + 2)];
+  // (Wheels in the grooves, as the game lifts its code cars: AXLE_HEIGHT − 7.5.)
+  const lift = 7.5;
+  g.add(k.trackSlab(E + 2 * S + 40, (xs[0] + xs[2]) / 2, 0, 0));
   if (stage === 1) {
-    g.add(goodsStacks(k, 0, 44));
-    for (const cx of cars) for (const s of [-1, 1]) g.add(k.box(k.paint("#c9a26b"), 6, 10, 30, 0.6, cx + s * 30, 0, 0));
+    // On the works' blocks: the frames and wheels, nothing built up yet.
+    for (const [i, x] of xs.entries()) {
+      const len = i === 0 ? E : S;
+      g.add(k.box(k.paint(TOY.black), len - 4, 5, 28, 1, x, lift + 12, 0));
+      g.add(k.at(k.bogies(len, i === 0 ? 20 : 18, "#c9a26b"), x, lift, 0));
+      for (const s of [-1, 1]) g.add(k.box(k.paint("#c9a26b"), 6, 10, 30, 0.6, x + s * 26, 12, 0));
+    }
+    g.add(goodsStacks(k, xs[1], 46));
     return g;
   }
-  // The engine: boiler, smokebox, dome and chimney, cab, buffer beam.
-  const ex = CAR;
-  g.add(k.cylX(crimson, 12, 56, ex + 8, y0 + 22, 0, 20));
-  g.add(k.cylX(frame, 12.5, 10, ex + 38, y0 + 22, 0, 20));
-  for (const bx of [ex - 6, ex + 10, ex + 26]) g.add(k.cylX(gold, 12.6, 2, bx, y0 + 22, 0, 20));
-  g.add(k.cyl(frame, 4.5, 14, ex + 36, y0 + 32, 0, 5.5, 12), k.ball(gold, 6, ex + 16, y0 + 34, 0, 0.8));
-  g.add(k.box(crimson, 26, 34, 30, 2, ex - 30, y0 + 4, 0));
-  g.add(k.box(gold, 30, 3, 34, 1, ex - 30, y0 + 38, 0));
-  for (const s of [-1, 1]) g.add(k.box(k.cut, 10, 10, 1, 0, ex - 30, y0 + 24, s * 15.2));
-  g.add(k.box(k.paint(TOY.red), 4, 8, 30, 0.6, ex + 44, y0 + 2, 0));
-  // The saloons: crimson below, cream window band, a clerestory roof, gold lining.
-  for (const cx of [0, -CAR]) {
-    g.add(k.box(crimson, CAR - 6, 18, 30, 2, cx, y0 + 4, 0));
-    g.add(k.box(cream, CAR - 6, 12, 30.4, 1, cx, y0 + 22, 0));
-    if (stage === 3) for (let i = 0; i < 5; i++) for (const s of [-1, 1]) g.add(k.box(pane, 10, 8, 1, 0, cx - 32 + i * 16, y0 + 24, s * 15.4));
-    g.add(k.box(gold, CAR - 4, 2, 32, 0.6, cx, y0 + 21, 0));
-    g.add(k.box(crimson, CAR - 4, 3, 33, 1.5, cx, y0 + 34, 0), k.box(gold, CAR - 30, 5, 16, 1.5, cx, y0 + 37, 0));
-  }
-  if (stage === 2) {
-    g.add(scaffold(k, 70, 40, 54, -CAR, 0));
-    g.add(goodsStacks(k, CAR, 46));
-    return g;
-  }
-  // A crown on the royal saloon, and flags at the front.
-  const crown = new Group();
-  crown.add(k.cyl(gold, 7, 5, 0, 0, 0, 8, 10));
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    crown.add(k.ball(gold, 1.6, Math.cos(a) * 7.5, 6.5, Math.sin(a) * 7.5));
-  }
-  crown.add(k.ball(k.paint(TOY.red), 3, 0, 5, 0));
-  g.add(k.at(crown, -CAR, y0 + 42, 0));
-  for (const s of [-1, 1]) g.add(pennant(k, s < 0 ? TOY.red : TOY.blue, 14, ex + 44, y0 + 10, s * 12));
+  const bare = stage === 2;
+  g.add(k.at(buildRoyalEngine(k, bare), xs[0], lift, 0));
+  g.add(k.at(buildRoyalSaloon(k, { crown: true, bare }), xs[1], lift, 0));
+  g.add(k.at(buildRoyalSaloon(k, { balcony: true, bare }), xs[2], lift, 0));
+  if (bare) g.add(goodsStacks(k, xs[1], 46));
   return g;
 }
 
@@ -462,31 +635,39 @@ interface Project {
   notes: string;
   build: (k: Kit, stage: Stage) => Object3D;
   animate?: (root: Object3D, t: number) => void;
+  /** Its last stage (3, or 4 with a last flourish), and that stage's name. */
+  stages: 3 | 4;
+  last?: string;
 }
 
-const STAGE_NAMES: Record<Stage, string> = { 1: "foundations", 2: "half built", 3: "finished" };
+const STAGE_NAMES: Record<Stage, string> = { 1: "foundations", 2: "half built", 3: "finished", 4: "finished" };
 
 export const PROJECTS: readonly Project[] = [
   {
     id: "grand-exhibition",
     name: "Grand Exhibition hall",
     tags: ["grand project", "exhibition", "glass", "iron", "hall"],
-    notes: "A long hall of glass on iron ribs with a taller transept, flags on the ridge. A grand project: stone and planks for the foundations, iron and bricks for the hall, every town's own good for the stands. Opening day brings the Royal Train.",
+    notes: "A long hall of glass on green iron ribs with a taller transept and a porch with a clock lantern; on opening day, gates with a crest, a crystal fountain, statues, elms, stands and bunting. A grand project: stone and planks for the foundations, iron and bricks for the hall, an exhibit from each kind of city for the stands. Opening day brings the Royal Train.",
     build: exhibition,
+    stages: 4,
+    last: "opening day",
   },
   {
     id: "grand-cathedral",
     name: "Cathedral",
     tags: ["grand project", "cathedral", "spire", "church", "towers"],
-    notes: "A stone nave and transept, two west towers, a spire over the crossing and a rose window. A grand project for a market city: stone by the trainload, bricks, then planks and tools for the roofs. Its day: bells, a wedding and bunting in every town.",
+    notes: "A tall stone nave with steep slate roofs, aisles held by flying buttresses, a transept, twin west towers with spires, a spire over the crossing and rose windows; its last stage puts in the stained glass. A grand project for a market city: stone by the trainload, bricks and timber for the roofs, then stained glass (glass from sand and coal, and paint). Its day: bells, a wedding and bunting in every town.",
     build: cathedral,
+    stages: 4,
+    last: "stained glass",
   },
   {
     id: "grand-royal-train",
     name: "Royal Train",
     tags: ["grand project", "royal", "train", "engine", "saloon", "gold"],
-    notes: "An engine and two saloons in crimson and gold on a display track, a crown on the royal saloon. Built at the engine works from iron, tools and furniture, then run through every city on opening day.",
+    notes: "An engine in royal claret lined out in gold with polished brass, a crowned saloon and an observation saloon, on a display track at the works (the cars themselves are car-ready: royal-train.ts). Built from iron, tools and furniture, then run through every city.",
     build: royalTrain,
+    stages: 3,
   },
   {
     id: "grand-central",
@@ -494,6 +675,7 @@ export const PROJECTS: readonly Project[] = [
     tags: ["grand project", "station", "clock tower", "train shed", "terminus"],
     notes: "A brick front with a tall clock tower and an arched glass train shed over three tracks. A grand project for a big network: bricks, iron and glass (stone), and passengers carried. Its day: every line's trains meet under the clock.",
     build: grandCentral,
+    stages: 3,
   },
   {
     id: "grand-ferris-wheel",
@@ -502,18 +684,25 @@ export const PROJECTS: readonly Project[] = [
     notes: "A tall wheel on red A-frames with twelve coloured gondolas that stay level as it turns, a ticket booth below. A grand project for a resort: iron and tools for the wheel, food and riders for the fair. Its day: crowds from every town, by train.",
     build: ferrisWheel,
     animate: turnWheel,
+    stages: 3,
   },
 ];
 
+/** Each project's stages, 1 to its last. */
+export const stagesOf = (p: Project): Stage[] => (p.stages === 4 ? [1, 2, 3, 4] : [1, 2, 3]);
+
 export const ASSETS: Asset[] = PROJECTS.flatMap((p) =>
-  STAGES.map((stage): Asset => ({
-    id: `${p.id}-${stage}`,
-    name: `${p.name} (${STAGE_NAMES[stage]})`,
-    trayLabel: stage === 3 ? p.name : `${p.name.split(" ")[0]} ${stage}/3`,
-    category: p.id === "grand-royal-train" ? "Trains" : CAT,
-    tags: [...p.tags, `stage ${stage}`],
-    notes: stage === 3 ? p.notes : `${p.name}, ${STAGE_NAMES[stage]} (stage ${stage} of 3): the building site as the goods arrive.`,
-    build: (k) => p.build(k, stage),
-    animate: stage === 3 ? p.animate : undefined,
-  })),
+  stagesOf(p).map((stage): Asset => {
+    const name = stage === p.stages && p.last ? p.last : STAGE_NAMES[stage];
+    return {
+      id: `${p.id}-${stage}`,
+      name: `${p.name} (${name})`,
+      trayLabel: stage === p.stages ? p.name : `${p.name.split(" ")[0]} ${stage}/${p.stages}`,
+      category: p.id === "grand-royal-train" ? "Trains" : CAT,
+      tags: [...p.tags, `stage ${stage}`],
+      notes: stage === p.stages ? p.notes : `${p.name}, ${name} (stage ${stage} of ${p.stages}): the building site as the goods arrive.`,
+      build: (k: Kit) => p.build(k, stage),
+      animate: stage >= 3 ? p.animate : undefined,
+    };
+  }),
 );

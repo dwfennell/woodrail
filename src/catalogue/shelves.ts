@@ -67,7 +67,7 @@ export const PROP_TABS: readonly PropTab[] = [
       },
       // Design assets (spec 2026-11-05): looks only, not in Game mode. A grand project at each build stage; the
       // landmark a city puts up when it settles on its path.
-      { label: "Grand projects", assets: ["grand-exhibition", "grand-cathedral", "grand-royal-train", "grand-central", "grand-ferris-wheel"].flatMap((p) => [1, 2, 3].map((n) => `${p}-${n}`)) },
+      { label: "Grand projects", assets: ([["grand-exhibition", 4], ["grand-cathedral", 4], ["grand-royal-train", 3], ["grand-central", 3], ["grand-ferris-wheel", 3]] as const).flatMap(([p, n]) => Array.from({ length: n }, (_, i) => `${p}-${i + 1}`)) },
       { label: "Town paths", assets: ["path-engine-works", "path-guildhall", "path-pier", "path-observatory", "path-customs-house"] },
     ],
   },

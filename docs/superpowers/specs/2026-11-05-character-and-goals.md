@@ -49,25 +49,29 @@ too... give me some plans to spice things up."
 
 ---
 
-## ★ Town paths: what you bring a town decides what it becomes (the user's pick)
+## ★ Town paths: you choose what each city becomes (the user's pick)
 
-**The user picked this idea to flesh out first.** It supersedes Part 1's "trades placed by the map" (1A) as the main
-idea. Geography stays only as a small nudge (below).
+**The user picked this idea to flesh out first, then made it a choice** (2026-11-05): "When a town reaches City, the
+player picks its speciality from the ones it qualifies for, each with requirements." It supersedes Part 1's "trades
+placed by the map" (1A). What a town has been brought still counts: its lean decides the **Suggested** pick, not the
+outcome.
 
-Mock: `docs/agents/shots/design-character-leaning.jpg`. The five landmarks are real catalogue assets (see "The
+Mocks:
+- `docs/agents/shots/design-character-city-choice.jpg`: the City choice sheet, with qualified and locked options;
+- `docs/agents/shots/design-character-leaning.jpg`: the town card's Leaning meter before City. The five landmarks are real catalogue assets (see "The
 assets").
 
 ### The five paths
 
-| Path | Pushed by | Needs a place? | Landmark (asset) |
+| Path | Can choose it when | Leans it (for the suggestion) | Landmark (asset) |
 |---|---|---|---|
-| 🏭 **Industrial city** | coal, ore, iron, bricks, tools, stone | no | Engine works (`path-engine-works`) |
-| 🧺 **Market town** | flour, bread, milk, cheese, fruit, juice, furniture | no | Guildhall and market (`path-guildhall`) |
-| 🏖️ **Resort** | riders getting off there, ice cream, juice | the sea, or a hill 2 high, within 8 squares of its station | Pier and pavilion (`path-pier`) |
-| 🎓 **University city** | goods its school takes for research | its school is a College | Observatory (`path-observatory`) |
-| ⚓ **Port city** | goods traded at a harbour in reach, fish | a harbour within 12 squares | Customs house (`path-customs-house`) |
+| 🧺 **Market town** | always | flour, bread, milk, cheese, fruit, juice, furniture | Guildhall and market (`path-guildhall`) |
+| 🏭 **Industrial city** | a mine or a foundry within 12 squares of its station | coal, ore, iron, bricks, tools, stone | Engine works (`path-engine-works`) |
+| 🏖️ **Resort** | the sea, or a hill 2 blocks high, within 8 squares of its station | riders getting off there, ice cream, juice | Pier and pavilion (`path-pier`) |
+| ⚓ **Port city** | on the coast, with a harbour within 12 squares | goods traded at a harbour in reach, fish | Customs house (`path-customs-house`) |
+| 🎓 **University city** | its school is a College | goods its school takes for research | Observatory (`path-observatory`) |
 
-### Leaning: exact rules
+### Leaning: what makes the suggestion
 
 1. **Nothing leans before Town (level 2).**
    - Hamlets and villages grow on planks as today, so the opening is the same on every map.
@@ -92,34 +96,45 @@ assets").
    | a unit its school takes for research (`atSchool`) | University 1 |
    | a unit sold or bought at a harbour within reach | Port 1 |
 
-3. **Geography nudges, once.** When a town becomes a Town, it starts with 10 points on one path:
-   - Port, if it's by the coast;
-   - Resort, if it's by hills and has no industry within 10 squares;
-   - Industrial, if it has a mine or quarry within 10 squares;
-   - Market otherwise.
+3. **The card shows the lean from Town on.** The Leaning meter (a stacked bar and a legend) shows what the town is
+   heading for, and what would push it elsewhere.
+4. **Points are kept, never lost.** Goals stay met, and nothing decays.
+5. **Geography doesn't add points any more.** The requirements cover it: a coast town can be a Port, a town in hills
+   a Resort.
 
-   Ten points is about four deliveries, so what you bring soon outweighs it.
-4. **The Town hall nudges, by choice.** The board's "Town hall" (Civic, "nudge what each one grows toward") is built
-   as this.
-   - Learned, a town's card has "Lean towards …". The chosen path's points count 1.5×.
-   - The choice can be changed any time before the town settles.
-5. **Points are kept, never lost.** Goals stay met, and nothing decays.
+### Choosing: exact rules
 
-### Settling: exact rules
-
-1. **A town settles when it becomes a City (level 3).** It settles on the path with the most points, among those
-   whose place it has (Resort, University and Port need theirs).
-2. **A close call is the player's.** If the second path is within 20% of the first (Industrial 40 vs Market 46), the
-   growth sheet asks: "Larkfield is a city! Which way will it grow?" It shows the two, each with its landmark and what
-   it does. Otherwise the sheet says it: "Larkfield is a Market town!"
-3. **No points at all** (a city grown on planks and stone alone) settles on **Market**: the game as it plays today.
-4. **Settled is for good.** The path sets:
+1. **At City (level 3) the growth sheet asks:** "Larkfield is a city! Choose its speciality."
+2. **It lists all five, always in the same order.**
+   - **Qualified** options are bright, with what each brings: the landmark, the power, what it grows on.
+   - **Locked** options are greyed. Each says what's missing in one line, with what to do: "Port city: needs a
+     harbour within 12 squares. Build one by the river to choose this."
+   - **Market is always open**, so there's always something to pick.
+3. **Suggested:** among the qualified options, the one with the most lean points wears a "Suggested" badge, with a line
+   saying why ("from what it's been brought: 46 food, 24 iron and coal, 18 riders"). With no points, Market is
+   suggested.
+4. **"Choose later" is allowed.**
+   - The town stays a plain City: today's wants and today's looks, nothing lost.
+   - Its card keeps a "Choose its speciality" button, and a dot on the town's map marker says a choice is waiting.
+   - A locked option opens when its requirement is met (a harbour built, College learned), so waiting can be worth it.
+5. **Chosen is for good.** The speciality sets:
    - the landmark: it goes up as the city's next lot, through `TownLife`'s lot logic, as the Market does today;
    - the ★ wants;
    - the power;
    - looks, places and treats.
-5. **Two cities may share a path.** The second's landmark is its own copy, and its power counts once more where noted
-   below.
+
+   **The Town hall** (the board's Civic row, "nudge what each one grows toward") becomes the one way to change it:
+   learned, a city's card offers "Change speciality" once per city, for 200 coins. The old landmark stays as a
+   building.
+6. **Two cities may share a speciality.** The second's landmark is its own copy, and its power counts once more where
+   noted below.
+7. **What each requirement checks:**
+   - all of them by distance from the town's station, in squares, once when the sheet opens and again when the card
+     opens;
+   - a mine or foundry: depots of those roles (restored ruins count);
+   - a harbour: a harbour depot;
+   - the sea: `SURF_SEA`;
+   - a hill: a block 2 high.
 
 ### What each path changes, in numbers
 
@@ -131,7 +146,7 @@ The bands stay put:
 - **A want whose chain isn't learned yet waits as the base good.** For example, an Industrial city wants stone in
   place of bricks until Brickworks is learned. No path can stall a city.
 
-| Path | Wants at City ★1 (then ×1.5 a star, as today) | Power once settled | Pays | Looks |
+| Path | Wants at City ★1 (then ×1.5 a star, as today) | Power once chosen | Pays | Looks |
 |---|---|---|---|---|
 | 🏭 Industrial | 28 planks, 14 flour, 18 stone, 13 iron, 6 bricks; tools 4 from ★2 | industries within 10 squares of its station work **1.25×** (a second Industrial city: those near it too, not stacked) | iron, bricks, tools **1.25×** | brick terraces with chimneys; soot-grey and brick-red roofs; the station canopy dark green |
 | 🧺 Market | 33 planks, 24 flour, 10 stone, 6 furniture, 8 bread; cheese 4 from ★2 | **2×** riders waiting at its station; the Market's half again now covers food at full pay too | foods **1.25×** on top of the Market | shops with awnings, a market square; bright mixed roofs |
@@ -156,7 +171,7 @@ Every town keeps the plain ones. The paint shop offers the path's colours as liv
   - the path's landmark is the city's second building of its own;
   - the Town hall becomes the lean nudge (above).
   - Later civic rows ("Fire station: a level bigger", "Hospital") are untouched.
-- **The grand project:** the Exhibition's stage 3, "The stands", asks for **an exhibit from each path settled on the
+- **The grand project:** the Exhibition's stage 3, "The stands", asks for **an exhibit from each speciality chosen on the
   map, at least 3 of them**.
   - Each path's landmark makes **1 exhibit crate every 4 minutes** at its station: machine parts, hampers,
     souvenirs, inventions or imports. That's one new good ("exhibit", carried in vans).
@@ -166,33 +181,34 @@ Every town keeps the plain ones. The paint shop offers the path's colours as liv
 - **Balance:**
   - The bands are unchanged by design: leaning starts at Town, City wants are the same for every path, and ★ totals
     are within 10% of today's.
-  - The balance player doesn't steer by default: it leans wherever its deliveries take it, usually Market.
-  - A new `BALANCE_PATH=industrial|market|resort|university|port` makes it pick that path in the Town hall. Run the 9
-    seeds per path. A path's ★ minute more than 15 min off today's is a finding; tune that path's ★1 wants.
-  - The goals play-through gets one more goal reached by the player's path: "Grow a city that's settled" (a sticker,
+  - The balance player picks the Suggested speciality at each City, as a player taking the default would.
+  - A new `BALANCE_PATH=industrial|market|resort|university|port` makes it pick that one wherever it's qualified, and
+    otherwise the suggestion. Run the 9 seeds per path. A path's ★ minute more than 15 min off today's is a finding; tune that path's ★1 wants.
+  - The goals play-through gets one more goal reached by the player's path: "Choose a city's speciality" (a sticker,
     not a core goal).
   - Stickers: one per path ("Engine town", "Market day", "Seaside", "Seat of learning", "Old salt"), and a hidden
     "Every kind of city".
 - **Saves:**
-  - Two optional fields on a town: `path` (null until it settles) and `lean` (points per path). They're saved with
+  - Two optional fields on a town: `path` (null until it's chosen) and `lean` (points per path). They're saved with
     the landscape. There's also a per-town count of riders getting off (`Economy.ridersOff`, saved).
   - SAVE_VERSION 15 → 16, with a migration:
-    - an old save's towns below City start leaning with their geography nudge;
-    - an old City or more settles on load, from its `deliveredGoods` totals scored with `LEAN` (no rider or school
-      counts: those weren't kept), and nothing is asked.
-    - Its landmark goes up on its next growth, not at load, so no houses move at load.
-    - Its current level keeps the wants it had (no progress is lost). The path's wants begin at its next star.
+    - an old save's towns below City start with no lean, and lean from then on;
+    - an old City or more has no speciality yet (`path` null), and **chooses the next time its card opens**. The sheet
+      opens once, and "Choose later" works as for a new city. Its suggestion is scored from its `deliveredGoods`
+      totals (no rider or school counts: those weren't kept).
+    - Its landmark goes up on its next growth, not at the choice, so no houses move under the player.
+    - Its current level keeps the wants it had (no progress is lost). The speciality's wants begin at its next star.
   - Sandbox has no paths.
 - **Phones:**
   - The meter is one row of the card: a stacked bar 16 px high, a two-line legend of icons, and one line saying what
     pushes it. It shows from Town level only.
-  - The close-call choice is the growth sheet with two 44 px rows.
+  - The choice is the growth sheet: five rows of 44 px or more and a "Choose later" button, fitting 390×844 (mock).
 - **Perf:**
   - Lean points are counted in the unload path (a table lookup per unit).
   - The card redraws on the town's lean version.
   - Settling runs once.
   - Powers are cached:
-    - the industry speed factor per depot, rebuilt when a city settles or depots move;
+    - the industry speed factor per depot, rebuilt when a speciality is chosen or depots move;
     - the summer check once a game month.
   - Landmarks are static props in the existing batches (one new model per path, about 1,400–5,300 triangles: see
     the assets).
@@ -201,10 +217,10 @@ Every town keeps the plain ones. The paint shop offers the path's colours as liv
 
 **L in all, 6 sessions, each landing alone:**
 1. Lean points and the card's meter (S–M).
-2. Settling, landmarks, saves v16 (M).
+2. The choice sheet, requirements, landmarks, saves v16 (M).
 3. ★ wants per path, powers, the balance runs per path (M).
 4. Looks per path: palettes, house styles, liveries (S–M).
-5. The Town hall nudge (S).
+5. The Town hall's "Change speciality" (S).
 6. Exhibits for the Exhibition's stands (S, with Part 2's project work).
 
 ## The assets (catalogue models, 2026-11-05)
@@ -238,13 +254,33 @@ Every town keeps the plain ones. The paint shop offers the path's colours as liv
 
 **Triangles, as the props draw them.** For scale: the bandstand is 2,092, the playground 2,224, the fountain 1,232.
 
-| Asset | Stage 1 | Stage 2 | Stage 3 |
-|---|---|---|---|
-| Grand Exhibition hall (redone in the town buildings' style) | 4,344 | 5,784 | 9,688 |
-| Cathedral | 2,832 | 3,444 | 2,108 |
-| Royal Train | 2,616 | 4,124 | 4,116 |
-| Grand Central station | 2,628 | 4,378 | 3,850 |
-| World's Fair wheel (animated: turns, gondolas stay level) | 2,304 | 2,756 | 4,900 |
+| Asset | Stage 1 | Stage 2 | Stage 3 | Stage 4 |
+|---|---|---|---|---|
+| Grand Exhibition hall (town buildings' style; stage 4 "opening day": gates with a crest, a crystal fountain, statues, elms, stands, bunting, an arched clock) | 4,344 | 5,784 | 9,688 | 13,576 |
+| Cathedral (reworked: aisles, flying buttresses, transept, apse, twin west towers, crossing spire, rose windows; drawn 1.2×; stage 4 stained glass) | 5,016 | 6,112 | 6,472 | 7,996 |
+| Royal Train (display at the works: frames, bare wood, finished) | 2,616 | 6,380 | 7,216 | |
+| Grand Central station | 2,628 | 4,378 | 3,850 | |
+| World's Fair wheel (animated: turns, gondolas stay level) | 2,304 | 2,756 | 4,900 | |
+
+**The Royal Train's cars** (`src/catalogue/assets/royal-train.ts`):
+
+| Car | Triangles |
+|---|---|
+| Royal engine | 2,764 |
+| Royal saloon (crowned) | 2,324 |
+| Royal observation saloon | 1,996 |
+
+- **The design:** a royal claret lined out in gold, polished brass (dome, safety valve, buffers, smokebox door),
+  crests on the cab, a headboard, and flags on the buffer beam. The saloons have clerestory roofs, gilded panels and
+  curtained windows; the crowned one leads, and the last has an observation balcony.
+- **Built to run as the game's own code cars** (the cold van's pattern): the engine's and the coach's lengths (96,
+  88), wheels' feet on y = 0, a `bogies` node. A test checks all three.
+- **To run them, one small hook (not done: design only):**
+  - a `royal` look in `CAR_LOOKS` for the engine and the coach;
+  - `buildCarModel` sending that look to `codeCarModel(mats, kind, buildRoyalEngine | buildRoyalSaloon, royalBogies)`;
+  - the toy box giving the set when the achievement's earned.
+
+  No sim change: same lengths, same running.
 
 | Secret site | Hidden | Found |
 |---|---|---|
@@ -274,8 +310,11 @@ the found ones because of the overgrowth: bushes are balls.)
   - each site's trees are cleared and low hills lowered, as a player can;
   - props are put down with `props.add`;
   - each secret's line is laid with `placeRun` and its train added with `sim.addTrain`.
-- **Grand projects:** `docs/agents/shots/grand-<name>-stages.jpg` (the three stages side by side on the map) and
-  `grand-<name>.jpg` (a close-up, finished), for `exhibition`, `cathedral`, `royal-train`, `central`, `ferris-wheel`.
+- **Grand projects:** for `exhibition`, `cathedral`, `royal-train`, `central`, `ferris-wheel`:
+  - `docs/agents/shots/grand-<name>-stages.jpg`: every stage on the map (the four-stage ones in a 2 × 2 grid);
+  - `grand-<name>.jpg`: a close-up, finished.
+- **In context:** `grand-exhibition-city.jpg`, `grand-cathedral-city.jpg` and `grand-royal-train-city.jpg` show each
+  beside a city or on the line out of it. `grand-royal-train-track.jpg` is the train on real track, close.
 - **Secrets:** `docs/agents/shots/secret-<name>.jpg` shows the site hidden and found side by side, a train arriving
   on the line laid to the found one. `secret-<name>-close.jpg` is a close-up of the found site. The names are
   `lost-mine`, `castle`, `lake`, `shipwreck`, `stones`, `footprint`.
@@ -298,8 +337,9 @@ the found ones because of the overgrowth: bushes are balls.)
 **Known looks to polish if we keep them:**
 - The pier stands on grass when it's not by the sea. Its water is a catalogue-only underlay.
 - The shipwreck's hull reads as open ribs more than a hull.
-- The Royal Train is a display model on its own track, not a running train. It would need the car models' own
-  machinery to run.
+- The Royal Train's display model (the stages) stands on its own track piece. The cars themselves are car-ready (see
+  above).
+- Grand Central and the wheel are still in the first, plainer style.
 
 ## 1. Town character
 
@@ -418,6 +458,62 @@ different (1B). Wishes and fairs give a small reason to visit each town again (1
 ---
 
 ## 2. Something to work towards
+
+### Grand projects are achievements with a reward (the user, 2026-11-05)
+
+The user: "This should be achievements with a reward." Each grand project is an achievement you build towards.
+Finishing it gives its day (the celebration) and a **lasting, concrete reward**.
+
+Mock: `docs/agents/shots/design-character-achievements.jpg` (the Journal's Achievements tab).
+
+| Achievement | Stages | Goods (in order) | Its day | Reward, for good |
+|---|---|---|---|---|
+| 🏛️ **The Great Exhibition** | 4 | stone, planks → iron, bricks → an exhibit from 3 kinds of city → flourishes: paint, furniture, food for the opening | the Royal visit opens it; flags and bunting in every town | **Every town grows a step**, once. Towns below City grow a level. A city gets a quarter of its next star's wants filled. |
+| ⛪ **The Cathedral** | 4 | stone (lots) → bricks, timber → planks, tools for the roofs → **stained glass** (below) | bells, a wedding at its door, bunting in every town | **Every town grows on a tenth fewer goods**, from then on. (There's no happiness stat to add a smile to; this is the toy version: towns are glad.) Pilgrims: 1.5× riders to its city. |
+| 👑 **The Royal Train** | 3 | iron, tools (the frames) → planks, furniture (the saloons) → paint (the claret and gold) | it runs once through every city, flags out wherever it calls | **The Royal Train is yours**: the engine and two saloons go into the toy box, the only train with that look. **Riders on it pay double.** |
+| 🚉 **Grand Central** | 3 | bricks, iron → stone (the tower) → passengers carried (a count, not goods) | every line's trains meet under the clock at noon | **A hub**: its station takes three trains at once (the terminus's platforms). Riders boarding on any line through it pay a quarter more. |
+| 🎡 **The World's Fair wheel** | 3 | iron, tools → planks, paint → ice cream, juice, fish for the fair | fair week: crowds by train from every town | **Fair week every summer** (July, from the calendar): 3× riders to its city. The wheel takes 60 coins a game month in tickets. |
+
+**Refinements to the coordinator's suggestions:**
+- **"+1 smile in every town" became "a tenth fewer goods to grow".** The game has no happiness number, and adding one
+  for a single reward would be a system nobody else reads. Fewer goods is felt everywhere and reads in the town cards.
+- **"Free transfers" for Grand Central** became platforms and a fare bonus. Riders don't change trains in the game, so
+  there's nothing to make free; three platforms and better fares are real things.
+- **"A coin bonus" for the wheel** became a steady 60 a month, so it's felt over time, not once.
+
+**Stained glass, the cathedral's 4th stage.** Coloured windows in the rose and the lancets, the most precious goods
+of the game. Suggested chain:
+- **Sand** from beach squares (`SURF_SAND`, already on every coast);
+- a **Glassworks** (a new industry by the coast: sand + coal → glass);
+- **paint** from the board's Dye works (flower fields → dye → paint);
+- the stage asks for **glass and paint** (say 20 + 10).
+
+Inland maps with no coast: buy glass at a harbour or the map's edge (D2's buying). A gentle glow at dusk isn't
+offered: the game has no dusk (the user turned down dusk lights). The colours are bright lacquer by day.
+
+**How rewards stay balanced:**
+- **They come late.** The first project (the Town hall) is small. The big ones start after City ★ (2 h+), beyond the
+  bands' 180-minute window, so no band moves. The balance harness's long run checks only that each is reachable by
+  deliveries.
+- **One of each per map, no stacking.** A second cathedral can't be built. Rewards of a kind (riders, fares, growth)
+  don't multiply each other: each adds to the base.
+- **Each is a modest, visible step:** a tenth, a quarter, a double on one train. None removes a want or a chain.
+- **Rewards never take away** (cozy): they're kept even if the building's city shrinks a want or a line is pulled up.
+
+**How they show on screen:**
+- **The Journal's Achievements tab** (the Journal is the 📖 button; today it holds the News and Stickers). Each
+  achievement has:
+  - a row with its stage pips and a 🎁 line saying the reward before you start;
+  - a tick and "(Earned)" once it's done.
+
+  A tap opens its card: stages, goods, which trains bring what, and Show me.
+- **The goal bar becomes the ribbon** for the project under way (as before), and the site shows on the map.
+- **On completion:**
+  - its day plays: the camera flies to it, a toast, the celebration's props;
+  - the reward is shown where it acts: the Royal Train lands in the toy box with a 🎁 badge, and town cards show "a
+    tenth fewer goods (the Cathedral)" under their wants;
+  - a sticker for each achievement, and "Every grand project".
+
 
 ### Options
 
@@ -616,7 +712,7 @@ Every step:
 - Run both goals play-through parts.
 - Reach the new thing by the player's path.
 - Add an e2e at 390×844 that checks the payoff:
-  - a town leans and settles from what trains bring it (Market from bread, Industrial from iron), and its landmark
+  - a town leans from what trains bring it (Market suggested after bread), its choice sheet locks Port until a harbour is built, and once chosen its landmark
     goes up;
   - a project stage completes from deliveries;
   - a day-tripper rides to a sight.
@@ -650,7 +746,7 @@ where they exist; the rest are system emoji.
 ## 6. Questions for the user
 
 1. **Paths:**
-   - Is the close-call choice (within 20%) right, or should a city always settle automatically (or always ask)?
+   - Should "Change speciality" (the Town hall, once per city, 200 coins) exist, or is a choice for good better?
    - Should exhibits be one new good, or should the stands take each path's existing goods?
 2. **The long arc's finale:** Great Exhibition with the Royal Train, then the Rocket after? Or only one of them?
 3. **Region ground colours** (heather, dark pine): allowed, or dressing models only?
