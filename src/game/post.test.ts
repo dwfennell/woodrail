@@ -11,7 +11,7 @@ import { buysText } from "./town-ledger";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { FULL_PAY, LUXURIES, payFor, PRICES, townStatus } from "./towns";
 import { Vans } from "./vans";
-import { buildStarterWorld, INDUSTRY_ROLE } from "./world";
+import { buildStarterWorld, INDUSTRY_ROLE, syncIndustries } from "./world";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 
 const bp = (id: string) => BLUEPRINTS.find((b) => b.id === id)!;
@@ -99,6 +99,7 @@ describe("Post office: the blueprint, its things and its goods", () => {
     expect(postLine(false, 3, 0)).toBeNull();
     expect(postLine(true, 0, 0)).toBe("Posts ✉️ mail · a mail van takes it to a post office");
     expect(postLine(true, 2, 1)).toBe("2 ✉️ mail to send · a post van on its streets");
+    expect(postLine(true, 0, 0, false)).toBe("Posts ✉️ mail once there's a post office");
   });
 });
 
@@ -145,13 +146,20 @@ function starter() {
   return { w, learned, life };
 }
 
-describe("towns post mail once Post office is learned (TownLife)", () => {
-  it("none before; then at each town's station, by its level", () => {
+describe("towns post mail once Post office is learned and a post office stands (TownLife)", () => {
+  it("none before; none learned with no post office on the map; then at each town's station, by its level", () => {
     const { w, learned } = starter();
     const stations = w.economy.allDepots().filter((d) => d.role === "town" && w.stations.get(d.townId) === d.pieceId);
     expect(stations.length).toBeGreaterThan(0);
     for (const d of stations) expect(w.economy.mailEvery!(d)).toBe(0);
     learned.add(POST_TECH);
+    // (No post office yet: nothing could take mail, so none piles up, and an idle map's state stands still.)
+    for (const d of stations) expect(w.economy.mailEvery!(d)).toBe(0);
+    for (let k = 0; k < 60 * SIM_HZ; k++) w.economy.tick();
+    for (const d of stations) expect(d.piles[CARGO.mail.index]).toBe(0);
+    // A post office put down (its piece far off, its depot as the game adds one: `syncIndustries`).
+    w.layout.addPiece("depot-postoffice", { x: 40000, z: 40000, heading: 0 });
+    syncIndustries(w, true);
     for (const d of stations) expect(w.economy.mailEvery!(d)).toBe(mailSeconds(townStatus(w.economy.deliveredGoods.get(d.townId) ?? {}).level));
     // Played on, each station's pile fills (no train comes for it here).
     for (let k = 0; k < 120 * SIM_HZ; k++) w.economy.tick();

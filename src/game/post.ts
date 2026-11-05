@@ -1,4 +1,4 @@
-import type { CargoKind } from "../economy";
+import type { CargoKind, Economy } from "../economy";
 
 /**
  * The post (Game mode's Post office blueprint): a small chain you can see in towns. Each town on the line posts sacks of
@@ -6,8 +6,10 @@ import type { CargoKind } from "../economy";
  * post office, which sorts them into post; towns buy the post at full pay, and a town that has had post gets red post
  * vans driving its streets (`TownCars`, `postVansFor`).
  *
- * Mail is posted only once Post office is learned (before then a town's mail pile stays empty, so old games and the
- * balance harness play as before). Cheap: the economy looks at each town's mail once a second (`Economy.mailEvery`).
+ * Mail is posted only once Post office is learned and a post office stands on the map (`hasPostOffice`): before then a
+ * town's mail pile stays empty, so old games and the balance harness play as before, and an idle map's state doesn't
+ * change every second for mail nothing could take. Cheap: the economy looks at each town's mail once a second
+ * (`Economy.mailEvery`).
  */
 
 /** The blueprint that brings the post office, the mail van, and towns' mail. */
@@ -31,9 +33,15 @@ export function postVansFor(n: number): number {
   return n <= 0 ? 0 : Math.min(POST_VANS_PER_TOWN, 1 + Math.floor((n - 1) / POST_VANS_EVERY));
 }
 
+/** Is there a post office on the map (its piece down)? Towns post mail only then. */
+export function hasPostOffice(economy: Economy): boolean {
+  return economy.allDepots().some((d) => d.role === "postoffice");
+}
+
 /** The town card's line about its post, or null before Post office is learned. */
-export function postLine(learned: boolean, mailWaiting: number, postHad: number): string | null {
+export function postLine(learned: boolean, mailWaiting: number, postHad: number, office = true): string | null {
   if (!learned) return null;
+  if (!office && mailWaiting === 0 && postHad === 0) return "Posts ✉️ mail once there's a post office";
   const waiting = mailWaiting > 0 ? `${mailWaiting} ✉️ mail to send` : "Posts ✉️ mail";
   const vans = postVansFor(postHad);
   const got = vans > 0 ? `${vans === 1 ? "a post van" : `${vans} post vans`} on its streets` : "a mail van takes it to a post office";

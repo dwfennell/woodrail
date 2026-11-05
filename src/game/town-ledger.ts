@@ -3,7 +3,7 @@ import { kindsOf } from "../economy/goods";
 import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
 import { ruleOf, type ThingId } from "./things";
-import { postLine, POST_TECH } from "./post";
+import { hasPostOffice, postLine, POST_TECH } from "./post";
 import { growthOf } from "./town-life";
 import { FULL_PAY, townLevel, townStatus } from "./towns";
 import { DEPOT_NAMES, depotName, type World } from "./world";
@@ -148,7 +148,7 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried },
     lines,
     buys: buysText(ctx.learned),
-    post: postLine(ctx.learned.has(POST_TECH), d.piles[CARGO.mail.index], world.economy.deliveredGoods.get(town.id)?.post ?? 0),
+    post: postLine(ctx.learned.has(POST_TECH), d.piles[CARGO.mail.index], world.economy.deliveredGoods.get(town.id)?.post ?? 0, hasPostOffice(world.economy)),
   };
 }
 

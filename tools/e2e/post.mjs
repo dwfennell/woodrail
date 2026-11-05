@@ -295,8 +295,15 @@ if (!setup.error && setup.engine !== -1) {
   }
 
   // 8. That town's card: a Post row with its post van, and "Always buys 📮 post at full pay".
+  // (Straight after the view came back from far out a tap can land before the map has settled: tapped again if no card.)
+  const postRow = () => p.waitForFunction(() => [...document.querySelectorAll(".ledger-row-name")].some((e) => e.textContent === "Post" && e.getBoundingClientRect().width > 0), null, { timeout: 30000 }).then(() => true, () => false);
+  await settle();
   await tapOn({ depot: towns[got] });
-  await p.waitForFunction(() => [...document.querySelectorAll(".ledger-row-name")].some((e) => e.textContent === "Post" && e.getBoundingClientRect().width > 0), null, { timeout: 30000 }).catch(() => {});
+  if (!(await postRow())) {
+    await settle();
+    await tapOn({ depot: towns[got] });
+    await postRow();
+  }
   const card = await p.evaluate(() => {
     const row = [...document.querySelectorAll(".ledger-row")].find((r) => r.querySelector(".ledger-row-name")?.textContent === "Post" && r.getBoundingClientRect().width > 0);
     const buys = [...document.querySelectorAll(".ledger-buys")].find((e) => e.getBoundingClientRect().width > 0);
