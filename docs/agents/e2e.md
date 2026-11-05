@@ -113,9 +113,17 @@ npm run e2e:affected -- --check      # every rule names a real suite and group
 
 It diffs the working tree (commits, staged, unstaged, new files) against the merge base, and maps each path through
 `RULES` in `scripts/e2e/affected.mjs`: a glob (or list of them) and what it affects, `"suite"` or
-`"suite:group,group"`. Rules add up. An e2e script maps to its own suite. `IGNORE` (docs, `*.md`, unit tests, tools
-that aren't e2e) maps to nothing. **A path no rule matches gets the core set (touch, click)** and is listed as unmapped:
-add a rule for it. The map is by hand, from what each suite's header says it drives; when you add a suite, add it to
+`"suite:group,group"`. Rules add up. An e2e script maps to its own suite; touch.mjs's own changes to the groups whose
+functions they're in (`touchGroupsOf`: a change to a shared helper, the boot or `openMode` is the whole suite).
+`IGNORE` (docs, `*.md`, unit tests, tools that aren't e2e) maps to nothing. **A path no rule matches gets `SMOKE`**, a
+few quick touch groups across the game and click's `desktop` (about 6 min), and is listed as unmapped: add a rule for
+it. So do the paths that reach everywhere (src/main.ts, game.ts, the build, the harness's lib).
+
+touch and click are selected by group: `TOUCH_INPUT` (presses, holds, drags and drops), `TOUCH_TRACK` (laying track,
+points), `TOUCH_TRAINS` and `TOUCH_ROUTES` (the sim, routing), `TOUCH_UI` (the HUD), `CLICK_INPUT`; a rule for a file
+names the ones it exercises. Neither is run whole on a landing any more: **run them whole nightly**, `npm run
+e2e:affected -- --nightly --run` (about 80 min), so what the narrowed selection leaves out is still run every day.
+The estimate it prints is from each group's measured time (`GROUP_SECONDS`; else the suite's minutes shared out). The map is by hand, from what each suite's header says it drives; when you add a suite, add it to
 `SUITES` and give it rules for the code it's there to cover; when you add a module, a rule saves every later branch the
 core set's hour.
 
