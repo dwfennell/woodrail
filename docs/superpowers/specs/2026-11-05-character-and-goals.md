@@ -282,17 +282,16 @@ brambles are few-sided balls.)
 - **Where they're placed:**
   - **At most one secret in the starting plots** (the ones unlocked at the start). The rest are hidden in locked
     plots, the ones bought with "Buy some land", so buying land is how most are found:
-    - **spread out:** each in a different locked plot, no two in the same or neighbouring plots where the map allows
-      (if it can't, the fewest neighbours possible);
-    - **not too far out:** prefer the first and second ring of locked plots round the starting ones, not the map's far
-      edge;
-    - the shipwreck's beach rule still holds: it goes only in a coast plot that meets these, or not at all.
+    - **separate and not neighbouring:** each in its own locked plot, no two in the same or neighbouring plots;
+    - **near the start:** in the first rings of locked plots round the starting ones, more rings generated as needed
+      (the map grows without end, so there's always room).
   - **The shipwreck spawns only on a beach at the sea's edge.** Its seaward side (`SHIPWRECK_SEA_Z`, z −144 in its
     frame, a straight edge) lies on the line where the sand meets the sea, so the hull and its treasure stand on the
     beach squares, the sea right behind it, and its halt faces inland. The model's sand runs all the way to that edge;
     the sea and surf past it are a catalogue underlay, left out in the game, where the map's own sea is there. A test
     checks the sand reaches the edge and nothing solid stands past it (only sea mist, hidden).
-  - **A map without a coast never gets the shipwreck:** its secrets are picked from the other five.
+  - **The shipwreck waits for a coast:** it goes only in a coast plot that meets the rules above, and since the map
+    always grows, it can wait for one in a later ring. Until there is one, the secrets placed are the other five.
   - The other five need flat land, clear of track, towns and industries, with room for the site and its halt
     (about 300 × 330 mm, 9 × 10 squares).
 - **Pictures:** `docs/agents/shots/secret2-<name>-hidden.jpg`, `-found.jpg` (its halt laid, a train standing at
