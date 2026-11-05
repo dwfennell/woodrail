@@ -4,6 +4,8 @@ import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
+import { RiverBoatsView } from "../render/river-boats-view";
+import { Fleet, type Waters } from "./boats";
 import { AMBIENT_FRAME_MS, AmbientEye } from "../render/ambient";
 import { RoadVehiclesView } from "../render/road-vehicles-view";
 import { Vans } from "./vans";
@@ -198,6 +200,9 @@ export class Game {
   readonly propLibrary: PropLibrary;
   /** Boats calling at harbours (Game mode). */
   readonly boats: BoatsView;
+  /** The player's boats (Game mode's River barges): what they do, and how they're drawn. */
+  readonly fleet = new Fleet(() => this as unknown as Waters);
+  readonly riverBoats: RiverBoatsView;
   /** Road vehicles drawn (vans and buses: roads spec §3); they move in the economy's tick (`Economy.roadVehicles`). */
   readonly roadVehiclesView: RoadVehiclesView;
   /** Road vehicles' trips: their ways out and back, cached, and checked again after a road or track edit. */
@@ -374,6 +379,8 @@ export class Game {
     this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.boats.group);
+    this.riverBoats = new RiverBoatsView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.riverBoats.group);
     this.roadVehiclesView = new RoadVehiclesView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.roadVehiclesView.group);
     this.vans = new Vans(
@@ -422,6 +429,7 @@ export class Game {
     this.stationTouches.clear();
     this.touchesPieces = this.touchesNext = -1;
     this.boats.clear();
+    this.riverBoats.clear();
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
@@ -1112,6 +1120,8 @@ export class Game {
     }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
     if (this.boats.update(this.camera, this.ambientEye)) ambient = true;
+    // The player's boats: placed by game time since the fleet's last tick (still while paused).
+    if (this.riverBoats.update(this.fleet, this.economy.boats, Math.min(2, Math.max(0, this.simSeconds - this.fleet.tickedAt)), this.camera, this.ambientEye)) ambient = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;
@@ -1157,8 +1167,9 @@ export class Game {
     if (moved || this.woken) {
       active = true;
       // A boat moved unseen: its shadow may still be drawn where it was, now coming into view.
-      if (this.boats.shadowsStale) {
+      if (this.boats.shadowsStale || this.riverBoats.shadowsStale) {
         this.boats.shadowsStale = false;
+        this.riverBoats.shadowsStale = false;
         this.shadowsMoving = true;
         this.invalidate();
       }

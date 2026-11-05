@@ -14,6 +14,7 @@ const WATER: ReadonlySet<string> = new Set([
   "water-barge",
   "water-barge-logs",
   "water-barge-stone",
+  "water-barge-ore",
   "water-barge-coal",
   "water-barge-grain",
   "water-cargo-ship",

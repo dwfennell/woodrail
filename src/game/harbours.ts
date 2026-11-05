@@ -22,6 +22,15 @@ export const BOAT_LOADS = 6;
 export const FISH_CATCH = 3;
 /** Seconds between one boat leaving and the next arriving. */
 export const BOAT_EVERY = 150;
+/** Loads a cargo ship takes a visit (once Cargo ships is learned: it calls instead of the rowing boat). */
+export const SHIP_LOADS = 24;
+/**
+ * A lighthouse this near a harbour (mm, from the harbour's quay to the lighthouse) brings its boats twice as often
+ * (Lighthouse, water spec §5): about five squares.
+ */
+export const LIGHTHOUSE_REACH = 380;
+/** The lighthouse's model (a prop the player places, Game mode's Lighthouse). */
+export const LIGHTHOUSE_ASSET = "bldg-lighthouse";
 /** Seconds a boat takes to sail in (or out). */
 export const BOAT_SAIL = 12;
 /** Seconds a boat stays at the quay. */
@@ -160,11 +169,18 @@ export function goodsForSale(world: World): CargoKind[] {
   return CARGO_KINDS.filter((k) => made.has(k) && buyPrice(k) > 0);
 }
 
-/** What a boat pays for goods: half a town's price. */
-export function boatPays(goods: Bag): number {
+/** What a boat pays for goods: half a town's price (a cargo ship, `ship`: a town's full price). */
+export function boatPays(goods: Bag, ship = false): number {
   let n = 0;
   for (const k of CARGO_KINDS) n += (goods[k] ?? 0) * (PRICES[k] ?? 0);
-  return Math.round(n / 2);
+  return ship ? n : Math.round(n / 2);
+}
+
+/** Is there a lighthouse near this harbour's quay (its boats come twice as often)? A look through the props. */
+export function lighthouseNear(world: World, pose: Pose): boolean {
+  const q = depotPoint(pose, QUAY.t, QUAY.l);
+  for (const p of world.props.all()) if (p.asset === LIGHTHOUSE_ASSET && Math.hypot(p.x - q.x, p.z - q.z) <= LIGHTHOUSE_REACH) return true;
+  return false;
 }
 
 /**
@@ -191,8 +207,9 @@ export function loadBoat(d: DepotState, loads = BOAT_LOADS, landed?: Int32Array)
 }
 
 export type HarbourEvent =
-  | { kind: "arrive" | "leave"; depotId: number; way: readonly { x: number; z: number }[] }
-  | { kind: "sold"; depotId: number; goods: Bag; coins: number }
+  /** A boat sailing in or out (`ship`: a cargo ship, once Cargo ships is learned). */
+  | { kind: "arrive" | "leave"; depotId: number; way: readonly { x: number; z: number }[]; ship?: boolean }
+  | { kind: "sold"; depotId: number; goods: Bag; coins: number; ship?: boolean }
   /**
    * A boat unloaded goods you ordered, paid for as they came off. `short`: some went back, for want of coins or of
    * room on the quay (null: all came).
@@ -239,32 +256,36 @@ export class HarbourTrade {
         boat = undefined;
       }
       if (!boat) this.boats.set(d.id, (boat = { phase: "away", left: FIRST_BOAT, way: null, at }));
+      // (Cargo ships, once learned: 24 loads at a town's full price. A lighthouse near: the wait between boats halved.)
+      const ship = p.learned.has("cargo-ships");
+      const every = this.everyFor(world, piece.pose, p);
       boat.left -= seconds;
       if (boat.left > 0) continue;
       switch (boat.phase) {
         case "away": {
           const way = this.wayFor(world.landscape, d.pieceId, piece.pose);
           if (!way) {
-            boat.left = BOAT_EVERY;
+            boat.left = every;
             break;
           }
           boat.way = way;
           boat.phase = "in";
           boat.left = BOAT_SAIL;
-          events.push({ kind: "arrive", depotId: d.id, way });
+          events.push({ kind: "arrive", depotId: d.id, way, ...(ship ? { ship } : {}) });
           break;
         }
         case "in": {
           boat.phase = "docked";
           boat.left = BOAT_DOCKED;
-          const goods = loadBoat(d, BOAT_LOADS, world.economy.landed.get(d.id));
-          const coins = boatPays(goods);
+          const goods = loadBoat(d, ship ? SHIP_LOADS : BOAT_LOADS, world.economy.landed.get(d.id));
+          const coins = boatPays(goods, ship);
           let n = 0;
           for (const v of Object.values(goods)) n += v ?? 0;
           if (n > 0) {
             p.coins += coins;
             p.counts.set("exported", (p.counts.get("exported") ?? 0) + n);
-            events.push({ kind: "sold", depotId: d.id, goods, coins });
+            if (ship) world.economy.shipLoads += n;
+            events.push({ kind: "sold", depotId: d.id, goods, coins, ...(ship ? { ship } : {}) });
           }
           // Then what you ordered comes off onto the quay (after loading, so the boat doesn't take it back).
           const bought = this.unload(world, d, p);
@@ -280,11 +301,11 @@ export class HarbourTrade {
         case "docked":
           boat.phase = "out";
           boat.left = BOAT_SAIL;
-          events.push({ kind: "leave", depotId: d.id, way: boat.way ?? [] });
+          events.push({ kind: "leave", depotId: d.id, way: boat.way ?? [], ...(ship ? { ship } : {}) });
           break;
         case "out":
           boat.phase = "away";
-          boat.left = BOAT_EVERY;
+          boat.left = every;
           boat.way = null;
           break;
       }
@@ -367,19 +388,25 @@ export class HarbourTrade {
   }
 
   /** What a harbour's card says about its boats. */
-  describe(depotId: number, fishing = false): string {
+  /** Seconds between boats at a harbour: `BOAT_EVERY`, halved with a lighthouse near (once Lighthouse is learned). */
+  everyFor(world: World, pose: Pose, p: Progress): number {
+    return p.learned.has("lighthouse") && lighthouseNear(world, pose) ? BOAT_EVERY / 2 : BOAT_EVERY;
+  }
+
+  describe(depotId: number, fishing = false, ship = false, lighthouse = false): string {
     const b = this.boatAt(depotId);
-    const each = `A boat takes ${BOAT_LOADS} loads a visit, paying half a town's price${fishing ? `, and lands ${FISH_CATCH} fish` : ""}.`;
+    const boatWord = ship ? "cargo ship" : "boat";
+    const each = `${ship ? `A cargo ship takes ${SHIP_LOADS} loads a visit, paying a town's full price` : `A boat takes ${BOAT_LOADS} loads a visit, paying half a town's price`}${fishing ? `, and lands ${FISH_CATCH} fish` : ""}.${lighthouse ? " The lighthouse brings them twice as often." : ""}`;
     if (!b || b.phase === "away") {
       const s = b?.left ?? FIRST_BOAT;
-      return `Next boat in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}. ${each}`;
+      return `Next ${boatWord} in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}. ${each}`;
     }
-    if (b.phase === "in") return `A boat is coming in. ${each}`;
+    if (b.phase === "in") return `A ${boatWord} is coming in. ${each}`;
     // It's taken its loads: what's put on the quay now waits for the next.
-    const next = Math.round((b.left + (b.phase === "docked" ? BOAT_SAIL : 0) + BOAT_EVERY) / 60);
+    const next = Math.round((b.left + (b.phase === "docked" ? BOAT_SAIL : 0) + (lighthouse ? BOAT_EVERY / 2 : BOAT_EVERY)) / 60);
     const wait = `Goods put on the quay now wait for the next boat, in about ${next} min.`;
-    if (b.phase === "docked") return `A boat is tied up at the quay. ${wait}`;
-    return `The boat is sailing away. ${wait}`;
+    if (b.phase === "docked") return `A ${boatWord} is tied up at the quay. ${wait}`;
+    return `The ${boatWord} is sailing away. ${wait}`;
   }
 
   /** Start again (a new world was loaded): every harbour's next boat comes soon. */

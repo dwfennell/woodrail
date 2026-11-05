@@ -74,12 +74,13 @@ import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARRIES, COIN_ICON } from "./economy/cargo";
-import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
+import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, lighthouseNear, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
+import { attachWater, type WaterControls } from "./ui/water-controls";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
 import { costTag, refundText, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
@@ -371,6 +372,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let editor = makeEditor();
   let saveTimer = 0;
   let interaction: Interaction;
+  /** River barges on screen (made once the HUD and interaction are: `attachWater`). */
+  let water: WaterControls | null = null;
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
@@ -1274,6 +1277,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction?.flushDraw();
     setExpanding(false);
     game.setWorld(world);
+    water?.reset();
     shownDelivered = new Map();
     announced = new Set();
     updateConnections(false);
@@ -2537,6 +2541,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const warnedHeavy = new Set<number>();
   // Harbours (Game mode): boats call by themselves and buy what's on the quay.
   const harbourTrade = new HarbourTrade();
+  // River barges (Game mode): the player's boats, their cards and planning (src/ui/water-controls.ts).
+  water = attachWater({
+    game,
+    hud,
+    interaction,
+    progress: () => progress,
+    isGame: () => mode === "game",
+    saved: () => scheduleSave(),
+    paid: () => scheduleSave("progress"),
+  });
   function passengersOn(): void {
     peopleClock.clear();
     harbourTrade.reset();
@@ -2597,7 +2611,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const sailed = simElapsed(harbourClock, game.simSeconds);
     if (mode !== "game" || !playing || game.paused || sailed <= 0) return;
     for (const e of harbourTrade.update(game.world, progress, sailed)) {
-      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
+      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL, e.ship);
       else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "gone") game.boats.remove(e.depotId);
       else if (e.kind === "bought") {
@@ -2618,6 +2632,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         scheduleSave("progress");
       }
     }
+    // The player's boats move on, drop and pick up.
+    water?.tick(sailed);
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
     // (The picker shows the counts only as requirements met, or riders: the workshop's clock sees those in its key.)
     counters.collect(game.economy, progress);
@@ -2814,7 +2830,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const d = game.economy.depot(id)!;
     const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
-    const text = harbourTrade.describe(id, progress.learned.has("fishing"));
+    const piece = game.layout.getPiece(d.pieceId);
+    const lit = !!piece && progress.learned.has("lighthouse") && lighthouseNear(game.world, piece.pose);
+    const text = harbourTrade.describe(id, progress.learned.has("fishing"), progress.learned.has("cargo-ships"), lit);
     const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
     // Goods the boats sell you (what you already make), and what's on order for the next one.
     const forSale = goodsForSale(game.world);
@@ -5456,6 +5474,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showFarm();
       showSawmill();
       showHarbour();
+      water?.frame();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     // Goals after the towns: a delivery that grows a town is announced (with its tick folded in) before the poll could

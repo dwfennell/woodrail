@@ -450,6 +450,10 @@ export class Interaction {
   onLeavePlanning: (() => void) | null = null;
   /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
   onPickPlace: ((depotId: number) => boolean) | null = null;
+  /** The player's boat within a fingertip of a point on the canvas (client px), or −1 (Game mode's River barges). */
+  boatAt: ((x: number, y: number) => number) | null = null;
+  /** A boat tapped: its card opens. */
+  onBoatTap: ((boatId: number) => void) | null = null;
   /** Planning a route: plain track tapped (or a via point's disc), a via point (true: taken as one). */
   onPickVia: ((pieceId: number) => boolean) | null = null;
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
@@ -1891,6 +1895,12 @@ export class Interaction {
       this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, press: hit } : null;
       return;
     }
+    // A boat on the water (no piece or model there): a tap opens its card; a drag pans, as on the floor.
+    const boat = !hit && !this.onPickPlace ? (this.boatAt?.(e.clientX, e.clientY) ?? -1) : -1;
+    if (boat !== -1) {
+      this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, boat } : null;
+      return;
+    }
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
       // double tap focuses on that spot.
@@ -2380,6 +2390,13 @@ export class Interaction {
       // or a careful child, takes its time.
       const still = !f.moved && Math.hypot(e.clientX - f.x, e.clientY - f.y) < dragSlop(e.pointerType);
       if (still && e.timeStamp - f.t < FLOOR_TAP_MS && this.touches.size <= 1) {
+        // A boat: its card.
+        if (f.boat !== undefined) {
+          this.clearSelection();
+          this.onBoatTap?.(f.boat);
+          this.lastTap = null;
+          return;
+        }
         // Planning, on a place (or a disc, or a train at its station): that's the tap.
         if (f.press) {
           this.tap(f.press);
@@ -2521,7 +2538,7 @@ export class Interaction {
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; signal?: boolean; carry?: boolean; press?: Press; moved?: boolean } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; signal?: boolean; carry?: boolean; press?: Press; moved?: boolean; boat?: number } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;

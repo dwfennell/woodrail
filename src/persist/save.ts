@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, isStore, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type DepotState, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, isStore, KIT_DEPOT_ROLES, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type BoatState, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
@@ -15,6 +15,7 @@ const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
 import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type SignalStyle, type Pose, type RelaxOptions } from "../track";
+import { BARGE_LOADS, isBulk, isDock, MAX_BARGES, MAX_BOATS } from "../game/boats";
 import { joinSavedLine, LINE_COLOURS, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
@@ -187,6 +188,26 @@ const saveSchema = z.object({
       }),
     )
     .optional(),
+  /**
+   * The player's boats (Game mode's River barges): stops are depot indices in `depots`. No new save version: older
+   * saves simply have none.
+   */
+  boats: z
+    .array(
+      z.object({
+        name: z.string().max(40),
+        barges: z.number().int().min(1).max(MAX_BARGES),
+        load: z.record(z.string(), z.number().int().min(0).max(MAX_BARGES * BARGE_LOADS)),
+        stops: z.array(z.tuple([z.number().int().min(0), z.enum(["both", "pick", "drop"])])).min(1),
+        from: z.number().int().min(0),
+        docked: z.boolean(),
+        t: z.number().finite().min(0),
+        going: z.boolean(),
+        home: z.number().int().min(0),
+      }),
+    )
+    .max(MAX_BOATS)
+    .optional(),
   /** Placed catalogue models (optional: saves from before props load with none). */
   props: z
     .array(
@@ -342,8 +363,34 @@ export function serializeWorld(world: World): SaveData {
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
     ...(lines.length > 0 ? { lines } : {}),
+    ...boatsOf(world, renumbered),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
+}
+
+/** The boats, their stops renumbered as the depots are (a stop at a depot no longer on the map is left out). */
+function boatsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<SaveData, "boats"> {
+  const boats: NonNullable<SaveData["boats"]> = [];
+  for (const b of world.economy.boats.values()) {
+    const stops = b.stops.filter((st) => renumbered.has(st.depotId));
+    if (stops.length === 0) continue;
+    const from = Math.max(0, stops.indexOf(b.stops[b.from]));
+    const load: Record<string, number> = {};
+    for (const [k, n] of Object.entries(b.load)) if (n && isBulk(k as CargoKind)) load[k] = n;
+    boats.push({
+      name: b.name,
+      barges: b.barges,
+      load,
+      stops: stops.map((st) => [renumbered.get(st.depotId)!, st.action]),
+      from,
+      // (A boat that lost its next stop ties up at the one it left.)
+      docked: b.docked || stops.length !== b.stops.length,
+      t: b.docked || stops.length !== b.stops.length ? 0 : b.t,
+      going: b.going,
+      home: renumbered.get(b.home) ?? renumbered.get(stops[0].depotId)!,
+    });
+  }
+  return boats.length > 0 ? { boats: boats.slice(0, MAX_BOATS) } : {};
 }
 
 /**
@@ -599,6 +646,24 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   }
   for (const l of save.lines ?? []) if (l.toldFull && economy.lines.has(l.id)) economy.sections.markToldFull(l.id);
   economy.sections.restored();
+  // The boats, at the depots they call at (one whose docks are all gone isn't brought back).
+  let boatId = 1;
+  for (const b of save.boats ?? []) {
+    const stops = b.stops.filter(([d]) => isDock(economy.depot(d))).map(([depotId, action]) => ({ depotId, action }));
+    if (stops.length === 0) continue;
+    const load: BoatState["load"] = {};
+    let room = b.barges * BARGE_LOADS;
+    for (const [k, n] of Object.entries(b.load)) {
+      if (!(CARGO_KINDS as readonly string[]).includes(k) || !isBulk(k as CargoKind)) continue;
+      const take = Math.min(n, room);
+      if (take > 0) load[k as CargoKind] = take;
+      room -= take;
+    }
+    const kept = stops.length === b.stops.length;
+    const from = kept ? Math.min(b.from, stops.length - 1) : 0;
+    const id = boatId++;
+    economy.boats.set(id, { id, name: b.name, barges: b.barges, load, stops, from, docked: kept ? b.docked : true, t: kept ? b.t : 0, going: b.going, home: isDock(economy.depot(b.home)) ? b.home : stops[0].depotId, loadedAt: {} });
+  }
   if (broughtBack.length > 0) {
     // (Pinned as the editor pins: map pieces, lifts, and track under a train.)
     const fixed = fixedPieces({ stations, depots, ruins });

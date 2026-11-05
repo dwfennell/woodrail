@@ -164,3 +164,24 @@ describe("boats", () => {
     expect(progress.coins).toBe(before + (BOAT_PRICE + BARGE_PRICE) / 2);
   });
 });
+
+describe("boats in a save", () => {
+  it("come back where they were: their route, barges, load and how far they'd sailed", async () => {
+    const { deserializeWorld, serializeWorld } = await import("../persist/save");
+    const { w, A, B, progress, fleet } = setup();
+    w.economy.depot(A)!.piles[CARGO.coal.index] = 3;
+    const boat = fleet.buy(A, progress)!;
+    fleet.addBarge(boat.id, progress);
+    fleet.addStop(boat.id, B);
+    fleet.serve(boat, boat.stops[0]);
+    for (let i = 0; i < DOCK_SECONDS + 4; i++) fleet.tick(1);
+    expect(boat.docked).toBe(false);
+    const data = JSON.parse(JSON.stringify(serializeWorld(w)));
+    const back = deserializeWorld(data);
+    expect(back.ok).toBe(true);
+    const w2 = back.ok ? back.value : w;
+    const [b2] = [...w2.economy.boats.values()];
+    expect({ name: b2.name, barges: b2.barges, load: b2.load, stops: b2.stops, docked: b2.docked, t: b2.t }).toEqual({ name: boat.name, barges: 2, load: { coal: 3 }, stops: boat.stops, docked: false, t: boat.t });
+    expect(new Fleet(() => w2).where(b2)).toEqual(fleet.where(boat));
+  });
+});

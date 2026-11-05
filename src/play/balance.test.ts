@@ -202,10 +202,15 @@ const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 440);
 /** The goals the fast part doesn't reach by `GOALS_RUN_MINUTES`, with why. */
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
   "open-mine": "Mines wants 20 stone delivered, 10 more at the school and the Goods engine, which this one goods train brings only at about minute 195; the mine stands at about 220: the long part's (GOALS_LONG=1)",
+  "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
+  "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
   "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 412: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
-export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {};
+export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {
+  "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
+  "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
+};
 
 /** The goals neither met nor listed in `allowed` (with why), and those listed but met or not goals at all. */
 export function goalsMissed(isDone: (id: string) => boolean, allowed: Readonly<Record<string, string>>, goals: readonly { id: string; title: string }[] = GOALS): { missed: string[]; stale: string[] } {

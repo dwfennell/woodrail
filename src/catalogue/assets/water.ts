@@ -13,6 +13,8 @@ import { boatFelt, flat, hullOutline } from "./boat-parts";
 const STONE = "#b9b2a6";
 /** Loose stone in a barge: darker than the cut stone of a quay, so it reads as rock. */
 const ROCK = "#8f8a82";
+/** Iron ore: rust-red rock. */
+const ORE = "#a4512f";
 const BARK = "#8a5a32";
 const LOG_END = "#d9b27c";
 const COAL = "#2d2a28";
@@ -110,7 +112,7 @@ const BARGE_W = 34;
 /** The top of a barge's hold floor, where its load sits. */
 const HOLD = 13.4;
 
-type BargeLoad = "empty" | "logs" | "stone" | "coal" | "grain";
+type BargeLoad = "empty" | "logs" | "stone" | "ore" | "coal" | "grain";
 
 /** A heap of loose goods in the hold (coal, grain): two squashed mounds, as a hopper's heap. */
 function heap(k: Kit, color: string): Group {
@@ -147,9 +149,10 @@ function bargeLoad(k: Kit, load: BargeLoad): Object3D | null {
       }
       return g;
     }
-    case "stone": {
+    case "stone":
+    case "ore": {
       const g = new Group();
-      const mat = k.paint(ROCK);
+      const mat = k.paint(load === "ore" ? ORE : ROCK);
       const rocks: [number, number, number][] = [
         [-24, -7, 6],
         [-22, 7, 5],
@@ -395,6 +398,7 @@ const BARGES: [BargeLoad, string, string][] = [
   ["empty", "Barge", "An open river barge with magnet couplers at both ends, as a wagon has: a tug pulls up to three, four loads each."],
   ["logs", "Barge of logs", "A barge with logs from a riverside forest, on its way to the sawmill's landing."],
   ["stone", "Barge of stone", "A barge heaped with stone from the quarry."],
+  ["ore", "Barge of ore", "A barge of rust-red iron ore from the mine, for the foundry."],
   ["coal", "Barge of coal", "A barge heaped with coal, as a hopper is."],
   ["grain", "Barge of grain", "A barge heaped with grain for the mill."],
 ];

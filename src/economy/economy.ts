@@ -428,6 +428,8 @@ export class Economy {
   readonly boats = new Map<number, BoatState>();
   /** Loads boats have dropped at a dock other than where they picked them up (the goal "Float goods down the river"). */
   boatDelivered = 0;
+  /** Loads cargo ships have taken from harbours (the goal "Send a ship abroad"). */
+  shipLoads = 0;
   readonly lineIdOf = new Map<number, number>();
   /** Town id → plank bundles delivered there (by train or by hand). */
   readonly delivered = new Map<number, number>();

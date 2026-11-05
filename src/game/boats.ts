@@ -30,6 +30,10 @@ export const BOAT_SPEED = 45;
 /** Seconds a boat stays tied up at a dock (its goods craned off and on). */
 export const DOCK_SECONDS = 8;
 
+/** A tug's length and a barge's (mm: the catalogue's models, `water-river-tug` and `water-barge`). */
+export const TUG_LENGTH = 70;
+export const BARGE_LENGTH = 88;
+
 /** Where a boat ties up beside a landing's jetty (depot coordinates: along the line, out across it). */
 export const LANDING_MOOR = { t: 120, l: 100 };
 
@@ -37,6 +41,9 @@ export const LANDING_MOOR = { t: 120, l: 100 };
 const NAMES = ["Puffin", "Kingfisher", "Otter", "Heron", "Moorhen", "Teal", "Coot", "Swift", "Mallard", "Grebe", "Tern", "Wren"];
 
 type Point = { x: number; z: number };
+
+/** What boats need of a world: its depots, its pieces and its water. */
+export type Waters = Pick<World, "economy" | "layout" | "landscape">;
 
 /** Can boats call at this kind of depot (a dock)? */
 export const isDock = (d: DepotState | undefined): d is DepotState => d?.role === "landing" || d?.role === "harbour";
@@ -55,7 +62,7 @@ export function loaded(b: BoatState): number {
 }
 
 /** Where a boat ties up at a dock (world), and which way along the bank it lies, or null if the dock's piece is gone. */
-export function mooring(world: World, depotId: number): (Point & { heading: number }) | null {
+export function mooring(world: Waters, depotId: number): (Point & { heading: number }) | null {
   const d = world.economy.depot(depotId);
   const piece = d && world.layout.getPiece(d.pieceId);
   if (!d || !piece) return null;
@@ -231,7 +238,7 @@ export class Fleet {
   /** When the boats were last moved on (game seconds), so the view can place them between ticks. */
   tickedAt = 0;
 
-  constructor(private readonly world: () => World) {}
+  constructor(private readonly world: () => Waters) {}
 
   private get economy(): Economy {
     return this.world().economy;
@@ -371,6 +378,46 @@ export class Fleet {
     return alongWay(way, d);
   }
 
+  /**
+   * Where the tug and each of its barges are now, front to back (world, and which way each faces), `extra` seconds after
+   * the last tick. Sailing, the barges follow the tug along its way; tied up, they lie back along the way it came in
+   * (or along the bank, just bought).
+   */
+  poses(b: BoatState, extra = 0): (Point & { heading: number })[] {
+    const out: (Point & { heading: number })[] = [];
+    const spacing = (i: number) => (i === 0 ? 0 : TUG_LENGTH / 2 + 6 + (i - 0.5) * (BARGE_LENGTH + 6));
+    let way: readonly Point[] | null = null;
+    let d = 0;
+    if (!b.docked && b.stops.length >= 2) {
+      const found = this.wayBetween(b.stops[b.from].depotId, b.stops[this.nextOf(b)].depotId);
+      way = found.way;
+      d = Math.min(found.length, (b.t + (b.going ? extra : 0)) * BOAT_SPEED);
+    } else if (b.stops.length >= 2) {
+      // Tied up: back along the way it came in by.
+      const prev = (b.from - 1 + b.stops.length) % b.stops.length;
+      const found = this.wayBetween(b.stops[prev].depotId, b.stops[b.from].depotId);
+      way = found.way;
+      d = found.length;
+    }
+    if (way) {
+      for (let i = 0; i <= b.barges; i++) {
+        const at = d - spacing(i);
+        if (at >= 0) out.push(alongWay(way, at));
+        else {
+          // Off the way's start: on back along its first leg.
+          const p0 = way[0];
+          const h = alongWay(way, 0).heading;
+          out.push({ x: p0.x + Math.cos(h) * at, z: p0.z + Math.sin(h) * at, heading: h });
+        }
+      }
+      return out;
+    }
+    const m = mooring(this.world(), b.stops[b.from]?.depotId ?? b.home) ?? mooring(this.world(), b.home);
+    if (!m) return out;
+    for (let i = 0; i <= b.barges; i++) out.push({ x: m.x - Math.cos(m.heading) * spacing(i), z: m.z - Math.sin(m.heading) * spacing(i), heading: m.heading });
+    return out;
+  }
+
   /** What it's doing, for its card. */
   status(b: BoatState): string {
     const name = (id: number) => this.world().economy.depot(id) && depotLabel(this.world(), id);
@@ -489,7 +536,7 @@ export class Fleet {
 }
 
 /** A dock's name for a boat's card: the landing or harbour, and the town it's near ("Foxley landing"). */
-export function depotLabel(world: World, depotId: number): string {
+export function depotLabel(world: Waters, depotId: number): string {
   const d = world.economy.depot(depotId);
   const piece = d && world.layout.getPiece(d.pieceId);
   if (!d || !piece) return "a dock";
