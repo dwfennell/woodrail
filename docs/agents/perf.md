@@ -8,7 +8,7 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | Tool | What it does |
 |---|---|
 | `npm run perf -- [options]` (`tools/perf/run.mjs`) | Loads representative maps in a 390×844 phone page (DPR 2, CPU throttled 4×) and measures what a player pays for. Writes `perf.json` and `perf.md` (a table) to `--out` (default `perf-out/<time>`). |
-| `npm run perf:check` (`tools/perf/check.mjs`) | A short run checked against `tools/perf/budgets.json`: `--quick` with the options in `budgets.json`'s `run` (the fresh and Sandbox maps, CPU 2×, DPR 1, a first visit only, short stretches). Exit 1 when a measure is over budget by more than its margin. About 5 min. |
+| `npm run perf:check` (`tools/perf/check.mjs`) | A short run checked against `tools/perf/budgets.json`: `--quick` with the options in `budgets.json`'s `run` (the fresh, Sandbox and features maps, CPU 2×, DPR 1, a first visit only, short stretches, 3 s a spot). Exit 1 when a measure is over budget by more than its margin. About 15 min (14 here: the features map is most of it). |
 | `node tools/perf/compare.mjs <before.json> <after.json>` | Two runs side by side, the main measures per map with the change: for a commit message. |
 | `node tools/perf/profile-top.mjs <file.cpuprofile> [<regex>]` | The top functions of a `--profile` CPU profile, by total and self time. |
 | `node tools/perf/scene.mjs [<root>] [<map file>]` | What the scene holds to draw: its biggest meshes by triangles (instances counted), what casts shadows. Use an unminified build for names. |
@@ -28,6 +28,7 @@ Run them after `npm run build` (they measure `dist/`). `--root <dir>` measures a
 | `fresh` | A new Game map (the starter line, nothing built) | the title's New game |
 | `late` | The goals play-through's map at minute 440: every town on the line, farm, mill, quarry, mine, harbour, grown towns | `GOALS_LONG=1 PERF_MAP_OUT=tools/perf/maps/late-game.txt npx vitest run src/play/balance.test.ts -t "long goals"` (the player's own path) |
 | `sandbox` | A big Sandbox map: seed 7 with 24 plots of land added, 24 ovals (277 pieces), 16 trains of 4 cars running | `PERF_MAPS=1 npx vitest run src/play/perf-maps.test.ts` |
+| `features` | The late map with every newer feature built on it, each in a spot of its own (`features.json`: a centre, a camera distance, its ids): a breakdown crane train on a siding, an oil well and a water pump, a sawmill with three depot tracks and the gantry, the six goods-chain yards, a signal box with telegraph poles and wires, a tunnel with a train through it (ghosts, portals), an underpass on a plinth off a hill's edge under a bridge with a train, a post office with mail vans and post vans in two towns, a town hall, park and fountain and a painted engine, a metro line under a town with its train. Two plots of land bought for room (three more small towns) | `node tools/perf/feature-map.mjs` (after a build; ~5 min; a harness map: placed by the editor and the cards' own buttons, research learned, yards stocked; it checks every feature is there after a reload) |
 
 They're copied maps (`woodrail-map:1:…`) opened with the dev-only `?dev#load=`. Make them again when the save format
 moves on (an old save is turned away), and say so in the commit: numbers before and after aren't comparable.
@@ -47,6 +48,13 @@ moves on (an old save is turned away), and say so in the commit: numbers before 
   its engine), a tray drag (a straight from the tray across the map: its pointer moves), the autosave.
 - **Frame**: one full frame (with its shadow pass): draw calls, triangles, programs, geometries, textures, scene
   objects, DOM nodes, the pixel ratio the resolution governor settled on; the JS heap after GC.
+- **Spots** (a map with spots: `features`; `--spot <s>` a stretch, `--only-spots crane,tunnel`): the camera on each
+  feature alone, as a player looks at it. For each: one full frame there (draw calls, triangles), the game running
+  (frames, frame cost, main thread), paused (should draw nothing), and changes beside it (a straight laid and taken
+  up, a tree planted and taken out: the call, and the main thread's part of the frame after, `frameMs`, which pays for
+  the rebuild). Then the camera away from them all, running; then every train stopped (levers to 0) and each spot
+  again, `still` (what's left is ambient motion, drawn only where it's seen), and away, `awayStill` (should draw
+  nothing); last, the crane sent to lift a train off (`craneWork`): working in view, paused, and away (no frames).
 - **Soak** (`--soak <s>`): heap and geometries before and after a long run with pans now and then (leaks).
 
 `--profile` saves CPU profiles of the idle and pan stretches (`<map>-idle.cpuprofile`, open in Chrome DevTools) and
@@ -130,5 +138,18 @@ Open ones, biggest first:
   (the save's schemas: `save-schema.ts`) load on their own (`carver.ts`, `persist/schemas.ts`), not in the first
   download: 2377 → 2153 KB (723 → 661 KB gzipped). The schemas are fetched as loading starts, beside the models; the
   carver only when the main thread carves (a join piece, or no workers).
+- **The newer features** (batch H, the `features` map's spots, 4× CPU, DPR 2). Fixed: the depot goods sent every
+  kind's whole instance buffer (2048 matrices) to the GPU every frame a train moved (~7 MB a frame with the goods
+  chains: the batch-fg idle regression); a working breakdown crane drew every frame, paused or out of view; the
+  small touches were all rebuilt on any track or props change (130–200 ms of the frame after a tree planted or a
+  straight laid, now 30–100); the telegraph wires on any props change; the yards on every catalogue model that came in;
+  `TownLife.update` and a town card's places row allocated every frame; metro trains drew coal while paused. Costs as
+  measured: each feature's spot adds no draw calls or triangles beyond its own models (the pumps, gantry and chains
+  are batched with their yard: 0 draw calls of their own); paused, no spot draws; with every train stopped, a spot
+  draws 0–3 frames in 6 s (SwiftShader: a frame a second or two at DPR 2), the most at the gantry (its sawmill's saw)
+  and the telegraph, and away from them all none. Left: a track change
+  rebuilds every piece's instances (`TrackView.sync`, ~50 ms at 4× on this map); an underpass laid or taken up
+  rebuilds the whole felt sheet (`LandscapeView.setFeltHoles`); the depots' piles are placed again on every frame a
+  train moves (their CPU part; the upload is now only what's placed).
 - **Idle tick**: `Game.frame` and `onFrame` cost ~1.3 ms a tick at 4× when nothing draws (~4% of the main thread),
   many small checks; nothing large left.

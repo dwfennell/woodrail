@@ -53,7 +53,19 @@ const MAP_DEFS = {
     mode: "sandbox",
     load: "big-sandbox.txt",
   },
+  // The late map with each newer feature built on it (tools/perf/feature-map.mjs), and spots that frame each one
+  // (features.json): measured one at a time (`spots`, below).
+  features: {
+    label: "late Game map with every newer feature (crane, wells, gantry, chains, telegraph, tunnel, underpass, post, places, metro)",
+    mode: "game",
+    load: "features.txt",
+    spots: "features.json",
+  },
 };
+/** Seconds of each spot's running and paused stretches (a `spots` map). */
+const SPOT_S = Number(opt("spot", QUICK ? 4 : 8));
+/** Only these spots (`--only-spots crane,tunnel`). */
+const ONLY_SPOTS = opt("only-spots", null)?.split(",") ?? null;
 
 const server = await preview({
   root: ROOT,
@@ -243,6 +255,75 @@ async function stretch(page, cdp, seconds, during, profileName) {
       max: r1(Math.max(0, ...p.longtasks.map((x) => x[1]))),
     },
   };
+}
+
+/** Put the camera over (x, z), `dist` mm out, looking down at a slant from the south-east (as a player looks). */
+async function lookAt(page, x, z, dist) {
+  await page.evaluate(
+    ([x, z, dist]) => {
+      const w = window.woodrail;
+      const V = w.camera.position.constructor;
+      const at = new V(x, 20, z);
+      w.controls.target.copy(at);
+      w.camera.position.copy(at.clone().add(new V(0.5, 1.1, 0.9).normalize().multiplyScalar(dist)));
+      w.camera.lookAt(at);
+      w.controls.update?.();
+      w.invalidate();
+    },
+    [x, z, dist],
+  );
+}
+
+/**
+ * Changes near a spot, each timed from the change to the end of the next frame drawn (what the player waits for: the
+ * rebuild and the frame): a straight laid on clear ground beside it and taken up again (track, its tile, the depots and
+ * cuts near it), and a tree planted and taken out (props: the telegraph's wires look at every props change).
+ */
+async function spotChanges(page, spot) {
+  return page.evaluate(async (spot) => {
+    const w = window.woodrail;
+    const nextFrame = async () => {
+      const f0 = w.framesDrawn;
+      w.invalidate();
+      const t0 = performance.now();
+      while (w.framesDrawn === f0 && performance.now() - t0 < 20000) await new Promise((r) => requestAnimationFrame(r));
+    };
+    // The change itself (its call), and the main thread's part of the frames until the next is drawn (the rAF
+    // callbacks: the game's frame, the rebuilds it does, three's render calls; not SwiftShader's drawing).
+    const P = window.__perf;
+    const timed = async (fn) => {
+      await nextFrame();
+      Object.assign(P, { rec: true, raf: [] });
+      const t0 = performance.now();
+      const out = fn();
+      const opMs = performance.now() - t0;
+      await nextFrame();
+      P.rec = false;
+      const frameMs = P.raf.reduce((a, x) => a + x[1], 0);
+      return { opMs: Math.round(opMs * 10) / 10, frameMs: Math.round(frameMs * 10) / 10, ok: out !== false && out !== undefined && out !== null };
+    };
+    const out = {};
+    // Board near the spot for a straight (a harness shortcut: laid by the editor where there's board, not checked as a
+    // drop is; it's taken up again at once).
+    const g = w.world.landscape.grid;
+    let at = null;
+    for (let r = 500; r <= 1500 && !at; r += 250)
+      for (let a = 0; a < 12 && !at; a++) {
+        const x = spot.centre.x + Math.cos((a / 12) * Math.PI * 2) * r;
+        const z = spot.centre.z + Math.sin((a / 12) * Math.PI * 2) * r;
+        const cell = g.cellAtWorld(x, z);
+        if (cell !== -1) at = { x, z, y: g.groundY(cell) };
+      }
+    if (at) {
+      let id = -1;
+      out.layStraight = await timed(() => (id = w.editor().place("straight-108", { x: at.x, z: at.z, heading: 0 }, at.y, false)));
+      if (id > 0) out.takeUp = await timed(() => w.editor().remove(id));
+    }
+    let prop = null;
+    out.plantTree = await timed(() => (prop = w.props.add("scene-lollipop-tree", { x: spot.centre.x + 400, z: spot.centre.z + 400, y: 0, heading: 0 })));
+    if (prop) out.takeOutTree = await timed(() => w.props.remove(prop.id));
+    return out;
+  }, spot);
 }
 
 /** What one drawn frame draws (every render call of it: shadows, the scene, the post passes), and what's in memory. */
@@ -551,6 +632,115 @@ async function runMap(id) {
   ops.autosave = result.idle.timers["interval:5000"] ?? null;
   ops.hudSecond = Object.fromEntries(Object.entries(result.idle.timers).filter(([k]) => k === "interval:1000" || k === "interval:500"));
   result.ops = ops;
+
+  // 5b. Spots (a map with `spots`): the camera on each feature alone, as a player looks at it. For each: one full
+  // frame there (draw calls, triangles), a running stretch (frames drawn, frame cost, main thread), a paused one (the
+  // floor: nothing should draw), and changes near it (a straight laid and taken up, a tree planted and taken out): the
+  // frame after each, which pays for the rebuild. Then the camera away from them all, running: frames drawn while
+  // nothing moving is in view (ambient motion off screen asks for none).
+  if (def.spots) {
+    const spots = JSON.parse(readFileSync(`${HERE}/maps/${def.spots}`, "utf8")).features.filter((x) => !ONLY_SPOTS || ONLY_SPOTS.includes(x.id));
+    result.spots = {};
+    for (const spot of spots) {
+      const r = {};
+      try {
+        await lookAt(page, spot.centre.x, spot.centre.z, spot.dist ?? 900);
+        await settle(page, 8000);
+        await page.waitForTimeout(800);
+        const f = await frameInfo(page);
+        r.frame = { drawCalls: f.drawCalls, triangles: f.triangles, programs: f.programs, geometries: f.geometries };
+        const run = await stretch(page, cdp, SPOT_S, null, PROFILE ? `${id}-${spot.id}-run` : null);
+        r.running = { framesDrawn: run.framesDrawn, fps: run.fps, mainThreadPct: run.mainThreadPct, frameMs: run.frameMs, rafMsPerSecond: run.rafMsPerSecond };
+        await page.evaluate(() => (window.woodrail.paused = true));
+        await settle(page, 5000);
+        const pz = await stretch(page, cdp, Math.min(SPOT_S, 4), null, null);
+        r.paused = { framesDrawn: pz.framesDrawn, mainThreadPct: pz.mainThreadPct, rafMsPerSecond: pz.rafMsPerSecond };
+        r.changes = await spotChanges(page, spot);
+        await page.evaluate(() => (window.woodrail.paused = false));
+      } catch (e) {
+        r.failed = String(e).slice(0, 300);
+        await page.evaluate(() => (window.woodrail.paused = false)).catch(() => {});
+      }
+      result.spots[spot.id] = r;
+      console.log(`  ${id} spot ${spot.id}: ${JSON.stringify(r)}`);
+    }
+    // Away from every feature (high over an empty corner of the board), the game running: what still asks for frames.
+    const away = spots.reduce((a, x) => ({ x: Math.max(a.x, x.centre.x), z: Math.max(a.z, x.centre.z) }), { x: -Infinity, z: -Infinity });
+    await lookAt(page, away.x + 30000, away.z + 30000, 900);
+    await settle(page, 8000);
+    const aw = await stretch(page, cdp, SPOT_S, null, null);
+    result.spots.away = { running: { framesDrawn: aw.framesDrawn, mainThreadPct: aw.mainThreadPct, rafMsPerSecond: aw.rafMsPerSecond } };
+    // Every train stopped (levers to 0, as a player stops them; the game running): what's left moving is ambient
+    // motion (a pumpjack, a saw, road vehicles), which asks for frames only where it's seen. Each spot again, and away.
+    await page.evaluate(() => {
+      const w = window.woodrail;
+      for (const id of w.sim.trainIds()) for (const c of w.sim.getTrain(id).cars) if (c.kind === "engine") w.sim.setLever(c.id, 0);
+    });
+    await page.waitForFunction(() => window.woodrail.sim.trainIds().every((id) => window.woodrail.sim.getTrain(id).speed === 0), null, { timeout: 60000 }).catch(() => {});
+    for (const spot of spots) {
+      try {
+        await lookAt(page, spot.centre.x, spot.centre.z, spot.dist ?? 900);
+        await settle(page, 6000);
+        const st = await stretch(page, cdp, SPOT_S, null, null);
+        result.spots[spot.id].still = { framesDrawn: st.framesDrawn, mainThreadPct: st.mainThreadPct, frameMs: st.frameMs, rafMsPerSecond: st.rafMsPerSecond };
+      } catch (e) {
+        result.spots[spot.id].still = { failed: String(e).slice(0, 200) };
+      }
+    }
+    {
+      const far = spots.reduce((a, x) => ({ x: Math.max(a.x, x.centre.x), z: Math.max(a.z, x.centre.z) }), { x: -Infinity, z: -Infinity });
+      await lookAt(page, far.x + 30000, far.z + 30000, 900);
+      await settle(page, 6000);
+      const st = await stretch(page, cdp, SPOT_S, null, null);
+      result.spots.awayStill = { framesDrawn: st.framesDrawn, mainThreadPct: st.mainThreadPct, rafMsPerSecond: st.rafMsPerSecond };
+    }
+    // A breakdown crane at work (crane spot): sent to lift the train nearest it off the line, watched once it's there,
+    // then paused, then with the camera away (it works on unseen: no frames). Last, as it takes a train off the map.
+    const crane = spots.find((x) => x.id === "crane");
+    if (crane) {
+      const r = {};
+      try {
+        r.sent = await page.evaluate(([craneCar, line, siding]) => {
+          const w = window.woodrail;
+          // A wagon put on the crane's own line, its first piece (a harness shortcut: the target, by the sim, as a
+          // train dragged out is), for the crane to lift off.
+          let placed = null;
+          for (const pieceId of line) {
+            if (pieceId === siding) continue;
+            for (const s of [20, 60, 100]) {
+              placed = w.sim.addTrain(["van"], { pieceId, pathIndex: 0, s, reversed: false });
+              if (placed.kind === "placed") break;
+            }
+            if (placed.kind === "placed") break;
+          }
+          if (placed?.kind !== "placed") return { placed: placed?.kind ?? null };
+          const id = w.sim.trainIds().at(-1);
+          const target = w.sim.getTrain(id).cars[0].id;
+          const res = w.economy.breakdown.send(target, "remove");
+          return { target, res: JSON.stringify(res) };
+        }, [crane.crane, crane.pieces, crane.siding]);
+        // Until it's at work (past driving out), up to a minute.
+        await page.waitForFunction((c) => { const j = window.woodrail.economy.breakdown.jobOf(c); return !j || j.phase !== "drive"; }, crane.crane, { timeout: 120000 }).catch(() => {});
+        const at = await page.evaluate((c) => { const o = window.woodrail.trainView.carObject(c); return o && { x: o.position.x, z: o.position.z }; }, crane.crane);
+        if (at) await lookAt(page, at.x, at.z, crane.dist ?? 800);
+        const work = await stretch(page, cdp, SPOT_S, null, PROFILE ? `${id}-crane-work` : null);
+        r.working = { framesDrawn: work.framesDrawn, mainThreadPct: work.mainThreadPct, frameMs: work.frameMs, phase: await page.evaluate((c) => window.woodrail.economy.breakdown.jobOf(c)?.phase ?? null, crane.crane) };
+        await page.evaluate(() => (window.woodrail.paused = true));
+        const pz = await stretch(page, cdp, Math.min(SPOT_S, 4), null, null);
+        r.paused = { framesDrawn: pz.framesDrawn, mainThreadPct: pz.mainThreadPct, busy: await page.evaluate(() => window.woodrail.economy.breakdown.busy) };
+        await page.evaluate(() => (window.woodrail.paused = false));
+        await lookAt(page, (at?.x ?? 0) + 30000, (at?.z ?? 0) + 30000, 900);
+        await settle(page, 4000);
+        const aw = await stretch(page, cdp, Math.min(SPOT_S, 4), null, null);
+        r.away = { framesDrawn: aw.framesDrawn, mainThreadPct: aw.mainThreadPct, busy: await page.evaluate(() => window.woodrail.economy.breakdown.busy) };
+      } catch (e) {
+        r.failed = String(e).slice(0, 300);
+        await page.evaluate(() => (window.woodrail.paused = false)).catch(() => {});
+      }
+      result.spots.craneWork = r;
+      console.log(`  ${id} crane at work: ${JSON.stringify(r)}`);
+    }
+  }
 
   // 6. A long run: heap and frames, with a pan now and then.
   if (SOAK_S > 0) {
