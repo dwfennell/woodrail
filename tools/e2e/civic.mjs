@@ -161,7 +161,9 @@ const bringPlanks = async (n) => {
     for (const id of new Set(cars.map((x) => w.sim.findCar(x)?.train.id))) if (id !== undefined) w.sim.removeTrain(id);
     return { brought };
   }, { station: town.station, n });
-  await p.waitForTimeout(1500);
+  // The place goes up on the next frame the game draws (slow under load): wait for the plan to be done with.
+  await p.waitForFunction((id) => !window.woodrail.world.economy.placePlans.has(id), town.id, { timeout: 30000 }).catch(() => console.log("(the place under way didn't go up within 30 s)"));
+  await p.waitForTimeout(500);
   return r;
 };
 
