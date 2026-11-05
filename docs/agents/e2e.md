@@ -139,7 +139,10 @@ wait is two. Three things made that worse than it has to be, and `lib/fast.mjs` 
   of 1/120 s: 0.067 s), so at a frame a second the sim and every animation ran at a fifteenth of real time. A laid
   line's settling took 12 s, a research a minute. In the test clock's pages (`window.__e2eClock`, read by
   `e2eMaxDt` in src/game/game.ts; never set in play) a frame's step may be up to 1 s: the same fixed sim ticks, more of
-  them a frame, so game time keeps up with real time. `E2E_CLOCK=0`: as before.
+  them a frame, so game time keeps up with real time. `E2E_CLOCK=0`: as before. A suite that waits on game time
+  itself (a lesson's 20 or 45 s of study) may also run it faster than real time: `testClockIn(b, { speed: 4 })`
+  (e2e:research), still at most a second's step a frame. Opt in per suite, saying why, and check that nothing it
+  looks at mid-way (a study counting down) is over before it looks. `E2E_SPEED=1`: at real time.
 - **Moves a few to a frame** (`mouseMoves`, `touchMoves`, `inFrames`): a phone samples a finger at 120 Hz and the
   game draws 30 frames a second, so a frame's pointer event carries about four moves, the rest in
   `getCoalescedEvents()`, and the game takes every one in order (`coalesced` in src/game/interaction.ts). The helpers

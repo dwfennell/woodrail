@@ -91,6 +91,16 @@ function e2eMaxDt(): number {
   const c = (globalThis as { __e2eClock?: { maxDt?: number } }).__e2eClock;
   return typeof c?.maxDt === "number" && c.maxDt > MAX_FRAME_DT ? Math.min(c.maxDt, 2) : MAX_FRAME_DT;
 }
+
+/**
+ * The e2e clock's `speed` (1 to 8; 1 without it): game time this many times real time, for a test that waits on game
+ * time (a lesson's study, a train's run) where nothing is being drawn and frames come quickly. A frame's step is still
+ * at most `e2eMaxDt`, so a slow frame doesn't jump the world further.
+ */
+function e2eSpeed(): number {
+  const c = (globalThis as { __e2eClock?: { speed?: number } }).__e2eClock;
+  return typeof c?.speed === "number" && c.speed > 1 ? Math.min(c.speed, 8) : 1;
+}
 /**
  * How far the camera may pull back: the same however big the land grows, so (with the view's reach: see `viewReach`)
  * only so much of the world is ever drawn.
@@ -255,6 +265,8 @@ export class Game {
   private accumulator = 0;
   /** A frame's longest step (s), and the sim ticks it may take: `MAX_FRAME_DT`, or the e2e tests' clock (`e2eMaxDt`). */
   readonly maxFrameDt = e2eMaxDt();
+  /** Game time to real time: 1, or the e2e tests' clock's (`e2eSpeed`). */
+  readonly timeScale = e2eSpeed();
   private readonly maxSteps = this.maxFrameDt > MAX_FRAME_DT ? Math.ceil(this.maxFrameDt / SIM_DT) + 2 : MAX_STEPS_PER_FRAME;
   private followCarId = -1;
 
@@ -1118,7 +1130,7 @@ export class Game {
 
   private frame(): void {
     const elapsed = this.clock.getDelta();
-    const dt = Math.min(elapsed, this.maxFrameDt);
+    const dt = Math.min(elapsed * this.timeScale, this.maxFrameDt);
     const t0 = performance.now();
     if (!this.paused) {
       this.accumulator += dt;
