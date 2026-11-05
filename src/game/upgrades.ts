@@ -39,11 +39,16 @@ const MACHINES: Record<string, string> = {
   toolworks: "upgrade-steam-hammer",
 };
 
-/** The machines a kind of yard shows for the upgrades learned: the best one. */
+/** Upgrades that aren't a rate but put a machine in their yards too (Lift and load's goods lift at every warehouse). */
+const YARD_MACHINES: readonly { readonly tech: string; readonly role: DepotRole; readonly part: string }[] = [{ tech: "lift-load", role: "warehouse", part: "upgrade-goods-lift" }];
+
+/** The machines a kind of yard shows for the upgrades learned: the best rate one, and any others'. */
 export function machinesFor(p: Progress, role: DepotRole): string[] {
   let best: { factor: number; part: string } | null = null;
   for (const u of RATE_UPGRADES) if (u.role === role && p.learned.has(u.tech) && (!best || u.factor > best.factor)) best = { factor: u.factor, part: MACHINES[u.tech] };
-  return best ? [best.part] : [];
+  const out = best ? [best.part] : [];
+  for (const m of YARD_MACHINES) if (m.role === role && p.learned.has(m.tech)) out.push(m.part);
+  return out;
 }
 
 /** How much faster industries of this kind work, from the upgrades learned (1: none). */
@@ -55,7 +60,7 @@ export function boostOf(p: Progress, role: DepotRole): number {
 
 /** The upgrades learned, as a key (so rates are worked out again only when it changes). */
 export function upgradeKey(p: Progress): string {
-  return [...RATE_UPGRADES.map((u) => u.tech), "cranes1", "cranes2", "cranes3", "smithy"].filter((t) => p.learned.has(t)).join(",");
+  return [...RATE_UPGRADES.map((u) => u.tech), "cranes1", "cranes2", "cranes3", "smithy", "lift-load"].filter((t) => p.learned.has(t)).join(",");
 }
 
 /** Quicker cranes: a load in 0.45 s, then 0.3 s; grab cranes lift two at a time; the smithy's heavy wagons hold 5. */
@@ -63,6 +68,8 @@ export function applyCranes(economy: Economy, p: Progress): void {
   economy.wagonCapacity = p.learned.has("smithy") ? MAX_WAGON_CAPACITY : WAGON_CAPACITY;
   economy.craneTicks = p.learned.has("cranes2") ? ticks(0.3) : p.learned.has("cranes1") ? ticks(0.45) : CRANE_TICKS;
   economy.craneLoads = p.learned.has("cranes3") ? 2 : 1;
+  // Lift and load: warehouses stack three high and load two wagons' worth a move.
+  economy.setWarehouseLift(p.learned.has("lift-load"));
 }
 
 /** What making each good counts toward. */

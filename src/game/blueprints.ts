@@ -214,7 +214,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   // Sandbox's loaders, cranes and unloaders, in Game mode as looks only (no heaps, nothing taken: spec I1, I2).
   row({ id: "loading-kits", label: "Loading kits", branch: "logistics", tier: 1, needs: ["cranes1"], price: { planks: 5 }, blurb: "Loaders to dress your yards.", brings: "Log loader, grain elevator, drop hopper, goods shed" }),
   row({ id: "big-cranes", label: "Big cranes", branch: "logistics", tier: 3, school: "college", needs: ["cranes2", "mines"], price: { planks: 10, coins: 200 }, blurb: "Giant cranes and chutes for big yards.", brings: "Gantry, magnet and harbour cranes, conveyor, wagon tipper, coal chute" }),
-  row({ id: "lift-load", label: "Lift and load", branch: "logistics", tier: 3, plan: "later", needs: ["warehouses", "cranes2"], price: { planks: 20, coins: 80 }, blurb: "A tall warehouse with a lift: stacks goods three high and loads two wagons at once.", brings: "Lift-and-load warehouse" }),
+  // Tech tree 5: every warehouse made tall (economy.ts `setWarehouseLift`), mostly coins (§3).
+  row({ id: "lift-load", label: "Lift and load", branch: "logistics", tier: 3, needs: ["warehouses", "cranes2"], price: { planks: 10, coins: 220 }, blurb: "Your warehouses get a goods lift and two more floors: they hold three times as much, and load two wagons' worth at a time.", brings: "A goods lift at every warehouse", feature: { label: "Warehouses: 3× room, 2× loading", icon: "🏗️" } }),
 
   // Industry
   row({ id: "harvesters", label: "Harvesters", branch: "industry", tier: 1, key: true, needs: [], price: { planks: 5 }, blurb: "A forest yard of your own, beside the trees.", brings: "Forest yard" }),
