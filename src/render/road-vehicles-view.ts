@@ -160,7 +160,12 @@ export class RoadVehiclesView {
     for (const v of vehicles.list) {
       const was = this.drawnAt.get(v);
       if (was && was[0] === v.x && was[1] === v.z && was[2] === v.heading) continue;
-      this.drawnAt.set(v, [v.x, v.z, v.heading]);
+      // (Its entry kept and written over: no array a vehicle a frame.)
+      if (was) {
+        was[0] = v.x;
+        was[1] = v.z;
+        was[2] = v.heading;
+      } else this.drawnAt.set(v, [v.x, v.z, v.heading]);
       if (inView || !frustum.intersectsSphere(sphere.set(p.set(v.x, v.y, v.z), REACH))) continue;
       if ((v.kind === "car" || v.kind === "post") && camera.position.distanceTo(p) > CAR_REACH) continue;
       if (eye && eye.pixels(v.x, v.y, v.z, SIZE) < AMBIENT_MIN_PX.vehicle) continue;

@@ -117,8 +117,9 @@ export function placesOnMap(land: Landscape): Map<string, number> {
 
 /** Treats standing on the whole map (the price curve counts them). */
 export function treatsOnMap(land: Landscape): number {
+  // (Counted straight off the towns' buildings: no map made. A town card asks every frame it's open.)
   let n = 0;
-  for (const [id, k] of placesOnMap(land)) if (placeOf(id)!.kind === "treat") n += k;
+  for (const t of land.towns) for (const b of t.buildings) if (b.landmark && BY_ID.get(b.landmark)?.kind === "treat") n++;
   return n;
 }
 
