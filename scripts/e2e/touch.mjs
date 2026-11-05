@@ -4122,6 +4122,13 @@ async function routeKeep(ctx, p, tapSel) {
     return { back, run, lines: window.__keepLines() };
   }, setup);
   check("route-keep: Undo brings the sawmill back; both trains run on, both lines delivering logs to the sawmill", after.back && after.run.goods >= 4 && setup.E.every((e) => (after.run.came[e] ?? 0) >= 1) && JSON.stringify(after.lines) === JSON.stringify(lines0), JSON.stringify(after));
+  // (Tidy up, not what's tested: the Straight shelf closed by its Back, so the tray shows its shelves again for the
+  // groups after (slips and double-three-way look for the Switch shelf there), and the piece it left ready put away.)
+  await p.evaluate(() => window.woodrail.interaction.arm?.(null));
+  if (await p.evaluate(() => !document.querySelector(".scroller .tray-group") && !!document.querySelector(".scroller .tray-back"))) {
+    await tapSel(".scroller .tray-back");
+    await p.waitForFunction(() => document.querySelector(".scroller .tray-group") !== null, null, { timeout: 10000 });
+  }
 }
 
 /**
