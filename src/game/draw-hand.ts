@@ -34,7 +34,7 @@ import {
   isBridge,
 } from "../track";
 import { DIG_MESSAGES, type DigPlan } from "./underpass-dig";
-import type { TunnelPlan } from "./tunnel-dig";
+import { outOfRampsText, type TunnelPlan, type TunnelRefusal } from "./tunnel-dig";
 import type { Game } from "./game";
 import { DrawNotice, TOO_SHARP } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
@@ -706,6 +706,7 @@ export class DrawHand {
   /** A new line from `end`: on track that stays put (`held`: a free end, a switch), or on open ground. */
   private start(end: DrawEnd, held = true): void {
     this.toldShort = false;
+    this.tunnelWhy = null;
     this.branchCovers = this.taken();
     for (const id of this.swapIds) this.own.removePiece(id);
     this.swapIds = [...(this.branch?.pieces ?? []), ...this.crossed.pieces].map((p) => this.own.addPiece(p.type, p.pose, p.y, p.flipped));
@@ -729,8 +730,10 @@ export class DrawHand {
       onMap: (x, z) => this.game.landscape.grid.cellAtWorld(x, z) !== -1,
       outOf: (type) => this.outOf(type),
       tunnel: (end) => {
-        if (!tunnelsOn()) return null;
-        const plan = this.hooks.tunnel?.(end, this.branchCovers.size ? this.branchCovers : undefined);
+        if (!tunnelsOn() || !this.hooks.tunnel) return null;
+        const plan = this.hooks.tunnel(end, this.branchCovers.size ? this.branchCovers : undefined);
+        // (Why it couldn't tunnel, said with "Out of ramps": no mouths, or the hill isn't one a tunnel goes under there.)
+        this.tunnelWhy = !plan ? "mouths" : plan.kind === "refused" && plan.why !== "none" ? plan.why : this.tunnelWhy;
         return plan?.kind === "bore" ? plan.steps : null;
       },
     });
@@ -738,8 +741,13 @@ export class DrawHand {
 
   /** What to say of a piece the line needed and the player has none of: not learned yet, or none left in the box. */
   private outOf(type: PieceTypeId): string {
-    return this.unlearned?.(type) ?? `Out of ${pieceName(type)}`;
+    const out = this.unlearned?.(type) ?? `Out of ${pieceName(type)}`;
+    // Up a hill with no ramps, Tunnels learned: why it didn't go under instead (QA 2026-11-05: "Out of ramps" alone, with
+    // tunnel mouths in the box, the stroke begun too near the hill).
+    return type === "ramp" ? outOfRampsText(out, this.tunnelWhy) : out;
   }
+  /** This stroke's last tunnel refused, and why ("mouths": fewer than two short mouths in the box); null if none. */
+  private tunnelWhy: TunnelRefusal | "mouths" | null = null;
 
   /**
    * May a drawn piece go here: on the land and clear of other track (the line's own pieces too), resting on what's

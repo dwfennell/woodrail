@@ -98,7 +98,7 @@ describe("Tank wagons", () => {
     expect(resourceAt(w.landscape, "waterpump", pose)!.count).toBeGreaterThanOrEqual(2);
     // (Far inland, turned away from the coast: no water.)
     const dry = { x: pose.x + Math.cos(pose.heading + Math.PI) * 2000, z: pose.z + Math.sin(pose.heading + Math.PI) * 2000, heading: pose.heading + Math.PI };
-    expect(siteWhy(w.landscape, "depot-waterpump", dry)).toMatch(/^Needs water nearby/);
+    expect(siteWhy(w.landscape, "depot-waterpump", dry)).toMatch(/^Needs water past its yard: \d of 2\. Turn it to face the water$/);
     expect(resourceAt(w.landscape, "oilwell", dry)).toBeNull();
   });
 });

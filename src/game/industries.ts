@@ -162,6 +162,9 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
   if (r.count < least) {
     // (A farm's in fields: "Needs farm fields nearby: ½ of 1" is no help beside a whole one just out of reach.)
     if (r.rule.per) return r.count === 0 ? FARM_NO_FIELD : FARM_FIELD_FAR;
+    // (A harbour's quay and a water pump draw from just past the yard's far side: which way it faces matters. QA
+    // 2026-11-05: "Needs water nearby: 0 of 2" a square from a river, the yard facing away from it.)
+    if (r.rule.what === "water") return `Needs water past its yard: ${r.count} of ${least}. Turn it to face the water`;
     return `Needs ${r.rule.what} nearby: ${r.count} of ${least}`;
   }
   // A harbour's boats must be able to get to it.

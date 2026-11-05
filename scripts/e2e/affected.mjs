@@ -57,6 +57,7 @@ export const SUITES = {
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   crane: { script: "e2e:crane", minutes: 4 },
+  tunnels: { script: "e2e:tunnels", minutes: 6 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -167,6 +168,10 @@ export const RULES = [
   ["src/game/signal-place.ts", ["signals"]],
   // The breakdown crane (claude/tank-crane): its system, words and model.
   [["src/economy/breakdown.ts", "src/game/crane-text.ts", "src/catalogue/assets/breakdown-crane.ts", "src/game/engine-status.ts"], ["crane"]],
+  // Where a train in the way is "by" on its card (QA 2026-11-05 #2).
+  ["src/game/place-near.ts", ["touch:train-card,blocker", "crane"]],
+  // Tunnels (2026-11-04): the dig and Draw's words when it can't go under.
+  ["src/game/tunnel-dig.ts", ["tunnels"]],
   // The game's icon font (src/icons, scripts/icon-font.py): drawn in every bar and card.
   ["src/assets/woodrail-icons.woff2", ["names", "locked", "research"]],
   // Hand-made bug maps (src/play/bugmaps): unit tests only.
