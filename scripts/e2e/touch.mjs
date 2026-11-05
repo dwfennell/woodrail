@@ -1286,10 +1286,12 @@ function openGroundScript() {
   };
   // `points`: the footprint, as [dx, dz] from the spot (no more than 216 mm apart along a run, so a hill between two
   // can't be missed). The first spot, outward from the view's target, where all are clear.
+  // (`from`: where to search outward from, instead of the view's target: a group that mustn't hang on where the steps
+  // before left the view.)
   window.__openGround = async (points, opts = {}) => {
     await ready();
     const w = window.woodrail;
-    const t = w.controls.target;
+    const t = opts.from ?? w.controls.target;
     const b = w.director.bounds;
     const reach = Math.max(...[[b.x0, b.z0], [b.x0, b.z1], [b.x1, b.z0], [b.x1, b.z1]].map(([x, z]) => Math.hypot(x - t.x, z - t.z)));
     for (let d = 0; d <= Math.min(reach, 40000); d += 54) {
@@ -3568,12 +3570,19 @@ async function followGap(ctx, p, tapSel) {
  * the first's card says so and that a passing loop lets them pass ("… Add a passing loop here"). The player lays the
  * loop's missing straight from the tray, and the two lines' trains meet at the loop, pass, and both deliver.
  */
+/**
+ * The view the stuck groups look at the gap from: the heading and tilt the suite's own view has when they run alone,
+ * where the tray's straight seats in the gap. Run after `routes` (the whole suite, as at the gate) the view kept the
+ * heading and tilt that group left it at, and the straight dragged in didn't seat (2026-11-05: 43/47).
+ */
+const STUCK_VIEW = { theta: -1.166, phi: 0.95 };
+
 async function stuckHeadOn(ctx, p, tapSel, lines = false) {
   const tag = lines ? "stuck-lines" : "stuck";
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 360, height: 740 });
   await frames(p);
-  const setup = await p.evaluate(async (two) => {
+  const setup = await p.evaluate(async ([two, view]) => {
     const w = window.woodrail;
     const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
     const { loopOn } = await import("/src/economy/loop-fixtures.ts");
@@ -3598,6 +3607,10 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     const scratch = [...L.pieceIds()].filter((id) => id !== gap);
     let g = null;
     let turn = 0;
+    // (Searched from the middle of where the view can go, not from wherever the groups before left the view: run after
+    // `routes`, the view elsewhere, the line went to the land's edge and the tray's straight didn't snap there, 2026-11-05.)
+    const bounds = w.director.bounds;
+    const from = { x: (bounds.x0 + bounds.x1) / 2, z: (bounds.z0 + bounds.z1) / 2 };
     const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
     for (let k = 0; k < 4 && !g; k++) {
       turn = (k * Math.PI) / 2;
@@ -3610,7 +3623,7 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
           const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
           return c.kind === "clear" || (id !== gap && c.reason === "off-mat");
         });
-      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(gap), ok });
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(gap), ok, from });
     }
     if (!g) throw new Error("no open ground for the line, its gap on the land");
     const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
@@ -3670,9 +3683,9 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     // Where the gap is: its straight's middle, on the ground.
     const q = gapPiece.pose;
     const mid = { x: q.x + Math.cos(q.heading) * 108, z: q.z + Math.sin(q.heading) * 108, heading: q.heading };
-    w.director.glideTo(w.controls.target.clone().set(mid.x, 0, mid.z), frameDistance(1400, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    w.director.glideTo(w.controls.target.clone().set(mid.x, 0, mid.z), frameDistance(1400, w.camera.fov, w.camera.aspect), { duration: 0.3, theta: view.theta, phi: view.phi });
     return { E: [first.e, second.e], mid, c1: real(loop.side[0]), c2: real(loop.side[2]), sawmill: sawmill.id };
-  }, lines);
+  }, [lines, STUCK_VIEW]);
   // A minute on: the second is held for room, the first stands short of it; neither turned back; stalls say so.
   const stood = await p.evaluate(({ E }) => {
     const w = window.woodrail;
@@ -3747,10 +3760,10 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
   if (!item) throw new Error("no straight-216 in the Straight shelf");
   // (The view back on the gap, a little above the middle of the screen: opening the card panned to the engine, and a
   // drag near the screen's edge pans the view.)
-  await p.evaluate((m) => {
+  await p.evaluate(([m, v]) => {
     const w = window.woodrail;
-    w.director.glideTo(w.controls.target.clone().set(m.x, 0, m.z), 1200, { duration: 0.2 });
-  }, setup.mid);
+    w.director.glideTo(w.controls.target.clone().set(m.x, 0, m.z), 1200, { duration: 0.2, theta: v.theta, phi: v.phi });
+  }, [setup.mid, STUCK_VIEW]);
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
   await frames(p);
   const target = await p.evaluate((m) => {

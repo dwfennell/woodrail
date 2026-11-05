@@ -6139,10 +6139,20 @@ export class Interaction {
       for (let k = from; k < hits.length; k++) {
         const h = hits[k];
         if ((k !== from && self.liftHit(h.object, h.batchId, h.instanceId) !== lift) || !shownInTree(h.object)) continue;
-        yield self.liftTapAt(lift, h.point);
+        const at = self.liftTapAt(lift, h.point);
+        // (Its unseen track, the way a train goes at either level, isn't a part of it to tap: met off the platform, as
+        // at its upper level over a platform standing down, it's passed through to what's seen behind. A tap from the
+        // lift's low end met it first, and opened the card instead of sending the platform: e2e:lift, on some maps.)
+        if (at === "select" && self.isLiftTrack(h.object, h.instanceId, lift)) continue;
+        yield at;
       }
     }
     return liftTapAlong(along());
+  }
+
+  /** Is this the lift's unseen track (picked by, not drawn as a part of it: `TrackView`'s), rather than its model? */
+  private isLiftTrack(object: Object3D, instanceId: number | undefined, lift: number): boolean {
+    return object.userData.kind === "track" && this.game.trackView.pieceAt(object, instanceId) === lift;
   }
 
   /** What a tap at world point `at` on a train lift is (`liftTap`): on its platform, wherever it stands now, or not. */
