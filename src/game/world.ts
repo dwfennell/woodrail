@@ -17,6 +17,8 @@ import {
   plotSlotOf,
   seaPlot,
   START_REGION,
+  SURF_GRASS,
+  SURF_ROAD,
   type DepotKind,
   type Landscape,
   type MapSite,
@@ -276,19 +278,41 @@ export function kioskAt(pose: { x: number; z: number; heading: number }): { x: n
   return { x: pose.x + c * METRO_KIOSK.t - s * METRO_KIOSK.l, z: pose.z + s * METRO_KIOSK.t + c * METRO_KIOSK.l };
 }
 
-export const METRO_ENTRANCE = "A metro stop's entrance goes on a free square of a town: a green or a street";
+/** A metro stop's entrance may stand on the grass this many squares from a town's (diagonals too). */
+export const METRO_BESIDE = 2;
+
+export const METRO_ENTRANCE = "A metro stop's entrance goes on a town's green or the grass beside it, off the road";
 
 /**
- * The town a metro stop at `pose` is under: the one whose square its entrance kiosk stands on, a square with no house
- * or station on it (a green, a street). Null if there's none.
+ * The town a metro stop at `pose` is under: the one whose square its entrance kiosk stands on (a green: no house,
+ * station or street), or whose edge it stands beside (on the grass next to one of its squares). Never on a road. Null
+ * if there's none.
  */
 export function metroTown(land: Landscape, pose: { x: number; z: number; heading: number }): Landscape["towns"][number] | null {
   const k = kioskAt(pose);
   const i = land.grid.cellAtWorld(k.x, k.z);
   if (i === -1) return null;
-  const f = land.grid.feature[i];
+  const g = land.grid;
+  const f = g.feature[i];
   if (f === FEAT_BUILDING || f === FEAT_STATION) return null;
-  return land.towns.find((t) => t.cells.includes(i)) ?? null;
+  // (Off the road: road vehicles drive the streets.)
+  if (g.surface[i] === SURF_ROAD || g.road[i] !== 0) return null;
+  const mine = land.towns.find((t) => t.cells.includes(i));
+  if (mine) return mine;
+  // The grass right beside a town (its squares are houses and streets till it has greens): nothing on it, on the felt.
+  if (f !== FEAT_NONE || g.surface[i] !== SURF_GRASS || g.height[i] !== 0) return null;
+  // (Within two squares of one of its squares, the nearest first: a town's edge moves as it grows.)
+  const col = g.colOf(i);
+  const row = g.rowOf(i);
+  for (let r = 1; r <= METRO_BESIDE; r++)
+    for (let dc = -r; dc <= r; dc++)
+      for (let dr = -r; dr <= r; dr++) {
+        if (Math.max(Math.abs(dc), Math.abs(dr)) !== r) continue;
+        const n = g.index(col + dc, row + dr);
+        const t = n === -1 ? undefined : land.towns.find((x) => x.cells.includes(n));
+        if (t) return t;
+      }
+  return null;
 }
 
 /** Is the ground under a halt's platform (its two ends and middle) a hilltop `LOOKOUT_HEIGHT` up or more? */

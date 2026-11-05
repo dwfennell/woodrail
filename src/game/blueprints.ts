@@ -189,7 +189,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   // The metro (spec 2026-11-04-rail-types.md §2): late, and the dearest way to carry people on purpose (the user: "It
   // should be expensive to move folks by metro"). Stops, the train and digging under a town each cost more (things.ts,
   // metro.ts).
-  row({ id: "metro", label: "Metro", branch: "track", tier: 3, needs: ["tunnels", "electricity"], price: { planks: 10, coins: 400, goods: { iron: 40 } }, requires: [CITY_STAR], blurb: "Trains under a city. A metro stop under a town, its entrance on a green or a street: riders of its own, and the town grows over the line. Dear: stops, trains, digging under the town and the power they draw.", brings: "Metro stop, metro train" }),
+  row({ id: "metro", label: "Metro", branch: "track", tier: 3, needs: ["tunnels", "electricity"], price: { planks: 10, coins: 400, goods: { iron: 40 } }, requires: [CITY_STAR], blurb: "Trains under a city. A metro stop under a town, its entrance on a green: riders of its own, and the town grows over the line. Dear: stops, trains, digging under the town and the power they draw.", brings: "Metro stop, metro train" }),
 
   // Trains
   row({ id: "tank", label: "Tank engine", branch: "trains", tier: 1, key: true, needs: [], price: { planks: 4 }, blurb: "Pulls 3 cars (a classic engine pulls 4), but gets going and stops in half the time.", brings: "Tank engine", feature: { label: "Tank engine (Trains tab)", icon: "🚂" } }),

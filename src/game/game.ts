@@ -46,6 +46,7 @@ import { createPost, type Post } from "../render/post";
 import { ResolutionGovernor } from "../render/resolution";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createStage, type Stage } from "../render/stage";
+import { MetroLineView } from "../render/metro-line-view";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
 import { arrowScaleFor, onPiecesBuilt, piecesWanted, TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
@@ -152,6 +153,8 @@ function isTyping(target: EventTarget | null): boolean {
 
 export class Game {
   readonly renderer: WebGLRenderer;
+  /** A metro stop's line shown through the ground (its card's Show the line). */
+  readonly metroLine = new MetroLineView();
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
   readonly controls: OrbitControls;
@@ -333,6 +336,7 @@ export class Game {
     this.scene.add(this.trainView.group);
     this.tunnelsView = new TunnelsView(this.mats.bridgePaint);
     this.scene.add(this.tunnelsView.group);
+    this.scene.add(this.metroLine.group);
     this.depotView = new DepotView(this.mats);
     this.scene.add(this.depotView.group);
     this.depotView.setWorld(this.economy, this.layout);
