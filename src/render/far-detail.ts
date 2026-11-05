@@ -185,6 +185,10 @@ const farOf = new WeakMap<BufferGeometry, BufferGeometry | null>();
 const pendingFor = new WeakSet<BufferGeometry>();
 const watched = new WeakSet<BufferGeometry>();
 const entries = new Map<Mesh, Entry>();
+/** Bumped when a mesh with a far version comes or goes, or a far version's made: `updateFarDetail` runs again. */
+let version = 0;
+/** What `updateFarDetail` saw last, to skip a frame when nothing it looks at has changed. */
+const seen = { version: -1, pxScale: 0, far: 0 };
 
 /**
  * Give a finished static mesh (indexed, one material, not moving) a far version, drawn by `updateFarDetail` where it's
@@ -193,12 +197,15 @@ const entries = new Map<Mesh, Entry>();
 export function useFarDetail(mesh: Mesh): Mesh {
   const g = mesh.geometry;
   if (!g.index || g.groups.length > 0 || Array.isArray(mesh.material)) return mesh;
+  if (drawnOnly.has(g)) return mesh;
   entries.set(mesh, { near: g, far: farOf.get(g), isFar: false, wanted: 0, box: null });
+  version++;
   if (!watched.has(g)) {
     watched.add(g);
     // Freed (its tile built again, its cache let it go): its meshes are forgotten.
     g.addEventListener("dispose", () => {
       for (const [m, e] of entries) if (e.near === g) entries.delete(m);
+      version++;
     });
   }
   return mesh;
@@ -214,6 +221,8 @@ const _box = new Box3();
  * many meshes are drawn far.
  */
 export function updateFarDetail(eye: Vector3, pxScale: number, moving = true): number {
+  // A still camera, and nothing added, freed or made since: as last time (a train running costs nothing here).
+  if (!moving && version === seen.version && pxScale === seen.pxScale) return seen.far;
   let far = 0;
   for (const [mesh, e] of entries) {
     // Gone: taken out of the world (a tile built again), or its geometry freed or swapped by its owner.
@@ -242,17 +251,31 @@ export function updateFarDetail(eye: Vector3, pxScale: number, moving = true): n
     }
     if (drawFar) far++;
   }
+  seen.version = version;
+  seen.pxScale = pxScale;
+  seen.far = far;
   return far;
 }
 
 /**
- * Called by `gpuOnlyGeometry` before it marks a geometry's arrays to be freed once uploaded: a geometry with a far
- * version (`useFarDetail`) has it asked for now, while its arrays are here (copied to the worker; made off the main
- * thread, kept till wanted). Drawn-only geometry is the mobile tier's: there, every far version is made after loading.
+ * Called by `gpuOnlyGeometry` before it marks a geometry's arrays to be freed once uploaded: drawn-only geometry (the
+ * mobile tier's land, towns, scenery and yards) has no far version, as there'd be nothing to make it from when it's
+ * wanted. (Making them all from copies as the arrays went was tried: on a phone, a copy of every tile's arrays at load
+ * and at each tile built again, and the garbage after, slowed e2e:roads' vans and e2e:workshop's cards.) Props and
+ * kits, whose batches keep their arrays, still have theirs there; and every mesh on a desktop, which keeps its arrays.
  */
 export function farBeforeFree(g: BufferGeometry): void {
-  if (watched.has(g) && farOf.get(g) === undefined) ask(g);
+  if (!watched.has(g)) return;
+  drawnOnly.add(g);
+  for (const [m, e] of entries) {
+    if (e.near !== g) continue;
+    if (m.geometry === e.far) m.geometry = g;
+    entries.delete(m);
+  }
+  version++;
 }
+
+const drawnOnly = new WeakSet<BufferGeometry>();
 
 /** Make `near`'s far version (once), off the main thread where it can be (`farIndexLater`). */
 function ask(near: BufferGeometry): void {
@@ -264,6 +287,7 @@ function ask(near: BufferGeometry): void {
     if (freed) return;
     if (!index) {
       farOf.set(near, null);
+      version++;
       for (const e of entries.values()) if (e.near === near) e.far = null;
       return;
     }
@@ -283,6 +307,7 @@ function ask(near: BufferGeometry): void {
     near.addEventListener("dispose", free);
     far.addEventListener("dispose", free);
     farOf.set(near, far);
+    version++;
     for (const e of entries.values()) if (e.near === near) e.far = far;
   });
 }
@@ -290,4 +315,5 @@ function ask(near: BufferGeometry): void {
 /** For tests: forget every mesh. */
 export function resetFarDetail(): void {
   entries.clear();
+  version++;
 }

@@ -98,7 +98,7 @@ describe("far detail", () => {
     expect(mesh.geometry).toBe(g);
   });
 
-  it("drawn-only geometry (its arrays freed once uploaded) has its far version made from them before they go", async () => {
+  it("drawn-only geometry (its arrays freed once uploaded) has no far version: nothing to make it from", async () => {
     resetFarDetail();
     await loadSimplifier();
     const parent = new Group();
@@ -106,16 +106,28 @@ describe("far detail", () => {
     const mesh = useFarDetail(new Mesh(g, new MeshBasicMaterial()));
     parent.add(mesh);
     gpuOnlyGeometry(g);
-    // Uploaded: three calls each attribute's upload callback, which frees its array.
-    for (const a of [...Object.values(g.attributes), g.index!]) (a as unknown as { onUploadCallback: () => void }).onUploadCallback.call(a);
-    expect(g.getAttribute("position").array.length).toBe(0);
+    for (let i = 0; i < FAR_ASK_FRAMES + 2; i++) updateFarDetail(new Vector3(0, 0, 1e7), 1000);
     await idle();
-    const far = (n: number) => {
-      for (let i = 0; i < n; i++) updateFarDetail(new Vector3(0, 0, 1e7), 1000);
-    };
-    far(1);
+    expect(updateFarDetail(new Vector3(0, 0, 1e7), 1000)).toBe(0);
+    expect(mesh.geometry).toBe(g);
+  });
+
+  it("does nothing on a frame the camera didn't move in, when nothing's changed", async () => {
+    resetFarDetail();
+    await loadSimplifier();
+    const parent = new Group();
+    const g = town();
+    const mesh = useFarDetail(new Mesh(g, new MeshBasicMaterial()));
+    parent.add(mesh);
+    const eye = new Vector3(0, 0, 1e7);
+    for (let i = 0; i < FAR_ASK_FRAMES; i++) updateFarDetail(eye, 1000);
+    await idle();
+    // The far version made since: the next frame swaps to it, moving or not.
+    expect(updateFarDetail(eye, 1000, false)).toBe(1);
+    // Then a still camera skips the meshes altogether: moved near without the camera "moving", nothing's looked at.
+    expect(updateFarDetail(new Vector3(0, 0, 10), 1000, false)).toBe(1);
     expect(mesh.geometry).not.toBe(g);
-    expect(mesh.geometry.index!.count).toBeGreaterThan(0);
-    expect(mesh.geometry.index!.count).toBeLessThan(g.index!.count);
+    expect(updateFarDetail(new Vector3(0, 0, 10), 1000, true)).toBe(0);
+    expect(mesh.geometry).toBe(g);
   });
 });
