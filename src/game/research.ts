@@ -556,14 +556,16 @@ export function researchFromJSON(data: unknown, known: (id: unknown) => string |
   };
   const time = (n: unknown) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0);
   r.current = known(d.current);
-  r.next = known(d.next);
-  if (r.next === r.current) r.next = null;
-  // The queue after it: known, each once, not the one under way or up next, at most `QUEUE_MAX` in all.
-  if (r.next !== null && Array.isArray(d.later))
-    for (const x of d.later) {
+  // The queue after it: known, each once, not the one under way, at most `QUEUE_MAX` in all. (Two old ids that became
+  // one blueprint, as Signals and Train routes, keep the first's place: the rest of the queue closes up behind it.)
+  const queue: string[] = [];
+  if (d.next !== null && d.next !== undefined)
+    for (const x of [d.next, ...(Array.isArray(d.later) ? d.later : [])]) {
       const id = known(x);
-      if (id !== null && id !== r.current && id !== r.next && !r.later.includes(id) && r.later.length < QUEUE_MAX - 1) r.later.push(id);
+      if (id !== null && id !== r.current && !queue.includes(id) && queue.length < QUEUE_MAX) queue.push(id);
     }
+  r.next = queue[0] ?? null;
+  r.later = queue.slice(1);
   if (r.current !== null) {
     r.got = bag(d.got);
     r.study = time(d.study);

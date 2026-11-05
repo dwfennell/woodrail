@@ -190,7 +190,7 @@ const tabRow = (p) =>
     const r = await p.evaluate(() => ({ current: window.woodrail.progress().research.current, next: window.woodrail.progress().research.next }));
     check("its Research button starts Switches", r.current === "switches" || r.next === "switches", JSON.stringify(r));
   } else check("its Research button is there", false);
-  // The Signal (signals' own tray mark, on the Switch shelf): locked till Signals is learned, its tap shows the same note.
+  // The Signal (signals' own tray mark, on the Switch shelf): locked till Routes and signals is learned, its tap shows the same note.
   // (Setup, not what's tested: Switches learned, so the shelf opens; the board closed by its ✕, clicked in the page.)
   await p.evaluate(() => window.woodrail.learn("switches"));
   await p.evaluate(() => document.querySelector(".board-panel:not([hidden]) .board-head .close")?.click());
@@ -218,7 +218,7 @@ const tabRow = (p) =>
     await p.touchscreen.tap(sig.x, sig.y);
     await p.waitForFunction(() => { const n = document.querySelector(".lock-note"); return n && !n.hidden; }, null, { timeout: 10000 }).catch(() => {});
     const sn = await p.evaluate(() => { const n = document.querySelector(".lock-note"); return { text: n && !n.hidden ? n.textContent : null, armed: !!document.querySelector(".tray-item.armed") }; });
-    check("tapped, its note says how to unlock it (Signals), nothing picked up", !!sn.text && sn.text.includes("Signal") && /Signals/.test(sn.text) && !sn.armed, JSON.stringify(sn));
+    check("tapped, its note says how to unlock it (Routes and signals), nothing picked up", !!sn.text && sn.text.includes("Signal") && /Routes and signals/.test(sn.text) && !sn.armed, JSON.stringify(sn));
     await shot(p, "3b-locked-signal-360");
   }
   await ctx.close();

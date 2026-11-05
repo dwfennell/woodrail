@@ -38,7 +38,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:buffer-turnback": { label: "Turnback", cost: { planks: 1 } },
   "piece:switch": { label: "Switch", cost: { planks: 3 }, tech: "switches" },
   "piece:switch-y": { label: "Y switch", cost: { planks: 3 }, tech: "switches" },
-  "piece:signal": { label: "Signal", cost: { planks: 2 }, tech: "signals" },
+  "piece:signal": { label: "Signal", cost: { planks: 2 }, tech: "routes" },
   "piece:switch-3way": { label: "Three-way", cost: { planks: 5 }, tech: "junctions" },
   "piece:crossing": { label: "Crossing", cost: { planks: 3 }, tech: "junctions" },
   "piece:crossing-45": { label: "45° crossing", cost: { planks: 3 }, tech: "junctions" },
@@ -142,7 +142,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // workshop; planks only (kits make the railway, not the economy). Sandbox's cargo loaders and unloaders are here
   // as looks only: in Game mode they're no depot (`syncIndustries`), so no endless heap and nothing vanishes.
   // Signals: the semaphore is the signal in a look of its own; the colour light needs electricity.
-  "piece:kit-semaphore-signal": { label: "Semaphore signal", cost: { planks: 3 }, tech: "signals" },
+  "piece:kit-semaphore-signal": { label: "Semaphore signal", cost: { planks: 3 }, tech: "routes" },
   "piece:kit-colour-light-signal": { label: "Colour-light signal", cost: { planks: 2, iron: 1 }, tech: "electricity" },
   // Junctions and loops: the gantry, a signal over each of two roads.
   "piece:kit-signal-gantry": { label: "Signal gantry", cost: { planks: 6 }, tech: "junctions" },

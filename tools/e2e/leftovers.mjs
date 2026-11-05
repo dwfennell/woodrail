@@ -394,7 +394,7 @@ await run("telegraph", async () => {
   await h.open("game");
   await p.evaluate(() => {
     const w = window.woodrail;
-    for (const id of ["switches", "routes", "signals", "signal-boxes", "telegraph"]) w.learn(id);
+    for (const id of ["switches", "routes", "signal-boxes", "telegraph"]) w.learn(id);
   });
   const setup = await h.line(["engine", "van"], null);
   check("telegraph: setup, two towns' stations joined", !setup.error, JSON.stringify({ ...setup, laid: setup.laid?.length }));

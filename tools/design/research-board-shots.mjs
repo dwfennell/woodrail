@@ -1,4 +1,5 @@
-// Pictures of the Research board in a mid-game state, for design work (`node tools/design/research-board-shots.mjs <out dir>`).
+// Pictures of the Research board in a mid-game state, for design work (`node tools/design/research-board-shots.mjs <out dir>`;
+// `ONLY=phone DPR=2` for the phone's alone, at 2×).
 // A new game's line laid and school placed (as e2e:research does), then a mid-game set of blueprints learned and a
 // research under way with one queued (a setup shortcut: what's drawn is under review, not how it was reached). Shots at
 // 390×844 and 844×390 (touch) and 1440×900: the board as it opens, scrolled through, and a ticket of each state.
@@ -15,10 +16,10 @@ await server.listen();
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const LEARNED = ["switches", "bridges", "signals", "tank", "brake-vans", "harvesters", "farming", "cranes1", "routes", "study-hall", "loading-kits", "junctions"];
+const LEARNED = ["switches", "bridges", "tank", "brake-vans", "harvesters", "farming", "cranes1", "routes", "study-hall", "loading-kits", "junctions"];
 
 async function run(name, viewport, mobile) {
-  const p = await b.newPage({ viewport, deviceScaleFactor: 1, hasTouch: mobile, isMobile: mobile });
+  const p = await b.newPage({ viewport, deviceScaleFactor: Number(process.env.DPR ?? 1), hasTouch: mobile, isMobile: mobile });
   const errors = [];
   p.on("pageerror", (e) => errors.push(e.message));
   await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
@@ -62,7 +63,7 @@ async function run(name, viewport, mobile) {
   });
   await p.waitForTimeout(300);
   await p.screenshot({ path: `${OUT}/${name}-scrolled.png` });
-  for (const [label, state] of [["Dairy farm", "soon"], ["Passengers", "next"], ["Sawmills", "ready"], ["Harvesters II", "locked"]]) {
+  for (const [label, state] of [["Routes and signals", "routes-signals"], ["Dairy farm", "soon"], ["Passengers", "next"], ["Sawmills", "ready"], ["Harvesters II", "locked"]]) {
     const ok = await p.evaluate((label) => {
       const el = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === label);
       if (!el) return false;
@@ -103,6 +104,9 @@ async function run(name, viewport, mobile) {
   await p.close();
 }
 
-await Promise.all([run("phone", { width: 390, height: 844 }, true), run("side", { width: 844, height: 390 }, true), run("desktop", { width: 1440, height: 900 }, false)]);
+const RUNS = [["phone", { width: 390, height: 844 }, true], ["side", { width: 844, height: 390 }, true], ["desktop", { width: 1440, height: 900 }, false]];
+// (ONLY=phone,…: those runs alone; DPR=2: pictures a person will see.)
+const ONLY = process.env.ONLY?.split(",");
+await Promise.all(RUNS.filter(([n]) => !ONLY || ONLY.includes(n)).map(([n, v, m]) => run(n, v, m)));
 await b.close();
 await server.close();

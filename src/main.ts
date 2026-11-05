@@ -85,7 +85,7 @@ import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summar
 import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, lighthouseNear, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
-import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
+import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, RENAMED, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
@@ -5939,7 +5939,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function lookForFollowers(): void {
     if (followTold || Math.abs(game.simSeconds - followLooked) < 1) return;
     followLooked = game.simSeconds;
-    if (mode === "game" && !progress.learned.has("signals")) return;
+    if (mode === "game" && !progress.learned.has("routes")) return;
     const at = game.economy.sections.followSpot();
     if (at === -1) return;
     followTold = true;
@@ -6132,7 +6132,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.

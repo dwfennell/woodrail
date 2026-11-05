@@ -292,10 +292,10 @@ await board(false);
 
 // 6. Every card state's ticket: learned, researching, next (with its coins short), ready, locked, soon.
 await board(true);
-await select("Train routes");
+await select("Routes and signals");
 await tap(".board-sheet button[data-act=pick]", "Add to queue");
 const states = {};
-for (const [state, name] of [["learned", "Switches"], ["researching", "Bridges and ramps"], ["next", "Train routes"], ["ready", "Signals"]]) {
+for (const [state, name] of [["learned", "Switches"], ["researching", "Bridges and ramps"], ["next", "Routes and signals"], ["ready", "Junctions and loops"]]) {
   await select(name);
   states[state] = await ticket();
   await shot(`09-card-${state}`);
@@ -335,7 +335,7 @@ const words = async (name) => {
 };
 await p.setViewportSize({ width: 360, height: 780 });
 await p.waitForTimeout(400);
-const routesWords = await words("Train routes");
+const routesWords = await words("Routes and signals");
 const bridgesWords = await words("Bridges and ramps");
 const learnedWords = await words("Switches");
 await shot("09b-card-words-360");
@@ -349,7 +349,7 @@ const room = () => p.evaluate(() => {
   const more = document.querySelector(".board-sheet .bp-more");
   return { list: Math.round(body.height), inView: !!sel && sel.top >= body.top - 1 && sel.bottom <= body.bottom + 1, folded: !!more && !more.open, facts: !!more?.querySelector(".bp-makes")?.checkVisibility(), summary: more?.querySelector("summary")?.textContent.trim() };
 });
-await select("Train routes");
+await select("Routes and signals");
 const roomFolded = await room();
 await shot("09c-ticket-folded-390");
 await tap(".board-sheet .bp-more > summary");
@@ -394,13 +394,13 @@ const chipsInWords = (w) => !!w && w.chips.length > 0 && w.chips.every((c) => {
   const m = c.text.match(/^(\S+) (?:\d+\/)?(\d+)$/);
   return m && w.cost.includes(`${m[2]} ${m[1]} `) && c.title.length > 0;
 });
-check("tap Train routes: it says what it unlocks, and its full cost (goods and coins) in words", /^Unlocks: Routes on the engine card/.test(routesWords?.unlocks ?? "") && /^Costs: \d+ \uE000 planks, 40 🪙 coins$/.test(routesWords?.cost ?? "") && chipsInWords(routesWords), JSON.stringify(routesWords));
+check("tap Routes and signals: it says what it unlocks, and its full cost (goods and coins) in words", /^Unlocks: Signal, .*Routes on the engine card/.test(routesWords?.unlocks ?? "") && /^Costs: \d+ \uE000 planks, 40 🪙 coins$/.test(routesWords?.cost ?? "") && chipsInWords(routesWords), JSON.stringify(routesWords));
 check("tap Bridges (under way): unlocks named, every good it needs in the cost line", /^Unlocks: \S/.test(bridgesWords?.unlocks ?? "") && /^Costs: 10 \uE000 planks/.test(bridgesWords?.cost ?? "") && chipsInWords(bridgesWords), JSON.stringify(bridgesWords));
 check("a learned card names what it unlocked, and no cost", /^Unlocks: Switch, Y switch/.test(learnedWords?.unlocks ?? "") && learnedWords.cost === undefined, JSON.stringify(learnedWords));
-check("the tag's tooltip says the same (hover on desktop)", routesWords?.title === `Train routes. Unlocks: Routes on the engine card. ${routesWords?.cost}`, String(routesWords?.title));
+check("the tag's tooltip says the same (hover on desktop)", routesWords?.title === `Routes and signals. Unlocks: ${routesWords?.unlocks?.replace(/^Unlocks: /, "")}. ${routesWords?.cost}`, String(routesWords?.title));
 check("…and the ticket fits a 360 px phone, nothing sideways", routesWords?.fits && bridgesWords?.fits && learnedWords?.fits, JSON.stringify([routesWords?.fits, bridgesWords?.fits, learnedWords?.fits]));
 const coinChip = await p.evaluate(() => {
-  const node = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === "Train routes");
+  const node = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === "Routes and signals");
   return node?.className;
 });
 check("the web's tag for the one up next", /\bnext\b/.test(coinChip ?? ""), String(coinChip));
@@ -450,13 +450,13 @@ await p.evaluate(() => {
   w.hud.setCoins(10);
 });
 await p.waitForTimeout(700);
-check("nothing under way, Train routes waiting for coins: the pill shows them", (await pill()) === "📘 Train routes 🪙10/40", String(await pill()));
+check("nothing under way, Routes and signals waiting for coins: the pill shows them", (await pill()) === "📘 Routes and signals 🪙10/40", String(await pill()));
 await board(true);
-await select("Signals");
+await select("Junctions and loops");
 await board(false);
 await board(true);
 t = await ticket();
-check("…and a tap on it opens the picker on Train routes", t?.name === "Train routes" && t.state === "next", JSON.stringify(t));
+check("…and a tap on it opens the picker on Routes and signals", t?.name === "Routes and signals" && t.state === "next", JSON.stringify(t));
 await shot("10a-pill-waiting-for-coins");
 await board(false);
 await p.evaluate(() => {
@@ -573,7 +573,7 @@ const boardOpen = () => p.evaluate(() => !!document.querySelector(".board-open")
 await p.evaluate(() => {
   const w = window.woodrail;
   const r = w.progress().research;
-  // Nothing up next (Train routes was waiting there).
+  // Nothing up next (Routes and signals was waiting there).
   r.next = null;
   r.version++;
   window.__toasts = [];
@@ -797,7 +797,7 @@ const growSchoolTown = (planks, flour) =>
   );
 await p.evaluate(() => {
   const w = window.woodrail;
-  for (const id of ["tank", "goods-engine", "quarries", "mines", "foundry", "routes", "warehouses", "college", "harbours", "passengers", "halts", "signals"]) w.learn(id);
+  for (const id of ["tank", "goods-engine", "quarries", "mines", "foundry", "routes", "warehouses", "college", "harbours", "passengers", "halts"]) w.learn(id);
   const pr = w.progress();
   pr.counts.set("delivered:iron", 20);
   pr.coins = 3000;
@@ -952,7 +952,7 @@ check("the goods chains' six buildings are on the Industries shelf, unlocked", c
 await shot("26-goods-chains-industries-shelf");
 
 // 15. Tech tree 4. The Reading room researched by taps (College is learned). Then Telegraph tapped: one tap queues
-// Signal boxes, then Telegraph (Signals and Routes are learned). One delivery of 10 planks: Signal boxes takes its 4 and
+// Signal boxes, then Telegraph (Routes and signals is learned). One delivery of 10 planks: Signal boxes takes its 4 and
 // the school reads ahead for Telegraph with the other 6 (its card says so); Signal boxes learned, Telegraph starts with
 // its goods all in and is learned with nothing more brought (the payoff: no gap between the two). The signal box and
 // the telegraph pole on the tray's Lineside shelf, unlocked. Then Mines II, Foundry II and Joinery by taps at the

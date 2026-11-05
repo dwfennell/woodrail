@@ -48,7 +48,7 @@ await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip"
 await p.evaluate(() => {
   const w = window.woodrail;
   w.paused = true;
-  for (const id of ["switches", "bridges", "junctions", "signals", "routes", "passengers", "halts", "dining", "first-class", "stations", "double-decker", "express", "farming", "mills", "tank", "goods-engine", "quarries", "mines", "foundry", "carpentry", "scenery", "college", "warehouses", "cranes1", "cranes2", "harbours", "telegraph", "signal-boxes", "university", "viaduct", "lift-bridge", "lift-load", "sleeper", "observation", "observatory"]) w.learn(id);
+  for (const id of ["switches", "bridges", "junctions", "routes", "passengers", "halts", "dining", "first-class", "stations", "double-decker", "express", "farming", "mills", "tank", "goods-engine", "quarries", "mines", "foundry", "carpentry", "scenery", "college", "warehouses", "cranes1", "cranes2", "harbours", "telegraph", "signal-boxes", "university", "viaduct", "lift-bridge", "lift-load", "sleeper", "observation", "observatory"]) w.learn(id);
   w.progress().coins = 5000;
   w.hud.setCoins(5000);
 });

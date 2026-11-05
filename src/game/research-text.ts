@@ -16,7 +16,7 @@ const coins = (n: number) => `${n}${COIN_ICON}`;
 const label = (id: string) => techOf(id)?.label ?? id;
 
 /** A blueprint's name cut short for the pill: "Bridges and ramps" → "Bridges", "Diesel (Trains tab)" → "Diesel". */
-export const shortLabel = (id: string): string => label(id).replace(/\s*\(.*\)$/, "").split(" and ")[0];
+export const shortLabel = (id: string): string => techOf(id)?.short ?? label(id).replace(/\s*\(.*\)$/, "").split(" and ")[0];
 
 /**
  * A blueprint's card in the picker. learned: done. researching: under way (`current`). next: up next. ready: can be

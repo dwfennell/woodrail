@@ -36,7 +36,7 @@ async function at(width, height, three) {
     play(w.world.layout, w.editor(), connectorRef(st(0), 1), connectorRef(st(1), 0), { blocked: rulesFor(w.world), maxPieces: 60, fiddle: 3 });
     schoolOn(w.world, w.editor(), new Set());
     // (Setup shortcut, not the thing pictured: what Mills needs learned, and the coins to start it.)
-    for (const id of ["switches", "farming", "bridges", "signals"]) if (!w.progress().learned.has(id)) w.learn(id);
+    for (const id of ["switches", "farming", "bridges", "routes"]) if (!w.progress().learned.has(id)) w.learn(id);
     if (three) techOf("mills").research.goods.iron = 10;
     const pr = w.progress();
     pr.coins += 100;

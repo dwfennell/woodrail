@@ -142,7 +142,7 @@ const setup = await p.evaluate(async () => {
   const { rulesFor } = await import("/src/play/rules.ts");
   const { connectorRef, pieceOfRef } = await import("/src/track/layout.ts");
   const w = window.woodrail;
-  for (const r of ["switches", "signals", "routes"]) w.learn(r);
+  for (const r of ["switches", "routes"]) w.learn(r);
   const town = w.world.landscape.towns[0].id;
   const station = w.world.stations.get(town);
   const forest = [...w.world.depots.values()].find((id) => w.layout.getPiece(id)?.type === "depot-forest");
