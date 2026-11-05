@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getPieceDef, RISER_HEIGHT, type PieceTypeId } from "../track";
 import type { PieceJob, PieceResult } from "./piece-worker";
-import { buildPieceGeometry, compactPiece } from "./track-geometry";
+import { compactPiece } from "./track-geometry";
+import { buildPieceGeometry } from "./piece-carve";
 
 /** How long the stand-in worker takes over each piece (ms). */
 const JOB_MS = 20;
@@ -37,11 +38,13 @@ function fakeWorkerClass(opts: { silent?: boolean } = {}) {
 }
 
 /** track-view, loaded fresh with this Worker in place (it decides at load whether workers can run); one worker. */
-async function trackViewWith(Worker: unknown) {
+async function trackViewWith(Worker: unknown, carver = true) {
   vi.resetModules();
   vi.stubGlobal("Worker", Worker);
   vi.stubGlobal("__BUILD_ID__", "");
   vi.stubGlobal("navigator", { hardwareConcurrency: 2 });
+  // (The main thread's carver, as the game mostly has it by the time it's wanted: loaded on its own, `carver.ts`.)
+  if (carver) await (await import("./carver")).loadCarver();
   return import("./track-view");
 }
 
@@ -138,6 +141,39 @@ describe("pieces carved in the background", () => {
     expect(later.groups.length).toBe(1);
     await vi.advanceTimersByTimeAsync(40);
     expect(tv.pieceGeometry("switch-3way", false, 0)).not.toBe(later);
+  }, 30_000);
+
+  it("a join piece (carved here, when first wanted) before the carver's loaded: a stand-in, swapped once it's carved", async () => {
+    const { FakeWorker } = fakeWorkerClass();
+    const tv = await trackViewWith(FakeWorker, false);
+    const swaps = { n: 0 };
+    tv.onPiecesBuilt(() => swaps.n++);
+    await tv.TrackView.carveInBackground(["straight-216"]);
+    const shown = tv.pieceGeometry("join-144-18", false, 0);
+    expect(shown.groups.length).toBe(1);
+    // Waited for (a tray picture) till the carver's in.
+    await tv.TrackView.whenBuilt("join-144-18");
+    await vi.waitFor(() => expect(swaps.n).toBeGreaterThan(0), { timeout: 10_000 });
+    const real = tv.pieceGeometry("join-144-18", false, 0);
+    expect(real).not.toBe(shown);
+    expect(real.groups.length).toBeGreaterThan(1);
+    // Its mirror image made from it, as before.
+    expect(tv.pieceGeometry("join-144-18", true, 0).groups.length).toBeGreaterThan(1);
+  }, 30_000);
+
+  it("a stand-in shown before the carver's in, then carved directly once it is: no longer waited for (settles)", async () => {
+    const { FakeWorker } = fakeWorkerClass();
+    const tv = await trackViewWith(FakeWorker, false);
+    const swaps = { n: 0 };
+    tv.onPiecesBuilt(() => swaps.n++);
+    await tv.TrackView.carveInBackground(["straight-216"]);
+    expect(tv.pieceGeometry("join-144-18", false, 0).groups.length).toBe(1);
+    expect(tv.piecesWanted()).toBe(true);
+    // The carver comes in, and the piece is asked for again before its queued job runs: carved there and then.
+    await (await import("./carver")).loadCarver();
+    expect(tv.pieceGeometry("join-144-18", false, 0).groups.length).toBeGreaterThan(1);
+    expect(tv.piecesWanted()).toBe(false);
+    await vi.waitFor(() => expect(swaps.n).toBeGreaterThan(0), { timeout: 10_000 });
   }, 30_000);
 
   it("with no workers at all, pieces are carved when wanted (as before)", async () => {

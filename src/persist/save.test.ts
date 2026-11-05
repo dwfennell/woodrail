@@ -7,7 +7,7 @@ import { SIM_DT, SIM_HZ } from "../sim";
 import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, MIGRATES_FROM, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { Journal } from "../game/journal";
 import { editLine, lineOf } from "../game/lines";
-import { CARGO_KINDS, storeListed, storeModeOf } from "../economy";
+import { CARGO_KINDS, CARGO_SLOTS, storeListed, storeModeOf } from "../economy";
 
 /** The starter map with its first two towns joined by a line and a train running on it. */
 function worldWithTrain(): World {
@@ -744,7 +744,7 @@ describe("economy in saves", () => {
     data.depots[forest.id].piles = [3, 12];
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(true);
-    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, ...new Array(CARGO_KINDS.length - 1).fill(0)]);
+    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, ...new Array(CARGO_SLOTS - 1).fill(0)]);
   });
 
   it("a train saved half way through loading carries on loading after a load", () => {

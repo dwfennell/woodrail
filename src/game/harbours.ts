@@ -20,6 +20,17 @@ export const BOAT_LOADS = 6;
  * towns (they buy it at full pay). Only while the quay has room for them.
  */
 export const FISH_CATCH = 3;
+/**
+ * Sacks of cocoa a boat lands each visit once Chocolate factory is learned (the goods chains, 2026-11-04): cocoa comes
+ * from abroad, for a chocolate factory (towns don't buy it as it is). Landed as fish are, while the quay has room.
+ */
+export const COCOA_LANDED = 3;
+/** ", and lands 3 fish and 3 sacks of cocoa", for what a boat brings each visit (nothing: ""). */
+function landsText(fishing: boolean, cocoa: boolean): string {
+  const what = [...(fishing ? [`${FISH_CATCH} fish`] : []), ...(cocoa ? [`${COCOA_LANDED} sacks of cocoa`] : [])];
+  return what.length > 0 ? `, and lands ${what.join(" and ")}` : "";
+}
+
 /** Seconds between one boat leaving and the next arriving. */
 export const BOAT_EVERY = 150;
 /** Seconds a boat takes to sail in (or out). */
@@ -199,7 +210,7 @@ export type HarbourEvent =
    */
   | { kind: "bought"; depotId: number; goods: Bag; coins: number; short: "coins" | "room" | null }
   /** A boat landed its catch of fish on the quay (Fishing boats): `n` crates. */
-  | { kind: "caught"; depotId: number; n: number }
+  | { kind: "caught"; depotId: number; n: number; good?: "cocoa" }
   /** The harbour went (taken up, or moved) while its boat was in: the boat's gone at once. */
   | { kind: "gone"; depotId: number };
 
@@ -274,6 +285,12 @@ export class HarbourTrade {
           if (caught > 0) {
             world.economy.land(d, "fish", caught);
             events.push({ kind: "caught", depotId: d.id, n: caught });
+          }
+          // And, once Chocolate factory is learned, sacks of cocoa from abroad, landed the same way.
+          const cocoa = p.learned.has("chocolate") ? Math.min(COCOA_LANDED, capAt(d) - d.piles[CARGO.cocoa.index]) : 0;
+          if (cocoa > 0) {
+            world.economy.land(d, "cocoa", cocoa);
+            events.push({ kind: "caught", depotId: d.id, n: cocoa, good: "cocoa" });
           }
           break;
         }
@@ -367,9 +384,9 @@ export class HarbourTrade {
   }
 
   /** What a harbour's card says about its boats. */
-  describe(depotId: number, fishing = false): string {
+  describe(depotId: number, fishing = false, cocoa = false): string {
     const b = this.boatAt(depotId);
-    const each = `A boat takes ${BOAT_LOADS} loads a visit, paying half a town's price${fishing ? `, and lands ${FISH_CATCH} fish` : ""}.`;
+    const each = `A boat takes ${BOAT_LOADS} loads a visit, paying half a town's price${landsText(fishing, cocoa)}.`;
     if (!b || b.phase === "away") {
       const s = b?.left ?? FIRST_BOAT;
       return `Next boat in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}. ${each}`;

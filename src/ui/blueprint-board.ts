@@ -42,6 +42,8 @@ export interface Station {
    * place of its price, so it doesn't look like any other node you could buy.
    */
   school?: "College" | "University";
+  /** For `locked`, with what it needs learned: the first other thing it waits for, short ("🏙️ A city"), in its tag. */
+  gate?: string;
 }
 
 export interface BoardView {
@@ -261,7 +263,12 @@ const NODE_TAG: Partial<Record<CardState, (s: Station) => string>> = {
   researching: () => `<span class="bp-tag now">📘 Researching</span>`,
   next: (s) => `<span class="bp-tag next">${s.queued && s.queued > 1 ? `In line: ${s.queued}` : "Next up"}</span>`,
   ready: (s) => `<span class="bp-tag price">${esc(s.price)}</span>`,
-  locked: (s) => (s.school ? `<span class="bp-tag school">${s.school === "University" ? "🏛️" : "🎓"} ${s.school}</span>` : `<span class="bp-tag price later">${esc(s.price)}</span>`),
+  locked: (s) =>
+    s.school
+      ? `<span class="bp-tag school">${s.school === "University" ? "🏛️" : "🎓"} ${s.school}</span>`
+      : s.gate
+        ? `<span class="bp-tag gate">${esc(s.gate)}</span>`
+        : `<span class="bp-tag price later">${esc(s.price)}</span>`,
   soon: () => `<span class="bp-tag soon">Soon</span>`,
 };
 /** A card's tag in the web (empty for a learned one). */
@@ -276,7 +283,7 @@ export const tagTitle = (s: Pick<Station, "label" | "unlocks" | "cost">): string
  * A research card's foot: its goods as chips ("\uE000 6/10", the coins red while short) and its study time, a bar for the
  * one under way, how it stands, and its one button (Research, Add to queue, "Queue Farming, then Mills"; in the queue Remove
  * and Research now, the swap, or "Research Farming now" for one that needs Farming; only Remove while what it needs is
- * under way), 44 px tall.
+ * under way; none while something else must happen first, its why saying what), 44 px tall.
  */
 export function researchFoot(id: string, r: ResearchCardView, goal: boolean): string {
   const chips = r.chips.map((c) => `<span class="bp-chip${c.short ? " short" : ""}" title="${esc(c.title)}">${esc(c.text)}</span>`).join("") + `<span class="bp-chip study" title="Study time at the school, once the goods are in">⏱ ${esc(r.study)}</span>`;
@@ -286,7 +293,7 @@ export function researchFoot(id: string, r: ResearchCardView, goal: boolean): st
   const act = r.remove ? "now" : "pick";
   const button = r.action
     ? `<button class="chip text${r.blocked ? "" : " primary"}${goal && !r.blocked ? " bp-goal" : ""}" data-act="${act}" data-id="${id}"${r.blocked ? ` aria-disabled="true" title="${esc(r.why ?? "")}"` : ""}>${esc(r.action)}</button>`
-    : r.remove
+    : r.remove || r.fill === undefined
       ? ""
       : `<span class="bp-now">📘 Researching</span>`;
   const remove = r.remove ? `<button class="chip text bp-remove" data-act="pick" data-id="${id}" title="Take it out of the queue">✕ Remove</button>` : "";
@@ -313,6 +320,12 @@ export class BlueprintBoard {
   private detailsOpen = false;
   /** The ⓘ that shows what the colours mean. */
   private readonly legendBox: HTMLDetailsElement;
+  /**
+   * Where the body (and the web's pane, on a wide screen) is scrolled to, kept from their scroll events, for `render`
+   * to keep. (Read from the elements as it renders, a board just opened was laid out twice in the tap: for that
+   * read, then again after the new tags went in. 30–100 ms of the tap at 4× CPU on the late map.)
+   */
+  private readonly scrolled = { left: 0, top: 0, body: 0 };
 
   constructor(parent: HTMLElement, private readonly handlers: BlueprintBoardHandlers) {
     this.root.className = "board-panel";
@@ -357,6 +370,19 @@ export class BlueprintBoard {
       else if (act === "now") handlers.now?.(b.dataset.id!);
     };
     this.body.addEventListener("click", onClick);
+    // (Scroll events don't bubble: the web pane's caught on the way down.)
+    this.body.addEventListener(
+      "scroll",
+      (e) => {
+        const t = e.target as HTMLElement;
+        if (t === this.body) this.scrolled.body = t.scrollTop;
+        else if (t.classList?.contains("bp-web-scroll")) {
+          this.scrolled.left = t.scrollLeft;
+          this.scrolled.top = t.scrollTop;
+        }
+      },
+      { capture: true, passive: true },
+    );
     this.sheet.addEventListener("click", onClick);
     // (A toggle event doesn't bubble: caught on the way down.)
     this.sheet.addEventListener(
@@ -440,7 +466,6 @@ export class BlueprintBoard {
       }
     }
     this.learnedSeen = learned;
-    const was = this.selected;
     // Keep the ticket that's showing; else open on the goal's research, or the one under way, or one to pick.
     const shown = v.stations.filter((s) => s.seen === "shown");
     if (!shown.some((s) => s.id === this.selected)) {
@@ -449,13 +474,15 @@ export class BlueprintBoard {
     }
     // The web shows each tag's name, state and price: when only a ticket's words changed (a second of
     // study, a delivery's chips), only the ticket is drawn again.
+    // (Opened again on the same tag with nothing changed: the web as it was, scrolled as it was.)
     const web = JSON.stringify([v.stations.map((s) => [s.id, s.state, s.seen, s.label, s.price, s.branch, s.needs]), v.branches]);
-    if (web === this.webKey && was === this.selected && this.body.childElementCount > 0) this.renderSheet(v);
+    if (web === this.webKey && this.bodySelected === this.selected && this.body.childElementCount > 0) this.renderSheet(v);
     else this.render();
     this.webKey = web;
   }
-  /** What the web was last drawn from (see `show`). */
+  /** What the web was last drawn from (see `show`), and the tag selected in it. */
   private webKey = "";
+  private bodySelected = "";
   /** Learned blueprints as last shown, and the ones just learned (stamped in until `freshUntil`). */
   private learnedSeen: Set<string> | null = null;
   private fresh = new Set<string>();
@@ -542,8 +569,10 @@ export class BlueprintBoard {
     } else html += `<div class="bp-web-scroll"><div class="bp-web" style="width:${web.width}px;height:${web.height}px">${bands}<svg class="bp-links" width="${web.width}" height="${web.height}" aria-hidden="true">${svg}</svg>${drawn.map((s) => node(s, web.at.get(s.id)!)).join("")}</div></div>`;
     this.renderSheet(v, byId);
     const scroll = this.body.querySelector(".bp-web-scroll");
-    const kept = scroll ? { left: scroll.scrollLeft, top: scroll.scrollTop, body: this.body.scrollTop } : narrow && this.body.childElementCount > 0 ? { left: 0, top: this.body.scrollTop, body: this.body.scrollTop } : null;
+    const was = this.scrolled;
+    const kept = scroll ? { left: was.left, top: was.top, body: was.body } : narrow && this.body.childElementCount > 0 ? { left: 0, top: was.body, body: was.body } : null;
     this.body.innerHTML = html;
+    this.bodySelected = this.selected;
     // Keep the web where it was scrolled to; on first opening, bring the selected tag into view (its band's name
     // with it: the pane scrolls to the band's top when the tag is near it).
     const pane = this.body.querySelector<HTMLElement>(".bp-web-scroll");
@@ -571,6 +600,14 @@ export class BlueprintBoard {
       this.body.scrollTop = Math.max(0, (band && sel.offsetTop - band.offsetTop < this.body.clientHeight - 80 ? band.offsetTop : sel.offsetTop - 40) - this.body.offsetTop - 4);
     }
     if (narrow) this.keepSelectedInView();
+    // (As placed: the scroll events come later. Laid out by now, so read for nothing.)
+    if (pane || sel) this.noteScroll(pane);
+  }
+
+  private noteScroll(pane: HTMLElement | null): void {
+    this.scrolled.body = this.body.scrollTop;
+    this.scrolled.left = pane?.scrollLeft ?? 0;
+    this.scrolled.top = pane?.scrollTop ?? 0;
   }
 
   /**
@@ -585,6 +622,7 @@ export class BlueprintBoard {
     const pad = 8;
     if (r.bottom > box.bottom - pad) this.body.scrollTop += r.bottom - box.bottom + pad;
     else if (r.top < box.top + pad) this.body.scrollTop -= box.top + pad - r.top;
+    this.scrolled.body = this.body.scrollTop;
   }
 
   /**

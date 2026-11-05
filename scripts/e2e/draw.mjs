@@ -6,6 +6,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
+import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
 
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out";
 mkdirSync(OUT, { recursive: true });
@@ -71,6 +72,9 @@ async function start() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
+  watchBrowser(b);
+  watchServer(server);
   // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
   stillIndustriesIn(b);
   p = await b.newPage({ viewport: { width: 1200, height: 800 } });
@@ -620,6 +624,8 @@ suite.add("junctions", async () => {
   await junctions();
 });
 suite.add("loop", () => loopOffStraight());
+// (A line drawn at a slant under a bridge one level up: it straightens out under the bridge's middle through an underpass.)
+suite.add("under-slant", () => underSlant());
 suite.add("ghosts", () => ghostMatch());
 // Not in a full run: run when named.
 suite.add("lift", async () => {
@@ -1392,6 +1398,213 @@ async function ghostMatch() {
     check(`${c.name}: what the lift laid is the last ghosts (the same pieces, within 1 mm and 1°), joined to the station`, off <= 1 && got.joined, `off ${off === Infinity ? "other pieces" : off.toFixed(2)}; d ${plan.d}; ${JSON.stringify(state)}; ghosts ${fmt(ghosts)}; laid ${fmt(got.laid)}; joined ${got.joined}`);
     await ctx.close();
   }
+}
+
+/**
+ * A line drawn at a slant to the grid on the ground, under a bridge standing one level up (Sandbox #seed-7 on a 390 ×
+ * 844 phone): the line zigzags (straights and curves) and, where it meets the bridge, straightens out to cross under
+ * its middle squarely through an underpass, then bends back to the stroke. The payoff: a train with the tallest cars
+ * runs along it and down through the dip. Where no way under the bridge crosses it squarely enough (the bridge nearly
+ * along the stroke) it stops red, saying how one would. And what a pointer move costs while it looks.
+ *
+ * Harness shortcuts (setup only): the line's first straight, the bridge and the ramp up to it (none for the refused
+ * case) are put down by the editor; the train by the sim.
+ */
+async function underSlant() {
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 } });
+  await ctx.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  const q = await ctx.newPage();
+  q.on("pageerror", (e) => errors.push(e.message));
+  await q.goto(URL, { timeout: 180000 });
+  await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
+  await q.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await q.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await settled(q);
+  await q.keyboard.press("Escape");
+  await q.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
+  await q.evaluate(() => {
+    const w = window.woodrail;
+    window.__said = [];
+    for (const k of ["toast", "refuse", "setRefusal"]) {
+      const f = w.hud[k].bind(w.hud);
+      w.hud[k] = (m, ...a) => (m && window.__said.push(m), f(m, ...a));
+    }
+  });
+  const screen = (x, y, z) =>
+    q.evaluate(([x, y, z]) => {
+      const w = window.woodrail;
+      const v = new w.camera.position.constructor(x, y, z).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    }, [x, y, z]);
+  /**
+   * A straight on the ground, and a bridge (with a ramp up to it) whose middle is 468 along a stroke from the
+   * straight's end at `deg` to the grid, at `bridgeDeg`; where the track rules clear them and the ground the stroke
+   * crosses. Relative to (X, Z), the straight's end.
+   */
+  const place = (deg, bridgeDeg, ramped = true) =>
+    q.evaluate(
+      async ([deg, bridgeDeg, ramped]) => {
+        const w = window.woodrail;
+        const { trackBlock } = await import("/src/game/track-rules.ts");
+        const rules = w.interaction.rules;
+        const t = w.controls.target;
+        const ph = (deg * Math.PI) / 180;
+        const bh = (bridgeDeg * Math.PI) / 180;
+        const cx = 468 * Math.cos(ph);
+        const cz = 468 * Math.sin(ph);
+        const bridge = { x: cx - 108 * Math.cos(bh), z: cz - 108 * Math.sin(bh), heading: bh };
+        const ramp = { x: bridge.x - 144 * Math.cos(bh), z: bridge.z - 144 * Math.sin(bh), heading: bh };
+        for (let d = 0; d < 9000; d += 72) {
+          for (let a = 0; a < Math.max(1, Math.round(d / 72) * 6); a++) {
+            const X = Math.round((t.x + d * Math.cos(a)) / 18) * 18;
+            const Z = Math.round((t.z + d * Math.sin(a)) / 18) * 18;
+            const at = (p) => ({ x: X + p.x, z: Z + p.z, heading: p.heading });
+            if (trackBlock(rules, "straight-216", false, at({ x: -216, z: 0, heading: 0 }), 0, -1) !== null) continue;
+            if ((ramped && trackBlock(rules, "ramp", false, at(ramp), 0, -1) !== null) || trackBlock(rules, "bridge", false, at(bridge), 48, -1) !== null) continue;
+            // The ground the stroke crosses, and either side of it: open for track.
+            let ok = true;
+            for (let s = 0; s <= 1000 && ok; s += 72)
+              for (const side of [-90, 0, 90]) {
+                const x = s * Math.cos(ph) - side * Math.sin(ph);
+                const z = s * Math.sin(ph) + side * Math.cos(ph);
+                if (Math.hypot(x - cx, z - cz) < 130) continue;
+                if (trackBlock(rules, "straight-54", false, at({ x: x - 27, z, heading: 0 }), 0, -1) !== null) ok = false;
+              }
+            if (!ok) continue;
+            const lo = w.editor().place("straight-216", at({ x: -216, z: 0, heading: 0 }), 0, false);
+            const r = ramped ? w.editor().place("ramp", at(ramp), 0, false) : -1;
+            const br = w.editor().place("bridge", at(bridge), 48, false);
+            return { X, Z, lo, ramp: r, bridge: br, mid: { x: X + cx, z: Z + cz } };
+          }
+        }
+        return null;
+      },
+      [deg, bridgeDeg, ramped],
+    );
+  /** Draw from the straight's end at `deg` to the grid; the line's ghosts as the finger lifts, and the slowest pointer move. */
+  const stroke = async (at, deg) => {
+    await q.evaluate(async () => {
+      // The time each pointer move spends laying the line (the line's own work, as the game calls it).
+      const { DrawLine } = await import("/src/track/draw-path.ts");
+      if (!DrawLine.prototype.__timed) {
+        const add = DrawLine.prototype.addPoint;
+        DrawLine.prototype.addPoint = function (...a) {
+          const t0 = performance.now();
+          const r = add.apply(this, a);
+          window.__slowest = Math.max(window.__slowest ?? 0, performance.now() - t0);
+          return r;
+        };
+        DrawLine.prototype.__timed = true;
+      }
+      window.__slowest = 0;
+    });
+    if (!(await q.evaluate(() => window.woodrail.interaction.drawing))) await q.evaluate(() => document.querySelector(".tray-draw")?.click());
+    const ph = (deg * Math.PI) / 180;
+    const sc = [];
+    for (const s of [-4, 200, 468, 700, 940]) sc.push(await screen(at.X + s * Math.cos(ph), 0, at.Z + s * Math.sin(ph)));
+    await q.mouse.move(sc[0][0], sc[0][1]);
+    await q.mouse.down();
+    for (let i = 1; i < sc.length; i++) {
+      const [ax, ay] = sc[i - 1];
+      const [bx, by] = sc[i];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 8));
+      for (let k = 1; k <= n; k++) await q.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    }
+    const drawn = await q.evaluate(() => (window.woodrail.interaction.draw.line?.pieces ?? []).map((p) => ({ type: p.type, red: !!p.blocked, why: p.blocked ?? null })));
+    const slowest = await q.evaluate(() => Math.round(window.__slowest * 10) / 10);
+    await q.mouse.up();
+    await settled(q);
+    return { drawn, slowest };
+  };
+  const look = (x, z, from, dist) =>
+    q.evaluate(([x, z, from, dist]) => {
+      const w = window.woodrail;
+      const V = w.camera.position.constructor;
+      const at = new V(x, 0, z);
+      w.controls.target.copy(at);
+      w.camera.position.copy(at.clone().add(new V(...from).normalize().multiplyScalar(dist)));
+      w.camera.lookAt(at);
+      w.controls.update?.();
+      w.invalidate?.();
+    }, [x, z, from, dist]);
+  const underpasses = () => q.evaluate(() => [...window.woodrail.layout.pieceIds()].filter((i) => window.woodrail.layout.getPiece(i).type === "underpass"));
+
+  // At 20° to the grid, the bridge square across the stroke.
+  const at = await place(20, 110);
+  check("under a bridge at a slant: room for it", !!at);
+  if (at) {
+    await look(at.X + 300 * Math.cos(0.35), at.Z + 300 * Math.sin(0.35), [-0.25 * Math.cos(0.35), 1, -0.25 * Math.sin(0.35)], 2100);
+    await settled(q);
+    const was = await underpasses();
+    await q.evaluate(() => window.__said.splice(0));
+    const { drawn, slowest } = await stroke(at, 20);
+    const said = await q.evaluate(() => window.__said.splice(0));
+    const k = drawn.findIndex((p) => p.type === "underpass");
+    check("under a bridge at a slant: the line zigzags (a curve in it), and an underpass goes in under the bridge, nothing red up to it", k > 0 && drawn.some((p) => p.type.startsWith("curve")) && !drawn.slice(0, k + 1).some((p) => p.red), JSON.stringify(drawn.map((p) => p.type + (p.red ? "!" : ""))));
+    check("under a bridge at a slant: the line goes on past it", k > 0 && drawn.length > k + 1, `${drawn.length} pieces, the underpass ${k}`);
+    const now = await underpasses();
+    const u = await q.evaluate(([ids, b]) => {
+      const w = window.woodrail;
+      const id = ids.find((i) => w.layout.getPiece(i).type === "underpass");
+      if (id === undefined) return null;
+      const p = w.layout.getPiece(id);
+      const mid = { x: p.pose.x + 144 * Math.cos(p.pose.heading), z: p.pose.z + 144 * Math.sin(p.pose.heading) };
+      const bp = w.layout.getPiece(b);
+      return { id, mid, girder: JSON.stringify(w.archFloorsOf(bp)) === "[-1]" };
+    }, [now.filter((i) => !was.includes(i)), at.bridge]);
+    check("under a bridge at a slant: it goes down, the bridge a girder span", !!u && u.girder, JSON.stringify({ u, said }));
+    // Each pointer move while the line looked for a way under: bounded (software GL, headless; a phone is slower).
+    check("under a bridge at a slant: the slowest pointer move's line work is a few tens of ms at most (headless)", slowest < 60, `${slowest} ms`);
+    if (u) {
+      // The payoff: a train with the tallest cars runs from the first straight along the line, down through the dip.
+      const run = await q.evaluate(
+        async ([lo, x, z]) => {
+          const w = window.woodrail;
+          const { createSnapshot } = await import("/src/sim/sim.ts");
+          const t = w.sim.addTrainAround(["engine", "passenger", "passenger", "caboose"], { pieceId: lo, pathIndex: 0, s: 108, reversed: false });
+          if (t.kind !== "placed") return { placed: t.kind };
+          const ids = w.sim.getTrain(t.trainId).cars.map((c) => c.id);
+          w.sim.setLook(ids[0], "electric");
+          w.sim.setLook(ids[1], "double-decker");
+          w.sim.setLever(ids[0], 1);
+          const snap = createSnapshot();
+          const low = {};
+          for (let k = 0; k < 6000 && Object.keys(low).length < ids.length; k++) {
+            w.sim.tick();
+            w.sim.writeSnapshot(snap);
+            for (let c = 0; c < snap.count; c++) {
+              if (Math.hypot(snap.transforms[c * 6] - x, snap.transforms[c * 6 + 2] - z) < 20) low[snap.ids[c]] = Math.min(low[snap.ids[c]] ?? Infinity, snap.transforms[c * 6 + 1]);
+            }
+          }
+          w.sim.setLever(ids[0], 0);
+          w.sim.removeTrain(t.trainId);
+          return { low: Object.values(low).map((y) => Math.round(y * 10) / 10) };
+        },
+        [at.lo, u.mid.x, u.mid.z],
+      );
+      check("under a bridge at a slant: a train with the tallest cars runs along the line, every car down in the dip (−30) under the bridge", run.low?.length === 4 && run.low.every((y) => Math.abs(y + 30) < 0.5), JSON.stringify(run));
+      await look(u.mid.x, u.mid.z, [0.7, 0.9, 0.9], 900);
+      await settled(q);
+      await shot(q, `${OUT}/draw-under-slant.png`);
+    }
+  }
+
+  // A stroke along the grid under a bridge at 15° to it: no way under it crosses it squarely enough. (No ramp up to it:
+  // one would lie along the stroke, and the line would climb it.)
+  const at2 = await place(0, 15, false);
+  check("along a bridge: room for it", !!at2);
+  if (at2) {
+    await look(at2.X + 300, at2.Z, [-0.25, 1, 0], 2100);
+    await settled(q);
+    const was = await underpasses();
+    const { drawn } = await stroke(at2, 0);
+    const now = await underpasses();
+    const red = drawn.find((p) => p.red);
+    check("along a bridge: no underpass goes in", now.length === was.length && !drawn.some((p) => p.type === "underpass"), JSON.stringify(drawn.map((p) => p.type + (p.red ? "!" : ""))));
+    check("along a bridge: the line stops red under it, saying how one would", !!red && /draw straight under its middle/.test(red.why ?? ""), JSON.stringify(red));
+  }
+  await ctx.close();
 }
 
 async function finishRun() {

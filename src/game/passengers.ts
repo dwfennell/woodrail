@@ -2,9 +2,10 @@ import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
 import { VISITOR_BONUS } from "./airports";
 import type { Progress } from "./progress";
-import { townStatus } from "./towns";
-import { growthOf } from "./town-life";
+import { statusOf } from "./town-life";
 import type { World } from "./world";
+import { visitorFactor } from "./places";
+import { METRO_QUARTERS, METRO_SLOWER } from "./metro";
 
 /**
  * Game mode's passengers: people wait at each town's station, more the bigger the town; coaches carry them to another
@@ -13,7 +14,7 @@ import type { World } from "./world";
  */
 
 /** Seats in a coach, by its look. */
-export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3 };
+export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3, metro: 8 };
 
 /** A first-class coach's riders pay this many times the fare. */
 export const FIRST_CLASS = 2;
@@ -24,6 +25,9 @@ export const DINING = 1.5;
 export const RIDER_SECONDS = 24;
 /** Most people waiting at a station (twice as many, coming twice as often, with busy stations). */
 export const WAITING_CAP = 6;
+
+/** A ride to a lookout halt pays this many times the fare: a day out for the view. */
+export const LOOKOUT_FARE = 2;
 
 /** Each mm between the two stations is worth this much fare (and never less than `MIN_FARE`). */
 const FARE_PER_MM = 1 / 800;
@@ -42,31 +46,37 @@ export function riderSeconds(level: number, busy = false): number {
  * People turn up at towns' stations, `seconds` of play at a time. A town's arrivals are shared among its stops (its
  * station and any halts, every depot of role "town" with its `townId`), not added to: one clock and one cap per town,
  * each newcomer going to the stop with the fewest waiting (the earliest, its station, on a tie). So halts spread a
- * town's people out; they don't make more. `clock` holds each town's time since its last arrival, by town id (kept by
- * the caller between calls). Cheap: a few towns, called about once a second.
+ * town's people out; they don't make more. But a metro stop (the first `METRO_QUARTERS` of a town's) is a quarter of
+ * the town with its own clock and cap, at half its town's rate: those riders are new. `clock` holds each town's time
+ * since its last arrival, by town id (a quarter's by −2 − its depot id), kept by the caller between calls. Cheap: a few
+ * towns, called about once a second.
  */
 export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>): void {
   // No one waits for coaches that can't be made yet.
   if (!p.learned.has("passengers")) return;
   const cap = waitingCap(p);
   const busy = p.learned.has("stations");
-  // Each town's stops, in depot order (its station, added with the map, first).
+  // Each town's stops, in depot order (its station, added with the map, first); its metro stops apart, the first
+  // `METRO_QUARTERS` of them each a quarter of the town with riders of its own (metro.ts).
   const stops = new Map<number, DepotState[]>();
+  const quarters = new Map<number, DepotState[]>();
   for (const d of world.economy.allDepots()) {
-    if (d.role !== "town" || !world.layout.getPiece(d.pieceId)) continue;
-    const list = stops.get(d.townId);
+    // (No one lives at a lookout: riders only get off there.)
+    if (d.role !== "town" || !world.layout.getPiece(d.pieceId) || world.economy.isLookout(d)) continue;
+    const into = world.economy.isMetro(d) ? quarters : stops;
+    const list = into.get(d.townId);
     if (list) list.push(d);
-    else stops.set(d.townId, [d]);
+    else into.set(d.townId, [d]);
   }
-  for (const [townId, list] of stops) {
+  /** Riders turn up at `list` (sharing one clock, keyed `key`, and one cap) every `every` seconds. */
+  const arrive = (key: number, list: DepotState[], every: number) => {
     let waiting = 0;
     for (const d of list) waiting += d.waiting;
     if (waiting >= cap) {
-      clock.set(townId, 0);
-      continue;
+      clock.set(key, 0);
+      return;
     }
-    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy);
-    let t = (clock.get(townId) ?? 0) + seconds;
+    let t = (clock.get(key) ?? 0) + seconds;
     while (t >= every && waiting < cap) {
       t -= every;
       let to = list[0];
@@ -75,7 +85,13 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
       waiting++;
     }
     // A full town doesn't save up people for later.
-    clock.set(townId, waiting >= cap ? 0 : t);
+    clock.set(key, waiting >= cap ? 0 : t);
+  };
+  for (const [townId, list] of stops) arrive(townId, list, riderSeconds(statusOf(world, townId).level, busy));
+  for (const [townId, list] of quarters) {
+    const every = riderSeconds(statusOf(world, townId).level, busy) * METRO_SLOWER;
+    // (A quarter's clock is keyed by its depot: −2 − its id, apart from the towns' own.)
+    for (const d of list.slice(0, METRO_QUARTERS)) arrive(-2 - d.id, [d], every);
   }
 }
 
@@ -87,11 +103,30 @@ export function seatsIn(world: World, carId: number): number {
 }
 
 /**
- * One rider's fare from station `from` to station `to`, riding coach `carId`. A visitor off a plane (`from` an
- * airport) pays `VISITOR_BONUS` times as much; one taken to an airport pays nothing here (the plane takes their fare).
+ * What visitors pay at station `to`'s town against a plain fare (game/places.ts: its best leisure place, in its season
+ * by `month`, 0 = January; 1: none).
  */
-export function fareFor(world: World, from: DepotState, to: DepotState, carId: number): number {
-  // (Their plane, or their airship's tour, takes their fare.)
+export function visitorsAt(world: World, to: DepotState, month?: number): number {
+  const town = world.landscape?.towns.find((t) => t.id === to.townId);
+  return town ? visitorFactor(town, month) : 1;
+}
+
+/**
+ * What a rider from `from` to `to` pays over a plain fare as a visitor: `visitorsAt` the town they get off in, but only
+ * coming from another town. A ride within one town (a metro ride across a city, between its quarters) is no day out:
+ * else one cinema doubled the metro's income (a 1-coin fare × 1.5 rounds to 2) and its line paid back in 54 minutes,
+ * not the 114 the metro is priced for (docs/balance-2026-11-05.md).
+ */
+export function visitorsFor(world: World, from: DepotState, to: DepotState, month?: number): number {
+  return from.townId === to.townId ? 1 : visitorsAt(world, to, month);
+}
+
+/**
+ * One rider's fare from station `from` to station `to`, riding coach `carId` (in `month`, for visitors' seasons). A
+ * visitor off a plane (`from` an airport) pays `VISITOR_BONUS` times as much; one taken to an airport pays nothing here
+ * (the plane takes their fare), and so does one taken to an airship's mast (the tour takes it).
+ */
+export function fareFor(world: World, from: DepotState, to: DepotState, carId: number, month?: number): number {
   if (to.role === "airport" || to.role === "mast") return 0;
   const a = world.layout.getPiece(from.pieceId)?.pose;
   const b = world.layout.getPiece(to.pieceId)?.pose;
@@ -103,22 +138,27 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
   }
   if (from.role === "airport") fare *= VISITOR_BONUS;
+  // Getting off at a town with a leisure place, from another town: a visitor, who pays more.
+  fare *= visitorsFor(world, from, to, month);
+  if (world.economy.isLookout(to)) fare *= LOOKOUT_FARE;
   return Math.round(fare);
 }
 
 /** Someone got off: pay their fare and count them. Returns the coins paid. */
-export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number): number {
-  const fare = fareFor(world, from, to, carId);
+export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number, month?: number): number {
+  const fare = fareFor(world, from, to, carId, month);
   p.coins += fare;
   p.riders++;
+  // (Visitors counted, for the Day out sticker.)
+  if (visitorsFor(world, from, to, month) > 1) p.counts.set("visitors", (p.counts.get("visitors") ?? 0) + 1);
   return fare;
 }
 
 /** Put Game mode's passengers into the world's economy (seats and fares). */
-export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void): void {
+export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void, month?: () => number): void {
   world.economy.seatsOf = (carId) => seatsIn(world, carId);
   world.economy.onAlight = (from, to, carId) => {
-    const fare = payFare(world, p(), from, to, carId);
+    const fare = payFare(world, p(), from, to, carId, month?.());
     paid?.(fare, from, to);
   };
 }

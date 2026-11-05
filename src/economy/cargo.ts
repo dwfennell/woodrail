@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish" | "oil" | "water" | "sugar" | "jam" | "cocoa" | "chocolate" | "flowers" | "paint" | "toys" | "mail" | "post";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys", "mail", "post"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -35,7 +35,31 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   autos: { index: 17, label: "Cars" },
   // Fish, the catch the boats bring to your harbours once Fishing boats is learned: crates of fish on ice.
   fish: { index: 18, label: "Fish" },
+  // Tank wagons' goods (Tank wagons): oil from an oil well, water from a water pump by a river or lake.
+  oil: { index: 19, label: "Oil" },
+  water: { index: 20, label: "Water" },
+  // The goods chains (2026-11-04): sugar in sacks from a sugar beet field, and jam of fruit and sugar in jars;
+  sugar: { index: 21, label: "Sugar" },
+  jam: { index: 22, label: "Jam" },
+  // cocoa beans in sacks, landed by the boats at your harbours, and chocolate of cocoa and milk, in bars;
+  cocoa: { index: 23, label: "Cocoa" },
+  chocolate: { index: 24, label: "Chocolate" },
+  // flowers in crates from a flower field, paint (tins) from a dye works, and toys of planks and paint.
+  flowers: { index: 25, label: "Flowers" },
+  paint: { index: 26, label: "Paint" },
+  toys: { index: 27, label: "Toys" },
+  // The post (Post office): sacks of letters a town posts, and the post a post office sorts of them for towns. (From
+  // 30, the coordinator's range for it: 28-29 are unused.)
+  mail: { index: 30, label: "Mail" },
+  post: { index: 31, label: "Post" },
 };
+
+/**
+ * Slots for goods in arrays by snapshot index (piles, counts): one past the highest index. Not `CARGO_KINDS.length`:
+ * indices can leave gaps (each branch adding goods takes its own range), and an index never moves (saves keep piles by
+ * it). Masks of goods (`1 << index`) need every index under 32.
+ */
+export const CARGO_SLOTS = Math.max(...Object.values(CARGO).map((c) => c.index)) + 1;
 
 /**
  * One icon per kind of goods, used wherever goods are counted (tray costs, cards, needs, the journal): "30🪵 10🪨" (logs and stone).
@@ -68,6 +92,21 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   // Tech tree 3's goods (src/icons/u1F697-car, u1F41F-fish).
   autos: "🚗",
   fish: "🐟",
+  // Tank wagons' goods (src/icons/u1F6E2-oil, u1F4A7-water).
+  oil: "🛢️",
+  water: "💧",
+  // The goods chains' (src/icons/u1F36C-sugar, u1FAD9-jam, u1FAD8-cocoa, u1F36B-chocolate, u1F337-flowers,
+  // u1F3A8-paint, u1F9F8-toys).
+  sugar: "🍬",
+  jam: "🫙",
+  cocoa: "🫘",
+  chocolate: "🍫",
+  flowers: "🌷",
+  paint: "🎨",
+  toys: "🧸",
+  // The post's goods (src/icons/u2709-letter, u1F4EE-post).
+  mail: "✉️",
+  post: "📮",
 };
 
 /** Coins, beside goods in a cost. */
@@ -76,17 +115,29 @@ export const COIN_ICON = "🪙";
 /** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
 export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   // Timber wagons are flatbeds: logs, planks, iron bars, crates of fruit and stacks of bricks.
-  timber: ["log", "planks", "iron", "fruit", "bricks"],
+  // (And crates of flowers.)
+  timber: ["log", "planks", "iron", "fruit", "bricks", "flowers"],
   hopper: ["grain", "stone", "coal", "ore"],
   // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles, cheeses). Milk goes in a tank wagon.
   // Fish, in crates on ice, ride in vans or cold vans.
-  van: ["flour", "furniture", "tools", "bread", "juice", "cheese", "fish"],
+  // The goods chains': sacks of sugar and cocoa, jars of jam, boxes of chocolate, tins of paint, boxes of toys.
+  van: ["flour", "furniture", "tools", "bread", "juice", "cheese", "fish", "sugar", "jam", "cocoa", "chocolate", "paint", "toys"],
   tanker: ["milk"],
   // The cold van: cheese (which a van carries too) and, the only wagon it rides in, ice cream.
-  reefer: ["cheese", "icecream", "fish"],
+  // (Chocolate keeps best cold too.)
+  reefer: ["cheese", "icecream", "fish", "chocolate"],
   // The car carrier: two decks of new cars, the only wagon they ride in.
   carrier: ["autos"],
+  // The tank wagon: oil or water, the only wagon either rides in.
+  oiltank: ["oil", "water"],
+  // The mail van: a town's mail to the post office, and the sorted post on to towns. They ride in nothing else.
+  mailvan: ["mail", "post"],
+  // The sorting van (Sorting van): mail and post too, and it sorts its mail into post as the train runs (`SORT_SECONDS`).
+  sortvan: ["mail", "post"],
 };
+
+/** The post's goods (Post office): a town's mail and the sorted post. Only a mail van or a sorting van carries them. */
+export const POSTAL: ReadonlySet<CargoKind> = new Set(["mail", "post"]);
 
 /** Can this kind of car carry cargo (any, or this kind)? */
 export function canCarry(kind: CarKind, cargo?: CargoKind): boolean {

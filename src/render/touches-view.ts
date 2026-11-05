@@ -46,7 +46,8 @@ interface Kid {
  */
 export class TouchesView {
   readonly group = new Group();
-  private statics: Group[] = [];
+  /** The statics, a group a tile, with the key of what stands in it (`sync` builds only tiles whose key changed). */
+  private statics = new Map<number, { key: string; group: Group }>();
   private kids: Kid[] = [];
   private arms: InstancedMesh;
   private mark: Group | null = null;
@@ -76,37 +77,49 @@ export class TouchesView {
   sync(land: Landscape, key: string, levelOf: ((town: Town) => number) | null, blocked: (x: number, z: number) => boolean): boolean {
     if (key === this.builtFrom) return false;
     this.builtFrom = key;
-    for (const g of this.statics) {
-      this.group.remove(g);
-      g.traverse((o) => (o as { geometry?: BufferGeometry }).geometry?.dispose());
-    }
-    this.statics = [];
-    const tiles = new Map<number, { b: Batcher; at: { x: number; z: number }[] }>();
-    const tileOf = (x: number, z: number) => {
+    // Where each touch stands is worked out afresh (cheap: a few per town), but only the tiles whose touches moved,
+    // came or went are built again: a tree planted or a straight laid (either may block a touch) rebuilds a tile at
+    // most, not every town's (it was every one, ~130 ms at 4× on the late map with its features).
+    const tiles = new Map<number, { draw: ((b: Batcher) => void)[]; at: { x: number; z: number }[]; key: string }>();
+    const tileOf = (x: number, z: number, what: string, draw: (b: Batcher) => void) => {
       const k = tileAt(x, z);
       let t = tiles.get(k);
-      if (!t) tiles.set(k, (t = { b: new Batcher(this.mats.paint), at: [] }));
+      if (!t) tiles.set(k, (t = { draw: [], at: [], key: "" }));
       t.at.push({ x, z });
-      return t.b;
+      t.draw.push(draw);
+      t.key += `${what}@${y4(x)},${y4(z)};`;
     };
+    const y4 = (v: number) => Math.round(v * 16) / 16;
     this.spots = [];
     const waves = new Map(this.kids.map((k) => [k.townId, k.wave]));
     this.kids = [];
     for (const town of land.towns) {
       for (const spot of townTouches(land, town, levelOf ? levelOf(town) : levelBySize(town), blocked)) {
         this.spots.push(spot);
-        const put = placer(this.mats, tileOf(spot.x, spot.z), spot.x, spot.y, spot.z, spot.heading);
-        if (spot.kind === "cat") cat(put, spot.variant);
-        else if (spot.kind === "washing") washing(put, spot.variant);
-        else bench(put, spot.variant);
+        tileOf(spot.x, spot.z, `${spot.kind}${spot.variant}:${y4(spot.y)}:${y4(spot.heading)}`, (b) => {
+          const put = placer(this.mats, b, spot.x, spot.y, spot.z, spot.heading);
+          if (spot.kind === "cat") cat(put, spot.variant);
+          else if (spot.kind === "washing") washing(put, spot.variant);
+          else bench(put, spot.variant);
+        });
       }
       // (A station upgraded to a big station's kit has a platform of its own: no child there.)
       if (town.upgraded) continue;
       const k = kidSpot(town);
-      kid(placer(this.mats, tileOf(k.x, k.z), k.x, k.y, k.z, k.heading), nameHash(town.name));
+      const look = nameHash(town.name);
+      tileOf(k.x, k.z, `kid${look}:${y4(k.y)}:${y4(k.heading)}`, (b) => kid(placer(this.mats, b, k.x, k.y, k.z, k.heading), look));
       this.kids.push({ townId: town.id, ...k, wave: waves.get(town.id) ?? new Wave() });
     }
-    for (const { b, at } of tiles.values()) {
+    for (const [tile, have] of this.statics) {
+      if (tiles.get(tile)?.key === have.key) continue;
+      this.group.remove(have.group);
+      have.group.traverse((o) => (o as { geometry?: BufferGeometry }).geometry?.dispose());
+      this.statics.delete(tile);
+    }
+    for (const [tile, { draw, at, key: tileKey }] of tiles) {
+      if (this.statics.has(tile)) continue;
+      const b = new Batcher(this.mats.paint);
+      for (const d of draw) d(b);
       const g = new Group();
       b.build(g);
       g.traverse((o) => {
@@ -116,7 +129,7 @@ export class TouchesView {
       setCullBox(g, at, 40);
       g.userData.maxDistance = TOUCH_REACH;
       this.group.add(g);
-      this.statics.push(g);
+      this.statics.set(tile, { key: tileKey, group: g });
     }
     if (this.arms.instanceMatrix.count < this.kids.length) {
       this.group.remove(this.arms);

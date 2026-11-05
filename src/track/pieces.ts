@@ -66,8 +66,13 @@ export type PieceTypeId =
   | "switch-3way"
   | "crossing"
   | "crossing-45"
+  | "slip-single"
+  | "slip-double"
+  | "switch-3way-double"
   | "signal"
   | "ramp"
+  | "rack"
+  | "rack-short"
   | "riser"
   | "bridge"
   | "bridge-curve"
@@ -111,6 +116,15 @@ export type PieceTypeId =
   | "depot-icecream"
   | "depot-brickworks"
   | "depot-carworks"
+  | "depot-oilwell"
+  | "depot-waterpump"
+  | "depot-beet"
+  | "depot-jam"
+  | "depot-chocolate"
+  | "depot-flowers"
+  | "depot-dyeworks"
+  | "depot-toyworks"
+  | "depot-postoffice"
   | "depot-airport"
   | "depot-mast"
   | JoinTypeId
@@ -161,6 +175,17 @@ export interface PieceDef {
    * from every end alike (`wayAt`).
    */
   readonly cornerLevers?: boolean;
+  /**
+   * A three-way with two levers, one for each branch (the double three-way, tech-tree T3): lever k sends trains from
+   * the trunk to branch k (road k + 1) or back straight on. Its state is a plain three-way's (0 straight, 1 and 2 its
+   * branches), so it routes as one (`wayAt`); only a lever tap differs (`pairLeverState`).
+   */
+  readonly pairLevers?: boolean;
+  /**
+   * A slip (tech-tree T4): a 45° crossing whose ends may also turn onto the other line along a curve. One lever: every
+   * end straight across (0) or every end onto its curve (1). Its chevrons show every end with a choice.
+   */
+  readonly slip?: boolean;
 }
 
 /**
@@ -178,7 +203,15 @@ export function setWayAt(def: PieceDef, state: number, entry: number, option: nu
 
 /** A switch's levers: one, or one at each end (`cornerLevers`). */
 export function leverCount(def: PieceDef): number {
-  return def.cornerLevers ? def.connectors.length : 1;
+  return def.cornerLevers ? def.connectors.length : def.pairLevers ? 2 : 1;
+}
+
+/**
+ * A double three-way's state after a tap on lever `k` (`pairLevers`): its branch (road k + 1) if it isn't set to it,
+ * else straight on. One lever thrown puts the other back, so the two never fight.
+ */
+export function pairLeverState(state: number, k: number): number {
+  return state === k + 1 ? 0 : k + 1;
 }
 
 /**
@@ -288,6 +321,58 @@ const arcPath = (to: number, sweep: number): PathDef => ({
 });
 const linePath = (to: number, length: number): PathDef => ({ from: 0, to, geom: { kind: "line", start: pose(0, 0, 0), length, y0: 0, rise: 0 } });
 
+/**
+ * The curve of a slip: from one end of a 45° crossing onto the other line's far end, an eighth of a turn. It meets
+ * both ends exactly when its radius is diag / (1 − cos 45°) (about 174 mm, between the curve and the wide curve).
+ */
+export const SLIP_RADIUS = diag / (1 - Math.SQRT1_2);
+
+/**
+ * A slip: the 45° crossing (its connectors and its two straights, first), and its curves: from end 0 onto the other
+ * line's end 3, and (double) from end 2 onto end 1. Points, one lever: straight across, or onto the curves.
+ */
+function slip(type: PieceTypeId, double: boolean): PieceDef {
+  const crossing = crossing45();
+  const curves: PathDef[] = [{ from: 0, to: 3, geom: { kind: "arc", start: pose(0, 0, 0), radius: SLIP_RADIUS, sweep: CURVE_SWEEP, y0: 0, rise: 0 } }];
+  if (double) curves.push({ from: 2, to: 1, geom: { kind: "arc", start: pose(half - diag, -diag, Math.PI / 4), radius: SLIP_RADIUS, sweep: -CURVE_SWEEP, y0: 0, rise: 0 } });
+  return { ...crossing, type, paths: [...crossing.paths, ...curves], isSwitch: true, slip: true };
+}
+
+/** Two straights crossing at 45°, for lines meeting on the diagonal. */
+function crossing45(): PieceDef {
+  return {
+    type: "crossing-45",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(CROSSING_SIZE, 0, 0), y: 0 },
+      { kind: "socket", pose: pose(half - diag, -diag, Math.PI + Math.PI / 4), y: 0 },
+      { kind: "peg", pose: pose(half + diag, diag, Math.PI / 4), y: 0 },
+    ],
+    paths: [
+      { from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: CROSSING_SIZE, y0: 0, rise: 0 } },
+      { from: 2, to: 3, geom: { kind: "line", start: pose(half - diag, -diag, Math.PI / 4), length: CROSSING_SIZE, y0: 0, rise: 0 } },
+    ],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  };
+}
+
+/** A rack piece (`isRack`): straight, `length` long, rising `rise`, eased as a ramp is. */
+function rack(type: PieceTypeId, length: number, rise: number): PieceDef {
+  return {
+    type,
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(length, 0, 0), y: rise },
+    ],
+    paths: [{ from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length, y0: 0, rise } }],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  };
+}
+
 const CATALOG: Record<PieceTypeId, PieceDef> = {
   "straight-54": straight("straight-54", 54),
   "straight-108": straight("straight-108", 108),
@@ -358,20 +443,23 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     supportHeight: 0,
   },
   // Two straights crossing at 45°, for lines meeting on the diagonal.
-  "crossing-45": {
-    type: "crossing-45",
+  "crossing-45": crossing45(),
+  // Slips: a 45° crossing that can also turn, from one line onto the other (one curve, or one each way).
+  "slip-single": slip("slip-single", false),
+  "slip-double": slip("slip-double", true),
+  // A three-way with a lever for each branch: either lever sends trains its branch's way, or back straight on.
+  "switch-3way-double": {
+    type: "switch-3way-double",
     connectors: [
       { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
-      { kind: "peg", pose: pose(CROSSING_SIZE, 0, 0), y: 0 },
-      { kind: "socket", pose: pose(half - diag, -diag, Math.PI + Math.PI / 4), y: 0 },
-      { kind: "peg", pose: pose(half + diag, diag, Math.PI / 4), y: 0 },
+      { kind: "peg", pose: pose(SWITCH_LENGTH, 0, 0), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, CURVE_SWEEP), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, -CURVE_SWEEP), y: 0 },
     ],
-    paths: [
-      { from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: CROSSING_SIZE, y0: 0, rise: 0 } },
-      { from: 2, to: 3, geom: { kind: "line", start: pose(half - diag, -diag, Math.PI / 4), length: CROSSING_SIZE, y0: 0, rise: 0 } },
-    ],
-    flippable: true,
-    isSwitch: false,
+    paths: [linePath(1, SWITCH_LENGTH), arcPath(2, CURVE_SWEEP), arcPath(3, -CURVE_SWEEP)],
+    flippable: false,
+    isSwitch: true,
+    pairLevers: true,
     supportHeight: 0,
   },
   crossing: {
@@ -408,6 +496,11 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     isSwitch: false,
     supportHeight: 0,
   },
+  // A rack: a ramp so steep only a train with a rack engine climbs it (src/game/engines.ts, `Sim.mayRack`), a cog strip
+  // down its middle. Two levels up in one ramp's length (its steepest slope 1); the short one a level up in half that.
+  // Ends as a ramp's: a hole at the foot, a peg at the top; flipped, they swap (spec 2026-11-04-rail-types.md).
+  rack: rack("rack", RAMP_LENGTH, 2 * RISER_HEIGHT),
+  "rack-short": rack("rack-short", RAMP_LENGTH / 2, RISER_HEIGHT),
   riser: { type: "riser", connectors: [], paths: [], flippable: false, isSwitch: false, supportHeight: RISER_HEIGHT },
   // Bridges are track on painted arches that reach down to the ground, however high the deck is (see the landscape's
   // `bridgeLevels`): the piece's base is its deck.
@@ -592,6 +685,15 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "depot-icecream": straight("depot-icecream", 216),
   "depot-brickworks": straight("depot-brickworks", 216),
   "depot-carworks": straight("depot-carworks", 216),
+  "depot-oilwell": straight("depot-oilwell", 216),
+  "depot-waterpump": straight("depot-waterpump", 216),
+  "depot-beet": straight("depot-beet", 216),
+  "depot-jam": straight("depot-jam", 216),
+  "depot-chocolate": straight("depot-chocolate", 216),
+  "depot-flowers": straight("depot-flowers", 216),
+  "depot-dyeworks": straight("depot-dyeworks", 216),
+  "depot-toyworks": straight("depot-toyworks", 216),
+  "depot-postoffice": straight("depot-postoffice", 216),
   "depot-airport": straight("depot-airport", 216),
   "depot-mast": straight("depot-mast", 216),
 };
@@ -635,7 +737,10 @@ export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 export const isBridge = (type: PieceTypeId): boolean => type === "bridge" || type === "bridge-curve";
 
 /** Ramps up a level: the straight one, and the curved ones. Each stands on its own sloping support. */
-export const isRamp = (type: PieceTypeId): boolean => type === "ramp" || type === "ramp-curve" || type === "ramp-curve-small" || type === "ramp-curve-wide";
+export const isRamp = (type: PieceTypeId): boolean => type === "ramp" || isRack(type) || type === "ramp-curve" || type === "ramp-curve-small" || type === "ramp-curve-wide";
+
+/** A rack piece: only a train with a rack engine may run onto it, in Game mode (`Sim.mayRack`). */
+export const isRack = (type: PieceTypeId): boolean => type === "rack" || type === "rack-short";
 
 /** Pieces that stand on arches when raised: bridges always, a ramp when its low end is up off the ground. */
 export const canStandOnArches = (type: PieceTypeId): boolean => isBridge(type) || isRamp(type);
@@ -665,6 +770,8 @@ const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   "ramp",
   "tunnel-mouth",
   "tunnel-mouth-short",
+  "rack",
+  "rack-short",
   "buffer",
   "buffer-turnback",
   // Kits flipping (a buffer's skin): a single end, so a flip can only swap its peg and hole.

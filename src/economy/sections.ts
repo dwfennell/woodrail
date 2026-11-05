@@ -124,6 +124,8 @@ export interface SectionsHost {
   drive(train: Train): number;
   /** Move an engine's route on past its stops on these pieces (they can't be reached now). */
   skipStops(engine: number, pieces: ReadonlySet<number>): void;
+  /** Are these two pieces tracks of the same depot (a depot of several tracks)? A train there calls at its stop. */
+  sameDepot?(a: number, b: number): boolean;
   /** The way points lie once trains have passed (the router's default; as they lie now if not given). */
   restsAt?(pieceId: number): number;
   /**
@@ -929,7 +931,8 @@ export class Sections {
       const loop = topo.loops[sl.loop];
       const other = topo.slots[loop.roads[0] === slot ? loop.roads[1] : loop.roads[0]].pieces;
       const target = this.host.target(st.engine);
-      if (target >= 0 && other.has(target) && !sl.pieces.has(target)) this.host.skipStops(st.engine, other);
+      // (Not when this road is a track of the same depot as its stop: depot tracks. It calls there.)
+      if (target >= 0 && other.has(target) && !sl.pieces.has(target) && ![...sl.pieces].some((p) => this.host.sameDepot?.(p, target))) this.host.skipStops(st.engine, other);
     }
     st.ahead.add(front.pieceId);
     let exit = front.reversed ? path.from : (path.to ?? -1);

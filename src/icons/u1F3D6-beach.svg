@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Beach</title>
+<rect x="1" y="17" width="22" height="6" rx="1.4" fill="#e8c983"/>
+<path d="M1 17 C5 15.4 8 18.4 12 16.6 C16 15 19 18 23 16.6 L23 18.4 L1 18.4 Z" fill="#5b8fc9"/>
+<rect x="11.2" y="7" width="1.6" height="13" rx="0.6" fill="#6b4320"/>
+<path d="M2.6 9.6 C4.4 2.6 19.6 2.6 21.4 9.6 Z" fill="#7a2a1c"/>
+<path d="M3.8 8.8 C5.6 3.8 18.4 3.8 20.2 8.8 Z" fill="#c8442f"/>
+<path d="M9 8.8 C9.6 4.2 14.4 4.2 15 8.8 Z" fill="#fbf3e4"/>
+</svg>

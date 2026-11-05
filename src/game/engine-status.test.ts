@@ -249,10 +249,45 @@ describe("turning back where the track just stops", () => {
     const t = sim.findCar(engine)!.train;
     expect(t.turnback).toBe(-1);
     expect(t.speed).toBeGreaterThan(1);
-    expect(status()).toBe("Turned back: the track ends here");
+    expect(status()).toBe("Turned back: the track ends back there");
     run(sim, 6);
     expect(sim.findCar(engine)!.train.speed).toBeGreaterThan(1);
     expect(status()).toBe("Running");
+  });
+
+  it("a train on a route, running back from where the track just stops, says where it's going, not the track's end (QA 2026-11-03 #12)", () => {
+    // forest ══ sawmill ══ … ══ (the track just stops); the train past the sawmill, heading for the end, its route the
+    // forest and the sawmill.
+    const types = Array<PieceTypeId>(16).fill("straight-216");
+    types[0] = "depot-forest";
+    types[2] = "depot-sawmill";
+    const { layout, ids } = chain(types);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const forest = economy.addDepot("forest", ids[0], 0).id;
+    const mill = economy.addDepot("sawmill", ids[2], 0).id;
+    const r = sim.addTrain(["engine"], { pieceId: ids[14], pathIndex: 0, reversed: false, s: 120 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    startLine(economy, engine, [{ depotId: forest, action: "auto" }, { depotId: mill, action: "auto" }]);
+    economy.setRoute(engine, { stops: economy.routeOf(engine)!.stops, next: 1 });
+    sim.setLever(engine, 1);
+    const status = () => engineStatus(sim, economy, engine, (id) => (id === mill ? "the sawmill" : "the forest"));
+    let waiting = false;
+    for (let k = 0; k < 120 * 10 && !waiting; k++) {
+      sim.tick();
+      economy.tick();
+      waiting = (sim.findCar(engine)?.train.turnback ?? -1) >= 0;
+    }
+    expect(waiting).toBe(true);
+    // Waiting there to turn: said (Continue is offered on the card).
+    expect(status()).toBe("Turning back: the track ends here");
+    // Turned round and running back down the line: on its way, at once.
+    for (let k = 0; k < 120 * 3; k++) (sim.tick(), economy.tick());
+    const t = sim.findCar(engine)!.train;
+    expect(t.turnback).toBe(-1);
+    expect(t.speed).toBeGreaterThan(1);
+    expect(status()).toBe("On its way to the sawmill");
   });
 
   it("a buffer at the end of the line is the plain end of the line (the player's own choice)", () => {

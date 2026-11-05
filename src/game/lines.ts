@@ -1,6 +1,6 @@
 import type { Economy, Line, RouteStopDef } from "../economy";
 import { flipCursor, type Cursor } from "../sim";
-import { legFromCursor, runsLength } from "./route-path";
+import { legFromCursor, runsLength, viaLegs, type LegStop, type PathRun } from "./route-path";
 
 /**
  * Lines: a train's route with a colour and a name (see docs/superpowers/specs/2026-10-17-routes-design.md). The
@@ -352,4 +352,93 @@ export function restoreLines(economy: Economy, to: LinesSnapshot, from: LinesSna
     }
     economy.setRoute(run.engine, { stops: line.stops, next, at, ...via });
   }
+}
+
+/** Does a run of track turn back on itself here (the next run on the same path, the other way: the end of a line)? */
+function turnsBack(runs: readonly PathRun[]): boolean {
+  for (let i = 1; i < runs.length; i++) {
+    const a = runs[i - 1];
+    const b = runs[i];
+    if (a.pieceId === b.pieceId && a.pathIndex === b.pathIndex && a.s1 - a.s0 !== 0 && b.s1 - b.s0 !== 0 && Math.sign(a.s1 - a.s0) !== Math.sign(b.s1 - b.s0)) return true;
+  }
+  return false;
+}
+
+/**
+ * Is this line a ring: its trains go one way round it, lap after lap, never turning back where a line ends (an oval, or
+ * a line with a balloon loop at each end)? On one, the stops run the other way round mean the trains must turn round
+ * too, or they keep their way and go the long way round to each stop. False where a way between its stops isn't known.
+ */
+export function isRingLine(economy: Economy, stops: readonly RouteStopDef[]): boolean {
+  const layout = economy.layout;
+  const legStops: LegStop[] = [];
+  for (const st of stops) {
+    const d = economy.depot(st.depotId);
+    if (!d || !layout.getPiece(d.pieceId)) continue;
+    legStops.push({ piece: d.pieceId, ...(st.via ? { via: st.via } : {}) });
+  }
+  if (new Set(legStops.map((s) => s.piece)).size < 2) return false;
+  const legs = viaLegs(layout, legStops);
+  if (legs.some((l) => !l)) return false;
+  // (Each leg goes on the way the one before it arrives: only within a leg can it turn back. All the legs one run, for
+  // a turn at a stop's own piece end between two legs.)
+  const all = legs.flatMap((l) => l!);
+  return all.length > 0 && !turnsBack(all);
+}
+
+/** Why a train on a ring wasn't turned round, for the Lines view. */
+export type NotTurned = "derailed" | "riding" | "no-room";
+
+export interface ReversedLine {
+  /** It's a ring: its trains were to be turned round. */
+  readonly ring: boolean;
+  /** The engines turned round (now running the other way). */
+  readonly turned: readonly number[];
+  /** The engines that couldn't be, and why (they keep their way: the long way round). */
+  readonly stuck: readonly { readonly engine: number; readonly why: NotTurned; readonly by: number | null }[];
+}
+
+/**
+ * Line `id`'s stops the other way round (`reverseStops`). On a ring (`isRingLine`) its trains are lifted and turned
+ * round where they are, so they really run the other way: each heads for the stop it comes to first along its new way
+ * (one being worked at its stop stays there, and leaves the other way). One that can't be turned (off the track, on a
+ * lift, no room) keeps its way, and is listed with why. Elsewhere (a line with ends) its trains turn back at the ends as
+ * before: each keeps heading for its stop.
+ */
+export function reverseLine(economy: Economy, id: number): ReversedLine | null {
+  const line = economy.lines.get(id);
+  const engines = trainsOn(economy, id);
+  if (!line || engines.length === 0 || line.stops.length < 2) return null;
+  const ring = isRingLine(economy, line.stops);
+  editLine(economy, engines[0], reverseStops);
+  if (!ring) return { ring, turned: [], stuck: [] };
+  return { ring, ...turnTrains(economy, id, engines) };
+}
+
+/**
+ * Lift these engines' trains on line `id` and turn them round where they are (`Sim.liftAndTurn`): each then heads for
+ * the line's stop it comes to first along its new way (one being worked at its stop stays there, and leaves the other
+ * way). Those that can't be turned are listed with why. (Reverse on a ring, and its undo and redo.)
+ */
+export function turnTrains(economy: Economy, id: number, engines: readonly number[]): { turned: number[]; stuck: { engine: number; why: NotTurned; by: number | null }[] } {
+  const turned: number[] = [];
+  const stuck: { engine: number; why: NotTurned; by: number | null }[] = [];
+  const line = economy.lines.get(id);
+  if (!line) return { turned, stuck };
+  for (const engine of engines) {
+    const found = economy.sim.findCar(engine);
+    if (!found || economy.lineIdOf.get(engine) !== id) continue;
+    const r = economy.sim.liftAndTurn(found.train.id);
+    if (r.kind === "none") continue;
+    if (r.kind !== "turned") {
+      stuck.push({ engine, why: r.kind, by: r.kind === "no-room" ? r.by : null });
+      continue;
+    }
+    turned.push(engine);
+    const route = economy.routeOf(engine);
+    if (route?.at) continue;
+    const first = firstStopAhead(economy, engine, line.stops);
+    economy.setRoute(engine, { stops: line.stops, next: first === -1 ? (route?.next ?? 0) : first, at: false });
+  }
+  return { turned, stuck };
 }

@@ -1,6 +1,6 @@
 import { BufferGeometry, DoubleSide, ExtrudeGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, Path, Shape, ShapeGeometry, Vector2, Vector3, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { hillsOf, inTunnel, mayTunnel, tunnelsOn, type Landscape } from "../landscape";
+import { hillsOf, inTunnel, mayTunnel, SURF_ROAD, SURF_TOWN, tunnelsOn, type Landscape } from "../landscape";
 import { createSample, getPieceDef, isTunnelMouth, pathLength, samplePath, TRENCH_HALF, TRENCH_WALL, type Layout } from "../track";
 
 /** A tunnel's portal: where its track meets the open air, facing out along `out` (a world heading). */
@@ -125,7 +125,8 @@ export function findTunnels(layout: Layout, land: Landscape): { portals: Portal[
         for (let a = from + 4; a + DASH <= to - 2; a += DASH_EVERY) {
           const q0 = at(a);
           const q1 = at(a + DASH);
-          const y = Math.max(hills.groundAt(q0.x, q0.z), hills.groundAt(q1.x, q1.z)) + 0.5;
+          // (Over a street or a town's paving, painted on its top, not hidden under it.)
+          const y = Math.max(hills.groundAt(q0.x, q0.z), hills.groundAt(q1.x, q1.z)) + (paved(land, q0.x, q0.z) || paved(land, q1.x, q1.z) ? PAVED_LIFT : 0.5);
           dashes.push({ x0: q0.x, z0: q0.z, x1: q1.x, z1: q1.z, y });
         }
       }
@@ -238,6 +239,16 @@ export function portalGeometry(p: Portal): { frame: BufferGeometry; dark: Buffer
   frame.deleteAttribute("uv");
   dark.deleteAttribute("uv");
   return { frame, dark };
+}
+
+/** How far over the felt a dash is painted on a street or a town's paving (its top is about 4.3 up). */
+const PAVED_LIFT = 5;
+
+/** Is this point on a road, a street or a town's paving (drawn over the felt)? */
+function paved(land: Landscape, x: number, z: number): boolean {
+  const g = land.grid;
+  const i = g.cellAtWorld(x, z);
+  return i !== -1 && (g.surface[i] === SURF_ROAD || g.surface[i] === SURF_TOWN || g.road[i] !== 0);
 }
 
 /** The dashes over tunnels: flat strips on the ground, one geometry. */
