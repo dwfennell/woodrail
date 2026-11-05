@@ -1,4 +1,4 @@
-import { connectorRef, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
+import { connectorRef, isRack, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -79,6 +79,10 @@ const MAX_BLOCK = 64;
  */
 const CROSS_LOOK = 24;
 const CROSS_GAP = 4;
+/** A train that may not climb a rack stops with its nose this far (mm) short of the rack's joint. */
+const RACK_GAP = 6;
+/** A train with a rack engine runs this much slower on a rack (its cog clacking round). */
+export const RACK_SLOW = 0.5;
 /** Paths a piece may have, for keying a piece's path (`crossClaims`). */
 const MAX_PATHS = 16;
 
@@ -245,6 +249,16 @@ export class Sim {
   topSpeed: ((train: Train) => number) | null = null;
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
   quickness: ((train: Train) => number) | null = null;
+  /**
+   * Optional (Game mode): may this train run onto a rack (`isRack`: it has a rack engine)? One that may not stops short
+   * of a rack's end and waits there (`rackHeld`); one that may runs `RACK_SLOW` on it. Null: any train may (Sandbox).
+   */
+  mayRack: ((train: Train) => boolean) | null = null;
+  /** The racks on the layout, found again when its pieces change (`Layout.piecesVersion`). */
+  private racks = new Set<number>();
+  private racksVersion = -1;
+  /** The tick each train (by id) last stood short of a rack it may not climb, and that rack. */
+  private readonly rackStops = new Map<number, { tick: number; pieceId: number }>();
 
   /**
    * The signals on the layout, found again after the track or the marks change (see `trackChanged`): old signal pieces
@@ -2085,6 +2099,8 @@ export class Sim {
     let net = 0;
     for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
     let target = net === 0 ? 0 : Math.sign(net) * (this.topSpeed ? this.topSpeed(train) : ENGINE_SPEED);
+    // (A rack engine's train climbs a rack slowly, its cog clacking round.)
+    if (target !== 0 && this.mayRack !== null && this.onRack(train)) target *= RACK_SLOW;
     const cap = net !== 0 ? Math.min(this.speedCap ? this.speedCap(train) : Infinity, this.signalCap(train), this.lifts && this.lifts.length > 0 ? this.liftCap(train, true) : Infinity) : Infinity;
     if (target > cap) target = cap;
     let v = train.speed;
@@ -2101,6 +2117,8 @@ export class Sim {
     if (v > 0 && this.trains.size > 1 && hasEngine(train)) v = Math.min(v, this.followCap(train, v));
     // Coming to a crossing, or a switch, another train is on or coming onto by the other road: it stops short and waits.
     if (v > 0 && this.trains.size > 1) v = Math.min(v, this.crossCap(train, v));
+    // Coming to a rack it has no rack engine for: it stops short and waits (Game mode).
+    if (v > 0 && this.mayRack !== null) v = Math.min(v, this.rackCap(train, v));
     // (Too slow to see: standing.)
     if (v < MIN_SPEED) v = 0;
     train.speed = v;
@@ -2350,6 +2368,70 @@ export class Sim {
       c.s = 0;
     }
     return false;
+  }
+
+  /** The racks on the layout (piece ids), found again when its pieces change. */
+  private racksNow(): ReadonlySet<number> {
+    if (this.racksVersion !== this.layout.piecesVersion) {
+      this.racksVersion = this.layout.piecesVersion;
+      this.racks.clear();
+      for (const id of this.layout.pieceIds()) if (isRack(this.layout.getPiece(id)!.type)) this.racks.add(id);
+    }
+    return this.racks;
+  }
+
+  /** Is any of this train's axles on a rack? */
+  private onRack(train: Train): boolean {
+    const racks = this.racksNow();
+    if (racks.size === 0) return false;
+    for (const b of train.bogies) if (racks.has(b.pieceId)) return true;
+    return false;
+  }
+
+  /**
+   * The speed a train may run at to stop short of a rack ahead that it may not climb (`mayRack`): Infinity when it may,
+   * or there's none within its stopping distance. On one already (put down there), it goes on. A walk over the few
+   * pieces ahead, only while the layout has a rack.
+   */
+  private rackCap(train: Train, v: number): number {
+    const racks = this.racksNow();
+    if (racks.size === 0 || this.mayRack === null || this.mayRack(train)) return Infinity;
+    const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
+    const look = (v * v) / (2 * ACCELERATION) + v * SIM_DT + CROSS_LOOK + inset + RACK_GAP;
+    const c = crossAt;
+    Object.assign(c, train.bogies[0]);
+    let dist = -c.s;
+    for (let k = 0; k < MAX_BLOCK; k++) {
+      const piece = this.layout.getPiece(c.pieceId);
+      if (!piece) break;
+      if (racks.has(c.pieceId)) {
+        if (k === 0) return Infinity;
+        const room = dist - inset - RACK_GAP;
+        if (room < 0.5) {
+          this.rackStops.set(train.id, { tick: this.ticks, pieceId: c.pieceId });
+          return 0;
+        }
+        return Math.sqrt(2 * ACCELERATION * (room - 0.5));
+      }
+      const len = pathLength(getPieceDef(piece.type, piece.flipped).paths[c.pathIndex].geom);
+      dist += len;
+      if (dist - inset - RACK_GAP > look) break;
+      advanceCursor(this.layout, c, len - c.s + 0.01, null, crossAdv);
+      if (crossAdv.status !== ADV_OK) break;
+      c.s = 0;
+    }
+    return Infinity;
+  }
+
+  /** The rack a train stands short of, unable to climb it (no rack engine: `mayRack`), or −1. For its card. */
+  rackHeld(trainId: number): number {
+    const r = this.rackStops.get(trainId);
+    if (!r) return -1;
+    if (r.tick < this.ticks - 2) {
+      this.rackStops.delete(trainId);
+      return -1;
+    }
+    return r.pieceId;
   }
 
   /**

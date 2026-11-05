@@ -1,4 +1,4 @@
-import { Color, Group, MeshStandardMaterial, type Material, type Mesh, type Object3D } from "three";
+import { BoxGeometry, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, type Material, type Object3D } from "three";
 import type { CarKind, CarLook } from "../sim";
 import { TRACK_THICKNESS } from "../track";
 import { Kit } from "../catalogue/kit";
@@ -33,6 +33,32 @@ const ENGINE_BODY = "#2d6b3f";
 const ENGINE_TRIM = "#c8442f";
 const SECOND_SCHEME: Readonly<Record<string, string>> = { [ENGINE_BODY]: "#b8432f", [ENGINE_TRIM]: "#1f3f73" };
 
+/** The rack engine's colours over the tank engine's (blue and red): claret and gold. */
+const RACK_SCHEME: Readonly<Record<string, string>> = { "#2f6db5": "#7a2a3a", "#c8442f": "#d9a93a" };
+
+/** The rack engine's cog: a toothed wheel between its frames, low over the rack's strip (it turns with the wheels). */
+function rackCog(mats: Materials): Object3D {
+  const cog = new Group();
+  cog.name = "wheel_cog";
+  const metal = mats.lacquer("#2a2b2e");
+  const disc = new Mesh(new CylinderGeometry(6, 6, 5, 16), metal);
+  disc.rotation.x = Math.PI / 2;
+  cog.add(disc);
+  for (let k = 0; k < 10; k++) {
+    const tooth = new Mesh(new BoxGeometry(2.2, 3, 5), metal);
+    const a = (k / 10) * Math.PI * 2;
+    tooth.position.set(Math.cos(a) * 7, Math.sin(a) * 7, 0);
+    tooth.rotation.z = a;
+    cog.add(tooth);
+  }
+  // (Its lowest teeth just over the strip, 2.5 mm proud of the track's top.)
+  cog.position.set(0, TRACK_THICKNESS + 2.5 + 8.5, 0);
+  cog.traverse((o) => {
+    if ((o as Mesh).isMesh) (o as Mesh).castShadow = true;
+  });
+  return cog;
+}
+
 /** Colours of a car's slots (the van's body). */
 const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { body: "#2f6db5" } };
 
@@ -45,8 +71,15 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   if (kind === "crane") return codeCarModel(mats, "crane", buildBreakdownCrane, breakdownCraneBogies);
   if (kind === "carrier") return codeCarModel(mats, "carrier", buildCarCarrier, carCarrierBogies);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
-  const recolor = variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
-  const model = blenderCar(kind, look, mats, lamp, recolor, CAR_SLOTS[kind]);
+  const rack = kind === "engine" && look === "rack";
+  const recolor = rack ? RACK_SCHEME : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
+  // (The rack engine is the tank engine's model in its own colours, with a cog under it.)
+  const model = blenderCar(kind, rack ? "tank" : look, mats, lamp, recolor, CAR_SLOTS[kind]);
+  if (rack) {
+    const cog = rackCog(mats);
+    model.root.add(cog);
+    model.wheels.push(cog);
+  }
   model.root.traverse((o) => (o.userData.carKind = kind));
   if (kind === "hopper" && !loaded) hideModelledLoad(model.root);
   return model;
