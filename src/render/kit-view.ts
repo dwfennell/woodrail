@@ -120,6 +120,11 @@ export class KitView {
    * are hidden for now (a stand-in settling in their place). `force` after a model has loaded. True if anything
    * changed. One pass over the pieces (a map lookup each), and work only for the kits that changed.
    */
+  /** Kits far off drawn in their models' far versions (see `PropsView.setDetail`). */
+  setDetail(eye: Vector3, pxScale: number, moving: boolean): boolean {
+    return this.view.setDetail(eye, pxScale, moving);
+  }
+
   sync(layout: Layout, hidden: (id: number) => boolean = () => false, force = false): boolean {
     let key = "";
     const ids: number[] = [];

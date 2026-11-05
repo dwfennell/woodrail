@@ -49,6 +49,8 @@ export interface HudHandlers {
   redo(): void;
   rerailAll(): void;
   togglePause(): void;
+  /** The time control's clock (Game mode, once Clockmaker is learned): the next speed. */
+  toggleSpeed(): void;
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
@@ -264,6 +266,8 @@ export class Hud {
   private readonly undoBtn: HTMLButtonElement;
   private readonly redoBtn: HTMLButtonElement;
   private readonly pauseBtn: HTMLButtonElement;
+  /** The time control (src/game/time-scale.ts): "1×", "2×", "3×"; hidden till Clockmaker is learned. */
+  private readonly speedBtn: HTMLButtonElement;
   private readonly rerailBtn: HTMLButtonElement;
   private readonly soundBtn: HTMLButtonElement;
   private readonly engineCard = el("div", "card engine-card");
@@ -504,6 +508,8 @@ export class Hud {
     this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);
     this.redoBtn = button(uiIcon("redo"), "Redo (Ctrl+Shift+Z)", h.redo);
     this.pauseBtn = button(uiIcon("pause"), "Pause (Space)", h.togglePause);
+    this.speedBtn = button("1×", "Run faster", h.toggleSpeed, "chip speed");
+    this.speedBtn.hidden = true;
     this.rerailBtn = button("Re-rail", "Put derailed trains back on the track", h.rerailAll, "chip text attention");
     this.rerailBtn.hidden = true;
     this.soundBtn = button(uiIcon(opts.muted ? "mute" : "sound"), opts.muted ? "Sound on" : "Sound off", h.toggleSound);
@@ -517,7 +523,7 @@ export class Hud {
     this.fullBtn = button(uiIcon("fullscreen"), "Fullscreen", toggleFullscreen, "chip fullscreen-btn");
     this.fullBtn.hidden = !fullscreenAvailable();
     for (const b of [this.landBtn, this.redoBtn, this.soundBtn, this.fullBtn]) b.classList.add("wide-only");
-    actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn, this.fullBtn);
+    actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.speedBtn, this.pauseBtn, this.soundBtn, this.fullBtn);
     this.menuBtn = button(uiIcon("menu"), "Menu", () => this.toggleMenu());
     actions.append(this.menuBtn);
     top.appendChild(actions);
@@ -1709,6 +1715,17 @@ export class Hud {
     // (On a phone the bar shows Redo, beside Undo, only while there's something to redo: after an Undo, till an edit.)
     this.redoBtn.classList.toggle("can-redo", canRedo);
     this.redoItem.disabled = !canRedo;
+  }
+
+  /** The time control's clock: shown (`open`: more than 1× can be had), and the speed it's at. */
+  setSpeed(speed: number, open: boolean, next: number): void {
+    this.speedBtn.hidden = !open;
+    const label = `${speed}×`;
+    if (this.speedBtn.textContent !== label) this.speedBtn.textContent = label;
+    const title = next === 1 ? "Back to normal speed" : `Run at ${next}×`;
+    this.speedBtn.title = title;
+    this.speedBtn.setAttribute("aria-label", title);
+    this.speedBtn.classList.toggle("active", speed > 1);
   }
 
   setPaused(paused: boolean): void {

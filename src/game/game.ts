@@ -22,6 +22,7 @@ import { PlanesView, type AirportAt, type PlacePlane } from "../render/planes-vi
 import { AirshipView, type MastAt } from "../render/airship-view";
 import type { ShipPhase } from "./airship";
 import type { PlanePhase } from "./airports";
+import { SlowWatch } from "./time-scale";
 import { TurbinesView } from "../render/turbines-view";
 import type { ClockHands } from "../render/clock-hands";
 import { flatClockHands } from "../render/blender-models";
@@ -46,6 +47,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
+import { updateFarDetail } from "../render/far-detail";
 import { BIG_STATIONS, StationTouchesView } from "../render/station-touches";
 import { departures } from "./departures";
 import { routeStops } from "./route-stops";
@@ -89,6 +91,29 @@ import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlo
 const STATION_CLOCK_HANDS = "map:station-clock";
 
 const MAX_STEPS_PER_FRAME = 8;
+/** The longest step of the world a frame takes (s): a slow frame doesn't make the world jump. */
+const MAX_FRAME_DT = 0.1;
+
+/**
+ * The end-to-end tests' clock (`window.__e2eClock`, set before the game loads; never in play): a frame's step may be
+ * up to `maxDt` s (in place of `MAX_FRAME_DT`), so under a software renderer drawing about a frame a second the sim and
+ * the animations keep up with real time instead of running at a tenth of it. Ticks are the same fixed `SIM_DT` ones,
+ * just more of them a frame. See docs/agents/e2e.md, "The test clock".
+ */
+function e2eMaxDt(): number {
+  const c = (globalThis as { __e2eClock?: { maxDt?: number } }).__e2eClock;
+  return typeof c?.maxDt === "number" && c.maxDt > MAX_FRAME_DT ? Math.min(c.maxDt, 2) : MAX_FRAME_DT;
+}
+
+/**
+ * The e2e clock's `speed` (1 to 8; 1 without it): game time this many times real time, for a test that waits on game
+ * time (a lesson's study, a train's run) where nothing is being drawn and frames come quickly. A frame's step is still
+ * at most `e2eMaxDt`, so a slow frame doesn't jump the world further.
+ */
+function e2eSpeed(): number {
+  const c = (globalThis as { __e2eClock?: { speed?: number } }).__e2eClock;
+  return typeof c?.speed === "number" && c.speed > 1 ? Math.min(c.speed, 8) : 1;
+}
 /**
  * How far the camera may pull back: the same however big the land grows, so (with the view's reach: see `viewReach`)
  * only so much of the world is ever drawn.
@@ -249,6 +274,13 @@ export class Game {
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
   paused = false;
+  /**
+   * How fast the railway runs (Game mode's time control: src/game/time-scale.ts): the sim takes this many times the
+   * steps a frame. `onTooSlow`: the sim fell behind at more than 1× (a slow phone): main goes a speed slower.
+   */
+  timeScale = 1;
+  onTooSlow: (() => void) | null = null;
+  private readonly slowWatch = new SlowWatch();
   /** Seconds the world has run (it stops while paused): game time: the date (calendar.ts) and the Journal's times. */
   simSeconds = 0;
   /** Called once per frame after the simulation steps, before rendering. */
@@ -269,6 +301,11 @@ export class Game {
   private farDetail = false;
   private hemHidden = false;
   private accumulator = 0;
+  /** A frame's longest step (s), and the sim ticks it may take: `MAX_FRAME_DT`, or the e2e tests' clock (`e2eMaxDt`). */
+  readonly maxFrameDt = e2eMaxDt();
+  /** The e2e tests' clock's game time to real time (`e2eSpeed`): 1 in play. Not the player's speed (`timeScale`). */
+  private readonly e2eSpeed = e2eSpeed();
+  private readonly maxSteps = this.maxFrameDt > MAX_FRAME_DT ? Math.ceil(this.maxFrameDt / SIM_DT) + 2 : MAX_STEPS_PER_FRAME;
   private followCarId = -1;
 
   constructor(
@@ -1155,19 +1192,24 @@ export class Game {
 
   private frame(): void {
     const elapsed = this.clock.getDelta();
-    const dt = Math.min(elapsed, 0.1);
+    const dt = Math.min(elapsed * this.e2eSpeed, this.maxFrameDt);
     const t0 = performance.now();
     if (!this.paused) {
-      this.accumulator += dt;
+      this.accumulator += dt * this.timeScale;
+      // (Faster, more steps a frame: the cap grows with the speed.)
+      const cap = this.maxSteps * this.timeScale;
       let steps = 0;
-      while (this.accumulator >= SIM_DT && steps < MAX_STEPS_PER_FRAME) {
+      while (this.accumulator >= SIM_DT && steps < cap) {
         this.sim.tick();
         this.economy.tick();
         this.simSeconds += SIM_DT;
         this.accumulator -= SIM_DT;
         steps++;
       }
-      if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
+      if (steps === cap) this.accumulator = 0;
+      // At more than 1×, a phone whose sim keeps falling behind goes slower (said by main).
+      if (this.timeScale > 1 && this.slowWatch.record(steps === cap, performance.now() - t0)) this.onTooSlow?.();
+      else if (this.timeScale === 1) this.slowWatch.reset();
     }
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     // Signal marks: worked out again only when a mark, the track or an aspect changed.
@@ -1382,6 +1424,13 @@ export class Game {
       this.renderer.shadowMap.needsUpdate = false;
       this.dirty = true;
     }
+    // Far off, static meshes and props are drawn in their far versions (the same within half a millimetre, in a
+    // fraction of the triangles), where a millimetre is under half a pixel: made once the camera's moved out there. Their shadows are drawn from whichever is
+    // drawn when they're next drawn (a camera move alone doesn't redraw them).
+    const pxScale = (this.canvas.clientHeight * Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio)) / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
+    updateFarDetail(this.camera.position, pxScale, moved);
+    this.propsView.setDetail(this.camera.position, pxScale, moved);
+    this.kitView.setDetail(this.camera.position, pxScale, moved);
     this.stage.update(this.camera);
     pulseBeacons(this.mats, now);
     this.post.setFocus(dist);

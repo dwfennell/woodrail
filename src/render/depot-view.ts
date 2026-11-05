@@ -1,4 +1,6 @@
-import { Box3, BoxGeometry, ConeGeometry, CylinderGeometry, TorusGeometry, Group, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
+import { Box3, BoxGeometry, ConeGeometry, CylinderGeometry, TorusGeometry, Group, InstancedBufferAttribute, InstancedMesh, LatheGeometry, Matrix4, Mesh, Object3D, Plane, Quaternion, SphereGeometry, Vector2, Vector3, type Ray, type BufferGeometry, type Material } from "three";
+import { compact } from "./compact";
+import { useFarDetail } from "./far-detail";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
@@ -728,6 +730,7 @@ export class DepotView {
   /** Every kind's meshes and the heaps, to loop over without allocating. */
   private allUnits: UnitMeshes[] = [];
   private static readonly MAX_UNITS = 2048;
+  private static readonly START_UNITS = 32;
   /** A unit being carried by hand: one fewer is drawn at its source. */
   dragging: CargoSlot | null = null;
   /** Picking owners for wagon loads by car id, made once per car. */
@@ -950,7 +953,9 @@ export class DepotView {
   }
 
   private instanced(g: BufferGeometry, m: Material): InstancedMesh {
-    const mesh = new InstancedMesh(g, m, DepotView.MAX_UNITS);
+    // Room for a few to start with, grown as needed (`room`) up to MAX_UNITS: 58 kinds of goods and heaps with room
+    // for 2048 each were 7 MB of instance matrices on the GPU, nearly all empty.
+    const mesh = new InstancedMesh(g, m, DepotView.START_UNITS);
     mesh.count = 0;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -1245,7 +1250,7 @@ export class DepotView {
     for (const [m, list] of buckets) {
       const merged = list.length === 1 ? list[0].clone() : mergeGeometries(list);
       if (!merged) continue;
-      const mesh = new Mesh(merged, m);
+      const mesh = useFarDetail(new Mesh(compact(merged), m));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       statics.add(mesh);
@@ -1828,10 +1833,23 @@ export class DepotView {
     return out.makeTranslation(slot.x, deck + slot.y, slot.z).premultiply(car.matrixWorld);
   }
 
+  /** Is there room for one more of these units (making more, up to MAX_UNITS)? */
+  private room(u: { n: number; parts: InstancedMesh[] }): boolean {
+    if (u.n >= DepotView.MAX_UNITS) return false;
+    for (const part of u.parts) {
+      const cap = part.instanceMatrix.count;
+      if (u.n < cap) continue;
+      const grown = new Float32Array(Math.min(DepotView.MAX_UNITS, cap * 2) * 16);
+      grown.set(part.instanceMatrix.array);
+      part.instanceMatrix = new InstancedBufferAttribute(grown, 16);
+    }
+    return true;
+  }
+
   /** Draw one unit of cargo this frame. */
   private put(kind: CargoKind, m: Matrix4, owner: CargoSlot): void {
     const u = this.units[kind];
-    if (u.n >= DepotView.MAX_UNITS) return;
+    if (!this.room(u)) return;
     u.owners[u.n] = owner;
     for (const part of u.parts) part.setMatrixAt(u.n, m);
     u.n++;
@@ -1840,7 +1858,7 @@ export class DepotView {
   /** A hopper's heap (its goods' colour), in its bin, its base at `y` (car-local): one instance, no draw call of its own. */
   private putHeap(kind: HeapKind, car: Object3D, y: number, owner: CargoSlot): void {
     const u = this.heaps[kind];
-    if (u.n >= DepotView.MAX_UNITS) return;
+    if (!this.room(u)) return;
     car.updateWorldMatrix(true, false);
     _m.makeTranslation(0, y, 0).premultiply(car.matrixWorld);
     u.owners[u.n] = owner;

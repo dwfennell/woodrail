@@ -57,6 +57,14 @@
       "kind": "time",
       "max": 8.5
     },
+    "fresh.fast.mainThreadPct": {
+      "kind": "time",
+      "max": 11
+    },
+    "fresh.fast.simMs": {
+      "kind": "time",
+      "max": 4
+    },
     "fresh.frame.drawCalls": {
       "kind": "count",
       "max": 293
@@ -113,6 +121,14 @@
       "kind": "time",
       "max": 4.8
     },
+    "sandbox.fast.mainThreadPct": {
+      "kind": "time",
+      "max": 6
+    },
+    "sandbox.fast.simMs": {
+      "kind": "time",
+      "max": 10
+    },
     "sandbox.frame.drawCalls": {
       "kind": "count",
       "max": 252
@@ -140,6 +156,14 @@
     "features.idle.mainThreadPct": {
       "kind": "time",
       "max": 2.9
+    },
+    "features.fast.mainThreadPct": {
+      "kind": "time",
+      "max": 6
+    },
+    "features.fast.simMs": {
+      "kind": "time",
+      "max": 6
     },
     "features.frame.drawCalls": {
       "kind": "count",

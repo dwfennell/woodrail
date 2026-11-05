@@ -13,6 +13,8 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | `node tools/perf/compare.mjs <before.json> <after.json>` | Two runs side by side, the main measures per map with the change: for a commit message. |
 | `node tools/perf/profile-top.mjs <file.cpuprofile> [<regex>]` | The top functions of a `--profile` CPU profile, by total and self time. |
 | `node tools/perf/scene.mjs [<root>] [<map file>]` | What the scene holds to draw: its biggest meshes by triangles (instances counted), what casts shadows. Use an unminified build for names. |
+| `node tools/perf/geometry.mjs [--root <dir>] [--map late] [--json <file>]` | What the map's geometry costs: the GPU's vertex and index buffers in all (every `bufferData`), the scene's meshes by owner (`landscapeView`, `propsView`, …) ranked by triangles × instances and by buffer bytes, their index and attribute formats, copies of one geometry kept apart. For the audit below. |
+| `node tools/shots/geometry-diff.mjs --before <dir> --after <dir> [--out <dir>]` | The late map from two builds at the same seven views (390×844, DPR 2 held, paused from the start, clock fixed, trains hidden): pictures, the pixels that differ (by more than 24 and 8 of 255), a full frame's triangles each. Same build twice for the noise floor. For geometry changes that should look the same. |
 | `node tools/perf/threads.mjs [<s>]` | Which Chromium threads are busy while the game sits idle (a worker, the GPU process, audio). |
 | `node tools/perf/idle-frames.mjs`, `idle-cpu.mjs` | Older, narrower checks: frames drawn and CPU over 20 s idle; audio threads. |
 | `node tools/perf/first-download.mjs [<dist>]` | The first download: the entry script and the chunks it imports statically (what a first visit fetches before the game runs), against what loads later. `bundle.firstJsKB` in a run. |
@@ -255,3 +257,106 @@ Open ones, biggest first:
   train moves (their CPU part; the upload is now only what's placed).
 - **Idle tick**: `Game.frame` and `onFrame` cost ~1.3 ms a tick at 4× when nothing draws (~4% of the main thread),
   many small checks; nothing large left.
+
+## Geometry: the late map's audit (November 2026)
+
+Players' phones (a Pixel 10) crashed on late maps. On an emulated Pixel 10 with the late map, geometry buffers were
+about 140 MB of the 325 MB the GPU held; the aim is under about 300 MB for the renderer and GPU together.
+`node tools/perf/geometry.mjs --map late` (unminified builds of main and of claude/memory-b) lists what the geometry
+is. Main: **149–153 MB** of vertex and index buffers uploaded to the GPU after loading (it varies with what's been
+drawn), 175 MB of geometry in the scene (the same arrays are kept in the JS heap: three keeps them), 3.2 M triangles.
+Now: **42–53 MB** uploaded, 53 MB in the scene.
+
+What it was: merged static scenery (towns, stations, fields, ruins, the scenery around, the yards, props) made by
+`mergeGeometries` of parts expanded with `toNonIndexed`, so stored non-indexed, in four float attributes (44 bytes a
+vertex), and 72% of its vertices exact copies of another (a rounded box's corners, shared by its triangles). The
+props' `BatchedMesh` had grown by doubling to a million vertices for 850k used.
+
+What's done (src/render/compact.ts, far-detail.ts; the commits say more):
+
+- **Welded and quantised** (`compact`): finished merged geometry indexed (exact copies kept once, 16-bit indices where
+  the vertices fit), normals as normalised 8-bit, vertex colours as normalised 16-bit. Positions and uvs as they were.
+  Pictures: the same to the pixel at close and normal zoom.
+- **Shared**: each tree shape and hill-block shape made once for every tile's instanced draw (a dozen copies each).
+- **Hidden faces**: hill blocks without their faces straight down (on the felt, a block or under their painted top).
+- **Instance buffers sized to use**: the yards' 58 kinds of goods had room for 2048 each (7 MB of matrices).
+- **Far versions** (`far-detail.ts`): where a millimetre is under half a pixel (and back 10% nearer), towns, yards,
+  ruins, the felt, the scenery around, and props and kits are drawn in a version simplified within half a millimetre
+  of the surface and its normals (meshoptimizer's simplifier, fetched then: 55 kB). A plain mesh's far version is a
+  new index over its own vertices (on the GPU, that index alone); a prop's is copied into its batch. Made once wanted
+  on a dozen frames drawn with the camera moving (zooming out), by a worker (`far-worker.ts`: a tile's simplification
+  is a long task, and on the main thread it held up taps): nothing at load, nothing while a still or paused game sits
+  there.
+
+Pictures (`tools/shots/geometry-diff.mjs`, main vs now, the late map at 390×844 and DPR 2): pixels differing by more
+than 24 of 255 at the town close, low and normal, and the industry close and normal: 0–0.005% (max difference 5 of
+255 close up); wide (3.5 m) 0.29% and far (9 m) 0.08%, as between two runs of one build (0.29%, 0.07%: ambient motion).
+Triangles a full frame: the same close up (the blocks' undersides off: −0.5%); far, 3.21 M → 2.43 M (−24%).
+
+The tables: main → now, in the scene (instances counted; a batch's drawn instances), both at rest (nothing far).
+Formats (a group's first mesh's): `idx16`/`idx32` an index, `f32` floats, `i8n`/`u16n` normalised integers.
+
+**Top 20 by triangles × instances** (main's ranking)
+
+| # | What | Meshes / drawn | Triangles (k) | Buffers (MB) | Formats, main → now |
+|---|---|---|---|---|---|
+| 1 | hill blocks of the land around (instanced boxes) (`landscapeView/landscapeView.aroundGroup/InstancedMesh [MeshStandardMaterial]`) | 151 / 25692 | 674 → 630 | 2.5 → 1.9 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm f32 uv f32 |
+| 2 | trees, bushes, rocks (instanced) (`landscapeView/landscapeView.treeGroup/InstancedMesh [MeshPhysicalMaterial]`) | 99 / 3146 | 569 → 569 | 1.5 → 0.3 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 3 | props: town houses, landmarks (BatchedMesh, lacquer) (`propsView/props [MeshPhysicalMaterial]`) | 2 / 131 | 518 → 518 | 46.0 → 11.6 | — pos f32 nrm f32 uv f32 col f32 → idx32 pos f32 nrm i8n uv f32 col u16n |
+| 4 | track pieces (instanced, carved) (`trackView/InstancedMesh [MeshPhysicalMaterial]`) | 58 / 269 | 378 → 378 | 3.5 → 3.5 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 5 | town tiles: towns, stations, fields, waiting dolls (merged) (`landscapeView/Mesh [MeshPhysicalMaterial]`) | 20 / 20 | 332 → 332 | 52.4 → 9.5 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 6 | old industries' ruins (merged) (`ruinsView/ruins/Mesh [MeshPhysicalMaterial]`) | 6 / 6 | 144 → 144 | 18.1 → 4.1 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 7 | scenery around: its houses (merged) (`landscapeView/landscapeView.aroundGroup/Mesh [MeshPhysicalMaterial]`) | 7 / 7 | 136 → 136 | 17.1 → 6.1 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 8 | felt: ground, rivers, sand, old streets (`landscapeView/landscapeView.feltGroup/Mesh [MeshPhysicalMaterial]`) | 32 / 32 | 122 → 122 | 11.1 → 6.1 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 9 | hill blocks on the land (instanced, rounded) (`landscapeView/InstancedMesh [MeshStandardMaterial]`) | 60 / 1896 | 110 → 106 | 2.7 → 2.6 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm f32 uv f32 |
+| 10 | industries' yards (merged per tile) (`depotView/depotStatic/Mesh [MeshPhysicalMaterial]`) | 8 / 8 | 63 → 63 | 7.5 → 1.6 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm i8n uv f32 |
+| 11 | shadow stand-ins (positions only) (`landscapeView/Mesh [MeshBasicMaterial]`) | 45 / 45 | 32 → 32 | 1.9 → 1.9 | idx16 pos f32 (same) |
+| 12 | goods and heaps in yards and wagons (instanced) (`depotView/InstancedMesh [MeshPhysicalMaterial]`) | 58 / 190 | 28 → 28 | 7.2 → 0.9 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 13 | scenery around: houses' textured parts (`landscapeView/landscapeView.aroundGroup/Mesh [MeshStandardMaterial]`) | 7 / 7 | 27 → 27 | 2.4 → 0.6 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm i8n uv f32 |
+| 14 | scenery around: shadow stand-ins (`landscapeView/landscapeView.aroundGroup/Mesh [MeshBasicMaterial]`) | 10 / 10 | 15 → 15 | 0.5 → 0.2 | — pos f32 → idx16 pos f32 |
+| 15 | track: shadow casters (`trackView/kind/InstancedMesh [MeshBasicMaterial]`) | 50 / 118 | 13 → 13 | 0.2 → 0.2 | — pos f32 nrm f32 (same) |
+| 16 | towns' touches (`touches/Mesh [MeshPhysicalMaterial]`) | 5 / 5 | 10 → 10 | 1.3 → 0.3 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 17 | yards' moving machines (`depotView/depotMoving/Mesh [MeshPhysicalMaterial]`) | 47 / 47 | 10 → 10 | 0.5 → 0.5 | — pos f32 nrm f32 uv f32 (same) |
+| 18 | yards' cranes and parts (`depotView/Mesh [MeshPhysicalMaterial]`) | 58 / 58 | 9 → 9 | 0.6 → 0.6 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 19 | kits: big stations, halts (BatchedMesh) (`kitView/props/props [MeshPhysicalMaterial]`) | 2 / 2 | 9 → 9 | 4.8 → 2.1 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 20 | a timber wagon's planks (a glTF model: quantised already) (`trainView/timber-classic/mesh_71 [MeshPhysicalMaterial]`) | 3 / 3 | 7 → 7 | 0.0 → 0.0 | idx16 pos u16 nrm i8n uv f32 (same) |
+
+**Top 20 by buffer bytes** (main's ranking)
+
+| # | What | Meshes / drawn | Triangles (k) | Buffers (MB) | Formats, main → now |
+|---|---|---|---|---|---|
+| 1 | town tiles: towns, stations, fields, waiting dolls (merged) (`landscapeView/Mesh [MeshPhysicalMaterial]`) | 20 / 20 | 332 → 332 | 52.4 → 9.5 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 2 | props: town houses, landmarks (BatchedMesh, lacquer) (`propsView/props [MeshPhysicalMaterial]`) | 2 / 131 | 518 → 518 | 46.0 → 11.6 | — pos f32 nrm f32 uv f32 col f32 → idx32 pos f32 nrm i8n uv f32 col u16n |
+| 3 | old industries' ruins (merged) (`ruinsView/ruins/Mesh [MeshPhysicalMaterial]`) | 6 / 6 | 144 → 144 | 18.1 → 4.1 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 4 | scenery around: its houses (merged) (`landscapeView/landscapeView.aroundGroup/Mesh [MeshPhysicalMaterial]`) | 7 / 7 | 136 → 136 | 17.1 → 6.1 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 5 | felt: ground, rivers, sand, old streets (`landscapeView/landscapeView.feltGroup/Mesh [MeshPhysicalMaterial]`) | 32 / 32 | 122 → 122 | 11.1 → 6.1 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 6 | industries' yards (merged per tile) (`depotView/depotStatic/Mesh [MeshPhysicalMaterial]`) | 8 / 8 | 63 → 63 | 7.5 → 1.6 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm i8n uv f32 |
+| 7 | goods and heaps in yards and wagons (instanced) (`depotView/InstancedMesh [MeshPhysicalMaterial]`) | 58 / 190 | 28 → 28 | 7.2 → 0.9 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 8 | kits: big stations, halts (BatchedMesh) (`kitView/props/props [MeshPhysicalMaterial]`) | 2 / 2 | 9 → 9 | 4.8 → 2.1 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 9 | track pieces (instanced, carved) (`trackView/InstancedMesh [MeshPhysicalMaterial]`) | 58 / 269 | 378 → 378 | 3.5 → 3.5 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 10 | hill blocks on the land (instanced, rounded) (`landscapeView/InstancedMesh [MeshStandardMaterial]`) | 60 / 1896 | 110 → 106 | 2.7 → 2.6 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm f32 uv f32 |
+| 11 | hill blocks of the land around (instanced boxes) (`landscapeView/landscapeView.aroundGroup/InstancedMesh [MeshStandardMaterial]`) | 151 / 25692 | 674 → 630 | 2.5 → 1.9 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm f32 uv f32 |
+| 12 | scenery around: houses' textured parts (`landscapeView/landscapeView.aroundGroup/Mesh [MeshStandardMaterial]`) | 7 / 7 | 27 → 27 | 2.4 → 0.6 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm i8n uv f32 |
+| 13 | props' metal (BatchedMesh) (`propsView/props [MeshStandardMaterial]`) | 1 / 5 | 3 → 3 | 2.0 → 1.0 | — pos f32 nrm f32 uv f32 → idx16 pos f32 nrm i8n uv f32 |
+| 14 | shadow stand-ins (positions only) (`landscapeView/Mesh [MeshBasicMaterial]`) | 45 / 45 | 32 → 32 | 1.9 → 1.9 | idx16 pos f32 (same) |
+| 15 | trees, bushes, rocks (instanced) (`landscapeView/landscapeView.treeGroup/InstancedMesh [MeshPhysicalMaterial]`) | 99 / 3146 | 569 → 569 | 1.5 → 0.3 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 16 | towns' touches (`touches/Mesh [MeshPhysicalMaterial]`) | 5 / 5 | 10 → 10 | 1.3 → 0.3 | — pos f32 nrm f32 uv f32 col f32 → idx16 pos f32 nrm i8n uv f32 col u16n |
+| 17 | yards' cranes and parts (`depotView/Mesh [MeshPhysicalMaterial]`) | 58 / 58 | 9 → 9 | 0.6 → 0.6 | idx16 pos f32 nrm f32 uv f32 (same) |
+| 18 | yards' moving machines (`depotView/depotMoving/Mesh [MeshPhysicalMaterial]`) | 47 / 47 | 10 → 10 | 0.5 → 0.5 | — pos f32 nrm f32 uv f32 (same) |
+| 19 | scenery around: shadow stand-ins (`landscapeView/landscapeView.aroundGroup/Mesh [MeshBasicMaterial]`) | 10 / 10 | 15 → 15 | 0.5 → 0.2 | — pos f32 → idx16 pos f32 |
+| 20 | station signs and small parts (`landscapeView/Mesh [MeshStandardMaterial]`) | 10 / 10 | 4 → 4 | 0.4 → under 0.2 (out of the top 20) | idx16 pos f32 nrm f32 uv f32 → welded and quantised |
+
+What's left, biggest first:
+
+- **Hill blocks** (25,700 instanced around the land, 1,900 on it): 736k triangles, cheap in bytes (one shape each).
+  Each is a chamfered box; a far version (a plain box past a few metres) would take a third of a frame's triangles off
+  a wide view.
+- **Trees** (3,146): 569k triangles. Their far version could be the scenery's low-detail shapes (`buildTrees(…,
+  lowDetail)`, half the segments) past the far line: shared shapes, so no more memory.
+- **Track** (claude/perf-4 has its far version).
+- **Positions as floats** (12 of the 29 bytes a vertex left): a tile's merged mesh could keep them as normalised
+  16-bit about its middle (a uniform scale on the mesh: 0.04 mm steps across a 2.5 m tile), another 8 MB.
+- **Colour variants**: a catalogue house's three colour variants are three full models in the props' batch (only
+  their colours differ). A palette index per vertex and a colour per variant would keep one.
+- **The JS heap's copies**: three keeps every geometry's arrays after uploading them (raycasts, bounds, merging again).
+  The merged scenery's could be let go once uploaded where nothing reads them again.

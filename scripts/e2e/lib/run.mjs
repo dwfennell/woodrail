@@ -22,8 +22,11 @@ const suite = basename(file, ".mjs");
 // The line a gate greps for (scripts/e2e/README: `all passed$|ALL PASS|^N/N passed$|^N/N PASS`).
 const PASS_LINE = /all passed$|ALL PASS|^([0-9]+)\/\1 passed$|^([0-9]+)\/\2 PASS/i;
 
+// (E2E_PROFILE=1: the suite's Playwright calls timed by its own script's lines: lib/profile.mjs.)
+const PROFILE = process.env.E2E_PROFILE === "1" ? ` --import=${join(ROOT, "scripts/e2e/lib/profile.mjs")}` : "";
 const exec = (env = process.env) =>
   new Promise((done) => {
+    if (PROFILE) env = { ...env, NODE_OPTIONS: (env.NODE_OPTIONS ?? "") + PROFILE };
     const child = spawn(process.execPath, [file, ...args], { cwd: ROOT, env, stdio: ["inherit", "pipe", "inherit"] });
     let last = "";
     let tail = "";

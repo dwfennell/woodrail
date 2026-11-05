@@ -213,6 +213,7 @@ const CAR_DETAIL: Record<CarKind, string> = {
   crane: "Lifts a derailed train back on, or a stuck train off.",
   mailvan: "Carries towns' mail to a post office, and the post on to towns.",
   sortvan: "Sorts towns' mail into post as the train runs: no stop at the post office.",
+  cage: "The circus's lion: where it stops, the big top goes up.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
