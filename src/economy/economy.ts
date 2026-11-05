@@ -130,8 +130,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   creamery: { takes: ["milk"], gives: ["cheese"], cycle: { uses: { milk: 1 }, makes: { cheese: 1 }, seconds: 12 } },
   // An ice cream factory: milk and fruit, from two chains, make ice cream (carried only in cold vans).
   icecream: { takes: ["milk", "fruit"], gives: ["icecream"], cycle: { uses: { milk: 1, fruit: 1 }, makes: { icecream: 1 }, seconds: 12 } },
-  // A post office sorts the towns' mail into post for towns (the post: mail vans carry both).
-  postoffice: { takes: ["mail"], gives: ["post"], cycle: { uses: { mail: 1 }, makes: { post: 1 }, seconds: 6 } },
+  // A post office sorts the towns' mail into post for towns (the post: mail vans carry both). One every 10 s: two
+  // big cities' mail, so one office isn't worth 80 coins a minute (docs/balance-2026-11-05.md).
+  postoffice: { takes: ["mail"], gives: ["post"], cycle: { uses: { mail: 1 }, makes: { post: 1 }, seconds: 10 } },
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
   // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.

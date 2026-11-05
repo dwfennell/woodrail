@@ -110,6 +110,16 @@ export function visitorsAt(world: World, to: DepotState, month?: number): number
   return town ? visitorFactor(town, month) : 1;
 }
 
+/**
+ * What a rider from `from` to `to` pays over a plain fare as a visitor: `visitorsAt` the town they get off in, but only
+ * coming from another town. A ride within one town (a metro ride across a city, between its quarters) is no day out:
+ * else one cinema doubled the metro's income (a 1-coin fare × 1.5 rounds to 2) and its line paid back in 54 minutes,
+ * not the 114 the metro is priced for (docs/balance-2026-11-05.md).
+ */
+export function visitorsFor(world: World, from: DepotState, to: DepotState, month?: number): number {
+  return from.townId === to.townId ? 1 : visitorsAt(world, to, month);
+}
+
 /** One rider's fare from station `from` to station `to`, riding coach `carId` (in `month`, for visitors' seasons). */
 export function fareFor(world: World, from: DepotState, to: DepotState, carId: number, month?: number): number {
   const a = world.layout.getPiece(from.pieceId)?.pose;
@@ -121,8 +131,8 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (world.sim.lookOf(carId) === "first-class") fare *= FIRST_CLASS;
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
   }
-  // Getting off at a town with a leisure place: a visitor, who pays more.
-  fare *= visitorsAt(world, to, month);
+  // Getting off at a town with a leisure place, from another town: a visitor, who pays more.
+  fare *= visitorsFor(world, from, to, month);
   if (world.economy.isLookout(to)) fare *= LOOKOUT_FARE;
   return Math.round(fare);
 }
@@ -133,7 +143,7 @@ export function payFare(world: World, p: Progress, from: DepotState, to: DepotSt
   p.coins += fare;
   p.riders++;
   // (Visitors counted, for the Day out sticker.)
-  if (visitorsAt(world, to, month) > 1) p.counts.set("visitors", (p.counts.get("visitors") ?? 0) + 1);
+  if (visitorsFor(world, from, to, month) > 1) p.counts.set("visitors", (p.counts.get("visitors") ?? 0) + 1);
   return fare;
 }
 
