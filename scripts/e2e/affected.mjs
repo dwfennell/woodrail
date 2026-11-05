@@ -58,6 +58,7 @@ export const SUITES = {
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   crane: { script: "e2e:crane", minutes: 4 },
   rack: { script: "e2e:rack", minutes: 3 },
+  "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -76,6 +77,11 @@ export const RULES = [
   [
     ["src/sim/sim.ts", "src/sim/cars.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/game/engines.ts", "src/game/engine-status.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts", "src/ui/piece-info.ts", "src/landscape/hill-shape.ts"],
     ["rack"],
+  ],
+  // Tech tree 5: the viaduct, the lift bridge, Lift and load, the sleeper and observation car, the observatory.
+  [
+    ["src/sim/sim.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/track/constants.ts", "src/track/overlap.ts", "src/landscape/support.ts", "src/landscape/clearance.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/game/upgrades.ts", "src/game/lift-bridges.ts", "src/game/engine-status.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/kit-motions.ts", "src/render/depot-view.ts", "src/render/train-models.ts", "src/catalogue/assets/observatory.ts", "src/catalogue/assets/observation-car.ts", "src/catalogue/assets/mechanisms.ts", "src/ui/tray-catalogue.ts"],
+    ["tech-tree-5"],
   ],
   // The suites themselves, and what they share.
   ["scripts/e2e/lib/**", CORE],

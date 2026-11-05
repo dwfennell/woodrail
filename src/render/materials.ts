@@ -187,7 +187,7 @@ export function createMaterials(anisotropy: number): Materials {
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
     lacquer,
     bridgePaint: lacquer("#c8442f"),
-    viaductStone: lacquer("#cdb08c"),
+    viaductStone: lacquer("#b8b0a2"),
     scenery,
     paint,
   };

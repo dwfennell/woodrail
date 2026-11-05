@@ -35,6 +35,7 @@
     "e2e:depot-tracks": "node scripts/e2e/lib/run.mjs tools/e2e/depot-tracks.mjs",
     "e2e:tunnels": "node scripts/e2e/lib/run.mjs tools/e2e/tunnels.mjs",
     "e2e:rack": "node scripts/e2e/lib/run.mjs tools/e2e/rack.mjs",
+    "e2e:tech-tree-5": "node scripts/e2e/lib/run.mjs tools/e2e/tech-tree-5.mjs",
     "e2e:tray": "npm run build && node scripts/e2e/lib/run.mjs scripts/e2e/tray.mjs",
     "e2e:decks": "node scripts/e2e/lib/run.mjs tools/e2e/deck-taps.mjs",
     "e2e:kits": "node scripts/e2e/lib/run.mjs tools/e2e/track-props.mjs",
