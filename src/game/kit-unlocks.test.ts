@@ -15,6 +15,7 @@ const UNLOCKS: Record<string, ThingId[]> = {
   signals: ["piece:signal", "piece:kit-semaphore-signal"],
   electricity: ["piece:depot-power", "piece:kit-colour-light-signal"],
   wind: ["prop:mech-wind-turbine"],
+  radio: ["prop:mech-radio-mast"],
   junctions: ["piece:switch-3way", "piece:crossing", "piece:crossing-45", "piece:crossover", "piece:wye", "piece:double-straight", "piece:double-curve", "piece:balloon-loop", "piece:balloon-loop-small", "piece:kit-signal-gantry"],
   "engine-shed": ["piece:kit-engine-shed", "piece:kit-water-tower", "piece:kit-coal-stage", "piece:kit-water-crane", "piece:kit-coaling-crane"],
   turntable: ["piece:kit-turntable", "piece:kit-roundhouse-segment", "piece:kit-transfer-table"],
