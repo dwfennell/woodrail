@@ -678,8 +678,8 @@ describe("Open a quarry, a mine, a harbour (map sites step 3)", () => {
 
   it("come after the passing loop, the last goals; each needs its blueprint; Open a farm is where it was", () => {
     const ids = GOALS.map((g) => g.id);
-    expect(GOALS).toHaveLength(23);
-    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "give-route", "open-quarry", "open-mine", "open-harbour"]);
+    expect(GOALS).toHaveLength(25);
+    expect(ids.slice(ids.indexOf("two-trains"))).toEqual(["two-trains", "give-route", "open-quarry", "open-mine", "open-harbour", "float-goods", "ship-abroad"]);
     for (const r of ROLES) expect(goal(r.id)).toMatchObject({ title: r.title, hint: r.hint, needs: [r.bp] });
     expect(goal("open-farm")).toMatchObject({ title: "Open a farm", hint: "Restore an old farm, or build a farm yard by some fields.", needs: ["farming"] });
     expect(OPEN_INDUSTRY_GOALS).toEqual(["open-farm", "open-quarry", "open-mine", "open-harbour"]);
@@ -748,11 +748,11 @@ describe("saves from before Connect every town went (2026-11-04)", () => {
   /** Every goal of then: today's and "join-all", as a save has them (`saveGoals`: ids). */
   const THEN = [...GOALS.map((g) => g.id), "join-all"];
 
-  it("a finished game loads finished: 23 done, no current goal, nothing locked (its Stickers tab stays)", () => {
+  it("a finished game loads finished: 25 done, no current goal, nothing locked (its Stickers tab stays)", () => {
     const w = buildStarterWorld();
     const t = new GoalTracker(THEN);
     t.update(w, { learned: new Set(["switches", "farming", "quarries", "mines", "harbours", "routes", "bridges", "signals"]) });
-    expect(t.doneCount).toBe(23);
+    expect(t.doneCount).toBe(25);
     expect(t.isDone("join-all")).toBe(false);
     expect(t.current()).toBeNull();
     expect(t.lockedCount).toBe(0);
@@ -778,7 +778,7 @@ describe("Buy some land", () => {
     const ids = GOALS.map((g) => g.id);
     expect(ids.indexOf("buy-land")).toBe(ids.indexOf("join-three") + 1);
     expect(ids.indexOf("buy-land")).toBeGreaterThan(ids.indexOf("build-bridge"));
-    expect(GOALS[GOALS.length - 1].id).toBe("open-harbour");
+    expect(GOALS[GOALS.length - 1].id).toBe("ship-abroad");
     expect(goal("buy-land").title).toBe("Buy some land");
     expect(goal("buy-land").hint).toBe(BUY_LAND_HINT);
     const w = buildStarterWorld();

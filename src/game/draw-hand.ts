@@ -491,7 +491,7 @@ export class DrawHand {
       const k = i - plan.line;
       const mesh = k >= 0 && k < ghosts.length ? ghosts[k].mesh : this.pieceMesh(p);
       if (!(k >= 0 && k < ghosts.length)) g.scene.add(mesh);
-      mesh.material = [g.mats.track, g.mats.trackCut, g.mats.bridgePaint];
+      mesh.material = [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone];
       g.trackView.setHidden(id, true);
       const to = { x: p.pose.x, y: p.y, z: p.pose.z, heading: p.pose.heading };
       const from = { ...to, y: p.y + 14 };

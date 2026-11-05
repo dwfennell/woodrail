@@ -1,10 +1,11 @@
-import { getPieceDef, isKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { getPieceDef, isKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, CARGO_SLOTS, canCarry, POSTAL, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
+import type { BoatState, YardOrder } from "./boats";
 import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { Breakdown } from "./breakdown";
@@ -50,7 +51,7 @@ interface Service {
   turnAt?: number;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | "postoffice" | "airport" | "mast" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | "postoffice" | "landing" | "slip" | "boatyard" | "shipyard" | "airport" | "mast" | KitDepotRole;
 
 /** Most riders waiting in an airport's lounge for a plane (Game mode: src/game/airports.ts). Full, coaches keep them. */
 export const AIRPORT_LOUNGE = 12;
@@ -188,6 +189,16 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   // (Not the post: mail goes to a post office, the post to towns.)
   warehouse: { takes: CARGO_KINDS.filter((k) => !POSTAL.has(k)), gives: CARGO_KINDS.filter((k) => !POSTAL.has(k)), cap: 24, routedOnly: true },
+  // A river landing (Game mode's River barges, src/game/boats.ts): a warehouse with a jetty. Routed trains drop or pick
+  // up there as their stops say, and so do the barges the player routes on the river.
+  landing: { takes: CARGO_KINDS.filter((k) => !POSTAL.has(k)), gives: CARGO_KINDS.filter((k) => !POSTAL.has(k)), cap: 24, routedOnly: true },
+  // A ferry slip (Game mode's Train ferry, src/game/ferry.ts): a train routed there rides the ferry abroad and back.
+  // Nothing is craned on or off: the ferry sells its load abroad and brings goods back in its wagons.
+  slip: { takes: [], gives: [] },
+  // Yards (src/game/yards.ts): trains bring a boatyard planks and iron for tugs and barges, a shipyard iron, planks and
+  // tools for cargo ships and ferries; the yard's order uses them up.
+  boatyard: { takes: ["planks", "iron"], gives: [], cap: 24 },
+  shipyard: { takes: ["planks", "iron", "tools"], gives: [], cap: 40 },
   // Sandbox's cargo machines: an endless heap of one good, and somewhere goods vanish.
   "loader-log": { takes: [], gives: ["log"], endless: true },
   "loader-grain": { takes: [], gives: ["grain"], endless: true },
@@ -195,6 +206,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   "loader-planks": { takes: [], gives: ["planks"], endless: true },
   unloader: { takes: [...CARGO_KINDS], gives: [], sink: true },
 };
+
+/** A store: keeps goods for routed trains, its Takes set on its card (a warehouse, a river landing). */
+export const isStore = (role: DepotRole): boolean => role === "warehouse" || role === "landing";
 
 /** The piles a kind of depot keeps: what it takes and what it gives. */
 /** Most units a pile of this kind of depot holds. */
@@ -208,8 +222,12 @@ export const MAX_SHEDS = 3;
 
 /** How much each pile of this depot holds: its kind's, and its dock sheds' (a harbour's). */
 export function capAt(d: DepotState): number {
-  return capOf(d.role) + d.sheds * SHED_CAP;
+  return capOf(d.role) * (d.stack ?? 1) + d.sheds * SHED_CAP;
 }
+
+/** Lift and load (Game mode): a warehouse's piles stack this many times as high, and its crane lifts `LIFT_LOADS` a move. */
+export const LIFT_STACK = 3;
+export const LIFT_LOADS = 2;
 
 export function pilesOf(role: DepotRole): CargoKind[] {
   const r = RECIPES[role];
@@ -358,8 +376,15 @@ export interface DepotState {
   timer: number;
   /** How fast it makes things, against its recipe (an industry near fewer of its resource is slower; 0 stops it). */
   rate: number;
+  /** Its piles stack this many times as high (a warehouse with Lift and load: `LIFT_STACK`); 1 or unset otherwise. */
+  stack?: number;
   /** Where wagons stop for the crane: distance (mm) from the depot path's `from` end. */
   readonly craneAt: number;
+  /**
+   * Game mode's power (src/game/power.ts): 0, or this yard was asked to be powered, the nth ask (sparks go to yards in
+   * the order asked).
+   */
+  powerAsk: number;
   /** People waiting at a town's station for a coach (Game mode's passengers); an airport's: visitors off its planes. */
   waiting: number;
   /** Riders in an airport's lounge, waiting for a plane (at most `AIRPORT_LOUNGE`); 0 for anything else. */
@@ -386,6 +411,8 @@ export interface DepotState {
 export interface Riders {
   count: number;
   from: number;
+  /** They've been over a bridge or along a hilltop on this ride (an observation car's riders pay more: `markScenic`). */
+  scenic?: boolean;
 }
 
 export interface CarCargo {
@@ -481,6 +508,19 @@ export class Economy {
   private readonly routes = new Map<number, Route>();
   /** Lines by id (see `Line`), and the line each engine runs. */
   readonly lines = new Map<number, Line>();
+  /** The player's boats, by id (Game mode's River barges: src/game/boats.ts). */
+  readonly boats = new Map<number, BoatState>();
+  /** Loads boats have dropped at a dock other than where they picked them up (the goal "Float goods down the river"). */
+  boatDelivered = 0;
+  /** Cars whose trains are held still where they stand, whatever else says (a train on the ferry abroad). */
+  readonly held = new Set<number>();
+  /** What each yard is building (by its depot id), saved with the map: src/game/yards.ts. */
+  readonly yardOrders = new Map<number, YardOrder>();
+  /** Cargo ships and train ferries built at shipyards (they call at harbours, sail from slips). */
+  shipsBuilt = 0;
+  ferriesBuilt = 0;
+  /** Loads cargo ships have taken from harbours (the goal "Send a ship abroad"). */
+  shipLoads = 0;
   readonly lineIdOf = new Map<number, number>();
   /** Town id → plank bundles delivered there (by train or by hand). */
   readonly delivered = new Map<number, number>();
@@ -628,6 +668,13 @@ export class Economy {
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.router.waitingOn(engine),
+      // (A train with no stops goes anywhere: it gives way first.)
+      routed: (engine) => (this.routes.get(engine)?.stops.length ?? 0) > 0,
+      goal: (engine) => this.goalOf(engine, 0),
+      otherRoad: (id, by) => {
+        const t = sim.getTrain(id);
+        return !!t && this.router.giveWayRoad(t, sim.piecesUnder(by));
+      },
     });
     this.breakdown = new Breakdown(layout, sim, {
       onLine: (engine) => this.lineIdOf.has(engine),
@@ -812,7 +859,8 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, flyers: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both", keeps: Array.from({ length: CARGO_SLOTS }, () => null) };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, powerAsk: 0, craneAt: craneAt ?? len / 2, waiting: 0, flyers: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both", keeps: Array.from({ length: CARGO_SLOTS }, () => null) };
+    if (role === "warehouse" && this.liftLoad) d.stack = LIFT_STACK;
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
@@ -1192,7 +1240,17 @@ export class Economy {
   setRiders(carId: number, count: number, from: number): void {
     this.loadsVersion++;
     if (count <= 0) this.riders.delete(carId);
-    else this.riders.set(carId, { count, from });
+    else {
+      // (Riders getting off or on keep the view the coach has had: not saved, a load starts the ride's view afresh.)
+      const scenic = this.riders.get(carId)?.scenic;
+      this.riders.set(carId, scenic ? { count, from, scenic } : { count, from });
+    }
+  }
+
+  /** The people on this coach have had a view (over a bridge, along a hilltop): see `Riders.scenic`. */
+  markScenic(carId: number): void {
+    const r = this.riders.get(carId);
+    if (r && !r.scenic) r.scenic = true;
   }
 
   /**
@@ -1231,9 +1289,14 @@ export class Economy {
     return !route || this.picksAt(route, d, null);
   }
 
-  /** Is this a lookout halt's stop (`LOOKOUT_KIT`): a destination for riders from anywhere, where no one lives? */
+  /**
+   * Is this a lookout halt's stop (`LOOKOUT_KIT`), or an observatory's (`OBSERVATORY_KIT`): a destination for riders
+   * from anywhere, where no one lives?
+   */
   isLookout(d: DepotState | undefined): boolean {
-    return !!d && d.role === "town" && this.layout.getPiece(d.pieceId)?.type === LOOKOUT_KIT;
+    if (!d || d.role !== "town") return false;
+    const type = this.layout.getPiece(d.pieceId)?.type;
+    return type === LOOKOUT_KIT || type === OBSERVATORY_KIT;
   }
 
   /** Is this a metro stop's depot (`METRO_KIT`): a quarter of its town of its own? */
@@ -1286,7 +1349,7 @@ export class Economy {
     const d = this.depots[depotId];
     if (!d) return;
     // An industry giving several goods: only Gives / Doesn't give, of each good it gives (`givesChoice`).
-    if (d.role !== "warehouse" && !(givesChoice(d.role) && kind !== null && RECIPES[d.role].gives.includes(kind) && (mode === "both" || mode === "off"))) return;
+    if (!isStore(d.role) && !(givesChoice(d.role) && kind !== null && RECIPES[d.role].gives.includes(kind) && (mode === "both" || mode === "off"))) return;
     if (kind === null) d.others = mode;
     else d.modes[CARGO[kind].index] = mode;
     this.wantsStamp++;
@@ -2211,6 +2274,9 @@ export class Economy {
    * `KitStops`), whichever is lower.
    */
   private capFor(train: Train): number {
+    // Held where it stands (a train gone abroad on the ferry: src/game/ferry.ts): by any of its cars, so it stays held
+    // through turning round.
+    if (this.held.size > 0 && train.cars.some((c) => this.held.has(c.id))) return 0;
     const depot = this.depotCap(train);
     if (depot === 0) return 0;
     const kit = this.kitStops.cap(train);
@@ -2431,10 +2497,11 @@ export class Economy {
         const r = this.riders.get(s.carId);
         if (alight) {
           const from = this.depots[r!.from];
-          this.setRiders(s.carId, r!.count - 1, r!.from);
+          // (Paid while still aboard: the fare reads what the coach's riders have had, `Riders.scenic`.)
           // (At an airport they wait in its lounge for a plane.)
           if (d.role === "airport" || d.role === "mast") d.flyers++;
           if (from) this.onAlight?.(from, d, s.carId);
+          this.setRiders(s.carId, r!.count - 1, r!.from);
           this.stationNote("off", d.pieceId, s.trainId, s.carId);
         } else {
           d.waiting--;
@@ -2465,7 +2532,8 @@ export class Economy {
         s.turnAt = this.ticksRun;
       }
       // A grab crane lifts more than one load a move (while there's more to move).
-      for (let n = 0; n < this.craneLoads; n++) {
+      const loads = this.craneLoads * (this.liftLoad && d.role === "warehouse" ? LIFT_LOADS : 1);
+      for (let n = 0; n < loads; n++) {
         if (this.canUnload(d, s.carId)) {
           this.events.push({ kind: "unloaded", depotId: d.id, cargo: this.cargoOf(s.carId).kind! });
           this.unloadOne(d, s.carId);
@@ -2665,6 +2733,21 @@ export class Economy {
   wagonCapacity = WAGON_CAPACITY;
   /** Loads a crane moves at once (grab cranes: two). */
   craneLoads = 1;
+
+  /**
+   * Lift and load (Game mode): every warehouse, and any built later, stacks its goods `LIFT_STACK` high and lifts
+   * `LIFT_LOADS` times as many a crane move: two wagons' worth while the one crane works. Not saved: set again as the
+   * game's research is (`applyCranes`).
+   */
+  get warehouseLift(): boolean {
+    return this.liftLoad;
+  }
+  setWarehouseLift(on: boolean): void {
+    if (on === this.liftLoad) return;
+    this.liftLoad = on;
+    for (const d of this.depots) if (d.role === "warehouse") d.stack = on ? LIFT_STACK : 1;
+  }
+  private liftLoad = false;
   /** Units of each good made at industries, by cargo index, since this economy began (counters for Game mode). */
   readonly made = new Int32Array(CARGO_SLOTS);
   /** Loads the cranes have moved, since this economy began. */

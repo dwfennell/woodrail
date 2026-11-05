@@ -209,4 +209,8 @@ const KNOWN_WORSE: Record<string, string> = {
   "fuzz seed 127": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
   "fuzz seed 135": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
   "fuzz seed 183": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
+  // (2026-11-05, giving way, stalls.ts: on main both runs stalled (1 stop each). All hand-run, one now gives way and they
+  // run on (26 stops); routed, it's a true deadlock, said stuck as before: the hand-run train stands between the routed
+  // one and its stop at the line's end, with no room to turn there, and the siding's points trail for it.)
+  "fuzz seed 7": "a hand-run train boxed in between the routed one and its stop at the line's end: stuck, as on main",
 };

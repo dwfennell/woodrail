@@ -9,6 +9,7 @@ const FILES = {
   bldg: () => import("./assets/buildings"),
   mech: () => import("./assets/mechanisms"),
   veh: () => import("./assets/vehicles"),
+  water: () => import("./assets/water"),
   life: () => import("./assets/life"),
   scene: () => import("./assets/scenery"),
 } as const;

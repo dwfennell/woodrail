@@ -6,6 +6,11 @@ import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
+import { RiverBoatsView } from "../render/river-boats-view";
+import { FerriesView } from "../render/ferries-view";
+import { YardsView } from "../render/yards-view";
+import { Ferries } from "./ferry";
+import { Fleet, type Waters } from "./boats";
 import { AMBIENT_FRAME_MS, AMBIENT_MIN_PX, AmbientEye } from "../render/ambient";
 import { RoadVehiclesView } from "../render/road-vehicles-view";
 import { Vans } from "./vans";
@@ -17,6 +22,7 @@ import { PlanesView, type AirportAt, type PlacePlane } from "../render/planes-vi
 import { AirshipView, type MastAt } from "../render/airship-view";
 import type { ShipPhase } from "./airship";
 import type { PlanePhase } from "./airports";
+import { TurbinesView } from "../render/turbines-view";
 import type { ClockHands } from "../render/clock-hands";
 import { flatClockHands } from "../render/blender-models";
 import { STATION_CLOCK_PART } from "../render/dressing/buildings";
@@ -75,6 +81,7 @@ import { firstTrainMark, TOUCH_TRACK_CLEARANCE } from "./touches";
 import { nearTrack } from "../landscape/trees-aside";
 import { hillsOf } from "../landscape/hill-shape";
 import { TouchCamera } from "./touch-camera";
+import { setGpuOnlyEnabled } from "../render/gpu-only";
 import { liveryOf } from "./paint-shop";
 import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlot, type World } from "./world";
 
@@ -208,6 +215,14 @@ export class Game {
   readonly propLibrary: PropLibrary;
   /** Boats calling at harbours (Game mode). */
   readonly boats: BoatsView;
+  /** The player's boats (Game mode's River barges): what they do, and how they're drawn. */
+  readonly fleet = new Fleet(() => this as unknown as Waters);
+  readonly riverBoats: RiverBoatsView;
+  /** The train ferries (Game mode's Train ferry): their trips, and how they're drawn. */
+  readonly ferries = new Ferries();
+  readonly ferriesView: FerriesView;
+  /** The yards' hulls on their ways, and launches. */
+  readonly yardsView: YardsView;
   /** Road vehicles drawn (vans and buses: roads spec §3); they move in the economy's tick (`Economy.roadVehicles`). */
   readonly roadVehiclesView: RoadVehiclesView;
   /** Road vehicles' trips: their ways out and back, cached, and checked again after a road or track edit. */
@@ -227,6 +242,8 @@ export class Game {
   readonly airshipView: AirshipView;
   /** Where masts' airships are (Game mode's `Airships`, set by main): null, none. */
   shipSource: { masts(): readonly MastAt[]; phase(id: number): ShipPhase; radius: number; height: number } | null = null;
+  /** Wind turbines' rotors (see `TurbinesView`: ambient motion). */
+  readonly turbinesView: TurbinesView;
   /** The station house clock's hands (once the map's parts are loaded). */
   private stationHands: ClockHands | undefined;
   /** A prop being moved by hand: not drawn where it stood. */
@@ -269,6 +286,10 @@ export class Game {
     this.watchRoadVehicles();
     this.props = world.props;
     this.quality = detectQuality();
+    // Drawn-only geometry and generated canvases freed once uploaded (gpu-only.ts) on the mobile tier only: a phone is
+    // short of memory, and its lost context reloads anyway. A desktop keeps them, so a brief loss comes back in place.
+    // (Before any scene is built: marking happens as geometry is.)
+    setGpuOnlyEnabled(this.quality.tier === "mobile");
 
     // No MSAA on the canvas: the scene is drawn into the composer's (non-multisampled) targets, so it would only
     // multisample the final full-screen copy.
@@ -397,6 +418,8 @@ export class Game {
     this.scene.add(this.loopShow.group);
     this.clockView = new ClockView((key) => this.clockHands(key));
     this.scene.add(this.clockView.group);
+    this.turbinesView = new TurbinesView(this.propLibrary);
+    this.scene.add(this.turbinesView.group);
     this.wireClocks();
     // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
     this.propLibrary.onLoaded = (key) => {
@@ -404,11 +427,13 @@ export class Game {
       else {
         this.propsView.sync(this.shownProps(), this.hiddenProp, true);
         this.clockView.sync(this.props, this.hiddenProp, true);
+        this.turbinesView.sync(this.props, this.hiddenProp, true);
       }
       this.invalidate();
     };
     this.propsView.sync(this.shownProps());
     this.clockView.sync(this.props);
+    this.turbinesView.sync(this.props);
     this.watchHidden();
     this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
@@ -417,6 +442,12 @@ export class Game {
     this.airshipView = new AirshipView(this.mats, () => this.invalidate());
     this.scene.add(this.airshipView.group);
     this.scene.add(this.boats.group);
+    this.riverBoats = new RiverBoatsView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.riverBoats.group);
+    this.ferriesView = new FerriesView(this.propLibrary, this.mats, () => this.invalidate(), (id) => this.trainView.carObject(id));
+    this.scene.add(this.ferriesView.group);
+    this.yardsView = new YardsView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.yardsView.group);
     this.roadVehiclesView = new RoadVehiclesView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.roadVehiclesView.group);
     this.vans = new Vans(
@@ -467,6 +498,9 @@ export class Game {
     this.boats.clear();
     this.planesView.clear();
     this.airshipView.clear();
+    this.riverBoats.clear();
+    this.ferriesView.clear();
+    this.yardsView.clear();
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
@@ -481,6 +515,7 @@ export class Game {
     this.worldsSeen++;
     this.propsView.sync(this.shownProps(), -1, true);
     this.clockView.sync(this.props, -1, true);
+    this.turbinesView.sync(this.props, -1, true);
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
@@ -1235,6 +1270,15 @@ export class Game {
     // Airships touring in view (by their masts' clocks; still while paused).
     const ships = this.shipSource;
     if (ships && this.airshipView.update(ships.masts(), ships.phase, ships.radius, ships.height, this.ambientEye, this.paused)) ambient = true;
+    // The player's boats: placed by game time since the fleet's last tick (still while paused).
+    const sinceTick = Math.min(2, Math.max(0, this.simSeconds - this.fleet.tickedAt));
+    if (this.riverBoats.update(this.fleet, this.economy.boats, sinceTick, this.camera, this.ambientEye, this.layout.piecesVersion)) ambient = true;
+    // The train ferries, at their slips or out at sea (nothing to do with no slip on the map: a look at the depots).
+    if (this.ferriesView.update(this.ferries, this.economy, this.layout, this.sim, sinceTick, this.camera, this.ambientEye)) ambient = true;
+    // The yards: a hull on the ways (placed when its stage changes), a launch sliding into the water (a short flourish).
+    if (this.yardsView.update(this as unknown as Waters, this.layout.piecesVersion)) active = true;
+    // Wind turbines' rotors: turning only in view and near enough to see, never while paused.
+    if (this.turbinesView.update(dt, this.paused, this.ambientEye)) ambient = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;
@@ -1280,8 +1324,10 @@ export class Game {
     if (moved || this.woken) {
       active = true;
       // A boat moved unseen: its shadow may still be drawn where it was, now coming into view.
-      if (this.boats.shadowsStale) {
+      if (this.boats.shadowsStale || this.riverBoats.shadowsStale || this.ferriesView.shadowsStale) {
         this.boats.shadowsStale = false;
+        this.riverBoats.shadowsStale = false;
+        this.ferriesView.shadowsStale = false;
         this.shadowsMoving = true;
         this.invalidate();
       }
@@ -1583,6 +1629,7 @@ export class Game {
   propsChanged(hidden = this.hiddenProp): void {
     this.hiddenProp = hidden;
     this.clockView.sync(this.props, hidden);
+    this.turbinesView.sync(this.props, hidden);
     // Crossing props style the crossings they're on (one in the hand doesn't, for now).
     this.styleCrossings();
     if (this.propsView.sync(this.shownProps(), hidden)) this.invalidate();

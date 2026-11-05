@@ -5,9 +5,8 @@ import polygonClipping, { type Polygon } from "polygon-clipping";
 import { ADDITION, type Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import { CsgBrush, csgEvaluate } from "./csg-brush";
 import {
-  ARCH_CENTRES,
   ARCH_CROWN_DROP,
-  ARCH_RADIUS,
+  archesOf,
   createSample,
   GIRDER_PIER,
   GROOVE_SPACING,
@@ -45,6 +44,7 @@ import {
   SLOT_BODY,
   SLOT_CUT,
   SLOT_PAINT,
+  SLOT_STONE,
   SOCKET_CLEARANCE,
   sweep,
   type Frame,
@@ -66,6 +66,7 @@ function brush(g: BufferGeometry, material: Material = BODY): Brush {
 const BODY = new MeshBasicMaterial();
 const CUT = new MeshBasicMaterial();
 const PAINT = new MeshBasicMaterial();
+const STONE = new MeshBasicMaterial();
 const evaluator = new Evaluator();
 evaluator.useGroups = true;
 evaluator.attributes = ["position", "normal", "uv"];
@@ -101,13 +102,14 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
   }
   // Arch tops a spandrel below the deck; the openings reach the ground. A low viaduct's arches are smaller, so each
   // still springs a little above the ground (a full-size one would be cut off by it).
-  ARCH_CENTRES.forEach((at, i) => {
+  const arches = archesOf(def.type);
+  arches.centres.forEach((at, i) => {
     // Over a hill, an arch springs from the hilltop: its opening stops there (the viaduct's foot goes on down, hidden).
     const floor = floors ? -floors[i] * RISER_HEIGHT : -height;
     samplePath(path, len * at, p);
     const archTop = p.y - ARCH_CROWN_DROP;
     // The arch's circle reaches below its centre: stopping on a hilltop, it's small enough to stand clear of it.
-    const radius = Math.min(len * ARCH_RADIUS, archTop - floor - 4, floor > -height ? (archTop - floor) / 2 : Infinity);
+    const radius = Math.min(len * arches.radius, archTop - floor - 4, floor > -height ? (archTop - floor) / 2 : Infinity);
     // No room for an arch here (a ramp's low end, close to the ground): solid.
     if (radius < 6) return;
     const arch = onlyCsgAttributes(nonIndexed(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40)));
@@ -277,7 +279,7 @@ function slotGroups(result: Brush): BufferGeometry {
   const mats = (Array.isArray(result.material) ? result.material : [result.material]) as Material[];
   for (const group of g.groups) {
     const m = mats[group.materialIndex ?? 0];
-    group.materialIndex = m === CUT ? SLOT_CUT : m === PAINT ? SLOT_PAINT : SLOT_BODY;
+    group.materialIndex = m === CUT ? SLOT_CUT : m === PAINT ? SLOT_PAINT : m === STONE ? SLOT_STONE : SLOT_BODY;
   }
   return g;
 }
@@ -298,7 +300,8 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
   const ownSupport = isRamp(def.type) && def.paths.length === 1;
   if ((levels > 0 || ownSupport) && def.paths.length === 1 && def.type !== "underpass") {
     // Keep the viaduct's own (painted) group through the union.
-    const support = new CsgBrush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [PAINT, PAINT, PAINT]);
+    const paint = def.type === "viaduct" ? STONE : PAINT;
+    const support = new CsgBrush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [paint, paint, paint]);
     support.updateMatrixWorld();
     result = csgEvaluate(evaluator, result, support, ADDITION);
   }
