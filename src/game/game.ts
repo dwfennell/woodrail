@@ -307,7 +307,7 @@ export class Game {
       this.controls.dispatchEvent({ type: "start" });
     });
 
-    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
+    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy(), this.quality.tier === "mobile");
     this.stage = createStage(this.scene, this.renderer, this.quality);
     // The kinds of piece this railway has (carved while loading; any other kind is carved in the background, and shown
     // as a stand-in for a moment if it's wanted before its turn).

@@ -21,6 +21,11 @@ export function setGpuOnlyEnabled(on: boolean): void {
   enabled = on;
 }
 
+/** Is drawn-only geometry freed (so a lost context must be restored by reloading: see `Game.restoreInPlace`)? */
+export function gpuOnlyEnabled(): boolean {
+  return enabled;
+}
+
 /** Bytes freed so far (for the perf readout and tests). */
 export let gpuOnlyFreedBytes = 0;
 

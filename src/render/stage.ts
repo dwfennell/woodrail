@@ -90,6 +90,10 @@ export function shadowTarget(size: number): WebGLRenderTarget {
   return target;
 }
 
+/** The environment map's cube face size (px): three's default, and on the mobile tier. */
+const ENV_SIZE = 256;
+const ENV_SIZE_MOBILE = 128;
+
 /** Lights, sky and haze: the world around the toys. */
 export function createStage(scene: Scene, renderer: WebGLRenderer, quality: QualitySettings): Stage {
   installHaze();
@@ -100,11 +104,13 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   const renewEnvironment = () => {
     environment?.dispose();
     const pmrem = new PMREMGenerator(renderer);
-    environment = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    // A soft room's light (at a fifth of its strength, below): half the size on a phone, where its blur hides the
+    // difference (a 384 × 512 map, ¼ the memory). The generator's working target and shaders are freed once it's made.
+    const room = new RoomEnvironment();
+    environment = pmrem.fromScene(room, 0.04, 0.1, 100, { size: quality.tier === "mobile" ? ENV_SIZE_MOBILE : ENV_SIZE });
     scene.environment = environment.texture;
-    // (Its working target and shaders aren't needed again: 6 MB of GPU memory, a 768×1024 half-float target, kept for
-    // nothing otherwise. The environment map made is kept.)
     pmrem.dispose();
+    room.dispose();
   };
   renewEnvironment();
   scene.environmentIntensity = 0.22;

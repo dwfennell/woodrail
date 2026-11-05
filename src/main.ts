@@ -101,7 +101,7 @@ import { drawnKey, modelKey, type PropModel } from "./render/props/library";
 import { CLOCK_ASSETS } from "./render/clock-hands";
 import { renderThumbnails, renderThumbnailsAsync, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
-import { texturesMade, useTextureCache } from "./render/textures";
+import { forgetTextureCache, texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
@@ -127,6 +127,7 @@ import { CloudCard } from "./ui/cloud-card";
 import { FeedbackSheet } from "./ui/feedback-sheet";
 import { StatsCard } from "./ui/stats-card";
 import { pageStats } from "./stats/stats";
+import { gpuOnlyEnabled } from "./render/gpu-only";
 import "./style.css";
 // The icon font (style.css) loads with the game, not on the first card that shows an icon.
 void document.fonts?.load('16px "Woodrail Icons"', GOODS_ICON.planks).catch(() => undefined);
@@ -311,6 +312,8 @@ let reports: Reporter | null = null;
 
 function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>, cloudNotes: CloudNotes): void {
   const game = new Game(canvas, opening.world);
+  // With drawn-only geometry freed after upload (gpu-only.ts), a lost context can't be rebuilt in place: reload instead.
+  game.restoreInPlace = !gpuOnlyEnabled();
   // Dev builds (the dev server, or `?dev`): the train invariants checked as the game runs, a red badge when one breaks
   // (src/game/dev-checks.ts). In a production build without `?dev` they never run (8.9 KB of the bundle).
   let devChecks: { frame(): void } | null = null;
@@ -6194,6 +6197,8 @@ requestAnimationFrame(() =>
       boot(thumbs, opening, cloudNotes);
       const madeTextures = texturesMade();
       if (madeTextures) void saveCached("textures", __BUILD_ID__, madeTextures);
+      // (The game's materials are made: the pixels kept for them can go.)
+      forgetTextureCache();
     });
   }, 30),
 );

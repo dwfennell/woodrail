@@ -7,6 +7,17 @@
   const texBytes = new Map();
   const rbBytes = new Map();
   const texDims = new Map();
+  /** Which context made each object: a context lost (the loading screen's, on purpose) takes its objects with it. */
+  const owner = new Map();
+  const forget = (gl) => {
+    for (const [o, g] of owner) {
+      if (g !== gl) continue;
+      bufBytes.delete(o);
+      texBytes.delete(o);
+      rbBytes.delete(o);
+      owner.delete(o);
+    }
+  };
   const boundBuf = new WeakMap();
   const boundTex = new WeakMap();
   const boundRb = new WeakMap();
@@ -37,7 +48,14 @@
   const getContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (type, attrs) {
     const gl = getContext.call(this, type, attrs);
-    if (gl && /webgl/.test(type)) canvases.add([this, attrs?.antialias ?? true]);
+    if (gl && /webgl/.test(type) && ![...canvases].some(([c]) => c === this)) {
+      const entry = [this, attrs?.antialias ?? true];
+      canvases.add(entry);
+      this.addEventListener("webglcontextlost", () => {
+        forget(gl);
+        canvases.delete(entry);
+      });
+    }
     return gl;
   };
   for (const C of [window.WebGL2RenderingContext, window.WebGLRenderingContext]) {
@@ -66,6 +84,7 @@
       const b = ctxMap(boundBuf, this).get(t);
       if (!b) return;
       bufBytes.set(b, typeof d === "number" ? d : (d?.byteLength ?? 0));
+      owner.set(b, this);
     });
     wrap("deleteBuffer", function ([b]) {
       bufBytes.delete(b);
@@ -98,6 +117,7 @@
       if (!Array.isArray(lv)) texBytes.set(tx, (lv = []));
       const face = a[0] !== t ? a[0] - 0x8515 : 0;
       lv[level * 6 + face] = w * h * BPP(fmt);
+      owner.set(tx, this);
       if (level === 0) texDims.set(tx, [w, h, fmt, "2d"]);
     });
     wrap("texStorage2D", function ([t, levels, fmt, w, h]) {
@@ -106,12 +126,14 @@
       let s = 0;
       for (let l = 0; l < levels; l++) s += Math.max(1, w >> l) * Math.max(1, h >> l) * BPP(fmt);
       texBytes.set(tx, s * (t === 0x8513 ? 6 : 1));
+      owner.set(tx, this);
       texDims.set(tx, [w, h, fmt, `storage ${levels}`]);
     });
     wrap("texImage3D", function (a) {
       const tx = tex(this, a[0]);
       if (!tx) return;
       texBytes.set(tx, a[3] * a[4] * a[5] * BPP(a[2]));
+      owner.set(tx, this);
       texDims.set(tx, [a[3], a[4], a[2], `3d ${a[5]}`]);
     });
     wrap("texStorage3D", function ([t, levels, fmt, w, h, d]) {
@@ -120,6 +142,7 @@
       let s = 0;
       for (let l = 0; l < levels; l++) s += Math.max(1, w >> l) * Math.max(1, h >> l) * d * BPP(fmt);
       texBytes.set(tx, s);
+      owner.set(tx, this);
       texDims.set(tx, [w, h, fmt, `storage3d ${levels}x${d}`]);
     });
     wrap("generateMipmap", function ([t]) {
@@ -136,10 +159,12 @@
     wrap("renderbufferStorage", function ([, fmt, w, h]) {
       const rb = boundRb.get(this);
       if (rb) rbBytes.set(rb, w * h * BPP(fmt));
+      if (rb) owner.set(rb, this);
     });
     wrap("renderbufferStorageMultisample", function ([, samples, fmt, w, h]) {
       const rb = boundRb.get(this);
       if (rb) rbBytes.set(rb, w * h * BPP(fmt) * Math.max(1, samples));
+      if (rb) owner.set(rb, this);
     });
     wrap("deleteRenderbuffer", function ([rb]) {
       rbBytes.delete(rb);
