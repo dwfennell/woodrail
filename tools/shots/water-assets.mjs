@@ -141,4 +141,20 @@ export default {
     await caption(p, "Train ferry at its slip: track on deck for an engine and two wagons, a hinged ramp on chains, dolphins to tie up to");
     await shot("water-asset-ferry.jpg");
   },
+  async ship(p, shot) {
+    // The cargo ship close up, three-quarter view, out at sea (needs "sea" first). SHIP=before|after names it.
+    await clean(p);
+    const ok = await p.evaluate(async () => {
+      if (!window.__shore) return false;
+      const { x, z } = window.__shore;
+      await window.__add("water-cargo-ship", x - 400, z + 260, 0.3, null);
+      window.__look(x - 410, z + 260, 1000, 0.95, 0.6);
+      return true;
+    });
+    if (!ok) return;
+    await settle(p);
+    const which = process.env.SHIP ?? "after";
+    await caption(p, which === "before" ? "Before: containers perched on a flat deck" : "After: raised sides and a hold the containers sit down into");
+    await shot(`water-ship-${which}.jpg`);
+  },
 };

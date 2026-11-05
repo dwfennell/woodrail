@@ -200,31 +200,52 @@ function barge(k: Kit, load: BargeLoad): Group {
 const SHIP_LEN = 240;
 const SHIP_W = 56;
 
+/** The cargo ship's hold: where its containers sit, between raised sides (x from the bridge to the forecastle). */
+const HOLD_AFT = -76;
+const HOLD_FORE = 96;
+/** How high the ship's sides stand above its deck: the bottom tier of containers sits down inside them. */
+const SIDES = 13;
+
 function cargoShip(k: Kit): Group {
-  const deck = 16.4;
+  const deck = 14.4;
+  const holdLen = HOLD_FORE - HOLD_AFT;
+  const holdMid = (HOLD_AFT + HOLD_FORE) / 2;
+  const side = SHIP_W / 2 - 2.5;
   const boat = pivot(
     "boat",
     0,
     0,
     0,
-    hull(k, SHIP_LEN, SHIP_W, 16, NAVY, TOY.red, 1),
+    hull(k, SHIP_LEN, SHIP_W, 14, NAVY, TOY.red, 1),
+    // The hold: a dark floor between raised navy sides, capped in white, and a raised forecastle at the bow that
+    // closes it in front, so the containers stand down in the ship rather than on a flat deck.
+    flat(k, k.cut, hullOutline(holdLen, SHIP_W - 8, 0), 0.8, deck),
+    k.box(k.paint(NAVY), holdLen + 8, SIDES, 5, 1, holdMid, deck, -side),
+    k.box(k.paint(NAVY), holdLen + 8, SIDES, 5, 1, holdMid, deck, side),
+    k.box(k.paint(TOY.white), holdLen + 8, 2, 6, 0.8, holdMid, deck + SIDES, -side),
+    k.box(k.paint(TOY.white), holdLen + 8, 2, 6, 0.8, holdMid, deck + SIDES, side),
+    flat(k, k.paint(NAVY), hullOutline(SHIP_LEN / 2 - HOLD_FORE, SHIP_W - 14, 1.4), SIDES, deck, (HOLD_FORE + SHIP_LEN / 2) / 2 - 2, 0),
+    flat(k, k.wood, hullOutline(SHIP_LEN / 2 - HOLD_FORE - 4, SHIP_W - 20, 1.4), 1, deck + SIDES, (HOLD_FORE + SHIP_LEN / 2) / 2 - 2, 0),
+    k.box(k.paint(TOY.white), 4, SIDES + 2, SHIP_W - 8, 1, HOLD_FORE + 2, deck),
     // The bridge at the stern: two white storeys, a window band, the funnel behind.
-    k.box(k.paint(TOY.white), 30, 16, 48, 2.5, -94, deck),
-    k.box(k.paint(TOY.white), 24, 12, 44, 2.5, -94, deck + 16),
-    k.box(k.glass, 24.6, 4.4, 44.6, 0.8, -94, deck + 22),
-    k.box(k.paint(TOY.white), 8, 2, 56, 0.6, -88, deck + 28),
-    k.cyl(k.paint(TOY.orange), 6, 20, -110, deck + 10, 0, 5.4, 18),
-    k.cyl(k.paint(TOY.black), 5.6, 4, -110, deck + 30, 0, 5.6, 18),
-    // A mast at the bow.
-    k.cyl(k.wood, 1.4, 30, 100, deck, 0, 1.2, 10),
-    k.ball(k.paint(TOY.yellow), 2.4, 100, deck + 31, 0),
+    k.box(k.paint(TOY.white), 30, 22, 50, 2.5, -94, deck),
+    k.box(k.paint(TOY.white), 24, 12, 44, 2.5, -94, deck + 22),
+    k.box(k.glass, 24.6, 4.4, 44.6, 0.8, -94, deck + 28),
+    k.box(k.paint(TOY.white), 8, 2, 56, 0.6, -88, deck + 34),
+    k.cyl(k.paint(TOY.orange), 6, 22, -110, deck + 14, 0, 5.4, 18),
+    k.cyl(k.paint(TOY.black), 5.6, 4, -110, deck + 36, 0, 5.6, 18),
+    // A mast on the forecastle.
+    k.cyl(k.wood, 1.4, 26, 106, deck + SIDES, 0, 1.2, 10),
+    k.ball(k.paint(TOY.yellow), 2.4, 106, deck + SIDES + 27, 0),
   );
+  // Cell guides: posts up the inside of the sides between the bays, which the containers slot between.
+  for (let col = 0; col <= 6; col++) for (const s of [-1, 1]) boat.add(k.box(k.paint(TOY.white), 2, SIDES + 6, 2, 0.4, -72 + col * 28, deck, s * (side - 3.4)));
   const colours = [TOY.red, TOY.blue, TOY.yellow, TOY.green, TOY.orange, TOY.teal, TOY.purple, TOY.white];
   let c = 0;
   for (let col = 0; col < 6; col++) {
     for (const z of [-13, 0, 13]) {
-      const layers = col === 5 ? 1 : 2 + ((col + Math.round(z)) & 1);
-      for (let l = 0; l < layers; l++) boat.add(k.box(k.paint(colours[c++ % colours.length]), 26, 11, 12, 1, -58 + col * 28, deck + l * 11.4, z));
+      const layers = 2 + ((col + Math.round(z)) & 1);
+      for (let l = 0; l < layers; l++) boat.add(k.box(k.paint(colours[c++ % colours.length]), 25, 11, 12, 1, -58 + col * 28, deck + 0.8 + l * 11.4, z));
     }
   }
   return k.group(boatFelt(k, SHIP_LEN, SHIP_W, 1, 140), boat);
