@@ -166,6 +166,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card.group .card-row { flex-wrap: wrap; justify-content: center; }
 .piece-card.group .card-title::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #ffe07a; box-shadow: 0 0 0 2px #e0a93a; margin-right: 8px; vertical-align: 1px; }
 .depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
+/* A good and the wagon that carries it, kept together on a line ("🪨 Stone 3/12 🚃 Hopper"): the wagon smaller, quieter. */
+.depot-good { white-space: nowrap; }
+.depot-wagon { font-size: 12px; font-weight: 700; color: #94704c; }
+/* A train standing here with the wrong wagons: what it needs, on its own line. */
+.depot-needs { display: block; margin-top: 2px; color: #a35a00; font-size: 13px; }
 /* A school with nothing to research: its line in amber, and a button for the picker. */
 .depot-stock.idle { color: #a35a00; }
 /* Sandbox's chain hints on an industry's card: how it's doing (a pill), then a row per good in and out, each with a
@@ -890,6 +895,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ledger-goods { display: flex; flex-direction: column; gap: 6px; }
 .ledger-good { display: grid; grid-template-columns: 96px minmax(0, 1fr) 58px; align-items: center; gap: 10px; font-size: 14px; font-weight: 800; }
 .ledger-good-count { text-align: right; font-variant-numeric: tabular-nums; }
+/* A good's bar, and under it the wagon that brings it ("🚃 Flatbed"), small. */
+.ledger-good-mid { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ledger-good-wagon { font-size: 11px; line-height: 12px; font-weight: 700; color: #94704c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ledger-good.done .ledger-fill { background: #6aa84f; }
 .ledger-good.done .ledger-good-count { color: #3f7a2c; }
 .ledger-holding { margin: 0; padding: 8px 10px; border-radius: 10px; background: #fbe7cf; font-size: 13px; line-height: 1.4; font-weight: 800; color: #7a3d10; }

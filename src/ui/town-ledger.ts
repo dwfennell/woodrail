@@ -64,7 +64,11 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
     const f = el("div", "ledger-fill");
     f.style.width = `${Math.round((100 * g.have) / Math.max(1, g.need))}%`;
     bar.append(f);
-    r.append(el("span", "ledger-good-name", `${g.icon} ${g.label}`), bar, el("span", "ledger-good-count", done ? `${g.have}/${g.need} ✓` : `${g.have}/${g.need}`));
+    // (Its bar over the wagon that brings it, small: "🚃 Flatbed". In the bar's column, so the row is hardly taller.)
+    const mid = el("span", "ledger-good-mid");
+    mid.append(bar);
+    if (g.wagon) mid.append(el("span", "ledger-good-wagon", g.wagon));
+    r.append(el("span", "ledger-good-name", `${g.icon} ${g.label}`), mid, el("span", "ledger-good-count", done ? `${g.have}/${g.need} ✓` : `${g.have}/${g.need}`));
     goods.append(r);
   }
   main.append(goods);

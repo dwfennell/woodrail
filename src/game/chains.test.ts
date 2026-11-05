@@ -89,7 +89,7 @@ describe("chains: what an industry makes, where its goods come from and go", () 
 
   it("which industry makes a good, and which wagon carries it", () => {
     expect([makerOf("log"), makerOf("planks"), makerOf("flour"), makerOf("milk"), makerOf("iron")]).toEqual(["Harvester", "Sawmill", "Mill", "Dairy farm", "Foundry"]);
-    expect([wagonFor("log"), wagonFor("grain"), wagonFor("bread"), wagonFor("milk")]).toEqual(["a flatbed wagon", "a hopper", "a goods van", "a milk tank wagon"]);
+    expect([wagonFor("log"), wagonFor("grain"), wagonFor("bread"), wagonFor("milk")]).toEqual(["a flatbed", "a hopper", "a goods van", "a milk tank"]);
   });
 
   it("held to place: gold rings on what makes its goods, green on what takes them", () => {
@@ -141,15 +141,27 @@ describe("a train beside goods it won't load (the engine card, Sandbox's chain h
   }
   const at = (w: World) => (id: number) => w.economy.depotAtPiece(id);
 
-  it("coaches at the forest: its logs go on a flatbed wagon", () => {
+  it("coaches at the forest: they need a flatbed for its logs", () => {
     const { w, forest, t, engine } = atForest(["engine", "passenger"]);
     const h = loadHint(t, at(w), null)!;
     expect([h.depot, h.kind, h.why]).toEqual([forest, "log", "wagon"]);
-    expect(loadHintText(h, "the forest yard")).toBe("The forest yard's logs go on a flatbed wagon: add one to this train");
+    expect(loadHintText(h, "the forest yard")).toBe("Needs a flatbed for logs: add one to this train");
     // On the engine card with the hints on (Sandbox), and not with them off (Game mode's words unchanged).
     w.sim.setLever(engine, 0);
-    expect(engineView(w.sim, w.economy, engine, () => "the forest yard", null, () => "", true).status).toBe("The forest yard's logs go on a flatbed wagon: add one to this train");
+    expect(engineView(w.sim, w.economy, engine, () => "the forest yard", null, () => "", true).status).toBe("Needs a flatbed for logs: add one to this train");
     expect(engineView(w.sim, w.economy, engine, () => "the forest yard").status).not.toMatch(/flatbed/);
+  });
+
+  it("Game mode too: a goods train standing at a place with the wrong wagons is told what it needs", () => {
+    // (The player's case: a train of flatbeds at a quarry, "Stone 3/12", nothing happening. Here hoppers at a forest.)
+    const { w, engine } = atForest(["engine", "hopper"]);
+    w.sim.setLever(engine, 0);
+    expect(engineView(w.sim, w.economy, engine, () => "the forest yard").status).toBe("Needs a flatbed for logs: add one to this train");
+    // Running through, it isn't stopped to be told.
+    w.sim.setLever(engine, 1);
+    for (let i = 0; i < 30; i++) w.sim.tick();
+    const running = engineView(w.sim, w.economy, engine, () => "the forest yard").status;
+    if (w.sim.findCar(engine)!.train.speed > 1) expect(running).not.toMatch(/Needs a/);
   });
 
   it("a flatbed: nothing to say; routed with no stop there: not picking up logs", () => {

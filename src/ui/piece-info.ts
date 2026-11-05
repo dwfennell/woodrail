@@ -1,4 +1,5 @@
-import { CARGO, CARRIES, type CargoKind } from "../economy/cargo";
+import { CARGO, CARRIES, GOODS_ICON, type CargoKind } from "../economy/cargo";
+import { carriesLine } from "../economy/wagons";
 import { RECIPES, type DepotRole } from "../economy/economy";
 import type { Bag } from "../economy/goods";
 import { ENGINES, type EngineKind } from "../game/engines";
@@ -241,9 +242,9 @@ export function trayInfo(item: TrayItem): ItemInfo {
       const look = item.looks?.[0] ?? "classic";
       if (kind === "engine") return p(item.label, engineDetail(look));
       const carries = CARRIES[kind];
-      // (A van carries a dozen goods since the goods chains: too long to list, it names a few.)
-      if (carries && carries.length > 7) return p(item.label, `Carries sacks and crates: ${listed([...carries.slice(0, 3).map((c) => CARGO[c].label.toLowerCase()), "more"])}.`);
-      if (carries) return p(item.label, `Carries ${listed(carries.map((c) => CARGO[c].label.toLowerCase()))}.`);
+      // What it carries, every good with its icon (the player asked which wagon a quarry's stone needs: the tray says
+      // it too, all of a goods van's dozen, not "and more").
+      if (carries) return p(item.label, carriesDetail(kind));
       return p(item.label, LOOK_DETAIL[look] ?? CAR_DETAIL[kind]);
     }
     case "road":
@@ -297,8 +298,33 @@ export function recipeWords(role: DepotRole): string {
   return `Makes ${makes}${uses ? ` from ${uses}` : ""} · every ${c.seconds} s`;
 }
 
+/**
+ * A wagon's line of what it carries: every good, its icon and name, when that fits a detail ("Carries 🌾 grain, 🪨
+ * stone, ⚫ coal, ⛏️ ore."); else their icons ("Carries 🪵  🔩 🍎 🧱 🌷."), the names on its place card
+ * (`carriesFacts`).
+ */
+function carriesDetail(kind: CarKind): string {
+  const full = `Carries ${carriesLine(kind)}.`;
+  return full.length <= DETAIL_MAX ? full : `Carries ${(CARRIES[kind] ?? []).map((k) => GOODS_ICON[k]).join(" ")}.`;
+}
+
+/** A wagon whose detail is only icons: its goods by name, with icons, in lines that fit (its place card's facts). */
+function carriesFacts(kind: CarKind): string[] {
+  if (`Carries ${carriesLine(kind)}.`.length <= DETAIL_MAX) return [];
+  const lines: string[] = [];
+  for (const k of CARRIES[kind] ?? []) {
+    const word = `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`;
+    const last = lines.length - 1;
+    if (last >= 0 && `${lines[last]}, ${word}`.length <= DETAIL_MAX) lines[last] = `${lines[last]}, ${word}`;
+    else lines.push(word);
+  }
+  return lines;
+}
+
 export function placeCardInfo(item: TrayItem): PlaceCardInfo {
   const info = trayInfo(item);
+  // A wagon: every good it carries, by name (its detail may have room only for their icons).
+  if (item.kind === "train" && item.cars.length === 1 && CARRIES[item.cars[0]]) return { ...info, facts: carriesFacts(item.cars[0]) };
   if (item.kind === "train" && item.cars.length === 1 && item.cars[0] === "engine") {
     const e = ENGINES[item.looks?.[0] ?? "classic"] ?? ENGINES.classic!;
     const stat = engineKeyStat(e);

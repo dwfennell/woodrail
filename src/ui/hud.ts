@@ -335,6 +335,8 @@ export class Hud {
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
   private readonly depotStock = el("div", "depot-stock");
+  /** What the depot card's goods line last drew (`updateDepotCard`). */
+  private depotStockKey = "";
   /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
   private readonly depotHelp = el("div", "card-hint depot-help");
   /** What the crane's toggles do now, in words (their tooltips never show on a phone). */
@@ -2354,9 +2356,36 @@ export class Hud {
    * where it doesn't apply (a depot that gives nothing). `idle`: a school with nothing to research (its line in amber,
    * and a button for the picker).
    */
-  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = "", idle = false, help = ""): void {
-    const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
-    if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
+  updateDepotCard(piles: { label: string; count: number; cap: number; wagon?: string }[], auto: boolean, waitFull: boolean | null, note = "", idle = false, help = "", warn = ""): void {
+    // Each good with the wagon that carries it ("🪨 Stone 3/12 · 🚃 Hopper"), kept together on a line; then the note,
+    // and (a train standing here with the wrong wagons) what it needs, in amber. Redrawn only when the words change.
+    const key = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}|${p.wagon ?? ""}`), note, warn].join("\u0001");
+    if (this.depotStockKey !== key) {
+      this.depotStockKey = key;
+      const parts: Node[] = [];
+      const sep = () => parts.push(document.createTextNode("   ·   "));
+      for (const p of piles) {
+        if (parts.length) sep();
+        const good = el("span", "depot-good");
+        good.textContent = `${p.label} ${p.count}/${p.cap}`;
+        if (p.wagon) {
+          const w = el("span", "depot-wagon");
+          w.textContent = p.wagon;
+          good.append(" ", w);
+        }
+        parts.push(good);
+      }
+      if (note) {
+        if (parts.length) sep();
+        parts.push(document.createTextNode(note));
+      }
+      if (warn) {
+        const n = el("span", "depot-needs");
+        n.textContent = warn;
+        parts.push(n);
+      }
+      this.depotStock.replaceChildren(...parts);
+    }
     if (this.depotHelp.textContent !== help) this.depotHelp.textContent = help;
     this.depotHelp.hidden = !help;
     this.depotStock.classList.toggle("idle", idle);

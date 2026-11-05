@@ -3,7 +3,7 @@
 // workshop or school); a Harvester and a Sawmill dragged out of the tray by touch, gold and green rings round their
 // suppliers and customers while each is held; track laid forest → sawmill → town; the sawmill's card says it's waiting
 // for logs, where logs come from (Show frames that place) and where planks go, and chevrons on the map join them; a
-// train of coaches at the forest says its logs need a flatbed wagon; a flatbed train with stops forest → sawmill → town
+// train of coaches at the forest says it needs a flatbed for its logs; a flatbed train with stops forest → sawmill → town
 // (planned by taps) carries logs in and planks out to the town; a bakery's card says what's missing and which industry
 // makes it; ☰ Chain hints off takes it all away; and with nothing moving, no frames are drawn.
 //
@@ -420,7 +420,7 @@ try {
   await p.evaluate(() => window.woodrail.hud.hideCards());
   check("the card put away: the chevrons go", await p.evaluate(() => !window.woodrail.chainHints.showing));
 
-  // 7. A train of coaches at the forest: its card says its logs go on a flatbed wagon.
+  // 7. A train of coaches at the forest: its card says it needs a flatbed for the logs.
   const coach = await p.evaluate(
     ({ forestId }) => {
       const w = window.woodrail;
@@ -444,9 +444,9 @@ try {
   );
   check("setup: a train of coaches standing at the forest", !!coach);
   await tapEngine(coach.engine);
-  await p.waitForFunction(() => /flatbed wagon/.test(document.querySelector(".engine-card .engine-status")?.textContent ?? ""), null, { timeout: 20000 }).catch(() => {});
+  await p.waitForFunction(() => /flatbed/.test(document.querySelector(".engine-card .engine-status")?.textContent ?? ""), null, { timeout: 20000 }).catch(() => {});
   const status = await p.evaluate(() => document.querySelector(".engine-card .engine-status")?.textContent ?? "");
-  check("…its card: the forest yard's logs go on a flatbed wagon", /forest yard( \d+)?'s logs go on a flatbed wagon: add one to this train/.test(status), JSON.stringify(status));
+  check("…its card: it needs a flatbed for the forest yard's logs", /^Needs a flatbed for logs: add one to this train$/.test(status), JSON.stringify(status));
   await shot("5-coaches-at-forest");
   await p.evaluate((id) => {
     window.woodrail.hud.hideCards();
