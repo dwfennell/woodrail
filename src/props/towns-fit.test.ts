@@ -7,6 +7,7 @@ import { scaleOf } from "../catalogue/scale";
 import { loadFootprints, stubMaterials } from "./footprints-testing";
 import type { Footprint } from "./placement";
 import { boxOf, townModels, townProps } from "./towns";
+import { PLACES } from "../game/places";
 
 /** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. (Its props are towns' buildings.) */
 let footprintOf: (asset: string) => Footprint | undefined = () => {
@@ -19,7 +20,9 @@ beforeAll(async () => {
 describe("town models on their squares", () => {
   it("their boxes (as modelled) are the models' own, measured from the GLB at the scale they're drawn", async () => {
     const lib = new PropLibrary(stubMaterials());
-    const assets = [...new Set([...townModels().map((m) => m.asset), "bldg-school", "bldg-market-hall", "bldg-library", "bldg-college"])];
+    // (And every place's and treat's models: game/places.ts.)
+    const places = PLACES.flatMap((p) => [...p.models.one, ...p.models.two, ...(p.models.four ?? [])]);
+    const assets = [...new Set([...townModels().map((m) => m.asset), "bldg-school", "bldg-market-hall", "bldg-library", "bldg-college", ...places])];
     for (const asset of assets) {
       const fp = (await lib.load(asset))!.footprint;
       const box = boxOf(asset)!;

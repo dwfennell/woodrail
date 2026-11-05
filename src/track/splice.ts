@@ -1,7 +1,8 @@
 import { connectorRef, createWorldConnector, indexOfRef, pieceOfRef, type Layout } from "./layout";
 import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, SWITCH_LENGTH } from "./constants";
 import { angleDiff, normalizeAngle, solveParentPose, transformPose, type Pose } from "./math";
-import { FIT_LENGTHS, getPieceDef, PIECE_TYPES, type ConnectorKind, type PieceTypeId } from "./pieces";
+import { FIT_LENGTHS, getPieceDef, PIECE_TYPES, type ConnectorKind, type PathDef, type PieceTypeId } from "./pieces";
+import { createSample, pathLength, samplePath } from "./path";
 
 /**
  * A straight-shaped piece (a depot, a station) dropped onto a line: the plain straights it takes the place of, and
@@ -855,4 +856,62 @@ export function findThreeWay(layout: Layout, onto: number, heading: number, canT
   const state = old === 0 ? 0 : def.paths.findIndex((q) => q.to === branchLeg);
   const c = def.connectors[newLeg];
   return { kind: "swap", covers: [onto], pieces: [{ type: "switch-3way", pose, y: p.y, flipped: false, state, pinOf: onto }], end: { x: legEnd.x, z: legEnd.z, heading: normalizeAngle(legEnd.heading), y: p.y + c.y, kind: c.kind } };
+}
+
+/** A stroke along a slip's turn: its press and its finger each within this (mm) of the turn. */
+export const SLIP_FIT = 24;
+const slipSample = createSample();
+const slipPose: Pose = { x: 0, z: 0, heading: 0 };
+
+/** How far (mm) a point is from a path of a piece standing at `at` (sampled every 6 mm along it). */
+function offPath(geom: PathDef["geom"], at: Pose, x: number, z: number): number {
+  const len = pathLength(geom);
+  const n = Math.max(1, Math.ceil(len / 6));
+  let best = Infinity;
+  for (let k = 0; k <= n; k++) {
+    samplePath(geom, (len * k) / n, slipSample);
+    transformPose(at, { x: slipSample.x, z: slipSample.z, heading: 0 }, slipPose);
+    best = Math.min(best, Math.hypot(x - slipPose.x, z - slipPose.z));
+  }
+  return best;
+}
+
+/**
+ * A stroke on a 45° crossing (`onto`) that runs along a turn from one of its lines onto the other (pressed at `press`,
+ * the finger now at `finger`): a single slip in its place whose curve is that turn (the slip as the crossing lies, or
+ * turned end for end: its curve then the other way across). On a single slip, a stroke along its other turn: a double
+ * slip. Every joint is kept (a slip's ends are the crossing's). Set to turn (a double, as the single was). `none` if
+ * the stroke isn't nearer the turn than either straight, both its ends within `SLIP_FIT` of it.
+ */
+export function findSlip(layout: Layout, onto: number, press: { x: number; z: number }, finger: { x: number; z: number }, canTake: (id: number) => boolean = () => true): SwapResult {
+  const p = layout.getPiece(onto);
+  if (!p || layout.isLifted(onto) || (p.type !== "crossing-45" && p.type !== "slip-single")) return NO_SWAP;
+  if (!canTake(onto)) return { kind: "busy", onto };
+  const def = getPieceDef(p.type, p.flipped);
+  // (The two straights: how near the stroke runs along either.)
+  let straight = Infinity;
+  for (const k of [0, 1]) straight = Math.min(straight, offPath(def.paths[k].geom, p.pose, press.x, press.z) + offPath(def.paths[k].geom, p.pose, finger.x, finger.z));
+  // (End for end: the crossing turned about its middle, its end 1 where its end 0 was.)
+  const far = transformPose(p.pose, def.connectors[1].pose, { x: 0, z: 0, heading: 0 });
+  const turned: Pose = { x: far.x, z: far.z, heading: normalizeAngle(p.pose.heading + Math.PI) };
+  const choices: { type: PieceTypeId; pose: Pose; curve: number; state: number }[] =
+    p.type === "crossing-45"
+      ? [
+          { type: "slip-single", pose: { ...p.pose }, curve: 2, state: 1 },
+          { type: "slip-single", pose: turned, curve: 2, state: 1 },
+        ]
+      : [{ type: "slip-double", pose: { ...p.pose }, curve: 3, state: layout.switchState(onto) % 2 }];
+  let best: { score: number; w: PieceSwap } | null = null;
+  for (const c of choices) {
+    const cd = getPieceDef(c.type, p.flipped);
+    const curve = cd.paths[c.curve];
+    const a = offPath(curve.geom, c.pose, press.x, press.z);
+    const b = offPath(curve.geom, c.pose, finger.x, finger.z);
+    if (a > SLIP_FIT || b > SLIP_FIT || a + b >= straight) continue;
+    if (best && best.score <= a + b) continue;
+    const e = transformPose(c.pose, cd.connectors[curve.to ?? 0].pose, { x: 0, z: 0, heading: 0 });
+    const k = cd.connectors[curve.to ?? 0];
+    best = { score: a + b, w: { kind: "swap", covers: [onto], pieces: [{ type: c.type, pose: c.pose, y: p.y, flipped: p.flipped, state: c.state, pinOf: onto }], end: { x: e.x, z: e.z, heading: e.heading, y: p.y + k.y, kind: k.kind } } };
+  }
+  return best?.w ?? NO_SWAP;
 }

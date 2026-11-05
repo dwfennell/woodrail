@@ -53,6 +53,7 @@ describe("the icon font (src/icons → scripts/icon-font.py → style.css)", () 
 
   it("the font is one small file (a few kB for every icon)", async () => {
     const { statSync } = await fs();
-    expect(statSync(new URL("../assets/woodrail-icons.woff2", import.meta.url)).size).toBeLessThan(24 * 1024);
+    // (26 kB: the post, the goods chains and the civic places, merged, drew 106 icons.)
+    expect(statSync(new URL("../assets/woodrail-icons.woff2", import.meta.url)).size).toBeLessThan(26 * 1024);
   });
 });

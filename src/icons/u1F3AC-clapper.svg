@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Cinema</title>
+<rect x="2" y="9" width="20" height="13" rx="1.6" fill="#2e3338"/>
+<rect x="3.2" y="10.2" width="17.6" height="10.6" rx="1" fill="#4a525a"/>
+<path d="M1.6 4.6 L20.6 1.4 L21.4 5.6 L2.4 8.8 Z" fill="#2e3338"/>
+<path d="M4.4 4.2 L7.4 3.7 L5.8 8.2 L2.8 8.7 Z" fill="#fbf3e4"/>
+<path d="M10.4 3.2 L13.4 2.7 L11.8 7.2 L8.8 7.7 Z" fill="#fbf3e4"/>
+<path d="M16.4 2.2 L19.4 1.7 L17.8 6.2 L14.8 6.7 Z" fill="#fbf3e4"/>
+<rect x="3.2" y="12.6" width="17.6" height="1.6" fill="#c8442f"/>
+</svg>

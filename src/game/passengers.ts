@@ -1,9 +1,9 @@
 import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
 import type { Progress } from "./progress";
-import { townStatus } from "./towns";
-import { growthOf } from "./town-life";
+import { statusOf } from "./town-life";
 import type { World } from "./world";
+import { visitorFactor } from "./places";
 
 /**
  * Game mode's passengers: people wait at each town's station, more the bigger the town; coaches carry them to another
@@ -64,7 +64,7 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
       clock.set(townId, 0);
       continue;
     }
-    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy);
+    const every = riderSeconds(statusOf(world, townId).level, busy);
     let t = (clock.get(townId) ?? 0) + seconds;
     while (t >= every && waiting < cap) {
       t -= every;
@@ -85,8 +85,17 @@ export function seatsIn(world: World, carId: number): number {
   return SEATS[world.sim.lookOf(carId)] ?? 0;
 }
 
-/** One rider's fare from station `from` to station `to`, riding coach `carId`. */
-export function fareFor(world: World, from: DepotState, to: DepotState, carId: number): number {
+/**
+ * What visitors pay at station `to`'s town against a plain fare (game/places.ts: its best leisure place, in its season
+ * by `month`, 0 = January; 1: none).
+ */
+export function visitorsAt(world: World, to: DepotState, month?: number): number {
+  const town = world.landscape?.towns.find((t) => t.id === to.townId);
+  return town ? visitorFactor(town, month) : 1;
+}
+
+/** One rider's fare from station `from` to station `to`, riding coach `carId` (in `month`, for visitors' seasons). */
+export function fareFor(world: World, from: DepotState, to: DepotState, carId: number, month?: number): number {
   const a = world.layout.getPiece(from.pieceId)?.pose;
   const b = world.layout.getPiece(to.pieceId)?.pose;
   // Whole coins for the ride, then first class and a dining car on top.
@@ -96,22 +105,26 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (world.sim.lookOf(carId) === "first-class") fare *= FIRST_CLASS;
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
   }
+  // Getting off at a town with a leisure place: a visitor, who pays more.
+  fare *= visitorsAt(world, to, month);
   return Math.round(fare);
 }
 
 /** Someone got off: pay their fare and count them. Returns the coins paid. */
-export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number): number {
-  const fare = fareFor(world, from, to, carId);
+export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number, month?: number): number {
+  const fare = fareFor(world, from, to, carId, month);
   p.coins += fare;
   p.riders++;
+  // (Visitors counted, for the Day out sticker.)
+  if (visitorsAt(world, to, month) > 1) p.counts.set("visitors", (p.counts.get("visitors") ?? 0) + 1);
   return fare;
 }
 
 /** Put Game mode's passengers into the world's economy (seats and fares). */
-export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void): void {
+export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void, month?: () => number): void {
   world.economy.seatsOf = (carId) => seatsIn(world, carId);
   world.economy.onAlight = (from, to, carId) => {
-    const fare = payFare(world, p(), from, to, carId);
+    const fare = payFare(world, p(), from, to, carId, month?.());
     paid?.(fare, from, to);
   };
 }

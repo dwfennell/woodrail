@@ -39,6 +39,7 @@ import { RoadHand, type RoadDrag, type RoadTill } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { eraseRefusal, sweepLooks, type EraseRefusal } from "./erase";
 import { branchesOff } from "./draw-junctions";
+import { deckLiesAlong, deckRoadAt } from "./deck-roads";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { DIG_MESSAGES, DIG_TRAIN, planUnderpass, planUnderpassAhead, UNDER_BRIDGE, type DigPlan } from "./underpass-dig";
@@ -190,7 +191,7 @@ type Press =
   /** A via point's disc of the route being planned (the piece it's on). */
   | { kind: "route-via"; pieceId: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
-  | { kind: "piece"; pieceId: number; deck?: boolean }
+  | { kind: "piece"; pieceId: number; deck?: boolean; at?: { x: number; z: number }; tapOnly?: boolean }
   /** A depot's yard, building or crane (economy depot id). */
   | { kind: "depot"; depotId: number }
   /** A log or plank bundle on a pile or wagon. */
@@ -438,6 +439,11 @@ export class Interaction {
   onDepart: (() => void) | null = null;
   /** A switch was thrown, or pinned or unpinned (it's saved; nothing else changed). */
   onSwitched: (() => void) | null = null;
+  /**
+   * May a tap on a road turn a turntable's deck to it (Turntable controls, `deckRoadAt`)? Game mode: once learned;
+   * Sandbox: always. Null: never (a tap on the deck steps it round, as before).
+   */
+  deckRoads: (() => boolean) | null = null;
   /** A switch's points were thrown by hand (its lever swings over: the clunk). */
   onLeverThrown: ((pieceId: number) => void) | null = null;
   /**
@@ -1872,7 +1878,10 @@ export class Interaction {
     const place = !!this.onPickPlace && hit?.kind === "piece";
     // (Drawing, though, a line's body branches from any zoom: only taking hold of it needs to be close by. See `far`.)
     let far = false;
-    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) {
+    // (A tap on a road that turns a turntable to it, as a lever's, is from any zoom (`deckRoadMeant`): only a tap,
+    // though: from out of reach the piece isn't held or dragged, a drag there pans.)
+    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId) && this.deckRoadMeant(hit)) hit = { ...hit, tapOnly: true };
+    else if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) {
       const p = this.drawsNow ? this.game.layout.getPiece(hit.pieceId) : undefined;
       if (p && branchesOff(p.type) && this.fixedLabel(hit.pieceId) === null) far = true;
       else hit = null;
@@ -1937,6 +1946,7 @@ export class Interaction {
     if (this.onPickPlace) return false;
     switch (press.kind) {
       case "piece":
+        if (press.tapOnly) return false;
         if (this.picking) return this.picked.has(press.pieceId);
         return dragMoves("piece", press.pieceId === this.selectedPiece, pointerType);
       case "car":
@@ -2139,8 +2149,8 @@ export class Interaction {
    * buzz where the phone has one.
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
-    // (Out of reach, a line's body is only branched off: see `far`.)
-    if (m.far) return;
+    // (Out of reach, a line's body is only branched off: see `far`. A road tapped to turn a deck, only tapped.)
+    if (m.far || (m.press.kind === "piece" && m.press.tapOnly)) return;
     const k = m.press.kind;
     // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
     // (And a town's street, as its houses: issue #18.)
@@ -2672,9 +2682,15 @@ export class Interaction {
       return;
     }
     if (p.kind === "piece" && p.deck && !this.picking && !add) {
+      // (Turntable controls: a tap toward one of its roads turns it there; on its hub, or along the road it lies on,
+      // it steps round as before.)
+      if (this.turnDeckToRoad(p)) return;
       this.throwLever(p.pieceId);
       return;
     }
+    // (A tap on a road leading off a turntable, or on its pit by a road, turns the deck to it: a second tap, the deck
+    // now lying along it, takes the road's piece as any tap does.)
+    if (p.kind === "piece" && !this.picking && !add && this.turnDeckToRoad(p)) return;
     if (p.kind === "piece") {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
@@ -5547,7 +5563,31 @@ export class Interaction {
    * Throw a switch's points, or hold or let go a signal (`road`: which of a signal piece's, a gantry's road): redrawn
    * and saved, nothing else rebuilt (a signal skin's model follows its aspect: `KitStateMotion.source`).
    */
-  private throwLever(pieceId: number, road = 0, corner = 0): void {
+  /** Does a tap on this piece mean a road of a deck to turn it to (Turntable controls; not the road it lies along)? */
+  private deckRoadMeant(p: { pieceId: number; at?: { x: number; z: number } }): boolean {
+    if (!p.at || !this.deckRoads?.()) return false;
+    const r = deckRoadAt(this.game.layout, p.pieceId, p.at.x, p.at.z);
+    return !!r && !deckLiesAlong(this.game.layout, r);
+  }
+
+  /**
+   * Turntable controls: a tap at `p.at` that means a road of a deck (`deckRoadAt`) turns the deck to it, or says why
+   * it can't. False (nothing done) if they aren't learned, the tap means no road, or the deck lies along it already.
+   */
+  private turnDeckToRoad(p: { pieceId: number; at?: { x: number; z: number } }): boolean {
+    if (!p.at || !this.deckRoads?.()) return false;
+    const r = deckRoadAt(this.game.layout, p.pieceId, p.at.x, p.at.z);
+    if (!r || deckLiesAlong(this.game.layout, r)) return false;
+    this.throwLever(r.deck, 0, 0, r.road);
+    return true;
+  }
+
+  /**
+   * Throw a switch's points, or hold or let go a signal (`road`: which of a signal piece's, a gantry's road): redrawn
+   * and saved, nothing else rebuilt (a signal skin's model follows its aspect: `KitStateMotion.source`). A deck steps
+   * round to its next road, or (`deckTo`, Turntable controls) turns straight to that one.
+   */
+  private throwLever(pieceId: number, road = 0, corner = 0, deckTo = -1): void {
     const g = this.game;
     const piece = g.layout.getPiece(pieceId);
     const pd = piece && getPieceDef(piece.type, piece.flipped);
@@ -5577,7 +5617,7 @@ export class Interaction {
         this.hud.toast(lift ? `${name} works while the game's running` : `${name} turns a train while the game's running`);
         return;
       }
-      if (refused || !g.sim.toggleSwitch(pieceId)) {
+      if (refused || !(deckTo >= 0 ? g.sim.turnDeckTo(pieceId, deckTo) : g.sim.toggleSwitch(pieceId))) {
         this.hud.toast(
           lift
             ? refused === "turning"
@@ -5882,7 +5922,10 @@ export class Interaction {
     const own = exact?.kind === "piece" && exact.pieceId === lever.id;
     if (!post || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace) || this.hiddenFromEye({ x: post.x, y: post.y + post.height / 2, z: post.z })) lever = { id: -1, d: Infinity };
     const won = fingertipWinner(car, lever);
-    if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(post?.corner ? { corner: post.corner } : {}), slack: lever.d };
+    // (A piece with levers a finger's width apart, a double three-way's: the one whose knob is nearest the tap. Seen
+    // from the side, one stands in front of the other's knob, so neither the ray nor the nearest upright can tell.)
+    const corner = won === "lever" ? this.nearestKnob(x, y, posts, lever.id, post?.corner) : undefined;
+    if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(corner ? { corner } : {}), slack: lever.d };
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
   }
 
@@ -5910,6 +5953,28 @@ export class Interaction {
       if (inFrontOfCamera(az, bz)) ends.push({ id: d.pieceId, ax, ay, bx, by });
     }
     return nearestOnScreen(x, y, ends, slack).id;
+  }
+
+  /**
+   * Of piece `pieceId`'s levers (`posts`), the corner of the one whose knob (its top) is nearest (x, y) on screen;
+   * `fallback` when it has one lever. Asked once a tap.
+   */
+  private nearestKnob(x: number, y: number, posts: { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[], pieceId: number, fallback: number | undefined): number | undefined {
+    const own = posts.filter((p) => p.pieceId === pieceId);
+    if (own.length < 2) return fallback;
+    const r = this.game.canvas.getBoundingClientRect();
+    const v = new Vector3();
+    let best = fallback;
+    let bestD = Infinity;
+    for (const p of own) {
+      v.set(p.x, p.y + p.height, p.z).project(this.game.camera);
+      const d = Math.hypot(r.left + ((v.x + 1) / 2) * r.width - x, r.top + ((1 - v.y) / 2) * r.height - y);
+      if (d < bestD) {
+        bestD = d;
+        best = p.corner;
+      }
+    }
+    return best;
   }
 
   /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
@@ -5951,6 +6016,8 @@ export class Interaction {
    */
   private deckOverTrain(hit: Press | null, exact: Press | null): Press | null {
     if (hit?.kind !== "car") return hit;
+    // (Turntable controls: the deck's pit by one of its roads, round the train standing on it, means that road.)
+    if (exact?.kind === "piece" && this.game.sim.deckUnder(hit.carId) === exact.pieceId && this.deckRoadMeant(exact)) return exact;
     const deck = deckTapWins(this.game.sim.deckUnder(hit.carId), exact, this.selectedPiece);
     return deck === -1 ? hit : { kind: "piece", pieceId: deck, deck: true };
   }
@@ -6042,7 +6109,7 @@ export class Interaction {
         // on one hidden by a 2-riser hill threw it.)
         if (this.hiddenFromEye(h.point)) continue;
         const corner = h.object.userData.corner as number | undefined;
-        return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId, ...(corner ? { corner } : {}) };
+        return h.object.userData.deck ? { kind: "piece", pieceId, deck: true, at: { x: h.point.x, z: h.point.z } } : { kind: "lever", pieceId, ...(corner ? { corner } : {}) };
       }
       // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any
       // other kit's model is passed through, to the track or ground behind it.
@@ -6058,7 +6125,7 @@ export class Interaction {
       const propId = g.propsView.propAt(h.object, h.batchId);
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
-      if (pieceId !== -1) return { kind: "piece", pieceId };
+      if (pieceId !== -1) return { kind: "piece", pieceId, at: { x: h.point.x, z: h.point.z } };
       // An old industry's ruin: its stub's (a tap opens its card; it stays put). One on land not yet bought: passed
       // through, to the ground.
       if (g.ruinsView.isRuin(h.object)) {

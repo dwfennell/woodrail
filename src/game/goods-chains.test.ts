@@ -55,8 +55,10 @@ const earned = (id: string, economy: Economy) => sticker(id).check({ economy } a
 
 describe("the goods chains' goods", () => {
   it("are new cargo kinds at the end of the list (old saves' piles keep their places)", () => {
-    expect(CARGO_KINDS.slice(21)).toEqual(["sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys"]);
-    for (const [i, k] of CARGO_KINDS.entries()) expect(CARGO[k].index).toBe(i);
+    expect(CARGO_KINDS.slice(21, 28)).toEqual(["sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys"]);
+    for (const [i, k] of CARGO_KINDS.slice(0, 28).entries()) expect(CARGO[k].index).toBe(i);
+    // (The post's goods come after, in their own range from 30: post.test.ts.)
+    expect(CARGO_KINDS.slice(28)).toEqual(["mail", "post"]);
   });
 
   it("towns buy them all at full pay but cocoa (only a chocolate factory takes it), and none is needed to grow", () => {

@@ -1,4 +1,4 @@
-import { connectorRef, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
+import { connectorRef, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, pairLeverState, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -531,6 +531,26 @@ export class Sim {
     return true;
   }
 
+  /**
+   * Each engine's livery from the paint shop, by car id (game/paint-shop.ts: a colour scheme's id; none: as it came).
+   * Looks only: the sim never reads it, but it follows the car, as names and looks do.
+   */
+  private readonly liveries = new Map<number, string>();
+  /** Goes up whenever an engine is painted (its model is built again). */
+  liveriesVersion = 0;
+
+  liveryOf(carId: number): string {
+    return this.liveries.get(carId) ?? "";
+  }
+
+  /** Paint an engine (`""`: back as it came). */
+  setLivery(carId: number, livery: string): void {
+    if ((this.liveries.get(carId) ?? "") === livery) return;
+    if (livery) this.liveries.set(carId, livery);
+    else this.liveries.delete(carId);
+    this.liveriesVersion++;
+  }
+
   /** Give a new engine a name no other engine on the track has. */
   private nameEngine(carId: number): void {
     const taken = new Set<string>();
@@ -903,17 +923,47 @@ export class Sim {
       this.updateSignals();
       return true;
     }
+    // (A double three-way: the tapped branch's lever, the other put back.)
+    if (def?.pairLevers) {
+      this.layout.setSwitchState(pieceId, pairLeverState(this.layout.switchState(pieceId), corner));
+      this.updateSignals();
+      return true;
+    }
     const routes = !def ? 2 : def.gated ? def.paths.length : def.paths.filter((p) => p.from === 0).length;
     const was = this.layout.switchState(pieceId);
+    if (def?.gated) return this.turnDeck(pieceId, def, (was + 1) % routes, false);
     this.layout.setSwitchState(pieceId, (was + 1) % Math.max(2, routes));
-    // A deck joins nothing till it's turned to its next road, and carries round any train standing on it.
-    if (def?.gated) {
-      this.layout.setDeckTurning(pieceId, true);
-      const done = this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ);
-      this.decksTurning.set(pieceId, done);
-      this.startRide(pieceId, was % def.paths.length, this.layout.switchState(pieceId), done);
-    }
     // A signal held or let go shows it at once (even paused).
+    this.updateSignals();
+    return true;
+  }
+
+  /**
+   * Turn a deck (a turntable's, a transfer table's: not a lift) straight to road `road` (Turntable controls: a tap on a
+   * road turns the deck to it), over one glide however far round, carrying any train standing wholly on it. False if
+   * it can't turn now (`deckRefusal`), it isn't a deck, or it lies along that road already.
+   */
+  turnDeckTo(pieceId: number, road: number): boolean {
+    const piece = this.layout.getPiece(pieceId);
+    const def = piece ? getPieceDef(piece.type, piece.flipped) : null;
+    if (!def?.gated || def.lift || this.deckRefusal(pieceId)) return false;
+    const to = ((road % def.paths.length) + def.paths.length) % def.paths.length;
+    if (this.layout.switchState(pieceId) % def.paths.length === to) return false;
+    // (Its model always turns on round the same way, `KitStateMotion.round`: a train on it goes round with it.)
+    return this.turnDeck(pieceId, def, to, true);
+  }
+
+  /**
+   * A deck set to road `to`: it joins nothing till it's there, and carries round any train standing on it (`forward`:
+   * round the way its model turns, however far, rather than the nearer way).
+   */
+  private turnDeck(pieceId: number, def: PieceDef, to: number, forward: boolean): boolean {
+    const was = this.layout.switchState(pieceId);
+    this.layout.setSwitchState(pieceId, to);
+    this.layout.setDeckTurning(pieceId, true);
+    const done = this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ);
+    this.decksTurning.set(pieceId, done);
+    this.startRide(pieceId, was % def.paths.length, to, done, forward);
     this.updateSignals();
     return true;
   }
@@ -974,7 +1024,7 @@ export class Sim {
    * the new road (its start is the old one's turned or slid there); on a turntable turned past half round the new road
    * points the other way, so the train runs along it the other way.
    */
-  private startRide(pieceId: number, from: number, to: number, done: number): void {
+  private startRide(pieceId: number, from: number, to: number, done: number, forward = false): void {
     const piece = this.layout.getPiece(pieceId)!;
     const def = getPieceDef(piece.type, piece.flipped);
     const riders = [...this.trains.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((b) => b.pieceId === pieceId));
@@ -985,7 +1035,9 @@ export class Sim {
     // The old road's start, turned onto the new road's: by the angle between them, or half round more if that's
     // nearer (then the new road runs the other way).
     let angle = normalizeAngle(b.start.heading - a.start.heading);
-    const flip = Math.abs(angle) > Math.PI / 2;
+    // (Turned straight to a road, `turnDeckTo`, the deck goes on round the way its model turns, up to half round, its
+    // road the same either way along: so does the train, the new road then run the other way if the turn's back.)
+    const flip = forward ? angle < -1e-9 : Math.abs(angle) > Math.PI / 2;
     if (flip) angle = normalizeAngle(angle + Math.PI);
     const from0 = riders.map((t) => t.world.map((w) => ({ ...w })));
     for (const t of riders) {

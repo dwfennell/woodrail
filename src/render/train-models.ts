@@ -34,11 +34,34 @@ const ENGINE_BODY = "#2d6b3f";
 const ENGINE_TRIM = "#c8442f";
 const SECOND_SCHEME: Readonly<Record<string, string>> = { [ENGINE_BODY]: "#b8432f", [ENGINE_TRIM]: "#1f3f73" };
 
+/**
+ * Each engine look's modelled body and trim colours (tools/blender/trains.py), which a livery from the paint shop
+ * (game/paint-shop.ts) swaps: a recolour map for `blenderCar`, through the lacquer cache (no new material per car).
+ */
+export const LIVERY_SLOTS: Readonly<Partial<Record<CarLook, { body: readonly string[]; trim: readonly string[] }>>> = {
+  classic: { body: ["#2d6b3f"], trim: ["#c8442f"] },
+  goods: { body: ["#1f4a2e"], trim: ["#c8442f"] },
+  tank: { body: ["#2f6db5"], trim: ["#c8442f"] },
+  diesel: { body: ["#e6b52c"], trim: [] },
+  electric: { body: ["#c8442f"], trim: ["#f0ebe0"] },
+  express: { body: ["#1f5aa6"], trim: ["#e6b52c"] },
+};
+
+/** A livery's recolour map for an engine of `look` (body and trim to the livery's). */
+export function liveryRecolor(look: CarLook, livery: { body: string; trim: string }): Record<string, string> {
+  const slots = LIVERY_SLOTS[look];
+  const out: Record<string, string> = {};
+  if (!slots) return out;
+  for (const c of slots.body) out[c] = livery.body;
+  for (const c of slots.trim) out[c] = livery.trim;
+  return out;
+}
+
 /** Colours of a car's slots (the van's body). */
 const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { body: "#2f6db5" } };
 
 /** Car facing +x, centred on its two axles, y = 0 at the track base. The models must be loaded (loadBlenderModels). */
-export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic", loaded = false): CarModel {
+export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic", loaded = false, livery?: { body: string; trim: string }): CarModel {
   if (kind === "cleaner") return cleanerModel(mats);
   if (kind === "tanker") return codeCarModel(mats, "tanker", buildMilkTanker, milkTankerBogies);
   if (kind === "reefer") return codeCarModel(mats, "reefer", buildColdVan, coldVanBogies);
@@ -47,7 +70,8 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   if (kind === "carrier") return codeCarModel(mats, "carrier", buildCarCarrier, carCarrierBogies);
   if (kind === "mailvan") return codeCarModel(mats, "mailvan", buildMailVan, mailVanBogies);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
-  const recolor = variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
+  // (Painted at the paint shop: its livery; else the classic engine's second scheme on every other one.)
+  const recolor = kind === "engine" && livery ? liveryRecolor(look, livery) : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
   const model = blenderCar(kind, look, mats, lamp, recolor, CAR_SLOTS[kind]);
   model.root.traverse((o) => (o.userData.carKind = kind));
   if (kind === "hopper" && !loaded) hideModelledLoad(model.root);

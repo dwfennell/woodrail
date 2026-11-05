@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Flower clock</title>
+<circle cx="12" cy="5" r="4" fill="#f0b847"/>
+<circle cx="12" cy="19" r="4" fill="#f0b847"/>
+<circle cx="5" cy="12" r="4" fill="#f0b847"/>
+<circle cx="19" cy="12" r="4" fill="#f0b847"/>
+<circle cx="7" cy="7" r="3.6" fill="#f3c766"/>
+<circle cx="17" cy="7" r="3.6" fill="#f3c766"/>
+<circle cx="7" cy="17" r="3.6" fill="#f3c766"/>
+<circle cx="17" cy="17" r="3.6" fill="#f3c766"/>
+<circle cx="12" cy="12" r="4.4" fill="#7a4f12"/>
+<circle cx="12" cy="12" r="3.4" fill="#d38f1f"/>
+</svg>
