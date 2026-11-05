@@ -1021,6 +1021,12 @@ export class Sections {
     return Infinity;
   }
 
+  /** Is train `u` all on `standing`'s pieces and none on way `along`? */
+  private offWay(u: number, along: ReadonlyMap<number, number>, standing: ReadonlySet<number>): boolean {
+    const t = this.sim.findCar(u)?.train;
+    return !!t && t.bogies.every((b) => standing.has(b.pieceId)) && !t.bogies.some((b) => along.has(b.pieceId));
+  }
+
   /** Is train `u` standing, with no move held? */
   private standing(u: number): boolean {
     if (this.states.get(u)?.move) return false;
@@ -1678,9 +1684,11 @@ export class Sections {
    * `along` (its way through the section, piece → the end it comes onto it by): one it may follow (`follows`) going the
    * same way ahead of it there isn't in its way, and is passed over.
    */
-  private sectionUser(info: LineInfo, section: number, engine: number, along?: ReadonlyMap<number, number>): number {
+  private sectionUser(info: LineInfo, section: number, engine: number, along?: ReadonlyMap<number, number>, standing?: ReadonlySet<number>): number {
     for (const u of info.users) {
       if (u === engine) continue;
+      // (Standing in the section with no room (`heldIn`), off its way: not in it.)
+      if (along && standing && this.offWay(u, along, standing)) continue;
       if (along && this.follows(info, engine, u) && this.sameWayAhead(u, along)) continue;
       if (along && info.loose.includes(u) && this.clearOfCircling(u, along)) continue;
       // (Coming out of a dead end: a train standing outside, waiting to go in, isn't in its way unless it stands on its
@@ -1691,7 +1699,9 @@ export class Sections {
       const t = this.sim.findCar(u)?.train;
       if (t && t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return u;
     }
-    for (const t of info.foreign) if (t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return nameOf(t);
+    // (A train not working the track (standing, on no line or another's): in the way only on its way, once that's
+    // known (`along`). A section can be most of the map: #29, "blocked by a train all the way on the other side".)
+    for (const t of info.foreign) if (t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section && (!along || along.has(b.pieceId)))) return nameOf(t);
     return info.zone.sections.get(section) ?? -1;
   }
 
@@ -1719,12 +1729,12 @@ export class Sections {
     // (Trains on no line about: those in it going its way ahead of it, it may follow (`follows`).)
     let along: Map<number, number> | undefined;
     let ahead: Way | null = null;
-    if (u !== -1 && !short && (this.mayFollow(info, st.engine, u) || this.comingOut(st.engine))) {
+    if (u !== -1 && !short && (this.mayFollow(info, st.engine, u) || this.comingOut(st.engine) || !info.users.includes(u))) {
       ahead = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
       if (ahead && ahead.dest !== DEAD_END) {
         along = this.alongOf(ahead.steps, topo);
         u = this.sectionUser(info, section, st.engine, along);
-      } else if (!ahead && (info.loose.includes(u) || this.comingOut(st.engine))) {
+      } else if (!ahead && (info.loose.includes(u) || this.comingOut(st.engine) || !info.users.includes(u))) {
         // (Its way reaches no slot (its stop on a ring): walked to its stop, for a train on no line going round there
         // to be in its way only if it's on it, or comes at it head on: `clearOfCircling`.)
         along = this.walkAlong(st, { pieceId: st.exitPiece, entry: st.exitEntry }, topo);
@@ -1737,8 +1747,13 @@ export class Sections {
     }
     const way = ahead ?? this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry }, -1, short);
     if (short && way?.dest !== DEAD_END) {
-      this.hold(st, { kind: "section", engine: u });
-      return false;
+      // (Its way doesn't run into them (standing, with no room or not on the line): they're not in its way. Any other
+      // train on it, or coming, is: #29, a train parked across the map held every move through the one big section.)
+      const v = way ? this.sectionUser(info, section, st.engine, along ?? this.alongOf(way.steps, topo), short) : u;
+      if (v !== -1) {
+        this.hold(st, { kind: "section", engine: v });
+        return false;
+      }
     }
     // A dead end ahead (a train its line has no room for in the way): it waits here, in its slot, for that train.
     if (way?.dest === DEAD_END) return this.deadEndWait(st, info, way);
