@@ -3,6 +3,7 @@ import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdva
 import { next, SEARCH, waysFrom } from "../routing/graph";
 import { plan, planWay, type KeepTest } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
+import { deadEndsOf, mouthWay } from "../routing/dead-ends";
 
 /**
  * Sections and slots: trains that wait for each other on single track (token working; a line's own, and lines sharing
@@ -43,6 +44,10 @@ import type { AvoidTest } from "../routing/router";
  * another piece, and a waiting train asks again every `CHECK_TICKS`.
  */
 
+/** A dead end a train's way was found to go into, free, stays its claim this long (ticks) unless it asks again. */
+const CLAIM_TICKS = 3 * 12;
+/** How far ahead (mm) a train in a section looks for points to stand short of (`edgeAhead`). */
+const EDGE_LOOK = 600;
 /** A waiting train stands this far (mm) short of the end of its slot. */
 export const STAND_SHORT = 6;
 /** A loop road must be this much (mm) longer than a train for the train to stand on it, clear of both switches. */
@@ -188,6 +193,8 @@ interface Way {
   outBy: number;
   blockedBy: number;
   deadEnd?: ReadonlySet<number>;
+  /** Stopped at a dead end's mouth (another train in there): it may come up to the points outside, and stand short. */
+  mouth?: boolean;
 }
 
 interface TrainState {
@@ -218,6 +225,13 @@ interface TrainState {
   faceHold: boolean;
   /** What lay past its last dead end (its stops there can't be reached while the line is full). */
   lastDead: ReadonlySet<number> | null;
+  /** In a section: how far (mm) past its front's piece the next points or crossing ahead begin (Infinity: none near). */
+  edge: number;
+  /** The front (`frontKey`) it last asked from as it came up to them. */
+  nearAsked: number;
+  /** A dead end its way goes into, found free (−1: none), and when: going in, it's in there for others (`inDeadEnd`). */
+  claim: number;
+  claimAt: number;
 }
 
 // --- Topology ---------------------------------------------------------------------------------------------------
@@ -419,6 +433,13 @@ function buildTopology(layout: Layout, minRoad: number): Topology {
     }
   }
   return { slots, loops, slotOf, sectionOf, sections, pinnedLoops };
+}
+
+/** A piece that bounds a train's wait in a section: points (a choice of way), a turntable, or a crossing. */
+function blockEdge(layout: Layout, pieceId: number): boolean {
+  if (branches(layout, pieceId)) return true;
+  const p = layout.getPiece(pieceId);
+  return !!p && getPieceDef(p.type, p.flipped).paths.length > 1;
 }
 
 /**
@@ -759,7 +780,7 @@ export class Sections {
     if (net === 0 || train.turnback >= 0) return Infinity;
     let st = this.states.get(engine);
     if (!st) {
-      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false, lastDead: null };
+      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false, lastDead: null, edge: Infinity, nearAsked: -1, claim: -1, claimAt: -Infinity };
       this.states.set(engine, st);
     }
     const topo = info.topo;
@@ -780,9 +801,16 @@ export class Sections {
     // In a section.
     if (st.slot === -1) {
       if (st.move) return Infinity;
-      if (now - st.askedAt < CHECK_TICKS) return st.wait ? 0 : Infinity;
+      // (Points or a crossing ahead: asked again as it comes up to them, and held, it stands short of them, never on
+      // them (routing spec §5 rule 9: a train held on points is in the way of every train that goes over them).)
+      const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
+      const room = st.edge === Infinity ? Infinity : lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.edge - CAR_SPECS[lead.kind].bogieInset - STAND_SHORT;
+      const short = (r: number) => (r === Infinity ? 0 : r > 0 ? Math.sqrt(2 * ACCELERATION * r) : 0);
+      const near = room <= (train.speed * train.speed) / (2 * ACCELERATION) + ASK_LOOK;
+      if (now - st.askedAt < CHECK_TICKS && !(near && !st.wait && st.nearAsked !== st.frontKey)) return st.wait ? short(room) : Infinity;
       st.askedAt = now;
-      if (!this.recover(st, info, train, front)) return 0;
+      if (near) st.nearAsked = st.frontKey;
+      if (!this.recover(st, info, train, front)) return short(room);
       // (Nothing in its way now: what it last waited for is over. Kept, it held the train between looks for good (a
       // train on no line going round a ring, its way no slot: `recover` let it go, the old wait stood it still; 2026-11-05).)
       if (st.wait && !st.move) {
@@ -930,7 +958,11 @@ export class Sections {
       }
     }
     st.ahead.clear();
-    if (slot === undefined) return;
+    st.edge = Infinity;
+    if (slot === undefined) {
+      st.edge = this.edgeAhead(front);
+      return;
+    }
     // (On a loop's road with its stop on the other road (it was sent round by the free road): it can't call there
     // this time; its route goes on to the stop after.)
     const sl = topo.slots[slot];
@@ -964,6 +996,100 @@ export class Sections {
     }
   }
 
+  /**
+   * From a front in a section, as the points lie: how far (mm) past its piece the next points or crossing begin, within
+   * `EDGE_LOOK` (Infinity: none). Worked out as its front comes onto a piece.
+   */
+  private edgeAhead(front: Cursor): number {
+    const { layout } = this;
+    const piece = layout.getPiece(front.pieceId);
+    if (!piece) return Infinity;
+    const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
+    let exit = front.reversed ? path.from : (path.to ?? -1);
+    let at = front.pieceId;
+    let d = 0;
+    for (let k = 0; k < SEARCH && d <= EDGE_LOOK; k++) {
+      const n = next(layout, at, exit);
+      if (!n) return Infinity;
+      if (blockEdge(layout, n.pieceId)) return d;
+      const ways = waysFrom(layout, n.pieceId, n.entry);
+      if (ways.length !== 1 || ways[0].exit < 0) return Infinity;
+      d += lengthOfPath(layout, n.pieceId, ways[0].path);
+      at = n.pieceId;
+      exit = ways[0].exit;
+    }
+    return Infinity;
+  }
+
+  /** Is train `u` all on `standing`'s pieces and none on way `along`? */
+  private offWay(u: number, along: ReadonlyMap<number, number>, standing: ReadonlySet<number>): boolean {
+    const t = this.sim.findCar(u)?.train;
+    return !!t && t.bogies.every((b) => standing.has(b.pieceId)) && !t.bogies.some((b) => along.has(b.pieceId));
+  }
+
+  /** Is train `u` standing, with no move held? */
+  private standing(u: number): boolean {
+    if (this.states.get(u)?.move) return false;
+    const t = this.sim.findCar(u)?.train;
+    return !!t && t.speed < 1;
+  }
+
+  /** Is `engine`'s train in a dead-end region (so going anywhere, it's coming out)? */
+  private comingOut(engine: number): boolean {
+    const t = this.sim.findCar(engine)?.train;
+    if (!t) return false;
+    const ends = deadEndsOf(this.layout);
+    return ends.mouths.length > 0 && t.bogies.some((b) => ends.regionOf.has(b.pieceId));
+  }
+
+  /** Is train `u` off way `along`, or on it ahead going the same way (`sameWayAhead`)? */
+  private clearOrAhead(u: number, along: ReadonlyMap<number, number>): boolean {
+    const t = this.sim.findCar(u)?.train;
+    if (!t) return true;
+    return !t.bogies.some((b) => along.has(b.pieceId)) || this.sameWayAhead(u, along);
+  }
+
+  /**
+   * The train (by name) in dead-end region `r`, or with a move granted into it, other than `engine`'s; −1: none.
+   */
+  private inDeadEnd(r: number, engine: number, own: Train | undefined): number {
+    const ends = deadEndsOf(this.layout);
+    const pieces = ends.mouths[r].pieces;
+    for (const id of this.sim.trainIds()) {
+      const t = this.sim.getTrain(id);
+      if (!t || t === own || t.derailed) continue;
+      if (t.bogies.some((b) => pieces.has(b.pieceId))) return nameOf(t);
+    }
+    const now = this.sim.ticks;
+    for (const [u, st] of this.states) {
+      if (u === engine) continue;
+      if (st.claim === r && now - st.claimAt <= CLAIM_TICKS && this.sim.findCar(u)) return u;
+      if (st.move?.steps.some((x) => pieces.has(x.pieceId))) return u;
+    }
+    return -1;
+  }
+
+  /**
+   * At points just outside a dead end's mouth, come onto from it (coming out): the way `w`, unless a train stands or
+   * comes on its road facing this one and another way has none (`mouthWay`; for a routed train, one that still reaches
+   * `target`). Elsewhere `w`.
+   */
+  private outOfDeadEnd(own: Train | undefined, at: { pieceId: number; entry: number }, ways: readonly { option: number; path: number; exit: number }[], w: { option: number; path: number; exit: number }, target: number): { option: number; path: number; exit: number } {
+    const reaches = target < 0 ? undefined : (x: { option: number; path: number; exit: number }) => planWay(this.layout, at.pieceId, at.entry, [{ option: 0, path: x.path, exit: x.exit }], target) !== -1;
+    const o = mouthWay(this.layout, this.sim, own, at.pieceId, at.entry, ways, w.option, reaches);
+    return o === w.option ? w : (ways.find((x) => x.option === o) ?? w);
+  }
+
+  /** Along a way's steps from its first (the train's front piece): how far (mm) past it the first points begin. */
+  private edgeOn(steps: readonly Step[]): number {
+    let d = 0;
+    for (let i = 1; i < steps.length; i++) {
+      if (blockEdge(this.layout, steps[i].pieceId)) return d;
+      d += lengthOfPath(this.layout, steps[i].pieceId, steps[i].path);
+    }
+    return Infinity;
+  }
+
   /** Is a piece on a move's way (its steps, or the slot it goes to)? */
   private onWay(m: Move, pieceId: number): boolean {
     return m.steps.some((s) => s.pieceId === pieceId);
@@ -988,6 +1114,8 @@ export class Sections {
     const own = this.sim.findCar(st.engine)?.train;
     if (own) for (const b of own.bogies) under.set(b.pieceId, b.pathIndex);
     let at: { pieceId: number; entry: number } | null = start;
+    const ends = deadEndsOf(layout);
+    let lastRegion = -1;
     // A dead end short of `at`: its way cut back clear of switches; what's past where it stands, passed over.
     // (Named: the train given, else one standing on `on` (a train on no line there is the end of the line too), else
     // the first the line has no room for.)
@@ -1000,6 +1128,18 @@ export class Sections {
       // A train with no room standing ahead: a dead end short of it (the rest of the way on, and its stops, passed over).
       if (short?.has(at.pieceId)) {
         return deadEnd(-1, new Set([at.pieceId]));
+      }
+      // Into a dead end at its mouth (routing spec §5 rule 8): only while no other train is in it or going in.
+      if (depth === 0) {
+        const r = ends.regionOf.get(at.pieceId);
+        if (r !== undefined && r !== lastRegion && !own?.bogies.some((b) => ends.regionOf.get(b.pieceId) === r)) {
+          const u = this.inDeadEnd(r, st.engine, own);
+          if (u !== -1) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u, mouth: true };
+          // (Free: it's going in. Claimed while it asks again on its way there, so no other goes in meanwhile.)
+          st.claim = r;
+          st.claimAt = this.sim.ticks;
+        }
+        lastRegion = r ?? -1;
       }
       const slot = topo.slotOf.get(at.pieceId);
       if (slot !== undefined) {
@@ -1134,6 +1274,7 @@ export class Sections {
         // (The router's choice: the plan's way to its stop.)
         const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
+        w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target);
       }
       steps.push({ pieceId: at.pieceId, path: w.path, entry: at.entry });
       at = next(layout, at.pieceId, w.exit);
@@ -1478,6 +1619,7 @@ export class Sections {
       else if (ways.length > 1) {
         const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
+        w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target);
       }
       at = next(layout, at.pieceId, w.exit);
     }
@@ -1542,17 +1684,24 @@ export class Sections {
    * `along` (its way through the section, piece → the end it comes onto it by): one it may follow (`follows`) going the
    * same way ahead of it there isn't in its way, and is passed over.
    */
-  private sectionUser(info: LineInfo, section: number, engine: number, along?: ReadonlyMap<number, number>): number {
+  private sectionUser(info: LineInfo, section: number, engine: number, along?: ReadonlyMap<number, number>, standing?: ReadonlySet<number>): number {
     for (const u of info.users) {
       if (u === engine) continue;
+      // (Standing in the section with no room (`heldIn`), off its way: not in it.)
+      if (along && standing && this.offWay(u, along, standing)) continue;
       if (along && this.follows(info, engine, u) && this.sameWayAhead(u, along)) continue;
       if (along && info.loose.includes(u) && this.clearOfCircling(u, along)) continue;
+      // (Coming out of a dead end: a train standing outside, waiting to go in, isn't in its way unless it stands on its
+      // way out (it takes a road clear of one facing it: `outOfDeadEnd`); one ahead the same way, it follows.)
+      if (along && this.standing(u) && this.comingOut(engine) && this.clearOrAhead(u, along)) continue;
       const m = this.states.get(u)?.move;
       if (m && m.sections.includes(section)) return u;
       const t = this.sim.findCar(u)?.train;
       if (t && t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return u;
     }
-    for (const t of info.foreign) if (t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return nameOf(t);
+    // (A train not working the track (standing, on no line or another's): in the way only on its way, once that's
+    // known (`along`). A section can be most of the map: #29, "blocked by a train all the way on the other side".)
+    for (const t of info.foreign) if (t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section && (!along || along.has(b.pieceId)))) return nameOf(t);
     return info.zone.sections.get(section) ?? -1;
   }
 
@@ -1580,12 +1729,12 @@ export class Sections {
     // (Trains on no line about: those in it going its way ahead of it, it may follow (`follows`).)
     let along: Map<number, number> | undefined;
     let ahead: Way | null = null;
-    if (u !== -1 && !short && this.mayFollow(info, st.engine, u)) {
+    if (u !== -1 && !short && (this.mayFollow(info, st.engine, u) || this.comingOut(st.engine) || !info.users.includes(u))) {
       ahead = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
       if (ahead && ahead.dest !== DEAD_END) {
         along = this.alongOf(ahead.steps, topo);
         u = this.sectionUser(info, section, st.engine, along);
-      } else if (!ahead && info.loose.includes(u)) {
+      } else if (!ahead && (info.loose.includes(u) || this.comingOut(st.engine) || !info.users.includes(u))) {
         // (Its way reaches no slot (its stop on a ring): walked to its stop, for a train on no line going round there
         // to be in its way only if it's on it, or comes at it head on: `clearOfCircling`.)
         along = this.walkAlong(st, { pieceId: st.exitPiece, entry: st.exitEntry }, topo);
@@ -1598,8 +1747,13 @@ export class Sections {
     }
     const way = ahead ?? this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry }, -1, short);
     if (short && way?.dest !== DEAD_END) {
-      this.hold(st, { kind: "section", engine: u });
-      return false;
+      // (Its way doesn't run into them (standing, with no room or not on the line): they're not in its way. Any other
+      // train on it, or coming, is: #29, a train parked across the map held every move through the one big section.)
+      const v = way ? this.sectionUser(info, section, st.engine, along ?? this.alongOf(way.steps, topo), short) : u;
+      if (v !== -1) {
+        this.hold(st, { kind: "section", engine: v });
+        return false;
+      }
     }
     // A dead end ahead (a train its line has no room for in the way): it waits here, in its slot, for that train.
     if (way?.dest === DEAD_END) return this.deadEndWait(st, info, way);
@@ -1708,7 +1862,7 @@ export class Sections {
     if (!way) return true;
     if (way.dest === DEAD_END) return this.deadEndWait(st, info, way);
     const ahead = new Set(way.steps.map((s) => s.pieceId));
-    const along = info.loose.length > 0 || (info.oneWay && this.circling(st.engine)) ? this.alongOf(way.steps, info.topo) : null;
+    let along = info.loose.length > 0 || (info.oneWay && this.circling(st.engine)) ? this.alongOf(way.steps, info.topo) : null;
     for (const u of info.users) {
       if (u === st.engine) continue;
       const t = this.sim.findCar(u)?.train;
@@ -1716,6 +1870,8 @@ export class Sections {
       // On its way ahead. (Unless it may follow it, going its way: see `follows`.)
       if (t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) {
         if (along && this.follows(info, st.engine, u) && this.sameWayAhead(u, along)) continue;
+        // (Coming out of a dead end: one standing ahead the same way, it follows.)
+        if (this.standing(u) && this.comingOut(st.engine) && this.sameWayAhead(u, along ?? (along = this.alongOf(way.steps, info.topo)))) continue;
         return this.recoverWait(st, u, info);
       }
       // Coming the other way through it (its move's way runs over where this one stands, the other way round).
@@ -1727,7 +1883,12 @@ export class Sections {
     }
     // (A train not on the line running on its way ahead: wait for it, as for one of the line's.)
     for (const t of info.foreign) if (t.speed >= 1 && t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, nameOf(t), info);
-    if (way.dest === -1) return this.recoverWait(st, way.blockedBy !== -1 ? way.blockedBy : this.inWayOf(way, train, info), info);
+    if (way.dest === -1) {
+      // (Held at a dead end's mouth: its way up to there is clear (nothing above stopped it); it comes up to the points
+      // outside the mouth and stands short of them.)
+      if (way.mouth) st.edge = this.edgeOn(way.steps);
+      return this.recoverWait(st, way.blockedBy !== -1 ? way.blockedBy : this.inWayOf(way, train, info), info);
+    }
     this.grant(st, way);
     return true;
   }
@@ -2592,6 +2753,20 @@ export class Sections {
       if (r !== null) regions.add(r);
     }
     for (const sl of topo.slots) if (sl.kind === "road" && loops.has(sl.loop)) regions.add(sl.id);
+    // (A dead end its ways go into, all of it: a train anywhere in there is in its way going in (routing spec §5 rule 8).)
+    const ends = deadEndsOf(this.layout);
+    if (ends.mouths.length > 0) {
+      const touched = new Set<number>();
+      for (const p of way) {
+        const r = ends.regionOf.get(p);
+        if (r !== undefined) touched.add(r);
+      }
+      for (const r of touched)
+        for (const p of ends.mouths[r].pieces) {
+          const x = regionOf(topo, p);
+          if (x !== null) regions.add(x);
+        }
+    }
     // (A loop on its way pinned so every train takes one road: no passing place till it's unpinned.)
     const pinnedLoop = topo.pinnedLoops.some((pl) => pl.pieces.some((p) => way.has(p)));
     this.loopCount.set(lineId, { key, topo, n, set: loops, way, regions, pinnedLoop });
