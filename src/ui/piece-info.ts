@@ -177,6 +177,7 @@ const CAR_DETAIL: Record<CarKind, string> = {
   oiltank: "Carries oil from an oil well, or water from a water pump.",
   crane: "Lifts a derailed train back on, or a stuck train off.",
   mailvan: "Carries towns' mail to a post office, and the post on to towns.",
+  sortvan: "Sorts towns' mail into post as the train runs: no stop at the post office.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {

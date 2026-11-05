@@ -3,7 +3,7 @@ import { canCarry, CARGO, CARGO_KINDS, CARGO_SLOTS, Economy, RECIPES } from "../
 import { CAR_BY_INDEX, CAR_KINDS, CAR_SPECS, Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
-import { mailSeconds, MAIL_SECONDS, POST_TECH, POST_VANS_EVERY, POST_VANS_PER_TOWN, postLine, postVansFor } from "./post";
+import { mailSeconds, MAIL_SECONDS, POST_TECH, SANDBOX_MAIL_LEVEL, POST_VANS_EVERY, POST_VANS_PER_TOWN, postLine, postVansFor } from "./post";
 import { chainOf } from "./chains";
 import { THING_RULES } from "./things";
 import { TownCars, type CarTrip } from "./town-cars";
@@ -58,8 +58,8 @@ describe("Post office: the blueprint, its things and its goods", () => {
     expect(bp(POST_TECH).requires).toEqual([{ kind: "level", level: 2 }]);
     expect(THING_RULES["piece:depot-postoffice"]).toMatchObject({ tech: POST_TECH, cost: { planks: 8 }, coins: 180 });
     expect(THING_RULES["car:mailvan"]).toMatchObject({ tech: POST_TECH, cost: { planks: 3 } });
-    // The Sorting van stays planned, after it.
-    expect(bp("mail")).toMatchObject({ plan: "soon", needs: [POST_TECH] });
+    // The Sorting van comes after it (sorting-van.test.ts).
+    expect(bp("mail")).toMatchObject({ needs: [POST_TECH] });
   });
 
   it("a town gives mail and takes post; a post office sorts mail into post; only a mail van carries either", () => {
@@ -67,8 +67,8 @@ describe("Post office: the blueprint, its things and its goods", () => {
     expect(RECIPES.town.takes).toContain("post");
     expect(RECIPES.town.takes).not.toContain("mail");
     expect(RECIPES.postoffice).toMatchObject({ takes: ["mail"], gives: ["post"], cycle: { uses: { mail: 1 }, makes: { post: 1 } } });
-    expect(CAR_KINDS.filter((k) => canCarry(k, "mail"))).toEqual(["mailvan"]);
-    expect(CAR_KINDS.filter((k) => canCarry(k, "post"))).toEqual(["mailvan"]);
+    expect(CAR_KINDS.filter((k) => canCarry(k, "mail"))).toEqual(["mailvan", "sortvan"]);
+    expect(CAR_KINDS.filter((k) => canCarry(k, "post"))).toEqual(["mailvan", "sortvan"]);
     expect(CAR_SPECS.mailvan).toMatchObject({ length: 84, powered: false });
     // Their own index ranges (goods from 30, wagons from 15: other branches take 19-29 and 10-14), so old saves' indices
     // stay and branches don't clash; arrays by index are `CARGO_SLOTS` long, a snapshot's wagon read by `CAR_BY_INDEX`.
@@ -172,6 +172,30 @@ describe("towns post mail once Post office is learned and a post office stands (
     const placeOf = (x: { pieceId: number }) => w.layout.getPiece(x.pieceId)?.pose ?? null;
     expect(chainOf(d, w.economy.allDepots(), placeOf as never).outputs).toEqual([]);
   });
+});
+
+describe("post in Sandbox (TownLife.clear: no research there)", () => {
+  it("towns post mail once a post office stands, at a Town's pace, only at their stations; its post office sorts it", () => {
+    const { w, life } = starter();
+    // Into Sandbox: nothing learned, nothing to learn.
+    life.clear();
+    const stations = w.economy.allDepots().filter((d) => d.role === "town" && w.stations.get(d.townId) === d.pieceId);
+    for (const d of stations) expect(w.economy.mailEvery!(d)).toBe(0);
+    w.layout.addPiece("depot-postoffice", { x: 40000, z: 40000, heading: 0 });
+    syncIndustries(w, true);
+    for (const d of stations) expect(w.economy.mailEvery!(d)).toBe(mailSeconds(SANDBOX_MAIL_LEVEL));
+    // A halt posts none (a stop for its people, not a second post box).
+    const halt = w.economy.allDepots().find((d) => d.role === "town" && w.stations.get(d.townId) !== d.pieceId);
+    if (halt) expect(w.economy.mailEvery!(halt)).toBe(0);
+    for (let k = 0; k < 2 * mailSeconds(SANDBOX_MAIL_LEVEL) * SIM_HZ; k++) w.economy.tick();
+    for (const d of stations) expect(d.piles[CARGO.mail.index]).toBeGreaterThan(0);
+    // The post office sorts what a train brings it (its recipe, as in Game mode).
+    const office = w.economy.allDepots().find((d) => d.role === "postoffice")!;
+    office.piles[CARGO.mail.index] = 2;
+    for (let k = 0; k < (RECIPES.postoffice.cycle!.seconds + 1) * SIM_HZ; k++) w.economy.tick();
+    expect(office.piles[CARGO.post.index]).toBeGreaterThan(0);
+  });
+
 });
 
 describe("post vans on a town's streets", () => {

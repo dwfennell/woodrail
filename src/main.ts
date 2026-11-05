@@ -772,6 +772,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.onTurned = () => audio.rotate();
   interaction.onDepart = () => audio.bell();
   interaction.onSwitched = () => scheduleSave();
+  interaction.onCalledHome = () => scheduleSave();
   interaction.onLeverThrown = () => audio.switchClunk(0.7, 0);
   // Telegraph poles carry a signal box's reach (the Telegraph; Sandbox has every toy).
   interaction.telegraph = () => mode !== "game" || progress.learned.has("telegraph");
@@ -3568,6 +3569,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** What the breakdown cranes did (src/economy/breakdown.ts): a toast each, and a save once a train is put right. */
   function showCraneNews(): void {
+    // (And trains called home by the Telegraph, come home: game/telegraph.ts.)
+    for (const engine of game.economy.drainCameHome()) hud.toast(`${game.sim.nameOf(engine)} is home`);
     for (const e of game.economy.breakdown.drainEvents()) {
       if (e.kind === "sent") {
         if (e.auto) hud.toast(CRANE_TEXT.auto);

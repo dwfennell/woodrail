@@ -63,7 +63,7 @@ export class TrainView {
    */
   hoistOf: (carId: number) => number = () => 0;
   /** Each engine's livery from the paint shop (see `Sim.liveryOf`; null: as it came). */
-  liveryOf: (carId: number) => { id: string; body: string; trim: string } | null = () => null;
+  liveryOf: (carId: number) => { id: string; body: string; trim: string; stripes?: readonly string[] } | null = () => null;
   /** Each engine's name, painted on its plates (see `Sim.nameOf`). */
   nameOf: (carId: number) => string = () => "";
   private readonly plates = new NamePlates();

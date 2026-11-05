@@ -34,6 +34,7 @@ import { pointsSetFor } from "./engine-status";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
 import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
+import { callHome, calledLine, trainsInReach } from "./telegraph";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag, type RoadTill } from "./road-hand";
 import { DrawHand } from "./draw-hand";
@@ -5670,7 +5671,24 @@ export class Interaction {
       this.throwLever(l.pieceId, l.road, l.corner);
       this.showLevers(propId);
     });
+    // The Telegraph: the trains in its reach (by the box and every wired pole), each with Call home.
+    if (!this.telegraph?.()) return;
+    const trains = trainsInReach(g, p.x, p.z, true);
+    this.hud.showReachTrains(
+      trains.map((t) => ({ name: t.name, called: g.economy.homeCalls.has(t.engine) })),
+      (i) => {
+        const t = trains[i];
+        if (this.selectedProp !== propId) return;
+        const r = callHome(g, t.engine);
+        this.hud.toast(r.ok ? calledLine(t.name, r.home) : r.why === "no-home" ? `${t.name} has no station to go home to` : `${t.name} can't be called now`);
+        if (r.ok) this.onCalledHome?.();
+        this.showLevers(propId);
+      },
+    );
   }
+
+  /** A train was called home from a signal box's card (the Telegraph): the game saves its new line. */
+  onCalledHome: (() => void) | null = null;
 
   /** Turn a placed prop an eighth, if it still fits. */
   private turnProp(id: number): void {

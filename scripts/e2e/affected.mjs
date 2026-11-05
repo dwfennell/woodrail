@@ -57,6 +57,7 @@ export const SUITES = {
   "low-bridge": { script: "e2e:low-bridge", groups: true },
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   post: { script: "e2e:post", minutes: 5 },
+  leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   crane: { script: "e2e:crane", minutes: 4 },
 };
@@ -194,7 +195,9 @@ export const RULES = [
   [["src/game/map-sites.ts", "src/game/restore.ts", "src/game/across-river.ts", "src/game/map-markers.ts", "src/game/landmarks.ts", "src/game/harbours.ts"], ["sites"]],
   [["src/game/road-*", "src/game/town-cars.ts", "src/game/buses.ts", "src/game/delivery-vans.ts", "src/game/vans.ts"], ["roads", "post"]],
   // The post: towns' mail, the post office, mail vans, post vans on the streets.
-  [["src/game/post.ts", "src/catalogue/assets/mail-van.ts", "src/game/town-ledger.ts", "src/ui/town-ledger.ts"], ["post"]],
+  [["src/game/post.ts", "src/catalogue/assets/mail-van.ts", "src/game/town-ledger.ts", "src/ui/town-ledger.ts"], ["post", "leftovers"]],
+  // The leftovers: the sorting van, Sandbox's post, the Telegraph's trains and Call home, Lined and Rainbow, bunting.
+  [["src/game/telegraph.ts", "src/game/lineside.ts", "src/game/paint-shop.ts", "src/ui/paint-sheet.ts", "src/game/landmarks.ts", "src/render/train-models.ts"], ["leftovers"]],
   [["src/game/industries.ts", "src/game/lineside.ts", "src/game/fields.ts", "src/game/depot-footprint.ts", "src/game/things.ts", "src/game/food-text.ts"], ["kits-game", "warehouse", "workshop", "hopper-load", "life", "sandbox-chains"]],
   [["src/game/passengers.ts"], ["big-stations", "station-touches", "station-upgrade"]],
   [["src/game/touches.ts", "src/game/calendar.ts"], ["life", "station-clock"]],

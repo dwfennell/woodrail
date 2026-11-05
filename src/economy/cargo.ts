@@ -132,9 +132,11 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   oiltank: ["oil", "water"],
   // The mail van: a town's mail to the post office, and the sorted post on to towns. They ride in nothing else.
   mailvan: ["mail", "post"],
+  // The sorting van (Sorting van): mail and post too, and it sorts its mail into post as the train runs (`SORT_SECONDS`).
+  sortvan: ["mail", "post"],
 };
 
-/** The post's goods (Post office): a town's mail and the sorted post. Only a mail van carries them. */
+/** The post's goods (Post office): a town's mail and the sorted post. Only a mail van or a sorting van carries them. */
 export const POSTAL: ReadonlySet<CargoKind> = new Set(["mail", "post"]);
 
 /** Can this kind of car carry cargo (any, or this kind)? */

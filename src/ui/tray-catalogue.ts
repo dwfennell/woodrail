@@ -102,6 +102,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["crane"], label: "Breakdown crane", unlearned: "hide" },
   // (Game mode's once Post office is learned.)
   { kind: "train", cars: ["mailvan"], label: "Mail van", unlearned: "hide" },
+  // (Game mode's once Sorting van is learned.)
+  { kind: "train", cars: ["sortvan"], label: "Sorting van", unlearned: "hide" },
   // (Game mode's once Scenery kit is learned.)
   { kind: "train", cars: ["cleaner"], label: "Track cleaner", unlearned: "hide" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
@@ -137,7 +139,7 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   // ready-made set picks the cars for the player.
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2), modes: ["sandbox"] },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "carrier" || i.cars[0] === "oiltank" || i.cars[0] === "crane" || i.cars[0] === "mailvan" || i.cars[0] === "cleaner")) },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "carrier" || i.cars[0] === "oiltank" || i.cars[0] === "crane" || i.cars[0] === "mailvan" || i.cars[0] === "sortvan" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 

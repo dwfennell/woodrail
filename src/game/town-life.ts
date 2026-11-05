@@ -12,7 +12,7 @@ import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
 import { buildOnLots, changedBuildings, lotPoint, nextLots, type Lot } from "./town-growth";
 import { dueLandmarks } from "./landmarks";
-import { hasPostOffice, mailSeconds, POST_TECH } from "./post";
+import { hasPostOffice, mailEveryAt, POST_TECH, SANDBOX_MAIL_LEVEL } from "./post";
 import { placeOf, planDone, planLacks, townPlaces, townSmiles, type Place } from "./places";
 import { housesBy, LUXURIES, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
@@ -163,7 +163,7 @@ export class TownLife {
     // Towns post mail once Post office is learned, quicker the bigger they are (src/game/post.ts).
     // (Only at its station: a halt is a stop for its people, not a second post box. And only while a post office stands
     // on the map: no mail piling up, the game's state changing each second, for nothing that could take it.)
-    this.game.economy.mailEvery = (d) => (this.events.knows?.(POST_TECH) && this.game.stations.get(d.townId) === d.pieceId && hasPostOffice(this.game.economy) ? mailSeconds(this.levels.get(d.townId) ?? 0) : 0);
+    this.game.economy.mailEvery = (d) => mailEveryAt(!!this.events.knows?.(POST_TECH), this.game.stations.get(d.townId) === d.pieceId, hasPostOffice(this.game.economy), this.levels.get(d.townId) ?? 0);
     // A town joined by road to another counts some of what it receives twice toward growing (roads spec D2).
     this.game.economy.joinedByRoad = (townId) => joinedByRoad(this.game.landscape, townId);
     for (const t of this.game.landscape.towns) {
@@ -187,6 +187,8 @@ export class TownLife {
     this.game.economy.joinedByRoad = null;
     this.game.economy.placeWants = null;
     this.game.economy.onPlaceGoods = null;
+    // Sandbox's towns post mail too, once a post office stands (no research there): its post offices sort it.
+    this.game.economy.mailEvery = (d) => mailEveryAt(true, this.game.stations.get(d.townId) === d.pieceId, hasPostOffice(this.game.economy), SANDBOX_MAIL_LEVEL);
   }
 
   /** Does a town still want some of `kind` for its next level? (Cached per town until something more arrives.) */

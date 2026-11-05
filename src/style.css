@@ -180,6 +180,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card .lever-list { flex-wrap: wrap; justify-content: center; width: 340px; max-width: 100%; max-height: min(42vh, 260px); overflow-y: auto; overscroll-behavior: contain; }
 .piece-card .lever-list .lever-chip { flex: 1 1 140px; height: auto; min-height: 44px; padding: 6px 10px; line-height: 1.2; white-space: normal; }
 .piece-card .lever-list .card-hint { margin-top: 0; }
+.piece-card .reach-list { flex-direction: column; align-items: stretch; gap: 6px; width: 340px; max-width: 100%; max-height: min(34vh, 220px); overflow-y: auto; overscroll-behavior: contain; }
+.piece-card .reach-head { font-size: 13px; font-weight: 800; color: #6a4f34; text-align: left; }
+.piece-card .reach-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; }
+.piece-card .reach-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; text-align: left; }
+.piece-card .reach-call { flex: 0 0 auto; min-height: 44px; }
+.piece-card .reach-list .card-hint { margin-top: 0; text-align: left; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 /* An old industry's ruin: what's around it, what opens it (the lock line the boldest), and that you needn't use it. */
 .ruin-card { gap: 8px; }

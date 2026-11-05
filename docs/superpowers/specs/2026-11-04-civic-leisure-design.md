@@ -292,3 +292,14 @@ nice-to-have band is 150–600: this is the surplus the places are there to spen
 
 Checks: `src/game/places.test.ts` (17: the town hall by train, the park's payoff, smiles, visitors, Stop, no room,
 one per map, save, treats, look-alikes), `src/game/paint-shop.test.ts`, and `npm run e2e:civic`.
+
+## Built later (2026-11-05, `claude/leftovers-1`)
+
+- **Lined** (City, 80🪙) and **Rainbow** (City ★★, 600🪙) in the paint shop, as §4 has them (Starlight stays). Each is a
+  livery with a painted stripe (`Livery.stripe`): `addStripes` (render/train-models) puts a band along both sides of
+  every body-coloured panel big enough for one, at its middle height and widest point: one gold line for Lined
+  (the engine's own green and red), six bands for Rainbow (on cream). Built once with the car's model, one merged mesh
+  per colour from the lacquer cache: nothing per frame. The paint sheet's swatches show the stripe.
+- **City ★★'s bunting**, the free gift: a landmark (`bunting`, level 5) that goes up by itself on a lot of its own as a
+  town reaches City ★★, the catalogue's `scene-bunting`.
+
