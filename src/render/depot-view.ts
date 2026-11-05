@@ -1952,8 +1952,19 @@ export class DepotView {
     for (const site of this.sites) this.updateCrane(site, economy, carObject);
 
     for (const u of this.allUnits) for (const part of u.parts) part.count = u.n;
+    // Only the units placed go up to the GPU: each kind's buffer holds `MAX_UNITS` (128 kB), and every frame a train
+    // moves sent every kind's whole buffer, empty or not (one kind of goods or heap, a part each: ~60 buffers, ~7 MB a
+    // frame on a map with all the goods). A kind with none placed, now as before, sends nothing.
     for (const m of this.cargoMeshes) {
-      m.instanceMatrix.needsUpdate = true;
+      const sent = (m.userData.sentCount as number | undefined) ?? -1;
+      if (m.count === 0 && sent === 0) continue;
+      m.userData.sentCount = m.count;
+      const attr = m.instanceMatrix;
+      attr.clearUpdateRanges();
+      if (m.count > 0) {
+        attr.addUpdateRange(0, m.count * 16);
+        attr.needsUpdate = true;
+      }
       // Units move every frame: let the next raycast recompute the bounds it tests first.
       m.boundingSphere = null;
       m.boundingBox = null;
