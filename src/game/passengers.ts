@@ -66,7 +66,7 @@ export function riderSeconds(level: number, busy = false): number {
  * since its last arrival, by town id (a quarter's by −2 − its depot id), kept by the caller between calls. Cheap: a few
  * towns, called about once a second.
  */
-export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>): void {
+export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>, boost: (townId: number) => number = () => 1): void {
   // No one waits for coaches that can't be made yet.
   if (!p.learned.has("passengers")) return;
   // (And riders on an observation car's train who are over a view now have had it.)
@@ -104,7 +104,8 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
     // A full town doesn't save up people for later.
     clock.set(key, waiting >= cap ? 0 : t);
   };
-  for (const [townId, list] of stops) arrive(townId, list, riderSeconds(statusOf(world, townId).level, busy) / circusRiders(p, townId));
+  // (`boost`: a town that hears about the trains, its radio mast powered, sends more: src/game/radio.ts.)
+  for (const [townId, list] of stops) arrive(townId, list, riderSeconds(statusOf(world, townId).level, busy) / (circusRiders(p, townId) * boost(townId)));
   for (const [townId, list] of quarters) {
     const every = riderSeconds(statusOf(world, townId).level, busy) * METRO_SLOWER;
     // (A quarter's clock is keyed by its depot: −2 − its id, apart from the towns' own.)
