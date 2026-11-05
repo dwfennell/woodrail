@@ -47,7 +47,8 @@ const tap = async (selector) => {
   const at = await p.evaluate((selector) => {
     const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
     if (!el) return null;
-    el.scrollIntoView({ block: "center" });
+    // (Scrolled only when not in view: a scroll under a late click would land it elsewhere.)
+    el.scrollIntoView({ block: "nearest" });
     const r = el.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
   }, selector);
@@ -103,12 +104,14 @@ await p.keyboard.press("Escape");
 // (A line with a workshop on it, laid on open ground, and the train put on it: setup, not what's tested.)
 const train = await p.evaluate(async () => {
   const w = window.woodrail;
-  const t = w.world.landscape.towns[0];
-  const x0 = t.centre.x - 700;
-  const z0 = t.centre.z + 1600;
-  const line = [0, 1, 2, 3, 4, 5].map((k) => w.world.layout.addPiece("straight-216", { x: x0 + 216 * k, z: z0, heading: 0 }));
-  w.world.layout.addPiece("depot-workshop", { x: x0 + 216 * 6, z: z0, heading: 0 });
-  w.world.layout.addPiece("straight-216", { x: x0 + 216 * 7, z: z0, heading: 0 });
+  // (Beside the station's line, at its level: the ground there is flat.)
+  const st = w.world.layout.getPiece(w.world.stations.get(w.world.landscape.towns[0].id)).pose;
+  const c = Math.cos(st.heading);
+  const sn = Math.sin(st.heading);
+  const along = (k) => ({ x: st.x + c * 216 * (k - 3) - sn * 300, z: st.z + sn * 216 * (k - 3) + c * 300, heading: st.heading, y: st.y ?? 0 });
+  const line = [0, 1, 2, 3, 4, 5].map((k) => w.world.layout.addPiece("straight-216", along(k)));
+  w.world.layout.addPiece("depot-workshop", along(6));
+  w.world.layout.addPiece("straight-216", along(7));
   w.invalidate();
   await new Promise((r) => setTimeout(r, 1500));
   const placed = w.sim.addTrain(["engine", "passenger", "hopper"], { pieceId: line[5], pathIndex: 0, reversed: false, s: 150 });
@@ -188,12 +191,19 @@ const tapUntil = async (selector, done) => {
 };
 const part = (want) => `document.querySelector(".paint-part.on")?.dataset.part === "${want}"`;
 const picked = (want) => `document.querySelector(".paint-colour.chosen")?.dataset.colour === "${want}"`;
-const taps = [
+const looks = () => p.evaluate(() => document.querySelector(".paint-own-look")?.style.background ?? "");
+const pick = async () => [
   await tapUntil('.paint-part[data-part="body"]', part("body")),
   await tapUntil('.paint-colour[data-colour="#1f5aa6"]', picked("#1f5aa6")),
   await tapUntil('.paint-part[data-part="trim"]', part("trim")),
   await tapUntil('.paint-colour[data-colour="#f3d27a"]', picked("#f3d27a")),
 ];
+let taps = await pick();
+// (A stray late click on a loaded machine can set a colour twice: then picked again, as a person would.)
+for (let k = 0; k < 2 && !/rgb\(31, 90, 166\) 0px.*rgb\(243, 210, 122\) 62%/.test(await looks()); k++) {
+  console.log(`(picked again: ${await looks()})`);
+  taps = await pick();
+}
 check("4. each tap on Body, a colour, Trim, a colour takes", taps.every(Boolean), JSON.stringify(taps));
 const ready = await p.evaluate(() => ({ go: document.querySelector(".paint-own-go")?.textContent, off: document.querySelector(".paint-own-go")?.disabled, look: document.querySelector(".paint-own-look")?.style.background }));
 check("4. Body blue, Trim gold; Paint all 3 for 3 paint", ready.off === false && /Paint all 3 · 3 🎨 paint/.test(ready.go ?? ""), JSON.stringify(ready));
@@ -230,12 +240,15 @@ check("4. each car is built again in blue and gold (the payoff)", built.every((s
 await closeSheet();
 await p.evaluate(async (id) => {
   const w = window.woodrail;
-  // (From the side and above, the whole train in the picture: its middle car's piece.)
+  // (From above and a little to the side, the whole train in the picture: its middle car where it stands.)
   const f = w.sim.findCar(id);
-  const b = f.train.bogies[Math.floor(f.train.bogies.length / 2)];
-  const pose = w.world.layout.getPiece(b.pieceId).pose;
+  const mid = f.train.cars[Math.floor(f.train.cars.length / 2)].id;
   const V = w.camera.position.constructor;
-  w.lookAt(new V(pose.x - 150, 0, pose.z), 700, 0.95, Math.PI / 2 - 0.35);
+  const at = new V();
+  w.scene.traverse((o) => {
+    if (o.userData?.carId === mid && o.parent && o.parent.userData?.carId !== mid) o.getWorldPosition(at);
+  });
+  w.lookAt(at, 650, 0.75, 0.5);
   await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 20000))]);
 }, engine);
 await p.waitForTimeout(1500);
