@@ -59,7 +59,7 @@ export async function feedbackFlow(p, { press, check, label }) {
   });
   check(`${label}: the sheet opens on Bug, in view, picture on, map locked on, Send off till there's a note`, shown.inView && shown.bug.includes("Bug") && shown.shot && shown.mapLocked && shown.sendOff, JSON.stringify(shown));
   check(`${label}: its targets are 44 px or more`, Object.values(shown.heights).every((v) => v >= 44), JSON.stringify(shown.heights));
-  check(`${label}: it says in a line what's sent`, /note, map, picture/.test(shown.privacy) && /GitHub/.test(shown.privacy), shown.privacy);
+  check(`${label}: it says in a line what's sent`, /note, map, picture/.test(shown.privacy) && /people who make Woodrail/.test(shown.privacy), shown.privacy);
   await p.waitForFunction(() => { const t = document.querySelector(".feedback-thumb"); return t && !t.hidden && t.naturalWidth > 0; }, null, { timeout: 60000 }).catch(() => {});
   check(`${label}: the picture is taken once, as it opens (its preview shows)`, await visible(".feedback-thumb"));
   // (E2E_SHOTS=<dir>: a picture of the sheet, to look at.)

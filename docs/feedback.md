@@ -13,8 +13,8 @@ issue for it.
   with a small preview. It's sent as a JPEG of at most 1280 px on its long side and about 300 KB.
 - **Include my map**. Always on for a bug ("A bug always sends your map, so we can play it and see what went wrong");
   optional for an idea.
-- One line on what's sent: "Sends only your note, map, picture, game version, browser and screen size, as a public
-  GitHub issue."
+- One line on what's sent: "Sends only your note, map, picture, game version, browser and screen size, to the people
+  who make Woodrail." (It doesn't name GitHub; the issues are to move to a private repo, see below.)
 - **Send**. Then **✓ Sent. Thank you!**, or, if it fails, why ("Couldn't reach the server. Are you online?", "Too
   many reports just now…") and **Copy instead**: the note, the device line and the map on the clipboard (the same
   `woodrail-map:1:…` text as Copy map), to paste to us by hand.
@@ -63,7 +63,8 @@ The Worker (`cloud/src/feedback.ts`):
   (`*.itch.zone`, `*.hwcdn.net`, `*.itch.io`) and claude.ai's (`*.claudeusercontent.com`, `*.claude.ai`). Other pages
   get a 403. Saves keep their narrower list.
 
-The repo is public, so issues, and the map and picture links in them, are public. The sheet says so.
+While `GITHUB_REPO` is the public repo, issues, and the map and picture links in them, are public. The plan is to point
+it at a private repo, so the reports are seen only by us; the sheet no longer says "public GitHub issue".
 
 ## Reading a report
 

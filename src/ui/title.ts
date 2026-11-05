@@ -5,6 +5,8 @@ import { blockWord } from "./blocks";
 export interface TitleHandlers {
   /** Play a mode: carry on with its autosave, or start it afresh. */
   play(mode: GameMode, fresh: boolean): void;
+  /** "Load a cloud save" (shown only when given: a build with a cloud): open the code entry over the title. */
+  loadCloud?(): void;
 }
 
 export interface TitleOptions {
@@ -48,7 +50,8 @@ export class TitleScreen {
       <div class="title-head">
         <h1 class="title-logo"></h1>
       </div>
-      <div class="title-cards"></div>`;
+      <div class="title-cards"></div>
+      <div class="title-foot" hidden></div>`;
     this.root.querySelector(".title-logo")!.appendChild(blockWord("Woodrail"));
     const cards = this.root.querySelector(".title-cards")!;
     for (const c of CARDS) {
@@ -68,6 +71,11 @@ export class TitleScreen {
       buttons.append(go, fresh);
       this.continueBtns.set(c.mode, go);
       cards.appendChild(card);
+    }
+    if (handlers.loadCloud) {
+      const foot = this.root.querySelector<HTMLElement>(".title-foot")!;
+      foot.append(button("☁ Load a cloud save", "Carry on with a railway saved on another device: type its code", "title-cloud", () => handlers.loadCloud!()));
+      foot.hidden = false;
     }
     parent.appendChild(this.root);
   }
