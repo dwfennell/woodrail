@@ -180,6 +180,14 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: Object.fromEntries(CARGO_KINDS.map((k) => [k, { t: 60, l: 80, y: PAD_H, across: 1, axis: "t", show: 0 }])),
     trackT: 60,
   },
+  // An airport (Game mode): a passenger stop, no piles. Its terminal and control tower at the far end; a little
+  // baggage jib by the track; the planes park on the apron past the yard (`PlanesView`).
+  airport: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 40, l: 40, height: 56 },
+    piles: {},
+    trackT: 108,
+  },
   harbour: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -384,6 +392,8 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
   // The brickworks: the catalogue's factory with its banded chimney (a brick works, its notes say).
   brickworks: [{ asset: "bldg-factory", t: 156, l: 86 }],
   // The car factory: the catalogue's goods shed as its assembly hall, and a new car waiting by the door.
+  // The airport: the catalogue's control tower, its radar turning in the catalogue (here it stands).
+  airport: [{ asset: "bldg-control-tower", t: 176, l: 92 }],
   carworks: [
     { asset: "bldg-goods-shed", t: 162, l: 86 },
     { asset: "veh-family-car", t: 116, l: 100, turn: 0.4, scale: 0.6 },
@@ -1220,6 +1230,13 @@ export class DepotView {
       for (const t of [30, 80, 130, 180]) b.add(mats.lacquer("#3a3a3e"), place(new CylinderGeometry(2.5, 3, 7, 10), t, 110, PAD_H + 3.5));
       b.add(mats.lacquer("#e9e1cf"), place(new RoundedBoxGeometry(26, 24, 22, 2, 2.5), 184, 92, PAD_H + 12));
       b.add(mats.lacquer("#2f6fb0"), place(new RoundedBoxGeometry(30, 4, 26, 1, 1.5), 184, 92, PAD_H + 26));
+    }
+    if (site.depot.role === "airport") {
+      // A white terminal with a blue roof by the platform, and a windsock on its pole.
+      b.add(mats.lacquer("#f0ebe0"), place(new RoundedBoxGeometry(70, 22, 30, 2, 2.5), 100, 90, PAD_H + 11));
+      b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(76, 4, 36, 1, 1.5), 100, 90, PAD_H + 24));
+      b.add(mats.lacquer("#8d8f93"), place(new CylinderGeometry(1.2, 1.2, 40, 8), 30, 104, PAD_H + 20));
+      b.add(mats.lacquer("#e07a2e"), place(new ConeGeometry(4, 16, 10).rotateZ(Math.PI / 2), 38, 104, PAD_H + 38));
     }
     if (site.depot.role === "power") {
       // A brick turbine hall with two tall chimneys.

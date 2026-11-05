@@ -11,6 +11,8 @@ import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
 import { LoopShowView } from "../render/loop-show";
 import { ClockView, type ClockAt } from "../render/clock-view";
+import { PlanesView, type AirportAt, type PlacePlane } from "../render/planes-view";
+import type { PlanePhase } from "./airports";
 import type { ClockHands } from "../render/clock-hands";
 import { flatClockHands } from "../render/blender-models";
 import { STATION_CLOCK_PART } from "../render/dressing/buildings";
@@ -209,6 +211,10 @@ export class Game {
   readonly loopShow = new LoopShowView();
   /** Station clocks' hands, showing the player's real time (see `ClockView`: a timer a minute, nothing per frame). */
   readonly clockView: ClockView;
+  /** Planes calling at airports (Game mode: see `PlanesView`, ambient motion). */
+  readonly planesView: PlanesView;
+  /** Where airports' planes are (Game mode's `Airports`, set by main): null, no planes. */
+  planeSource: { airports(): readonly AirportAt[]; phase(id: number): PlanePhase; place: PlacePlane } | null = null;
   /** The station house clock's hands (once the map's parts are loaded). */
   private stationHands: ClockHands | undefined;
   /** A prop being moved by hand: not drawn where it stood. */
@@ -373,6 +379,8 @@ export class Game {
     this.watchHidden();
     this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
+    this.planesView = new PlanesView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.planesView.group);
     this.scene.add(this.boats.group);
     this.roadVehiclesView = new RoadVehiclesView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.roadVehiclesView.group);
@@ -422,6 +430,7 @@ export class Game {
     this.stationTouches.clear();
     this.touchesPieces = this.touchesNext = -1;
     this.boats.clear();
+    this.planesView.clear();
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
@@ -1112,6 +1121,9 @@ export class Game {
     }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
     if (this.boats.update(this.camera, this.ambientEye)) ambient = true;
+    // Planes flying in view (by their airports' clocks; still while paused).
+    const planes = this.planeSource;
+    if (planes && this.planesView.update(planes.airports(), planes.phase, planes.place, this.ambientEye, this.paused)) ambient = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;

@@ -293,7 +293,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "ferry", label: "Train ferry", branch: "water", tier: 3, plan: "later", needs: ["harbours", "junctions"], price: { planks: 24, coins: 120, goods: { iron: 10 } }, blurb: "Trains ride a ferry across wide water.", brings: "Train ferry" }),
   row({ id: "lighthouse", label: "Lighthouse", branch: "water", tier: 3, plan: "later", needs: ["harbours"], price: { planks: 16, coins: 60, goods: { stone: 10 } }, blurb: "Boats call twice as often, at night too.", brings: "Lighthouse" }),
   row({ id: "cargo-ships", label: "Cargo ships", branch: "water", tier: 3, plan: "later", needs: ["barges", "trade", "cranes3"], price: { planks: 30, coins: 200, goods: { iron: 20 } }, blurb: "Big ships take 24 loads a visit; a container crane loads them.", brings: "Cargo ship, container crane" }),
-  row({ id: "airport", label: "Airport", branch: "water", tier: 3, plan: "later", needs: ["electricity", "trade"], price: { planks: 40, coins: 300, goods: { iron: 30 } }, blurb: "Planes carry passengers between far cities; trains bring them to the terminal.", brings: "Airport, plane" }),
+  // The gateway (late-game spec A1): planes call by themselves; trains bring riders to fly and take visitors on.
+  row({ id: "airport", label: "Airport", branch: "water", tier: 3, school: "university", needs: ["electricity", "harbours"], price: { planks: 30, coins: 300, goods: { iron: 20 } }, requires: [count("riders", 400)], blurb: "Planes call by themselves: bring riders to fly away (12 coins each), and take their visitors on by train.", brings: "Airport, planes" }),
   row({ id: "airship", label: "Airship", branch: "water", tier: 3, plan: "later", needs: ["airport"], price: { planks: 20, coins: 150 }, blurb: "A slow, grand airship over your railway.", brings: "Airship mast" }),
 
   // Passengers: researched, each once you've carried enough people. Light on planks (the towns need them), and from

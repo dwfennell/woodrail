@@ -1,5 +1,6 @@
 import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
+import { VISITOR_BONUS } from "./airports";
 import type { Progress } from "./progress";
 import { townStatus } from "./towns";
 import { growthOf } from "./town-life";
@@ -85,8 +86,12 @@ export function seatsIn(world: World, carId: number): number {
   return SEATS[world.sim.lookOf(carId)] ?? 0;
 }
 
-/** One rider's fare from station `from` to station `to`, riding coach `carId`. */
+/**
+ * One rider's fare from station `from` to station `to`, riding coach `carId`. A visitor off a plane (`from` an
+ * airport) pays `VISITOR_BONUS` times as much; one taken to an airport pays nothing here (the plane takes their fare).
+ */
 export function fareFor(world: World, from: DepotState, to: DepotState, carId: number): number {
+  if (to.role === "airport") return 0;
   const a = world.layout.getPiece(from.pieceId)?.pose;
   const b = world.layout.getPiece(to.pieceId)?.pose;
   // Whole coins for the ride, then first class and a dining car on top.
@@ -96,6 +101,7 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (world.sim.lookOf(carId) === "first-class") fare *= FIRST_CLASS;
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
   }
+  if (from.role === "airport") fare *= VISITOR_BONUS;
   return Math.round(fare);
 }
 

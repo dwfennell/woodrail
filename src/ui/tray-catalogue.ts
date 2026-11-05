@@ -184,6 +184,7 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-smithy", label: "Smithy" },
       { kind: "piece", type: "depot-power", label: "Power station" },
       { kind: "piece", type: "depot-harbour", label: "Harbour" },
+      { kind: "piece", type: "depot-airport", label: "Airport" },
       { kind: "piece", type: "depot-warehouse", label: "Warehouse" },
     ],
   },
@@ -197,7 +198,7 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
 export const SANDBOX_INDUSTRY_GROUPS: TrayGroup[] = [
   {
     label: "Industries",
-    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour"].includes(i.type)),
+    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour", "depot-airport"].includes(i.type)),
   },
 ];
 
