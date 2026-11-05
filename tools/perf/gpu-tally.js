@@ -6,6 +6,7 @@
   const bufBytes = new Map();
   const texBytes = new Map();
   const rbBytes = new Map();
+  const texDims = new Map();
   const boundBuf = new WeakMap();
   const boundTex = new WeakMap();
   const boundRb = new WeakMap();
@@ -29,6 +30,8 @@
       for (const [c, aa] of canvases) s += c.width * c.height * 4 * (aa ? 2 : 1) + c.width * c.height * 4 /* depth and stencil */;
       return s;
     },
+    /** Each live texture: [bytes, width, height, format, levels or faces], biggest first. */
+    textureList: () => [...texDims].filter(([t]) => texBytes.has(t)).map(([t, d]) => [sum(new Map([[0, texBytes.get(t)]])), ...d]).sort((a, b) => b[0] - a[0]),
     counts: () => ({ buffers: bufBytes.size, textures: texBytes.size, renderbuffers: rbBytes.size }),
   };
   const getContext = HTMLCanvasElement.prototype.getContext;
@@ -95,6 +98,7 @@
       if (!Array.isArray(lv)) texBytes.set(tx, (lv = []));
       const face = a[0] !== t ? a[0] - 0x8515 : 0;
       lv[level * 6 + face] = w * h * BPP(fmt);
+      if (level === 0) texDims.set(tx, [w, h, fmt, "2d"]);
     });
     wrap("texStorage2D", function ([t, levels, fmt, w, h]) {
       const tx = tex(this, t);
@@ -102,11 +106,13 @@
       let s = 0;
       for (let l = 0; l < levels; l++) s += Math.max(1, w >> l) * Math.max(1, h >> l) * BPP(fmt);
       texBytes.set(tx, s * (t === 0x8513 ? 6 : 1));
+      texDims.set(tx, [w, h, fmt, `storage ${levels}`]);
     });
     wrap("texImage3D", function (a) {
       const tx = tex(this, a[0]);
       if (!tx) return;
       texBytes.set(tx, a[3] * a[4] * a[5] * BPP(a[2]));
+      texDims.set(tx, [a[3], a[4], a[2], `3d ${a[5]}`]);
     });
     wrap("texStorage3D", function ([t, levels, fmt, w, h, d]) {
       const tx = tex(this, t);
@@ -114,6 +120,7 @@
       let s = 0;
       for (let l = 0; l < levels; l++) s += Math.max(1, w >> l) * Math.max(1, h >> l) * d * BPP(fmt);
       texBytes.set(tx, s);
+      texDims.set(tx, [w, h, fmt, `storage3d ${levels}x${d}`]);
     });
     wrap("generateMipmap", function ([t]) {
       const tx = tex(this, t);

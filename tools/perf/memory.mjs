@@ -93,6 +93,7 @@ async function measure() {
       programs: info.programs?.length ?? 0,
       sceneGeometries: geos,
       sceneCpuGeometryBytes: cpu,
+      textureTop: t.textureList().slice(0, 25).map(([b, w, h, f, k]) => `${(b / 1048576).toFixed(1)} MB ${w}x${h} 0x${f.toString(16)} ${k}`),
       gpu: { buffers: t.buffers(), textures: t.textures(), renderbuffers: t.renderbuffers(), drawingBuffer: t.drawingBuffer() },
       jsHeapPerf: performance.memory?.usedJSHeapSize ?? 0,
     };
@@ -116,6 +117,7 @@ async function measure() {
     sceneGeometries: m.sceneGeometries,
     textures: m.textures,
     programs: m.programs,
+    textureTop: m.textureTop,
   };
 }
 
