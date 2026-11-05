@@ -7,6 +7,7 @@ import { buildMilkTanker, milkTankerBogies } from "../catalogue/assets/milk-tank
 import { buildColdVan, coldVanBogies } from "../catalogue/assets/cold-van";
 import { buildOilTanker, oilTankerBogies } from "../catalogue/assets/oil-tanker";
 import { breakdownCraneBogies, buildBreakdownCrane } from "../catalogue/assets/breakdown-crane";
+import { buildMailVan, mailVanBogies } from "../catalogue/assets/mail-van";
 import { buildCarCarrier, carCarrierBogies } from "../catalogue/assets/car-carrier";
 import { blenderCar } from "./blender-models";
 import type { Materials } from "./materials";
@@ -67,6 +68,7 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   if (kind === "oiltank") return codeCarModel(mats, "oiltank", buildOilTanker, oilTankerBogies);
   if (kind === "crane") return codeCarModel(mats, "crane", buildBreakdownCrane, breakdownCraneBogies);
   if (kind === "carrier") return codeCarModel(mats, "carrier", buildCarCarrier, carCarrierBogies);
+  if (kind === "mailvan") return codeCarModel(mats, "mailvan", buildMailVan, mailVanBogies);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
   // (Painted at the paint shop: its livery; else the classic engine's second scheme on every other one.)
   const recolor = kind === "engine" && livery ? liveryRecolor(look, livery) : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};

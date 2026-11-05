@@ -1,6 +1,6 @@
 import { getPieceDef, isKit, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
-import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
+import { CARGO, CARGO_KINDS, CARGO_SLOTS, canCarry, POSTAL, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
@@ -50,7 +50,7 @@ interface Service {
   turnAt?: number;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | "postoffice" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -104,10 +104,14 @@ export const WORKSHOP_CAP = 30;
  */
 export const SCHOOL_SHARE = 0.6;
 
+/** Ticks between looks at the towns' mail (a second's worth). */
+const MAIL_LOOK = Math.round(1 / SIM_DT);
+
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "chocolate", "flowers", "paint", "toys"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  // A town also posts mail (Game mode, once Post office is learned: `Economy.mailEvery`) and takes the sorted post.
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "chocolate", "flowers", "paint", "toys", "post"], gives: ["mail"], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
@@ -126,6 +130,8 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   creamery: { takes: ["milk"], gives: ["cheese"], cycle: { uses: { milk: 1 }, makes: { cheese: 1 }, seconds: 12 } },
   // An ice cream factory: milk and fruit, from two chains, make ice cream (carried only in cold vans).
   icecream: { takes: ["milk", "fruit"], gives: ["icecream"], cycle: { uses: { milk: 1, fruit: 1 }, makes: { icecream: 1 }, seconds: 12 } },
+  // A post office sorts the towns' mail into post for towns (the post: mail vans carry both).
+  postoffice: { takes: ["mail"], gives: ["post"], cycle: { uses: { mail: 1 }, makes: { post: 1 }, seconds: 6 } },
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
   // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.
@@ -153,12 +159,13 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // A power station burns coal; while it has some, electric engines run.
   power: { takes: ["coal"], gives: [], cycle: { uses: { coal: 1 }, makes: {}, seconds: 60 } },
   // A harbour (Game mode) takes any good onto its quay for the boats that call by themselves (`src/game/harbours.ts`).
-  harbour: { takes: [...CARGO_KINDS], gives: [] },
+  harbour: { takes: CARGO_KINDS.filter((k) => !POSTAL.has(k)), gives: [] },
   // A school (Game mode's research): goods go into the research, not onto piles. What it takes is the mode's say
   // (`accepts`: only what the research still lacks); each unit is handed to `intoSink` as it lands.
-  school: { takes: CARGO_KINDS.filter((k) => k !== "log"), gives: [], cap: WORKSHOP_CAP, sink: true },
+  school: { takes: CARGO_KINDS.filter((k) => k !== "log" && !POSTAL.has(k)), gives: [], cap: WORKSHOP_CAP, sink: true },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
-  warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
+  // (Not the post: mail goes to a post office, the post to towns.)
+  warehouse: { takes: CARGO_KINDS.filter((k) => !POSTAL.has(k)), gives: CARGO_KINDS.filter((k) => !POSTAL.has(k)), cap: 24, routedOnly: true },
   // Sandbox's cargo machines: an endless heap of one good, and somewhere goods vanish.
   "loader-log": { takes: [], gives: ["log"], endless: true },
   "loader-grain": { takes: [], gives: ["grain"], endless: true },
@@ -777,7 +784,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0, modes: CARGO_KINDS.map(() => null), others: "both", keeps: CARGO_KINDS.map(() => null) };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both", keeps: Array.from({ length: CARGO_SLOTS }, () => null) };
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
@@ -1015,7 +1022,7 @@ export class Economy {
   private passOf(train: Train, kind: CargoKind): { loaded: Int32Array; school: Int32Array } {
     let p = this.passes.get(train.id);
     if (!p) {
-      p = { loaded: new Int32Array(CARGO_KINDS.length).fill(-1), school: new Int32Array(CARGO_KINDS.length) };
+      p = { loaded: new Int32Array(CARGO_SLOTS).fill(-1), school: new Int32Array(CARGO_SLOTS) };
       this.passes.set(train.id, p);
     }
     const i = CARGO[kind].index;
@@ -2077,7 +2084,8 @@ export class Economy {
     const route = this.routeOfTrain(train);
     const r = RECIPES[d.role];
     return {
-      load: route ? r.gives.some((k) => storeLetsOut(d, k) && this.picksAt(route, d, k)) : r.gives.length > 0 && !r.routedOnly,
+      // (A town gives only mail: loading there only for a train with a mail van.)
+      load: route ? r.gives.some((k) => storeLetsOut(d, k) && this.picksAt(route, d, k)) : r.gives.length > 0 && !r.routedOnly && (d.role !== "town" || train.cars.some((c) => canCarry(c.kind, "mail"))),
       unload: route ? r.takes.some((k) => storeLetsIn(d, k) && this.dropsAt(route, d, k)) || !!r.owed?.some((k) => this.takesNow(d, k) && this.dropsAt(route, d, k)) : r.takes.length > 0,
     };
   }
@@ -2447,6 +2455,35 @@ export class Economy {
         this.made[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
       }
     }
+    // Towns post mail (Game mode's Post office), looked at once a second.
+    if (this.mailEvery && this.ticksRun % MAIL_LOOK === 0) this.postMail(this.mailEvery);
+  }
+
+  /**
+   * Seconds between a town's sacks of mail (Game mode: once Post office is learned, quicker the bigger the town); 0:
+   * it posts none. Asked once a second per town. Null: towns post none (Sandbox).
+   */
+  mailEvery: ((d: DepotState) => number) | null = null;
+  /** Each town depot's mail so far toward its next sack (0–1). Not saved: a fraction of a sack at most is lost. */
+  private readonly mailDue = new Map<number, number>();
+
+  /** A second's mail: each town on the map adds 1/`every` of a sack, and a whole one lands on its pile (while there's room). */
+  private postMail(every: (d: DepotState) => number): void {
+    const i = CARGO.mail.index;
+    for (const d of this.allDepots()) {
+      if (d.role !== "town") continue;
+      const s = every(d);
+      if (s <= 0) continue;
+      let due = (this.mailDue.get(d.id) ?? 0) + (MAIL_LOOK * SIM_DT) / s;
+      if (due >= 1) {
+        due -= 1;
+        if (d.piles[i] < capAt(d)) {
+          d.piles[i]++;
+          this.made[i]++;
+        } else due = 0;
+      }
+      this.mailDue.set(d.id, due);
+    }
   }
 
   /**
@@ -2510,7 +2547,7 @@ export class Economy {
   /** Land `n` of `kind` on a depot's pile for trains to take away. */
   land(d: DepotState, kind: CargoKind, n: number): void {
     let l = this.landed.get(d.id);
-    if (!l) this.landed.set(d.id, (l = new Int32Array(CARGO_KINDS.length)));
+    if (!l) this.landed.set(d.id, (l = new Int32Array(CARGO_SLOTS)));
     l[CARGO[kind].index] += n;
     d.piles[CARGO[kind].index] += n;
   }
@@ -2529,7 +2566,7 @@ export class Economy {
   /** Loads a crane moves at once (grab cranes: two). */
   craneLoads = 1;
   /** Units of each good made at industries, by cargo index, since this economy began (counters for Game mode). */
-  readonly made = new Int32Array(CARGO_KINDS.length);
+  readonly made = new Int32Array(CARGO_SLOTS);
   /** Loads the cranes have moved, since this economy began. */
   loadsMoved = 0;
 
