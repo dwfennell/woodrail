@@ -12,6 +12,8 @@ export class PaintSheet {
   private chosen = "";
   /** Your own colours (Paint your trains learned): the body and trim picked, which the grid sets, and the wagons too? */
   private own = { body: PAINT_COLOURS[11], trim: PAINT_COLOURS[1], part: "body" as "body" | "trim", wagons: true };
+  /** Just opened: its next draw slides up (a redraw at a tap doesn't). */
+  private opening = false;
   /** When it opened: the tap that opened it isn't a tap on its backdrop (a phone's click follows the touch). */
   private openedAt = 0;
 
@@ -50,6 +52,7 @@ export class PaintSheet {
     const own = ownColours(this.chosen);
     if (own) Object.assign(this.own, own);
     this.openedAt = performance.now();
+    this.opening = true;
     this.root.hidden = false;
     this.draw();
   }
@@ -132,8 +135,12 @@ export class PaintSheet {
       if (this.on.paint(this.carId, chosen)) this.draw();
     });
     panel.append(head, sub, ...(this.on.ownOpen() ? this.ownBlock() : []), grid, go);
-    // (Drawn afresh at each tap: scrolled where it was.)
-    const scrolled = this.root.firstElementChild?.scrollTop ?? 0;
+    // (Drawn afresh at each tap: scrolled where it was, and not sliding up again: the sheet's slide is for its opening.
+    // Replayed, it moved the buttons under a quick second tap, which then took a colour instead of Trim.)
+    const old = this.root.firstElementChild as HTMLElement | null;
+    const scrolled = this.opening ? 0 : (old?.scrollTop ?? 0);
+    if (!this.opening) panel.style.animation = "none";
+    this.opening = false;
     this.root.replaceChildren(panel);
     panel.scrollTop = scrolled;
   }
