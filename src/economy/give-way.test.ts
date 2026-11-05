@@ -4,7 +4,7 @@ import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { editLine } from "../game/lines";
 import { rng } from "../routing/scenarios";
 import { Economy, type StopAction } from "./economy";
-import { chain, train, type World } from "./loop-fixtures";
+import { chain, loopOn, train, type World } from "./loop-fixtures";
 
 /**
  * Giving way (stalls.ts) with the economy's own holds: depots, trains worked at them (a hand-run train works at every
@@ -92,7 +92,7 @@ describe("the user's map, small (2026-11-05): a routed train behind a hand-run o
  * their straight road the sawmill line (`══ Workshop ══ Sawmill ══ ══ ⊐`), their curved one the forest yard's spur
  * (`⌒ ══ Forest yard ══ ⊐`). The straights before each depot are the fuzz's to vary.
  */
-function townWorld(opts: { line: number; branch: number; spur: number }) {
+function townWorld(opts: { line: number; branch: number; spur: number; loop?: boolean }) {
   const layout = new Layout();
   const ring = chain(layout, ["depot-farm", S, S, C, C, C, C, "depot-dairy"]);
   const wye = appendPiece(layout, "wye", false, connectorRef(ring[7], 1), 2);
@@ -100,6 +100,11 @@ function townWorld(opts: { line: number; branch: number; spur: number }) {
   if (layout.joinedConnector(connectorRef(ring[0], 0)) === -1) throw new Error("the ring doesn't close");
   layout.setSwitchState(wye, 0b110);
   const line = chain(layout, Array<PieceTypeId>(opts.line).fill(S), connectorRef(wye, 0));
+  // (A passing loop on the single line, and a straight on past it: the card's fix, "Add a passing loop here".)
+  if (opts.loop) {
+    const l = loopOn(layout, connectorRef(line[line.length - 1], 1), [S, S], [S]);
+    line.push(...l.main, ...chain(layout, [S], connectorRef(l.s2, 0)));
+  }
   const sw = appendPiece(layout, "switch", false, connectorRef(line[line.length - 1], 1), 0);
   const br = chain(layout, [...Array<PieceTypeId>(opts.branch).fill(S), "depot-workshop", S, "depot-sawmill", S, S], connectorRef(sw, 1));
   appendPiece(layout, "buffer-turnback", false, connectorRef(br[br.length - 1], 1));
@@ -133,21 +138,37 @@ const ENV: Record<string, string | undefined> = (globalThis as { process?: { env
 const SEEDS = Number(ENV.TOWN_FUZZ ?? 12);
 /**
  * Seeds where the route still stalls and all hand-run doesn't, and why (2026-11-05). On main (before giving way) 9 of
- * these 12 stalled all hand-run too, and 11 with the route; now all hand-run never does, and the route's stall time fell
- * (136 → 0 s, 130 → 23, 148 → 63, 139 → 56). What's left is one class, sections' (§5c: hand-run trains are users of the
- * network's slots and sections): the routed train stands in the town ring's section, waiting to go down the line, while
- * the hand-run one in the dead-end sawmill line can only come out into the ring, and waits for it. Neither can turn to
- * any end (the routed one has a way round the ring, but its goal is past the other). The fix would let the routed train
- * go on round the ring (its open way) while the other comes out: a follow-up, not done here.
+ * these 12 stalled all hand-run too, and 11 with the route; now all hand-run never does. Two fixes took most of the rest:
+ * giving way (stalls.ts), and a stale wait in sections (`capOf`: a train in a section that `recover` let go stood held
+ * by its last wait between looks: a hand-run train going round the ring stood for good once a train had crossed its
+ * way). What's left:
  */
-const RING_HOLD = "routed train holds the ring's section, hand-run one shut in the sawmill line (sections §5c; follow-up)";
-const KNOWN: Record<number, string> = { 1: RING_HOLD, 2: RING_HOLD, 3: RING_HOLD, 4: RING_HOLD, 5: RING_HOLD, 6: RING_HOLD, 7: RING_HOLD, 9: RING_HOLD, 11: RING_HOLD, 12: RING_HOLD };
+const KNOWN: Record<number, string> = {
+  // (Their network is one section, the ring, the line and the points: no passing place, room for one train. The routed
+  // train waits in it for the sawmill line, where the hand-run one is and can only come out through it. The card says
+  // "Add a passing loop here", and with one laid they run: asserted below, with `loop`.)
+  2: "no passing place (the card's fix, a loop, works)",
+  3: "no passing place (the card's fix, a loop, works)",
+  11: "no passing place (the card's fix, a loop, works)",
+  // (Short: said stuck a while, then they run on. Not looked into yet.)
+  4: "a short stall (17 s), then they run on",
+  9: "a short stall (7 s), then they run on",
+};
+/** Of those with no passing place: laid a loop, they never stall. */
+const LOOP_FIXES = [2, 3, 11];
+/**
+ * With a passing loop laid (`loop`), seeds that still stall (2026-11-05). Seed 9: the hand-run train goes round the ring
+ * non-stop, and the ring is one section, so it's never free: the routed train waiting in the loop to go round it the
+ * other way waits for good (said stuck after `STARVED_S`). Sections would have to count a train going round only where
+ * it's on, or coming at, the other's way, not anywhere in the ring: a follow-up. 4 and 8: not looked into yet.
+ */
+const KNOWN_LOOP: Record<number, string> = { 4: "a 1 s stall", 8: "a 22 s stall", 9: "a hand-run train going round the ring non-stop keeps the ring's one section: the routed one waiting to go round the other way starves" };
 
 describe(`a route never makes it worse, with depots: ${SEEDS} town-ring layouts × 180 s`, () => {
-  const deal = (seed: number, routed: boolean) => {
+  const deal = (seed: number, routed: boolean, loop = false) => {
     const r = rng(seed);
     const pick = <T>(xs: readonly T[]) => xs[Math.floor(r() * xs.length)];
-    const m = townWorld({ line: 1 + Math.floor(r() * 3), branch: Math.floor(r() * 3), spur: 1 + Math.floor(r() * 2) });
+    const m = townWorld({ line: 1 + Math.floor(r() * 3), branch: Math.floor(r() * 3), spur: 1 + Math.floor(r() * 2), loop });
     const a = Math.floor(r() * m.places.length);
     let b = Math.floor(r() * m.places.length);
     if (Math.abs(a - b) < 2) b = (a + 2 + Math.floor(r() * (m.places.length - 3))) % m.places.length;
@@ -167,7 +188,7 @@ describe(`a route never makes it worse, with depots: ${SEEDS} town-ring layouts 
     if (routed) routeOn(m.w, e0, stops, next);
     return { ...m, e0 };
   };
-  const results: { seed: number; hand: number; routed: number; stops: number }[] = [];
+  const results: { seed: number; hand: number; routed: number; stops: number; loop: number; loopStops: number }[] = [];
   for (let seed = 1; seed <= SEEDS; seed++) {
     const hand = deal(seed, false);
     const routed = deal(seed, true);
@@ -176,15 +197,25 @@ describe(`a route never makes it worse, with depots: ${SEEDS} town-ring layouts 
     const trace = ENV.TRACE !== undefined && Number(ENV.TRACE) === seed;
     if (trace) console.log("layout", [...routed.w.layout.pieceIds()].map((id) => `${id}:${routed.w.layout.getPiece(id)!.type.replace("straight-216", "S")}`).join(" "));
     const rr = runFor(routed.w, 180, routed.e0, trace);
-    results.push({ seed, hand: h.stuck, routed: rr.stuck, stops: rr.stops });
+    const lp = deal(seed, true, true);
+    const traceLoop = ENV.TRACE_LOOP !== undefined && Number(ENV.TRACE_LOOP) === seed;
+    const rl = lp ? runFor(lp.w, 180, lp.e0, traceLoop) : null;
+    results.push({ seed, hand: h.stuck, routed: rr.stuck, stops: rr.stops, loop: rl?.stuck ?? -1, loopStops: rl?.stops ?? -1 });
   }
-  if (ENV.SHOW) for (const x of results) console.log(`town seed ${x.seed}: stuck all hand-run ${x.hand.toFixed(0)} s, routed ${x.routed.toFixed(0)} s (${x.stops} stops)`);
+  if (ENV.SHOW) for (const x of results) console.log(`town seed ${x.seed}: stuck all hand-run ${x.hand.toFixed(0)} s, routed ${x.routed.toFixed(0)} s (${x.stops} stops); with a passing loop ${x.loop.toFixed(0)} s (${x.loopStops} stops)`);
   it("no stall the all-hand-run run doesn't have (but the known ones)", () => {
     expect(results.length).toBeGreaterThan(SEEDS / 2);
     expect(results.filter((x) => x.routed > 0 && x.hand === 0 && !(x.seed in KNOWN)).map((x) => `seed ${x.seed}: routed stuck ${x.routed.toFixed(0)} s`)).toEqual([]);
   });
   it("the known ones still are (a fix takes its entry off)", () => {
     expect(results.filter((x) => x.seed in KNOWN && !(x.routed > 0 && x.hand === 0)).map((x) => `seed ${x.seed}`)).toEqual([]);
+    expect(results.filter((x) => x.seed in KNOWN_LOOP && x.loop === 0).map((x) => `seed ${x.seed} with a loop`)).toEqual([]);
+  });
+  it("no passing place: the card's fix (a passing loop laid) works", () => {
+    expect(results.filter((x) => LOOP_FIXES.includes(x.seed) && x.loop !== 0).map((x) => `seed ${x.seed}: ${x.loop.toFixed(0)} s with a loop`)).toEqual([]);
+  });
+  it("with a passing loop laid, no stall (but the known ones)", () => {
+    expect(results.filter((x) => x.loop > 0 && !(x.seed in KNOWN_LOOP)).map((x) => `seed ${x.seed}: ${x.loop.toFixed(0)} s`)).toEqual([]);
   });
   it("all hand-run, nobody is ever stuck here (they give way)", () => {
     expect(results.filter((x) => x.hand > 0).map((x) => `seed ${x.seed}: ${x.hand.toFixed(0)} s`)).toEqual([]);

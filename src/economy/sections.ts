@@ -782,7 +782,14 @@ export class Sections {
       if (st.move) return Infinity;
       if (now - st.askedAt < CHECK_TICKS) return st.wait ? 0 : Infinity;
       st.askedAt = now;
-      return this.recover(st, info, train, front) ? Infinity : 0;
+      if (!this.recover(st, info, train, front)) return 0;
+      // (Nothing in its way now: what it last waited for is over. Kept, it held the train between looks for good (a
+      // train on no line going round a ring, its way no slot: `recover` let it go, the old wait stood it still; 2026-11-05).)
+      if (st.wait && !st.move) {
+        st.wait = null;
+        st.waitSince = -1;
+      }
+      return Infinity;
     }
     // In a slot, with a train of its line put down facing it on the way to the slot's end: one gives way.
     if (this.facing(st, info, train)) return 0;
