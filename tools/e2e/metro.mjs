@@ -263,19 +263,33 @@ const stops = await p.evaluate((ids) => {
 }, [one.stop?.id, two.stop?.id]);
 check("two metro stops from the tray go down over the line, two levels under the town", !!one.stop && !!two.stop && one.stop.y === -96 && two.stop.y === -96, JSON.stringify({ one, two }));
 check("…each a metro stop of the town's", stops.every((s) => s && s.metro && s.townId === setup.town.id), JSON.stringify(stops));
-// (Over the line where its entrance would land on a house, as the town stands now: it grew as it became a City ★.)
-const onHouse = await p.evaluate(async ({ W, E, z }) => {
+// (Where its entrance would land on one of the town's houses, as the town stands now.)
+const onHouse = await p.evaluate(async ({ town }) => {
   const w = window.woodrail;
   const { kioskAt } = await import("/src/game/world.ts");
   const g = w.landscape.grid;
-  for (let x = W + 288; x + 216 <= E; x += 18) {
-    const k = kioskAt({ x, z, heading: 0 });
-    const i = g.cellAtWorld(k.x, k.z);
-    if (i !== -1 && g.feature[i] === 2) return w.interaction.siteRule?.("kit-metro-stop", { x, z, heading: 0 }, -1, -96) ?? null;
-  }
-  return "(no house over the line)";
+  const t = w.landscape.towns.find((x) => x.id === town.id);
+  const house = t.buildings[0].cells[0];
+  const k = kioskAt({ x: 0, z: 0, heading: 0 });
+  const pose = { x: g.centreX(g.colOf(house)) - k.x, z: g.centreZ(g.rowOf(house)) - k.z, heading: 0 };
+  return w.interaction.siteRule?.("kit-metro-stop", pose, -1, -96) ?? null;
 }, setup);
-check("over a house, a metro stop is refused, saying why", onHouse === "A metro stop's entrance goes on a free square of a town: a green or a street", `${onHouse}`);
+check("with its entrance on a house, a metro stop is refused, saying why", onHouse === "A metro stop's entrance goes on a free square of a town: a green or a street", `${onHouse}`);
+// (Close on the first entrance, then the two stops and the line between.)
+const entrance = await p.evaluate(async (id) => {
+  const w = window.woodrail;
+  const { kioskAt } = await import("/src/game/world.ts");
+  const q = w.layout.getPiece(id);
+  const k = kioskAt(q.pose);
+  const models = [];
+  w.scene.traverse((o) => {
+    if (o.isMesh && o.visible && Math.hypot(o.getWorldPosition(new o.position.constructor()).x - k.x, o.getWorldPosition(new o.position.constructor()).z - k.z) < 60) models.push(o.name || o.type);
+  });
+  return { k, near: models.length };
+}, one.stop?.id);
+console.log("entrance:", JSON.stringify(entrance));
+await look(entrance.k.x, entrance.k.z, [0.3, 1.2, 1], 520, 0);
+await snap("metro-entrance.jpg");
 await look((setup.pair[0].pose.x + setup.pair[1].pose.x) / 2 + 108, setup.z, [0.05, 1.5, 1], 1200, 0);
 await snap("metro-stops.jpg");
 
