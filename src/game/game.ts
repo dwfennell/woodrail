@@ -274,6 +274,8 @@ export class Game {
       this.onContextLost?.();
     });
     canvas.addEventListener("webglcontextrestored", () => {
+      // (Not when the geometry can't be uploaded again: nothing drawn till the reload.)
+      if (!this.restoreInPlace) return;
       this.contextLost = false;
       this.stage.restored();
       this.resize();
@@ -965,6 +967,12 @@ export class Game {
 
   /** The WebGL context is lost (see the constructor): nothing is drawn till it's back. */
   contextLost = false;
+  /**
+   * Can the scene come back by itself after a lost context? three uploads geometry and textures again from their
+   * arrays: true while those are kept. Set false once the CPU copies are freed after upload (they can't be uploaded
+   * again): then a loss goes straight to the card to reload (the railway saved), and a context given back changes that.
+   */
+  restoreInPlace = true;
   /** Told when the WebGL context is lost, and when it's back. */
   onContextLost: (() => void) | null = null;
   onContextRestored: (() => void) | null = null;

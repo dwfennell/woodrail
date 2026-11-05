@@ -98,7 +98,7 @@ Worker's `cloud/src/crash.ts`).
 No map, no save, no id of the player. At most one a session (`sessionStorage`), and none once the player switches
 them off: ☰ **Crash reports: on / off** (after Copy map; `localStorage` `woodrail.crashReports` = `off`). It shows in a
 build with a Worker to send to, as feedback does, and listens from before the game is made, so a failure while loading
-is sent too. The request is a `text/plain` `fetch` with `keepalive` (no preflight; it goes even as the tab closes).
+is sent too. The request is a `text/plain` `no-cors` `fetch` with `keepalive`: no preflight, its answer never read, so a Worker without `/crash` (not deployed yet) fails silently, with no console error and no retry; it goes even as the tab closes.
 
 The Worker keeps each in R2 under `crash/<newest first>-<id>.json` and opens no issue. Limits: 8 KB a body; the same
 per-IP `FEEDBACK_LIMIT` (its own key). The same pages may send as for feedback (CORS). The latest 100, newest first:

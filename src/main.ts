@@ -1462,9 +1462,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     crashes?.report("context-lost", { message: "WebGL context lost" });
     noteContextLost();
     save();
-    lostCard.lost();
+    lostCard.lost(game.restoreInPlace);
   };
-  game.onContextRestored = () => lostCard.restored();
+  // (A scene that can't be uploaded again keeps the card: only a reload brings it back.)
+  game.onContextRestored = () => {
+    if (game.restoreInPlace) lostCard.restored();
+  };
 
   /**
    * The title's "Load a cloud save" (a build with a cloud): the cloud card's code entry over the title, Cancel back to

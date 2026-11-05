@@ -37,13 +37,13 @@ export class ContextLostCard {
     document.body.append(r);
   }
 
-  /** The drawing is lost: the card, unless it's back within `LOST_CARD_DELAY_MS`. */
-  lost(): void {
+  /** The drawing is lost: the card, unless it's back within `LOST_CARD_DELAY_MS` (at once if it can't come back). */
+  lost(canComeBack = true): void {
     clearTimeout(this.timer);
     this.timer = window.setTimeout(() => {
       this.root.hidden = false;
       this.root.querySelector("button")?.focus();
-    }, LOST_CARD_DELAY_MS);
+    }, canComeBack ? LOST_CARD_DELAY_MS : 0);
   }
 
   /** It's back. */

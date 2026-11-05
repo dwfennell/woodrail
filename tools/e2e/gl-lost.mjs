@@ -173,6 +173,18 @@ await p.waitForTimeout(1500);
 const err = crashes[1] ? JSON.parse(crashes[1]) : null;
 check("on: an uncaught error sends one, its stack's links cut short", crashes.length === 2 && err?.kind === "error" && err.message.includes("on purpose, on") && !/https?:|localhost/.test(err.stack) && err.quality === "mobile-lean", crashes[1] ?? "");
 
+// 5. A scene that can't be uploaded again (its CPU copies freed: Game.restoreInPlace false): the card at once, and it
+// stays when the context comes back (only a reload brings the scene back), nothing drawn.
+await p.evaluate(() => (window.woodrail.restoreInPlace = false));
+await lose();
+await p.waitForTimeout(600);
+check("no CPU copies: lost, the card at once", await cardShown());
+await p.evaluate(() => window.__lose.restoreContext());
+await p.waitForTimeout(3000);
+const held = await p.evaluate(() => ({ lost: window.woodrail.contextLost, f: window.woodrail.framesDrawn }));
+await p.waitForTimeout(1500);
+check("…back: the card stays, nothing drawn", (await cardShown()) && held.lost && (await p.evaluate(() => window.woodrail.framesDrawn)) === held.f, JSON.stringify(held));
+
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
 await b.close();

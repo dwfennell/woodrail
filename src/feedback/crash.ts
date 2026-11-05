@@ -67,8 +67,10 @@ export class CrashReporter {
     private readonly url: string,
     private readonly about: () => Omit<CrashPayload, "kind" | "message" | "stack">,
     private readonly send: (url: string, body: string) => void = (url, body) =>
-      // text/plain: a simple request, no preflight; keepalive, so it goes even as the tab falls over.
-      void fetch(url, { method: "POST", body, keepalive: true, headers: { "Content-Type": "text/plain" } }).catch(() => {}),
+      // no-cors, text/plain: a simple request, no preflight, and its answer never read, so a Worker without /crash
+      // (not deployed yet, or down) fails silently: no error in the console, no retry. keepalive: it goes even as the
+      // tab falls over.
+      void fetch(url, { method: "POST", body, mode: "no-cors", keepalive: true, headers: { "Content-Type": "text/plain" } }).catch(() => {}),
   ) {}
 
   /** Has one gone this session (this tab, reloads too)? */
