@@ -17,6 +17,8 @@ import {
   plotSlotOf,
   seaPlot,
   START_REGION,
+  SURF_GRASS,
+  SURF_ROAD,
   type DepotKind,
   type Landscape,
   type MapSite,
@@ -25,9 +27,9 @@ import {
 } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
-import { kitOf, Layout, LOOKOUT_KIT, OBSERVATORY_KIT, RISER_HEIGHT, type PieceTypeId } from "../track";
+import { kitOf, Layout, LOOKOUT_KIT, METRO_KIOSK, METRO_KIT, OBSERVATORY_KIT, RISER_HEIGHT, type PieceTypeId } from "../track";
 
-export { LOOKOUT_KIT, OBSERVATORY_KIT };
+export { LOOKOUT_KIT, METRO_KIT, OBSERVATORY_KIT };
 import { PropStore } from "../props/store";
 import { isTownLot, SCHOOL_REACH } from "./town-lots";
 import { addPlotExtras, addStartSites, type Extra } from "./map-sites";
@@ -67,6 +69,7 @@ export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = {
   flowerfield: "Flower field",
   dyeworks: "Dye works",
   toyworks: "Toy workshop",
+  postoffice: "Post office",
   // Sandbox's cargo machines (kit pieces): their own names are their kits' (`KitDef.name`).
   "loader-log": "Log loader",
   "loader-grain": "Grain loader",
@@ -107,6 +110,7 @@ export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
   "depot-flowers": "flowerfield",
   "depot-dyeworks": "dyeworks",
   "depot-toyworks": "toyworks",
+  "depot-postoffice": "postoffice",
 };
 
 /** A depot's name for cards, stops and the map: its kind's ("Workshop"), a school by its town ("Larkfield school"). */
@@ -221,6 +225,8 @@ export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   "kit-lookout",
   // The observatory (Tech tree 5): the lookout's kind of stop, for stargazers.
   "kit-observatory",
+  // A metro stop: a stop of the town over it (`metroTown`), its riders a quarter of their own (passengers.ts).
+  "kit-metro-stop",
 ]);
 
 /** Stops on a hilltop where no one lives (riders only get off there): the lookout halt and the observatory. */
@@ -261,12 +267,58 @@ export const HALT_TOO_FAR = `Build halts within ${Math.round(HALT_REACH / CELL)}
 /** Game mode's rule for a halt's place (`Interaction.siteRule`): near a town, or why not. */
 export function haltWhy(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): string | null {
   if (isSightStop(type)) return onHilltop(land, pose) ? null : type === LOOKOUT_KIT ? LOOKOUT_LOW : OBSERVATORY_LOW;
+  if (type === METRO_KIT) return metroTown(land, pose) ? null : METRO_ENTRANCE;
   return HALT_KITS.has(type) && !haltTown(land, pose) ? HALT_TOO_FAR : null;
 }
 
 /** The town a halt is a stop of: the nearest within `HALT_REACH`; a lookout's, the nearest however far. */
 export function stopTown(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): Landscape["towns"][number] | null {
+  if (type === METRO_KIT) return metroTown(land, pose);
   return haltTown(land, pose, isSightStop(type) ? Infinity : HALT_REACH);
+}
+
+/** Where a metro stop's entrance kiosk stands (plan), for a stop at `pose`. */
+export function kioskAt(pose: { x: number; z: number; heading: number }): { x: number; z: number } {
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  return { x: pose.x + c * METRO_KIOSK.t - s * METRO_KIOSK.l, z: pose.z + s * METRO_KIOSK.t + c * METRO_KIOSK.l };
+}
+
+/** A metro stop's entrance may stand on the grass this many squares from a town's (diagonals too). */
+export const METRO_BESIDE = 2;
+
+export const METRO_ENTRANCE = "A metro stop's entrance goes on a town's green or the grass beside it, off the road";
+
+/**
+ * The town a metro stop at `pose` is under: the one whose square its entrance kiosk stands on (a green: no house,
+ * station or street), or whose edge it stands beside (on the grass next to one of its squares). Never on a road. Null
+ * if there's none.
+ */
+export function metroTown(land: Landscape, pose: { x: number; z: number; heading: number }): Landscape["towns"][number] | null {
+  const k = kioskAt(pose);
+  const i = land.grid.cellAtWorld(k.x, k.z);
+  if (i === -1) return null;
+  const g = land.grid;
+  const f = g.feature[i];
+  if (f === FEAT_BUILDING || f === FEAT_STATION) return null;
+  // (Off the road: road vehicles drive the streets.)
+  if (g.surface[i] === SURF_ROAD || g.road[i] !== 0) return null;
+  const mine = land.towns.find((t) => t.cells.includes(i));
+  if (mine) return mine;
+  // The grass right beside a town (its squares are houses and streets till it has greens): nothing on it, on the felt.
+  if (f !== FEAT_NONE || g.surface[i] !== SURF_GRASS || g.height[i] !== 0) return null;
+  // (Within two squares of one of its squares, the nearest first: a town's edge moves as it grows.)
+  const col = g.colOf(i);
+  const row = g.rowOf(i);
+  for (let r = 1; r <= METRO_BESIDE; r++)
+    for (let dc = -r; dc <= r; dc++)
+      for (let dr = -r; dr <= r; dr++) {
+        if (Math.max(Math.abs(dc), Math.abs(dr)) !== r) continue;
+        const n = g.index(col + dc, row + dr);
+        const t = n === -1 ? undefined : land.towns.find((x) => x.cells.includes(n));
+        if (t) return t;
+      }
+  return null;
 }
 
 /** Is the ground under a halt's platform (its two ends and middle) a hilltop `LOOKOUT_HEIGHT` up or more? */

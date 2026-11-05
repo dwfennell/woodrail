@@ -34,6 +34,7 @@ const UNLOCKS: Record<string, ThingId[]> = {
   buses: ["prop:scene-bus-stop"],
   // The rack's lookout halt (Mountain railway): the mountain station's chalet, on a hilltop.
   rack: ["piece:rack", "piece:rack-short", "piece:kit-lookout"],
+  metro: ["piece:kit-metro-stop", "look:metro"],
   // Sandbox's kits brought into Game mode behind research (tech-tree spec step 2), looks only at first.
   "big-stations": ["piece:kit-two-platform-station", "piece:kit-grand-terminus"],
   "fun-track": ["piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"],

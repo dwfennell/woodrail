@@ -64,3 +64,23 @@ describe("a kit piece's model in the library", () => {
     expect(lib.model(kitModelKey("kit-platform-furnished"))).toBe(model);
   });
 });
+
+describe("a model let go of (its props drawn from a batch)", () => {
+  it("frees its geometry, and bakes the same again when it's asked for", async () => {
+    const lib = new PropLibrary(stubMaterials());
+    const model = (await lib.load("bldg-red-barn"))!;
+    expect(model).not.toBeNull();
+    const before = model.parts.map((p) => ({ material: p.material, count: p.geometry.getAttribute("position").count, normal: p.geometry.getAttribute("normal").array.constructor }));
+    const old = model.parts[0].geometry;
+    let disposed = false;
+    old.addEventListener("dispose", () => (disposed = true));
+    lib.release("bldg-red-barn");
+    expect(disposed).toBe(true);
+    // The same model object, its parts the same materials; their geometry baked again on first use, alike.
+    expect(lib.model("bldg-red-barn")).toBe(model);
+    const after = model.parts.map((p) => ({ material: p.material, count: p.geometry.getAttribute("position").count, normal: p.geometry.getAttribute("normal").array.constructor }));
+    expect(after).toEqual(before);
+    expect(model.parts[0].geometry).not.toBe(old);
+    expect(model.parts[0].geometry).toBe(model.parts[0].geometry);
+  });
+});

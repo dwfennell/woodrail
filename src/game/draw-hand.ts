@@ -34,7 +34,7 @@ import {
   isBridge,
 } from "../track";
 import { DIG_MESSAGES, type DigPlan } from "./underpass-dig";
-import type { TunnelPlan } from "./tunnel-dig";
+import { outOfRampsText, type TunnelPlan, type TunnelRefusal } from "./tunnel-dig";
 import type { Game } from "./game";
 import { DrawNotice, TOO_SHARP } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
@@ -116,6 +116,7 @@ export class DrawHand {
     (type) => this.outOf(type),
     pieceName,
     (type) => this.unlearned?.(type) ?? null,
+    (type) => type === "ramp" && tunnelsOn() && !!this.hooks.tunnel,
   );
   /** A new line on empty ground, before the finger has moved far enough to know which way it goes. */
   private origin: Vector3 | null = null;
@@ -136,6 +137,8 @@ export class DrawHand {
   private branchStroke: { x: number; z: number }[] = [];
   /** The switch the line branches off through (swapped into the line it started on), or null. */
   private branch: PieceSwap | null = null;
+  /** A 45° crossing made a slip by a stroke along its turn (`slipFrom`): shown as a ghost, down as the finger lifts. */
+  private slip: PieceSwap | null = null;
   /** The switch the line would merge through if let go now (shown), or null; and its key, so it's shown afresh only when it changes. */
   private merge: Merge | null = null;
   private mergeKey = "";
@@ -282,6 +285,13 @@ export class DrawHand {
         this.clear();
         return;
       }
+      // A slip: its ghost over the crossing (outlined), nothing drawn after it.
+      if (b.kind === "slip") {
+        this.slip = b.swap;
+        this.swapGhosts = this.showSwap(b.swap);
+        this.game.trackView.setHighlights([...b.swap.covers], "select", false);
+        return;
+      }
       // The switch shows as a ghost over the straights it takes the place of (outlined), and the line goes on from its branch.
       this.branch = b.swap;
       this.branchStart = { onto: pending.onto, press: pending.press };
@@ -351,7 +361,9 @@ export class DrawHand {
     this.flushLift();
     const line = this.line;
     if (!line) {
+      const slip = this.slip;
       this.clear();
+      if (slip) this.laySlip(slip);
       return;
     }
     // (Lifted before the ghosts had caught up with the line, and the line goes down otherwise than they showed: they
@@ -499,6 +511,17 @@ export class DrawHand {
       );
     });
     g.invalidate();
+  }
+
+  /** A slip goes down in the 45° crossing's place (`slip`, see `slipFrom`), one undo step, unless a train came onto it. */
+  private laySlip(w: PieceSwap): void {
+    if (w.covers.some((id) => this.hooks.occupied(id))) {
+      this.hooks.toast("A train is on that crossing");
+      return;
+    }
+    const ids = this.editor().replaceRun(w.covers, w.pieces);
+    if (ids.length) this.hooks.onPlaced(0);
+    this.game.invalidate();
   }
 
   /** A ghost-style mesh for a piece of a swap (a switch, the straights beside it), placed. */
@@ -706,6 +729,7 @@ export class DrawHand {
   /** A new line from `end`: on track that stays put (`held`: a free end, a switch), or on open ground. */
   private start(end: DrawEnd, held = true): void {
     this.toldShort = false;
+    this.tunnelWhy = null;
     this.branchCovers = this.taken();
     for (const id of this.swapIds) this.own.removePiece(id);
     this.swapIds = [...(this.branch?.pieces ?? []), ...this.crossed.pieces].map((p) => this.own.addPiece(p.type, p.pose, p.y, p.flipped));
@@ -729,8 +753,10 @@ export class DrawHand {
       onMap: (x, z) => this.game.landscape.grid.cellAtWorld(x, z) !== -1,
       outOf: (type) => this.outOf(type),
       tunnel: (end) => {
-        if (!tunnelsOn()) return null;
-        const plan = this.hooks.tunnel?.(end, this.branchCovers.size ? this.branchCovers : undefined);
+        if (!tunnelsOn() || !this.hooks.tunnel) return null;
+        const plan = this.hooks.tunnel(end, this.branchCovers.size ? this.branchCovers : undefined);
+        // (Why it couldn't tunnel, said with "Out of ramps": no mouths, or the hill isn't one a tunnel goes under there.)
+        this.tunnelWhy = !plan ? "mouths" : plan.kind === "refused" && plan.why !== "none" ? plan.why : this.tunnelWhy;
         return plan?.kind === "bore" ? plan.steps : null;
       },
     });
@@ -738,8 +764,13 @@ export class DrawHand {
 
   /** What to say of a piece the line needed and the player has none of: not learned yet, or none left in the box. */
   private outOf(type: PieceTypeId): string {
-    return this.unlearned?.(type) ?? `Out of ${pieceName(type)}`;
+    const out = this.unlearned?.(type) ?? `Out of ${pieceName(type)}`;
+    // Up a hill with no ramps, Tunnels learned: why it didn't go under instead (QA 2026-11-05: "Out of ramps" alone, with
+    // tunnel mouths in the box, the stroke begun too near the hill).
+    return type === "ramp" ? outOfRampsText(out, this.tunnelWhy) : out;
   }
+  /** This stroke's last tunnel refused, and why ("mouths": fewer than two short mouths in the box); null if none. */
+  private tunnelWhy: TunnelRefusal | "mouths" | null = null;
 
   /**
    * May a drawn piece go here: on the land and clear of other track (the line's own pieces too), resting on what's
@@ -1053,7 +1084,8 @@ export class DrawHand {
   private clear(): void {
     for (const gh of this.ghosts) this.game.scene.remove(gh.mesh);
     for (const m of [...this.swapGhosts, ...this.mergeGhosts, ...this.crossed.ghosts]) this.game.scene.remove(m);
-    if (this.branch || this.merge || this.crossed.covers.length) this.game.trackView.setHighlights([], "select", false);
+    if (this.branch || this.slip || this.merge || this.crossed.covers.length) this.game.trackView.setHighlights([], "select", false);
+    this.slip = null;
     this.crossed = { pieces: [], covers: [], ghosts: [], used: new Map() };
     this.crossing = null;
     this.crossLooked = null;

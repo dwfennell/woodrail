@@ -7,7 +7,9 @@ import { BLUEPRINTS } from "./blueprints";
 import { buysText } from "./town-ledger";
 import { FULL_PAY, PRICES } from "./towns";
 import { THING_RULES } from "./things";
-import { INDUSTRY_ROLE } from "./world";
+import { buildStarterWorld, INDUSTRY_ROLE } from "./world";
+import { checkYard } from "./depot-footprint";
+import { trackBlock } from "./track-rules";
 import { resourceAt, siteWhy } from "./industries";
 import { coastWorld, harbourSite } from "./harbours-testing";
 import { firstFoodNews } from "./food-text";
@@ -91,6 +93,29 @@ describe("Tank wagons", () => {
     expect(van.got("water")).toBe(0);
   }, 120_000);
 
+  it("a water pump fits by the starter map's river, near the start, and by one square of water (QA 2026-11-05)", () => {
+    const w = buildStarterWorld();
+    const land = w.landscape;
+    const ctx = { land, layout: w.layout, props: w.props, footprint: () => undefined };
+    // Every pose within reach of the start (the first towns' stations, x −1500..1500, z −1200..1200), each eighth of a
+    // turn: where the track and the yard may go and the water's enough.
+    let fits = 0;
+    let one = 0;
+    for (let x = -1500; x <= 1500; x += 36)
+      for (let z = -1200; z <= 1200; z += 36)
+        for (let k = 0; k < 8; k++) {
+          const pose = { x, z, heading: (k * Math.PI) / 4 };
+          if (trackBlock(ctx, "depot-waterpump", false, pose, 0, -1) || checkYard(ctx, "depot-waterpump", pose, 0, -1)) continue;
+          if (siteWhy(land, "depot-waterpump", pose)) continue;
+          fits++;
+          if (resourceAt(land, "waterpump", pose)!.count === 1) one++;
+        }
+    // (Two squares within 110 mm, as it was: 331 here, 13% of the places by the water it could stand; now 825, 35%.)
+    expect(fits).toBeGreaterThan(600);
+    // A single square of water is enough to stand by, at a quarter of the pump's rate.
+    expect(one).toBeGreaterThan(0);
+  }, 120_000);
+
   it("a water pump must stand by water; an oil well stands anywhere", () => {
     const w = coastWorld();
     const pose = harbourSite(w, SURF_SEA);
@@ -98,7 +123,7 @@ describe("Tank wagons", () => {
     expect(resourceAt(w.landscape, "waterpump", pose)!.count).toBeGreaterThanOrEqual(2);
     // (Far inland, turned away from the coast: no water.)
     const dry = { x: pose.x + Math.cos(pose.heading + Math.PI) * 2000, z: pose.z + Math.sin(pose.heading + Math.PI) * 2000, heading: pose.heading + Math.PI };
-    expect(siteWhy(w.landscape, "depot-waterpump", dry)).toMatch(/^Needs water nearby/);
+    expect(siteWhy(w.landscape, "depot-waterpump", dry)).toMatch(/^Needs water past its yard: \d of 1\. Turn it to face the water$/);
     expect(resourceAt(w.landscape, "oilwell", dry)).toBeNull();
   });
 });
@@ -166,11 +191,43 @@ describe("Breakdown crane", () => {
     // It drove there: its crane moved, and it stands within reach.
     const now = sim.findCar(craneCar)!.train;
     expect(Math.hypot(now.world[2].x - start.x, now.world[2].z - start.z)).toBeGreaterThan(300);
-    // The turret swings home and the job's over; the crane train waits there, levers off.
+    // The turret swings home; then it drives back to where it set out from (QA 2026-11-05 #2), and waits there, levers
+    // off. The goods train had its levers off (standing): it's put back standing.
+    expect(drain().find((e) => e.kind === "rerailed")).toMatchObject({ goes: false });
     tick(3);
-    expect(economy.breakdown.jobOf(craneCar)).toBeUndefined();
-    expect(now.cars.every((c) => c.lever === 0)).toBe(true);
+    expect(economy.breakdown.jobOf(craneCar)?.phase).toBe("home");
+    expect(tick(150, () => !economy.breakdown.jobOf(craneCar))).toBe(true);
+    const home = sim.findCar(craneCar)!.train;
+    expect(sim.piecesUnder(home.id).has(ids[6])).toBe(true);
+    expect(home.cars.every((c) => c.lever === 0)).toBe(true);
     expect(economy.breakdown.rerailed).toBe(1);
+  }, 60_000);
+
+  it("a running train put back carries on, and the crane goes back out of its way (QA 2026-11-05 #2)", () => {
+    const { sim, economy, ids, tick, drain } = oval();
+    const goods = sim.addTrain(["engine", "van"], { pieceId: ids[16], pathIndex: 0, reversed: false, s: 100 });
+    const crane = sim.addTrain(["engine", "crane"], { pieceId: ids[6], pathIndex: 0, reversed: false, s: 100 });
+    if (goods.kind !== "placed" || crane.kind !== "placed") throw new Error("no room");
+    const goodsCar = sim.getTrain(goods.trainId)!.cars[0].id;
+    const craneCar = sim.getTrain(crane.trainId)!.cars[1].id;
+    // Running when it came off (its lever on), as a train on its route is.
+    sim.setLever(goodsCar, 1);
+    tick(0.5);
+    sim.trackChanged([sim.getTrain(goods.trainId)!.bogies[0].pieceId]);
+    expect(sim.findCar(goodsCar)!.train.derailed).toBe(true);
+    expect(tick(150, () => drain().some((e) => e.kind === "rerailed"))).toBe(true);
+    expect(drain().find((e) => e.kind === "rerailed")).toMatchObject({ target: goodsCar, goes: true });
+    // Its lever is on again: it runs on (the crane, first in its way or not, sets off home).
+    const back = sim.findCar(goodsCar)!.train;
+    expect(back.derailed).toBe(false);
+    expect(back.cars[0].lever).not.toBe(0);
+    expect(tick(150, () => !economy.breakdown.jobOf(craneCar))).toBe(true);
+    expect(sim.piecesUnder(sim.findCar(craneCar)!.train.id).has(ids[6])).toBe(true);
+    // The goods train has got going round the oval.
+    const at = { ...sim.findCar(goodsCar)!.train.world[0] };
+    tick(5);
+    const now = sim.findCar(goodsCar)!.train.world[0];
+    expect(Math.hypot(now.x - at.x, now.z - at.z)).toBeGreaterThan(100);
   }, 60_000);
 
   it("is sent to lift a train off the line, back into the box", () => {
@@ -209,6 +266,24 @@ describe("Breakdown crane", () => {
     expect(sim.getTrain(c.trainId)!.world[2]).toMatchObject({ x: at.x, z: at.z });
     expect(tick(10, () => drain().some((e) => e.kind === "removed"))).toBe(true);
   }, 60_000);
+
+  it("offers no crane when the only one is the train in the way (QA 2026-11-05 #1)", () => {
+    const { sim, economy, ids } = oval();
+    // The crane train parked on the line after a job, and a train stuck behind it.
+    const stuck = sim.addTrain(["engine", "oiltank"], { pieceId: ids[14], pathIndex: 0, reversed: false, s: 100 });
+    const parked = sim.addTrain(["engine", "crane"], { pieceId: ids[16], pathIndex: 0, reversed: false, s: 100 });
+    if (stuck.kind !== "placed" || parked.kind !== "placed") throw new Error("no room");
+    const stuckCar = sim.getTrain(stuck.trainId)!.cars[0].id;
+    const parkedCar = sim.getTrain(parked.trainId)!.cars[0].id;
+    // (Sent anyway, it would say there's no crane: the card mustn't offer it.)
+    expect(economy.breakdown.send(parkedCar, "remove")).toEqual({ ok: false, why: "no-crane" });
+    expect(economy.breakdown.canLift(parkedCar, stuckCar)).toBe(false);
+    // A second crane train elsewhere can: the card offers it, and it goes.
+    const other = sim.addTrain(["engine", "crane"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 100 });
+    if (other.kind !== "placed") throw new Error("no room");
+    expect(economy.breakdown.canLift(parkedCar, stuckCar)).toBe(true);
+    expect(economy.breakdown.send(parkedCar, "remove")).toMatchObject({ ok: true });
+  });
 
   it("throws the points on its way: a derailed train on the branch the switch isn't set for", () => {
     const layout = new Layout();

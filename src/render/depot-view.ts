@@ -8,6 +8,8 @@ import { STATION_CRANE_AT } from "../game/world";
 import { AUTO_HEIGHT, AUTO_LENGTH, AUTO_WIDTH, BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
+import { compactVertices } from "./compact-vertices";
+import { gpuOnly } from "./gpu-only";
 import { setCullBox, tileAt } from "./dressing/tiles";
 import type { Materials } from "./materials";
 import { TIMBER_DECK } from "./train-models";
@@ -255,6 +257,15 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
       iron: { t: 38, l: 64, y: YARD, across: 2, axis: "t" },
       planks: { t: 60, l: 64, y: YARD, across: 2, axis: "t" },
       autos: { t: 84, l: 64, y: YARD, across: 2, axis: "t" },
+    },
+    trackT: 60,
+  },
+  postoffice: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      mail: { t: 46, l: 64, y: YARD, across: 3, axis: "t" },
+      post: { t: 74, l: 64, y: YARD, across: 3, axis: "t" },
     },
     trackT: 60,
   },
@@ -513,6 +524,11 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
   carworks: [
     { asset: "bldg-goods-shed", t: 162, l: 86 },
     { asset: "veh-family-car", t: 116, l: 100, turn: 0.4, scale: 0.6 },
+  ],
+  // The post office: the catalogue's, a postie with a sack at its door.
+  postoffice: [
+    { asset: "bldg-post-office", t: 160, l: 86 },
+    { asset: "life-postie", t: 116, l: 100, turn: 0.5 },
   ],
   // The ice cream factory: the catalogue's kiosk (its cone turns in the catalogue; here it stands) and a seller.
   icecream: [
@@ -799,6 +815,15 @@ export class DepotView {
       water: [
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.6, SACK_WIDTH / 2 - 0.6, CRATE_HEIGHT - 0.6, 14), mats.lacquer("#3d86b8")],
         [new CylinderGeometry(SACK_WIDTH / 2 - 0.3, SACK_WIDTH / 2 - 0.3, 1.6, 14), mats.lacquer("#f6f3ec")],
+      ],
+      // a sack of mail (pale canvas, a red tie), and a red crate of sorted post, letters on top;
+      mail: [
+        [sack, mats.lacquer("#e9e1cf")],
+        [tie, strapMat],
+      ],
+      post: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 2, SACK_WIDTH, 1, 0.8).translate(0, -1, 0), mats.lacquer("#c8442f")],
+        [mergeGeometries([-1, 0, 1].map((i) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH / 3 - 1, 1.2, SACK_WIDTH - 4, 1, 0.3).translate((i * SACK_LENGTH) / 3, CRATE_HEIGHT / 2 - 1.4 + Math.abs(i) * 0.3, 0))))!, mats.lacquer("#f6f3ec")],
       ],
       // a tub of ice cream (pink, a cream lid);
       icecream: [
@@ -1200,6 +1225,8 @@ export class DepotView {
     }
     // Yards reach about 250 mm from their track's middle.
     setCullBox(statics, sites.flatMap(({ at: p }) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
+    // Only drawn, and picked by a ray (a tap opens a depot): positions kept, the rest freed once on the GPU.
+    gpuOnly(statics, { pickable: true });
     this.group.add(statics);
     this.tiles.set(key, statics);
   }
@@ -1211,7 +1238,10 @@ export class DepotView {
     this.clockSink = (id, at) => clocks.push([id, at]);
     this.buildStatic(site, b, true, "instanced");
     this.clockSink = null;
-    return { parts: b.merged(), clocks };
+    // (Kept to merge each time its tile is built again: in compact vertices, as the tile's meshes are then too.)
+    const parts = b.merged();
+    for (const g of parts.values()) compactVertices(g);
+    return { parts, clocks };
   }
 
   /**
@@ -1593,6 +1623,13 @@ export class DepotView {
       b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(20, 7, 11, 1, 2), 116, 100, PAD_H + 5));
       return;
     }
+    if (role === "postoffice") {
+      // A cream post office with a red roof, and a red pillar box by its door.
+      b.add(mats.lacquer("#efe4cf"), place(new RoundedBoxGeometry(50, 30, 36, 2, 3), 160, 88, PAD_H + 15));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(56, 5, 42, 1, 2), 160, 88, PAD_H + 32));
+      b.add(mats.lacquer("#c8442f"), place(new CylinderGeometry(4, 4, 16, 12), 120, 104, PAD_H + 8));
+      return;
+    }
     if (role === "icecream") {
       // A round pink kiosk with a striped roof and a cone on top.
       b.add(mats.lacquer("#e98aa8"), place(new CylinderGeometry(20, 20, 30, 20), 160, 88, PAD_H + 15));
@@ -1967,8 +2004,19 @@ export class DepotView {
     for (const site of this.sites) this.updateCrane(site, economy, carObject);
 
     for (const u of this.allUnits) for (const part of u.parts) part.count = u.n;
+    // Only the units placed go up to the GPU: each kind's buffer holds `MAX_UNITS` (128 kB), and every frame a train
+    // moves sent every kind's whole buffer, empty or not (one kind of goods or heap, a part each: ~60 buffers, ~7 MB a
+    // frame on a map with all the goods). A kind with none placed, now as before, sends nothing.
     for (const m of this.cargoMeshes) {
-      m.instanceMatrix.needsUpdate = true;
+      const sent = (m.userData.sentCount as number | undefined) ?? -1;
+      if (m.count === 0 && sent === 0) continue;
+      m.userData.sentCount = m.count;
+      const attr = m.instanceMatrix;
+      attr.clearUpdateRanges();
+      if (m.count > 0) {
+        attr.addUpdateRange(0, m.count * 16);
+        attr.needsUpdate = true;
+      }
       // Units move every frame: let the next raycast recompute the bounds it tests first.
       m.boundingSphere = null;
       m.boundingBox = null;

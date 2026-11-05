@@ -280,8 +280,11 @@ function chainCard(p: Progress, id: string, school: string | null): ResearchCard
   if (block && "stuck" in block) {
     const s = techOf(block.stuck);
     const unmet = s?.requires.filter((n) => !needMet(p, n)) ?? [];
-    const words = s?.plan ? `${shortLabel(block.stuck)} isn't in the game yet` : `${shortLabel(block.stuck)} needs ${unmet.map(describeNeed).join(" and ")} first`;
-    return { ...base, why: words, action, blocked: true };
+    // (A town to grow: the step the player can take. QA 2026-11-05 #4.)
+    const grow = unmet.some((n) => n.kind === "level") ? ": grow a town into one" : "";
+    const words = s?.plan ? `${shortLabel(block.stuck)} isn't in the game yet` : `${shortLabel(block.stuck)} needs ${unmet.map(describeNeed).join(" and ")} first${grow}`;
+    // No button: it couldn't be pressed (QA 2026-11-05 #4: a greyed "Research Sugar beet now" read as a promise).
+    return { ...base, why: words, blocked: true };
   }
   if (!school) return { ...base, why: "Needs a school", action, blocked: true };
   if (block) return { ...base, why: q.length >= QUEUE_MAX ? `The queue is full (${QUEUE_MAX})` : `Needs ${block.full} places in the queue (${QUEUE_MAX - q.length} left)`, action, blocked: true };

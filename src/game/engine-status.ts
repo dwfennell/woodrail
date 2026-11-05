@@ -406,6 +406,7 @@ export function craneStatus(economy: Economy, train: Train): string | null {
   if (job) {
     const what = job.kind === "rerail" ? "a derailed train" : "a train in the way";
     if (job.phase === "drive") return `Breakdown crane: on its way to ${what}`;
+    if (job.phase === "home") return "Breakdown crane: going back to where it set out from";
     return job.kind === "rerail" ? "Breakdown crane: lifting a train back on the track" : "Breakdown crane: lifting a train off the line";
   }
   const coming = b.jobFor(train.cars[0].id);

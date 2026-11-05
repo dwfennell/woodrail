@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, METRO_KIOSK, METRO_KIT, pathLength, samplePath, TRACK_WIDTH, TUNNEL_COVER, type Layout, type PieceTypeId, type Pose } from "../track";
 import { FEAT_NONE, FEAT_TREE, SURF_GRASS, type LandscapeGrid } from "./grid";
 import { hillsOf } from "./hill-shape";
 
@@ -263,9 +263,31 @@ export function trackPoints(layout: Layout): Map<number, number[]> {
   for (const id of layout.pieceIds()) {
     if (layout.isLifted(id)) continue;
     const p = layout.getPiece(id)!;
+    // Track two levels under the felt (a metro line under a town) is out of the way of what stands on it: houses grow
+    // over it, trees stand there. A metro stop's kiosk is up there, though.
+    if (p.y <= -TUNNEL_COVER + 0.5) {
+      if (p.type === METRO_KIT) addKiosk(buckets, p.pose);
+      continue;
+    }
     addTrackPoints(buckets, p.type, p.flipped, p.pose);
   }
   return buckets;
+}
+
+/** A metro stop's entrance kiosk, as points (its corners and middle) where nothing else may stand. */
+function addKiosk(buckets: Map<number, number[]>, pose: Pose): void {
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  for (const [dt, dl] of [[0, 0], [-18, -14], [18, -14], [-18, 14], [18, 14]]) {
+    const t = METRO_KIOSK.t + dt;
+    const l = METRO_KIOSK.l + dl;
+    const x = pose.x + c * t - s * l;
+    const z = pose.z + s * t + c * l;
+    const key = bucketKey(Math.floor(x / BUCKET), Math.floor(z / BUCKET));
+    let list = buckets.get(key);
+    if (!list) buckets.set(key, (list = []));
+    list.push(x, z);
+  }
 }
 
 /** Add a piece's sample points (along its paths; a riser's centre) to buckets. */

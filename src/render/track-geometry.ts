@@ -1,10 +1,7 @@
 import {
-  Path,
   BoxGeometry,
   BufferGeometry,
   CylinderGeometry,
-  MeshBasicMaterial,
-  type Material,
   ExtrudeGeometry,
   Float32BufferAttribute,
   Matrix4,
@@ -16,17 +13,11 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import polygonClipping, { type Polygon } from "polygon-clipping";
-import { ADDITION, type Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
-import { CsgBrush, csgEvaluate } from "./csg-brush";
 import {
-  ARCH_CROWN_DROP,
-  archesOf,
   createSample,
   GROOVE_SPACING,
   GROOVE_WIDTH,
-  isRack,
-  isRamp,
+  canStandOnArches,
   isTunnelMouth,
   pathLength,
   RISER_HEIGHT,
@@ -36,25 +27,21 @@ import {
   type ConnectorDef,
   type PathGeom,
   type PieceDef,
-  GIRDER_PIER,
-  TRENCH_HALF,
-  TRENCH_INSET,
-  TRENCH_WALL,
 } from "../track";
 import { nonIndexed } from "./non-indexed";
 
 // Render-only dimensions (mm).
 export const GROOVE_DEPTH = 3;
 export const PEG_HEIGHT = 11; // a seated peg shows 1 mm below the track surface inside the keyhole
-const PEG_NECK_LENGTH = 8;
-const PEG_NECK_WIDTH = 6;
-const PEG_HEAD_RADIUS = 6;
-const SOCKET_CLEARANCE = 0.6;
+export const PEG_NECK_LENGTH = 8;
+export const PEG_NECK_WIDTH = 6;
+export const PEG_HEAD_RADIUS = 6;
+export const SOCKET_CLEARANCE = 0.6;
 export const BUFFER_EXTRA = 38; // body continues past the buffer path end to carry the stop block
 const TOP_RADIUS = 2.5;
 const BOTTOM_RADIUS = 1;
 
-interface ProfilePoint {
+export interface ProfilePoint {
   u: number;
   v: number;
   /** Shade smoothly through this point (bevel arcs) rather than as a hard corner. */
@@ -62,7 +49,7 @@ interface ProfilePoint {
 }
 
 /** Counter-clockwise (u right/left-lateral, v up) closed outline of the track body cross-section. */
-function bodyProfile(): ProfilePoint[] {
+export function bodyProfile(): ProfilePoint[] {
   const w = TRACK_WIDTH / 2;
   const h = TRACK_THICKNESS;
   const pts: ProfilePoint[] = [];
@@ -81,7 +68,7 @@ function bodyProfile(): ProfilePoint[] {
 }
 
 /** Groove cutter: a slot from just above the surface down to the groove floor, slightly rounded at the bottom. */
-function grooveProfile(centre: number): ProfilePoint[] {
+export function grooveProfile(centre: number): ProfilePoint[] {
   const half = GROOVE_WIDTH / 2;
   const floor = TRACK_THICKNESS - GROOVE_DEPTH;
   const r = 1.2;
@@ -99,7 +86,7 @@ function grooveProfile(centre: number): ProfilePoint[] {
   return pts;
 }
 
-interface Frame {
+export interface Frame {
   x: number;
   y: number;
   z: number;
@@ -108,18 +95,23 @@ interface Frame {
 }
 
 /** The turn between samples along an arc (radians). */
-const ARC_STEP = (3 * Math.PI) / 180;
+export const ARC_STEP = (3 * Math.PI) / 180;
 
-/** Samples along a path, optionally extended straight past either end. */
-function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0): Frame[] {
+/** The turn between samples along an arc in a piece's far version (`buildPieceFar`): within 0.6 mm of true. */
+const FAR_ARC_STEP = (7.5 * Math.PI) / 180;
+/** An S-curve's far version: a sample this far apart (mm), about every 4° of its turn. */
+const FAR_S_STEP = 14;
+
+/** Samples along a path, optionally extended straight past either end (`coarse`: for a far version). */
+export function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0, coarse = false): Frame[] {
   const len = pathLength(geom);
   const curved = geom.kind !== "line" || geom.rise !== 0 || !!geom.dip;
   // An arc every 3° of turn (within 0.07 mm of true at the outer edge of a large curve: more only costs triangles, a
   // large curve's were a third of a busy map's), a balloon loop's big gentle curves every 6 mm, a slope every 3 mm.
   const steps = curved
     ? geom.kind === "arc"
-      ? Math.max(8, Math.ceil(Math.abs(geom.sweep) / ARC_STEP))
-      : Math.max(8, Math.ceil(len / (geom.kind === "loop" ? 6 : 3)))
+      ? Math.max(coarse ? 4 : 8, Math.ceil(Math.abs(geom.sweep) / (coarse ? FAR_ARC_STEP : ARC_STEP)))
+      : Math.max(8, Math.ceil(len / (coarse && geom.kind === "s" ? FAR_S_STEP : geom.kind === "loop" ? 6 : 3)))
     : lineStep > 0
       ? Math.ceil(len / lineStep)
       : 1;
@@ -141,11 +133,14 @@ function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lin
   return out;
 }
 
-/** Sweep a closed CCW profile along frames into a capped solid with normals and uvs (uv in mm). */
-function sweep(profile: ProfilePoint[], frames: Frame[]): BufferGeometry {
-  const pos: number[] = [];
-  const nor: number[] = [];
-  const uv: number[] = [];
+/**
+ * Sweep a closed CCW profile along frames into a capped solid with normals and uvs (uv in mm). `edges`, if given, says
+ * each profile edge's (from point i to i + 1) material slot and texture v at its two ends (else v is the perimeter so
+ * far): the faces are then grouped by slot (the caps `SLOT_BODY`).
+ */
+export function sweep(profile: ProfilePoint[], frames: Frame[], edges?: readonly SweepEdge[]): BufferGeometry {
+  const slots = [0, 1].map(() => ({ pos: [] as number[], nor: [] as number[], uv: [] as number[] }));
+  let { pos, nor, uv } = slots[0];
   const n = profile.length;
 
   // Per-edge outward normals in profile space; per-point normals for each adjacent edge.
@@ -183,12 +178,16 @@ function sweep(profile: ProfilePoint[], frames: Frame[]): BufferGeometry {
       const j = (i + 1) % n;
       const na = pointNormal(i, i);
       const nb = pointNormal(j, i);
+      const e = edges?.[i];
+      ({ pos, nor, uv } = slots[e?.slot ?? SLOT_BODY]);
+      const va = e ? e.va : perim[i];
+      const vb = e ? e.vb : perim[i + 1];
       // quad corners: (f0,i) (f0,j) (f1,j) (f1,i)
       const corners: [Frame, number, Vector2, number][] = [
-        [f0, i, na, perim[i]],
-        [f0, j, nb, perim[i + 1]],
-        [f1, j, nb, perim[i + 1]],
-        [f1, i, na, perim[i]],
+        [f0, i, na, va],
+        [f0, j, nb, vb],
+        [f1, j, nb, vb],
+        [f1, i, na, va],
       ];
       // Winding: profile is CCW with outward normals to its right; sweeping forward gives outward-facing (0,3,2),(0,2,1)
       for (const idx of [0, 3, 2, 0, 2, 1]) {
@@ -201,6 +200,7 @@ function sweep(profile: ProfilePoint[], frames: Frame[]): BufferGeometry {
   }
 
   // End caps.
+  ({ pos, nor, uv } = slots[SLOT_BODY]);
   const contour = profile.map((p) => new Vector2(p.u, p.v));
   const tris = ShapeUtils.triangulateShape(contour, []);
   const cap = (f: Frame, sign: number) => {
@@ -219,11 +219,27 @@ function sweep(profile: ProfilePoint[], frames: Frame[]): BufferGeometry {
   cap(frames[frames.length - 1], 1);
 
   const g = new BufferGeometry();
-  g.setAttribute("position", new Float32BufferAttribute(pos, 3));
-  g.setAttribute("normal", new Float32BufferAttribute(nor, 3));
-  g.setAttribute("uv", new Float32BufferAttribute(uv, 2));
+  const all = (key: "pos" | "nor" | "uv") => (edges ? slots.flatMap((sl) => sl[key]) : slots[0][key]);
+  g.setAttribute("position", new Float32BufferAttribute(all("pos"), 3));
+  g.setAttribute("normal", new Float32BufferAttribute(all("nor"), 3));
+  g.setAttribute("uv", new Float32BufferAttribute(all("uv"), 2));
+  if (edges) {
+    let start = 0;
+    slots.forEach((sl, slot) => {
+      const count = sl.pos.length / 3;
+      if (count > 0) g.addGroup(start, count, slot);
+      start += count;
+    });
+  }
   fixWinding(g);
   return g;
+}
+
+interface SweepEdge {
+  slot: number;
+  /** Texture v at the edge's two ends. */
+  va: number;
+  vb: number;
 }
 
 /** Ensure each triangle's winding agrees with its stored normal (outward-facing). */
@@ -255,7 +271,7 @@ function fixWinding(g: BufferGeometry): void {
 }
 
 /** Keyhole outline pointing along +a from a = a0 (neck start) outward. */
-function keyholeShape(a0: number, neckLength: number, neckHalf: number, headRadius: number, outward: number): Shape {
+export function keyholeShape(a0: number, neckLength: number, neckHalf: number, headRadius: number, outward: number): Shape {
   const s = new Shape();
   const headCentre = a0 + outward * (neckLength + headRadius);
   const join = Math.sqrt(headRadius * headRadius - neckHalf * neckHalf);
@@ -271,14 +287,14 @@ function keyholeShape(a0: number, neckLength: number, neckHalf: number, headRadi
 }
 
 /** Matrix mapping shape space (a outward, b right-lateral, up) onto a connector in piece space. */
-function connectorBasis(x: number, y: number, z: number, heading: number): Matrix4 {
+export function connectorBasis(x: number, y: number, z: number, heading: number): Matrix4 {
   const a = new Vector3(Math.cos(heading), 0, Math.sin(heading));
   const right = new Vector3(Math.sin(heading), 0, -Math.cos(heading));
   const up = new Vector3(0, 1, 0);
   return new Matrix4().makeBasis(a, right, up).setPosition(x, y, z);
 }
 
-function extrudeUp(shape: Shape, height: number, bevel: number): BufferGeometry {
+export function extrudeUp(shape: Shape, height: number, bevel: number): BufferGeometry {
   const g = new ExtrudeGeometry(shape, {
     depth: Math.max(0.1, height - 2 * bevel),
     bevelEnabled: bevel > 0,
@@ -291,23 +307,12 @@ function extrudeUp(shape: Shape, height: number, bevel: number): BufferGeometry 
   return nonIndexed(g);
 }
 
-function brush(g: BufferGeometry, material: Material = BODY): Brush {
-  const b = new CsgBrush(nonIndexed(g), material);
-  b.updateMatrixWorld();
-  return b;
-}
-
-function onlyCsgAttributes(g: BufferGeometry): BufferGeometry {
+export function onlyCsgAttributes(g: BufferGeometry): BufferGeometry {
   for (const name of Object.keys(g.attributes)) if (!["position", "normal", "uv"].includes(name)) g.deleteAttribute(name);
   g.clearGroups();
   return g;
 }
 
-/** Marker materials: faces from body brushes vs faces carved by cutters (grooves, keyholes). */
-const BODY = new MeshBasicMaterial();
-const CUT = new MeshBasicMaterial();
-const PAINT = new MeshBasicMaterial();
-const STONE = new MeshBasicMaterial();
 /** Material slot indices in the returned geometry's groups. */
 export const SLOT_BODY = 0;
 export const SLOT_CUT = 1;
@@ -316,65 +321,6 @@ export const SLOT_PAINT = 2;
 /** The stone viaduct's arches (painted stone, not the bridge's red). */
 export const SLOT_STONE = 3;
 
-const evaluator = new Evaluator();
-evaluator.useGroups = true;
-evaluator.attributes = ["position", "normal", "uv"];
-
-/**
- * Bridge: a painted viaduct `height` tall under the deck (which is at y = 0), straight or curved, two round arches on
- * three piers.
- */
-/** `floors`: how far down (riser heights) each arch's opening reaches, in `ARCH_CENTRES` order; all of `height` without. */
-function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[] | null): BufferGeometry {
-  const path = def.paths[0].geom;
-  const len = pathLength(path);
-  if (isGirder(floors)) return girderSupport(def, height);
-  // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
-  const inset = 3;
-  const frames: Frame[] = [];
-  const steps = path.kind === "arc" ? Math.max(8, Math.ceil(Math.abs(path.sweep) / ARC_STEP)) : path.kind !== "line" ? Math.max(8, Math.ceil(len / 4)) : 1;
-  const p = createSample();
-  for (let i = 0; i <= steps; i++) {
-    const at = inset + ((len - 2 * inset) * i) / steps;
-    samplePath(path, at, p);
-    frames.push({ x: p.x, y: p.y, z: p.z, heading: p.heading, s: at });
-  }
-  // On a slope (a ramp, straight or curved) the body hangs deeper at the high end, then is cut level at the ground.
-  const rise = path.kind === "line" || path.kind === "arc" ? path.rise : 0;
-  let result = brush(sweep(viaductProfile(height + rise), frames), PAINT);
-  const ground = -height;
-  if (rise > 0) {
-    // (Wide enough for a curve's sweep too: all of it within its length of the start.)
-    const below = onlyCsgAttributes(nonIndexed(new BoxGeometry(len * 4, rise * 2, len * 4)));
-    below.translate(0, ground - 1 - rise, 0);
-    result = csgEvaluate(evaluator, result, brush(below), SUBTRACTION);
-  }
-  // Arch tops a spandrel below the deck; the openings reach the ground. A low viaduct's arches are smaller, so each
-  // still springs a little above the ground (a full-size one would be cut off by it).
-  const arches = archesOf(def.type);
-  arches.centres.forEach((at, i) => {
-    // Over a hill, an arch springs from the hilltop: its opening stops there (the viaduct's foot goes on down, hidden).
-    const floor = floors ? -floors[i] * RISER_HEIGHT : -height;
-    samplePath(path, len * at, p);
-    const archTop = p.y - ARCH_CROWN_DROP;
-    // The arch's circle reaches below its centre: stopping on a hilltop, it's small enough to stand clear of it.
-    const radius = Math.min(len * arches.radius, archTop - floor - 4, floor > -height ? (archTop - floor) / 2 : Infinity);
-    // No room for an arch here (a ramp's low end, close to the ground): solid.
-    if (radius < 6) return;
-    const arch = onlyCsgAttributes(nonIndexed(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40)));
-    arch.rotateX(Math.PI / 2);
-    arch.translate(0, archTop - radius, 0);
-    const opening = onlyCsgAttributes(nonIndexed(new BoxGeometry(radius * 2, archTop - radius - floor + 2, TRACK_WIDTH + 10)));
-    opening.translate(0, (archTop - radius + floor) / 2 - 1, 0);
-    for (const g of [arch, opening]) {
-      g.rotateY(-p.heading);
-      g.translate(p.x, 0, p.z);
-      result = csgEvaluate(evaluator, result, brush(g), SUBTRACTION);
-    }
-  });
-  return result.geometry;
-}
-
 /**
  * `archFloors` for a bridge drawn as a girder span: a one-level bridge over an underpass, open underneath for the
  * train in the dip (its arches would be in the way), on a pier at each end.
@@ -382,169 +328,11 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
 export const GIRDER_FLOORS: readonly number[] = [-1];
 export const isGirder = (floors: readonly number[] | null | undefined): boolean => floors?.length === 1 && floors[0] === -1;
 
-/** Pier length at each end of a girder span, and its side plates' thickness (mm). */
-const PIER = GIRDER_PIER;
-const GIRDER_PLATE = 4;
-/** How far the side plates stand above the deck's top. */
-const GIRDER_RISE = 5;
-
-/** A girder span: a slim beam under the deck, a solid pier at each end down to the ground. */
-function girderSupport(def: PieceDef, height: number): BufferGeometry {
-  const path = def.paths[0].geom;
-  const len = pathLength(path);
-  const frames = framesAlong(path, 0, 0).map((f) => ({ ...f }));
-  // Nothing below the deck (that's the headroom): a plate along each side, from the deck's underside up past its top.
-  const plate = (u0: number, u1: number): ProfilePoint[] => [
-    { u: u0, v: 0, smooth: false },
-    { u: u1, v: 0, smooth: false },
-    { u: u1, v: TRACK_THICKNESS + GIRDER_RISE, smooth: false },
-    { u: u0, v: TRACK_THICKNESS + GIRDER_RISE, smooth: false },
-  ];
-  const w = TRACK_WIDTH / 2;
-  let result = brush(sweep(plate(w - 0.5, w + GIRDER_PLATE), frames), PAINT);
-  result = csgEvaluate(evaluator, result, brush(sweep(plate(-w - GIRDER_PLATE, -w + 0.5), frames), PAINT), ADDITION);
-  const p = createSample();
-  for (const at of [PIER / 2 + 2, len - PIER / 2 - 2]) {
-    samplePath(path, at, p);
-    const pier = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(PIER, height + 1, TRACK_WIDTH - 2, 2, 2)));
-    pier.translate(0, p.y - (height + 1) / 2, 0);
-    pier.rotateY(-p.heading);
-    pier.translate(p.x, 0, p.z);
-    result = csgEvaluate(evaluator, result, brush(pier, PAINT), ADDITION);
-  }
-  return result.geometry;
-}
-
-/**
- * An underpass's trench: a wooden block sunk into the board round the dip, its top a rim just proud of the felt (the
- * felt has a hole there: `underpassHoles`), with a channel cut down to the track's bed as it dips. Piece-local.
- * `plinth`: how far down its block reaches off a hill's edge (mm below its ends), standing on the ground there.
- */
-function trenchBrush(def: PieceDef, plinth = 0): Brush {
-  const geom = def.paths[0].geom;
-  const len = pathLength(geom);
-  // Off a hill's edge, the block reaches on down to the ground below (`plinthLevels`): on the hill, it's hidden in it.
-  const depth = Math.max((geom.kind === "line" ? (geom.dip ?? 0) : 0) + 4, plinth);
-  const top = 0.6;
-  const outer = TRENCH_HALF + TRENCH_WALL;
-  const box = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(len - 2 * TRENCH_INSET, depth + top, 2 * outer, 2, 1.5)));
-  box.translate(len / 2, top - (depth + top) / 2, 0);
-  const channel: ProfilePoint[] = [
-    { u: -TRENCH_HALF, v: 0, smooth: false },
-    { u: TRENCH_HALF, v: 0, smooth: false },
-    { u: TRENCH_HALF, v: 40, smooth: false },
-    { u: -TRENCH_HALF, v: 40, smooth: false },
-  ];
-  return csgEvaluate(evaluator, brush(box), brush(sweep(channel, framesAlong(geom, 4, 4)), CUT), SUBTRACTION);
-}
-
-/**
- * A tunnel mouth's cutting: a wooden block sunk into the board under the slope (the felt has a hole there), its rim just
- * proud of the felt, with a channel open to the sky down to the track's bed, through its low end (where the portal
- * stands: see `TunnelsView`). Piece-local; the high end is wherever the path's y is highest.
- */
-function mouthBrush(def: PieceDef): Brush {
-  const geom = def.paths[0].geom;
-  const len = pathLength(geom);
-  const ys = [0, len].map((s) => samplePath(geom, s, createSample()).y);
-  const high = Math.max(...ys);
-  const low = Math.min(...ys);
-  const lowAtEnd = ys[1] < ys[0];
-  const depth = high - low + 6;
-  const top = 0.6;
-  const outer = TRENCH_HALF + TRENCH_WALL;
-  const blockLen = len - TRENCH_INSET;
-  const box = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(blockLen, depth + top, 2 * outer, 2, 1.5)));
-  box.translate(lowAtEnd ? TRENCH_INSET + blockLen / 2 : blockLen / 2, high + top - (depth + top) / 2, 0);
-  const channel: ProfilePoint[] = [
-    { u: -TRENCH_HALF, v: 0, smooth: false },
-    { u: TRENCH_HALF, v: 0, smooth: false },
-    { u: TRENCH_HALF, v: 160, smooth: false },
-    { u: -TRENCH_HALF, v: 160, smooth: false },
-  ];
-  return csgEvaluate(evaluator, brush(box), brush(sweep(channel, framesAlong(geom, 4, 4)), CUT), SUBTRACTION);
-}
-
-/** Cross-section of a bridge's viaduct (u across, v up from the deck), corners rounded. */
-function viaductProfile(height: number): ProfilePoint[] {
-  const w = TRACK_WIDTH / 2 - 2;
-  const r = 2;
-  const top = 1;
-  const bottom = -height - 1;
-  const pts: ProfilePoint[] = [];
-  const arc = (cu: number, cv: number, a0: number, a1: number) => {
-    const n = 3;
-    for (let i = 0; i <= n; i++) {
-      const a = a0 + ((a1 - a0) * i) / n;
-      pts.push({ u: cu + r * Math.cos(a), v: cv + r * Math.sin(a), smooth: i > 0 && i < n });
-    }
-  };
-  arc(-w + r, bottom + r, Math.PI, 1.5 * Math.PI);
-  arc(w - r, bottom + r, 1.5 * Math.PI, 2 * Math.PI);
-  arc(w - r, top - r, 0, 0.5 * Math.PI);
-  arc(-w + r, top - r, 0.5 * Math.PI, Math.PI);
-  return pts;
-}
-
-function riserGeometry(): BufferGeometry {
+export function riserGeometry(): BufferGeometry {
   const g = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(TRACK_WIDTH + 6, RISER_HEIGHT, TRACK_WIDTH + 6, 3, 3)));
   g.translate(0, RISER_HEIGHT / 2, 0);
   // All body: meshes draw a body + cut material pair, and only faces in a group get drawn.
   g.addGroup(0, g.attributes.position.count, SLOT_BODY);
-  return g;
-}
-
-/**
- * Body for flat multi-path pieces (switch, crossing): the 2D union of each path's ribbon, extruded with bevelled edges.
- * (Unioning overlapping swept solids with CSG is pathologically slow on their coplanar faces.)
- */
-function flatBlockBody(def: PieceDef): BufferGeometry {
-  // A road ending at a buffer runs on past its end to carry the stop (a kit's terminus or shed: its model draws it).
-  const runs = def.paths.map((p) => framesAlong(p.geom, 0, p.to === null ? BUFFER_EXTRA : 0));
-  // Double track: one board, filled in between its two lines.
-  if (def.web) runs.push(framesAlong(def.web, 0, 0));
-  return flatBody(runs);
-}
-
-/** A flat body under several stretches of track (each a run of frames), merged where they overlap. */
-function flatBody(runs: Frame[][]): BufferGeometry {
-  const half = TRACK_WIDTH / 2;
-  const ribbons: Polygon[] = runs.map((frames) => {
-    const left = frames.map((f) => [f.x - Math.sin(f.heading) * half, f.z + Math.cos(f.heading) * half] as [number, number]);
-    const right = frames.map((f) => [f.x + Math.sin(f.heading) * half, f.z - Math.cos(f.heading) * half] as [number, number]);
-    return [[...left, ...right.reverse(), left[0]]];
-  });
-  const [first, ...rest] = ribbons;
-  const union = polygonClipping.union(first, ...rest);
-  // One board, or several apart (a kit's roads side by side: a shed's, a terminus's).
-  const shapes = union.map(([ring, ...holes]) => {
-    const shape = new Shape(ring.slice(0, -1).map(([x, z]) => new Vector2(x, -z)));
-    // A loop's track encloses the felt inside it: keep that open.
-    for (const h of holes) shape.holes.push(new Path(h.slice(0, -1).map(([x, z]) => new Vector2(x, -z))));
-    return shape;
-  });
-  const bevel = 2;
-  const g = new ExtrudeGeometry(shapes, {
-    depth: TRACK_THICKNESS - 2 * bevel,
-    bevelEnabled: true,
-    bevelThickness: bevel,
-    bevelSize: bevel,
-    bevelOffset: -bevel,
-    bevelSegments: 3,
-  });
-  g.translate(0, 0, bevel);
-  g.applyMatrix4(new Matrix4().makeBasis(new Vector3(1, 0, 0), new Vector3(0, 0, -1), new Vector3(0, 1, 0)));
-  return onlyCsgAttributes(nonIndexed(g));
-}
-
-/** Re-index CSG output groups so materialIndex is SLOT_BODY, SLOT_CUT or SLOT_PAINT. */
-function slotGroups(result: Brush): BufferGeometry {
-  const g = result.geometry;
-  const mats = (Array.isArray(result.material) ? result.material : [result.material]) as Material[];
-  for (const group of g.groups) {
-    const m = mats[group.materialIndex ?? 0];
-    group.materialIndex = m === CUT ? SLOT_CUT : m === PAINT ? SLOT_PAINT : m === STONE ? SLOT_STONE : SLOT_BODY;
-  }
   return g;
 }
 
@@ -561,12 +349,28 @@ export function compactPiece(g: BufferGeometry): BufferGeometry {
 
 /** `levels`: for a bridge, how many riser heights its arches reach down below the deck. */
 /**
+ * A flat piece of several paths (a switch, a crossing, a kit's roads), plain: each path's body (and a double track's
+ * web, between its lines) swept with `profile` on its own and merged, overlapping where they meet. Each after the
+ * first is a hair lower (a tenth of a millimetre and more), so their tops don't fight where they overlap. (The carved
+ * piece's body is their union, `flatBlockBody` in piece-carve.ts: it needs polygon-clipping, carved off the first
+ * download.) For a stand-in, and for a shadow caster (where the overlap can't be seen).
+ */
+function overlappedBody(def: PieceDef, profile: ProfilePoint[]): BufferGeometry {
+  const runs = def.paths.map((p) => framesAlong(p.geom, 0, p.to === null ? BUFFER_EXTRA : 0));
+  if (def.web) runs.push(framesAlong(def.web, 0, 0));
+  const parts = runs.map((frames, k) => sweep(k === 0 ? profile : profile.map((pt) => ({ ...pt, v: pt.v * (1 - 0.01 * k) })), frames));
+  const g = mergeGeometries(parts) ?? parts[0];
+  if (g !== parts[0]) for (const part of parts) part.dispose();
+  return g;
+}
+
+/**
  * A piece's plain body, uncarved (no grooves, pegs or holes; a ramp or bridge without its supports): drawn for a moment
  * while the real one is carved in the background. A few milliseconds, where carving takes tens to hundreds.
  */
 export function buildPieceStandIn(def: PieceDef): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
-  const g = def.paths.length === 1 ? sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)) : flatBlockBody(def);
+  const g = def.paths.length === 1 ? sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)) : overlappedBody(def, bodyProfile());
   g.clearGroups();
   g.addGroup(0, g.index ? g.index.count : g.attributes.position.count, SLOT_BODY);
   g.computeBoundingBox();
@@ -592,10 +396,77 @@ export function buildPieceShadowCaster(def: PieceDef): BufferGeometry {
     ];
     g = sweep(block, framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0));
   } else {
-    g = flatBlockBody(def).scale(1, h / TRACK_THICKNESS, 1);
+    g = overlappedBody(def, bodyProfile()).scale(1, h / TRACK_THICKNESS, 1);
   }
   g.clearGroups();
   g.deleteAttribute("uv");
+  g.computeBoundingSphere();
+  return g;
+}
+
+/**
+ * Can this piece be drawn far out by its far version (`buildPieceFar`)? A plain piece of one path joined at both ends:
+ * a straight, a curve, an S-curve. Not a ramp, bridge or underpass (their supports and slopes are carved), a buffer
+ * (its block), a switch or crossing (several paths), a joiner (all peg).
+ */
+export function hasFarVersion(def: PieceDef): boolean {
+  if (def.paths.length !== 1 || def.connectors.length !== 2 || def.supportHeight > 0 || canStandOnArches(def.type) || def.type === "underpass" || isTunnelMouth(def.type) || def.type === "joiner") return false;
+  const p = def.paths[0];
+  if (p.to === null) return false;
+  const g = p.geom;
+  return (g.kind === "line" || g.kind === "arc" || g.kind === "s") && g.rise === 0 && !(g.kind === "line" && g.dip);
+}
+
+/**
+ * A piece's far version, for where it's drawn too small to see its finer carving (see `TrackView.setDetail`): the body
+ * and its grooves swept as one outline (no carving), its bevels in fewer steps, its curve every 7.5° (not 3°), and no
+ * holes at its ends (a joint's peg fills them: `buildPegGeometry`). About a tenth of the triangles: a large curve's
+ * 3.1k are about 300. Its materials' groups, uvs and shading as the carved piece's. A millisecond or so to make.
+ */
+export function buildPieceFar(def: PieceDef): BufferGeometry {
+  const w = TRACK_WIDTH / 2;
+  const h = TRACK_THICKNESS;
+  const floor = TRACK_THICKNESS - GROOVE_DEPTH;
+  const pts: ProfilePoint[] = [];
+  const edges: SweepEdge[] = [];
+  /** Texture v so far: the body's perimeter (as the carved piece's body sweep), and the grooves' own. */
+  let v = 0;
+  let cutV = 0;
+  const to = (u: number, pv: number, smooth: boolean, slot = SLOT_BODY) => {
+    const last = pts[pts.length - 1];
+    if (last) {
+      const l = Math.hypot(u - last.u, pv - last.v);
+      if (slot === SLOT_BODY) edges.push({ slot, va: v, vb: (v += l) });
+      else edges.push({ slot, va: cutV, vb: (cutV += l) });
+    }
+    pts.push({ u, v: pv, smooth });
+  };
+  const arc = (cu: number, cv: number, r: number, a0: number, a1: number, n: number) => {
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + ((a1 - a0) * i) / n;
+      to(cu + r * Math.cos(a), cv + r * Math.sin(a), i > 0 && i < n);
+    }
+  };
+  arc(-w + BOTTOM_RADIUS, BOTTOM_RADIUS, BOTTOM_RADIUS, Math.PI, 1.5 * Math.PI, 1);
+  arc(w - BOTTOM_RADIUS, BOTTOM_RADIUS, BOTTOM_RADIUS, 1.5 * Math.PI, 2 * Math.PI, 1);
+  arc(w - TOP_RADIUS, h - TOP_RADIUS, TOP_RADIUS, 0, 0.5 * Math.PI, 2);
+  // Along the top, right to left, each groove's walls and floor (the carving's colour), then the top on past it.
+  for (const c of [GROOVE_SPACING / 2, -GROOVE_SPACING / 2]) {
+    const right = c + GROOVE_WIDTH / 2;
+    const left = c - GROOVE_WIDTH / 2;
+    to(right, h, false);
+    const top = v;
+    to(right, floor, false, SLOT_CUT);
+    to(left, floor, false, SLOT_CUT);
+    to(left, h, false, SLOT_CUT);
+    // The top past the groove has its texture where the body's would be, as if the groove weren't there.
+    v = top + (right - left);
+  }
+  arc(-w + TOP_RADIUS, h - TOP_RADIUS, TOP_RADIUS, 0.5 * Math.PI, Math.PI, 2);
+  // The closing edge, back to the first point (the left side).
+  edges.push({ slot: SLOT_BODY, va: v, vb: v + Math.hypot(pts[0].u - pts[pts.length - 1].u, pts[0].v - pts[pts.length - 1].v) });
+  const g = sweep(pts, framesAlong(def.paths[0].geom, 0, 0, 0, true), edges);
+  g.computeBoundingBox();
   g.computeBoundingSphere();
   return g;
 }
@@ -654,128 +525,6 @@ export function buildScaffold(def: PieceDef, bottom: number, top: number): Buffe
   const g = mergeGeometries(parts);
   for (const part of parts) part.dispose();
   return g;
-}
-
-/** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
-export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly number[] | null = null): BufferGeometry {
-  if (def.paths.length === 0) return riserGeometry();
-  if (def.type === "joiner") return joinerGeometry(def);
-  if (def.paths.length === 1 && def.paths[0].geom.kind === "loop") return loopGeometry(def);
-
-  let result =
-    def.paths.length === 1
-      ? brush(sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)))
-      : brush(flatBlockBody(def));
-
-  // A ramp brings its own support: a sloping viaduct from the ground up under its high end (so it stands, and turns,
-  // without a riser). Up off the ground, it stands on arches as a bridge does.
-  const ownSupport = isRamp(def.type) && def.paths.length === 1;
-  if ((levels > 0 || ownSupport) && def.paths.length === 1 && def.type !== "underpass") {
-    // Keep the viaduct's own (painted) group through the union.
-    const paint = def.type === "viaduct" ? STONE : PAINT;
-    const support = new CsgBrush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [paint, paint, paint]);
-    support.updateMatrixWorld();
-    result = csgEvaluate(evaluator, result, support, ADDITION);
-  }
-
-  // (`levels` for an underpass: its block's plinth down off a hill's edge.)
-  if (def.type === "underpass") result = csgEvaluate(evaluator, result, trenchBrush(def, levels * RISER_HEIGHT), ADDITION);
-  if (isRack(def.type)) result = csgEvaluate(evaluator, result, brush(rackStrip(def), CUT), ADDITION);
-  if (isTunnelMouth(def.type)) result = csgEvaluate(evaluator, result, mouthBrush(def), ADDITION);
-
-  // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
-  // across a curve's fine faces shatters the mesh (slow, and tens of thousands of triangles on a switch).
-  const step = def.paths.length > 1 ? 6 : 0;
-  for (const p of def.paths) {
-    for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) {
-      const extra = p.to === null ? BUFFER_EXTRA - 20 : 2;
-      result = csgEvaluate(evaluator, result, brush(sweep(grooveProfile(c), framesAlong(p.geom, 2, extra, step)), CUT), SUBTRACTION);
-    }
-  }
-
-  // Every end is carved as a hole: any two ends join, so which end of a joint shows the peg is the layout's to say.
-  // TrackView draws the pegs (`buildPegGeometry`), and `withPegs` adds a lone piece's own.
-  for (const c of def.connectors) result = csgEvaluate(evaluator, result, brush(socketCutter(c), CUT), SUBTRACTION);
-
-  const out = slotGroups(result);
-  out.computeBoundingBox();
-  out.computeBoundingSphere();
-  return out;
-}
-
-/** A rack's strip: this wide, standing this far proud of the track's top, its teeth this far apart (mm). */
-const RACK_HALF = 3.5;
-const RACK_PROUD = 1.2;
-const RACK_PITCH = 6;
-
-/**
- * A rack's toothed strip down the middle of its track (between the grooves): a bar sunk a little into the top, with a
- * row of teeth on it, following the slope. In the carved wood's darker shade (the grooves' slot).
- */
-function rackStrip(def: PieceDef): BufferGeometry {
-  const geom = def.paths[0].geom;
-  const len = pathLength(geom);
-  const h = TRACK_THICKNESS;
-  const bar: ProfilePoint[] = [
-    { u: -RACK_HALF, v: h - 0.6, smooth: false },
-    { u: RACK_HALF, v: h - 0.6, smooth: false },
-    { u: RACK_HALF, v: h + RACK_PROUD, smooth: false },
-    { u: -RACK_HALF, v: h + RACK_PROUD, smooth: false },
-  ];
-  // (In from each end, so its pegs and holes stay clear.)
-  const inset = 14;
-  const frames = framesAlong(geom, 0, 0).filter((f) => f.s >= inset && f.s <= len - inset);
-  const parts: BufferGeometry[] = [nonIndexed(sweep(bar, frames))];
-  const p = createSample();
-  const q = createSample();
-  const m = new Matrix4();
-  for (let s = inset + RACK_PITCH / 2; s <= len - inset - RACK_PITCH / 2; s += RACK_PITCH) {
-    samplePath(geom, s, p);
-    samplePath(geom, Math.min(len, s + 1), q);
-    const pitch = Math.atan2(q.y - p.y, Math.hypot(q.x - p.x, q.z - p.z));
-    const tooth = new BoxGeometry(2.4, 1.6, RACK_HALF * 2 - 0.6);
-    // Box along x (the path), up y, across z; turned to the path's heading and slope, on the bar's top.
-    m.makeRotationZ(pitch);
-    tooth.applyMatrix4(m);
-    m.makeRotationY(-p.heading);
-    tooth.applyMatrix4(m);
-    tooth.translate(p.x, p.y + h + RACK_PROUD + 0.6, p.z);
-    parts.push(nonIndexed(tooth));
-  }
-  for (const g of parts) onlyCsgAttributes(g);
-  const out = mergeGeometries(parts);
-  for (const g of parts) g.dispose();
-  return out;
-}
-
-/**
- * A balloon loop: its track leaves and comes back through the same end, overlapping itself there, so it's built as
- * two halves (out and back), merged like a switch's routes.
- */
-function loopGeometry(def: PieceDef): BufferGeometry {
-  const geom = def.paths[0].geom;
-  const frames = framesAlong(geom, 0, 0);
-  const mid = Math.floor(frames.length / 2);
-  const halves = [frames.slice(0, mid + 1), frames.slice(mid)];
-  let result = brush(flatBody(halves));
-  const grooveFrames = framesAlong(geom, 2, 2);
-  const gm = Math.floor(grooveFrames.length / 2);
-  for (const run of [grooveFrames.slice(0, gm + 2), grooveFrames.slice(gm - 1)]) {
-    for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) result = csgEvaluate(evaluator, result, brush(sweep(grooveProfile(c), run), CUT), SUBTRACTION);
-  }
-  for (const c of def.connectors) result = csgEvaluate(evaluator, result, brush(socketCutter(c), CUT), SUBTRACTION);
-  const out = slotGroups(result);
-  out.computeBoundingBox();
-  out.computeBoundingSphere();
-  return out;
-}
-
-/** The cutter for an end's hole (a keyhole through the piece, open at the end face). */
-function socketCutter(c: ConnectorDef): BufferGeometry {
-  const shape = keyholeShape(1, PEG_NECK_LENGTH + SOCKET_CLEARANCE, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
-  const g = extrudeUp(shape, TRACK_THICKNESS + 4, 0);
-  g.applyMatrix4(connectorBasis(c.pose.x, c.y - 2, c.pose.z, c.pose.heading));
-  return onlyCsgAttributes(g);
 }
 
 /** The plug's top sits this far below the track surface: a faint seam where it fills its hole (and no flicker on a stand-in's uncarved body). */
@@ -861,19 +610,6 @@ export function withPegs(carved: BufferGeometry, def: PieceDef): BufferGeometry 
   merged.computeBoundingBox();
   merged.computeBoundingSphere();
   return merged;
-}
-
-/** A dog-bone joiner: just its two pegs, back to back (each reaching into a track end's hole). */
-function joinerGeometry(def: PieceDef): BufferGeometry {
-  const pegs = def.connectors.map((c) => {
-    const g = extrudeUp(keyholeShape(-2, PEG_NECK_LENGTH + 2, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1), PEG_HEIGHT, 0.6);
-    g.applyMatrix4(connectorBasis(c.pose.x, c.y, c.pose.z, c.pose.heading));
-    return onlyCsgAttributes(g);
-  });
-  const out = slotGroups(csgEvaluate(evaluator, brush(pegs[0]), brush(pegs[1]), ADDITION));
-  out.computeBoundingBox();
-  out.computeBoundingSphere();
-  return out;
 }
 
 /** Buffer stop block (separate so it can be painted), in piece-local space. */

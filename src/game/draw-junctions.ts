@@ -1,4 +1,4 @@
-import { createSample, findBranch, findCrossing, findCurveSwap, findMerge, findOverlap, findThreeWay, getPieceDef, isPlainStraight, MERGE_REACH, straightLength, normalizeAngle, type SwapMiss, pathLength, samplePath, transformPose, type DrawEnd, type DrawLine, type DrawnPiece, type Layout, type PieceSwap, type PieceTypeId, type Pose, type SwapPiece } from "../track";
+import { createSample, findBranch, findCrossing, findCurveSwap, findMerge, findOverlap, findSlip, findThreeWay, getPieceDef, isPlainStraight, MERGE_REACH, straightLength, normalizeAngle, type SwapMiss, pathLength, samplePath, transformPose, type DrawEnd, type DrawLine, type DrawnPiece, type Layout, type PieceSwap, type PieceTypeId, type Pose, type SwapPiece } from "../track";
 
 /**
  * Junctions in a drawn line (Draw N2 phase 2, docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md
@@ -37,9 +37,23 @@ export const BRANCH_FACING = 40;
 /** What it says when no switch fits there. */
 export const NO_ROOM_MESSAGE = "No room for a switch there";
 /** Can a drag that starts on this piece draw a branch off it (with a switch, Y or three-way swapped in)? */
-export const branchesOff = (type: PieceTypeId): boolean => /^straight-\d+$/.test(type) || type === "curve-large" || type === "switch";
+export const branchesOff = (type: PieceTypeId): boolean => /^straight-\d+$/.test(type) || type === "curve-large" || type === "switch" || makesSlip(type);
+/** A 45° crossing (or a single slip): a stroke along a turn from one of its lines onto the other makes it a slip. */
+export const makesSlip = (type: PieceTypeId): boolean => type === "crossing-45" || type === "slip-single";
+/** How far (mm) the finger goes from the press on a 45° crossing before the turn it runs along is decided. */
+export const SLIP_WAY = 70;
+/** What it says when a stroke on a 45° crossing doesn't run along a turn from one line to the other. */
+export const SLIP_ALONG = "For a slip, draw along the turn from one line to the other";
 
-export type BranchStart = { readonly kind: "wait" } | { readonly kind: "refused"; readonly message: string } | { readonly kind: "branch"; readonly swap: PieceSwap };
+/**
+ * A branch's start: wait, refused (and why), a branch (a switch swapped in, the line going on from its branch end), or
+ * a slip (a 45° crossing made a slip in place: nothing drawn after it, it goes down as the finger lifts).
+ */
+export type BranchStart =
+  | { readonly kind: "wait" }
+  | { readonly kind: "refused"; readonly message: string }
+  | { readonly kind: "branch"; readonly swap: PieceSwap }
+  | { readonly kind: "slip"; readonly swap: PieceSwap };
 
 /**
  * A press on plain straight `onto` at `press` (on the track, at its height), the finger now at `finger`: wait till it
@@ -49,6 +63,7 @@ export type BranchStart = { readonly kind: "wait" } | { readonly kind: "refused"
 export function branchFrom(r: JunctionRules, onto: number, press: { x: number; z: number }, finger: { x: number; z: number }, facing?: number): BranchStart {
   const p = r.layout.getPiece(onto);
   if (!p) return { kind: "refused", message: NO_ROOM_MESSAGE };
+  if (makesSlip(p.type)) return slipFrom(r, onto, press, finger);
   const off = offTrack(p.type, p.flipped, p.pose, finger);
   // (And its way is taken over its first 50 mm: which way the switch faces is the leg nearer that way.)
   if (off < BRANCH_MOVE || Math.hypot(finger.x - press.x, finger.z - press.z) < BRANCH_WAY) return { kind: "wait" };
@@ -65,6 +80,21 @@ export function branchFrom(r: JunctionRules, onto: number, press: { x: number; z
   if (short) return { kind: "refused", message: short };
   const why = swapBlocked(r, w);
   return why ? { kind: "refused", message: why } : { kind: "branch", swap: w };
+}
+
+/**
+ * A press on a 45° crossing (or a single slip) at `press`, the finger now at `finger`: wait till it has gone `SLIP_WAY`
+ * from the press, then the slip whose turn it ran along (see `findSlip`), checked where it goes, or why not.
+ */
+function slipFrom(r: JunctionRules, onto: number, press: { x: number; z: number }, finger: { x: number; z: number }): BranchStart {
+  if (Math.hypot(finger.x - press.x, finger.z - press.z) < SLIP_WAY) return { kind: "wait" };
+  const w = findSlip(r.layout, onto, press, finger, (id) => !r.occupied(id));
+  if (w.kind === "busy") return { kind: "refused", message: "A train is on that crossing" };
+  if (w.kind === "none") return { kind: "refused", message: SLIP_ALONG };
+  const short = r.may(w.pieces[0].type, 0);
+  if (short) return { kind: "refused", message: short };
+  const why = swapBlocked(r, w);
+  return why ? { kind: "refused", message: why } : { kind: "slip", swap: w };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { CARGO, CARGO_KINDS, type CargoKind, type DepotRole, type Economy } from "../economy";
+import { CARGO, CARGO_KINDS, CARGO_SLOTS, type CargoKind, type DepotRole, type Economy } from "../economy";
 import { CRANE_TICKS, MAX_WAGON_CAPACITY, ticks, WAGON_CAPACITY } from "../economy/constants";
 import type { Stat } from "./blueprints";
 import type { Progress } from "./progress";
@@ -80,7 +80,7 @@ const MADE_STAT: Partial<Record<CargoKind, Stat>> = { log: "logsCut", planks: "p
  * added since the last look. Start it again (`reset`) whenever the world is replaced (a load, a new game).
  */
 export class Counters {
-  private made = new Int32Array(CARGO_KINDS.length);
+  private made = new Int32Array(CARGO_SLOTS);
   private moved = 0;
 
   reset(economy: Economy): void {

@@ -1,8 +1,7 @@
-import { growthOf } from "./town-life";
+import { statusOf } from "./town-life";
 import type { DepotState } from "../economy/economy";
 import type { Landscape, Town } from "../landscape";
 import { BLUEPRINTS, CITY_SCHOOL_ID, COLLEGE_SCHOOL_ID, SCHOOL_RANK, UNIVERSITY_SCHOOL_ID, type SchoolLevel } from "./blueprints";
-import { townStatus } from "./towns";
 import type { World } from "./world";
 
 /**
@@ -35,6 +34,15 @@ export const LANDMARKS: readonly Landmark[] = [
     blurb: "Pays half again for everything delivered to this town.",
     models: { four: ["bldg-market-hall"], two: ["bldg-market-hall", "bldg-post-office"], one: ["bldg-corner-shop"] },
   },
+  // City ★★'s free gift (spec 2026-11-04-civic-leisure §4): bunting strung over a street, in flags of every colour.
+  {
+    id: "bunting",
+    name: "Bunting",
+    level: 5,
+    blurb: "Flags over its streets, for the biggest towns of all.",
+    // (A one-square lot is too short for the bunting's string: a flagpole there.)
+    models: { two: ["scene-bunting"], one: ["scene-flagpole"] },
+  },
 ];
 
 /**
@@ -54,7 +62,8 @@ export const landmarkAt = (level: number): Landmark | undefined => LANDMARKS.fin
 
 /** The landmarks a town has. */
 export function townLandmarks(town: Town): Set<string> {
-  return new Set(town.buildings.flatMap((b) => (b.landmark ? [b.landmark] : [])));
+  // (Only `LANDMARKS`: a town's places and treats share `Building.landmark` but are never landmarks: game/places.ts.)
+  return new Set(town.buildings.flatMap((b) => (b.landmark && landmarkOf(b.landmark) ? [b.landmark] : [])));
 }
 
 /** The schools on the map (a school whose piece was taken up doesn't count). */
@@ -65,7 +74,7 @@ export function placedSchools(world: World): DepotState[] {
 /** The level of a school's town (0: not yet a village, or no town). */
 export function schoolTownLevel(world: World, d: DepotState): number {
   if (d.townId < 0 || !world.landscape.towns.some((t) => t.id === d.townId)) return 0;
-  return townStatus(growthOf(world, d.townId)).level;
+  return statusOf(world, d.townId).level;
 }
 
 /**

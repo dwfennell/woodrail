@@ -8,7 +8,7 @@ import type { PieceTypeId } from "../track";
  * (`car:engine`) or a catalogue model placed as a prop (`prop:bldg-station-clock`: lineside furniture). Industries and
  * kits are track pieces too (`piece:depot-workshop`, `piece:kit-water-tower`).
  */
-export type ThingId = `piece:${PieceTypeId}` | `car:${CarKind}` | `prop:${string}`;
+export type ThingId = `piece:${PieceTypeId}` | `car:${CarKind}` | `prop:${string}` | `look:${CarLook}`;
 
 export const pieceThing = (type: PieceTypeId): ThingId => `piece:${type}`;
 export const carThing = (kind: CarKind): ThingId => `car:${kind}`;
@@ -42,6 +42,10 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:switch-3way": { label: "Three-way", cost: { planks: 5 }, tech: "junctions" },
   "piece:crossing": { label: "Crossing", cost: { planks: 3 }, tech: "junctions" },
   "piece:crossing-45": { label: "45° crossing", cost: { planks: 3 }, tech: "junctions" },
+  // Tech-tree T3 and T4: a three-way with a lever for each side; crossings that can also turn.
+  "piece:switch-3way-double": { label: "Double three-way", cost: { planks: 6 }, tech: "double-three-way" },
+  "piece:slip-single": { label: "Single slip", cost: { planks: 5 }, tech: "slips" },
+  "piece:slip-double": { label: "Double slip", cost: { planks: 6 }, tech: "slips" },
   "piece:crossover": { label: "Crossover", cost: { planks: 5 }, tech: "junctions" },
   "piece:wye": { label: "Wye", cost: { planks: 4 }, tech: "junctions" },
   "piece:double-straight": { label: "Double track", cost: { planks: 2 }, tech: "junctions" },
@@ -68,6 +72,10 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:kit-lookout": { label: "Lookout halt", cost: { planks: 6 }, coins: 40, tech: "rack" },
   // Tech tree 5: the observatory, a lookout's kind of stop for stargazers. Iron for its dome and telescope.
   "piece:kit-observatory": { label: "Observatory", cost: { planks: 10, iron: 4 }, coins: 120, tech: "observatory" },
+  // The metro (spec 2026-11-04-rail-types.md §2): dear on purpose. A stop (its platform dug two levels under a town,
+  // its entrance on the town's ground) and the metro train (its motor car and two cars, besides the cars themselves).
+  "piece:kit-metro-stop": { label: "Metro stop", cost: { planks: 10, iron: 25 }, coins: 600, tech: "metro" },
+  "look:metro": { label: "Metro train", cost: { planks: 6, iron: 15 }, coins: 400, tech: "metro" },
   "piece:tunnel-mouth": { label: "Tunnel mouth", cost: { planks: 2 }, coins: 30, tech: "tunnels" },
   "car:engine": { label: "Engine", cost: { planks: 6 } },
   "car:timber": { label: "Flatbed wagon", cost: { planks: 3 } },
@@ -80,6 +88,9 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:carrier": { label: "Car carrier", cost: { planks: 3, iron: 2 }, tech: "car-carrier" },
   "car:oiltank": { label: "Tank wagon", cost: { planks: 3 }, tech: "tankers" },
   "car:crane": { label: "Breakdown crane", cost: { planks: 8 }, tech: "breakdown" },
+  "car:mailvan": { label: "Mail van", cost: { planks: 3 }, tech: "post-office" },
+  // (Dearer than a mail van: it sorts on the move, so it needs no post office stop.)
+  "car:sortvan": { label: "Sorting van", cost: { planks: 5 }, tech: "mail" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 10 }, coins: 300, tech: "sawmills" },
@@ -95,6 +106,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-creamery": { label: "Creamery", cost: { planks: 10 }, coins: 240, tech: "creamery" },
   "piece:depot-icecream": { label: "Ice cream factory", cost: { planks: 12 }, coins: 360, tech: "ice-cream" },
   "piece:depot-brickworks": { label: "Brickworks", cost: { planks: 10 }, coins: 320, tech: "brickworks" },
+  "piece:depot-postoffice": { label: "Post office", cost: { planks: 8 }, coins: 180, tech: "post-office" },
   "piece:depot-carworks": { label: "Car factory", cost: { planks: 12, iron: 4 }, coins: 420, tech: "car-factory" },
   // Tank wagons' wells (Tank wagons): oil anywhere, water by a river or lake.
   "piece:depot-oilwell": { label: "Oil well", cost: { planks: 8 }, coins: 220, tech: "tankers" },
@@ -186,7 +198,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
  * Cars in a look of their own that needs a blueprint (the passenger line's coaches, the express engine). Other looks
  * come with the car.
  */
-export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine", rack: "rack", sleeper: "sleeper", observation: "observation" };
+export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine", rack: "rack", metro: "metro", sleeper: "sleeper", observation: "observation" };
 
 /** A thing's whole price, for cards, by icon as tickets show it: "12\uE000 30🪙" ("free" if nothing). */
 export function costText(rule: ThingRule): string {
@@ -210,13 +222,20 @@ export const ruleOf = (id: ThingId): ThingRule | undefined => THING_RULES[id];
 export const isFree = (id: ThingId): boolean => THING_RULES[id]?.free !== undefined || !THING_RULES[id];
 
 /** A tray item that puts things on the map: a piece, a train, or a catalogue model (a prop). */
-export type ThingItem = { kind: "piece"; type: PieceTypeId } | { kind: "train"; cars: readonly CarKind[] } | { kind: "prop"; asset: string };
+export type ThingItem = { kind: "piece"; type: PieceTypeId } | { kind: "train"; cars: readonly CarKind[]; looks?: readonly CarLook[] } | { kind: "prop"; asset: string };
 
 /** The things a tray item puts on the map, with how many of each (a train: its cars). */
 export function thingsFor(item: ThingItem): Map<ThingId, number> {
   const out = new Map<ThingId, number>();
   if (item.kind === "piece") out.set(pieceThing(item.type), 1);
   else if (item.kind === "prop") out.set(propThing(item.asset), 1);
-  else for (const c of item.cars) out.set(carThing(c), (out.get(carThing(c)) ?? 0) + 1);
+  else {
+    for (const c of item.cars) out.set(carThing(c), (out.get(carThing(c)) ?? 0) + 1);
+    // (A look with a price of its own, the metro train: one for the train.)
+    for (const look of new Set(item.looks ?? [])) {
+      const id: ThingId = `look:${look}`;
+      if (THING_RULES[id]) out.set(id, 1);
+    }
+  }
   return out;
 }

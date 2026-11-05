@@ -3,7 +3,8 @@ import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
 import { connectorRef, Layout, type PieceTypeId } from "../track";
 import { CARGO } from "../economy/cargo";
 import { Economy, type DepotState } from "../economy";
-import { END, planTracks, tracksAfter, type PlaceCheck, type TracksPlan } from "./depot-tracks";
+import { END, planTracks, TRACK_ROLES, tracksAfter, type PlaceCheck, type TracksPlan } from "./depot-tracks";
+import { INDUSTRY_ROLE } from "./world";
 
 /**
  * Depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md): the ladder laid, one crane serving each track's
@@ -78,7 +79,10 @@ describe("depot tracks: the ladder", () => {
 
   it("says why, in squares, when the line ends, bends or has points too near", () => {
     const short = line(1, 4);
-    expect(planTracks(short, short.mill, open)).toMatch(/needs 4½ squares of straight track on the line at each end: the line ends/);
+    expect(planTracks(short, short.mill, open)).toMatch(/needs 4½ squares of straight track on the line at each end: the track stops short there/);
+    // Nothing joined at all at one end (a yard dropped on its own): lay track there first (QA 2026-11-05 #6).
+    const bare = line(0, 4);
+    expect(planTracks(bare, bare.mill, open)).toMatch(/at each end: lay track there first$/);
     const layout = new Layout();
     const ids = (["straight-216", "straight-216", "depot-mill", "curve-large"] as PieceTypeId[]).map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
     const sim = new Sim(layout);
@@ -273,5 +277,41 @@ describe("depot tracks: the one crane drawn", () => {
     const three = spanLayout(DEPOT_LAYOUT.mill, 3).crane;
     expect([three.l - three.half!, three.l + three.half!]).toEqual([-144 - 34, 118]);
     expect(three.t).toBe(DEPOT_LAYOUT.mill.crane.t);
+  });
+});
+
+describe("depot tracks: which industries", () => {
+  // QA 2026-11-05 #3: the tank wagons' wells and the goods chains' industries (built alongside) had no Second track.
+  // Every industry piece's role offers it but a school (not a crane industry). The car factory too (the owner's call).
+  const NOT: ReadonlySet<string> = new Set(["school"]);
+  it("every crane industry offers more tracks", () => {
+    const missing = [...new Set(Object.values(INDUSTRY_ROLE))].filter((r) => r && !NOT.has(r) && !TRACK_ROLES.has(r));
+    expect(missing).toEqual([]);
+  });
+
+  it("an oil well is given a second track like a mill, and a tank wagon train on it is loaded", () => {
+    const layout = new Layout();
+    const types: PieceTypeId[] = [...Array(4).fill("straight-216"), "depot-oilwell", ...Array(4).fill("straight-216")];
+    const ids = types.map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const well = economy.addDepot("oilwell", ids[4]);
+    const plan = planTracks({ layout, sim, economy }, well, open);
+    if (typeof plan === "string") throw new Error(plan);
+    apply({ layout, economy }, well, plan);
+    expect(economy.trackCount(well.id)).toBe(2);
+    well.piles[CARGO.oil.index] = 6;
+    const road = economy.roadsOf(well.id)[0].pieceId;
+    // (Run in to the track's end, as the mill's second train in "one crane serves each track in turn".)
+    const r = sim.addTrain(["engine", "oiltank", "oiltank"], { pieceId: road, pathIndex: 0, reversed: false, s: 200 });
+    if (r.kind !== "placed") throw new Error(r.kind);
+    const t = sim.getTrain(r.trainId)!;
+    sim.setLever(t.cars[0].id, 1);
+    for (let i = 0; i < sec(30); i++) {
+      sim.tick();
+      economy.tick();
+    }
+    expect(economy.cargoOf(t.cars[1].id).kind).toBe("oil");
+    expect(economy.cargoOf(t.cars[1].id).count).toBeGreaterThan(0);
   });
 });

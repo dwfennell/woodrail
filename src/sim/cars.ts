@@ -1,4 +1,4 @@
-export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner" | "tanker" | "reefer" | "carrier" | "oiltank" | "crane";
+export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner" | "tanker" | "reefer" | "carrier" | "oiltank" | "crane" | "mailvan" | "sortvan";
 export type Pole = "N" | "S";
 
 export interface CarSpec {
@@ -34,17 +34,22 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
   oiltank: { kind: "oiltank", index: 10, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
   // The breakdown crane (Game mode's Breakdown crane): a red crane on a heavy wagon that lifts derailed or stuck trains.
   crane: { kind: "crane", index: 11, length: 88, bogieInset: 18, width: 32, mass: 2, powered: false },
+  // A mail van (Game mode's Post office): the van's length and running gear, red, with a letter slot.
+  // (Index 15, the coordinator's range for it: 12-14 are unused.)
+  mailvan: { kind: "mailvan", index: 15, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
+  // A sorting van (Game mode's Sorting van): a mail van with windows and a mail-bag arm, sorting its mail on the move.
+  sortvan: { kind: "sortvan", index: 16, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
 };
 
 /**
  * How a car looks: the same car underneath (length, speed, what it carries), in a different body. Each kind's first
  * look is its usual one.
  */
-export type CarLook = "classic" | "tank" | "diesel" | "electric" | "dining" | "sleeper" | "double-decker" | "bay-window" | "express" | "first-class" | "goods" | "rack" | "observation";
+export type CarLook = "classic" | "tank" | "diesel" | "electric" | "dining" | "sleeper" | "double-decker" | "bay-window" | "express" | "first-class" | "goods" | "rack" | "metro" | "observation";
 export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
-  engine: ["classic", "tank", "diesel", "electric", "express", "goods", "rack"],
+  engine: ["classic", "tank", "diesel", "electric", "express", "goods", "rack", "metro"],
   hopper: ["classic"],
-  passenger: ["classic", "dining", "sleeper", "double-decker", "first-class", "observation"],
+  passenger: ["classic", "dining", "sleeper", "double-decker", "first-class", "metro", "observation"],
   caboose: ["classic", "bay-window"],
   timber: ["classic"],
   van: ["classic"],
@@ -54,11 +59,20 @@ export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
   carrier: ["classic"],
   oiltank: ["classic"],
   crane: ["classic"],
+  mailvan: ["classic"],
+  sortvan: ["classic"],
 };
-export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods", "rack", "observation"];
+export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods", "rack", "metro", "observation"];
 
 /** In snapshot-index order. */
-export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier", "oiltank", "crane"];
+export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier", "oiltank", "crane", "mailvan", "sortvan"];
+
+/** Each car kind by its snapshot index (`CAR_SPECS[k].index`; indices can leave gaps, as other branches take ranges). */
+export const CAR_BY_INDEX: readonly CarKind[] = (() => {
+  const out: CarKind[] = [];
+  for (const k of CAR_KINDS) out[CAR_SPECS[k].index] = k;
+  return out;
+})();
 
 /** Gap between two coupled cars' end faces (mm). */
 export const COUPLER_GAP = 2;

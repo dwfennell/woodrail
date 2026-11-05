@@ -298,3 +298,78 @@ Each lands alone, with its e2e on the player's path (research → tray → lay �
 - `tools/shots/rail-types.mjs`: the pictures (`node tools/shots/rail-types.mjs [<out>]`, about 4 min). The rack and
   ramp lines are laid by the editor after the game's track rules accept each piece; the cog strip, the metro's kiosks,
   dashes and ghost cars, the monorail and the cards are meshes and HTML added by the script.
+
+## 8. The metro as built (`claude/metro`, on top of `claude/rack`)
+
+**What's there**
+- **Metro stop** (`kit-metro-stop`): a 216 platform in a tunnel two levels under the felt. The only station allowed
+  in a tunnel. Anywhere else it's refused: "A metro stop goes in a tunnel two levels under the felt". What you see is
+  its entrance: a red kiosk with a blue roof (the catalogue's ticket booth) standing on the felt right over the
+  platform's middle (`KitDef.place.up`). The entrance must stand on a square of a town with no house or station on it,
+  a green or a street ("A metro stop's entrance goes on a free square of a town: a green or a street"). It's a stop of
+  that town's. Put down from the tray (Industries → Halts) onto a line under a town; it takes a straight's place.
+- **The line** is the tunnels': a tunnel mouth down outside the town, plain track two levels under it, a mouth up.
+  **A town grows over it.** Track two levels under the felt no longer keeps houses, trees or lots off the squares
+  over it (`trackPoints`). A metro stop's entrance still does.
+- **Riders:** a town's first two metro stops are each a **quarter** of the town, with riders of their own at half the
+  town's rate (`METRO_QUARTERS`, `METRO_SLOWER`; the user's "half rate, 2 per town"). Riders get off in any other
+  quarter: a station rider at a metro stop, a metro rider at the other metro stop or the station. So a ride across a
+  city pays its (short) fare. A third metro stop is a stop, with no riders of its own.
+- **Metro train** (Trains → Metro): a motor car and two cars that come as one, in silver and red (the electric
+  engine's and a coach's models), 8 seats a car, speed 1.3, quick 1.5. Electric: it runs only while a power station has
+  coal.
+
+**What it costs: the top of the transport options** (the user: "It should be expensive to move folks by metro")
+
+| | Metro | For comparison |
+|---|---|---|
+| Research | 400🪙 + 10🪵 + 40 iron, tier 3, after Tunnels and Electricity, a City ★ (and so a school beside a city) | Big stations 6🪵 + 120🪙 |
+| A stop | **600🪙** + 10🪵 + 25 iron | a country halt 6🪵; a lookout 40🪙 + 6🪵 |
+| The train | **400🪙** + 6🪵 + 15 iron, its three cars besides | an engine 6🪵, a coach a few planks; no other train costs coins |
+| Digging | **60🪙 a square** of town the line runs under, once. Refused when the coins are short ("Digging under the town costs 180🪙: you have 30🪙") | a tunnel's mouths 20–30🪙 each; roads by the square |
+| Running | **a coal from a power station every 20 s** it runs, on top of the station's own coal a minute | nothing |
+
+Squares a town later grows out over a line already there count as dug, unpaid: the player is charged for what they
+dig, not for the town growing.
+
+**Payback** (`src/game/metro.test.ts`, "pays back slowly"): a City ★ with busy stations, two metro stops about 1.3 m
+apart (a big city's width), one metro train, 30 game minutes on the sim's and economy's own ticks:
+
+- **24.5 riders a minute**, at the minimum fare across a city (1🪙 each): **24.5🪙 a minute**.
+- **1 coal a minute** drawn (2🪙 at a town's price): **22.5🪙 a minute net**.
+- The line: 2 stops (1200🪙) + the train (400🪙) + digging under about 16 squares (960🪙) = **2560🪙: paid back in
+  114 minutes**. With its iron valued at a town's price (65 iron, 520🪙): **137 minutes**. With its research too
+  (400🪙 and 40 iron): **169 minutes**.
+- For scale: on seed 2027 the whole game has about 1300🪙 by minute 180; the metro comes after City ★, in the long
+  part (180–440 minutes). So a first metro line takes the most of a long game's spare coins and two to three hours
+  to earn them back.
+- A first try (stops 400🪙, train 300🪙, digging 40🪙, coal every 30 s) paid back in 77 minutes. Too quick for "slowly,
+  over a long game", so the coins went up. The rider rate stayed as the user decided.
+
+**Tests:** `src/game/metro.test.ts`: quarters (riders across one town pay), arrivals (two quarters at half rate, not a
+third), prices, coal drawn while running, placement (two levels down, wholly in the tunnel; not on the felt; points
+still need daylight), the entrance's town and the house refusal, the town growing over the line (not on an
+entrance), digging (60🪙 a square, once, refused when short), payback. `npm run e2e:metro` (16 checks, about 3 min,
+390×844): Metro not researchable at the start; the line under a City ★ (digging paid, the toast); the tray (Metro stop,
+Metro train) and prices; two metro stops from the tray onto the line, each a metro stop of the town's; refused with its
+entrance on a house; a metro train carrying riders across the town, paid, drawing coal; a house may go over the line,
+not on an entrance; 0 idle frames. Pictures: `docs/agents/shots/metro-*.jpg`.
+
+**Fixed after review (coordinator, 2026-11-05):**
+- **Road vehicles and the entrance.** The entrance went on a street square, and the town's cars drove through it. Now it
+  goes only off the road: on a town's green, or on the grass within two squares of the town (diagonals too), with
+  nothing on it ("A metro stop's entrance goes on a town's green or the grass beside it, off the road"). The starter
+  towns are houses, streets and a station, with no greens, so in practice a stop is at the edge of a town, its line
+  running under the town between two such stops. Before: `docs/agents/shots/metro-entrance-before.jpg`; after:
+  `metro-entrance-after.jpg`.
+- **Seeing the line.** The dashes painted over a tunnel were drawn on the felt, under a street's top (4.3 mm up), so on
+  streets they didn't show. Over a road, a street or a town's paving they're painted on its top now (`PAVED_LIFT`).
+  And a tap on a metro stop's entrance opens its stop card (its town's) with **Show the line**: the stop's line (the
+  track two levels under the felt joined to it, and the mouths at its ends) drawn as a blue ribbon through everything
+  for 12 seconds (`MetroLineView`; built when asked, one mesh, nothing per frame). Before: `metro-line-before.jpg`;
+  after: `metro-card.jpg`, `metro-show-line-after.jpg`.
+- Tests: `metro.test.ts` (the entrance refused on a street; the line's pieces; dashes on a street's top), `e2e:metro`
+  21 checks (the dashes over the line not under a street's top; a tap on the entrance opens the card with Show the line;
+  the line drawn, shown with the card closed, gone after a while).
+
+**Not done:** Draw doesn't go under a town by itself: the line is laid as tunnels are.
