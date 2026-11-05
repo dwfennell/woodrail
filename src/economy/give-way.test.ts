@@ -145,33 +145,22 @@ const ENV: Record<string, string | undefined> = (globalThis as { process?: { env
 const SEEDS = Number(ENV.TOWN_FUZZ ?? 12);
 /**
  * Seeds (1–30) where the route still stalls and all hand-run doesn't, and why (2026-11-05, on the corrected layout: see
- * `townWorld`'s wye). Fixes before: giving way (stalls.ts); a stale wait in sections (`capOf`); a train on no line going
- * round a ring isn't in a way it's clear of (`clearOfCircling`). Their network (ring, line and points) is one section,
- * the dead ends its slots. What's left, traced at the stall's start, is two classes:
- * - `DEAD_END`: the routed train's stop is in a dead end (the sawmill line or the forest yard) the hand-run train is in.
- *   It waits on the ring for it to come out; the hand-run train, at the dead end's mouth, waits for it (it stands on the
- *   way out as the points lie, facing it). Given way, the hand-run train turns back into the dead end, and it comes again.
- * - `HEAD_ON`: they meet head on at the wye or on the single line, each waiting on the other.
+ * `townWorld`'s wye). Before the dead-end rule (routing spec §5 rules 8 and 9) 12 stalled with no loop, 9 of them a
+ * routed train waiting to go into a dead end a hand-run train was in, each waiting on the other for good. Now a dead end
+ * is one block for entry, a train coming out takes a road clear of one waiting to go in, and nobody is held on points:
+ * - `HEAD_ON` (15): coming out onto the ring, the routed train meets the hand-run train head on by the wye.
+ * - `BOTH_IN` (19): both put down in the sawmill line's dead end, facing each other: a true deadlock.
+ * - 22: the hand-run train coming out stands on the wye nose to nose with the routed one, 14 s, till one gives way.
  * With a passing loop laid, all of them run clean: asserted below (`LOOP_FIXES`).
  */
-const DEAD_END = "its stop is in the dead end the hand-run train is in, which can't come out past it";
-const HEAD_ON = "head on with the hand-run train at the wye or on the single line";
+const HEAD_ON = "head on with the hand-run train by the wye";
 const KNOWN: Record<number, string> = {
-  2: DEAD_END,
-  3: DEAD_END,
-  11: DEAD_END,
-  14: DEAD_END,
   15: HEAD_ON,
-  17: DEAD_END,
-  18: DEAD_END,
-  19: DEAD_END,
-  22: HEAD_ON,
-  26: HEAD_ON,
-  27: DEAD_END,
-  30: DEAD_END,
+  19: "both put down in the same dead end, facing: a true deadlock",
+  22: "14 s nose to nose on the wye, till one gives way",
 };
 /** Of those: laid a loop, they never stall. */
-const LOOP_FIXES = [2, 3, 11, 14, 15, 17, 18, 19, 22, 26, 27, 30];
+const LOOP_FIXES = [15, 19, 22];
 /**
  * With a passing loop laid (`loop`), seeds that still stall (2026-11-05), both one class: the hand-run train goes round
  * the ring non-stop, and the routed one, in the loop, waits for it, its way round to its stop running against it (they'd
