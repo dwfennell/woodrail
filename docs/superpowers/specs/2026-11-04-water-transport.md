@@ -317,3 +317,11 @@ The user picked A for all six (§10) and asked the cargo ship to hold its contai
   barges): their player's path is `npm run e2e:water`'s.
 - **Not built**: Lines view rows for boats, the map markers for a train abroad, a landing's goods drawn on its jetty
   (the card counts them), the perf harness's river map (the e2e checks 0 idle frames with boats tied up instead).
+- **Yards (added 2026-11-05, the user):** boats are built, not bought. A boatyard on a river bank builds a tug and a
+  barge (20 planks, 4 iron) or a barge (8 planks); a shipyard by the sea builds cargo ships (30 iron, 20 planks, 6
+  tools) and train ferries (20 iron, 16 planks, 4 tools), from goods trains bring. The yard's card says what's being
+  built and what's still to come by train; the hull stands on the ways (keel and ribs, then planked) and slides
+  sideways into the water when it's done. River barges brings the boatyard; a new Shipyards row (tier 3) brings the
+  shipyard, and Cargo ships and Train ferry need it. Pictures: `docs/agents/shots/water-build-03-yard-building.jpg`,
+  `-04-launched.jpg`, `-09-shipyard-building.jpg`.
+

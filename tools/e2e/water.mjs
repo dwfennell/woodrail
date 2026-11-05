@@ -133,6 +133,7 @@ const dragOut = async (key, v) => {
   for (let k = 0; k < 4; k++) await touch("touchMove", tx, ty, (t += 0.05));
   await frames();
   if (process.env.WATER_DEBUG) await shot(`debug-drag-${key.replace(/[:]/g, "_")}-${Date.now() % 100000}`);
+  if (process.env.WATER_DEBUG) console.log("drop", key, v, await p.evaluate(() => { const m = window.woodrail.interaction.mode; return JSON.stringify({ kind: m.kind, pose: m.pose, snap: m.snap?.kind, blocked: m.blocked ?? null, hint: m.hint ?? null }); }));
   await touch("touchEnd", 0, 0, (t += 0.05));
   await settle();
   return true;
@@ -192,35 +193,50 @@ const river = await p.evaluate(async () => {
   // Landings on the −z bank of a river running along x: the piece's middle 100 back from the water's middle.
   const spots = [];
   const why = { runs: 0, site: 0, place: [] };
+  // Either bank: the −z bank (the piece facing +x, its jetty out to +z) or the +z bank (facing −x, its jetty to −z).
   for (let i = 0; i < g.cellCount; i++) {
     if (g.surface[i] !== 1) continue;
     const c = g.colOf(i);
     const r = g.rowOf(i);
     const at = (dc, dr) => g.surface[g.index(c + dc, r + dr)] ?? -1;
-    let run = true;
-    for (let k = -4; k <= 4; k++) if (at(k, 0) !== 1 || at(k, -1) === 1 || at(k, -2) === 1 || at(k, 2) === 1) run = false;
-    if (!run) continue;
-    why.runs++;
-    const pose = { x: g.centreX(c) - 108, z: g.centreZ(r) - 100, heading: 0 };
-    if (siteWhy(w.world.landscape, "kit-landing", pose) !== null) continue;
-    why.site++;
-    // Flat, clear ground for the quay.
-    const no = w.interaction.placeWhy("kit-landing", pose, g.groundY(g.cellAtWorld(pose.x + 108, pose.z)), -1);
-    if (no) {
-      if (why.place.length < 5) why.place.push(no);
-      continue;
+    for (const side of [1, -1]) {
+      let run = true;
+      for (let k = -4; k <= 4; k++) if (at(k, 0) !== 1 || at(k, -side) === 1 || at(k, -2 * side) === 1 || at(k, 2 * side) === 1) run = false;
+      if (!run) continue;
+      why.runs++;
+      const heading = side > 0 ? 0 : Math.PI;
+      const cx = g.centreX(c);
+      const pose = { x: cx - side * 108, z: g.centreZ(r) - side * 100, heading };
+      const y = g.groundY(g.cellAtWorld(cx, pose.z));
+      // (A landing: only on the −z bank, the way the tray's turned for them.)
+      let landOk = side > 0 && siteWhy(w.world.landscape, "kit-landing", pose) === null;
+      if (landOk) {
+        why.site++;
+        const no = w.interaction.placeWhy("kit-landing", pose, y, -1);
+        if (no && why.place.length < 5) why.place.push(no);
+        landOk = !no;
+      }
+      // (A boatyard, with room to spare: a drop snaps to the lattice, a square either way along the bank, a little
+      // toward or away from the water.)
+      const yardOk = [[-36, 0], [0, 0], [36, 0]].every(([dx, dz]) => {
+        const q = { ...pose, x: pose.x + dx, z: pose.z + dz };
+        return siteWhy(w.world.landscape, "kit-boatyard", q) === null && !w.interaction.placeWhy("kit-boatyard", q, g.groundY(g.cellAtWorld(cx + dx, q.z)), -1);
+      });
+      // (And clear of other track: a drop near a free end snaps to it.)
+      const clear = [...w.layout.pieceIds()].every((id) => Math.hypot(w.layout.getPiece(id).pose.x - cx, w.layout.getPiece(id).pose.z - pose.z) > 520);
+      spots.push({ ...pose, mid: { x: cx, z: pose.z }, landOk, yardOk: yardOk && clear });
     }
-    spots.push({ ...pose, mid: { x: pose.x + 108, z: pose.z } });
   }
   // Two far apart on the same water.
   const { waterAt } = await import("/src/game/boats.ts");
   let best = null;
-  for (const a of spots)
-    for (const b of spots)
+  const lands = spots.filter((s) => s.landOk);
+  for (const a of lands)
+    for (const b of lands)
       if (waterAt(w.world.landscape, { x: a.mid.x, z: a.mid.z + 100 }) === waterAt(w.world.landscape, { x: b.mid.x, z: b.mid.z + 100 }) && Math.abs(a.x - b.x) > 500 && (!best || Math.abs(a.x - b.x) > Math.abs(best[0].x - best[1].x))) best = [a, b];
   // A boatyard's spot on the same water, clear of both.
   const wet = (s) => waterAt(w.world.landscape, { x: s.mid.x, z: s.mid.z + 100 });
-  const c = best && spots.filter((s) => wet(s) === wet(best[0]) && Math.abs(s.x - best[0].x) > 320 && Math.abs(s.x - best[1].x) > 320).sort((u, v) => Math.abs(u.x - best[0].x) - Math.abs(v.x - best[0].x))[0];
+  const c = best && spots.filter((s) => s.yardOk && wet(s) === wet(best[0]) && Math.abs(s.x - best[0].x) > 320 && Math.abs(s.x - best[1].x) > 320).sort((u, v) => Math.abs(u.x - best[0].x) - Math.abs(v.x - best[0].x))[0];
   return best && c ? { a: best[0], b: best[1], c, n: spots.length } : { n: spots.length, why };
 });
 check("a straight run of river with room for two landings", !!river.a, JSON.stringify(river));
@@ -271,15 +287,24 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     check("a tap on the landing opens its card", card === "River landing", String(card));
     await shot("2-landing-card");
     // A boatyard from the Water shelf onto the bank (the tray still turned to face the water).
-    await openShelf("Industries", "Water");
-    await look(cc.mid, 1500);
-    await dragOut("piece:kit-boatyard", cc.mid);
+    // (Refused, a player moves it a little nearer the water and tries again: the yard's grab point is its model's
+    // middle, out from its line.)
+    for (const dz of [0, 24, 48, -24]) {
+      if ((await pieceIds("kit-boatyard")).length > 0) break;
+      await openShelf("Industries", "Water");
+      // (Turned to face the water: the tray's next piece faces half way round to start with.)
+      const want = (((Math.round((cc.heading - Math.PI) / (Math.PI / 4)) % 8) + 8) % 8);
+      await turnTray((want - trayTurns + 8) % 8);
+      await look(cc.mid, 1500);
+      await dragOut("piece:kit-boatyard", { x: cc.mid.x, z: cc.mid.z + dz * (cc.heading === 0 ? 1 : -1) });
+      if (process.env.WATER_DEBUG) console.log("yard drop", dz, await p.evaluate(() => JSON.stringify({ kits: [...window.woodrail.layout.pieceIds()].map((id) => window.woodrail.layout.getPiece(id).type).filter((t) => t.startsWith("kit")), owned: window.woodrail.progress().owned.get("piece:kit-boatyard"), avail: window.woodrail.progress().available(window.woodrail.world, "piece:kit-boatyard"), toasts: [...document.querySelectorAll(".toast")].map((t) => t.textContent) })));
+    }
     const C = await p.evaluate(() => {
       const w = window.woodrail;
       const id = [...w.layout.pieceIds()].find((i) => w.layout.getPiece(i).type === "kit-boatyard");
       return id === undefined ? null : { piece: id, depot: w.economy.depotAtPiece(id)?.id, role: w.economy.depotAtPiece(id)?.role, x: w.layout.getPiece(id).pose.x, z: w.layout.getPiece(id).pose.z, heading: w.layout.getPiece(id).pose.heading };
     });
-    check("a boatyard dragged from the Water shelf onto the bank", C?.role === "boatyard", JSON.stringify({ C, toast: await toast() }));
+    check("a boatyard dragged from the Water shelf onto the bank", C?.role === "boatyard", JSON.stringify({ C, cc, toast: await toast() }));
     if (!C) throw new Error("no boatyard");
     // Its card: build a tug and a barge.
     await look(quay(C), 1100);
