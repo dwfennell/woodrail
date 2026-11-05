@@ -11,7 +11,7 @@ describe("tray tabs", () => {
     expect(trayTabs("game").filter((t) => t.gameTech).map((t) => [t.id, t.gameTech])).toEqual([["roads", "roads"]]);
     expect(trayTabs("game")[0].props).toBeUndefined();
     // Props only as Game mode's lineside furniture (hidden till learned), on the Industries tab.
-    for (const tab of trayTabs("game")) for (const g of tab.groups) for (const item of g.items) if (item.kind === "prop") expect([tab.id, g.label, item.unlearned]).toEqual(["industries", "Lineside", "hide"]);
+    for (const tab of trayTabs("game")) for (const g of tab.groups) for (const item of g.items) if (item.kind === "prop") expect([tab.id, g.label === "Water" ? "Lineside" : g.label, item.unlearned]).toEqual(["industries", "Lineside", "hide"]);
   });
 
   it("every shelf has items, and no item is on two shelves of one tab", () => {
@@ -99,13 +99,15 @@ describe("Game mode's railway kits on the tray", () => {
 
   it("track kits on the Track tab, buildings and services on the Industries tab's railway shelves", () => {
     expect(keys(tab("track").groups.find((g) => g.label === "Railway kit")!)).toEqual(["piece:kit-turntable", "piece:kit-transfer-table", "piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"]);
-    expect(tab("industries").groups.map((g) => g.label)).toEqual(["Industries", "Railway", "Stations", "Yard", "Halts", "Lineside"]);
+    expect(tab("industries").groups.map((g) => g.label)).toEqual(["Industries", "Railway", "Stations", "Yard", "Water", "Halts", "Lineside"]);
     expect(keys(tab("industries").groups.find((g) => g.label === "Halts")!)).toEqual(["piece:kit-country-halt", "piece:kit-mountain-station", "piece:kit-harbour-station", "piece:kit-platform-furnished"]);
   });
 
   it("Sandbox's cargo loaders and unloaders (the goods shed among them) are on the Yard shelf, as looks (no depot in Game mode: kit-unlocks.test.ts)", () => {
     const yard = keys(tab("industries").groups.find((g) => g.label === "Yard")!);
-    for (const id of Object.keys(THING_RULES)) if (id.startsWith("piece:kit-") && kitOf(id.slice(6) as PieceTypeId)?.depot) expect(yard, id).toContain(id);
+    // (Water transport's landing and ferry slip are real depots in Game mode: on the Water shelf.)
+    const water = keys(tab("industries").groups.find((g) => g.label === "Water")!);
+    for (const id of Object.keys(THING_RULES)) if (id.startsWith("piece:kit-") && kitOf(id.slice(6) as PieceTypeId)?.depot) expect(id === "piece:kit-landing" || id === "piece:kit-ferry-slip" ? water : yard, id).toContain(id);
     expect(yard).toContain("piece:kit-goods-shed");
   });
 

@@ -5,6 +5,7 @@ import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./con
 import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
+import type { BoatState } from "./boats";
 import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
@@ -39,7 +40,7 @@ interface Service {
   halted?: boolean;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "landing" | "slip" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -136,6 +137,12 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   school: { takes: CARGO_KINDS.filter((k) => k !== "log"), gives: [], cap: WORKSHOP_CAP, sink: true },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
+  // A river landing (Game mode's River barges, src/game/boats.ts): a warehouse with a jetty. Routed trains drop or pick
+  // up there as their stops say, and so do the barges the player routes on the river.
+  landing: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
+  // A ferry slip (Game mode's Train ferry, src/game/ferry.ts): a train routed there rides the ferry abroad and back.
+  // Nothing is craned on or off: the ferry sells its load abroad and brings goods back in its wagons.
+  slip: { takes: [], gives: [] },
   // Sandbox's cargo machines: an endless heap of one good, and somewhere goods vanish.
   "loader-log": { takes: [], gives: ["log"], endless: true },
   "loader-grain": { takes: [], gives: ["grain"], endless: true },
@@ -143,6 +150,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   "loader-planks": { takes: [], gives: ["planks"], endless: true },
   unloader: { takes: [...CARGO_KINDS], gives: [], sink: true },
 };
+
+/** A store: keeps goods for routed trains, its Takes set on its card (a warehouse, a river landing). */
+export const isStore = (role: DepotRole): boolean => role === "warehouse" || role === "landing";
 
 /** The piles a kind of depot keeps: what it takes and what it gives. */
 /** Most units a pile of this kind of depot holds. */
@@ -414,6 +424,10 @@ export class Economy {
   private readonly routes = new Map<number, Route>();
   /** Lines by id (see `Line`), and the line each engine runs. */
   readonly lines = new Map<number, Line>();
+  /** The player's boats, by id (Game mode's River barges: src/game/boats.ts). */
+  readonly boats = new Map<number, BoatState>();
+  /** Loads boats have dropped at a dock other than where they picked them up (the goal "Float goods down the river"). */
+  boatDelivered = 0;
   readonly lineIdOf = new Map<number, number>();
   /** Town id → plank bundles delivered there (by train or by hand). */
   readonly delivered = new Map<number, number>();
@@ -1055,7 +1069,7 @@ export class Economy {
     const d = this.depots[depotId];
     if (!d) return;
     // An industry giving several goods: only Gives / Doesn't give, of each good it gives (`givesChoice`).
-    if (d.role !== "warehouse" && !(givesChoice(d.role) && kind !== null && RECIPES[d.role].gives.includes(kind) && (mode === "both" || mode === "off"))) return;
+    if (!isStore(d.role) && !(givesChoice(d.role) && kind !== null && RECIPES[d.role].gives.includes(kind) && (mode === "both" || mode === "off"))) return;
     if (kind === null) d.others = mode;
     else d.modes[CARGO[kind].index] = mode;
     this.wantsStamp++;

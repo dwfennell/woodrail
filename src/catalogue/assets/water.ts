@@ -295,7 +295,7 @@ function trainFerry(k: Kit): Group {
 
 // ——— The river landing ———
 
-const LANDING_LEN = 168;
+const LANDING_LEN = 216;
 /** The landing's siding, on the land side (−z). */
 const LANDING_TRACK_Z = -40;
 /** The quay's top: level with the track's top. */
@@ -314,9 +314,10 @@ function landing(k: Kit): Group {
   g.add(k.box(k.paint(STONE), LANDING_LEN, QUAY - 2, 5, 1, 0, 0, 28));
   // The jetty: planks on piles out over the water.
   g.add(k.box(k.wood, 76, 4, 34, 1, 12, QUAY - 4, 47));
+  // (The kit's jetty: x −26 to 50, z 30 to 64; `kit-landing` in src/track/kits.ts stands its footprint there.)
   for (const x of [-22, 12, 46]) for (const z of [34, 60]) g.add(k.cyl(k.paint(TOY.brown), 2.6, QUAY - 4, x, 0, z, 2.6, 12));
   for (const x of [-20, 44]) g.add(bollard(k, x, QUAY, 61));
-  for (const x of [-64, 74]) g.add(bollard(k, x, QUAY, 27));
+  for (const x of [-88, 96]) g.add(bollard(k, x, QUAY, 27));
   // A hand crane on the quay, its jib swung out over the jetty.
   const jib = pivot(
     "jib",
@@ -330,19 +331,19 @@ function landing(k: Kit): Group {
   jib.rotation.y = -1.2;
   g.add(k.cyl(k.paint(TOY.red), 6, 5, -28, QUAY, 10, 5, 18), k.cyl(k.wood, 2.6, 34, -28, QUAY + 5, 10, 2.4, 14), jib);
   // A goods shed at the far end, a red roof.
-  g.add(k.box(k.paint(TOY.cream), 36, 20, 26, 2, 58, QUAY, 4));
-  g.add(k.roof(k.paint(TOY.red), 40, 30, 10, 58, QUAY + 20, 4));
-  g.add(k.box(k.paint(TOY.brown), 12, 14, 1, 0.5, 58, QUAY, 17.6));
+  g.add(k.box(k.paint(TOY.cream), 36, 20, 26, 2, 70, QUAY, 4));
+  g.add(k.roof(k.paint(TOY.red), 40, 30, 10, 70, QUAY + 20, 4));
+  g.add(k.box(k.paint(TOY.brown), 12, 14, 1, 0.5, 70, QUAY, 17.6));
   // Goods waiting: crates and logs.
-  g.add(k.box(k.paint(TOY.orange), 10, 9, 10, 1, -66, QUAY, 4), k.box(k.paint(TOY.blue), 10, 9, 10, 1, -66, QUAY, 15), k.box(k.paint(TOY.orange), 10, 8, 10, 1, -66, QUAY + 9, 9));
+  g.add(k.box(k.paint(TOY.orange), 10, 9, 10, 1, -74, QUAY, 4), k.box(k.paint(TOY.blue), 10, 9, 10, 1, -74, QUAY, 15), k.box(k.paint(TOY.orange), 10, 8, 10, 1, -74, QUAY + 9, 9));
   for (const [z, y] of [
     [-4, 0],
     [4, 0],
     [0, 1],
   ] as const) g.add(k.cylX(k.paint(BARK), 3.4, 34, 6, QUAY + 3.4 + y * 5.8, z, 12));
   // A lifebuoy on its post, and a lamp.
-  g.add(k.cyl(k.wood, 1.2, 16, -80, QUAY, 22, 1.2, 8), buoy(k, -80, QUAY + 12, 23.4));
-  g.add(k.cyl(k.paint(TOY.black), 1, 30, 80, QUAY, 22, 1, 8), k.ball(k.paint(TOY.cream), 3, 80, QUAY + 32, 22));
+  g.add(k.cyl(k.wood, 1.2, 16, -100, QUAY, 22, 1.2, 8), buoy(k, -100, QUAY + 12, 23.4));
+  g.add(k.cyl(k.paint(TOY.black), 1, 30, 100, QUAY, 22, 1, 8), k.ball(k.paint(TOY.cream), 3, 100, QUAY + 32, 22));
   return g;
 }
 

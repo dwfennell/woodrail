@@ -101,6 +101,11 @@ export interface KitDef {
 /** Kit piece types: `kit-` and the asset's name without its catalogue prefix. */
 export type KitTypeId = `kit-${string}`;
 
+/** A river landing's line: this far across from its model's middle (the model's track is at its z −40). */
+const LANDING_TRACK = 40;
+/** Water may lie under a landing beyond its quay's stone edge (the jetty's piles), this far across from its line. */
+export const LANDING_WET = 70;
+
 /** The furnished platform's depth across, and how far off the track's edge it stands (mm). */
 const PLATFORM_DEPTH = 26;
 const PLATFORM_GAP = 1;
@@ -485,6 +490,39 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     splices: true,
     depot: "loader-planks",
     moves: "stopped",
+  },
+  // Water transport (Game mode's River barges and Train ferry; docs/superpowers/specs/2026-11-04-water-transport.md).
+  // A river landing: a siding beside a plank quay, its jetty on piles out over the water beyond (the model's track at
+  // its z −40, so it stands 40 across from the piece's line). Trains and the barges leave goods there for each other.
+  "kit-landing": {
+    asset: "water-landing",
+    name: "landing",
+    track: straight("kit-landing", 216),
+    rails: "track",
+    place: { t: 108, l: LANDING_TRACK },
+    // The quay (to its stone edge, 70 across); the jetty beyond it stands on the water (`wetFrom`).
+    footprint: [
+      { t: 108, l: 45, w: 216, d: 50 },
+      { t: 120, l: 87, w: 76, d: 34 },
+    ],
+    wetFrom: LANDING_WET,
+    splices: true,
+    depot: "landing",
+  },
+  // A ferry slip: a stone pier carrying the line to the shore's edge, its hinged ramp and the frame that holds it out
+  // over the sea past the track's end (the pier's end, the model's x 55, at the piece's far end).
+  "kit-ferry-slip": {
+    asset: "water-ferry-slip",
+    name: "ferry slip",
+    track: straight("kit-ferry-slip", 216),
+    rails: "track",
+    place: { t: 216 - 55, l: 0 },
+    // The pier along the last 150 of the line, and the hut beside it.
+    footprint: [
+      { t: 141, l: 0, w: 150, d: 56 },
+      { t: 101, l: -40, w: 34, d: 24 },
+    ],
+    depot: "slip",
   },
   "kit-harbour-crane": {
     asset: "mech-harbour-crane",

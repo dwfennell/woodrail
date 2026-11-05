@@ -52,7 +52,7 @@ import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
-import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode } from "../economy";
+import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, isStore, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 import { givesBlockText, GIVES_HELP, STORE_HELP, storeStock } from "./warehouse-text";
@@ -2677,7 +2677,7 @@ export class Interaction {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
       // (A town's station upgraded to a big station's kit still opens its town's card.)
-      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId);
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId) && depot.role !== "landing" && depot.role !== "slip";
       const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
       else if (ruin !== -1 && this.onRuinTap) {
@@ -3001,7 +3001,7 @@ export class Interaction {
       this.townCard.show(d);
       return;
     }
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.role === "warehouse" || givesChoice(d.role) ? storeKey(d) : d.sheds;
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : isStore(d.role) || givesChoice(d.role) ? storeKey(d) : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
     // this per-frame check.
@@ -3030,7 +3030,7 @@ export class Interaction {
     if (d.role === "harbour" || d.role === "town") piles = piles.filter((p) => p.count > 0);
     // A warehouse: how to use it, and a row for each good it holds or lists (its count, and what it lets trains do with
     // it), "Any other goods", and "+ Add a good" (goods the map makes, not shown yet). "Empty" while it holds nothing.
-    if (d.role === "warehouse") {
+    if (isStore(d.role)) {
       const stock = storeStock(piles);
       this.hud.updateDepotCard([], d.auto, d.waitFull, stock === "Empty" ? stock : "", false, STORE_HELP);
       const shown = CARGO_KINDS.filter((k) => d.piles[CARGO[k].index] > 0 || storeListed(d, k));
@@ -3074,7 +3074,7 @@ export class Interaction {
   /** The open warehouse's card: what it lets trains do with a good (listing it), or with `kind` null, any other good. */
   setStoreMode(kind: CargoKind | null, mode: StoreMode): void {
     const d = this.game.economy.depot(this.selectedDepot);
-    if (!d || (d.role !== "warehouse" && !givesChoice(d.role))) return;
+    if (!d || (!isStore(d.role) && !givesChoice(d.role))) return;
     this.game.economy.setStoreMode(d.id, kind, mode);
     this.refreshDepotCard();
     this.changed();
@@ -3083,7 +3083,7 @@ export class Interaction {
   /** The open warehouse's card: a good taken off its list. */
   unlistStore(kind: CargoKind): void {
     const d = this.game.economy.depot(this.selectedDepot);
-    if (!d || d.role !== "warehouse") return;
+    if (!d || !isStore(d.role)) return;
     this.game.economy.unlistStore(d.id, kind);
     this.refreshDepotCard();
     this.changed();

@@ -63,7 +63,7 @@ import { givesBlockText, STORE_NO_ROUTE, WAGON_SAME_DONE, storeBlockText, storeS
 import { keptText } from "./game/workshop-text";
 import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
-import { capAt, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
+import { capAt, isStore as isStoreRole, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
 import type { Stuck } from "./economy/stalls";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
@@ -3023,7 +3023,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     { action: "pick", label: "Only pick up", tip: "Only picks goods up here" },
   ];
   /** Is this depot a warehouse (it trades only with trains on a route: see warehouse-text.ts)? */
-  const isStore = (depotId: number) => game.economy.depot(depotId)?.role === "warehouse";
+  const isStoreAt = (depotId: number) => { const role = game.economy.depot(depotId)?.role; return !!role && isStoreRole(role); };
   /**
    * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
    * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
@@ -3597,7 +3597,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             stopHintSeen = true;
             saveFlag(STOP_HINT_KEY);
           }
-          if (!storeHintSeen && isStore(st.depotId)) {
+          if (!storeHintSeen && isStoreAt(st.depotId)) {
             storeHintSeen = true;
             saveFlag(STORE_HINT_KEY);
           }
@@ -3717,7 +3717,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         box.append(hint);
       }
       // The first time, a word on what a chip does (till one is tapped); on a line with a warehouse, till its chip is.
-      const storeHint = !storeHintSeen && line.stops.some((st) => isStore(st.depotId));
+      const storeHint = !storeHintSeen && line.stops.some((st) => isStoreAt(st.depotId));
       if ((!stopHintSeen || storeHint) && stopPicked === -1 && !viaPicked && !planning) {
         const hint = document.createElement("div");
         hint.className = "route-hint";
@@ -3843,7 +3843,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // What it picks up and drops here, in words.
         if (plan[k]) box.append(Object.assign(document.createElement("div"), { className: "route-hint route-plan-words", textContent: planWords(plan[k]) }));
         // At a warehouse, what this stop's action does there.
-        if (isStore(st.depotId)) {
+        if (isStoreAt(st.depotId)) {
           const what = document.createElement("div");
           what.className = "route-hint route-store";
           what.textContent = storeStopText(st.action);
@@ -3857,7 +3857,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const d = plan[k] && (plan[k].notDrops.length || plan[k].notPicks.length) ? game.economy.depot(st.depotId) : undefined;
         if (!d) return;
         // (An industry set not to give a good: in its own words; set to give none, one line for it.)
-        if (d.role !== "warehouse") {
+        if (!isStoreRole(d.role)) {
           const name = DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES] ?? "industry";
           if (RECIPES[d.role].gives.every((g) => storeModeOf(d, g) === "off")) blocked.add(givesBlockText(name, null));
           else for (const g of plan[k].notPicks) blocked.add(givesBlockText(name, g));
