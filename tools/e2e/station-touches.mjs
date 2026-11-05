@@ -117,7 +117,8 @@ const station = await p.evaluate((townId) => {
   return { id, type: w.world.layout.getPiece(id).type };
 }, townId);
 check("the station is a two-platform station now", station.type === "kit-two-platform-station", JSON.stringify(station));
-await p.waitForTimeout(500);
+// (Put on by the game's next tick, which a loaded machine's software rendering may run seconds later: waited for.)
+await p.waitForFunction((id) => window.woodrail.stationTouches.state().bigs.some((x) => x.pieceId === id), station.id, { timeout: 60000 }).catch(() => {});
 let s = await state();
 check("…with a guard and a departure board on it", s.bigs.some((x) => x.pieceId === station.id), JSON.stringify(s.bigs));
 if (!s.bigs.some((x) => x.pieceId === station.id)) {
@@ -227,6 +228,7 @@ const seen = await p.evaluate(
       const w = window.woodrail;
       const out = { heard: null, leaned: 0, maxDolls: 0, on: 0, off: 0, flag: false, wave: 0, flagAngle: null, frames: 0 };
       const t0 = performance.now();
+      const sim0 = w.simSeconds;
       const look = () => {
         const s = w.stationTouches.state();
         const v = s.visits.find((x) => x.pieceId === pieceId);
@@ -245,7 +247,9 @@ const seen = await p.evaluate(
           out.flagAngle = big.flag;
         }
         out.heard = s.heard;
-        if ((out.flag && !big?.flagUp && s.visits.length === 0) || performance.now() - t0 > 300000) done(out);
+        // (Given up after two minutes of game time, about six times the stop's: not by the clock, as on a loaded machine
+        // software rendering draws a frame every second or two, each a tenth of a second of game time at most.)
+        if ((out.flag && !big?.flagUp && s.visits.length === 0) || w.simSeconds - sim0 > 120 || performance.now() - t0 > 1800000) done(out);
         else requestAnimationFrame(look);
       };
       look();
@@ -264,7 +268,7 @@ check("afterwards: no stand-ins left, nothing moving", s.visits.length === 0 && 
 
 // 5. Pictures: the stop again (the board, the people leaning, someone hopping, the flag), by stepping to the next halt.
 // (Its next stop moves on once it's clear of the station, a little after the flag: the board is painted then.)
-await p.waitForFunction(({ id, paints }) => window.woodrail.stationTouches.state().bigs.some((b) => b.pieceId === id && b.paints > paints), { id: station.id, paints: board1.paints }, { timeout: 180000 }).catch(() => {});
+await p.waitForFunction(({ id, paints }) => window.woodrail.stationTouches.state().bigs.some((b) => b.pieceId === id && b.paints > paints), { id: station.id, paints: board1.paints }, { timeout: 600000 }).catch(() => {});
 const board2 = (await state()).bigs.find((x) => x.pieceId === station.id);
 check("the board changed as the train's next stop did (not per frame)", board2.paints <= board1.paints + 4 && board2.paints > board1.paints && board2.rows === "", `${board1.paints} → ${board2.paints}: ${board2.rows}`);
 await p.evaluate(() => (window.woodrail.paused = true));
@@ -294,7 +298,21 @@ await p.evaluate(() => {
   w.world.sim.setLever(window.__engine, 0);
   w.paused = false;
 });
-await p.waitForFunction(() => !window.woodrail.stationTouches.busy, null, { timeout: 30000 }).catch(() => {});
+// Settled: the train standing, the touches done (the flag down, everyone leaned back) and nothing drawn for a few ticks.
+// Waited for, not timed: each frame moves the touches on by at most 0.1 s of game time (the frame's step is capped),
+// and on a loaded machine software rendering draws a frame every second or two, so the flag's 2 s can take a minute.
+const rested = await p.evaluate(async () => {
+  const w = window.woodrail;
+  const end = performance.now() + 300000;
+  const train = () => w.sim.findCar(window.__engine)?.train;
+  while (performance.now() < end) {
+    await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 30000))]);
+    if (!w.stationTouches.busy && train()?.speed === 0) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+});
+check("idle: the train stands and the touches come to rest", rested);
 await p.waitForTimeout(4000);
 const idle = await p.evaluate(async () => {
   const w = window.woodrail;
