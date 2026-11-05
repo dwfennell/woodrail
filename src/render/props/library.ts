@@ -4,6 +4,7 @@ import { loadAsset } from "../../catalogue/registry";
 import type { Footprint } from "../../props/placement";
 import { kitOf, kitPlace, type PieceTypeId } from "../../track";
 import { Batcher } from "../dressing/batcher";
+import { compact } from "../compact";
 import { motionOf, type MotionParts } from "../kit-motions";
 import type { Materials } from "../materials";
 import { catalogueModel, loadModelSet, modelOf } from "../blender-models";
@@ -286,7 +287,8 @@ export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean; w
   const parts = [...b.merged()].map(([material, geometry]) => {
     // Every part in a material is drawn from one batch, which needs the same attributes throughout.
     if (!geometry.getAttribute("uv")) geometry.setAttribute("uv", new BufferAttribute(new Float32Array(geometry.getAttribute("position").count * 2), 2));
-    return { material, geometry };
+    // Finished: welded and quantised (see `compact`; a batcher it's merged into again takes it back as floats).
+    return { material, geometry: compact(geometry) };
   });
   box.makeEmpty();
   for (const p of parts) {
@@ -350,7 +352,7 @@ export function bakeMovers(root: Object3D, names: ReadonlySet<string>, mats: Mat
     };
     visit(node);
     for (const [material, geometry] of b.merged()) {
-      const mesh = new Mesh(geometry, material);
+      const mesh = new Mesh(compact(geometry), material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.userData.sharedGeometry = true;
@@ -388,7 +390,7 @@ export function clockHandsOf(root: Object3D, mats: Materials): ClockHands | null
       });
       const parts = [...b.merged()].map(([material, geometry]) => {
         if (!geometry.getAttribute("uv")) geometry.setAttribute("uv", new BufferAttribute(new Float32Array(geometry.getAttribute("position").count * 2), 2));
-        return { material, geometry };
+        return { material, geometry: compact(geometry) };
       });
       if (parts.length > 0) hands.push({ kind: o.name as "hour" | "minute", base: o.matrixWorld.clone(), parts });
       return;

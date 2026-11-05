@@ -2,6 +2,7 @@ import { BufferAttribute, BufferGeometry, Color, Group, Mesh, type Material } fr
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { shadowProxyMesh } from "./blocks";
 import { nonIndexed } from "../non-indexed";
+import { compact, unquantise, weld } from "../compact";
 
 /** Parts smaller than this every way (mm) cast no shadow of their own: window frames, sills, signs' letters. */
 const STAND_IN_MIN = 8;
@@ -70,7 +71,9 @@ export class Batcher {
     const bucket = paintColor ? this.paint! : material;
     let list = this.buckets.get(bucket);
     if (!list) this.buckets.set(bucket, (list = []));
-    const g = nonIndexed(geometry);
+    let g = nonIndexed(geometry);
+    // (A compacted part, a catalogue model's: its attributes as floats again, to merge with the rest.)
+    if (Object.values(g.attributes).some((a) => a.normalized)) g = unquantise(g === geometry ? g.clone() : g);
     if (this.withStandIns) {
       const stand = partStandIn(g);
       if (stand) this.standIns.push(stand);
@@ -95,7 +98,8 @@ export class Batcher {
 
   /**
    * Vertices collected so far, per material bucket (as `build` will key its meshes). Marked between additions, they
-   * let a `drawRange` show only what came before the mark (see the waiting passengers on a platform).
+   * let a `drawRange` show only what came before the mark (see the waiting passengers on a platform). (`build` welds
+   * the merged mesh into an indexed one that keeps each vertex's place: the same count of indices.)
    */
   vertexCounts(): Map<Material, number> {
     const out = new Map<Material, number>();
@@ -120,7 +124,8 @@ export class Batcher {
     for (const [material, list] of this.buckets) {
       const merged = mergeGeometries(list);
       if (!merged) continue;
-      const mesh = new Mesh(merged, material);
+      // Finished: welded and quantised (see `compact`), about a third of the bytes.
+      const mesh = new Mesh(compact(merged), material);
       mesh.castShadow = castShadow && !standIns;
       mesh.receiveShadow = true;
       group.add(mesh);
@@ -129,7 +134,7 @@ export class Batcher {
     this.buckets.clear();
     if (standIns) {
       const merged = mergeGeometries(this.standIns);
-      if (merged) group.add(shadowProxyMesh(merged));
+      if (merged) group.add(shadowProxyMesh(weld(merged)));
     }
     for (const g of this.standIns) g.dispose();
     this.standIns = [];

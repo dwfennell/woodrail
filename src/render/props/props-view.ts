@@ -1,6 +1,7 @@
 import { BatchedMesh, Group, Matrix4, Quaternion, Vector3, type Material, type Object3D } from "three";
 import type { Prop, PropStore } from "../../props/store";
 import { drawnKey, type PropLibrary } from "./library";
+import { compacted, makeRoom, type BatchRoom } from "../compact";
 
 /** What the view draws: the store, or anything shaped like it (the kit pieces, see `KitView`). */
 export type PropSource = Pick<PropStore, "version" | "get"> & { all(): Iterable<Prop> };
@@ -12,8 +13,8 @@ interface Batch {
   geometryOf: Map<string, number>;
   /** Prop id of each instance. */
   propOf: Map<number, number>;
-  /** Room for this many vertices of geometry (grown by doubling). */
-  vertices: number;
+  /** Room for this many vertices and indices of geometry (see `makeRoom`). */
+  room: BatchRoom;
 }
 
 /** A prop as drawn: its instances, and the pose and visibility they were last set for. */
@@ -32,7 +33,9 @@ const one = new Vector3(1, 1, 1);
 const sized = new Vector3();
 
 const START_INSTANCES = 64;
-const START_VERTICES = 1 << 16;
+const START_VERTICES = 1 << 15;
+/** (Welded: about six indices a vertex.) */
+const START_INDICES = 1 << 17;
 
 /**
  * Draws the props: one `BatchedMesh` per material (a handful in all), holding every model's part in that material once
@@ -96,13 +99,9 @@ export class PropsView {
           const batch = this.batchFor(part.material);
           let gid = batch.geometryOf.get(key);
           if (gid === undefined) {
-            const need = part.geometry.getAttribute("position").count;
-            const mesh = batch.mesh;
-            if (mesh.unusedVertexCount < need) {
-              batch.vertices = Math.max(batch.vertices * 2, batch.vertices + need);
-              mesh.setGeometrySize(batch.vertices, batch.vertices * 2);
-            }
-            gid = mesh.addGeometry(part.geometry);
+            const g = compacted(part.geometry);
+            makeRoom(batch.mesh, batch.room, g);
+            gid = batch.mesh.addGeometry(g);
             batch.geometryOf.set(key, gid);
           }
           if (batch.mesh.instanceCount >= batch.mesh.maxInstanceCount) batch.mesh.setInstanceCount(batch.mesh.maxInstanceCount * 2);
@@ -143,13 +142,13 @@ export class PropsView {
   private batchFor(material: Material): Batch {
     let batch = this.batches.get(material);
     if (!batch) {
-      const mesh = new BatchedMesh(START_INSTANCES, START_VERTICES, START_VERTICES * 2, material);
+      const mesh = new BatchedMesh(START_INSTANCES, START_VERTICES, START_INDICES, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.sortObjects = material.transparent;
       mesh.name = "props";
       this.group.add(mesh);
-      batch = { mesh, geometryOf: new Map(), propOf: new Map(), vertices: START_VERTICES };
+      batch = { mesh, geometryOf: new Map(), propOf: new Map(), room: { vertices: START_VERTICES, indices: START_INDICES } };
       this.batches.set(material, batch);
     }
     return batch;
