@@ -44,7 +44,7 @@ export function riderSeconds(level: number, busy = false): number {
  * town's people out; they don't make more. `clock` holds each town's time since its last arrival, by town id (kept by
  * the caller between calls). Cheap: a few towns, called about once a second.
  */
-export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>): void {
+export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>, boost: (townId: number) => number = () => 1): void {
   // No one waits for coaches that can't be made yet.
   if (!p.learned.has("passengers")) return;
   const cap = waitingCap(p);
@@ -64,7 +64,8 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
       clock.set(townId, 0);
       continue;
     }
-    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy);
+    // (`boost`: a town that hears about the trains, its radio mast powered, sends more: src/game/radio.ts.)
+    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy) / boost(townId);
     let t = (clock.get(townId) ?? 0) + seconds;
     while (t >= every && waiting < cap) {
       t -= every;

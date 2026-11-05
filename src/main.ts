@@ -73,6 +73,7 @@ import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pil
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { canPower, POWERED_RATE, powerOf } from "./game/power";
+import { radioRiders, radioTowns } from "./game/radio";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -2632,7 +2633,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (why) warnedHeavy.add(id);
       else warnedHeavy.delete(id);
     }
-    peopleArrive(game.world, progress, 1, peopleClock);
+    // (A town with a powered radio mast sends more: src/game/radio.ts. The towns counted again only when the power or
+    // the props change.)
+    peopleArrive(game.world, progress, 1, peopleClock, radioBoost());
     // Sparks: a power station's coal may have run out (or come), a train put on or away (src/game/power.ts).
     syncPower();
     // A bus at a station's stop goes for the people waiting in its town off the line.
@@ -2890,6 +2893,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(build);
   }
 
+  /** The towns with a powered radio mast, kept till the power plan or the props change. */
+  let radioShown: { key: string; towns: Map<number, number> } = { key: "", towns: new Map() };
+  function radioBoost(): (townId: number) => number {
+    if (mode !== "game") return () => 1;
+    const grid = powerOf(game.world);
+    const key = `${grid.version}|${game.world.props.version}`;
+    if (key !== radioShown.key) radioShown = { key, towns: radioTowns(game.world, grid.current) };
+    const towns = radioShown.towns;
+    return (townId) => radioRiders(towns, townId);
+  }
+
   /** The open depot card's power, as drawn (a key of its inputs), or "" for none. */
   let powerShown = "";
   /** The power grid's version last acted on (the yards' rates follow it). */
@@ -2948,6 +2962,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const waiting = p.yards.length - p.yardsOn.size;
         line(`🏭 Powered yards: <b>${p.yardsOn.size}</b>${waiting > 0 ? `, ${waiting} waiting for a spark` : ""}`);
       }
+      if (p.masts.length > 0) line(`⚡ Radio masts: <b>${p.masts.length}</b>${p.masts.length > p.mastsOn.size ? `, ${p.masts.length - p.mastsOn.size} without a spark` : ""}`);
       line(p.spare > 0 ? `<b>${p.spare}</b> spare: Power a yard on its card to speed it up` : p.made > 0 ? "No sparks spare" : "");
       return;
     }

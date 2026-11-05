@@ -56,6 +56,7 @@ export const SUITES = {
   "low-bridge": { script: "e2e:low-bridge" },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   power: { script: "e2e:power", minutes: 6 },
+  radio: { script: "e2e:radio", minutes: 6 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -175,6 +176,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // The radio mast (the user's pick: a powered mast brings a town more riders).
+  [["src/game/radio.ts", "src/game/power.ts", "src/game/passengers.ts", "src/main.ts", "src/game/interaction.ts"], ["radio"]],
   // Power as sparks and the wind farm (late-game spec W1).
   [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
 ];

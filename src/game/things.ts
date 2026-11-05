@@ -133,6 +133,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "scenery" },
   // A spark of power with no coal (src/game/power.ts): only on a hilltop.
   "prop:mech-wind-turbine": { label: "Wind turbine", cost: { planks: 4, iron: 2 }, coins: 60, tech: "wind" },
+  // In a town, with a spark of power: more people come to its stations (src/game/radio.ts).
+  "prop:mech-radio-mast": { label: "Radio mast", cost: { planks: 4, iron: 3 }, coins: 120, tech: "radio" },
   // Big stations: passenger stops of their own (looks only for now: not a town's halt).
   "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
   "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },

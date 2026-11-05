@@ -17,7 +17,8 @@ import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
 import { topologyOf, trainLength } from "../economy/sections";
 import type { SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
-import { powerOf, WIND_TURBINE } from "./power";
+import { powerOf, RADIO_MAST, WIND_TURBINE } from "./power";
+import { RADIO_RIDERS, townOfMast } from "./radio";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
 import { streetTown } from "./street-moves";
@@ -5535,7 +5536,13 @@ export class Interaction {
     this.propOutline.show(scaleFootprint(g.propLibrary.footprint(p.asset), p.scale) ?? null, p.x, p.y, p.z, p.heading);
     // (A wind turbine says what it makes, and the power in all: Game mode's sparks.)
     const power = p.asset === WIND_TURBINE && !this.propsEditable ? powerOf(g.world).refresh(g.world) : null;
-    const detail = power ? `⚡ A spark of power. ${power.made} in all, ${power.spare} spare` : "";
+    let detail = power ? `⚡ A spark of power. ${power.made} in all, ${power.spare} spare` : "";
+    // (A radio mast says whose it is, and whether it has a spark to send with.)
+    if (p.asset === RADIO_MAST && !this.propsEditable) {
+      const town = g.landscape.towns.find((t) => t.id === townOfMast(g.world, p.x, p.z));
+      const on = powerOf(g.world).refresh(g.world).mastsOn.has(p.id);
+      detail = !town ? "Not in a town: stand it nearer one" : on ? `⚡ ${town.name} hears about the trains: ${RADIO_RIDERS}× the riders` : `No spark of power: ${town.name} doesn't hear it`;
+    }
     this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false, true, false, detail);
     if (LEVER_PROPS.has(p.asset)) this.showLevers(id);
     this.hintDrag();
