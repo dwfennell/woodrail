@@ -295,3 +295,56 @@ waiting"). It rings, and a tap takes the camera there. Each clock delivered give
 - **Build: M.** The conditions are read on events the game already has, never per frame.
 
 **CC. Drop the Clockmaker.** The clock tower stays a town treat. **Build: none.**
+
+## As built (2026-11-05)
+
+Each on its own branch. Names and numbers below are what the code has; change them here first if they change.
+
+### Power and wind (`claude/power`)
+- **Sparks** (`src/game/power.ts`):
+  - a working power station (with coal) makes 4, a wind turbine 1;
+  - shared out to every electric engine first (oldest car first), then to the yards the player asked for, in the
+    order asked;
+  - counted once a second and on a new electric engine, cached by a key of its inputs, never per frame.
+- **Electric engines** never stop for want of power: without a spark, one runs at steam speed (1×, the classic
+  engine's pace).
+- **A powered yard** works 1.5× as fast (`DepotState.rate`, through `updateRates`). Its card has "⚡ Power this
+  yard", and the order of asking is saved (`DepotState.powerAsk`).
+- **The power station's card** shows the sparks (from coal and from the wind), the electric engines (how many at
+  steam speed), the powered yards, and the spare.
+- **The wind turbine** is a prop (`mech-wind-turbine`), made at the workshop (4 planks, 2 iron, 60 coins) once Wind
+  farm is learned:
+  - it stands on a hilltop only (`PlaceOn` "hill"), and a drop on the felt is refused with why;
+  - its rotor turns in `TurbinesView`: one instanced mesh per material, by the ambient rule, still while paused, and
+    still under reduced motion.
+
+### Airport (`claude/airport`)
+- **A rider stop of its own** (role `airport`):
+  - riders a train brings get off into its lounge (12 at most; full, they stay aboard);
+  - a plane every 150 s of play (the first 40 s after it's built) takes up to 8, each paying 12 coins;
+  - it leaves up to 6 visitors (12 at most waiting), who ride on by train and pay 1.5× the fare.
+- **Gate:** Electricity and Harbours, and 400 riders, at a university.
+- **Its card:** the next plane, the lounge, and the visitors.
+- **Planes** are the catalogue's propeller plane (`PlanesView`): they fly in along the airport's line and stand on
+  the apron, by the ambient rule.
+
+### Airship (`claude/airship`, stacked on `claude/airport`)
+- **A rider stop of its own** (role `mast`) with 8 seats. The airship takes off when full, or 90 s after its first
+  rider, flies a 40 s loop over the railway, and lands.
+- **The fare,** paid as it lands, is 3 coins plus 1 a bridge, 2 a town and 1 a train within 1400 mm, at most 20.
+- **Its card** says who's aboard, what there is to see and the fare.
+- **The airship** is a code model (`AirshipView`), drawn by the ambient rule.
+- **Stacked** because it reuses the airport's rider-stop and lounge code: merge the airport first.
+
+### Circus (`claude/circus`)
+- **Gate:** Circus (the "circus" row; the old "circus-train" row folded into it) needs the Goods engine and First
+  class, and two towns at Town.
+- **The gift:** learning it gives two cage wagons. They're a new `cage` car kind, made from the catalogue's model, and
+  marked `gift` in `THING_RULES`: never made at the workshop, never on a reward card.
+- **The rule, changed from "stops at":** a train with a cage that comes to a town's station opens a show there. A cage
+  train with nothing to load doesn't stop, so passing through counts.
+- **The show:** the big top (`scene-big-top`) goes up on clear land by the station for 3 months of play. Riders to
+  that town pay 2×, and its people come 2× as often.
+- **The close:** the big top comes down and the town offers a reward card. The circus doesn't show in the same town
+  twice running.
+- **Saved** in the progress.
