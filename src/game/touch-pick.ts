@@ -192,3 +192,23 @@ export function liftTapAlong(along: Iterable<"send" | "select" | "pass">): "send
   for (const at of along) if (at !== "pass") return at;
   return "pass";
 }
+
+/**
+ * Of one piece's levers (a double three-way's two, a wye's three), the one a tap at (x, y) means: the one whose knob,
+ * as drawn on screen (`sx`, `sy`, px), is nearest. Its `corner` (undefined for the first); `fallback` with none. Asked
+ * once a tap, never on a move. (Seen from the side one lever stands in front of the other's knob, so neither the ray
+ * nor the nearest upright can tell them apart; QA: a knob's post top, not where it's drawn leaning over, gave a tap 8 px
+ * off one knob and 21 px off the other to the other.)
+ */
+export function nearestKnob(x: number, y: number, knobs: readonly { corner?: number; sx: number; sy: number }[], fallback?: number): number | undefined {
+  let best = fallback;
+  let bestD = Infinity;
+  for (const k of knobs) {
+    const d = (k.sx - x) * (k.sx - x) + (k.sy - y) * (k.sy - y);
+    if (d < bestD) {
+      bestD = d;
+      best = k.corner;
+    }
+  }
+  return best;
+}

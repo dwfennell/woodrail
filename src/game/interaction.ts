@@ -5,7 +5,7 @@ import { copyPointerMotion, createPointerMotion, facingAlong, notePointer, type 
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
-import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
+import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type LeverPost, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
@@ -56,7 +56,7 @@ import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { progressOf, YARD_COSTS } from "./yards";
 import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, isStore, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode, type YardBuild, type YardOrder } from "../economy";
-import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
+import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestKnob, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 import { givesBlockText, GIVES_HELP, STORE_HELP, storeStock } from "./warehouse-text";
 import { SHOP_HELP } from "./workshop-text";
@@ -6009,6 +6009,12 @@ export class Interaction {
     // from the side, one stands in front of the other's knob, so neither the ray nor the nearest upright can tell.)
     const corner = won === "lever" ? this.nearestKnob(x, y, posts, lever.id, post?.corner) : undefined;
     if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(corner ? { corner } : {}), slack: lever.d };
+    // (Right on one of a piece's levers, by the ray: still the one whose knob is nearest. The ray meets whichever stands
+    // in front, its stick across the other's knob: a tap 8 px off a double three-way's back knob threw the front one.)
+    if (won === "exact" && exact?.kind === "lever" && exact.road === undefined) {
+      const k = this.nearestKnob(x, y, posts, exact.pieceId, exact.corner);
+      return { kind: "lever", pieceId: exact.pieceId, ...(k ? { corner: k } : {}) };
+    }
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
   }
 
@@ -6039,25 +6045,21 @@ export class Interaction {
   }
 
   /**
-   * Of piece `pieceId`'s levers (`posts`), the corner of the one whose knob (its top) is nearest (x, y) on screen;
-   * `fallback` when it has one lever. Asked once a tap.
+   * Of piece `pieceId`'s levers (`posts`), the corner of the one whose knob, where it's drawn (leaning over toward the
+   * way it's set), is nearest (x, y) on screen (`nearestKnob`); `fallback` when it has one lever. Asked once a tap.
    */
-  private nearestKnob(x: number, y: number, posts: { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[], pieceId: number, fallback: number | undefined): number | undefined {
+  private nearestKnob(x: number, y: number, posts: readonly LeverPost[], pieceId: number, fallback: number | undefined): number | undefined {
     const own = posts.filter((p) => p.pieceId === pieceId);
     if (own.length < 2) return fallback;
     const r = this.game.canvas.getBoundingClientRect();
     const v = new Vector3();
-    let best = fallback;
-    let bestD = Infinity;
-    for (const p of own) {
-      v.set(p.x, p.y + p.height, p.z).project(this.game.camera);
-      const d = Math.hypot(r.left + ((v.x + 1) / 2) * r.width - x, r.top + ((1 - v.y) / 2) * r.height - y);
-      if (d < bestD) {
-        bestD = d;
-        best = p.corner;
-      }
-    }
-    return best;
+    const knobs = own.map((p) => {
+      if (p.knob) v.set(p.knob.x, p.knob.y, p.knob.z);
+      else v.set(p.x, p.y + p.height, p.z);
+      v.project(this.game.camera);
+      return { corner: p.corner, sx: r.left + ((v.x + 1) / 2) * r.width, sy: r.top + ((1 - v.y) / 2) * r.height };
+    });
+    return nearestKnob(x, y, knobs, fallback);
   }
 
   /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
