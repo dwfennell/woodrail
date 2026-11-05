@@ -19,7 +19,7 @@
 //      tap on + there, and the tip goes. Then a ring line: the tip and its toast; Show me opens Lines; Reverse there turns its train round; the tip goes.
 //   8. Reloaded: every tip used or tapped away stays gone. Idle: no frames drawn (tips are checked with the goals).
 //
-// Pictures (390×844) go to the out dir; `docs/agents/shots/onboarding-*.png` are copies.
+// Pictures (390×844, at 2×) go to the out dir; `docs/agents/shots/onboarding-*.jpg` are copies.
 // Usage: npm run e2e:feature-tips [-- <out dir>]   (default out: e2e-out/feature-tips)
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
