@@ -25,6 +25,7 @@ export const PROP_TABS: readonly PropTab[] = [
         assets: [
           "bldg-country-halt",
           "bldg-mountain-station",
+          "bldg-observatory",
           "bldg-harbour-station",
           "bldg-signal-box",
           "bldg-ticket-booth",
@@ -160,6 +161,7 @@ export const PROP_TABS: readonly PropTab[] = [
         ],
       },
       { label: "Boats", assets: ["veh-rowing-boat", "veh-sailing-boat", "veh-fishing-boat", "veh-tugboat", "veh-paddle-steamer", "veh-car-ferry", "veh-cargo-ship", "veh-submarine"] },
+      { label: "River and sea", assets: ["water-river-tug", "water-barge", "water-barge-logs", "water-barge-stone", "water-barge-ore", "water-barge-coal", "water-barge-grain", "water-cargo-ship", "water-train-ferry", "water-landing", "water-ferry-slip", "water-boatyard", "water-shipyard", "water-tug-frame", "water-tug-planked", "water-ship-frame", "water-ship-planked"] },
       { label: "Air", assets: ["veh-propeller-plane", "veh-seaplane", "veh-helicopter", "veh-hot-air-balloon", "veh-airship", "veh-rocket-pad", "veh-space-shuttle"] },
     ],
   },
@@ -227,6 +229,7 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-lever-frame",
           "mech-whistle-post",
           "mech-telegraph-pole",
+          "mech-wind-turbine",
           "mech-ticket-barrier",
           "mech-lighthouse-beacon",
           // A show piece: a 216 straight, a toy copy of an engine crossing it running the loop beside it.
@@ -247,6 +250,7 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-turntable",
           "mech-transfer-table",
           "mech-train-lift",
+          "mech-lift-bridge",
           // The buffer stop (a kit piece: the buffer's track, the model drawn on it), and crossing styles (props dropped
           // on a level crossing: src/landscape/crossing-styles.ts). (The signal skins are a Signal's styles now, on its
           // card: signals spec §4, §9. Their pieces in old saves still load and work.)
@@ -292,7 +296,6 @@ export const RAIL_HELD_BACK: readonly string[] = [
   "mech-rope-bridge",
   "mech-bascule-bridge",
   "mech-swing-bridge",
-  "mech-lift-bridge",
   "mech-road-over-rail",
   "mech-river-ford",
 ];

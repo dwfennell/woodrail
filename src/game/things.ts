@@ -64,6 +64,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:riser": { label: "Riser", cost: { planks: 1 }, tech: "bridges" },
   "piece:bridge": { label: "Bridge", cost: { planks: 4 }, tech: "bridges" },
   "piece:bridge-curve": { label: "Curved bridge", cost: { planks: 5 }, tech: "bridges" },
+  // Tech tree 5: a bridge twice as long on four stone arches, for valleys and rivers. Stone from the quarries, and coins.
+  "piece:viaduct": { label: "Stone viaduct", cost: { planks: 4, stone: 4 }, coins: 30, tech: "viaduct" },
   // Dug, not made: a bridge one level up over a line digs one by itself (`planUnderpass`). Free once bridges are known.
   "piece:underpass": { label: "Underpass", cost: {}, tech: "bridges", free: true },
   // Dug as much as made: coins for the digging (a tunnel takes two). A short one goes a level down, under a hill; a
@@ -73,6 +75,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:rack": { label: "Rack", cost: { planks: 3 }, coins: 20, tech: "rack" },
   "piece:rack-short": { label: "Short rack", cost: { planks: 2 }, coins: 10, tech: "rack" },
   "piece:kit-lookout": { label: "Lookout halt", cost: { planks: 6 }, coins: 40, tech: "rack" },
+  // Tech tree 5: the observatory, a lookout's kind of stop for stargazers. Iron for its dome and telescope.
+  "piece:kit-observatory": { label: "Observatory", cost: { planks: 10, iron: 4 }, coins: 120, tech: "observatory" },
   // The metro (spec 2026-11-04-rail-types.md §2): dear on purpose. A stop (its platform dug two levels under a town,
   // its entrance on the town's ground) and the metro train (its motor car and two cars, besides the cars themselves).
   "piece:kit-metro-stop": { label: "Metro stop", cost: { planks: 10, iron: 25 }, coins: 600, tech: "metro" },
@@ -129,6 +133,13 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-power": { label: "Power station", cost: { planks: 12, iron: 6 }, coins: 380, tech: "electricity" },
   "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 9 }, coins: 280, tech: "warehouses" },
   "piece:depot-harbour": { label: "Harbour", cost: { planks: 15, stone: 10 }, coins: 480, tech: "harbours" },
+  // Water transport (docs/superpowers/specs/2026-11-04-water-transport.md): a river landing for the barges, a ferry
+  // slip for the train ferry, and a lighthouse by a harbour (ships call twice as often).
+  "piece:kit-landing": { label: "River landing", cost: { planks: 6 }, coins: 160, tech: "barges" },
+  "piece:kit-boatyard": { label: "Boatyard", cost: { planks: 8 }, coins: 180, tech: "barges" },
+  "piece:kit-shipyard": { label: "Shipyard", cost: { planks: 12, stone: 8 }, coins: 360, tech: "shipyards" },
+  "piece:kit-ferry-slip": { label: "Ferry slip", cost: { planks: 10, stone: 6 }, coins: 300, tech: "ferry" },
+  "prop:bldg-lighthouse": { label: "Lighthouse", cost: { planks: 6, stone: 6 }, tech: "lighthouse" },
   // The school, where blueprints are researched (src/game/research.ts): beside a town, one per town.
   "piece:depot-school": { label: "School", cost: {}, coins: SCHOOL_COINS },
 
@@ -168,11 +179,15 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "prop:bldg-signal-box": { label: "Signal box", cost: { planks: 4 }, tech: "signal-boxes" },
   "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "signal-boxes" },
   "prop:mech-telegraph-pole": { label: "Telegraph pole", cost: { planks: 1 }, tech: "telegraph" },
+  // A spark of power with no coal (src/game/power.ts): only on a hilltop.
+  "prop:mech-wind-turbine": { label: "Wind turbine", cost: { planks: 4, iron: 2 }, coins: 60, tech: "wind" },
   // Big stations: passenger stops of their own (looks only for now: not a town's halt).
   "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
   "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },
   // Fun track.
   "piece:kit-train-lift": { label: "Train lift", cost: { planks: 10 }, tech: "fun-track" },
+  // Tech tree 5: the line over a river at the ground, its span lifting for boats. Iron for the towers, and coins.
+  "piece:kit-lift-bridge": { label: "Lift bridge", cost: { planks: 6, iron: 2 }, coins: 60, tech: "lift-bridge" },
   "piece:kit-loop-the-loop": { label: "Loop-the-loop", cost: { planks: 8 }, tech: "fun-track" },
   "piece:kit-buffer-stop-lamp": { label: "Buffer stop with a lamp", cost: { planks: 2 }, tech: "fun-track" },
   // Fuel stop.
@@ -199,7 +214,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
  * Cars in a look of their own that needs a blueprint (the passenger line's coaches, the express engine). Other looks
  * come with the car.
  */
-export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine", rack: "rack", metro: "metro" };
+export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine", rack: "rack", metro: "metro", sleeper: "sleeper", observation: "observation" };
 
 /** A thing's whole price, for cards, by icon as tickets show it: "12\uE000 30🪙" ("free" if nothing). */
 export function costText(rule: ThingRule): string {

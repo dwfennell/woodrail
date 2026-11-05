@@ -318,6 +318,8 @@ export const SLOT_BODY = 0;
 export const SLOT_CUT = 1;
 /** Painted parts of a piece (the bridge's viaduct). */
 export const SLOT_PAINT = 2;
+/** The stone viaduct's arches (painted stone, not the bridge's red). */
+export const SLOT_STONE = 3;
 
 /**
  * `archFloors` for a bridge drawn as a girder span: a one-level bridge over an underpass, open underneath for the

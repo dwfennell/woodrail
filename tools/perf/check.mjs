@@ -1,9 +1,11 @@
-// `npm run perf:check`: a short perf run (tools/perf/run.mjs --quick) checked against tools/perf/budgets.json. Fails
-// (exit 1) when a measure is over its budget by more than its margin. Run after `npm run build` (it measures dist/).
-// See docs/agents/perf.md.
+// `npm run perf:check`: a short perf run (tools/perf/run.mjs --quick) checked against tools/perf/budgets.json, then
+// the memory check (tools/perf/memory-check.mjs, `npm run perf:memory`) against tools/perf/memory-budgets.json. Fails
+// (exit 1) when a measure is over its budget by more than its margin, or over a memory budget. Run after
+// `npm run build` (it measures dist/). See docs/agents/perf.md.
 //
-//   npm run perf:check [-- --update] [-- --from perf-out/check/perf.json]
+//   npm run perf:check [-- --update] [-- --from perf-out/check/perf.json] [-- --no-memory]
 //
+// `--no-memory` leaves the memory check out (`--from` and `--update` do too: they're about the run's own budgets).
 // `--update` writes the budgets afresh from this run (each budget its value with the headroom below, rounded up):
 // for after a change that rightly costs more (say why in the commit), or that saved a lot (tighten them).
 // `--from` checks a run already made instead of making one.
@@ -82,4 +84,13 @@ for (const [key, b] of Object.entries(budgets.budgets)) {
 console.log(`\n| measure | this run | budget | |\n|---|---|---|---|\n${rows.join("\n")}`);
 for (const [id, m] of Object.entries(run.maps)) if (m.errors?.length) console.log(`\n${id}: page errors: ${m.errors.slice(0, 3).join(" | ")}`);
 console.log(failed ? `\nperf:check: ${failed} over budget (see docs/agents/perf.md)` : "\nperf:check: within budget");
-process.exit(failed ? 1 : 0);
+
+// Memory (its own budgets and table: tools/perf/memory-check.mjs).
+let memory = 0;
+if (!opt("from") && !args.includes("--no-memory")) {
+  const r = spawnSync("node", [`${HERE}/memory-check.mjs`, "--out", "perf-out/check-memory"], { stdio: ["ignore", "inherit", "inherit"] });
+  memory = r.status ?? 1;
+}
+if (failed || memory) console.log(`\nperf:check: FAIL (${[failed && `${failed} over the run's budgets`, memory && "memory: see its table above"].filter(Boolean).join("; ")})`);
+else console.log("\nperf:check: all within budget");
+process.exit(failed || memory ? 1 : 0);

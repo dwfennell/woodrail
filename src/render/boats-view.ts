@@ -4,6 +4,8 @@ import { AMBIENT_MIN_PX, type AmbientEye } from "./ambient";
 
 /** The boat that calls at harbours (a catalogue model; Asset Gen's own boats can take over later). */
 const BOAT_ASSET = "veh-rowing-boat";
+/** The cargo ship that calls instead, once Cargo ships is learned (water spec §5). */
+const SHIP_ASSET = "water-cargo-ship";
 /** How high a boat floats: its hull sits in the felt water (1.6 thick). */
 const FLOAT_Y = 0.6;
 /** Room round a boat's middle for the whole of it (and its shadow) when asking if it's in view. */
@@ -54,12 +56,12 @@ export class BoatsView {
   }
 
   /** A boat sails in to depot `depotId`'s quay along `way` (`seconds` long), and stays there. */
-  arrive(depotId: number, way: readonly Point[], seconds: number): void {
+  arrive(depotId: number, way: readonly Point[], seconds: number, ship = false): void {
     this.remove(depotId);
     if (way.length < 2) return;
     const token = ++this.token;
     this.pending.set(depotId, token);
-    void this.boat().then((boat) => {
+    void this.boat(ship ? SHIP_ASSET : BOAT_ASSET).then((boat) => {
       // Gone, or another boat called, or a new map, while the model loaded.
       if (this.pending.get(depotId) !== token) return;
       this.pending.delete(depotId);
@@ -160,8 +162,8 @@ export class BoatsView {
     this.invalidate();
   }
 
-  private async boat(): Promise<Object3D | null> {
-    const model = await this.library.load(modelKey(BOAT_ASSET)).catch(() => null);
+  private async boat(asset: string): Promise<Object3D | null> {
+    const model = await this.library.load(modelKey(asset)).catch(() => null);
     if (!model) return null;
     const g = new Group();
     for (const part of model.parts) {

@@ -190,6 +190,8 @@ const OTHERS: Case[] = [
         expect(r.stalls.begun).toBe(1);
         r.stalls.stuck.forEach((n) => expect(n).toBeGreaterThan(60 * SIM_HZ));
       },
+      // (Giving way: a single line, neither has a way round to its stop, so neither turns.)
+      "nobody gives way: no way round": (r) => expect(r.gaveWay).toEqual({ any: 0, routed: 0 }),
     },
   },
   {
@@ -288,6 +290,49 @@ const SHARED: Case[] = [
         expect(r.stalls.why).toEqual(["in-way", "in-way"]);
         expect(r.stalls.begun).toBe(1);
       },
+ 
+      "nobody gives way: no way round": (r) => expect(r.gaveWay).toEqual({ any: 0, routed: 0 }),
+    },
+  },
+];
+
+/**
+ * Giving way (economy/stalls.ts, the user 2026-11-05: "everything stops even though it could easily keep going"): a ring
+ * of waits is broken where the track allows, by a hand-run train turning round, or a routed one with a way round; one
+ * nobody can break is still said stuck, steadily (no ping-pong).
+ */
+const GIVE_WAY: Case[] = [
+  {
+    scenario: S.routedMeetsHandRun,
+    checks: {
+      "payoff: the routed train 8+ stops in 5 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(8),
+      "never stuck": noStall,
+      "the hand-run one gave way, not the routed one": (r) => {
+        expect(r.gaveWay.any).toBeGreaterThanOrEqual(1);
+        expect(r.gaveWay.routed).toBe(0);
+      },
+      "the hand-run one keeps going: 8+ turns at the buffers": (r) => expect(r.turns[1].buffer).toBeGreaterThanOrEqual(8),
+      "turns back only at the buffers": endsOnly,
+    },
+  },
+  {
+    scenario: S.routedHeadOnRing,
+    checks: {
+      "payoff: each 20+ stops in 5 min": arrivals(20),
+      "never stuck": noStall,
+      "one gave way, once, round the oval": (r) => expect(r.gaveWay).toEqual({ any: 1, routed: 1 }),
+      "nobody turns back at an end (an oval has none)": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
+    },
+  },
+  {
+    scenario: S.handRunBoxedIn,
+    checks: {
+      "it gave way once, then not again to no end": (r) => expect(r.gaveWay).toEqual({ any: 1, routed: 0 }),
+      "both said stuck in each other's way, steadily (one stall)": (r) => {
+        expect(r.stalls.why).toEqual(["in-way", "in-way"]);
+        expect(r.stalls.begun).toBe(1);
+        r.stalls.stuck.forEach((n) => expect(n).toBeGreaterThan(80 * SIM_HZ));
+      },
     },
   },
 ];
@@ -365,6 +410,7 @@ describe("§8 kid automations: 30 game minutes, no wait over 20 s", () => KID.fo
 describe("§12 scenarios", () => OTHERS.forEach(describeCase));
 describe("single-line working across lines: 30 game minutes, no wait over 20 s", () => SHARED.forEach(describeCase));
 describe("step 6, forward costs: round rather than reverse", () => FORWARD.forEach(describeCase));
+describe("giving way: a ring of waits broken where the track allows", () => GIVE_WAY.forEach(describeCase));
 
 describe("the checks catch what they're for (controls)", () => {
   it("points thrown under a train: a split, and a throw under a train", () => {
@@ -437,7 +483,7 @@ describe("a train kept waiting by one going round non-stop is said stuck (fair o
 
 describe("every expected failure names a step", () => {
   it("and names a check the case has", () => {
-    for (const c of [...KID, ...OTHERS, ...SHARED, ...FORWARD]) {
+    for (const c of [...KID, ...OTHERS, ...SHARED, ...FORWARD, ...GIVE_WAY]) {
       const names = new Set<string>([...INVARIANTS, ...Object.keys(c.checks ?? {})]);
       for (const [name, step] of Object.entries(c.fails ?? {})) {
         expect(names.has(name), `${c.scenario.name}: ${name}`).toBe(true);
