@@ -3,6 +3,7 @@ import { BoxGeometry, Group, Mesh, MeshBasicMaterial, SphereGeometry, Vector3 } 
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { compact } from "./compact";
+import { gpuOnlyGeometry } from "./gpu-only";
 import { nonIndexed } from "./non-indexed";
 import { FAR_ASK_FRAMES, FAR_PX_PER_MM, farGeometry, farIndex, loadSimplifier, resetFarDetail, updateFarDetail, useFarDetail } from "./far-detail";
 
@@ -95,5 +96,26 @@ describe("far detail", () => {
     await idle();
     expect(updateFarDetail(new Vector3(0, 0, 1e7), 1000)).toBe(0);
     expect(mesh.geometry).toBe(g);
+  });
+
+  it("drawn-only geometry (its arrays freed once uploaded) has its far version made from them before they go", async () => {
+    resetFarDetail();
+    await loadSimplifier();
+    const parent = new Group();
+    const g = town();
+    const mesh = useFarDetail(new Mesh(g, new MeshBasicMaterial()));
+    parent.add(mesh);
+    gpuOnlyGeometry(g);
+    // Uploaded: three calls each attribute's upload callback, which frees its array.
+    for (const a of [...Object.values(g.attributes), g.index!]) (a as unknown as { onUploadCallback: () => void }).onUploadCallback.call(a);
+    expect(g.getAttribute("position").array.length).toBe(0);
+    await idle();
+    const far = (n: number) => {
+      for (let i = 0; i < n; i++) updateFarDetail(new Vector3(0, 0, 1e7), 1000);
+    };
+    far(1);
+    expect(mesh.geometry).not.toBe(g);
+    expect(mesh.geometry.index!.count).toBeGreaterThan(0);
+    expect(mesh.geometry.index!.count).toBeLessThan(g.index!.count);
   });
 });

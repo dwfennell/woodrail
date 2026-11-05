@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Fountain</title>
+<path d="M11 3 C8 3 5 6 4.4 11 L5.8 11 C6.4 7.4 8.6 4.8 11 4.8 Z" fill="#5b8fc9"/>
+<path d="M13 3 C16 3 19 6 19.6 11 L18.2 11 C17.6 7.4 15.4 4.8 13 4.8 Z" fill="#5b8fc9"/>
+<rect x="10.8" y="2" width="2.4" height="13" rx="1" fill="#8cc2ec"/>
+<path d="M1.6 14 L22.4 14 L20.6 21.6 C20.4 22.2 19.8 22.6 19.2 22.6 L4.8 22.6 C4.2 22.6 3.6 22.2 3.4 21.6 Z" fill="#7d858c"/>
+<path d="M3 15.2 L21 15.2 L19.6 21.4 L4.4 21.4 Z" fill="#c4ccd4"/>
+<rect x="2.4" y="13" width="19.2" height="2.6" rx="1.2" fill="#5b8fc9"/>
+</svg>

@@ -28,11 +28,12 @@ import { MAX_BRIDGE_LEVELS, PLOT_DEPTH, PLOT_WIDTH } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
-import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceShadowCaster, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceFar, buildPieceShadowCaster, hasFarVersion, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
 import { nonIndexed } from "./non-indexed";
+import { carverNow, loadCarver, whenCarver } from "./carver";
 
 const geometryCache = new Map<string, BufferGeometry>();
 const scratch = new Matrix4();
@@ -70,6 +71,8 @@ const carving = {
   local: false,
   localQueue: [] as PieceJob[],
   localScheduled: false,
+  /** Carving here waits for the carver to load (`carver.ts`). */
+  awaitingCarver: false,
   /** Shown as stand-ins, or waited for (`whenBuilt`): keys as in the geometry cache. */
   wanted: new Map<string, (() => void)[]>(),
   /** Kinds of piece moved up the queue (with their other heights). */
@@ -186,12 +189,27 @@ function localJob(job: PieceJob, first: boolean): void {
 
 function carveSoon(): void {
   if (carving.localScheduled || carving.localQueue.length === 0) return;
+  if (!carverNow()) {
+    // (Not in the first download: carved once it's in.)
+    if (carving.awaitingCarver) return;
+    carving.awaitingCarver = true;
+    void loadCarver();
+    whenCarver(() => {
+      carving.awaitingCarver = false;
+      carveSoon();
+    });
+    return;
+  }
   carving.localScheduled = true;
   setTimeout(() => {
     carving.localScheduled = false;
     let job = carving.localQueue.shift();
-    while (job && geometryCache.has(resultKey(job))) job = carving.localQueue.shift();
-    if (job) built(resultKey(job), compactPiece(buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels, job.floors ?? null)));
+    // (One carved meanwhile, by another way: anyone still waiting for it is told, as if carved here.)
+    while (job && geometryCache.has(resultKey(job))) {
+      built(resultKey(job), geometryCache.get(resultKey(job))!);
+      job = carving.localQueue.shift();
+    }
+    if (job) built(resultKey(job), compactPiece(carverNow()!.buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels, job.floors ?? null)));
     carveSoon();
   }, LOCAL_CARVE_GAP_MS);
 }
@@ -289,10 +307,21 @@ function carvedGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors:
     }
   }
   if (!g) {
+    const carver = carverNow();
+    if (!carver) {
+      // Carved here (a join piece, or no workers), but the carver isn't in yet (it's not in the first download): a
+      // stand-in meanwhile, swapped when it's carved (`onPiecesBuilt`), as a worker's piece is.
+      const job = jobFor(type, flipped, levels, floors);
+      if (!carving.wanted.has(resultKey(job))) carving.wanted.set(resultKey(job), []);
+      localJob(job, false);
+      return floors ? carvedGeometry(type, flipped, levels) : standIn(type, levels, def);
+    }
     // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
     // A piece whose flip swaps its ends' peg and hole is carved as it is.
-    g = plain || flipSwapsEnds(type) ? compactPiece(buildPieceGeometry(def, levels, floors)) : mirrored(carvedGeometry(type, false, levels, floors));
+    g = plain || flipSwapsEnds(type) ? compactPiece(carver.buildPieceGeometry(def, levels, floors)) : mirrored(carvedGeometry(type, false, levels, floors));
     geometryCache.set(key, g);
+    // Its stand-in was shown before the carver was in: swapped now, and no longer waited for (`piecesWanted`).
+    if (carving.wanted.has(key)) built(key, g);
   }
   return g;
 }
@@ -366,6 +395,21 @@ export function endBoardModel(mats: Materials): Group {
 }
 
 const SWITCH_LEVER_OFFSET = TRACK_WIDTH / 2 + 9;
+/**
+ * A double three-way's two levers (mm along the piece, first choice and where there's a road): staggered, one by the
+ * first end and one further along, each on its branch's side and further out than a switch's lever, beside the trunk
+ * before the branch has left it. Side by side they were 58 mm apart across the track, and at the default zoom on a
+ * phone 11–17 px apart on screen: a fingertip a few px off threw the other one (tools/shots/lever-taps.mjs: 21 of 176
+ * taps). So they're 95 mm apart, 17–29 px on screen (3 of 176 with `nearestKnob`'s drawn knobs: 0).
+ */
+const PAIR_LEVER_XS: readonly (readonly number[])[] = [
+  [6, 30],
+  [54, 30],
+];
+/** …this much further out than a switch's lever (mm): clear of its branch's outer rail where it stands. */
+const PAIR_LEVER_OUT = 12;
+/** A lever's knob (the middle of its ball), up its stick (mm): what a fingertip aims at. */
+const LEVER_KNOB_Y = 31;
 const SIGNAL_HEIGHT = 54;
 /** A lever's height to the top of its knob (mm). */
 const LEVER_HEIGHT = 36;
@@ -379,7 +423,7 @@ function switchLeverGeometry(): BufferGeometry {
   const stick = new CylinderGeometry(1.8, 1.8, 26, 12);
   stick.translate(0, 13 + 4, 0);
   const knob = new SphereGeometry(5, 20, 14);
-  knob.translate(0, 31, 0);
+  knob.translate(0, LEVER_KNOB_Y, 0);
   return mergeGeometries([base, stick, knob].map(nonIndexed).map((g) => {
     g.deleteAttribute("uv");
     return g;
@@ -583,10 +627,11 @@ export function setRoute(def: PieceDef, state: number, end = 0): PathDef | null 
 
 /**
  * The ends of a switch whose set route its chevrons show: its trunk; on double track (a crossover), every end with a
- * choice, so each line shows the way it's set (QA N4); a wye, each of its corners (a lever at each, #15).
+ * choice, so each line shows the way it's set (QA N4); a wye, each of its corners (a lever at each, #15); a slip, every
+ * end with a choice (each line's way across, or onto its curve).
  */
 export function arrowEnds(def: PieceDef): number[] {
-  const ends = def.web || def.cornerLevers ? def.connectors.map((_, i) => i) : [0];
+  const ends = def.web || def.cornerLevers || def.slip ? def.connectors.map((_, i) => i) : [0];
   return ends.filter((e) => routesFrom(def, e).length > 1);
 }
 
@@ -792,12 +837,26 @@ function cornerLever(def: PieceDef, k: number, state: number): { at: Matrix4; le
 
 /** A switch's lever lean (radians about the piece's x) for a state: toward the route set (a three-way's upright for straight on). */
 function leverLean(def: PieceDef, state: number): number {
+  // (A slip's lever stands on its curve's side: leaning toward it when set to turn.)
+  if (def.slip) return (state % 2 === 1 ? 1 : -1) * (Math.sign(def.connectors[3].pose.z) || 1) * 0.45;
   const branchSide = Math.sign(def.connectors[2].pose.z) || 1;
   if (def.cornerLevers) state = wayAt(def, state, 0, 2);
   return (def.paths.filter((p) => p.from === 0).length === 3 ? (state === 0 ? 0 : state === 1 ? 1 : -1) * branchSide : (state === 1 ? 1 : -1) * branchSide) * 0.45;
 }
 
 /** A switch's chevrons and lever as drawn: its slot in the chevron mesh, its route poses, the lever's place. */
+/** A lever or semaphore post, for a fingertip's slack: its foot, height and (a piece with more than one) its knob. */
+export interface LeverPost {
+  pieceId: number;
+  corner?: number;
+  x: number;
+  y: number;
+  z: number;
+  height: number;
+  /** Where its knob is drawn (the lean included): set for the levers of a piece with more than one. */
+  knob?: { x: number; y: number; z: number };
+}
+
 interface SwitchShown {
   /** First chevron instance (as many as `switchArrows` gives in its state), or −1. */
   first: number;
@@ -840,6 +899,35 @@ function casterGeometry(type: PieceTypeId, flipped: boolean): BufferGeometry | n
   return g;
 }
 
+/** Far versions (`buildPieceFar`), one for each kind of piece that has one, shared by every TrackView. */
+const farVersions = new Map<string, BufferGeometry | null>();
+
+/** A kind of piece's far version, or null where it has none (or is a kit's: its own look). */
+function farGeometry(type: PieceTypeId, flipped: boolean): BufferGeometry | null {
+  const key = `${type}|${flipped ? 1 : 0}`;
+  let g = farVersions.get(key);
+  if (g === undefined) {
+    const def = getPieceDef(type, flipped);
+    farVersions.set(key, (g = !kitOf(type) && hasFarVersion(def) ? compactPiece(buildPieceFar(def)) : null));
+  }
+  return g;
+}
+
+/** The carved geometry (or its stand-in for now) a tile mesh of this key (see `TrackView.sync`) draws close up. */
+function carvedOfKey(key: string): BufferGeometry {
+  const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
+  return carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
+}
+
+/**
+ * Track is drawn in its far version (`buildPieceFar`, a tenth of the triangles) where a millimetre is drawn smaller
+ * than this many pixels: its bevels and the steps of its curves are then a fraction of a pixel, and its grooves are
+ * kept, so the swap doesn't show. (On a 390×844 phone at DPR 2 that's beyond about 6.3 m from the camera; the camera
+ * plays from about 0.3 to 3 m.) Back to the carved one a tenth nearer, so a tile on the edge doesn't flip-flop.
+ */
+export const FAR_TRACK_PX_PER_MM = 0.5;
+const FAR_TRACK_HYSTERESIS = 1.1;
+
 /**
  * Draws a Layout with one InstancedMesh per piece variant. Call `sync()` after the layout changes.
  * Picking: `pieceAt(object, instanceId)` maps a raycast hit back to a piece id.
@@ -854,7 +942,10 @@ const TRACK_TILE_DEPTH = PLOT_DEPTH;
 
 export class TrackView {
   readonly group = new Group();
-  private meshes = new Map<string, { mesh: InstancedMesh; ids: number[] }>();
+  private meshes = new Map<string, { mesh: InstancedMesh; ids: number[]; far: BufferGeometry | null; isFar: boolean }>();
+  /** Where the camera was and its pixels at a unit distance, as last set (`setDetail`): sync's new meshes use it. */
+  private readonly detailEye = new Vector3();
+  private detailScale = 0;
   /** The shadow casters' material (never drawn to the screen: the shadow map draws depth only). */
   private readonly casterMaterial = new MeshBasicMaterial();
   /** For track that's picked but not drawn (`modelRails`): raycasts still hit it. */
@@ -1007,7 +1098,9 @@ export class TrackView {
     for (const [key, ids] of groups) {
       const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
       const unseen = modelRails(type);
-      const mesh = new InstancedMesh(carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
+      const near = carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
+      const far = Number(levels) === 0 && !unseen ? farGeometry(type, flipped === "1") : null;
+      const mesh = new InstancedMesh(near, unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint, this.mats.viaductStone], ids.length);
       mesh.castShadow = !unseen;
       mesh.receiveShadow = !unseen;
       ids.forEach((id, i) => {
@@ -1033,7 +1126,9 @@ export class TrackView {
         mesh.add(shadow);
       }
       this.group.add(mesh);
-      this.meshes.set(key, { mesh, ids });
+      const entry = { mesh, ids, far, isFar: false };
+      this.meshes.set(key, entry);
+      if (far && this.detailScale > 0) this.detailOf(key, entry);
       // (A kit's model draws its own buffer stops, where its roads end.)
       if (bufferBlock(type) && !kitOf(type)) bufferIds.push(...ids);
     }
@@ -1285,7 +1380,8 @@ export class TrackView {
 
   /** Pieces carved in the background: those showing a stand-in take theirs (no rebuild of the rest). */
   piecesBuilt(): void {
-    for (const [key, { mesh }] of this.meshes) {
+    for (const [key, { mesh, isFar }] of this.meshes) {
+      if (isFar) continue;
       const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
       const g = carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
       if (mesh.geometry !== g) {
@@ -1294,6 +1390,37 @@ export class TrackView {
       }
     }
     this.syncOutline();
+  }
+
+  /**
+   * Draw each tile's track carved, or in its far version where it's too small to see the difference
+   * (`FAR_TRACK_PX_PER_MM`): `eye` the camera's position, `scale` its pixels a millimetre at a millimetre away (the
+   * drawing's height in pixels over twice the tangent of half the fov). On the frames drawn; a distance a tile mesh.
+   * Returns true if any changed.
+   */
+  setDetail(eye: Vector3, scale: number): boolean {
+    this.detailEye.copy(eye);
+    this.detailScale = scale;
+    let changed = false;
+    for (const [key, entry] of this.meshes) if (entry.far && this.detailOf(key, entry)) changed = true;
+    return changed;
+  }
+
+  /** Swap a tile mesh to its far version or back, by the last `setDetail`. True if it changed. */
+  private detailOf(key: string, entry: { mesh: InstancedMesh; far: BufferGeometry | null; isFar: boolean }): boolean {
+    const sphere = entry.mesh.boundingSphere;
+    if (!sphere || !entry.far) return false;
+    // (The nearest the tile's pieces come: all of them change together.)
+    const d = Math.max(1, this.detailEye.distanceTo(sphere.center) - sphere.radius);
+    const pxPerMm = this.detailScale / d;
+    const far = pxPerMm < FAR_TRACK_PX_PER_MM * (entry.isFar ? FAR_TRACK_HYSTERESIS : 1);
+    if (far === entry.isFar) return false;
+    entry.isFar = far;
+    const sphereWas = entry.mesh.boundingSphere;
+    entry.mesh.geometry = far ? entry.far : carvedOfKey(key);
+    // (Its bounding sphere stays: it's the instances', the same either way, and its shadow caster shares it.)
+    entry.mesh.boundingSphere = sphereWas;
+    return true;
   }
 
   private readonly outlines: Mesh[] = [];
@@ -1387,14 +1514,30 @@ export class TrackView {
       const branchSide = Math.sign(def.connectors[2].pose.z) || 1;
       const trunk = Math.abs(def.connectors[1].pose.x);
       const piece = pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading);
-      const leverAt = [new Matrix4().makeTranslation(this.clearX(p, [30, 60, 90, 120, 150, 180, 6].filter((x) => x < trunk - 10), -branchSide * SWITCH_LEVER_OFFSET), 0, -branchSide * SWITCH_LEVER_OFFSET)];
+      // (A slip: its other line crosses the trunk's side away from the curve, so its lever stands by its first end on
+      // the curve's side, where the curve has hardly left the trunk, and its signal across from it.)
+      const leverSide = def.slip ? Math.sign(def.connectors[3].pose.z) || 1 : -branchSide;
+      const leverXs = def.slip ? [6] : [30, 60, 90, 120, 150, 180, 6].filter((x) => x < trunk - 10);
+      const leverAt = [new Matrix4().makeTranslation(this.clearX(p, leverXs, leverSide * SWITCH_LEVER_OFFSET), 0, leverSide * SWITCH_LEVER_OFFSET)];
+      // (A double three-way: a lever beside the trunk on each branch's side, by its first end.)
+      if (def.pairLevers) {
+        leverAt.length = 0;
+        for (let k = 0; k < 2; k++) {
+          const side = Math.sign(def.connectors[k + 2].pose.z) || 1;
+          const z = side * (SWITCH_LEVER_OFFSET + PAIR_LEVER_OUT);
+          leverAt.push(new Matrix4().makeTranslation(this.clearX(p, PAIR_LEVER_XS[k], z), 0, z));
+        }
+      }
 
       // Signal at the trunk end on the lever's side, its arm reaching away from the track.
       const signal = this.signalPost(id);
+      // (A double three-way's two levers say how it's set: no post, which would stand by a lever and take its taps.)
+      signal.root.visible = !def.pairLevers;
       const post = signal.root.children[0];
-      post.position.set(this.clearX(p, [6, 54, 84, 114, 144].filter((x) => x < trunk - 10), -branchSide * (SWITCH_LEVER_OFFSET + 4)), 0, -branchSide * (SWITCH_LEVER_OFFSET + 4));
+      const postSide = def.slip ? -leverSide : -branchSide;
+      post.position.set(this.clearX(p, [6, 54, 84, 114, 144].filter((x) => x < trunk - 10), postSide * (SWITCH_LEVER_OFFSET + 4)), 0, postSide * (SWITCH_LEVER_OFFSET + 4));
       // Arm geometry points along +z; turn it to reach away from the track, then raise it for the branch.
-      post.rotation.y = branchSide > 0 ? Math.PI : 0;
+      post.rotation.y = postSide < 0 ? Math.PI : 0;
       signal.root.matrix.copy(piece);
 
       // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve. The chevrons
@@ -1402,9 +1545,11 @@ export class TrackView {
       const state = this.layout.switchState(id);
       const arrows = switchArrows(def, state, this.arrowScale).flatMap((a) => [a.x, a.z, a.heading]);
       const was = this.shown.get(id);
-      const lean = [leverLean(def, state)];
+      // (A double three-way's two: each leaning out toward its branch when it's set there, else upright (leaning in, the two
+      // knobs would meet over the trunk, one hiding the other from a tap).)
+      const lean = def.pairLevers ? [0, 1].map((k) => (state === k + 1 ? 0.45 : 0) * (Math.sign(def.connectors[k + 2].pose.z) || 1)) : [leverLean(def, state)];
       // (A wye's other corners: a lever beside each, leaning toward the road it's set to there.)
-      for (let k = 1; k < leverCount(def); k++) {
+      for (let k = 1; k < leverCount(def) && def.cornerLevers; k++) {
         const c = cornerLever(def, k, state);
         leverAt.push(c.at);
         lean.push(c.lean);
@@ -1489,16 +1634,23 @@ export class TrackView {
    * lever and its signal, a signal piece's post. For a fingertip's slack (`Interaction.pick`): at the default zoom
    * they're only a few pixels across.
    */
-  leverPosts(): { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[] {
-    const out: { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[] = [];
+  leverPosts(): LeverPost[] {
+    const out: LeverPost[] = [];
     const v = new Vector3();
     for (const [id, s] of this.shown) {
       for (let k = 0; k < s.leverAt.length; k++) {
         v.set(0, 0, 0).applyMatrix4(scratch.copy(s.piece).multiply(s.leverAt[k]));
-        out.push({ pieceId: id, ...(k > 0 ? { corner: k } : {}), x: v.x, y: v.y, z: v.z, height: LEVER_HEIGHT });
+        const post: LeverPost = { pieceId: id, ...(k > 0 ? { corner: k } : {}), x: v.x, y: v.y, z: v.z, height: LEVER_HEIGHT };
+        // (Its knob as drawn, leaning over toward the way it's set: a set one's is ~13 mm off its post's top.)
+        if (s.leverAt.length > 1) {
+          v.set(0, LEVER_KNOB_Y, 0).applyMatrix4(scratch.copy(s.piece).multiply(s.leverAt[k]).multiply(scratch2.makeRotationX(s.lean[k] ?? 0)));
+          post.knob = { x: v.x, y: v.y, z: v.z };
+        }
+        out.push(post);
       }
     }
     for (const [id, signal] of this.signals) {
+      if (!signal.root.visible) continue;
       const post = signal.root.children[0];
       v.copy(post.position).applyMatrix4(signal.root.matrix);
       out.push({ pieceId: id, x: v.x, y: v.y, z: v.z, height: SIGNAL_HEIGHT });
@@ -1843,7 +1995,9 @@ export class TrackView {
   /** Resolves once this kind of piece is carved (not a stand-in): for pictures of it. */
   static whenBuilt(type: PieceTypeId): Promise<void> {
     const job = { type, levels: baseLevels(type) };
-    if (geometryCache.has(resultKey(job)) || !carving.started || carving.broken || !carvedInBackground(type)) return Promise.resolve();
+    if (geometryCache.has(resultKey(job)) || !carving.started) return Promise.resolve();
+    // Carved here when wanted: once the carver's in (`carver.ts`).
+    if (carving.broken || !carvedInBackground(type)) return modelRails(type) ? Promise.resolve() : loadCarver();
     return new Promise((resolve) => hurry(job, resolve));
   }
 

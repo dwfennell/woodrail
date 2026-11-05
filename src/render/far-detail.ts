@@ -46,11 +46,16 @@ export function loadSimplifier(): Promise<void> {
 function farInputs(g: BufferGeometry): { index: Uint32Array; positions: Float32Array; normals: Float32Array | null } | null {
   const pos = g.getAttribute("position");
   if (!g.index || g.groups.length > 0 || !(pos instanceof BufferAttribute) || !(pos.array instanceof Float32Array) || pos.itemSize !== 3) return null;
+  // (Its arrays freed already, uploaded as drawn-only geometry (`gpu-only.ts`): nothing to make it from.)
+  if (pos.array.length < pos.count * 3 || g.index.array.length < g.index.count || g.index.count === 0) return null;
   const n = g.getAttribute("normal");
   let normals: Float32Array | null = null;
-  if (n) {
+  if (n instanceof BufferAttribute && n.array.length >= n.count * 3) {
+    const src = n.array;
     normals = new Float32Array(n.count * 3);
-    for (let i = 0; i < n.count; i++) for (let j = 0; j < 3; j++) normals[i * 3 + j] = n.getComponent(i, j);
+    // (Bytes, as compact vertices keep them: read straight, not through getComponent, a vertex at a time.)
+    if (src instanceof Int8Array && n.normalized) for (let i = 0; i < normals.length; i++) normals[i] = Math.max(src[i] / 127, -1);
+    else for (let i = 0; i < n.count; i++) for (let j = 0; j < 3; j++) normals[i * 3 + j] = n.getComponent(i, j);
   }
   return { index: Uint32Array.from(g.index.array), positions: pos.array.slice(), normals };
 }
@@ -97,9 +102,11 @@ function farWorker(): Worker | null {
  * on the main thread it held up taps), or where there's no worker, here when the page is idle. Null as `farIndex`.
  */
 export function farIndexLater(g: BufferGeometry, error = FAR_ERROR): Promise<Uint32Array | null> {
+  // (Copied now: drawn-only geometry's arrays may be freed by the time it's made.)
+  const input = farInputs(g);
+  if (!input) return Promise.resolve(null);
   const w = farWorker();
-  const input = w ? farInputs(g) : null;
-  if (!w || !input) return new Promise((done) => whenIdle(() => done(farIndex(g, error))));
+  if (!w) return new Promise((done) => whenIdle(() => done(simplifier ? simplifyIndex(simplifier, input.index, input.positions, input.normals, error) : null)));
   const id = nextJob++;
   return new Promise((done) => {
     answers.set(id, done);
@@ -236,6 +243,15 @@ export function updateFarDetail(eye: Vector3, pxScale: number, moving = true): n
     if (drawFar) far++;
   }
   return far;
+}
+
+/**
+ * Called by `gpuOnlyGeometry` before it marks a geometry's arrays to be freed once uploaded: a geometry with a far
+ * version (`useFarDetail`) has it asked for now, while its arrays are here (copied to the worker; made off the main
+ * thread, kept till wanted). Drawn-only geometry is the mobile tier's: there, every far version is made after loading.
+ */
+export function farBeforeFree(g: BufferGeometry): void {
+  if (watched.has(g) && farOf.get(g) === undefined) ask(g);
 }
 
 /** Make `near`'s far version (once), off the main thread where it can be (`farIndexLater`). */

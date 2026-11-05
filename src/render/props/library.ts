@@ -12,6 +12,18 @@ import { scaleOf } from "../../catalogue/scale";
 import { stackOf } from "../../props/storeys";
 import { CLOCK_ASSETS, HAND_NAMES, type ClockHand, type ClockHands } from "../clock-hands";
 
+/**
+ * Models with a part that spins in the game, drawn on its own (`TurbinesView`): the part's name. The prop is drawn bare
+ * of it (`drawnKey`), and the part is kept apart, in its own frame (`PropLibrary.spinner`).
+ */
+export const SPINNERS: Readonly<Record<string, string>> = { "mech-wind-turbine": "rotor" };
+
+/** A model's spinning part (see `SPINNERS`): its parts in its own frame, and where that frame stands in the model's. */
+export interface Spinner {
+  readonly parts: { geometry: BufferGeometry; material: Material }[];
+  readonly base: Matrix4;
+}
+
 /** A catalogue model baked for drawing many copies: a few merged parts, and its size on the ground. */
 export interface PropModel {
   name: string;
@@ -35,8 +47,13 @@ export class PropLibrary {
   private readonly pending = new Map<string, Promise<PropModel | null>>();
   /** A clock model's hands (see `CLOCK_ASSETS`), by model key (a kit's: `kitModelKey(type)`). */
   private readonly hands = new Map<string, ClockHands>();
+  /** A spinning model's part (see `SPINNERS`), by model key. */
+  private readonly spinners = new Map<string, Spinner>();
   /** A moving kit's moving parts, by kit type: the template its live copies are cloned from (see `bakeMovers`). */
   private readonly movers = new Map<PieceTypeId, Group>();
+  /** How to bake a plain model's parts again (see `release`), by key. */
+  private readonly rebakes = new Map<string, () => PropModel["parts"]>();
+  private readonly released = new Set<string>();
   /** Called when a model finishes loading (to draw props that were waiting for it). */
   onLoaded: ((assetId: string) => void) | null = null;
 
@@ -50,6 +67,35 @@ export class PropLibrary {
   }
 
   footprint = (assetId: string): Footprint | undefined => this.footprints.get(assetId);
+
+  /**
+   * Let go of a model's geometry: its props are drawn from a batch that has its own copy (`PropsView`), and a town's
+   * houses are most of the page's memory twice over otherwise. Its parts keep their materials; their geometry is
+   * baked again, the same, if it's asked for (a prop picked up, a tray picture): a moment's work, rarely. Only plain
+   * models (not kits, not clocks) can be let go; the rest are kept.
+   */
+  release(key: string): void {
+    const model = this.models.get(key);
+    const rebake = this.rebakes.get(key);
+    if (!model || !rebake || this.released.has(key)) return;
+    this.released.add(key);
+    const materials = model.parts.map((p) => p.material);
+    for (const p of model.parts) p.geometry.dispose();
+    let again: PropModel["parts"] | null = null;
+    const geometryOf = (i: number): BufferGeometry => {
+      if (!again) {
+        again = rebake();
+        if (again.length !== materials.length || again.some((p, k) => p.material !== materials[k])) console.warn(`Woodrail: model ${key} baked again differently`);
+      }
+      return again[i]?.geometry ?? again[0].geometry;
+    };
+    model.parts = materials.map((material, i) => ({
+      material,
+      get geometry() {
+        return geometryOf(i);
+      },
+    }));
+  }
 
   /** Fetch and build a model, or a colour variant of it (once each; rejects if it can't be fetched). `key`: see `modelKey`. */
   load(key: string): Promise<PropModel | null> {
@@ -72,14 +118,26 @@ export class PropLibrary {
         let model: PropModel | null = null;
         if (kit && asset) model = this.loadKit(kitType!, asset.name, placedForKit(asset.build(this.kitFor(0)), kitPlace(kit)));
         else if (asset) {
-          const built = floors ? stackedModel(floors, assetId, storeys, this.kitFor(variant)) : asset.build(this.kitFor(variant));
+          const build = () => (floors ? stackedModel(floors, assetId, storeys, this.kitFor(variant)) : asset.build(this.kitFor(variant)));
+          const built = build();
           model = { name: asset.name, ...bake(built, this.mats) };
+          // (A plain model can be baked again, the same, if its geometry's been let go: see `release`.)
+          if (!CLOCK_ASSETS.has(assetId)) this.rebakes.set(key, () => bake(build(), this.mats).parts);
           if (!floors) this.footprints.set(assetId, model.footprint);
           // A clock: also baked bare of its hands (what's drawn, its hands by `ClockView`), and its hands on their own.
           const hands = CLOCK_ASSETS.has(assetId) ? clockHandsOf(built, this.mats) : null;
           if (hands) {
             this.models.set(key + BARE, { name: asset.name, ...bake(built, this.mats, { without: HAND_NAMES }) });
             this.hands.set(key, hands);
+          }
+          // A model with a spinning part: also baked bare of it (what's drawn), and the part on its own.
+          const spins = SPINNERS[assetId];
+          if (spins && !floors) {
+            const spinner = spinnerOf(built, spins, this.mats);
+            if (spinner) {
+              this.models.set(key + BARE, { name: asset.name, ...bake(built, this.mats, { without: new Set([spins]) }) });
+              this.spinners.set(key, spinner);
+            }
           }
         }
         this.models.set(key, model);
@@ -125,6 +183,11 @@ export class PropLibrary {
    */
   moversOf(type: PieceTypeId): Group | undefined {
     return this.movers.get(type);
+  }
+
+  /** A spinning model's part (see `SPINNERS`), by its model key: undefined while it isn't loaded, or if it has none. */
+  spinner(key: string): Spinner | undefined {
+    return this.spinners.get(key);
   }
 
   /**
@@ -177,11 +240,11 @@ export function partsOf(root: Object3D): MotionParts {
 const NO_PARTS: readonly Object3D[] = [];
 
 /** A model stood where a kit's place says (turned about its own origin, then set at t, l), in the piece's frame. */
-function placedForKit(model: Object3D, at: { t: number; l: number; turn: number }): Object3D {
+function placedForKit(model: Object3D, at: { t: number; l: number; turn: number; up?: number }): Object3D {
   const placed = new Group();
   placed.add(model);
   placed.rotation.y = at.turn;
-  placed.position.set(at.t, 0, at.l);
+  placed.position.set(at.t, at.up ?? 0, at.l);
   const root = new Group();
   root.add(placed);
   return root;
@@ -214,7 +277,26 @@ function stackedModel(floors: ReadonlyMap<string, Object3D>, asset: string, stor
 
 /** The model a placed prop is drawn with: its own, or for a clock (`CLOCK_ASSETS`), its model bare of its hands. */
 export function drawnKey(asset: string, variant?: number, storeys?: number): string {
-  return CLOCK_ASSETS.has(asset) ? modelKey(asset, variant, storeys) + BARE : modelKey(asset, variant, storeys);
+  return CLOCK_ASSETS.has(asset) || (SPINNERS[asset] && !storeys) ? modelKey(asset, variant, storeys) + BARE : modelKey(asset, variant, storeys);
+}
+
+/** A model's part named `name` baked on its own, in its own frame, and where that frame stands in the model's. */
+function spinnerOf(root: Object3D, name: string, mats: Materials): Spinner | null {
+  root.updateMatrixWorld(true);
+  let node: Object3D | undefined;
+  root.traverse((o) => {
+    if (!node && o.name === name) node = o;
+  });
+  if (!node) return null;
+  const base = root.matrixWorld.clone().invert().multiply(node.matrixWorld);
+  // Its own copy, at its own origin: baked there.
+  const alone = node.clone();
+  alone.position.set(0, 0, 0);
+  alone.quaternion.identity();
+  alone.scale.set(1, 1, 1);
+  const holder = new Group();
+  holder.add(alone);
+  return { parts: bake(holder, mats).parts, base };
 }
 
 /** How many colour variants there are (besides the model's own colours): towns pick among them. */
@@ -287,7 +369,8 @@ export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean; w
   const parts = [...b.merged()].map(([material, geometry]) => {
     // Every part in a material is drawn from one batch, which needs the same attributes throughout.
     if (!geometry.getAttribute("uv")) geometry.setAttribute("uv", new BufferAttribute(new Float32Array(geometry.getAttribute("position").count * 2), 2));
-    // Finished: welded and quantised (see `compact`; a batcher it's merged into again takes it back as floats).
+    // Kept, batched and drawn many times: welded and in compact vertices (see `compact`; a batcher it's merged into
+    // again takes it back as floats).
     return { material, geometry: compact(geometry) };
   });
   box.makeEmpty();

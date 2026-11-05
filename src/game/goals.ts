@@ -6,8 +6,7 @@ import { workshops, workshopStock } from "./crafting";
 import { THING_RULES, type ThingId } from "./things";
 import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
-import { growthOf } from "./town-life";
-import { townStatus } from "./towns";
+import { statusOf } from "./town-life";
 import { schoolTown, type World, fixedPieces, plotsForSale } from "./world";
 import { nearestRuin } from "./restore";
 import { restoredType } from "./map-sites";
@@ -179,7 +178,7 @@ export function guideSchool(w: World): GoalGuide {
     return { points: [at, ...guideDepot(w, "sawmill").points.slice(0, 1)], towns: [], marks: [at] };
   }
   const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
-  const towns = [...w.landscape.towns].sort((a, b) => townStatus(growthOf(w, b.id)).fill - townStatus(growthOf(w, a.id)).fill);
+  const towns = [...w.landscape.towns].sort((a, b) => statusOf(w, b.id).fill - statusOf(w, a.id).fill);
   for (const town of towns) {
     const station = w.stations.get(town.id);
     if (station === undefined) continue;
@@ -204,7 +203,7 @@ export function trayRing(goal: Goal | null | undefined, w: World): PieceTypeId |
 }
 
 /** Look at what's on the board: the trains (or failing that the track, or the first towns) and reach for a tab. */
-function guideTrains(w: World, tab?: GoalGuide["tab"], shelf?: string): GoalGuide {
+export function guideTrains(w: World, tab?: GoalGuide["tab"], shelf?: string): GoalGuide {
   const trains = trainPoints(w);
   const points = trains.length > 0 ? trains : trackPoints(w);
   if (points.length === 0) return { ...guideTowns(w, nextTowns(w)), tab, shelf };
@@ -455,12 +454,12 @@ export const GOALS: readonly Goal[] = [
     title: "Grow a town into a village",
     hint: "A town's sign shows what it wants. Fill its bar and it grows.",
     check: (w) => {
-      const best = Math.max(0, ...w.landscape.towns.map((t) => townStatus(growthOf(w, t.id)).level));
+      const best = Math.max(0, ...w.landscape.towns.map((t) => statusOf(w, t.id).level));
       return { done: best >= 1 };
     },
     guide: (w) => {
       // The town nearest to growing.
-      const fills = w.landscape.towns.map((t) => ({ id: t.id, fill: townStatus(growthOf(w, t.id)).fill }));
+      const fills = w.landscape.towns.map((t) => ({ id: t.id, fill: statusOf(w, t.id).fill }));
       const best = fills.sort((a, b) => b.fill - a.fill)[0];
       return best ? { ...guideTowns(w, [best.id]), marks: [] } : guideDepot(w, "sawmill");
     },
@@ -606,6 +605,33 @@ export const GOALS: readonly Goal[] = [
   openIndustry("quarry", "quarries", "Open a quarry", "Restore an old quarry, or build one by a hillside."),
   openIndustry("mine", "mines", "Open a mine", "Restore an old mine, or build one by a hillside."),
   openIndustry("harbour", "harbours", "Open a harbour", "Restore an old harbour, or build one by the sea."),
+  // Water transport (docs/superpowers/specs/2026-11-04-water-transport.md): once River barges is learned, a barge
+  // carries goods from one landing to another. An open goal, as the industries'.
+  {
+    id: "float-goods",
+    title: "Float goods down the river",
+    hint: "Build a boatyard and a landing (Industries, Water), bring the boatyard planks and iron by train for a tug and a barge, and route it to the landing.",
+    needs: ["barges"],
+    blueprint: "barges",
+    ring: "kit-landing",
+    check: (w) => ({ done: w.economy.boatDelivered > 0 }),
+    guide: (w) => {
+      const landings = w.economy.allDepots().filter((d) => d.role === "landing" && w.layout.getPiece(d.pieceId));
+      if (landings.length === 0) return { ...guideTrains(w), tab: "industries", shelf: "Water" };
+      const at = landings.map((d) => piecePoint(w, d.pieceId));
+      return { points: at, towns: [], marks: at };
+    },
+  },
+  // Once Cargo ships is learned: a ship takes goods off a harbour's quay, at a town's full price.
+  {
+    id: "ship-abroad",
+    title: "Send a ship abroad",
+    hint: "Build a cargo ship at a shipyard, and leave goods on a harbour's quay: it takes them, at a town's full price.",
+    needs: ["cargo-ships"],
+    blueprint: "cargo-ships",
+    check: (w) => ({ done: w.economy.shipLoads > 0 }),
+    guide: (w) => guideIndustry(w, "harbour"),
+  },
   // (No "Connect every town" since 2026-11-04, the owner's call: joining more towns is the stickers' Connected 5, 8 and
   // 12 towns and Every town (`TOWN_TIERS`). A save holding its id loads without it: `GoalTracker` drops unknown ids.)
 ];

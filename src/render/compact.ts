@@ -1,48 +1,23 @@
 import { BufferAttribute, type BatchedMesh, type BufferGeometry, type TypedArray } from "three";
+import { compactVertices } from "./compact-vertices";
 
 /**
- * Static merged geometry made smaller for the GPU (and the JS heap, which keeps the same arrays), drawn the same:
+ * Static merged geometry made smaller for the GPU (and the JS heap, which keeps the same arrays unless `gpuOnly` frees
+ * them), drawn the same:
  *
+ * - **Compact vertices** (`compactVertices`, the one quantiser): normals as normalised bytes, vertex colours as
+ *   normalised 16-bit. Positions and uvs are kept as floats.
  * - **Welded** (`weld`): a non-indexed geometry (as `mergeGeometries` of `toNonIndexed` parts makes) becomes indexed,
  *   vertices exactly alike in every attribute stored once. Merged scenery is mostly rounded boxes and cylinders, whose
  *   triangles share corners: about a quarter of the vertices are left. The index keeps each old vertex's place, so a
  *   group or draw range counts the same as before (a draw range counted vertices, it now counts the same indices).
  *   16-bit indices where the vertices fit.
- * - **Quantised** (`quantise`): normals as normalised 8-bit (within half a degree), vertex colours as normalised 16-bit
- *   (exact to the 8-bit colour they came from). Positions and uvs are kept as floats.
  *
- * Only for geometry that's finished: nothing merges it again or writes its attributes afterwards. Raycasting still
- * works (three reads normalised attributes back as floats).
+ * Only for geometry that's finished: nothing merges it again or writes its attributes afterwards (a batcher given one
+ * takes it back as floats: `floatVertices`). Raycasting still works (three reads normalised attributes back as floats).
  */
 export function compact(g: BufferGeometry): BufferGeometry {
-  return weld(quantise(g));
-}
-
-/** Per vertex 44 → 12 + 3 + 8 + 6 bytes for position, normal, uv and colour, before welding. */
-export function quantise(g: BufferGeometry): BufferGeometry {
-  if (Object.keys(g.morphAttributes).length > 0) return g;
-  const n = g.getAttribute("normal");
-  if (n instanceof BufferAttribute && n.array instanceof Float32Array && n.itemSize === 3 && !n.normalized) {
-    const src = n.array;
-    const out = new Int8Array(src.length);
-    for (let i = 0; i < src.length; i += 3) {
-      // (Normalised first: a merged part scaled unevenly can leave its normals a little long or short.)
-      const x = src[i], y = src[i + 1], z = src[i + 2];
-      const l = Math.hypot(x, y, z) || 1;
-      out[i] = Math.round((x / l) * 127);
-      out[i + 1] = Math.round((y / l) * 127);
-      out[i + 2] = Math.round((z / l) * 127);
-    }
-    g.setAttribute("normal", new BufferAttribute(out, 3, true));
-  }
-  const c = g.getAttribute("color");
-  if (c instanceof BufferAttribute && c.array instanceof Float32Array && !c.normalized) {
-    const src = c.array;
-    const out = new Uint16Array(src.length);
-    for (let i = 0; i < src.length; i++) out[i] = Math.round(Math.min(1, Math.max(0, src[i])) * 65535);
-    g.setAttribute("color", new BufferAttribute(out, c.itemSize, true));
-  }
-  return g;
+  return weld(compactVertices(g));
 }
 
 /** The same elements of a typed array as unsigned integers of the same size, for comparing and hashing exactly. */
@@ -129,21 +104,6 @@ export function weld(g: BufferGeometry): BufferGeometry {
     g.setAttribute(names[k], na);
   }
   g.setIndex(new BufferAttribute(unique <= 65535 ? Uint16Array.from(remap) : remap, 1));
-  return g;
-}
-
-/**
- * `g`'s normalised integer attributes (as `quantise` leaves them) back as plain floats, in place: for merging a compacted
- * geometry with others (`mergeGeometries` wants every part's attributes alike). Returns `g`.
- */
-export function unquantise(g: BufferGeometry): BufferGeometry {
-  for (const name of Object.keys(g.attributes)) {
-    const a = g.attributes[name];
-    if (!(a instanceof BufferAttribute) || !a.normalized) continue;
-    const out = new Float32Array(a.count * a.itemSize);
-    for (let i = 0; i < a.count; i++) for (let j = 0; j < a.itemSize; j++) out[i * a.itemSize + j] = a.getComponent(i, j);
-    g.setAttribute(name, new BufferAttribute(out, a.itemSize));
-  }
   return g;
 }
 

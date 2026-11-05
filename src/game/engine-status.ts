@@ -5,6 +5,7 @@ import { kitOf, type Layout } from "../track";
 import { storeSkipText } from "./warehouse-text";
 import { keptText } from "./workshop-text";
 import { loadHint, loadHintText } from "./chains";
+import { RACK_WAIT } from "./engines";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -20,7 +21,11 @@ export type TrainState =
   | { kind: "at-stop"; pieceId: number }
   /** Carried by a train lift, or waiting for its platform (on it, about to go; or at its far end). */
   | { kind: "lift"; riding: boolean }
+  /** Held at a lift bridge's end while its span is up for a boat. */
+  | { kind: "lift-bridge" }
   | { kind: "too-heavy" }
+  /** Standing short of a rack it has no rack engine to climb (`Sim.rackHeld`). */
+  | { kind: "rack"; pieceId: number }
   | { kind: "no-power" }
   | { kind: "slowing" }
   | { kind: "stopped" }
@@ -60,6 +65,14 @@ export type TrainState =
 /** How long after turning back at an open end a train's card still says so (s): it's running back the way it came. */
 export const TURNED_SHOWN_S = 8;
 
+/** Is this train on a route with somewhere to go (two places or more)? */
+function routed(economy: Economy, train: Train): boolean {
+  const route = economy.routeOfTrain(train);
+  if (!route || route.stops.length < 2) return false;
+  const first = route.stops[0].depotId;
+  return route.stops.some((s) => s.depotId !== first);
+}
+
 /** A train told to go this recently (s) and not moving yet is just starting (the sim hasn't moved it yet). */
 const STARTING_S = 0.5;
 
@@ -81,7 +94,9 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   // while it runs back the way it came, so the card doesn't just read "Running".
   const turn = train.lastTurn;
   const turning = train.turnback >= 0 && turn !== undefined;
-  if (turn?.cause === "open-end" && (turning || (sim.ticks - turn.tick) * SIM_DT < TURNED_SHOWN_S)) {
+  // (Once it's running back, only for a train with nowhere to go but on: one on a route says where it's off to, not
+  // "the track ends here" mid-line for seconds after, QA 2026-11-03 #12.)
+  if (turn?.cause === "open-end" && (turning || ((sim.ticks - turn.tick) * SIM_DT < TURNED_SHOWN_S && !routed(economy, train)))) {
     // `done`: already running back the way it came.
     return { kind: "turning-back", cause: "open-end", pieceId: turn.pieceId, done: !turning };
   }
@@ -102,6 +117,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   const lift = sim.liftState(train.id);
   if (lift) return { kind: "lift", riding: lift === "riding" };
+  if (sim.bridgeWait(train.id)) return { kind: "lift-bridge" };
+  if (lever !== 0) {
+    const rack = sim.rackHeld(train.id);
+    if (rack !== -1) return { kind: "rack", pieceId: rack };
+  }
   if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   // Held a moment at its stop so its line's trains spread out.
@@ -342,6 +362,9 @@ export function engineView(
   const found = sim.findCar(engineCarId);
   if (!found) return { status: "", blocker: null };
   const s = trainState(sim, economy, found.train, found.train.cars[found.index].lever, cantMove);
+  // A breakdown crane's own train at work, or a train one is coming for: what the crane is doing.
+  const crane = craneStatus(economy, found.train);
+  if (crane) return { status: crane, blocker: null };
   // Standing (or turning back) beside a warehouse it can't trade with: why nothing happens, and what to do (no one is in
   // its way, so no Show).
   if (s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || (s.kind === "turning-back" && s.cause !== "open-end")) {
@@ -374,15 +397,35 @@ export function engineView(
   return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker, ...(crowded ? { crowded: true as const } : {}) };
 }
 
+/** What a breakdown crane is doing, said on its own train's card and on the card of the train it's for; null: none. */
+export function craneStatus(economy: Economy, train: Train): string | null {
+  const b = economy.breakdown;
+  if (!b.busy) return null;
+  const own = train.cars.find((c) => c.kind === "crane");
+  const job = own ? b.jobOf(own.id) : undefined;
+  if (job) {
+    const what = job.kind === "rerail" ? "a derailed train" : "a train in the way";
+    if (job.phase === "drive") return `Breakdown crane: on its way to ${what}`;
+    if (job.phase === "home") return "Breakdown crane: going back to where it set out from";
+    return job.kind === "rerail" ? "Breakdown crane: lifting a train back on the track" : "Breakdown crane: lifting a train off the line";
+  }
+  const coming = b.jobFor(train.cars[0].id);
+  if (!coming) return null;
+  if (coming.phase === "drive") return coming.kind === "rerail" ? "Off the rails: the breakdown crane is on its way" : "The breakdown crane is coming to lift it off the line";
+  return coming.kind === "rerail" ? "The breakdown crane is lifting it back on the track" : "The breakdown crane is lifting it off the line";
+}
+
 function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainState, nameOf: (depotId: number) => string, who: Blocker | null, place: string): string {
   const found = sim.findCar(engineCarId)!;
   switch (s.kind) {
     case "derailed":
+      // (A crane coming for it: `craneStatus`, said first.)
       return "Off the rails: Rerail puts it back";
     case "worked":
       return `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
-      if (s.cause === "open-end") return s.done ? "Turned back: the track ends here" : "Turning back: the track ends here";
+      // (Running back, it's no longer where the track ends: "back there".)
+      if (s.cause === "open-end") return s.done ? "Turned back: the track ends back there" : "Turning back: the track ends here";
       // (A train on no line among a managed line's trains (one taken off it, say): that line's end is none of its, so
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";
@@ -394,6 +437,10 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     }
     case "lift":
       return s.riding ? "Riding the train lift" : "Waiting for the train lift";
+    case "lift-bridge":
+      return "Waiting: the lift bridge is up for a boat";
+    case "rack":
+      return RACK_WAIT;
     case "too-heavy":
       return "Too heavy for its engine: take a car off, or add an engine";
     case "no-power":

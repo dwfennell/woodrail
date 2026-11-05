@@ -1,16 +1,24 @@
+import { poseCrane } from "../catalogue/assets/breakdown-crane";
+import { ROPE_REST } from "../economy/breakdown";
 import { kitOnWater } from "./depot-footprint";
 import type { Footprint } from "../props/placement";
 import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
-import { AMBIENT_FRAME_MS, AmbientEye } from "../render/ambient";
+import { RiverBoatsView } from "../render/river-boats-view";
+import { FerriesView } from "../render/ferries-view";
+import { YardsView } from "../render/yards-view";
+import { Ferries } from "./ferry";
+import { Fleet, type Waters } from "./boats";
+import { AMBIENT_FRAME_MS, AMBIENT_MIN_PX, AmbientEye } from "../render/ambient";
 import { RoadVehiclesView } from "../render/road-vehicles-view";
 import { Vans } from "./vans";
 import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
 import { LoopShowView } from "../render/loop-show";
 import { ClockView, type ClockAt } from "../render/clock-view";
+import { TurbinesView } from "../render/turbines-view";
 import type { ClockHands } from "../render/clock-hands";
 import { flatClockHands } from "../render/blender-models";
 import { STATION_CLOCK_PART } from "../render/dressing/buildings";
@@ -45,6 +53,7 @@ import { createPost, type Post } from "../render/post";
 import { ResolutionGovernor } from "../render/resolution";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createStage, type Stage } from "../render/stage";
+import { MetroLineView } from "../render/metro-line-view";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
 import { arrowScaleFor, onPiecesBuilt, piecesWanted, TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
@@ -54,7 +63,7 @@ import { DepotView, inStationFootprint } from "../render/depot-view";
 import { RuinsView, type ShownRuin } from "../render/ruins-view";
 import type { RuinOnMap } from "./map-markers";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { inTunnel, setTunnels, tunnelsOn, archFloors, bridgeLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
+import { inTunnel, setTunnels, tunnelsOn, archFloors, bridgeLevels, plinthLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
 import type { Prop, PropPose } from "../props/store";
 import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
@@ -69,6 +78,8 @@ import { firstTrainMark, TOUCH_TRACK_CLEARANCE } from "./touches";
 import { nearTrack } from "../landscape/trees-aside";
 import { hillsOf } from "../landscape/hill-shape";
 import { TouchCamera } from "./touch-camera";
+import { setGpuOnlyEnabled } from "../render/gpu-only";
+import { liveryOf } from "./paint-shop";
 import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlot, type World } from "./world";
 
 /** The station house clock's hands' key in `ClockView` (a map part's, not a prop's). */
@@ -150,6 +161,8 @@ function isTyping(target: EventTarget | null): boolean {
 
 export class Game {
   readonly renderer: WebGLRenderer;
+  /** A metro stop's line shown through the ground (its card's Show the line). */
+  readonly metroLine = new MetroLineView();
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
   readonly controls: OrbitControls;
@@ -199,6 +212,14 @@ export class Game {
   readonly propLibrary: PropLibrary;
   /** Boats calling at harbours (Game mode). */
   readonly boats: BoatsView;
+  /** The player's boats (Game mode's River barges): what they do, and how they're drawn. */
+  readonly fleet = new Fleet(() => this as unknown as Waters);
+  readonly riverBoats: RiverBoatsView;
+  /** The train ferries (Game mode's Train ferry): their trips, and how they're drawn. */
+  readonly ferries = new Ferries();
+  readonly ferriesView: FerriesView;
+  /** The yards' hulls on their ways, and launches. */
+  readonly yardsView: YardsView;
   /** Road vehicles drawn (vans and buses: roads spec §3); they move in the economy's tick (`Economy.roadVehicles`). */
   readonly roadVehiclesView: RoadVehiclesView;
   /** Road vehicles' trips: their ways out and back, cached, and checked again after a road or track edit. */
@@ -210,6 +231,8 @@ export class Game {
   readonly loopShow = new LoopShowView();
   /** Station clocks' hands, showing the player's real time (see `ClockView`: a timer a minute, nothing per frame). */
   readonly clockView: ClockView;
+  /** Wind turbines' rotors (see `TurbinesView`: ambient motion). */
+  readonly turbinesView: TurbinesView;
   /** The station house clock's hands (once the map's parts are loaded). */
   private stationHands: ClockHands | undefined;
   /** A prop being moved by hand: not drawn where it stood. */
@@ -252,6 +275,10 @@ export class Game {
     this.watchRoadVehicles();
     this.props = world.props;
     this.quality = detectQuality();
+    // Drawn-only geometry and generated canvases freed once uploaded (gpu-only.ts) on the mobile tier only: a phone is
+    // short of memory, and its lost context reloads anyway. A desktop keeps them, so a brief loss comes back in place.
+    // (Before any scene is built: marking happens as geometry is.)
+    setGpuOnlyEnabled(this.quality.tier === "mobile");
 
     // No MSAA on the canvas: the scene is drawn into the composer's (non-multisampled) targets, so it would only
     // multisample the final full-screen copy.
@@ -265,6 +292,24 @@ export class Game {
     this.renderer.shadowMap.type = PCFShadowMap;
     // Redrawn only when something casting a shadow moves (see frame): not for a camera move alone.
     this.renderer.shadowMap.autoUpdate = false;
+    // The browser can take the drawing away (the WebGL context lost: on a phone, most often when it's short of
+    // memory, or the GPU process restarted). three asks for it back (its own listener, added first, calls
+    // preventDefault); nothing is drawn meanwhile. When it comes back, three uploads geometry and textures again by
+    // itself; what was only ever drawn on the GPU (the environment map, the shadow map) is made again here, and the
+    // stage's hook on three's shadow renderer (made anew) put back.
+    canvas.addEventListener("webglcontextlost", () => {
+      this.contextLost = true;
+      this.onContextLost?.();
+    });
+    canvas.addEventListener("webglcontextrestored", () => {
+      // (Not when the geometry can't be uploaded again: nothing drawn till the reload.)
+      if (!this.restoreInPlace) return;
+      this.contextLost = false;
+      this.stage.restored();
+      this.resize();
+      this.invalidate();
+      this.onContextRestored?.();
+    });
 
     this.camera = new PerspectiveCamera(30, 1, 5, 40000);
     this.camera.position.set(700, 620, 1050);
@@ -284,7 +329,7 @@ export class Game {
       this.controls.dispatchEvent({ type: "start" });
     });
 
-    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
+    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy(), this.quality.tier === "mobile");
     this.stage = createStage(this.scene, this.renderer, this.quality);
     // The kinds of piece this railway has (carved while loading; any other kind is carved in the background, and shown
     // as a stand-in for a moment if it's wanted before its turn).
@@ -324,11 +369,14 @@ export class Game {
     this.trackView.sync();
     this.trainView = new TrainView(this.mats);
     this.trainView.lookOf = (id) => this.sim.lookOf(id);
+    this.trainView.hoistOf = (id) => this.economy.breakdown.hoistOf(id);
     this.trainView.nameOf = (id) => this.sim.nameOf(id);
+    this.trainView.liveryOf = (id) => liveryOf(this.sim.liveryOf(id));
     this.trainView.underground = (x, y, z) => inTunnel(this.landscape, x, z, y);
     this.scene.add(this.trainView.group);
     this.tunnelsView = new TunnelsView(this.mats.bridgePaint);
     this.scene.add(this.tunnelsView.group);
+    this.scene.add(this.metroLine.group);
     this.depotView = new DepotView(this.mats);
     this.scene.add(this.depotView.group);
     this.depotView.setWorld(this.economy, this.layout);
@@ -359,6 +407,8 @@ export class Game {
     this.scene.add(this.loopShow.group);
     this.clockView = new ClockView((key) => this.clockHands(key));
     this.scene.add(this.clockView.group);
+    this.turbinesView = new TurbinesView(this.propLibrary);
+    this.scene.add(this.turbinesView.group);
     this.wireClocks();
     // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
     this.propLibrary.onLoaded = (key) => {
@@ -366,15 +416,23 @@ export class Game {
       else {
         this.propsView.sync(this.shownProps(), this.hiddenProp, true);
         this.clockView.sync(this.props, this.hiddenProp, true);
+        this.turbinesView.sync(this.props, this.hiddenProp, true);
       }
       this.invalidate();
     };
     this.propsView.sync(this.shownProps());
     this.clockView.sync(this.props);
+    this.turbinesView.sync(this.props);
     this.watchHidden();
     this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.boats.group);
+    this.riverBoats = new RiverBoatsView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.riverBoats.group);
+    this.ferriesView = new FerriesView(this.propLibrary, this.mats, () => this.invalidate(), (id) => this.trainView.carObject(id));
+    this.scene.add(this.ferriesView.group);
+    this.yardsView = new YardsView(this.propLibrary, () => this.invalidate());
+    this.scene.add(this.yardsView.group);
     this.roadVehiclesView = new RoadVehiclesView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.roadVehiclesView.group);
     this.vans = new Vans(
@@ -423,6 +481,9 @@ export class Game {
     this.stationTouches.clear();
     this.touchesPieces = this.touchesNext = -1;
     this.boats.clear();
+    this.riverBoats.clear();
+    this.ferriesView.clear();
+    this.yardsView.clear();
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
@@ -437,6 +498,7 @@ export class Game {
     this.worldsSeen++;
     this.propsView.sync(this.shownProps(), -1, true);
     this.clockView.sync(this.props, -1, true);
+    this.turbinesView.sync(this.props, -1, true);
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
@@ -592,7 +654,9 @@ export class Game {
   }
 
   /** How many riser heights a placed bridge's arches reach down to the ground (0 for other pieces). */
-  readonly bridgeLevelsOf = (p: PlacedPiece): number => bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
+  readonly bridgeLevelsOf = (p: PlacedPiece): number =>
+    // (An underpass off a hill's edge: how many levels its block's plinth reaches down, drawn as its own variant.)
+    p.type === "underpass" ? plinthLevels(this.landscape, p.type, p.flipped, p.pose, p.y) : bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
   /** How far down a placed bridge's arch openings reach, over a hill's edge (null: all its levels). */
   readonly archFloorsOf = (p: PlacedPiece, levels = this.bridgeLevelsOf(p)): number[] | null =>
     // (One level over an underpass: on a hilltop the ground under it is cut lower, so its levels can read more.)
@@ -948,6 +1012,18 @@ export class Game {
     this.post.setSize(Math.floor(w * pr), Math.floor(h * pr));
   }
 
+  /** The WebGL context is lost (see the constructor): nothing is drawn till it's back. */
+  contextLost = false;
+  /**
+   * Can the scene come back by itself after a lost context? three uploads geometry and textures again from their
+   * arrays: true while those are kept. Set false once the CPU copies are freed after upload (they can't be uploaded
+   * again): then a loss goes straight to the card to reload (the railway saved), and a context given back changes that.
+   */
+  restoreInPlace = true;
+  /** Told when the WebGL context is lost, and when it's back. */
+  onContextLost: (() => void) | null = null;
+  onContextRestored: (() => void) | null = null;
+
   /** Frames drawn since start (for tests and measuring: an idle game should add none). */
   framesDrawn = 0;
   /** Those waiting for the scene to be still: how many ticks in a row each still wants, and how many it's seen. */
@@ -1006,6 +1082,50 @@ export class Game {
     );
   }
 
+  /**
+   * Crane cars posed for a job, and the pose they were given last (slew, rope, and how far the train they lift is up):
+   * a crane's last pose is set back to rest when its job is over.
+   */
+  private readonly cranesPosed = new Map<number, { slew: number; rope: number; hoist: number; seen: number }>();
+  /** This frame's mark for `cranesPosed` (a crane not marked has no job now). */
+  private craneMark = 0;
+
+  /**
+   * Pose each working crane's turret and rope (`Breakdown.poseOf`). True when one moved where it can be seen: a frame.
+   * Nothing while paused (the job holds still), and a crane whose pose didn't change (it's driving out: its train
+   * moving draws) or that's out of view or too small to see asks for none.
+   */
+  private poseCranes(): boolean {
+    if (this.paused) return false;
+    const b = this.economy.breakdown;
+    const mark = ++this.craneMark;
+    let moved = false;
+    for (const job of b.all()) {
+      const o = this.trainView.carObject(job.crane);
+      if (!o) continue;
+      const p = b.poseOf(job);
+      let was = this.cranesPosed.get(job.crane);
+      if (!was) this.cranesPosed.set(job.crane, (was = { slew: 0, rope: ROPE_REST, hoist: 0, seen: mark }));
+      was.seen = mark;
+      if (was.slew === p.slew && was.rope === p.rope && was.hoist === job.hoist) continue;
+      was.slew = p.slew;
+      was.rope = p.rope;
+      was.hoist = job.hoist;
+      poseCrane(o, p.slew, p.rope);
+      const m = o.matrixWorld.elements;
+      // (The crane and the train it lifts, beside it: within its reach, 160 mm.)
+      if (this.ambientEye.sees(m[12], m[13], m[14], 120, AMBIENT_MIN_PX.mote, 300)) moved = true;
+    }
+    for (const [id, was] of this.cranesPosed) {
+      if (was.seen === mark) continue;
+      const o = this.trainView.carObject(id);
+      if (o) poseCrane(o, 0, ROPE_REST);
+      this.cranesPosed.delete(id);
+      this.invalidate();
+    }
+    return moved;
+  }
+
   start(): void {
     // Station clocks show the real time: their own timer sets the hands at each minute, a frame drawn if one's in view.
     this.clockView.start(this.camera, () => this.canvas.height, () => this.invalidate());
@@ -1058,6 +1178,12 @@ export class Game {
     this.sim.writeSnapshot(this.snapshot);
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
+    // An engine painted (or a save's liveries put back): its model built again, once (drawn from the next frame).
+    if (this.sim.liveriesVersion !== this.liveriesShown) {
+      this.liveriesShown = this.sim.liveriesVersion;
+      this.trainView.syncLiveries();
+      this.invalidate();
+    }
     // An engine renamed (or a save's names put back): its plates painted again, once.
     if (this.sim.namesVersion !== this.namesShown) {
       this.namesShown = this.sim.namesVersion;
@@ -1074,13 +1200,21 @@ export class Game {
     if (this.marksView.animate(dt)) active = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
     const trainsMoved = this.trainsChanged();
-    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, trainsMoved || tipping, this.ambientEye);
+    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, trainsMoved || tipping || this.trainView.hoisted, this.ambientEye);
     if (depots === "moving") {
       if (this.depotView.ambientOnly) ambient = true;
       else active = true;
     }
     else if (depots === "changed") this.invalidate();
-    if (trainsMoved || tipping || this.flourishes.count > 0 || this.touchesMoving) active = true;
+    // Breakdown cranes at work: their turrets slew and ropes pay out (frames while one works; a crane's last pose set
+    // back to rest once it's done).
+    if (this.economy.breakdown.busy || this.cranesPosed.size > 0) {
+      if (this.poseCranes()) active = true;
+    }
+    if (trainsMoved || tipping || this.flourishes.casting > 0 || this.touchesMoving) active = true;
+    // Flourishes that move nothing casting a shadow (draw's ghosts catching up with the line): drawn every frame, as
+    // the rest, but the shadow map isn't drawn again for them.
+    const shownOnly = this.flourishes.count > 0;
     this.touchesMoving = false;
     // Small touches: placed again only when what they stand beside changed (a few comparisons a frame); the children
     // look for trains only on frames where trains moved, or while one waves.
@@ -1113,6 +1247,15 @@ export class Game {
     }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
     if (this.boats.update(this.camera, this.ambientEye)) ambient = true;
+    // The player's boats: placed by game time since the fleet's last tick (still while paused).
+    const sinceTick = Math.min(2, Math.max(0, this.simSeconds - this.fleet.tickedAt));
+    if (this.riverBoats.update(this.fleet, this.economy.boats, sinceTick, this.camera, this.ambientEye, this.layout.piecesVersion)) ambient = true;
+    // The train ferries, at their slips or out at sea (nothing to do with no slip on the map: a look at the depots).
+    if (this.ferriesView.update(this.ferries, this.economy, this.layout, this.sim, sinceTick, this.camera, this.ambientEye)) ambient = true;
+    // The yards: a hull on the ways (placed when its stage changes), a launch sliding into the water (a short flourish).
+    if (this.yardsView.update(this as unknown as Waters, this.layout.piecesVersion)) active = true;
+    // Wind turbines' rotors: turning only in view and near enough to see, never while paused.
+    if (this.turbinesView.update(dt, this.paused, this.ambientEye)) ambient = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || ambient || this.shadowsMoving;
     this.shadowsMoving = false;
@@ -1158,8 +1301,10 @@ export class Game {
     if (moved || this.woken) {
       active = true;
       // A boat moved unseen: its shadow may still be drawn where it was, now coming into view.
-      if (this.boats.shadowsStale) {
+      if (this.boats.shadowsStale || this.riverBoats.shadowsStale || this.ferriesView.shadowsStale) {
         this.boats.shadowsStale = false;
+        this.riverBoats.shadowsStale = false;
+        this.ferriesView.shadowsStale = false;
         this.shadowsMoving = true;
         this.invalidate();
       }
@@ -1169,18 +1314,23 @@ export class Game {
     // scene stays on screen without being drawn again, so an idle game costs next to nothing.
     const now = this.clock.elapsedTime;
     // Something easing or moving keeps drawing for a moment after; a one-off change (invalidate) draws one frame.
-    if (active || ambient) this.lastActive = now;
+    if (active || ambient || shownOnly) this.lastActive = now;
     // Only ambient motion moving (no train, camera move or change): every other tick (`AMBIENT_FRAME_MS`). What it
     // moves is posed by the clock, so the next frame drawn shows it where it is then.
-    if (ambient && !active && !this.dirty && (now - this.lastDrawnAt) * 1000 < AMBIENT_FRAME_MS - FRAME_SLACK_MS) {
+    if (ambient && !active && !shownOnly && !this.dirty && !this.redrawn && (now - this.lastDrawnAt) * 1000 < AMBIENT_FRAME_MS - FRAME_SLACK_MS) {
       this.drewLastTick = false;
       // (Its shadows are drawn on the next frame drawn.)
       this.shadowsMoving = true;
       return;
     }
+    // (No drawing while the context is lost: the frame stays wanted, for when it's back.)
+    if (this.contextLost) return;
     const once = this.dirty;
+    // (A change that casts no shadow, `redraw`: drawn, the shadow map kept.)
+    const shown = this.redrawn;
     this.dirty = false;
-    if (!once && now - this.lastActive > IDLE_TAIL) {
+    this.redrawn = false;
+    if (!once && !shown && now - this.lastActive > IDLE_TAIL) {
       this.drewLastTick = false;
       if (this.settling.length > 0) this.settleWaiters(false);
       return;
@@ -1197,6 +1347,10 @@ export class Game {
     const detail = detailReach(dist);
     const landCulled = this.landscapeView.cull(this.camera, reach, detail);
     const culled = cullTiles([this.depotView.group, this.ruinsView.group, this.touches.group], this.camera, reach, detail) || landCulled;
+    // Track too small to see its carving is drawn in its far version (a tenth of the triangles). (Not the shadows':
+    // they're cast by plain blocks either way.)
+    const pixelsHigh = this.canvas.clientHeight * Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio);
+    this.trackView.setDetail(this.camera.position, pixelsHigh / (2 * Math.tan((this.camera.fov * Math.PI) / 360)));
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
     // The very first frame draws no shadows (it's behind the loading screen), and the next one does: three draws the
     // shadow pass before it sets the frame's lights up, so on a scene's first frame its depth shaders were compiled for
@@ -1459,6 +1613,7 @@ export class Game {
   propsChanged(hidden = this.hiddenProp): void {
     this.hiddenProp = hidden;
     this.clockView.sync(this.props, hidden);
+    this.turbinesView.sync(this.props, hidden);
     // Crossing props style the crossings they're on (one in the hand doesn't, for now).
     this.styleCrossings();
     if (this.propsView.sync(this.shownProps(), hidden)) this.invalidate();
@@ -1472,6 +1627,7 @@ export class Game {
   /** The sim's signal aspects last drawn (see `Sim.signalsVersion`). */
   private signalsShown = -1;
   private namesShown = -1;
+  private liveriesShown = 0;
 
   /** The sim's mark aspects, for the marks' view (the sim is replaced on a new world: read through `this`). */
   private markAspects(): { markClear(id: number): boolean; readonly signalsVersion: number } {
@@ -1536,12 +1692,23 @@ export class Game {
     this.dirty = true;
   }
 
+  /**
+   * Draw a frame for a change that casts no shadow and moves nothing that does (draw's ghosts, a highlight, a trail):
+   * as `invalidate`, but the shadow map isn't drawn again for it. (On a phone the shadow pass is a second draw of
+   * everything in the sun's view: for a ghost that moves on every drag frame, that's most of the frame.)
+   */
+  redraw(): void {
+    this.redrawn = true;
+  }
+
   /** Something casting a shadow moved this frame that the frame loop can't see (a held piece): redraw shadows. */
   moveShadows(): void {
     this.shadowsMoving = true;
   }
 
   private dirty = true;
+  /** A frame wanted for a change that casts no shadow (see `redraw`). */
+  private redrawn = false;
   /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
   private woken = false;
   private lastActive = 0;

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { BatchedMesh, BoxGeometry, BufferAttribute, CylinderGeometry, MeshBasicMaterial, SphereGeometry, type BufferGeometry } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { compact, compacted, makeRoom, unquantise, weld } from "./compact";
+import { compact, compacted, makeRoom, weld } from "./compact";
+import { floatVertices } from "./compact-vertices";
 import { nonIndexed } from "./non-indexed";
 
 /** Each drawn vertex's attributes as floats, in draw order. */
@@ -109,7 +110,7 @@ describe("compact", () => {
   });
 
   it("can be taken back to floats to merge with plain geometry (a catalogue model in a batcher)", () => {
-    const g = unquantise(nonIndexed(compact(scenery())));
+    const g = floatVertices(nonIndexed(compact(scenery())));
     const plain = scenery();
     const merged = mergeGeometries([g, plain]);
     expect(merged).not.toBeNull();

@@ -1,4 +1,4 @@
-import { BatchedMesh, Group, Matrix4, Quaternion, Vector3, type Material, type Object3D } from "three";
+import { BatchedMesh, BufferAttribute, BufferGeometry, Group, Matrix4, Quaternion, Vector3, type Material, type Object3D } from "three";
 import type { Prop, PropStore } from "../../props/store";
 import { drawnKey, type PropLibrary } from "./library";
 import { compacted, makeRoom, type BatchRoom } from "../compact";
@@ -106,6 +106,7 @@ export class PropsView {
         if (model === null) continue;
         const box = model.footprint;
         d = { asset: key, instances: [], key: "", visible: true, at: new Vector3(), radius: Math.hypot(Math.abs(box.cx) + box.hw, Math.abs(box.cz) + box.hd, model.height), isFar: false, wanted: 0 };
+        let fresh = false;
         for (const part of model.parts) {
           const batch = this.batchFor(part.material);
           let gid = batch.geometryOf.get(key);
@@ -114,6 +115,7 @@ export class PropsView {
             makeRoom(batch.mesh, batch.room, g);
             gid = batch.mesh.addGeometry(g);
             batch.geometryOf.set(key, gid);
+            fresh = true;
           }
           if (batch.mesh.instanceCount >= batch.mesh.maxInstanceCount) batch.mesh.setInstanceCount(batch.mesh.maxInstanceCount * 2);
           const id = batch.mesh.addInstance(gid);
@@ -121,6 +123,8 @@ export class PropsView {
           d.instances.push({ batch, id });
           touched.add(batch);
         }
+        // Its batches have their own copy of its geometry now: the library's can go (baked again if it's wanted).
+        if (fresh) this.library.release(key);
         this.drawn.set(p.id, d);
       }
       const poseKey = `${p.x}|${p.z}|${p.heading}|${p.y}|${p.scale ?? 1}`;
@@ -188,20 +192,22 @@ export class PropsView {
 
   private readonly farAsked = new Set<string>();
 
-  /** Make a model's parts' far versions (off the main thread: `farIndexLater`) and put them in their batches (once). */
+  /**
+   * Make a model's parts' far versions (off the main thread: `farIndexLater`) and put them in their batches (once).
+   * Made from each batch's own copy of the part: the library lets its model go once the batches have it.
+   */
   private askFar(key: string): void {
     if (this.farAsked.has(key)) return;
     this.farAsked.add(key);
-    const model = this.library.model(key);
     const asked: Promise<void>[] = [];
-    for (const part of model?.parts ?? []) {
-      const batch = this.batches.get(part.material);
-      if (!batch || !batch.geometryOf.has(key)) continue;
-      const g = compacted(part.geometry);
+    for (const batch of this.batches.values()) {
+      const gid = batch.geometryOf.get(key);
+      if (gid === undefined) continue;
+      const g = partOf(batch.mesh, gid);
       asked.push(
         farIndexLater(g).then((index) => {
           // (The view put away meanwhile: nothing to add to.)
-          if (this.batches.get(part.material) !== batch) return;
+          if (!this.batches.has(batch.mesh.material as Material)) return;
           if (!index) {
             batch.farOf.set(key, null);
             return;
@@ -213,7 +219,7 @@ export class PropsView {
         }),
       );
     }
-    // (A part in no batch yet, or none: nothing far for it.)
+    // (One that couldn't be made: nothing far for it.)
     void Promise.all(asked).then(() => {
       for (const b of this.batches.values()) if (b.geometryOf.has(key) && !b.farOf.has(key)) b.farOf.set(key, null);
     });
@@ -254,4 +260,24 @@ export class PropsView {
     this.drawn.clear();
     this.group.clear();
   }
+}
+
+/**
+ * A copy of one geometry in a batch (its own vertices, its index from 0), as it was added: for making its far version
+ * once the library's model has gone.
+ */
+function partOf(mesh: BatchedMesh, gid: number): BufferGeometry {
+  const r = mesh.getGeometryRangeAt(gid)!;
+  const src = mesh.geometry;
+  const g = new BufferGeometry();
+  for (const name of Object.keys(src.attributes)) {
+    const a = src.getAttribute(name) as BufferAttribute;
+    const s = a.itemSize;
+    g.setAttribute(name, new BufferAttribute(a.array.slice(r.vertexStart * s, (r.vertexStart + r.vertexCount) * s), s, a.normalized));
+  }
+  const index = new Uint32Array(r.indexCount);
+  const all = src.index!.array;
+  for (let i = 0; i < r.indexCount; i++) index[i] = all[r.indexStart + i] - r.vertexStart;
+  g.setIndex(new BufferAttribute(index, 1));
+  return g;
 }

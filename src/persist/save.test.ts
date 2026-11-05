@@ -7,7 +7,7 @@ import { SIM_DT, SIM_HZ } from "../sim";
 import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, MIGRATES_FROM, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { Journal } from "../game/journal";
 import { editLine, lineOf } from "../game/lines";
-import { CARGO_KINDS, storeListed, storeModeOf } from "../economy";
+import { CARGO_KINDS, CARGO_SLOTS, storeListed, storeModeOf } from "../economy";
 
 /** The starter map with its first two towns joined by a line and a train running on it. */
 function worldWithTrain(): World {
@@ -22,10 +22,10 @@ function worldWithTrain(): World {
 }
 
 describe("an old save whose layout leant on turning back (routing §16 Q3)", () => {
-  it("loads as it is (no migration); two trains head on along one line meet, stand, and their cards say they're stuck", async () => {
-    const { engineStatus } = await import("../game/engine-status");
+  it("loads as it is (no migration); two hand-run trains head on along one line meet, and one gives way", async () => {
     // (Saved as a layout that ran before: two trains on one line of track, set going toward each other. They met and
-    // turned back, again and again; now nothing turns a train back short of the end of the track.)
+    // turned back, again and again; then (§16 Q3) they stood, stuck. Now, neither routed (they go anywhere), one gives
+    // way where they meet (stalls.ts): it turns round, as at the end of the line, and both run on, never said stuck.)
     const world = buildStarterWorld();
     const [a] = world.landscape.towns;
     let last = world.stations.get(a.id)!;
@@ -45,20 +45,16 @@ describe("an old save whose layout leant on turning back (routing §16 Q3)", () 
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const w = r.value;
-    for (let i = 0; i < 30 * SIM_HZ; i++) {
+    let stuck = 0;
+    for (let i = 0; i < 60 * SIM_HZ; i++) {
       w.sim.tick();
       w.economy.tick();
+      if (w.economy.stalls.count > 0) stuck++;
     }
     const engines = w.sim.trainIds().map((id) => w.sim.getTrain(id)!.cars[0].id);
     expect(engines).toHaveLength(2);
-    for (const e of engines) {
-      const t = w.sim.findCar(e)!.train;
-      expect(t.speed).toBe(0);
-      expect(t.lastTurn?.cause ?? "buffer").toBe("buffer");
-      expect(w.economy.stalls.stuckOf(e)?.kind).toBe("in-way");
-      // (Neither on a line: each card says the other runs with no route.)
-      expect(engineStatus(w.sim, w.economy, e, () => "")).toBe("Stuck: a train with no route is in the way. Move it or give it a route");
-    }
+    expect(w.economy.stalls.gaveWay).toBeGreaterThanOrEqual(1);
+    expect(stuck).toBe(0);
   });
 });
 
@@ -744,7 +740,7 @@ describe("economy in saves", () => {
     data.depots[forest.id].piles = [3, 12];
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(true);
-    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, ...new Array(CARGO_KINDS.length - 1).fill(0)]);
+    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, ...new Array(CARGO_SLOTS - 1).fill(0)]);
   });
 
   it("a train saved half way through loading carries on loading after a load", () => {

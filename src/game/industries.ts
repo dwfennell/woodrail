@@ -1,4 +1,7 @@
-import type { DepotRole } from "../economy";
+import { landingWhy } from "./boats";
+import { slipWhy } from "./ferry";
+import { boatyardWhy, shipyardWhy } from "./yards";
+import type { DepotRole, DepotState } from "../economy";
 import { CELL, FEAT_FIELD, FEAT_TREE, isWater, type Landscape } from "../landscape";
 import { harbourWhy } from "./harbours";
 import type { PieceTypeId, Pose } from "../track";
@@ -96,6 +99,11 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   // harbour, old or new, showed 0.75 at best (QA: "Water nearby: 5 of 8"); an old harbour now has 5 of 5. (A harbour
   // has no recipe of its own, so its rate is only what its card says. The least it's placed with stays 4.)
   harbour: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 5, least: 4, l: 150 },
+  // A water pump draws from a river or lake just past its yard's far side (as a harbour's quay, a little less of it).
+  // One square of water within 150 mm is enough to stand by (QA 2026-11-05: the generator's rivers are a square wide
+  // and wind; with two squares within 110 it fitted only 13% of the places by the water it could stand, and none was
+  // found by hand near the start). It pumps at its count of 4, so a trickle pumps slowly.
+  waterpump: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 150, need: 4, least: 1, l: 150 },
   // A school stands beside a town: one of its lots near the yard (see `schoolTown`, which also says which town).
   school: { what: "a town", counts: isTownLot, reach: SCHOOL_REACH, need: 1 },
 };
@@ -148,6 +156,11 @@ export function rateFor(count: number, need: number): number {
  * beside a town, and one a town: `hasSchool` says whether a town has one already (not counting the one being moved).
  */
 export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchool: (townId: number) => boolean = () => false, planted?: ReadonlySet<number>): string | null {
+  // Water transport's kits: a landing's jetty over the water, a ferry slip's end at the sea.
+  if (type === "kit-landing") return landingWhy(land, pose);
+  if (type === "kit-ferry-slip") return slipWhy(land, pose);
+  if (type === "kit-boatyard") return boatyardWhy(land, pose);
+  if (type === "kit-shipyard") return shipyardWhy(land, pose);
   const role = INDUSTRY_ROLE[type];
   if (role === "school") {
     const at = schoolTown(land, pose);
@@ -160,6 +173,9 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
   if (r.count < least) {
     // (A farm's in fields: "Needs farm fields nearby: ½ of 1" is no help beside a whole one just out of reach.)
     if (r.rule.per) return r.count === 0 ? FARM_NO_FIELD : FARM_FIELD_FAR;
+    // (A harbour's quay and a water pump draw from just past the yard's far side: which way it faces matters. QA
+    // 2026-11-05: "Needs water nearby: 0 of 2" a square from a river, the yard facing away from it.)
+    if (r.rule.what === "water") return `Needs water past its yard: ${r.count} of ${least}. Turn it to face the water`;
     return `Needs ${r.rule.what} nearby: ${r.count} of ${least}`;
   }
   // A harbour's boats must be able to get to it.
@@ -171,7 +187,7 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
  * `boost` for its kind (upgrades). Cheap:
  * a few hundred squares per industry; call when industries or the land change. Returns true if any rate changed.
  */
-export function updateRates(world: World, boost: (role: DepotRole) => number = () => 1): boolean {
+export function updateRates(world: World, boost: (role: DepotRole, d: DepotState) => number = () => 1): boolean {
   const own = new Set(world.depots.values());
   const planted = plantedCells(world.landscape, world.props);
   let changed = false;
@@ -181,7 +197,7 @@ export function updateRates(world: World, boost: (role: DepotRole) => number = (
     // Upgrades (Game mode's Harvesters II and the like) speed up every industry of their kind, the map's own too.
     // (A school makes nothing: its town is a place to stand, not a speed.)
     const r = own.has(d.pieceId) || d.role === "school" ? null : resourceAt(world.landscape, d.role, piece.pose, planted);
-    const rate = (r ? rateFor(r.count, r.need) : 1) * boost(d.role);
+    const rate = (r ? rateFor(r.count, r.need) : 1) * boost(d.role, d);
     if (rate !== d.rate) {
       d.rate = rate;
       changed = true;

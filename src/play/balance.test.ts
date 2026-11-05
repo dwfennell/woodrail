@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { serializeWorld } from "../persist/save";
 import { writeMapFile } from "./perf-map-file";
 import { Editor } from "../editor/editor";
-import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
-import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
+import { CARGO, canCarry, POSTAL, type CargoKind } from "../economy/cargo";
+import { capAt, givesChoice, RECIPES, storeModeOf, type RouteStopDef } from "../economy/economy";
 import { describe as describeGoods, total, type Bag } from "../economy/goods";
 import { HarbourTrade } from "../game/harbours";
 import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopOwing, shopSpare, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
@@ -12,7 +12,7 @@ import { GOALS, GoalTracker, payGoal } from "../game/goals";
 import { joinedTowns, StickerTracker, TOWN_TIERS } from "../game/stickers";
 import { FULL_PAY, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
-import { atSchool, landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
+import { landmarksAt, schoolTakesFor, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { engineStatus } from "../game/engine-status";
@@ -21,9 +21,11 @@ import { INVARIANTS, type Invariant, type Invariants } from "../sim/invariants";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, learnGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { built, techOf, TECHS, unlocksOf } from "../game/tech";
-import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, setSpeed, studying, tick as researchTick } from "../game/research";
+import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, wants as researchWants, pick as pickResearch, setSpeed, studying, tick as researchTick } from "../game/research";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
+import { placeOf, townPlaces } from "../game/places";
+import { startPlace } from "../game/place-row";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
 import { buildStarterWorld, plotsForSale, unlockPlot, haltTown, haltWhy, INDUSTRY_ROLE, syncIndustries, type World, fixedPieces } from "../game/world";
 import { FEAT_FIELD, FEAT_TREE, isWater, looseHeight, PLOT_DEPTH, PLOT_WIDTH, type SiteRole } from "../landscape";
@@ -94,7 +96,8 @@ let footprintOf: (asset: string) => Footprint | undefined = () => {
   throw new Error("footprints not loaded yet (see beforeAll)");
 };
 beforeAll(async () => {
-  footprintOf = await loadFootprints(["bldg"]);
+  // (`CIVIC`: a park's bandstand is a scene model.)
+  footprintOf = await loadFootprints(ENV.BALANCE_CIVIC ? ["bldg", "scene"] : ["bldg"]);
 }, 60_000);
 const RUN = !!ENV.BALANCE;
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
@@ -202,10 +205,15 @@ const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 440);
 /** The goals the fast part doesn't reach by `GOALS_RUN_MINUTES`, with why. */
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
   "open-mine": "Mines wants 20 stone delivered, 10 more at the school and the Goods engine, which this one goods train brings only at about minute 195; the mine stands at about 220: the long part's (GOALS_LONG=1)",
+  "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
+  "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
   "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 412: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
-export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {};
+export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {
+  "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
+  "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
+};
 
 /** The goals neither met nor listed in `allowed` (with why), and those listed but met or not goals at all. */
 export function goalsMissed(isDone: (id: string) => boolean, allowed: Readonly<Record<string, string>>, goals: readonly { id: string; title: string }[] = GOALS): { missed: string[]; stale: string[] } {
@@ -321,6 +329,19 @@ const SECOND_GOODS_STOPS = Number(ENV.BALANCE_SECOND_GOODS ?? 0) || Infinity;
  * progress (not moved, nor loaded at a stop, nor had its wait change) for this many minutes (BALANCE_JAM_MINUTES).
  */
 const JAM_MINUTES = Number(ENV.BALANCE_JAM_MINUTES ?? 4);
+/**
+ * BALANCE_CIVIC=1 (the balance pass of 2026-11-05, the civic spec's §5): the player also learns Town hall, Park and Post
+ * office as soon as it can (after Quarries in its wishes), builds a town hall and then a park in its first City through
+ * the town card's Build (`startPlace`: its coins paid, its planks brought by train), and a post office by the line, with
+ * a mail van on the goods train. Off by default: the default run's SUMMARY lines stay as they were.
+ */
+const CIVIC = !!ENV.BALANCE_CIVIC;
+/** The blueprints `CIVIC` adds to the player's wishes, after Quarries. */
+const CIVIC_WISH: readonly string[] = ["town-hall", "park", "post-office"];
+
+/** Minutes a wagon goes round with goods no stop on its line takes before the player empties it (`clearUnwanted`). */
+const UNWANTED_MINUTES = Number(ENV.BALANCE_UNWANTED_MINUTES ?? 3);
+
 /**
  * With the second goods train asked for, it goes on only once a good has been short this many minutes in a row while
  * its source's pile on the line is full (`goodsShort`: the one goods train can't keep up; BALANCE_SECOND_SATURATED).
@@ -447,7 +468,7 @@ class Player {
     this.town = new TownLife(host, {
       knows: (id) => this.progress.learned.has(id),
       // (A research that must be studied at a College or a University: only such a school takes its goods.)
-    school: (kind, d) => researchLacking(this.progress, kind) > 0 && atSchool(this.w, d, this.progress),
+    school: (kind, d) => researchWants(this.progress, kind, (id) => schoolTakesFor(this.w, d, this.progress.learned, id)) > 0,
       received: (t, kind, n, before) => {
         this.lastDelivered.set(t.id, this.tick);
         payDelivery(this.progress, kind, n, before, t);
@@ -480,7 +501,7 @@ class Player {
     // Stone into the workshop only while a harbour's price needs it there (as the game does).
     w.economy.owes = (kind) => shopOwes(w, this.progress, kind);
     // Goods into a school go into the research (as the game does).
-    attachResearch(w.economy, () => this.progress, () => (this.researchFed = this.tick));
+    attachResearch(w.economy, () => this.progress, () => (this.researchFed = this.tick), (d, id) => schoolTakesFor(this.w, d, this.progress.learned, id));
     this.progress.coverMap(w);
   }
 
@@ -1705,6 +1726,8 @@ class Playthrough {
   /** The foundry (the default run: built once Foundry is learned, for the iron Smithy and Electricity ask). */
   foundry = -1;
   harbour = -1;
+  /** The post office's piece (`CIVIC`), or -1. */
+  postoffice = -1;
   halt = -1;
   switchLaid = false;
   joinedThird = false;
@@ -1765,7 +1788,7 @@ class Playthrough {
   /** When things first came within reach (a blueprint offered or on the board), and each town level first reached. */
   readonly firsts: Record<string, number> = {};
   /** Minutes a farm yard or a quarry waited on coins alone (learned, planks in the yard). */
-  readonly coinWait = { farm: 0, quarry: 0, mine: 0, harbour: 0, foundry: 0 };
+  readonly coinWait = { farm: 0, quarry: 0, mine: 0, harbour: 0, foundry: 0, postoffice: 0 };
   /** The longest stretch with no planks sawn (whole minutes). */
   stall = 0;
   /** The longest stretch with no planks sawn while two trains share the line (they turn each other back). */
@@ -2055,7 +2078,7 @@ class Playthrough {
       // (BALANCE_SPUR=routes: a farm on a spur, before Routes, sends no grain to the school, so Routes first, Mills after.)
       if (this.spurFarm && s.learned.has("routes")) this.spurFarm = false;
       const held = (id: string) => ROUTES_FIRST && this.spurFarm && id === "mills" && s.research.current !== "routes";
-      const wish = this.goalsFirst ? GOALS_WISH : WISH;
+      const wish = this.goalsFirst ? GOALS_WISH : CIVIC ? [...WISH.slice(0, WISH.indexOf("quarries") + 1), ...CIVIC_WISH, ...WISH.slice(WISH.indexOf("quarries") + 1)] : WISH;
       const wished = (ROUTES_FIRST && this.spurFarm ? ["routes", ...wish.filter((id) => id !== "routes")] : wish).filter((id) => (this.goalsFirst && id in GOALS_AFTER ? s.learned.has(GOALS_AFTER[id]) : !LATER.has(id)) && canResearch(s, id) && feedable(id));
       const others = TECHS.filter((t) => canResearch(s, t.id) && feedable(t.id) && (!wish.includes(t.id) || (LATER.has(t.id) && !wished.includes(t.id)))).map((t) => t.id);
       const r = s.research;
@@ -2116,6 +2139,7 @@ class Playthrough {
     this.build();
     this.unstick();
     this.roomForMine();
+    this.clearUnwanted();
     if (!this.why) {
       // Nothing to save for: say what's in the way (an empty board, what the towns want).
       const wants = w.landscape.towns
@@ -2448,6 +2472,8 @@ class Playthrough {
     if (this.farm >= 0) want.push("hopper");
     if (this.mill >= 0) want.push("van");
     if (this.quarry >= 0) want.push("hopper");
+    // (`CIVIC`: a mail van once the post office stands, for the towns' mail and the sorted post.)
+    if (this.postoffice >= 0) want.push("mailvan");
     // (In the goals play-through, once the mine stands, a third hopper for the stone Harbours and the harbour want, in
     // place of the second coach: the two hoppers came by full of grain or the mine's coal, and stone came 4 a lap.)
     if (s.learned.has("passengers")) want.push("passenger", this.goalsFirst && this.mine >= 0 ? "hopper" : "passenger");
@@ -2699,6 +2725,10 @@ class Playthrough {
     this.openIndustry("harbour");
     // (The default run: a foundry once Foundry is learned, for the iron Smithy, Electricity and the electric engine ask.)
     if (!this.goalsFirst) this.openIndustry("foundry");
+    if (CIVIC) {
+      this.openIndustry("postoffice");
+      this.buildPlaces();
+    }
     // (The mine's coal or ore on a train, the first minute it's seen: for the long goals play-through's check.)
     if (this.mine >= 0 && this.firsts["mine's goods carried"] === undefined)
       for (const id of w.sim.trainIds())
@@ -2828,7 +2858,7 @@ class Playthrough {
   /** Stone trains had unloaded at the workshop when the harbour was paid for (`Player.shopStoneIn`; −1: no harbour). */
   harbourStone = -1;
   /** When each "Open a …" industry was last tried (minutes). */
-  private readonly industryTry: Record<"quarry" | "mine" | "harbour" | "foundry", number> = { quarry: -99, mine: -99, harbour: -99, foundry: -99 };
+  private readonly industryTry: Record<"quarry" | "mine" | "harbour" | "foundry" | "postoffice", number> = { quarry: -99, mine: -99, harbour: -99, foundry: -99, postoffice: -99 };
   /** A good an industry's price asks of the workshop's yard that the yard never takes, said once. */
   private readonly neverPaid = new Set<string>();
 
@@ -2838,12 +2868,40 @@ class Playthrough {
    * workshop and placed at a line end, or on a branch off the line (`branchOff`), by its resource (`SITE_RULES`):
    * hillside for a quarry or a mine, water the boats come in on for a harbour.
    */
-  openIndustry(role: "quarry" | "mine" | "harbour" | "foundry"): void {
+  /**
+   * `CIVIC`: a town hall, then a park, in the player's first City, each by its tile's Build on the town card
+   * (`startPlace`: its coins paid, then its planks brought to the station by the goods train), one at a time.
+   */
+  buildPlaces(): void {
+    const P = this.p;
+    const w = P.w;
+    const s = P.progress;
+    if (w.economy.placePlans.size > 0) return;
+    const city = w.landscape.towns.find((t) => P.town.status(t.id).level >= 3);
+    if (!city) return;
+    const level = P.town.status(city.id).level;
+    for (const id of ["town-hall", "park"]) {
+      if (townPlaces(city).has(id)) continue;
+      const place = placeOf(id)!;
+      if (!s.learned.has(place.tech!) || s.coins < place.coins) return;
+      const coins = s.coins;
+      const r = startPlace(w, P.town, s, city, level, id);
+      if (r === "started" || r === "built") {
+        P.spent.buildCoins += coins - s.coins;
+        P.happened++;
+        this.firsts[`${id} started`] ??= Math.round(P.minute);
+        P.note(`PLACE: ${place.name} ${r} in ${city.name} (${place.coins} coins + ${describeGoods(place.goods)} by train)`);
+      }
+      return;
+    }
+  }
+
+  openIndustry(role: "quarry" | "mine" | "harbour" | "foundry" | "postoffice"): void {
     const P = this.p;
     const w = P.w;
     const s = P.progress;
     const g = w.landscape.grid;
-    const type: PieceTypeId = role === "foundry" ? "depot-foundry" : restoredType(role);
+    const type: PieceTypeId = role === "foundry" ? "depot-foundry" : role === "postoffice" ? "depot-postoffice" : restoredType(role);
     const thing = pieceThing(type);
     if (this[role] !== -1 || !s.knows(thing) || P.minute - this.industryTry[role] < 10) return;
     const opened = (id: number, beyond: number, how: string): void => {
@@ -2860,8 +2918,8 @@ class Playthrough {
       }
       if (this.lines) this.routeGoods();
     };
-    // (A foundry has no old one on the map: always a new one.)
-    const site = role === "foundry" ? null : role;
+    // (A foundry or a post office has no old one on the map: always a new one.)
+    const site = role === "foundry" || role === "postoffice" ? null : role;
     const old = site && this.restoreOld(site);
     if (old === "wait") {
       this.why ||= `restoring the old ${role} (${describeGoods(restorePrice(site!).goods)} + ${restorePrice(site!).coins} coins; have ${describeGoods(workshopStock(w))}, ${s.coins} coins)`;
@@ -2902,7 +2960,7 @@ class Playthrough {
     this.industryTry[role] = P.minute;
     const cells: number[] = [];
     // (A foundry needs no resource: by the mine whose coal and ore it takes, or a town's station, as a mill goes.)
-    if (role === "foundry") cells.push(...[this.mine, ...w.stations.values()].map((id) => w.layout.getPiece(id)).filter((p) => !!p).map((p) => g.cellAtWorld(p!.pose.x, p!.pose.z)).filter((i) => i !== -1));
+    if (role === "foundry" || role === "postoffice") cells.push(...[this.mine, ...w.stations.values()].map((id) => w.layout.getPiece(id)).filter((p) => !!p).map((p) => g.cellAtWorld(p!.pose.x, p!.pose.z)).filter((i) => i !== -1));
     else
       g.forEachCell((i) => {
         if (role === "harbour" ? isWater(g.surface[i]) : g.height[i] > 0) cells.push(i);
@@ -3160,9 +3218,10 @@ class Playthrough {
     // (The goals play-through only: the balance run keeps the stop just before, so its SUMMARY lines stay as they were.)
     for (let k = 1; k < (this.goalsFirst ? n : 2) && !before; k++) {
       const d = w.economy.depot(line.stops[(at - k + n) % n].depotId);
-      if (d && d.id !== mine.id && RECIPES[d.role].gives.some((g) => !ore.includes(g))) before = d;
+      // (Not the post's goods: a town gives mail, but only mail vans carry it, and the hoppers' room is the point.)
+      if (d && d.id !== mine.id && RECIPES[d.role].gives.some((g) => !ore.includes(g) && !POSTAL.has(g))) before = d;
     }
-    const goods = (before ? RECIPES[before.role].gives : []).filter((k) => !ore.includes(k) && !this.nearestPickup.has(k));
+    const goods = (before ? RECIPES[before.role].gives : []).filter((k) => !ore.includes(k) && !POSTAL.has(k) && !this.nearestPickup.has(k));
     if (goods.length === 0) return;
     for (const k of goods) this.nearestPickup.add(k);
     editLine(w.economy, this.timber, (stops) => {
@@ -3171,6 +3230,68 @@ class Playthrough {
     P.happened++;
     P.note(`ROOM: the mine's goods have a taker; the ${before!.role}'s ${goods.join(", ")} now picked up only on the way to where it's taken (its visit before the mine "Only drop")`);
   }
+  /**
+   * Goods no stop on the line takes now (the balance pass of 2026-11-05: docs/balance-2026-11-05.md). Once the school had
+   * Foundry's coal, the hoppers kept coming by full of more coal that nothing on the line took (no foundry or power
+   * station yet), so the last of its stone never rode, and Foundry's research waited 91 to 150 minutes (seeds 4, 9, 10).
+   * The player does what the cards let them: on the mine's card, Doesn't give for each of its goods no stop takes now,
+   * Gives again once one does (`givesChoice`, `setStoreMode`); and on the wagon's card, Empty (`dump`, while the train
+   * stands) for a wagon still carrying such goods after `UNWANTED_MINUTES` of looks, while it could carry a good the line
+   * has a taker for.
+   */
+  clearUnwanted(): void {
+    const P = this.p;
+    const w = P.w;
+    if (ENV.BALANCE_NOUNSTICK) return;
+    const line = this.lineId >= 0 ? w.economy.lines.get(this.lineId) : undefined;
+    const found = w.sim.findCar(this.timber);
+    if (!line || !found) return;
+    const stops = line.stops.map((st) => w.economy.depot(st.depotId)).filter((d) => !!d);
+    // (A stop whose kind takes it at all, whether or not it wants more now: a town with all its planks still takes
+    // planks. The school only while its research lacks it.)
+    const taken = (k: CargoKind) => stops.some((d) => (d!.role === "school" ? !w.economy.accepts || w.economy.accepts(d!, k) : RECIPES[d!.role].takes.includes(k) || !!RECIPES[d!.role].owed?.includes(k)));
+    const mine = this.mine >= 0 ? w.economy.depotAtPiece(this.mine) : undefined;
+    if (mine && givesChoice(mine.role)) {
+      for (const k of RECIPES[mine.role].gives) {
+        const off = storeModeOf(mine, k) === "off";
+        if (!off && !taken(k)) {
+          w.economy.setStoreMode(mine.id, k, "off");
+          this.mineOff.add(k);
+          P.happened++;
+          P.note(`UNWANTED: no stop on the line takes ${k} now: the mine set to Doesn't give it`);
+        } else if (off && this.mineOff.has(k) && taken(k)) {
+          w.economy.setStoreMode(mine.id, k, "both");
+          this.mineOff.delete(k);
+          P.happened++;
+          P.note(`UNWANTED: a stop takes ${k} again: the mine set back to Gives`);
+        }
+      }
+    }
+    // (Emptied only when the wagon could be carrying something better: a good of its kind a stop gives and another
+    // takes. A hopper of grain before the mill stands has nothing better to carry: it keeps its grain.)
+    const given = new Set(stops.flatMap((d) => RECIPES[d!.role].gives));
+    const better = (kind: CarKind) => [...given].some((k) => canCarry(kind, k) && taken(k));
+    for (const car of found.train.cars) {
+      const c = w.economy.cargoOf(car.id);
+      if (c.kind === null || c.count <= 0 || taken(c.kind) || !better(car.kind)) {
+        this.unwantedFor.delete(car.id);
+        continue;
+      }
+      const n = (this.unwantedFor.get(car.id) ?? 0) + 1;
+      this.unwantedFor.set(car.id, n);
+      if (n < UNWANTED_MINUTES) continue;
+      const out = w.economy.dump(car.id);
+      if (!out) continue;
+      this.unwantedFor.delete(car.id);
+      P.happened++;
+      P.note(`UNWANTED: emptied a ${car.kind} of ${out.count} ${out.kind} no stop takes (its card's Empty)`);
+    }
+  }
+  /** The mine's goods the player set to Doesn't give (`clearUnwanted`), to set back once a stop takes them. */
+  readonly mineOff = new Set<CargoKind>();
+  /** Looks (a minute apart) a wagon has carried goods no stop takes, by car id (`clearUnwanted`). */
+  readonly unwantedFor = new Map<number, number>();
+
   /** Has the stop before the mine been set so the hoppers reach it with room (`roomForMine`)? */
   mineRoom = false;
 

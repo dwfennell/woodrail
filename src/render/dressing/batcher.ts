@@ -2,7 +2,8 @@ import { BufferAttribute, BufferGeometry, Color, Group, Mesh, type Material } fr
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { shadowProxyMesh } from "./blocks";
 import { nonIndexed } from "../non-indexed";
-import { compact, unquantise, weld } from "../compact";
+import { compact, weld } from "../compact";
+import { floatVertices } from "../compact-vertices";
 import { useFarDetail } from "../far-detail";
 
 /** Parts smaller than this every way (mm) cast no shadow of their own: window frames, sills, signs' letters. */
@@ -72,9 +73,8 @@ export class Batcher {
     const bucket = paintColor ? this.paint! : material;
     let list = this.buckets.get(bucket);
     if (!list) this.buckets.set(bucket, (list = []));
-    let g = nonIndexed(geometry);
-    // (A compacted part, a catalogue model's: its attributes as floats again, to merge with the rest.)
-    if (Object.values(g.attributes).some((a) => a.normalized)) g = unquantise(g === geometry ? g.clone() : g);
+    // (A compact model's normals and colours as floats again: merged geometry has one array type throughout.)
+    const g = floatVertices(nonIndexed(geometry));
     if (this.withStandIns) {
       const stand = partStandIn(g);
       if (stand) this.standIns.push(stand);

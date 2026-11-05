@@ -14,6 +14,9 @@ const LIT_AMBER = "#ffc23a";
 /** The train lift kit's platform: its length and rise (LIFT_LENGTH, LIFT_RISE in src/track/kits.ts). */
 const LIFT_LENGTH = 288;
 const LIFT_RISE = 48;
+/** The lift bridge kit's span: its length and how high it goes (LIFT_BRIDGE_LENGTH, LIFT_BRIDGE_RISE in src/track/kits.ts). */
+const LIFT_BRIDGE_LENGTH = 216;
+const LIFT_BRIDGE_RISE = 72;
 /** Deck height of raised bridges: the slab's base, so its top sits at a hill block's 64. */
 const DECK = 52;
 
@@ -1022,6 +1025,24 @@ const mechanisms: Asset[] = [
     },
   },
   {
+    id: "mech-telegraph-pole",
+    name: "Telegraph pole",
+    trayLabel: "Telegraph pole",
+    category: "Mechanisms",
+    tags: ["telegraph", "pole", "wires", "lineside", "signal box"],
+    notes: "A tall brown pole with two white cross-arms of insulators. In Game mode (the Telegraph), a chain of them carries a signal box's reach along the line: tap the box to work the points and signals by any pole wired to it.",
+    build: (k) => {
+      const wood = k.paint("#7a5a3a");
+      const g = k.group(k.box(k.paint(DARK_STONE), 9, 3, 9, 1.2), k.cyl(wood, 2, 86, 0, 1.5, 0, 1.8, 10));
+      for (const [y, w] of [[78, 30], [68, 24]] as const) {
+        g.add(k.box(k.paint(TOY.white), 3, 3, w, 1, 0, y, 0));
+        for (const z of [-w / 2 + 3, -w / 6, w / 6, w / 2 - 3]) if (Math.abs(z) > 3) g.add(k.cyl(k.paint(TOY.teal), 1.3, 4, 0, y + 3, z, 1.3, 8));
+      }
+      g.add(k.ball(wood, 2.2, 0, 88, 0));
+      return g;
+    },
+  },
+  {
     id: "mech-ticket-barrier",
     name: "Ticket barriers",
     category: "Mechanisms",
@@ -1176,6 +1197,31 @@ const mechanisms: Asset[] = [
       part(root, "beam").rotation.y = t * 1.5;
     },
   },
+  {
+    id: "mech-wind-turbine",
+    name: "Wind turbine",
+    category: "Mechanisms",
+    tags: ["wind", "turbine", "power", "electricity", "hill", "animated"],
+    notes:
+      "A tall white turbine on a turned beech foot, three red-tipped blades on a red nose. On a hilltop in Game mode it makes a spark of power, with no coal: enough for an electric engine, or to speed up a yard.",
+    build: (k) => {
+      const white = k.paint(TOY.white);
+      const red = k.paint(TOY.red);
+      const g = k.group(k.cyl(k.wood, 20, 8, 0, 0, 0, 18), k.cyl(white, 7, 214, 0, 8, 0, 4, 16), k.cylX(white, 9, 26, -4, 222, 0, 16));
+      // The rotor: its hub on the nacelle's nose, facing +x, turned about x (the game turns it: `TURBINE_ROTOR`).
+      const blades = k.group(k.ball(red, 7, 0, 0, 0));
+      for (let i = 0; i < 3; i++) {
+        const blade = k.group(k.box(white, 3, 80, 10, 1.2, 0, 4, 0), k.box(red, 3.5, 16, 10.5, 1.2, 0, 84, 0));
+        blade.rotation.x = (i * 2 * Math.PI) / 3;
+        blades.add(blade);
+      }
+      g.add(pivot("rotor", 12, 222, 0, blades));
+      return g;
+    },
+    animate: (root, t) => {
+      part(root, "rotor").rotation.x = t * 1.2;
+    },
+  },
 ];
 
 // ——— Bridges & tunnels ———
@@ -1315,39 +1361,44 @@ const bridges: Asset[] = [
     id: "mech-lift-bridge",
     name: "Vertical lift bridge",
     category: "Bridges & tunnels",
-    tags: ["lift bridge", "towers", "counterweight", "opening", "harbour"],
-    notes: "A span hoisted straight up between two steel towers, counterweights dropping as it rises. Another way to let boats under, with the deck staying level the whole time.",
+    tags: ["lift bridge", "towers", "counterweight", "opening", "harbour", "river"],
+    notes: "A span hoisted straight up between two steel towers, counterweights dropping as it rises: the line crosses a river at ground level, and the span goes up for a boat. In Game mode, the Lift bridge research; trains wait at its ends while it's up.",
     build: (k) => {
-      const Y = 30;
+      // Round the game's kit piece (kit-lift-bridge, src/track/kits.ts): a span 216 long at the ground, carrying its own
+      // rails, between a tower at each end. Its moving parts are pivots, at rest (down) at 0.
+      const half = LIFT_BRIDGE_LENGTH / 2;
+      const top = LIFT_BRIDGE_RISE + 52;
       const blue = k.paint(TOY.blue);
-      const g = k.group(river(k, 90, 160, 0));
-      for (const x of [-96, 96]) g.add(k.box(k.paint(STONE), 88, Y - 12, 70, 2, x, 0, 0), k.trackSlab(88, x, Y - 12, 0));
-      for (const x of [-58, 58]) {
-        for (const z of [-28, 28]) g.add(k.box(blue, 8, 140, 8, 2, x, Y - 12, z));
-        g.add(k.box(blue, 10, 10, 66, 2, x, Y + 128, 0));
-        for (const z of [-28, 28]) g.add(k.cylZ(k.paint(TOY.red), 8, 4, x, Y + 138, z * 0.8, 16));
-        for (let i = 0; i < 3; i++) g.add(strutZ(k, blue, -28, Y + i * 40, 28, Y + 40 + i * 40, x, 2.5));
+      const yellow = k.paint(TOY.yellow);
+      const red = k.paint(TOY.red);
+      const g = new Group();
+      for (const x of [-half + 7, half - 7]) {
+        // A tower: four posts on stone feet, braced across, a beam over the top with its sheaves.
+        for (const z of [-30, 30]) g.add(k.box(k.paint(STONE), 14, 4, 14, 1, x, 0, z), k.box(blue, 7, top, 7, 2, x, 0, z));
+        g.add(k.box(blue, 9, 9, 68, 2, x, top, 0));
+        for (let i = 0; i < 2; i++) g.add(strutZ(k, blue, -30, LIFT_BRIDGE_RISE + 8 + i * 22, 30, LIFT_BRIDGE_RISE + 30 + i * 22, x, 2.2));
+        for (const z of [-24, 24]) g.add(k.cylZ(red, 6, 4, x, top + 10, z, 14));
+        // A counterweight hanging on the outside of each post pair, going down as the span goes up.
+        for (const z of [-34, 34]) g.add(pivot(`cw${x < 0 ? 0 : 1}${z < 0 ? 0 : 1}`, 0, 0, 0, k.box(k.paint(TOY.grey), 12, 18, 5, 1.5, x, top - 26, z)));
+        // A red stop board facing trains coming in, shown while the span is off the ground.
+        g.add(named(k.box(red, 2, 12, 14, 1, x < 0 ? -half - 1 : half + 1, 18, x < 0 ? -30 : 30), x < 0 ? "stop0" : "stop1"));
       }
-      for (const z of [-28, 28]) {
-        g.add(k.box(blue, 124, 6, 6, 2, 0, Y + 134, z));
-        for (const x of [-58, 58]) g.add(named(k.box(k.paint(TOY.grey), 12, 20, 6, 1.5, x, 120, z * 1.25), `cw${x < 0 ? 0 : 1}${z < 0 ? 0 : 1}`));
-      }
-      const span = pivot("span", 0, 0, 0, k.trackSlab(104, 0, Y - 12, 0));
+      for (const z of [-30, 30]) g.add(k.box(blue, LIFT_BRIDGE_LENGTH - 6, 6, 6, 2, 0, top + 2, z));
+      const span = pivot("span", 0, 0, 0, deckTrack(k.trackSlab(LIFT_BRIDGE_LENGTH - 30, 0, 0, 0)));
+      // The span's yellow truss either side of the rails.
       for (const z of [-23, 23]) {
-        span.add(k.box(k.paint(TOY.yellow), 104, 3, 3, 1, 0, Y + 14, z));
-        for (let i = 0; i < 6; i++) span.add(strut(k, k.paint(TOY.yellow), -52 + i * 17.3, Y, -52 + (i + 1) * 17.3, Y + 14, z, 2.4));
+        span.add(k.box(yellow, LIFT_BRIDGE_LENGTH - 30, 4, 3, 1, 0, 0, z), k.box(yellow, LIFT_BRIDGE_LENGTH - 30, 3, 3, 1, 0, 18, z));
+        for (let i = 0; i < 8; i++) span.add(strut(k, yellow, -half + 15 + i * 23.25, 3, -half + 15 + (i + 1) * 23.25, 18, z, 2.2));
       }
       g.add(span);
       return g;
     },
     animate: (root, t) => {
       const f = cycle(t, 9);
-      part(root, "span").position.y = 80 * f;
-      const cw = 50 + 80 * (1 - f);
-      part(root, "cw00").position.y = cw;
-      part(root, "cw01").position.y = cw;
-      part(root, "cw10").position.y = cw;
-      part(root, "cw11").position.y = cw;
+      part(root, "span").position.y = LIFT_BRIDGE_RISE * f;
+      for (const n of ["cw00", "cw01", "cw10", "cw11"]) part(root, n).position.y = -LIFT_BRIDGE_RISE * f * 0.6;
+      part(root, "stop0").visible = f > 0;
+      part(root, "stop1").visible = f > 0;
     },
   },
   {

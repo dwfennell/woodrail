@@ -6,6 +6,7 @@ import { CELL, outsideDistance, type OuterBlock, type OuterTree, type Rect, type
 import { RISER_HEIGHT } from "../../track";
 import type { Materials } from "../materials";
 import { Batcher } from "./batcher";
+import { compactVertices } from "../compact-vertices";
 import { blockMeshes, shadowProxyGeometry, shadowProxyMesh } from "./blocks";
 import { setCullBox } from "./tiles";
 import { building } from "./buildings";
@@ -48,9 +49,15 @@ export function sceneryPart(s: Surroundings, mats: Materials, seed = 0, around =
     roundedReach: around ? AROUND_ROUNDED_REACH : ROUNDED_REACH,
     beechReach: around ? Infinity : ROUNDED_REACH,
     trees: s.trees,
-    houses: b.merged(),
+    // (Kept to merge each time the scenery's drawn again: in compact vertices, as what's drawn then is too.)
+    houses: compactAll(b.merged()),
     shadow: shadowProxyGeometry(s.slabs),
   };
+}
+
+function compactAll(m: Map<Material, BufferGeometry>): Map<Material, BufferGeometry> {
+  for (const g of m.values()) compactVertices(g);
+  return m;
 }
 
 /** Free a part's geometry. */

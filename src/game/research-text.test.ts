@@ -12,7 +12,7 @@ describe("the picker's card states", () => {
     const p = Progress.fresh();
     expect(cardState(p, "switches")).toBe("ready");
     expect(cardState(p, "junctions")).toBe("locked"); // needs switches
-    expect(cardState(p, "telegraph")).toBe("soon"); // not in the game yet
+    expect(cardState(p, "monorail")).toBe("soon"); // not in the game yet
     pick(p, "switches");
     expect(cardState(p, "switches")).toBe("researching");
     pick(p, "bridges");
@@ -65,7 +65,7 @@ describe("a card's chips", () => {
     expect(researchCard(p, "bridges", SCHOOL)).toMatchObject({ why: "studying: 15 s", fill: 0.25 });
     // Locked by something besides blueprints (Turntable needs a town): no card. Not in the game: none.
     expect(researchCard(p, "turntable", SCHOOL)).toBeNull();
-    expect(researchCard(p, "telegraph", SCHOOL)).toBeNull();
+    expect(researchCard(p, "viaduct", SCHOOL)).toBeNull();
     p.learned.add("switches");
     expect(researchCard(p, "switches", SCHOOL)).toBeNull();
   });
@@ -512,7 +512,16 @@ describe("cards for chains in the queue", () => {
 
   it("held back saying why: a blueprint in the chain that can't be researched, or no room in the queue", () => {
     const p = Progress.fresh();
-    expect(researchCard(p, "scenery", SCHOOL)).toMatchObject({ action: "Research Carpenter's bench now", why: "Carpenter's bench needs 50 planks delivered first", blocked: true });
+    // (No button: nothing to press till the planks are in. QA 2026-11-05 #4.)
+    const stuck = researchCard(p, "scenery", SCHOOL);
+    expect(stuck).toMatchObject({ why: "Carpenter's bench needs 50 planks delivered first" });
+    expect(stuck?.action).toBeUndefined();
+    // A town to grow first (Jam kitchen needs Sugar beet, which needs a city): it says the step.
+    const q = Progress.fresh();
+    for (const id of ["farming", "orchard", "juice"]) q.learned.add(id);
+    const jam = researchCard(q, "jam", SCHOOL);
+    expect(jam?.why).toBe("Sugar beet needs a city first: grow a town into one");
+    expect(jam?.action).toBeUndefined();
     for (const id of ["bridges", "tank", "farming", "switches", "signals"]) toggleQueue(p, id);
     expect(researchCard(p, "engine-shed", SCHOOL)).toMatchObject({ action: "Queue Junctions, then Engine shed", why: "Needs 2 places in the queue (1 left)", blocked: true });
     toggleQueue(p, "junctions");

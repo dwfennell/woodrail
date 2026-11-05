@@ -4,6 +4,7 @@ import type { Bag } from "../economy/goods";
 import { ENGINES, type EngineKind } from "../game/engines";
 import { speedWord } from "../game/train-summary";
 import { LIFT_NAME } from "../game/lift-notice";
+import { INDUSTRY_ROLE } from "../game/world";
 import type { CarKind, CarLook } from "../sim";
 import { isFit, isJoin, isKit, KITS, type KitTypeId, type PieceTypeId } from "../track";
 import type { TrayItem } from "./tray-catalogue";
@@ -47,6 +48,9 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "switch-3way": p("Three-way switch", "Splits three ways: left, ahead or right. Tap to change."),
   crossing: p("Crossing", "Two lines cross straight over each other."),
   "crossing-45": p("45° crossing", "Two lines cross at a slant."),
+  "slip-single": p("Single slip", "A crossing that can turn onto the other line. Tap to change."),
+  "slip-double": p("Double slip", "A crossing that turns either way onto the other line. Tap it."),
+  "switch-3way-double": p("Double three-way", "A three-way with two levers, one for each side. Tap a lever."),
   signal: p("Signal", "Tap it for red or green. Trains stop at red."),
   crossover: p("Crossover", "Double track with a link: trains can change lines."),
   "double-straight": p("Double track", "Two straight lines side by side."),
@@ -57,8 +61,11 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "balloon-loop-small": p("Small loop", "Trains go round and come back the way they came."),
   wye: p("Wye", "A track triangle: run in, back out, and come out turned round."),
   ramp: p("Ramp", "Goes up one level, or down."),
+  rack: p("Rack", "Two levels up in a ramp's length, for a rack engine."),
+  "rack-short": p("Short rack", "A level up in half a ramp's length, for a rack engine."),
   bridge: p("Bridge", "Carries the line over a road or track."),
   "bridge-curve": p("Curved bridge", "A bend up high, over a road or track."),
+  viaduct: p("Stone viaduct", "A long stone bridge on four arches, across a valley or a river."),
   underpass: p("Underpass", "Dips the line so a bridge one level up fits over it."),
   "tunnel-mouth": p("Tunnel mouth", "Takes the line two levels down, under anything on the felt."),
   "tunnel-mouth-short": p("Short tunnel mouth", "Takes the line a level down, up to a hill's side to go under it."),
@@ -88,8 +95,17 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-creamery": p("Creamery", "Makes cheese from milk."),
   "depot-icecream": p("Ice cream factory", "Makes ice cream from milk and fruit, for cold vans."),
   "depot-brickworks": p("Brickworks", "Fires bricks from stone and coal."),
+  "depot-postoffice": p("Post office", "Sorts the towns' mail into post for towns."),
   "depot-carworks": p("Car factory", "Builds cars from iron and planks, for car carriers."),
-  "depot-power": p("Power station", "Burns coal so electric engines can run."),
+  "depot-oilwell": p("Oil well", "Pumps oil, for tank wagons."),
+  "depot-waterpump": p("Water pump", "Pumps water from a river or lake nearby, for tank wagons."),
+  "depot-beet": p("Sugar beet field", "Beets boiled down into sugar, in sacks for vans."),
+  "depot-jam": p("Jam kitchen", "Makes jam from fruit and sugar, in jars."),
+  "depot-chocolate": p("Chocolate factory", "Makes chocolate from cocoa and milk."),
+  "depot-flowers": p("Flower field", "Rows of flowers, picked into crates for flatbeds."),
+  "depot-dyeworks": p("Dye works", "Boils flowers into bright paint, in tins."),
+  "depot-toyworks": p("Toy workshop", "Makes toys from planks and paint."),
+  "depot-power": p("Power station", "Burns coal for 4 sparks: electric engines, faster yards."),
   "depot-harbour": p("Harbour", "Ships bring and take goods here."),
   "depot-warehouse": p("Warehouse", "Keeps goods until a train takes them."),
 };
@@ -99,7 +115,14 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-platform-furnished": p("Platform", "Passenger trains stop here."),
   "kit-country-halt": p("Country halt", "A little stop where passenger trains wait."),
   "kit-mountain-station": p("Mountain station", "A station up in the hills."),
+  "kit-metro-stop": p("Metro stop", "Under a town, its entrance by a green."),
+  "kit-lookout": p("Lookout halt", "On a hilltop: riders come for the view, at twice the fare."),
+  "kit-observatory": p("Observatory", "On a hilltop: stargazers come by train, at three times the fare."),
   "kit-harbour-station": p("Harbour station", "A station by the water."),
+  "kit-landing": p("River landing", "Trains and barges leave goods here for each other."),
+  "kit-ferry-slip": p("Ferry slip", "Trains ride the ferry abroad from here."),
+  "kit-boatyard": p("Boatyard", "Builds tugs and barges from goods trains bring."),
+  "kit-shipyard": p("Shipyard", "Builds cargo ships and ferries from goods trains bring."),
   "kit-two-platform-station": p("Two-platform station", "A station on two lines."),
   "kit-grand-terminus": p("Grand terminus", "A big station at the end of the line."),
   "kit-engine-shed": p("Engine shed", "A home for engines to rest in."),
@@ -124,12 +147,34 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-turntable": p("Turntable", "Spins an engine round to face the other way."),
   "kit-transfer-table": p("Transfer table", "Slides an engine across to another line."),
   "kit-train-lift": p(LIFT_NAME, "Lifts a train up or down a level."),
+  "kit-lift-bridge": p("Lift bridge", "Over a river at the ground. Tap: up it goes for a boat."),
   "kit-train-wash": p("Train wash", "Trains roll through and come out clean."),
   "kit-semaphore-signal": p("Semaphore signal", "An arm signal. Tap it: trains stop at red."),
   "kit-colour-light-signal": p("Colour light signal", "A light signal. Tap it: trains stop at red."),
   "kit-signal-gantry": p("Signal gantry", "Signals over the line. Tap: trains stop at red."),
   "kit-buffer-stop-lamp": p("Buffer stop", "The end of the line, with a lamp."),
   "kit-castle-gate": p("Castle gate", "Trains go in and out through the castle gate."),
+};
+
+/**
+ * Lineside furniture that does something (src/game/lineside.ts, buses.ts, crossings): what, in a line. Any other model
+ * is just a model.
+ */
+const PROP_INFO: Record<string, string> = {
+  "bldg-signal-box": "Tap it to work the points and signals near it.",
+  "mech-lever-frame": "Tap it to work the points and signals near it.",
+  "mech-telegraph-pole": "A chain of poles carries a signal box's reach.",
+  "mech-whistle-post": "Engines whistle as they pass it.",
+  "bldg-station-clock": "A clock for the platform.",
+  "mech-level-crossing": "Goes where track crosses a road.",
+  "mech-gated-crossing": "Goes where track crosses a road.",
+  "scene-bus-stop": "Near a station: a bus brings people from a town.",
+};
+
+/** Further lines for a tray item that does more than its detail says (Game mode's ways to use it). */
+const PIECE_FACTS: Partial<Record<PieceTypeId, string>> = {
+  "tunnel-mouth-short": "Or lay a Long straight up to a hill: it digs.",
+  "tunnel-mouth": "Or Draw across a hill: the line goes under.",
 };
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -162,11 +207,16 @@ const CAR_DETAIL: Record<CarKind, string> = {
   tanker: "Carries milk from a dairy farm.",
   reefer: "Keeps cheese, fish and ice cream cold on the way.",
   carrier: "Carries new cars from a car factory, on two decks.",
+  oiltank: "Carries oil from an oil well, or water from a water pump.",
+  crane: "Lifts a derailed train back on, or a stuck train off.",
+  mailvan: "Carries towns' mail to a post office, and the post on to towns.",
+  sortvan: "Sorts towns' mail into post as the train runs: no stop at the post office.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
   dining: "Passengers eat on the way.",
-  sleeper: "Passengers sleep on long trips.",
+  sleeper: "Bunks: riders going a long way pay more.",
+  observation: "Glass all round: riders pay more over bridges and hills.",
   "double-decker": "Two floors of passengers.",
   "first-class": "Comfy seats for passengers.",
   "bay-window": "Goes at the back. Its windows look out to the sides.",
@@ -176,7 +226,7 @@ const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
 function engineDetail(look: CarLook): string {
   const e = ENGINES[look] ?? ENGINES.classic!;
   const speed = e.speed === 1 ? "usual speed" : e.speed > 1 ? `${e.speed}× as fast` : `${e.speed}× speed`;
-  return `Pulls ${e.pulls} cars, ${speed}${e.quick >= 2 ? ", quick to start" : ""}.${e.electric ? " Needs power on." : ""}`;
+  return `Pulls ${e.pulls} cars, ${speed}${e.quick >= 2 ? ", quick to start" : ""}.${e.electric ? " Needs a spark of power." : ""}`;
 }
 
 /** A tray item's name and what it does (the details a long press or hover shows). */
@@ -191,6 +241,8 @@ export function trayInfo(item: TrayItem): ItemInfo {
       const look = item.looks?.[0] ?? "classic";
       if (kind === "engine") return p(item.label, engineDetail(look));
       const carries = CARRIES[kind];
+      // (A van carries a dozen goods since the goods chains: too long to list, it names a few.)
+      if (carries && carries.length > 7) return p(item.label, `Carries sacks and crates: ${listed([...carries.slice(0, 3).map((c) => CARGO[c].label.toLowerCase()), "more"])}.`);
       if (carries) return p(item.label, `Carries ${listed(carries.map((c) => CARGO[c].label.toLowerCase()))}.`);
       return p(item.label, LOOK_DETAIL[look] ?? CAR_DETAIL[kind]);
     }
@@ -199,7 +251,7 @@ export function trayInfo(item: TrayItem): ItemInfo {
     case "tool":
       return p(item.label, item.tool === "move" ? "Drag trees, fields and the shed to move them." : item.tool === "raise" ? "Tap the land to raise it a block." : "Tap the land to lower it a block.");
     case "prop":
-      return p(item.label, "A model to put by your railway.");
+      return p(item.label, PROP_INFO[item.asset] ?? "A model to put by your railway.");
     case "signal":
       return p("Signal", "Drag onto a joint: trains wait there for the track ahead.");
   }
@@ -220,7 +272,7 @@ export function engineKeyStat(e: EngineKind): string {
   const all = Object.values(ENGINES) as EngineKind[];
   const classic = ENGINES.classic!;
   if (e.quick >= 2) return `Starts and stops in ${e.quick === 2 ? "half" : `1/${e.quick} of`} the time.`;
-  if (e.electric) return "Runs only while a power station has coal.";
+  if (e.electric) return "Needs a spark of power: at steam speed without.";
   if (e.speed >= Math.max(...all.map((x) => x.speed))) return "The fastest engine.";
   if (e.pulls >= Math.max(...all.map((x) => x.pulls))) return e.quick < 1 ? "Pulls the most cars, but slow to start." : "Pulls the most cars.";
   if (e === classic) return "A good all-round engine.";
@@ -250,12 +302,14 @@ export function placeCardInfo(item: TrayItem): PlaceCardInfo {
   if (item.kind === "train" && item.cars.length === 1 && item.cars[0] === "engine") {
     const e = ENGINES[item.looks?.[0] ?? "classic"] ?? ENGINES.classic!;
     const stat = engineKeyStat(e);
-    return { name: info.name, detail: e.electric ? "Pulls a train while the power is on." : "Pulls a train of wagons and coaches.", facts: [`Pulls ${e.pulls} cars · ${speedWord(e.speed)}`, ...(stat ? [stat] : [])] };
+    return { name: info.name, detail: e.electric ? "Pulls a train fast with a spark, at steam speed without." : "Pulls a train of wagons and coaches.", facts: [`Pulls ${e.pulls} cars · ${speedWord(e.speed)}`, ...(stat ? [stat] : [])] };
   }
   if (item.kind === "piece" && item.type.startsWith("depot-")) {
-    const role = item.type.slice("depot-".length) as DepotRole;
+    // (By the piece's role: a jam kitchen's is "jamworks", not "jam".)
+    const role = INDUSTRY_ROLE[item.type] ?? (item.type.slice("depot-".length) as DepotRole);
     const recipe = role in RECIPES ? recipeWords(role) : "";
     return { ...info, facts: recipe ? [recipe] : [] };
   }
-  return { ...info, facts: [] };
+  const fact = item.kind === "piece" ? PIECE_FACTS[item.type] : undefined;
+  return { ...info, facts: fact ? [fact] : [] };
 }

@@ -1,12 +1,13 @@
 import { Group, Mesh } from "three";
 import { buildCarModel } from "../../render/train-models";
-import { buildPieceGeometry, withPegs } from "../../render/track-geometry";
+import { withPegs } from "../../render/track-geometry";
+import { buildPieceGeometry } from "../../render/piece-carve";
 import { CAR_KINDS, type CarKind } from "../../sim/cars";
 import { getPieceDef, isBridge, isJoin, isKit, PIECE_TYPES, type PieceTypeId } from "../../track";
 import type { Asset } from "../types";
 
 /** The game's own track pieces and cars, for reference beside the new ideas. */
-const CAR_NAMES: Record<CarKind, string> = { engine: "Engine", hopper: "Hopper wagon", passenger: "Passenger coach", caboose: "Caboose", timber: "Flatbed wagon", van: "Goods van", cleaner: "Track cleaner", tanker: "Milk tank wagon", reefer: "Cold van", carrier: "Car carrier" };
+const CAR_NAMES: Record<CarKind, string> = { engine: "Engine", hopper: "Hopper wagon", passenger: "Passenger coach", caboose: "Caboose", timber: "Flatbed wagon", van: "Goods van", cleaner: "Track cleaner", tanker: "Milk tank wagon", reefer: "Cold van", carrier: "Car carrier", oiltank: "Tank wagon", crane: "Breakdown crane", mailvan: "Mail van", sortvan: "Sorting van" };
 
 const pieces: Asset[] = PIECE_TYPES.filter((type) => !isJoin(type) && !isKit(type)).map((type: PieceTypeId) => ({
   id: `game-${type}`,
@@ -17,7 +18,7 @@ const pieces: Asset[] = PIECE_TYPES.filter((type) => !isJoin(type) && !isKit(typ
   inGame: true,
   build: (k) => {
     const g = new Group();
-    const mesh = new Mesh(withPegs(buildPieceGeometry(getPieceDef(type, false), isBridge(type) ? 1 : 0), getPieceDef(type, false)), [k.mats.track, k.mats.trackCut, k.mats.bridgePaint]);
+    const mesh = new Mesh(withPegs(buildPieceGeometry(getPieceDef(type, false), isBridge(type) ? 1 : 0), getPieceDef(type, false)), [k.mats.track, k.mats.trackCut, k.mats.bridgePaint, k.mats.viaductStone]);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // Raised pieces stand on their arches: bring the lowest point to the ground.

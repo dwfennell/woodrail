@@ -124,6 +124,8 @@ export interface SectionsHost {
   drive(train: Train): number;
   /** Move an engine's route on past its stops on these pieces (they can't be reached now). */
   skipStops(engine: number, pieces: ReadonlySet<number>): void;
+  /** Are these two pieces tracks of the same depot (a depot of several tracks)? A train there calls at its stop. */
+  sameDepot?(a: number, b: number): boolean;
   /** The way points lie once trains have passed (the router's default; as they lie now if not given). */
   restsAt?(pieceId: number): number;
   /**
@@ -780,7 +782,14 @@ export class Sections {
       if (st.move) return Infinity;
       if (now - st.askedAt < CHECK_TICKS) return st.wait ? 0 : Infinity;
       st.askedAt = now;
-      return this.recover(st, info, train, front) ? Infinity : 0;
+      if (!this.recover(st, info, train, front)) return 0;
+      // (Nothing in its way now: what it last waited for is over. Kept, it held the train between looks for good (a
+      // train on no line going round a ring, its way no slot: `recover` let it go, the old wait stood it still; 2026-11-05).)
+      if (st.wait && !st.move) {
+        st.wait = null;
+        st.waitSince = -1;
+      }
+      return Infinity;
     }
     // In a slot, with a train of its line put down facing it on the way to the slot's end: one gives way.
     if (this.facing(st, info, train)) return 0;
@@ -929,7 +938,8 @@ export class Sections {
       const loop = topo.loops[sl.loop];
       const other = topo.slots[loop.roads[0] === slot ? loop.roads[1] : loop.roads[0]].pieces;
       const target = this.host.target(st.engine);
-      if (target >= 0 && other.has(target) && !sl.pieces.has(target)) this.host.skipStops(st.engine, other);
+      // (Not when this road is a track of the same depot as its stop: depot tracks. It calls there.)
+      if (target >= 0 && other.has(target) && !sl.pieces.has(target) && ![...sl.pieces].some((p) => this.host.sameDepot?.(p, target))) this.host.skipStops(st.engine, other);
     }
     st.ahead.add(front.pieceId);
     let exit = front.reversed ? path.from : (path.to ?? -1);
@@ -1427,6 +1437,53 @@ export class Sections {
     return !m || !m.steps.some((s) => along.get(s.pieceId) === this.exitOf(s));
   }
 
+  /**
+   * Is train `u`, on no line, going round a circuit with no move held, clear of a way (`along`: piece → the end it's come
+   * onto by): not on it, and never running a piece of it the other way round (coming at it head on)? Then it isn't in
+   * that way, though it's in the section: a ring is one section, and a train going round it non-stop would keep it for
+   * good (2026-11-05, the town-ring fuzz: a routed train waiting in a loop to go round the other way stood for ever).
+   * Going the same way it only ever follows, or is followed, and the sim keeps them apart.
+   */
+  private clearOfCircling(u: number, along: ReadonlyMap<number, number>): boolean {
+    if (this.states.get(u)?.move) return false;
+    const c = this.circuitOf(u);
+    if (!c?.yes) return false;
+    const t = this.sim.findCar(u)?.train;
+    if (!t || t.bogies.some((b) => along.has(b.pieceId))) return false;
+    for (const [p, e] of along) if (c.outs.has(p * 8 + e)) return false;
+    return true;
+  }
+
+  /**
+   * A train's way from `start` as steering would take it (the plan's way at points to its stop, a switch under it as it
+   * lies), up to its stop's piece, a slot, or the end: piece → the end it comes onto it by. For a way that reaches no
+   * slot (`wayOn` null), so a train going round a ring can be judged clear of it (`clearOfCircling`).
+   */
+  private walkAlong(st: TrainState, start: { pieceId: number; entry: number }, topo: Topology): Map<number, number> {
+    const { layout } = this;
+    const out = new Map<number, number>();
+    const target = this.host.target(st.engine);
+    const keep = this.host.keep?.(st.engine);
+    const own = this.sim.findCar(st.engine)?.train;
+    let at: { pieceId: number; entry: number } | null = start;
+    for (let k = 0; at && k < SEARCH && !out.has(at.pieceId); k++) {
+      out.set(at.pieceId, at.entry);
+      if (at.pieceId === target || topo.slotOf.has(at.pieceId)) break;
+      const ways = waysFrom(layout, at.pieceId, at.entry);
+      if (ways.length === 0) break;
+      let w = ways[0];
+      const p = at.pieceId;
+      const under = own?.bogies.find((b) => b.pieceId === p);
+      if (ways.length > 1 && under) w = ways.find((x) => x.path === under.pathIndex) ?? w;
+      else if (ways.length > 1) {
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
+        w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
+      }
+      at = next(layout, at.pieceId, w.exit);
+    }
+    return out;
+  }
+
   /** The end a step leaves its piece by (−1: a buffer). */
   private exitOf(s: Step): number {
     const piece = this.layout.getPiece(s.pieceId);
@@ -1489,6 +1546,7 @@ export class Sections {
     for (const u of info.users) {
       if (u === engine) continue;
       if (along && this.follows(info, engine, u) && this.sameWayAhead(u, along)) continue;
+      if (along && info.loose.includes(u) && this.clearOfCircling(u, along)) continue;
       const m = this.states.get(u)?.move;
       if (m && m.sections.includes(section)) return u;
       const t = this.sim.findCar(u)?.train;
@@ -1526,6 +1584,11 @@ export class Sections {
       ahead = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
       if (ahead && ahead.dest !== DEAD_END) {
         along = this.alongOf(ahead.steps, topo);
+        u = this.sectionUser(info, section, st.engine, along);
+      } else if (!ahead && info.loose.includes(u)) {
+        // (Its way reaches no slot (its stop on a ring): walked to its stop, for a train on no line going round there
+        // to be in its way only if it's on it, or comes at it head on: `clearOfCircling`.)
+        along = this.walkAlong(st, { pieceId: st.exitPiece, entry: st.exitEntry }, topo);
         u = this.sectionUser(info, section, st.engine, along);
       }
     }

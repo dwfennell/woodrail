@@ -7,6 +7,7 @@ import { ASSETS as scenery } from "./scenery";
 import { ASSETS as track } from "./track";
 import { ASSETS as trains } from "./trains";
 import { ASSETS as vehicles } from "./vehicles";
+import { ASSETS as water } from "./water";
 
 /** Every asset in the catalogue. */
-export const CATALOGUE: Asset[] = [...trains, ...track, ...buildings, ...mechanisms, ...vehicles, ...life, ...scenery, ...inGame];
+export const CATALOGUE: Asset[] = [...trains, ...track, ...buildings, ...mechanisms, ...vehicles, ...water, ...life, ...scenery, ...inGame];

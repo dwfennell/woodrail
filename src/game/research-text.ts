@@ -2,7 +2,7 @@ import { CARGO, COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
 import { describeNeed, type Need } from "./blueprints";
-import { canResearch, chainBlock, chainOf, coinsShort, costOf, lacks, missingNeeds, nowTarget, QUEUE_MAX, queueOf, queuePlace, studying, studyLeft, studyTime } from "./research";
+import { aheadLacking, canResearch, chainBlock, chainOf, coinsShort, costOf, lacks, missingNeeds, nowTarget, QUEUE_MAX, queueOf, queuePlace, READING_ROOM, studying, studyLeft, studyTime } from "./research";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./tech";
 import { ruleOf } from "./things";
 
@@ -280,8 +280,11 @@ function chainCard(p: Progress, id: string, school: string | null): ResearchCard
   if (block && "stuck" in block) {
     const s = techOf(block.stuck);
     const unmet = s?.requires.filter((n) => !needMet(p, n)) ?? [];
-    const words = s?.plan ? `${shortLabel(block.stuck)} isn't in the game yet` : `${shortLabel(block.stuck)} needs ${unmet.map(describeNeed).join(" and ")} first`;
-    return { ...base, why: words, action, blocked: true };
+    // (A town to grow: the step the player can take. QA 2026-11-05 #4.)
+    const grow = unmet.some((n) => n.kind === "level") ? ": grow a town into one" : "";
+    const words = s?.plan ? `${shortLabel(block.stuck)} isn't in the game yet` : `${shortLabel(block.stuck)} needs ${unmet.map(describeNeed).join(" and ")} first${grow}`;
+    // No button: it couldn't be pressed (QA 2026-11-05 #4: a greyed "Research Sugar beet now" read as a promise).
+    return { ...base, why: words, blocked: true };
   }
   if (!school) return { ...base, why: "Needs a school", action, blocked: true };
   if (block) return { ...base, why: q.length >= QUEUE_MAX ? `The queue is full (${QUEUE_MAX})` : `Needs ${block.full} places in the queue (${QUEUE_MAX - q.length} left)`, action, blocked: true };
@@ -449,7 +452,21 @@ export function schoolCard(p: Progress): { piles: { label: string; count: number
   const piles = (Object.keys(goods) as CargoKind[]).map((k) => ({ label: GOODS_ICON[k], count: r.got[k] ?? 0, cap: goods[k]! }));
   // (A college studies twice as fast: said while it matters, the goods all in.)
   const fast = r.speed > 1 ? " (college: 2×)" : "";
-  return { piles, note: (studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}`) + then, idle: false };
+  return { piles, note: (studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}`) + then + readingAhead(p), idle: false };
+}
+
+/**
+ * The Reading room's line on the school's card: what the research up next has collected ahead, of what it needs
+ * (" · Reading ahead for Mills: 🌾3/6"); "" without the Reading room or nothing up next.
+ */
+export function readingAhead(p: Progress): string {
+  const r = p.research;
+  if (r.next === null || !p.learned.has(READING_ROOM)) return "";
+  const goods = costOf(r.next, p.learned).goods;
+  const kinds = Object.keys(goods) as CargoKind[];
+  if (kinds.length === 0) return "";
+  const parts = kinds.map((k) => `${GOODS_ICON[k]}${goods[k]! - aheadLacking(p, k)}/${goods[k]}`);
+  return ` · Reading ahead for ${label(r.next)}: ${parts.join(" ")}`;
 }
 
 /** The school's idle line, as a research finishes with nothing up next: "Larkfield school is idle: pick what to learn next". */
@@ -478,8 +495,12 @@ export class IdleNotice {
  * use it (`how`, else its blurb). The toast adds the goal it opens and, when the queue moves on, what's studied next
  * (QA 2026-11-03: that was a second toast, "Learned Switches! Next: Tank engine", after "Learned switches! …").
  */
-export function learnedText(o: { label: string; makes: string; how?: string; blurb: string; present?: string; goal?: string; next?: string }): { line: string; toast: string } {
+export function learnedText(o: { label: string; makes: string; how?: string; blurb: string; present?: string; goal?: string; tip?: string; next?: string }): { line: string; toast: string; tipped: boolean } {
   const line = `Learned ${o.label}! ${o.makes || o.how || o.blurb}${o.present ?? ""}`;
-  const toast = [line, o.goal, o.next ? `Next: ${o.next}` : ""].filter(Boolean).join(" · ");
-  return { line, toast };
+  // A feature's tip (feature-tips.ts): how to start using it, unless the line says it already (its `how`).
+  // (Its first clause is enough to tell: Sidings' how "Tap an industry, then Second track" is its tip's start.)
+  const said = o.tip && (line.includes(o.tip) || line.includes(o.tip.split(":")[0]));
+  const tip = o.tip && !said ? `💡 ${o.tip}` : "";
+  const toast = [line, o.goal, tip, o.next ? `Next: ${o.next}` : ""].filter(Boolean).join(" · ");
+  return { line, toast, tipped: !!tip };
 }
