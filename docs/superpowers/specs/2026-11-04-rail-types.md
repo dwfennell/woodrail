@@ -323,7 +323,7 @@ Each lands alone, with its e2e on the player's path (research → tray → lay �
 
 | | Metro | For comparison |
 |---|---|---|
-| Research | 400🪙 + 10🪵 + 40 iron, tier 3, after Tunnels and Electricity, a City ★ (and so a school beside a city) | Busy stations 0🪙; Big stations 120🪙 |
+| Research | 400🪙 + 10🪵 + 40 iron, tier 3, after Tunnels and Electricity, a City ★ (and so a school beside a city) | Big stations 6🪵 + 120🪙 |
 | A stop | **600🪙** + 10🪵 + 25 iron | a country halt 6🪵; a lookout 40🪙 + 6🪵 |
 | The train | **400🪙** + 6🪵 + 15 iron, its three cars besides | an engine 6🪵, a coach a few planks; no other train costs coins |
 | Digging | **60🪙 a square** of town the line runs under, once. Refused when the coins are short ("Digging under the town costs 180🪙: you have 30🪙") | a tunnel's mouths 20–30🪙 each; roads by the square |
