@@ -1,4 +1,5 @@
 import { BatchedMesh, Frustum, Group, Matrix4, Quaternion, Sphere, Vector3, type BufferGeometry, type Camera, type Material, type PerspectiveCamera } from "three";
+import { compacted, makeRoom, type BatchRoom } from "./compact";
 import type { PropStore } from "../props/store";
 import { angleOf, CLOCK_ASSETS, handAngles, handMatrix, type ClockHand, type ClockHands } from "./clock-hands";
 import { modelKey } from "./props/library";
@@ -36,7 +37,7 @@ interface Placed {
 interface Batch {
   readonly mesh: BatchedMesh;
   readonly geometryOf: Map<BufferGeometry, number>;
-  vertices: number;
+  room: BatchRoom;
   count: number;
 }
 
@@ -327,12 +328,9 @@ export class ClockView {
     const mesh = batch.mesh;
     let gid = batch.geometryOf.get(geometry);
     if (gid === undefined) {
-      const need = geometry.getAttribute("position").count;
-      if (mesh.unusedVertexCount < need) {
-        batch.vertices = Math.max(batch.vertices * 2, batch.vertices + need);
-        mesh.setGeometrySize(batch.vertices, batch.vertices * 2);
-      }
-      gid = mesh.addGeometry(geometry);
+      const g = compacted(geometry);
+      makeRoom(mesh, batch.room, g);
+      gid = mesh.addGeometry(g);
       batch.geometryOf.set(geometry, gid);
     }
     if (mesh.instanceCount >= mesh.maxInstanceCount) mesh.setInstanceCount(mesh.maxInstanceCount * 2);
@@ -350,7 +348,7 @@ export class ClockView {
       mesh.receiveShadow = true;
       mesh.name = "clock hands";
       this.group.add(mesh);
-      batch = { mesh, geometryOf: new Map(), vertices: START_VERTICES, count: 0 };
+      batch = { mesh, geometryOf: new Map(), room: { vertices: START_VERTICES, indices: START_VERTICES * 2 }, count: 0 };
       this.batches.set(material, batch);
     }
     return batch;

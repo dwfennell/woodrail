@@ -38,6 +38,7 @@ export const CREDITS: readonly Credit[] = [
   { what: "three.js", by: "The three.js authors", use: "Drawing the 3D world", licence: "MIT", link: "https://github.com/mrdoob/three.js/blob/dev/LICENSE" },
   { what: "three-mesh-bvh and three-bvh-csg", by: "Garrett Johnson", use: "Carving the track pieces", licence: "MIT", link: "https://github.com/gkjohnson/three-mesh-bvh/blob/master/LICENSE" },
   { what: "polygon-clipping", by: "Mike Fogel", use: "Shaping the track pieces", licence: "MIT", link: "https://github.com/mfogel/polygon-clipping/blob/master/LICENSE" },
+  { what: "meshoptimizer", by: "Arseny Kapoulkine", use: "Simpler buildings far away", licence: "MIT", link: "https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md" },
   { what: "Zod", by: "Colin McDonnell", use: "Checking saves as they load", licence: "MIT", link: "https://github.com/colinhacks/zod/blob/main/LICENSE" },
 ];
 
