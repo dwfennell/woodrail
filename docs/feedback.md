@@ -77,6 +77,38 @@ npm run replay -- feedback-<id>.txt
 (`.json`), and prints the note and device. With just an id it needs `--url <worker>` or `WOODRAIL_CLOUD_URL`. With no
 token set (no issues), list them: `ADMIN_KEY=… npm run feedback -- --list --url <worker>`.
 
+## Crash reports
+
+Errors on players' phones never reached us: a crash on itch.io is a tab that falls over with nothing sent. So when the
+game hits an **uncaught error or rejection**, or the browser takes its drawing away (a **lost WebGL context**: on a
+phone, most often memory), it sends one small report to the same Worker: `POST /crash` (`src/feedback/crash.ts`, the
+Worker's `cloud/src/crash.ts`).
+
+| Field | Holds |
+| --- | --- |
+| `kind` | `error`, `rejection` or `context-lost` |
+| `message` | the error's message, 300 characters at most |
+| `stack` | its stack, links cut to `file:line:col` (no host, no query, no `#…`), 2000 characters at most |
+| `build` | the build id |
+| `userAgent` | the browser's user agent (browser and OS) |
+| `screen` | `{ width, height, dpr }` |
+| `pixelRatio` | the drawing's pixel ratio then |
+| `quality` | the graphics tier: `high`, `mobile`, or `mobile-lean` |
+
+No map, no save, no id of the player. At most one a session (`sessionStorage`), and none once the player switches
+them off: ☰ **Crash reports: on / off** (after Copy map; `localStorage` `woodrail.crashReports` = `off`). It shows in a
+build with a Worker to send to, as feedback does, and listens from before the game is made, so a failure while loading
+is sent too. The request is a `text/plain` `fetch` with `keepalive` (no preflight; it goes even as the tab closes).
+
+The Worker keeps each in R2 under `crash/<newest first>-<id>.json` and opens no issue. Limits: 8 KB a body; the same
+per-IP `FEEDBACK_LIMIT` (its own key). The same pages may send as for feedback (CORS). The latest 100, newest first:
+
+```sh
+curl -s -H "Authorization: Bearer <your admin key>" https://woodrail-cloud.<subdomain>.workers.dev/crash
+```
+
+Deploying the Worker with `crash.ts` is all it needs (no new secret or binding).
+
 ## Setting it up (the user does this; never put a token in the repo or in chat)
 
 The Worker is deployed by hand (`cloud/README.md`), never from CI. Once it's deployed:
@@ -114,6 +146,9 @@ whole thing, unset `WOODRAIL_CLOUD_URL` (that also turns off cloud saves and sta
 
 - `npm test` (`src/feedback/feedback.test.ts`): the payload (the map always with a bug), the size cap (the picture
   dropped first), Copy instead's text, the picture's size, sending and its errors.
+- `npm test` (`src/feedback/crash.test.ts`): a crash report's fields (only those above), the stack's links cut, once
+  a session, none when switched off. `npm --prefix cloud test` (`cloud/test/crash.test.ts`): only the known fields
+  kept, stored and listed newest first, other pages, junk and big bodies turned away.
 - `npm --prefix cloud test` (`cloud/test/feedback.test.ts`): the checks, storing and reading back, the issue with a
   mocked GitHub API (title, label, links, no token, GitHub failing, the day's cap), the size cap, the per-IP limit,
   CORS, and the admin list.

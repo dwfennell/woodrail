@@ -3,10 +3,14 @@
 // game draws again (shadows and the environment map made again, the card gone). Lost for good: "The picture stopped",
 // a tap on "Tap to reload", and the game is back in play with the railway as it was (saved as the drawing went), lean
 // from then on (a pixel ratio of 1.5). Idle, it draws nothing, before and after.
+// Crash reports (src/feedback/crash.ts): the first loss sends one, holding only the error and the device (no map, no
+// save); the second sends none (one a session). ☰ "Crash reports: on" switches them off, and an error then sends
+// nothing; on again (a new session), an uncaught error sends one with its stack's links cut short.
 //
 // Harness shortcuts (named; not what's tested): the context is lost and given back with WEBGL_lose_context (what the
 // browser does on its own); the piece laid to tell the railway is kept is laid through the editor, not the tray; the
-// idle checks pause the game by its flag (a running train draws).
+// idle checks pause the game by its flag (a running train draws); the Worker's /crash is answered by the page's route,
+// read with the Worker's own parser (its handling is cloud/test/crash.test.ts's); a new session is a cleared flag.
 //
 // Usage: npm run e2e:gl-lost [-- <out dir>]   (default out: e2e-out/gl-lost)
 import { existsSync, mkdirSync } from "node:fs";
@@ -18,8 +22,11 @@ import { pinClocks } from "../../scripts/e2e/pin-clocks.mjs";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/gl-lost";
 mkdirSync(OUT, { recursive: true });
+const FEEDBACK = "http://feedback.test";
+process.env.VITE_FEEDBACK_URL = FEEDBACK;
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5397, strictPort: false }, logLevel: "error" });
 await server.listen();
+const { parseCrash } = await server.ssrLoadModule("/cloud/src/crash.ts");
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -28,7 +35,25 @@ const ctx = await b.newContext({ viewport: { width: 412, height: 915 }, deviceSc
 await pinClocks(ctx);
 const p = await ctx.newPage();
 const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
+p.on("pageerror", (e) => { if (!e.message.includes("e2e: on purpose")) errors.push(e.message); });
+/** Crash reports the game sent, as posted. */
+const crashes = [];
+await ctx.route(`${FEEDBACK}/**`, async (route) => {
+  if (route.request().url().endsWith("/crash")) crashes.push(route.request().postData() ?? "");
+  await route.fulfill({ status: 201, body: "{}", headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" } });
+});
+const tap = async (selector, text) => {
+  await p.waitForTimeout(400);
+  const r = await p.evaluate(({ s, text }) => {
+    const el = [...document.querySelectorAll(s)].find((e) => e.getBoundingClientRect().width > 0 && !e.closest("[hidden]") && (!text || e.textContent.includes(text)));
+    if (!el) return null;
+    const b = el.getBoundingClientRect();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  }, { s: selector, text });
+  if (r) await p.touchscreen.tap(r.x, r.y);
+  return !!r;
+};
+const menuItem = (text) => p.evaluate((t) => [...document.querySelectorAll(".menu-item")].find((e) => e.textContent.startsWith(t))?.textContent ?? null, text);
 await p.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
   localStorage.setItem("woodrail.stats.asked", "1");
@@ -91,6 +116,12 @@ const lum = await drawn();
 check("back: the game draws again", (await p.evaluate(() => window.woodrail.framesDrawn)) > f1 && lum > 20, `brightness ${lum.toFixed(0)}`);
 check("…and no card", !(await cardShown()));
 await shot("1-restored");
+await p.waitForTimeout(500);
+const first = crashes[0] ? JSON.parse(crashes[0]) : null;
+check("a crash report sent for the loss", crashes.length === 1 && first?.kind === "context-lost", `${crashes.length} sent`);
+check("…holding only the error and the device: no map, no save", !!first && JSON.stringify(Object.keys(first).sort()) === JSON.stringify(["build", "kind", "message", "pixelRatio", "quality", "screen", "stack", "userAgent"]) && !crashes[0].includes("woodrail-map"), crashes[0]);
+check("…the screen, DPR and tier", first?.screen?.dpr === 2.625 && first?.pixelRatio === 2 && first?.quality === "mobile", JSON.stringify({ screen: first?.screen, pr: first?.pixelRatio, q: first?.quality }));
+check("…which the Worker takes", typeof parseCrash(first) === "object");
 
 // 3. Lost for good: a piece laid just before, the card, a tap to reload.
 const pieces = await p.evaluate(() => {
@@ -105,6 +136,7 @@ check("lost, not back: “The picture stopped”", await cardShown(), await p.ev
 const btn = await p.evaluate(() => { const r = document.querySelector(".gl-lost button")?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height } : null; });
 check("…its button 44 px or more", !!btn && btn.h >= 44 && btn.w >= 44, JSON.stringify(btn));
 check("…the device kept as lean from now", await p.evaluate(() => Number(localStorage.getItem("woodrail.gpuLost")) > 0));
+check("…no second crash report (one a session)", crashes.length === 1, `${crashes.length} sent`);
 await shot("2-card");
 await p.touchscreen.tap(btn.x, btn.y);
 await p.waitForLoadState("load");
@@ -120,6 +152,26 @@ check("…it draws", lum2 > 20, `brightness ${lum2.toFixed(0)}`);
   check("idle, lean: nothing drawn", n === 0, `${n} frames`);
 }
 await shot("3-lean");
+
+// 4. Crash reports switched off in ☰, then on again.
+await tap(".hud button[title='Menu'], button[aria-label='Menu']");
+check("☰ says “Crash reports: on”", (await menuItem("Crash reports")) === "Crash reports: on");
+await shot("4-menu");
+await tap(".menu-item", "Crash reports");
+check("…a tap: “Crash reports: off”, kept", (await menuItem("Crash reports")) === "Crash reports: off" && (await p.evaluate(() => localStorage.getItem("woodrail.crashReports"))) === "off");
+await p.keyboard.press("Escape");
+// (A new session: the once-a-session flag cleared.)
+await p.evaluate(() => { sessionStorage.removeItem("woodrail.crashSent"); setTimeout(() => { throw new Error("e2e: on purpose, off"); }); });
+await p.waitForTimeout(1500);
+check("off: an error sends nothing", crashes.length === 1, `${crashes.length} sent`);
+await tap(".hud button[title='Menu'], button[aria-label='Menu']");
+await tap(".menu-item", "Crash reports");
+check("…on again", (await menuItem("Crash reports")) === "Crash reports: on");
+await p.keyboard.press("Escape");
+await p.evaluate(() => setTimeout(() => { throw new Error("e2e: on purpose, on"); }));
+await p.waitForTimeout(1500);
+const err = crashes[1] ? JSON.parse(crashes[1]) : null;
+check("on: an uncaught error sends one, its stack's links cut short", crashes.length === 2 && err?.kind === "error" && err.message.includes("on purpose, on") && !/https?:|localhost/.test(err.stack) && err.quality === "mobile-lean", crashes[1] ?? "");
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

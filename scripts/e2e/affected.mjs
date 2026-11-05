@@ -83,6 +83,8 @@ export const RULES = [
   ["src/main.ts", CORE],
   ["src/style.css", [...CORE, "names", "locked", "focus-ring"]],
   ["cloud/**", ["cloud", "stats", "touch:feedback", "click:feedback"]],
+  // Crash reports: sent on a lost drawing and on errors, and the ☰ switch (e2e:gl-lost).
+  [["src/feedback/crash.ts", "cloud/src/crash.ts"], ["gl-lost"]],
 
   // Simulation and routing.
   ["src/sim/**", ["touch", "click:model-train,routes", "signals", "train-summary", "train-parts", "lift", "loop", "kits", "decks"]],
