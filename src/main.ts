@@ -2228,7 +2228,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (id === "vans") deliveryVans.sync();
     if (id === "buses") buses.sync();
     if (id === "tunnels") game.setTunnels(true);
-    // (A gift isn't made: it's the present, said below.)
     const makes = unlocksOf(id).filter((t) => !isGift(t)).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
     // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
