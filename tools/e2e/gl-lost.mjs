@@ -56,7 +56,7 @@ const tap = async (selector, text) => {
 /** Open ☰, unless it's open already (Escape closes it in some versions, not in others). */
 const openMenu = async () => {
   const open = await p.evaluate(() => [...document.querySelectorAll(".menu-item")].some((e) => e.getBoundingClientRect().width > 0 && !e.closest("[hidden]")));
-  if (!open) await openMenu();
+  if (!open) await tap(".hud button[title='Menu'], button[aria-label='Menu']");
 };
 const menuItem = (text) => p.evaluate((t) => [...document.querySelectorAll(".menu-item")].find((e) => e.textContent.startsWith(t))?.textContent ?? null, text);
 await p.addInitScript(() => {
@@ -76,6 +76,10 @@ const lose = () => p.evaluate(() => { const ext = window.woodrail.renderer.getCo
 /** Frames drawn over a few still seconds, paused (should be none: a running train would draw). */
 const idleFrames = async () => {
   await p.evaluate(() => (window.woodrail.paused = true));
+  // (A first visit's own work done first: tray pictures drawn and kept, track carved, each landing with a frame.)
+  await p.evaluate(() => Promise.race([window.woodrail.trayThumbnailsSaved(), new Promise((r) => setTimeout(r, 60000))]));
+  await settle();
+  await p.waitForTimeout(1500);
   await settle();
   const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.waitForTimeout(4000);
