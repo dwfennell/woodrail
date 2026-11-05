@@ -64,6 +64,8 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "balloon-loop-small", label: "Small loop" },
   { kind: "piece", type: "wye", label: "Wye" },
   { kind: "piece", type: "ramp", label: "Ramp" },
+  { kind: "piece", type: "rack", label: "Rack" },
+  { kind: "piece", type: "rack-short", label: "Short rack" },
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
   { kind: "piece", type: "underpass", label: "Underpass" },
@@ -87,6 +89,9 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
   { kind: "train", cars: ["engine"], looks: ["express"], label: "Express" },
   { kind: "train", cars: ["engine"], looks: ["goods"], label: "Goods engine" },
+  { kind: "train", cars: ["engine"], looks: ["rack"], label: "Rack engine" },
+  // (Game mode's once Metro is learned: a motor car and two cars, as one.)
+  { kind: "train", cars: ["engine", "passenger", "passenger"], looks: ["metro", "metro", "metro"], label: "Metro train", unlearned: "hide" },
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Flatbed wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
@@ -127,7 +132,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
   { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "switch-3way-double", "crossover", "wye", "crossing", "crossing-45", "slip-single", "slip-double"), SIGNAL_ITEM] },
-  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser") },
+  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser", "rack", "rack-short") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
 ];
@@ -137,6 +142,7 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   // ready-made set picks the cars for the player.
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2), modes: ["sandbox"] },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
+  { label: "Metro", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.label === "Metro train") },
   { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "carrier" || i.cars[0] === "mailvan" || i.cars[0] === "oiltank" || i.cars[0] === "crane" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
@@ -276,7 +282,7 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
   },
   {
     label: "Halts",
-    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform")],
+    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform"), kit("kit-lookout", "Lookout halt"), kit("kit-metro-stop", "Metro stop")],
   },
   {
     label: "Lineside",

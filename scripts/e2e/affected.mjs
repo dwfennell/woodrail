@@ -59,6 +59,8 @@ export const SUITES = {
   post: { script: "e2e:post", minutes: 5 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   crane: { script: "e2e:crane", minutes: 4 },
+  rack: { script: "e2e:rack", minutes: 3 },
+  metro: { script: "e2e:metro", minutes: 3 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -75,6 +77,16 @@ const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade",
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
+  // The rack and the lookout halt: the pieces, the sim's rule, the engine, the stop, the card, the tray.
+  [
+    ["src/sim/sim.ts", "src/sim/cars.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/game/engines.ts", "src/game/engine-status.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts", "src/ui/piece-info.ts", "src/landscape/hill-shape.ts"],
+    ["rack"],
+  ],
+  // The metro: its stops under towns, its train, its riders and costs, the town growing over the line.
+  [
+    ["src/game/metro.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/progress.ts", "src/game/interaction.ts", "src/economy/economy.ts", "src/landscape/clearance.ts", "src/landscape/trees-aside.ts", "src/track/kits.ts", "src/render/props/library.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts"],
+    ["metro"],
+  ],
   // The suites themselves, and what they share.
   ["scripts/e2e/lib/**", CORE],
   ["scripts/e2e/feedback-flow.mjs", ["touch:feedback", "click:feedback"]],

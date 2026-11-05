@@ -47,7 +47,8 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, LOOKOUT_KIT, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
@@ -786,7 +787,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const haltReach = new HaltReachView(game.scene, HALT_REACH);
   interaction.onHeld = (type) => {
     heldChains(type);
-    const show = mode === "game" && type !== null && HALT_KITS.has(type);
+    const show = mode === "game" && type !== null && HALT_KITS.has(type) && type !== LOOKOUT_KIT && type !== METRO_KIT;
     if (show === haltReach.showing) return;
     if (show) haltReach.show(game.landscape);
     else haltReach.hide();
@@ -1333,6 +1334,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function onChange(): void {
     game.trackChanged();
     industriesChanged();
+    // Game mode: squares of town newly dug under (a metro's tunnels) are paid for now they're down (checked first:
+    // `digWhy`, in the site rule).
+    if (mode === "game") {
+      const paid = settleDigging(progress, squaresDugUnder(game.world));
+      if (paid > 0) {
+        hud.setCoins(progress.coins);
+        hud.toast(`Dug under the town: ${paid}🪙`, false, 2200);
+      }
+    }
     updateConnections(true);
     checkGoals(true);
     hud.setHistory(editor.canUndo, editor.canRedo);
@@ -2075,6 +2085,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let industryKey = "";
   /** How the yards look (`industriesChanged`), as last drawn: null, never drawn by it. */
   let industryLook: string | null = null;
+  /** Each metro train's seconds since it last drew a coal (metro.ts). */
+  const metroClock = new Map<number, number>();
   function industriesChanged(): void {
     const added = syncIndustries(game.world, mode === "game");
     let key = "";
@@ -2680,6 +2692,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else warnedHeavy.delete(id);
     }
     peopleArrive(game.world, progress, 1, peopleClock);
+    // Metro trains draw power: a coal from a power station now and then, as they run.
+    metroDraw(game.world, 1, metroClock);
+    // (A town grown out over a line two levels down: those squares weren't dug for it, so nothing's paid.)
+    if (mode === "game") settleDigging(progress, squaresDugUnder(game.world), false);
     // A bus at a station's stop goes for the people waiting in its town off the line.
     if (mode === "game" && !game.paused) buses.update();
     // (Placed again only when what the towns have had or the land changed: a key compared, else nothing.)
@@ -5343,7 +5359,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
     // (A school stands beside a town, one a town: the one being moved doesn't count against itself.)
     interaction.siteRule =
-      mode === "game" ? (type, pose, ignoreId) => siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id)), plantedCells(game.landscape, game.world.props)) ?? haltWhy(game.landscape, type, pose) : null;
+      mode === "game"
+        ? (type, pose, ignoreId, y) =>
+            siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id)), plantedCells(game.landscape, game.world.props)) ??
+            haltWhy(game.landscape, type, pose) ??
+            // (Two levels under a town: the digging's paid for as it goes down, and refused if the coins are short.)
+            (y !== undefined ? digWhy(game.world, progress, type, pose, y) : null)
+        : null;
     // Tunnels: learned in Game mode, always in Sandbox.
     game.setTunnels(mode === "sandbox" || progress.learned.has("tunnels"));
     // A drawn line uses only the pieces in the toy box (Game mode).
@@ -5362,6 +5384,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       progress.coverMap(game.world);
       // (The lanes the map came with are yours: a new game's, or a save's from before roads were bought.)
       progress.coverRoads(roadsOnMap(game.landscape.grid));
+      // (Squares dug under towns before digging was paid for (an older save's tunnels): counted as paid.)
+      progress.dug = Math.max(progress.dug, squaresDugUnder(game.world));
       // (A save from before first-time gifts: its towns' levels were reached already.)
       for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
       // (A save from before the first-flour bonus whose towns have had flour: it's had its first.)

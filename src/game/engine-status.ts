@@ -5,6 +5,7 @@ import { kitOf, type Layout } from "../track";
 import { storeSkipText } from "./warehouse-text";
 import { keptText } from "./workshop-text";
 import { loadHint, loadHintText } from "./chains";
+import { RACK_WAIT } from "./engines";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -21,6 +22,8 @@ export type TrainState =
   /** Carried by a train lift, or waiting for its platform (on it, about to go; or at its far end). */
   | { kind: "lift"; riding: boolean }
   | { kind: "too-heavy" }
+  /** Standing short of a rack it has no rack engine to climb (`Sim.rackHeld`). */
+  | { kind: "rack"; pieceId: number }
   | { kind: "no-power" }
   | { kind: "slowing" }
   | { kind: "stopped" }
@@ -112,6 +115,10 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   const lift = sim.liftState(train.id);
   if (lift) return { kind: "lift", riding: lift === "riding" };
+  if (lever !== 0) {
+    const rack = sim.rackHeld(train.id);
+    if (rack !== -1) return { kind: "rack", pieceId: rack };
+  }
   if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   // Held a moment at its stop so its line's trains spread out.
@@ -426,6 +433,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     }
     case "lift":
       return s.riding ? "Riding the train lift" : "Waiting for the train lift";
+    case "rack":
+      return RACK_WAIT;
     case "too-heavy":
       return "Too heavy for its engine: take a car off, or add an engine";
     case "no-power":
