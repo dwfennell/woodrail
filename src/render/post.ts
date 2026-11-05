@@ -44,7 +44,6 @@ const LensShader = {
 };
 
 export interface Post {
-  composer: EffectComposer;
   setSize(w: number, h: number): void;
   /** Set for the camera's distance from what it looks at: the depth of field's focus, and ambient occlusion's strength. */
   setFocus(distance: number): void;
@@ -93,9 +92,12 @@ class ScenePass extends Pass {
     private readonly scene: Scene,
     private readonly camera: PerspectiveCamera,
     halfFloat: boolean,
+    samples: number,
+    depth: boolean,
   ) {
     super();
-    this.target = new WebGLRenderTarget(1, 1, { type: halfFloat ? HalfFloatType : UnsignedByteType, samples: 4, depthTexture: new DepthTexture(1, 1) });
+    // (Its depth as a texture only for the effects that read it: else a depth buffer, with nothing resolved out of it.)
+    this.target = new WebGLRenderTarget(1, 1, { type: halfFloat ? HalfFloatType : UnsignedByteType, samples, depthTexture: depth ? new DepthTexture(1, 1) : null });
   }
 
   setSize(w: number, h: number): void {
@@ -112,16 +114,40 @@ class ScenePass extends Pass {
 }
 
 export function createPost(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera, quality: QualitySettings): Post {
-  const composer = new EffectComposer(renderer);
-  // setSize is given drawing-buffer pixels, already scaled by the renderer's pixel ratio: don't scale them again.
-  composer.setPixelRatio(1);
   // Multisampled half-float targets need a colour-buffer extension: without one (some phones), antialiasing would
   // quietly fail, so draw into an 8-bit target instead (a little banding in deep shadow, but smooth edges).
   const halfFloat = renderer.extensions.has("EXT_color_buffer_float") || renderer.extensions.has("EXT_color_buffer_half_float");
-  const scenePass = new ScenePass(scene, camera, halfFloat);
+  const effects = quality.ambientOcclusion || quality.depthOfField;
+  const scenePass = new ScenePass(scene, camera, halfFloat, quality.sceneSamples, effects);
+  // Tone mapping and sRGB output happen in the lens pass, saving a full-screen pass of their own.
+  const lens = new ShaderPass(LensShader);
+
+  if (!effects) {
+    // Nothing between the scene and the lens (the mobile tier): the lens reads the scene's own target and draws to the
+    // screen. No composer, so none of its two full-screen half-float buffers (23 MB on a 1080×2424 phone at a pixel
+    // ratio of 2) and no copy into them, and no depth texture resolved (6 MB): the same picture, for a full-screen
+    // pass and that memory less.
+    lens.renderToScreen = true;
+    return {
+      setSize(w, h) {
+        scenePass.setSize(w, h);
+        lens.uniforms.resolution.value.set(w, h);
+      },
+      setFocus() {},
+      render(time) {
+        lens.uniforms.time.value = time % 100;
+        renderer.setRenderTarget(scenePass.target);
+        renderer.render(scene, camera);
+        lens.render(renderer, scenePass.target, scenePass.target, 0, false);
+      },
+    };
+  }
+
+  const composer = new EffectComposer(renderer);
+  // setSize is given drawing-buffer pixels, already scaled by the renderer's pixel ratio: don't scale them again.
+  composer.setPixelRatio(1);
   const depth = scenePass.target.depthTexture!;
   composer.addPass(scenePass);
-
   let gtao: GTAOPass | null = null;
   const aoStrength = shadowLook().contact;
   if (quality.ambientOcclusion) {
@@ -148,12 +174,9 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
     composer.addPass(bokeh);
   }
 
-  // Tone mapping and sRGB output happen in the lens pass, saving a full-screen pass of their own.
-  const lens = new ShaderPass(LensShader);
   composer.addPass(lens);
 
   return {
-    composer,
     setSize(w, h) {
       composer.setSize(w, h);
       lens.uniforms.resolution.value.set(w, h);

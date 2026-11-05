@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Sugar</title>
+<path d="M6.4 6.4 L17.6 6.4 C20.4 9 21.6 13.6 20.8 18.4 C20.4 21.2 18.8 22.8 16 22.8 L8 22.8 C5.2 22.8 3.6 21.2 3.2 18.4 C2.4 13.6 3.6 9 6.4 6.4 Z" fill="#8a7a66"/>
+<path d="M7 7.6 L17 7.6 C19.4 10 20.4 14 19.6 18.2 C19.2 20.6 18 21.6 15.8 21.6 L8.2 21.6 C6 21.6 4.8 20.6 4.4 18.2 C3.6 14 4.6 10 7 7.6 Z" fill="#f6f3ec"/>
+<path d="M8.6 2.4 L15.4 2.4 L14.2 6.6 L9.8 6.6 Z" fill="#8a7a66"/>
+<path d="M9.6 3.4 L14.4 3.4 L13.6 5.8 L10.4 5.8 Z" fill="#f6f3ec"/>
+<rect x="7.4" y="5.6" width="9.2" height="2.4" rx="1.2" fill="#c43f74"/>
+<rect x="8.2" y="6.1" width="7.6" height="1" rx="0.5" fill="#e98aa8"/>
+<rect x="9" y="12.6" width="6" height="6" rx="1" fill="#d6cfc2"/>
+<rect x="9.8" y="13.4" width="4.4" height="4.4" rx="0.6" fill="#ffffff"/>
+<ellipse cx="6.8" cy="12.4" rx="1" ry="2.4" transform="rotate(14 6.8 12.4)" fill="#ffffff"/></svg>

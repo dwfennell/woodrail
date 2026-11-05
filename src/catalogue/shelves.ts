@@ -226,6 +226,7 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-magnet-crane",
           "mech-lever-frame",
           "mech-whistle-post",
+          "mech-telegraph-pole",
           "mech-wind-turbine",
           "mech-ticket-barrier",
           "mech-lighthouse-beacon",

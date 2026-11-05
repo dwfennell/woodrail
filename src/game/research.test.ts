@@ -279,7 +279,7 @@ describe("the research queue (#14)", () => {
     expect(toggleQueue(p, "bridges")).toBe("current");
     expect(p.research.current).toBe("bridges");
     // Not researchable: nothing.
-    expect(toggleQueue(p, "telegraph")).toBeNull();
+    expect(toggleQueue(p, "viaduct")).toBeNull();
   });
 
   it("holds at most QUEUE_MAX waiting", () => {

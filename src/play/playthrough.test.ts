@@ -1,4 +1,4 @@
-import { atSchool } from "../game/landmarks";
+import { schoolTakesFor } from "../game/landmarks";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { CARGO } from "../economy/cargo";
@@ -7,7 +7,7 @@ import { Crafting, workshops, workshopStock } from "../game/crafting";
 import { GOALS, GoalTracker } from "../game/goals";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
-import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, tick as researchTick } from "../game/research";
+import { attachResearch, canResearch, costOf as researchCost, wants as researchWants, pick as pickResearch, tick as researchTick } from "../game/research";
 import { techOf } from "../game/tech";
 import type { Bag } from "../economy/goods";
 import { isFree, ruleOf, thingsFor, type ThingId } from "../game/things";
@@ -91,7 +91,7 @@ class Playthrough {
       },
       // A school takes what the research lacks; goods into it go into the research (as in the game).
       // (A research that must be studied at a College or a University: only such a school takes its goods.)
-    school: (kind, d) => researchLacking(this.progress, kind) > 0 && atSchool(this.w, d, this.progress),
+    school: (kind, d) => researchWants(this.progress, kind, (id) => schoolTakesFor(this.w, d, this.progress.learned, id)) > 0,
       grew: (t, status, built) => {
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings)`);
         const gift = firstTimeGift(this.progress, status.level);
@@ -101,7 +101,7 @@ class Playthrough {
       },
     });
     this.town.reset();
-    attachResearch(world.economy, () => this.progress);
+    attachResearch(world.economy, () => this.progress, undefined, (d, id) => schoolTakesFor(this.w, d, this.progress.learned, id));
     this.progress.coverMap(world);
   }
 
