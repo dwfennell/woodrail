@@ -3958,6 +3958,11 @@ async function routeKeep(ctx, p, tapSel) {
     const b = loop.side[2];
     let g = null;
     let turn = 0;
+    // (Searched from the middle of where the view can go, and framed at the suite's own heading and tilt, not wherever
+    // the groups before left the view: as the stuck groups (STUCK_VIEW). Run after them, the tray's straight dropped
+    // beside the sawmill laid nothing, 2026-11-05.)
+    const bounds = w.director.bounds;
+    const from = { x: (bounds.x0 + bounds.x1) / 2, z: (bounds.z0 + bounds.z1) / 2 };
     const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
     for (let k = 0; k < 4 && !g; k++) {
       turn = (k * Math.PI) / 2;
@@ -3969,7 +3974,7 @@ async function routeKeep(ctx, p, tapSel) {
           const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
           return c.kind === "clear" || (id !== more && c.reason === "off-mat");
         });
-      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more), ok });
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more), ok, from });
     }
     if (!g) {
       // (Why not, for the record: with only the clear points, then the land too.)
@@ -5110,7 +5115,11 @@ async function routeRing(ctx, p) {
 /** A phone's page in `mode`, on the map past the title and the first visit's help: what every group starts from. */
 async function openMode(mode, { settle = false } = {}) {
   await boot();
-  const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
+  // (At a device scale of 1, not 2: nothing here looks at pixels, the layout is in CSS pixels either way, and a frame at
+  // 2 costs SwiftShader half as much again. E2E_PHONE_DPR=2: as before. Not the game's test clock or moves a few to a
+  // frame (lib/fast.mjs): checks here hold and pick up running trains by a finger, and at real-time game speed the
+  // train moved on from under it; and a tray drag's moves batched lost a drop in a full run.)
+  const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: Number(process.env.E2E_PHONE_DPR ?? 1), isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
   await ctx.addInitScript(() => localStorage.setItem("woodrail.favourites", "[]"));
   // Every click, counted before the game's own listeners (the click shield's included) see it.
