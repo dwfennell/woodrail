@@ -598,5 +598,44 @@ if (want("choice")) {
   await shot("design-character-achievements");
 }
 
+// ---- Grand Central with trains running through it -------------------------------------------------------------------
+if (want("central")) {
+  await growAll(3);
+  const spot = await findOpen(1300, 460, MID.x, MID.z);
+  console.log("central spot", JSON.stringify(spot));
+  // (The station's middle track at cz; its building on the +z side, so the open ground is centred a little that way.)
+  const cx = spot[0], cz = spot[1] - 50;
+  const ids = await put([["grand-central-3", cx, cz, 0]]);
+  const lines = await p.evaluate(
+    ({ cx, cz }) => {
+      const w = window.woodrail;
+      const out = [];
+      for (const dz of [-60, 0, 60]) {
+        const run = [];
+        for (let i = 0; i < 6; i++) run.push({ type: "straight-216", pose: { x: cx - 648 + i * 216, z: cz + dz, heading: 0 }, y: 0, flipped: false });
+        out.push(w.editor().placeRun(run));
+      }
+      // One coming out of the shed's +x end, one going in at its −x end.
+      const a = w.sim.addTrain(["engine", "passenger", "passenger", "passenger"], { pieceId: out[0][4], pathIndex: 0, s: 90, reversed: false });
+      const b = w.sim.addTrain(["engine", "passenger", "passenger"], { pieceId: out[2][1], pathIndex: 0, s: 130, reversed: true });
+      w.invalidate();
+      return { out, a: a.kind, b: b.kind };
+    },
+    { cx, cz },
+  );
+  console.log("central lines", JSON.stringify(lines));
+  await settle();
+  await frame(cx + 30, cz + 20, 1800, 0.9, Math.PI / 4 + 0.35, 195, 430);
+  await overlay(`<div class="title"><b>Grand Central</b><span>A through station: trains run in one end of the glass shed and out the other, three lines between its platforms.</span></div>`, true);
+  await shot("grand-central-trains");
+  await frame(cx, cz + 110, 900, 0.95, Math.PI / 4 + 0.35, 195, 420);
+  await overlay(`<div class="title"><b>Grand Central</b><span>The clock tower's four faces, the name in gold over the arched entrance, cabs waiting on the forecourt.</span></div>`, true);
+  await shot("grand-central");
+  await frame(cx + 150, cz - 20, 700, 1.0, Math.PI / 2 + 0.25, 195, 420);
+  await overlay(`<div class="title"><b>Grand Central</b><span>Under the canopies at the platforms' end: benches, a departure board, a train coming in.</span></div>`, true);
+  await shot("grand-central-platforms");
+  await overlay("", false);
+}
+
 await b.close();
 await server.close();

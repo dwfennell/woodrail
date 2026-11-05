@@ -259,7 +259,7 @@ Every town keeps the plain ones. The paint shop offers the path's colours as liv
 | Grand Exhibition hall (town buildings' style; stage 4 "opening day": gates with a crest, a crystal fountain, statues, elms, stands, bunting, an arched clock) | 4,344 | 5,784 | 9,688 | 13,576 |
 | Cathedral (reworked: aisles, flying buttresses, transept, apse, twin west towers, crossing spire, rose windows; drawn 1.2×; stage 4 stained glass) | 5,016 | 6,112 | 6,472 | 7,996 |
 | Royal Train (display at the works: frames, bare wood, finished) | 2,616 | 6,380 | 7,216 | |
-| Grand Central station | 2,628 | 4,378 | 3,850 | |
+| Grand Central station (reworked as a **through station**: three tracks through an arched glass shed, four platforms with canopies, benches and departure boards; a stone building alongside with columns, an arched entrance, "GRAND CENTRAL" in gold block letters, flags and a four-faced clock tower; a forecourt with cabs and lamps) | 4,644 | 6,648 | 13,972 | |
 | World's Fair wheel (animated: turns, gondolas stay level) | 2,304 | 2,756 | 4,900 | |
 
 **The Royal Train's cars** (`src/catalogue/assets/royal-train.ts`):
@@ -313,6 +313,12 @@ the found ones because of the overgrowth: bushes are balls.)
 - **Grand projects:** for `exhibition`, `cathedral`, `royal-train`, `central`, `ferris-wheel`:
   - `docs/agents/shots/grand-<name>-stages.jpg`: every stage on the map (the four-stage ones in a 2 × 2 grid);
   - `grand-<name>.jpg`: a close-up, finished.
+- **Grand Central with trains:**
+  - `docs/agents/shots/grand-central-trains.jpg`: two trains passing through, one coming out and one going in;
+  - `grand-central.jpg`: the clock tower, the gold name and the forecourt;
+  - `grand-central-platforms.jpg`: a train coming in under the end canopies;
+  - `grand-central-city.jpg`: beside a city;
+  - `grand-central-stages.jpg`: its three stages.
 - **In context:** `grand-exhibition-city.jpg`, `grand-cathedral-city.jpg` and `grand-royal-train-city.jpg` show each
   beside a city or on the line out of it. `grand-royal-train-track.jpg` is the train on real track, close.
 - **Secrets:** `docs/agents/shots/secret-<name>.jpg` shows the site hidden and found side by side, a train arriving
@@ -339,7 +345,10 @@ the found ones because of the overgrowth: bushes are balls.)
 - The shipwreck's hull reads as open ribs more than a hull.
 - The Royal Train's display model (the stages) stands on its own track piece. The cars themselves are car-ready (see
   above).
-- Grand Central and the wheel are still in the first, plainer style.
+- The wheel is still in the first, plainer style.
+- Grand Central's tracks are real track laid through it (`CENTRAL_TRACKS`: three lines 60 apart along x). The model
+  keeps out of their way below the shed's springing (62 mm, above the trains). In the game it would be a kit piece
+  carrying its own three tracks, as the two-platform station is.
 
 ## 1. Town character
 

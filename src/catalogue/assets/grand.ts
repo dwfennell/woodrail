@@ -492,59 +492,194 @@ function royalTrain(k: Kit, stage: Stage): Object3D {
   return g;
 }
 
-// ——— Grand Central: a station front with a clock tower, an arched train shed behind ———
+// ——— Grand Central: a through station, three tracks through a glass train shed, the station building alongside ———
+
+/**
+ * The tracks' centres across the shed (z), 60 apart: real track runs through along x (the model leaves room for it:
+ * nothing stands within 24 mm of a centre below the shed's springing), so trains drive in one end and out the other.
+ */
+export const CENTRAL_TRACKS = [-60, 0, 60] as const;
+/** The shed's length along x, and how far its platforms run past it either end. */
+const SHED = 260;
+const PLAT = 340;
+/** Platform tops: the town platforms' height (bldg_parts.py `platform`, 13 above the felt). */
+const PLAT_H = 14;
+
+/** Block letters, 4 × 5, by rows top down ('#' a block): enough for the station's name board. */
+const FONT: Record<string, string[]> = {
+  G: [".###", "#...", "#.##", "#..#", ".###"],
+  R: ["###.", "#..#", "###.", "#.#.", "#..#"],
+  A: [".##.", "#..#", "####", "#..#", "#..#"],
+  N: ["#..#", "##.#", "#.##", "#..#", "#..#"],
+  D: ["###.", "#..#", "#..#", "#..#", "###."],
+  C: [".###", "#...", "#...", "#...", ".###"],
+  E: ["####", "#...", "###.", "#...", "####"],
+  T: ["####", ".#..", ".#..", ".#..", ".#.."],
+  L: ["#...", "#...", "#...", "#...", "####"],
+};
+
+/** `text` in gold block letters on a wall facing +z, centred on x, its baseline at y; `px` the size of a block. */
+function goldLetters(k: Kit, text: string, x: number, y: number, z: number, px = 2.2): Group {
+  const g = new Group();
+  const gold = k.paint("#e3b23c");
+  const w = text.length * 5 * px - px;
+  let cx = x - w / 2;
+  for (const ch of text) {
+    const rows = FONT[ch];
+    if (rows)
+      rows.forEach((row, r) => {
+        // Each run of blocks in a row is one box.
+        for (let c = 0; c < 4; ) {
+          if (row[c] !== "#") {
+            c++;
+            continue;
+          }
+          let e = c;
+          while (e < 4 && row[e] === "#") e++;
+          g.add(k.box(gold, (e - c) * px, px, 1.2, 0, cx + ((c + e) / 2) * px, y + (4 - r) * px, z));
+          c = e;
+        }
+      });
+    cx += 5 * px;
+  }
+  return g;
+}
+
+/** A clock face facing +x at (x, y, z): a cream face, a gold rim, black hands at ten to two. */
+function clockFace(k: Kit, r: number, x: number, y: number, z: number, ry = 0): Group {
+  const g = new Group();
+  g.add(k.cylX(k.paint(FRAME), r, 1.6, 0, 0, 0, 16), k.at(k.ring(k.paint("#e3b23c"), r, 1, 0, 0, 0, true), 0.8, 0, 0, Math.PI / 2));
+  const minute = k.box(k.paint(TOY.black), 1, r * 0.8, 1.2, 0, 1.2, 0, 0);
+  minute.geometry.translate(0, r * 0.4 - (r * 0.8) / 2, 0);
+  minute.rotation.x = 0.6;
+  const hour = k.box(k.paint(TOY.black), 1, r * 0.55, 1.4, 0, 1.2, 0, 0);
+  hour.geometry.translate(0, r * 0.27 - (r * 0.55) / 2, 0);
+  hour.rotation.x = -0.9;
+  g.add(minute, hour, k.cylX(k.paint(TOY.black), 1.4, 2, 1.4, 0, 0, 8));
+  return k.at(g, x, y, z, ry);
+}
+
+/** A toy cab: a black body with a yellow band, a roof light, four wheels; facing +x. */
+function cab(k: Kit, x: number, z: number, ry = 0): Group {
+  const g = new Group();
+  g.add(k.box(k.paint(TOY.black), 30, 9, 14, 0, 0, 3, 0), k.box(k.paint(TOY.black), 16, 8, 13, 0, -3, 12, 0));
+  g.add(k.box(k.paint(TOY.yellow), 30.4, 2, 14.4, 0, 0, 7, 0), k.box(k.paint(TOY.yellow), 4, 2, 4, 0, -3, 20, 0));
+  for (const s of [-1, 1]) g.add(k.box(k.paint("#2b3644"), 13, 5, 0.6, 0, -3, 13.5, s * 6.8));
+  for (const wx of [-9, 9]) for (const s of [-1, 1]) g.add(k.cylZ(k.paint("#2a2b2e"), 3.6, 2, wx, 3.6, s * 6.4, 10));
+  return k.at(g, x, 0, z, ry);
+}
+
+/** A station bench, facing +z. */
+function bench(k: Kit, x: number, y: number, z: number, ry = 0): Group {
+  const g = new Group();
+  g.add(k.box(k.wood, 14, 1.4, 5, 0, 0, 5, 0), k.box(k.wood, 14, 5, 1.2, 0, 0, 6.4, -2.4));
+  for (const s of [-1, 1]) g.add(k.box(k.paint(IRON), 1.2, 5, 5, 0, s * 6, 0, 0));
+  return k.at(g, x, y, z, ry);
+}
+
+/** A departure board on two posts: dark, with lines in amber. */
+function departures(k: Kit, x: number, y: number, z: number): Group {
+  const g = new Group();
+  for (const s of [-1, 1]) g.add(k.box(k.paint(IRON), 1.6, 24, 1.6, 0, 0, 0, s * 9));
+  g.add(k.box(k.paint("#1d2430"), 3, 12, 22, 0, 0, 22, 0));
+  for (let i = 0; i < 3; i++) for (const s of [-1, 1]) g.add(k.box(k.paint("#f2b233"), 3.4, 1.2, 8, 0, 0, 25 + i * 3, s * 5));
+  return k.at(g, x, y, z);
+}
 
 function grandCentral(k: Kit, stage: Stage): Object3D {
   const g = new Group();
-  const pane = k.paint(GLASS);
-  const brick = k.paint("#b5553c");
-  const stone = k.paint(TOY.cream);
-  const iron = k.paint("#3e5f78");
-  const SHED = 200;
-  const SW = 120;
-  g.add(plinth(k, SHED + 80, SW + 70, 4, -30, 0, "#cdbfa8"));
-  // Three tracks run through the shed along x (slabs: the real pieces would sit here).
-  for (const z of [-40, 0, 40]) g.add(k.trackSlab(SHED, -SHED / 2 + 10, 4, z));
-  for (const z of [-20, 20]) g.add(k.box(stone, SHED - 20, 8, 16, 1, -SHED / 2 + 20, 4, z));
-  // The front building across the tracks' ends (facing +x), the clock tower in the middle.
-  const FH = stage === 1 ? 12 : stage === 2 ? 36 : 54;
-  const fx = 40;
-  g.add(k.box(brick, 34, FH, SW + 50, 1.5, fx, 4, 0));
-  const TH = stage === 1 ? 20 : stage === 2 ? 70 : 128;
-  g.add(k.box(brick, 36, TH, 36, 1.5, fx + 6, 4, 0));
-  if (stage === 3) {
-    g.add(k.box(stone, 36, 4, SW + 52, 1, fx, 4 + FH, 0));
-    for (let i = 0; i < 7; i++) {
-      const z = -SW / 2 - 10 + i * ((SW + 20) / 6);
-      if (Math.abs(z) < 22) continue;
-      g.add(k.extrude(k.paint("#3d5d86"), [[-6, 0], [6, 0], [6, 16], [0, 22], [-6, 16]], 2, 0, 0, 0, 0.3).rotateY(Math.PI / 2).translateZ(fx + 17).translateY(18).translateX(-z));
-    }
-    // The tower: clock faces, a stone band, a pyramid roof and a gilt finial.
-    g.add(k.box(stone, 38, 4, 38, 1, fx + 6, 4 + TH - 30, 0));
-    const clock = new Group();
-    clock.add(k.cylX(stone, 12, 2, 0, 0, 0, 20), k.cylX(k.paint(TOY.black), 1.2, 3, 0.4, 0, 0, 8));
-    clock.add(named(k.box(k.paint(TOY.black), 1, 10, 1.6, 0, 1.6, 0, 0), "minute"));
-    clock.add(named(k.box(k.paint(TOY.black), 1, 1.6, 7, 0, 1.6, 0, 3), "hour"));
-    g.add(k.at(clock, fx + 25, 4 + TH - 14, 0));
-    g.add(k.cone(k.paint("#4f6a8a"), 26, 34, fx + 6, 4 + TH, 0, 4).rotateY(Math.PI / 4));
-    g.add(k.cyl(k.paint(TOY.yellow), 1, 10, fx + 6, 4 + TH + 32, 0, 1, 6), k.ball(k.paint(TOY.yellow), 2.4, fx + 6, 4 + TH + 44, 0));
-    // The great arch over the entrance, and the sign.
-    g.add(k.at(k.ring(stone, 14, 2.6, 0, 0, 0, true, Math.PI), fx + 25, 4 + 22, 0, Math.PI / 2));
-    g.add(k.box(k.paint(TOY.green), 4, 10, 60, 1, fx + 18, 4 + FH - 16, -SW / 2 + 22));
-    g.add(k.peg(TOY.red, TOY.black, fx + 40, 0, 6), k.peg(TOY.blue, null, fx + 46, 0, -8));
-  } else {
-    g.add(scaffold(k, 44, 44, TH + 24, fx + 6, 0));
-    g.add(towerCrane(k, 150, 120, -60, SW / 2 + 30, Math.PI));
-    g.add(goodsStacks(k, fx + 50, 50));
+  const stone = k.paint("#e2d8c4");
+  const trim = k.paint(FRAME);
+  const iron = k.paint(IRON);
+  const brick = k.paint("#a8553a");
+  const SPRING = 62; // the shed's sides: trains (about 50 tall) run under its ends' glass screens
+  const SW = 210; // the shed's span across z
+  const BZ = SW / 2 + 22; // the building's middle (z), alongside the shed
+  // The ground: a stone step under the whole of it, the forecourt beyond the building.
+  g.add(k.box(k.paint(STONE), PLAT + 20, 2, SW + 150, 0.8, 0, 0, 40));
+  // Platforms between and beside the tracks (none on a track: they stop 21 short of each centre).
+  const platZ = [-90.5, -30, 30, 90.5];
+  const platW = [19, 18, 18, 19];
+  platZ.forEach((z, i) => g.add(k.box(trim, PLAT, PLAT_H - 2, platW[i], 1, 0, 2, z), k.box(k.paint("#f2d34a"), PLAT, 0.6, 1.4, 0, 0, PLAT_H, z + (z < 0 ? platW[i] / 2 - 1.6 : -(platW[i] / 2 - 1.6)))));
+  if (stage === 1) {
+    // The platforms laid, the shed's columns started, the building's footings; a fence round the building side.
+    for (let i = 0; i <= 8; i++) for (const s of [-1, 1]) g.add(k.box(iron, 4, i % 2 ? 30 : 14, 4, 0, -SHED / 2 + (SHED * i) / 8, PLAT_H, s * (SW / 2 - 4)));
+    g.add(k.box(k.paint(STONE), 230, 8, 46, 1, 0, 2, BZ + 4));
+    g.add(siteFence(k, 250, 80, 0, BZ + 14));
+    g.add(goodsStacks(k, -60, BZ + 70), goodsStacks(k, 60, BZ + 70), siteHut(k, 120, BZ + 70));
+    g.add(towerCrane(k, 160, 140, -150, BZ + 40, 0));
+    g.add(k.peg(TOY.orange, TOY.yellow, 20, 2, BZ + 4), k.peg(TOY.orange, TOY.yellow, -30, 2, BZ + 10));
+    return g;
   }
-  // The train shed: iron ribs, glass over what's done.
-  if (stage >= 2) {
-    const top = 4 + 34;
-    for (const s of [-1, 1]) for (let i = 0; i <= 6; i++) g.add(stick(k, iron, 3, 34, 3, -SHED + 20 + (i * (SHED - 20)) / 6, 4, (s * SW) / 2));
-    g.add(ribs(k, iron, SW / 2, SHED - 20, 7, -SHED / 2 + 10, top, 0, 1.8));
-    const done = stage === 3 ? SHED - 20 : (SHED - 20) * 0.4;
-    g.add(vault(k, pane, SW / 2 - 1, done, -SHED / 2 + 10 + (SHED - 20) / 2 - done / 2, top, 0, 14));
+  // The shed's sides: a brick wall on the far side with arched windows, iron columns on the building side.
+  g.add(k.box(brick, SHED, SPRING - 2, 8, 2, 0, 2, -SW / 2 - 4));
+  for (let i = 0; i < 8; i++) g.add(winZ(k, -SHED / 2 + 18 + i * ((SHED - 36) / 7), 24, -SW / 2 + 0.4, 10, 22));
+  for (let i = 0; i <= 8; i++) g.add(k.box(iron, 4, SPRING - PLAT_H, 4, 0, -SHED / 2 + (SHED * i) / 8, PLAT_H, SW / 2 - 4));
+  g.add(k.box(trim, SHED + 6, 4, 10, 1, 0, SPRING - 2, -SW / 2 - 3), k.box(trim, SHED + 6, 4, 10, 1, 0, SPRING - 2, SW / 2 - 3));
+  // The arched glass roof: a flatter arch than a half round (segmental), on green ribs; glass ends above the trains.
+  const roof = new Group();
+  roof.add(glassVault(k, SW / 2, SHED, 0, 0, 0, stage >= 3 ? SHED : SHED * 0.35));
+  if (stage >= 3) roof.add(vaultEnd(k, SW / 2, -SHED / 2, 0), vaultEnd(k, SW / 2, SHED / 2, 0));
+  roof.scale.set(1, 0.5, 1);
+  roof.position.y = SPRING + 2;
+  g.add(roof);
+  // The station building alongside, facing +z: stone, two storeys of windows, a cornice and a balustrade.
+  const BW = 240;
+  const BH = stage >= 3 ? 64 : 34;
+  g.add(k.box(stone, BW, BH, 40, 3, 0, 2, BZ));
+  const front = BZ + 20;
+  for (let i = 0; i < 10; i++) {
+    const wx = -BW / 2 + 16 + i * ((BW - 32) / 9);
+    if (Math.abs(wx) < 30) continue;
+    g.add(winZ(k, wx, 12, front + 0.4, 10, 16));
+    if (stage >= 3) g.add(winZ(k, wx, 40, front + 0.4, 10, 14));
   }
+  if (stage === 2) {
+    g.add(scaffold(k, 120, 52, 70, 40, BZ));
+    g.add(scaffold(k, 46, 46, 110, 0, BZ));
+    g.add(towerCrane(k, 180, 150, -150, BZ + 50, 0), goodsStacks(k, 80, BZ + 66), siteHut(k, -100, BZ + 66));
+    return g;
+  }
+  g.add(k.box(trim, BW + 4, 4, 44, 1, 0, 2 + BH, BZ));
+  for (let i = 0; i < 24; i++) g.add(k.box(trim, 2, 6, 2, 0, -BW / 2 + 5 + i * ((BW - 10) / 23), 6 + BH, front));
+  g.add(k.box(trim, BW + 4, 2, 3, 0, 0, 12 + BH, front));
+  // The portico: columns either side of the great arched entrance, a pediment over it.
+  for (const cx2 of [-48, -36, -24, 24, 36, 48]) g.add(k.cyl(trim, 3, 46, cx2, 2, front + 8, 3, 10), k.box(trim, 8, 3, 8, 0, cx2, 48, front + 8));
+  g.add(k.box(trim, 108, 6, 14, 1, 0, 50, front + 6));
+  g.add(k.extrude(trim, [[-56, 0], [56, 0], [0, 18]], 12, 0, 0, front + 6, 0).translateY(56));
+  g.add(k.extrude(k.paint("#2b3644"), [[-14, 0], [14, 0], [14, 22], [10, 30], [0, 34], [-10, 30], [-14, 22]], 1.4, 0, 2, front + 0.8, 0));
+  g.add(k.at(k.ring(k.paint("#e3b23c"), 15, 1.4, 0, 0, 0, true, Math.PI), 0, 24, front + 1.4));
+  // The name in gold letters on a dark board above the entrance.
+  g.add(k.box(k.paint("#1f3f73"), 150, 16, 2, 0.6, 0, 76, front + 4));
+  g.add(goldLetters(k, "GRAND CENTRAL", 0, 79.5, front + 5.2, 2));
+  // The clock tower over the entrance: four faces, a belfry, a spire and a gilt finial; flags.
+  const TX = 0, TZ = BZ - 4, TW = 40, TH = 150;
+  g.add(k.box(stone, TW, TH, TW, 3, TX, 2, TZ));
+  g.add(k.box(trim, TW + 4, 4, TW + 4, 1, TX, TH - 34, TZ), k.box(trim, TW + 4, 4, TW + 4, 1, TX, TH, TZ));
+  for (const [dx, dz, ry] of [[TW / 2, 0, 0], [-TW / 2, 0, Math.PI], [0, TW / 2, -Math.PI / 2], [0, -TW / 2, Math.PI / 2]] as const) g.add(clockFace(k, 13, TX + dx, TH - 16, TZ + dz, ry));
+  g.add(k.cone(k.paint("#3f6f63"), TW / 2 + 6, 56, TX, TH + 4, TZ, 4).rotateY(Math.PI / 4));
+  g.add(k.cyl(k.paint("#e3b23c"), 1.2, 14, TX, TH + 58, TZ, 1.2, 6), k.ball(k.paint("#e3b23c"), 3, TX, TH + 74, TZ));
+  for (const fx of [-BW / 2 + 10, -70, 70, BW / 2 - 10]) g.add(pennant(k, fx < 0 ? TOY.red : TOY.blue, 20, fx, 14 + BH, front - 4));
+  // Canopies over the platforms' ends outside the shed, with benches, a departure board, passengers.
+  for (const end of [-1, 1]) {
+    const ex = end * (SHED / 2 + 36);
+    platZ.forEach((z, i) => {
+      const w = platW[i];
+      for (const px of [-20, 20]) g.add(k.box(iron, 2, 24, 2, 0, ex + px, PLAT_H, z));
+      g.add(k.box(iron, 52, 2, 2, 0, ex, PLAT_H + 23, z));
+      g.add(k.roof(k.paint(i % 2 ? TOY.red : TOY.green), 58, w + 8, 6, ex, PLAT_H + 24, z, 2));
+    });
+  }
+  g.add(departures(k, 0, PLAT_H, -30), departures(k, 0, PLAT_H, 30));
+  for (const [x, z] of [[-60, -30], [60, -30], [-60, 30], [60, 30], [-90, 90.5], [90, -90.5]] as const) g.add(bench(k, x, PLAT_H, z + (z > 0 ? -3 : 3), z > 0 ? 0 : Math.PI));
+  const coats = [TOY.red, TOY.blue, TOY.yellow, TOY.purple, TOY.green, TOY.pink, TOY.orange];
+  [[-40, -32], [40, 28], [46, 33], [100, 90], [-20, -29]].forEach(([x, z], i) => g.add(k.peg(coats[i % coats.length], i % 3 === 0 ? TOY.black : null, x, PLAT_H, z)));
+  // The forecourt: paving, lamp posts, cabs waiting, people coming and going.
+  const FZ = front + 40;
+  g.add(k.box(k.paint("#d9cdb6"), 200, 1, 50, 0.4, 0, 2, FZ));
+  for (const lx of [-90, -45, 45, 90]) g.add(lampPost(k, lx, 2, FZ + 22));
+  g.add(cab(k, -70, FZ + 6, 0), cab(k, -30, FZ + 6, 0), cab(k, 66, FZ + 6, Math.PI));
+  g.add(k.peg(TOY.blue, TOY.black, 8, 2, FZ - 10), k.peg(TOY.pink, null, -8, 2, FZ - 4));
   return g;
 }
 
@@ -672,8 +807,8 @@ export const PROJECTS: readonly Project[] = [
   {
     id: "grand-central",
     name: "Grand Central station",
-    tags: ["grand project", "station", "clock tower", "train shed", "terminus"],
-    notes: "A brick front with a tall clock tower and an arched glass train shed over three tracks. A grand project for a big network: bricks, iron and glass (stone), and passengers carried. Its day: every line's trains meet under the clock.",
+    tags: ["grand project", "station", "clock tower", "train shed", "through station"],
+    notes: "A through station: three tracks run through an arched glass train shed on green ironwork, platforms between them with canopies, benches and a departure board; alongside, a stone building with columns, a great arched entrance, the name in gold letters, flags, and a clock tower with four faces; cabs and lamps on the forecourt. A grand project for a big network: bricks, iron, stone and glass, and passengers carried. Its day: every line's trains meet under the clock.",
     build: grandCentral,
     stages: 3,
   },
