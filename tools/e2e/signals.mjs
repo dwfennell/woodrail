@@ -205,7 +205,7 @@ if (!setup.error) {
   });
   // (Its picture is the signal (a post with red and green lamps), drawn as the pieces' are: not a track piece.)
   const tile = await p.waitForFunction(() => {
-    const items = [...document.querySelectorAll(".scroller .tray-item")];
+    const items = [...document.querySelectorAll(".scroller .tray-item:not(.tray-back)")];
     const e = document.querySelector('.scroller .tray-item[data-key="signal"]');
     return e && e.querySelector("img") ? { first: items[0] === e, src: e.querySelector("img").src.length } : null;
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
@@ -280,6 +280,34 @@ if (!setup.error) {
     check("Always green: shown green, pressed", m2.mode === "green" && m2.clear && m2.pressed[2][1] === "true", JSON.stringify(m2));
     await tapChip("Auto", ".signal-mode");
     check("…and back to Auto", (await modes()).mode === "auto");
+    // The pair from the side this one faces (its lamps toward its trains): it held red, its partner beside it green.
+    // (Setup for the picture: the mode set as its card sets it, the card closed, the view turned round the joint.)
+    await p.evaluate((id) => {
+      const w = window.woodrail;
+      w.sim.setMarkMode(id, "red");
+      w.hud.hideCards?.();
+      w.interaction.clearSelection();
+      const t = w.controls.target;
+      w.__camWas = w.camera.position.clone();
+      w.camera.position.set(2 * t.x - w.camera.position.x, w.camera.position.y, 2 * t.z - w.camera.position.z);
+      w.camera.lookAt(t);
+      w.controls.update();
+      w.invalidate();
+    }, id);
+    await settle();
+    const pair = await p.evaluate((ids) => ids.map((i) => window.woodrail.marksView.shownOf(i)?.clear), [id, partner]);
+    check("the pair: one held red, the other green", pair[0] === false && pair[1] === true, JSON.stringify(pair));
+    await shot("3c-pair-red-green");
+    await p.evaluate((id) => {
+      const w = window.woodrail;
+      w.sim.setMarkMode(id, "auto");
+      w.camera.position.copy(w.__camWas);
+      w.camera.lookAt(w.controls.target);
+      w.controls.update();
+      w.interaction.selectMark(id);
+      w.invalidate();
+    }, id);
+    await settle();
     // (Setup for Turn round, not what's tested: its partner taken away, so the other way is free.)
     if (partner !== undefined) await p.evaluate((id) => window.woodrail.editor().removeSignal(id), partner);
     await frames();
