@@ -71,6 +71,7 @@ import { firstTrainMark, TOUCH_TRACK_CLEARANCE } from "./touches";
 import { nearTrack } from "../landscape/trees-aside";
 import { hillsOf } from "../landscape/hill-shape";
 import { TouchCamera } from "./touch-camera";
+import { setGpuOnlyEnabled } from "../render/gpu-only";
 import { liveryOf } from "./paint-shop";
 import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlot, type World } from "./world";
 
@@ -257,6 +258,10 @@ export class Game {
     this.watchRoadVehicles();
     this.props = world.props;
     this.quality = detectQuality();
+    // Drawn-only geometry and generated canvases freed once uploaded (gpu-only.ts) on the mobile tier only: a phone is
+    // short of memory, and its lost context reloads anyway. A desktop keeps them, so a brief loss comes back in place.
+    // (Before any scene is built: marking happens as geometry is.)
+    setGpuOnlyEnabled(this.quality.tier === "mobile");
 
     // No MSAA on the canvas: the scene is drawn into the composer's (non-multisampled) targets, so it would only
     // multisample the final full-screen copy.
