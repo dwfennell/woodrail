@@ -13,6 +13,7 @@
     "icons": "python3 scripts/icon-font.py",
     "perf": "node tools/perf/run.mjs",
     "perf:check": "node tools/perf/check.mjs",
+    "perf:memory": "node tools/perf/memory-check.mjs",
     "bench": "vite build --config bench/vite.config.ts --logLevel warn && node dist-bench/track.js",
     "catalogue": "vite --config catalogue/vite.config.ts",
     "catalogue:build": "vite build --config catalogue/vite.config.ts",
