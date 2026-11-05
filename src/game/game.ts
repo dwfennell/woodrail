@@ -78,6 +78,19 @@ import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlo
 const STATION_CLOCK_HANDS = "map:station-clock";
 
 const MAX_STEPS_PER_FRAME = 8;
+/** The longest step of the world a frame takes (s): a slow frame doesn't make the world jump. */
+const MAX_FRAME_DT = 0.1;
+
+/**
+ * The end-to-end tests' clock (`window.__e2eClock`, set before the game loads; never in play): a frame's step may be
+ * up to `maxDt` s (in place of `MAX_FRAME_DT`), so under a software renderer drawing about a frame a second the sim and
+ * the animations keep up with real time instead of running at a tenth of it. Ticks are the same fixed `SIM_DT` ones,
+ * just more of them a frame. See docs/agents/e2e.md, "The test clock".
+ */
+function e2eMaxDt(): number {
+  const c = (globalThis as { __e2eClock?: { maxDt?: number } }).__e2eClock;
+  return typeof c?.maxDt === "number" && c.maxDt > MAX_FRAME_DT ? Math.min(c.maxDt, 2) : MAX_FRAME_DT;
+}
 /**
  * How far the camera may pull back: the same however big the land grows, so (with the view's reach: see `viewReach`)
  * only so much of the world is ever drawn.
@@ -240,6 +253,9 @@ export class Game {
   private farDetail = false;
   private hemHidden = false;
   private accumulator = 0;
+  /** A frame's longest step (s), and the sim ticks it may take: `MAX_FRAME_DT`, or the e2e tests' clock (`e2eMaxDt`). */
+  readonly maxFrameDt = e2eMaxDt();
+  private readonly maxSteps = this.maxFrameDt > MAX_FRAME_DT ? Math.ceil(this.maxFrameDt / SIM_DT) + 2 : MAX_STEPS_PER_FRAME;
   private followCarId = -1;
 
   constructor(
@@ -1102,19 +1118,19 @@ export class Game {
 
   private frame(): void {
     const elapsed = this.clock.getDelta();
-    const dt = Math.min(elapsed, 0.1);
+    const dt = Math.min(elapsed, this.maxFrameDt);
     const t0 = performance.now();
     if (!this.paused) {
       this.accumulator += dt;
       let steps = 0;
-      while (this.accumulator >= SIM_DT && steps < MAX_STEPS_PER_FRAME) {
+      while (this.accumulator >= SIM_DT && steps < this.maxSteps) {
         this.sim.tick();
         this.economy.tick();
         this.simSeconds += SIM_DT;
         this.accumulator -= SIM_DT;
         steps++;
       }
-      if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
+      if (steps === this.maxSteps) this.accumulator = 0;
     }
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     // Signal marks: worked out again only when a mark, the track or an aspect changed.

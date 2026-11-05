@@ -7,6 +7,7 @@ import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
+import { inFrames, testClockIn } from "./lib/fast.mjs";
 import { shot } from "./lib/shot.mjs";
 import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
 import { doubleThreeWayGroup, slipsGroup, turntableGroup } from "./track-pieces.mjs";
@@ -27,6 +28,8 @@ async function boot() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (The game's test clock: animations and the sim keep up with real time under SwiftShader. lib/fast.mjs.)
+  testClockIn(b);
   // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
   watchBrowser(b);
   watchServer(server);
@@ -1076,7 +1079,7 @@ async function wyeLevers(ctx, p, tapOn) {
   });
   let t = Date.now() / 1000;
   await touch("touchStart", from[0], from[1], t);
-  for (let k = 1; k <= 12; k++) await touch("touchMove", from[0] + ((to[0] - from[0]) * k) / 12, from[1] + ((to[1] - from[1]) * k) / 12, (t += 0.03));
+  await inFrames(Array.from({ length: 12 }, (_, i) => () => { const k = i + 1; return touch("touchMove", from[0] + ((to[0] - from[0]) * k) / 12, from[1] + ((to[1] - from[1]) * k) / 12, (t += 0.03)); }));
   const held = await p.evaluate(() => { const m = window.woodrail.interaction.mode; return m.kind === "drag-piece" ? { kind: m.kind, visible: m.ghost.visible, blocked: m.blocked ?? null, hint: m.hint ?? null } : { kind: m.kind }; });
   await touch("touchEnd", 0, 0, (t += 0.05));
   await settled();
@@ -3106,8 +3109,8 @@ async function placeFacing(ctx, p, tapSel) {
     const from = [mid[0] - dir * 90 * along[0], mid[1] - dir * 90 * along[1]];
     const trains0 = await p.evaluate(() => [...window.woodrail.sim.trainIds()]);
     await touch("touchStart", item[0], item[1]);
-    for (let k = 1; k <= 12; k++) await touch("touchMove", item[0] + ((from[0] - item[0]) * k) / 12, item[1] + ((from[1] - item[1]) * k) / 12);
-    for (let k = 1; k <= 10; k++) await touch("touchMove", from[0] + ((mid[0] - from[0]) * k) / 10, from[1] + ((mid[1] - from[1]) * k) / 10);
+    await inFrames(Array.from({ length: 12 }, (_, i) => () => { const k = i + 1; return touch("touchMove", item[0] + ((from[0] - item[0]) * k) / 12, item[1] + ((from[1] - item[1]) * k) / 12); }));
+    await inFrames(Array.from({ length: 10 }, (_, i) => () => { const k = i + 1; return touch("touchMove", from[0] + ((mid[0] - from[0]) * k) / 10, from[1] + ((mid[1] - from[1]) * k) / 10); }));
     await frames(p);
     const ghost = await p.evaluate(() => { const m = window.woodrail.interaction.mode; return m.kind === "drag-train" ? { lead: -m.ghost.rotation.y, onTrack: !!m.target, said: m.facing !== null, arrow: !!m.ghost.getObjectByName("facing-arrow") } : { kind: m.kind }; });
     await touch("touchEnd", 0, 0);
@@ -3200,7 +3203,7 @@ async function frontJoin(ctx, p, tapSel) {
   }, spot.id);
   const trains0 = await p.evaluate(() => window.woodrail.sim.trainIds().length);
   await touch("touchStart", item[0], item[1]);
-  for (let k = 1; k <= 16; k++) await touch("touchMove", item[0] + ((front[0] - item[0]) * k) / 16, item[1] + ((front[1] - item[1]) * k) / 16);
+  await inFrames(Array.from({ length: 16 }, (_, i) => () => { const k = i + 1; return touch("touchMove", item[0] + ((front[0] - item[0]) * k) / 16, item[1] + ((front[1] - item[1]) * k) / 16); }));
   await frames(p);
   await touch("touchMove", front[0], front[1]);
   await frames(p);
@@ -3764,7 +3767,7 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     return window.woodrail.layout.pieceCount;
   });
   await touch("touchStart", item[0], item[1]);
-  for (let k = 1; k <= 20; k++) await touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 20, item[1] + ((target[1] - item[1]) * k) / 20);
+  await inFrames(Array.from({ length: 20 }, (_, i) => () => { const k = i + 1; return touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 20, item[1] + ((target[1] - item[1]) * k) / 20); }));
   // (Held over the gap, the finger nudged as a player's would, by what's seen: the ghost's middle onto the gap's, till
   // it seats there, joined at both ends.)
   let finger = [...target];
@@ -3853,7 +3856,7 @@ async function tightCurves(ctx, p, tapSel) {
     // The first, dragged out by touch and let go on the open ground (the piece held its lift above the finger).
     const target = await screenOf({ x: spot.x, z: spot.z });
     await touch("touchStart", item[0], item[1]);
-    for (let k = 1; k <= 16; k++) await touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 16, item[1] + ((target[1] + 56 - item[1]) * k) / 16);
+    await inFrames(Array.from({ length: 16 }, (_, i) => () => { const k = i + 1; return touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 16, item[1] + ((target[1] + 56 - item[1]) * k) / 16); }));
     await frames(p);
     await touch("touchEnd", 0, 0);
     await settled();
@@ -4049,7 +4052,7 @@ async function routeKeep(ctx, p, tapSel) {
   }, setup.mid);
   const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
   await touch("touchStart", item[0], item[1]);
-  for (let k = 1; k <= 20; k++) await touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 20, item[1] + ((target[1] - item[1]) * k) / 20);
+  await inFrames(Array.from({ length: 20 }, (_, i) => () => { const k = i + 1; return touch("touchMove", item[0] + ((target[0] - item[0]) * k) / 20, item[1] + ((target[1] - item[1]) * k) / 20); }));
   let finger = [...target];
   for (let k = 0; k < 10; k++) {
     await touch("touchMove", finger[0], finger[1]);
@@ -5093,7 +5096,9 @@ async function routeRing(ctx, p) {
 /** A phone's page in `mode`, on the map past the title and the first visit's help: what every group starts from. */
 async function openMode(mode, { settle = false } = {}) {
   await boot();
-  const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
+  // (At a device scale of 1, not 2: nothing here looks at pixels, the layout is in CSS pixels either way, and a frame at
+  // 2 costs SwiftShader half as much again. E2E_PHONE_DPR=2: as before.)
+  const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: Number(process.env.E2E_PHONE_DPR ?? 1), isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
   await ctx.addInitScript(() => localStorage.setItem("woodrail.favourites", "[]"));
   // Every click, counted before the game's own listeners (the click shield's included) see it.

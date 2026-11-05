@@ -9,6 +9,7 @@
 //   the road it was turned to.
 // What's tested is by the player's path (tray drags, taps on levers and roads); setup that isn't (the legs, the train
 // put down, the turntable laid) is a named harness shortcut, laid through the editor as dropping them would.
+import { inFrames } from "./lib/fast.mjs";
 
 const frames = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
@@ -120,7 +121,7 @@ async function dragOut(f, h, key, type, spot) {
   const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
   let t = Date.now() / 1000;
   await h.touch("touchStart", from[0], from[1], t);
-  for (let k = 1; k <= 12; k++) await h.touch("touchMove", from[0] + ((to[0] - from[0]) * k) / 12, from[1] + ((to[1] - from[1]) * k) / 12, (t += 0.03));
+  await inFrames(Array.from({ length: 12 }, (_, i) => () => { const k = i + 1; return h.touch("touchMove", from[0] + ((to[0] - from[0]) * k) / 12, from[1] + ((to[1] - from[1]) * k) / 12, (t += 0.03)); }));
   await h.touch("touchEnd", 0, 0, (t += 0.05));
   await h.settled();
   await p.keyboard.press("Escape");
