@@ -115,7 +115,8 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
-  workshop: { takes: ["planks", "iron"], owed: ["stone"], gives: [], cap: WORKSHOP_CAP },
+  // (And paint for your own colours on trains, once Paint your trains is learned: `owed`, game/crafting.ts's `shopOwes`.)
+  workshop: { takes: ["planks", "iron"], owed: ["stone", "paint"], gives: [], cap: WORKSHOP_CAP },
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
   farm: { takes: [], gives: ["grain"], cycle: { uses: {}, makes: { grain: 1 }, seconds: 12 } },
   mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },
