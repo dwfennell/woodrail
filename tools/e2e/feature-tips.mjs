@@ -15,7 +15,8 @@
 //   5. Telegraph learned: Show me opens Lineside; the Telegraph pole's tile says what it's for. Got it.
 //   6. Leave now: a hand-run train stands under the forest's crane waiting for a full load: a one-time toast and the
 //      tip; Show me opens its engine card; Leave now there sends it on, and the tip goes.
-//   7. A ring line: the tip and its toast; Show me opens Lines; Reverse there turns its train round; the tip goes.
+//   7. A route given past a sharing workshop: the keep stepper's tip and toast; Show me opens the workshop's card; a
+//      tap on + there, and the tip goes. Then a ring line: the tip and its toast; Show me opens Lines; Reverse there turns its train round; the tip goes.
 //   8. Reloaded: every tip used or tapped away stays gone. Idle: no frames drawn (tips are checked with the goals).
 //
 // Pictures (390×844) go to the out dir; `docs/agents/shots/onboarding-*.png` are copies.
@@ -322,6 +323,20 @@ if (!setup.error) {
     return w.economy.lineIdOf.get(o.engine) ?? null;
   }, { ...setup, ...waiting });
   check("setup: the train runs a line round the oval", ring !== null, String(ring));
+  // A route given (the goal ticks) with a workshop sharing its planks: its keep stepper's tip comes first.
+  const keepToast = await toastWith("💡 Tap your workshop");
+  check("a train on a route past a sharing workshop: a one-time toast says its − and + set what it keeps", !!keepToast, keepToast ?? "no toast");
+  await clearToasts();
+  const kp = await tipRow("keeps");
+  check("…and the keeps tip shows under the goals", kp.shown && !!kp.row?.includes("keeps"), JSON.stringify(kp));
+  await shot("onboarding-keeps-tip");
+  await tapButton(`.goal.feature-tip[data-feature-tip="keeps"] .tip-show`);
+  const keepCard = await p.waitForFunction((s) => window.woodrail.interaction.openDepotId === s && !!document.querySelector('.keep-row [data-step="1"]'), setup.shop, { timeout: 20000 }).then(() => true, () => false);
+  check("its Show me opens the workshop's card, its keep stepper there", keepCard);
+  await shot("onboarding-keeps-showme");
+  await tapButton('.keep-row [data-step="1"]');
+  check("a tap on + sets what it keeps, and the tip goes (it was used)", await tipGone("keeps"));
+  await p.keyboard.press("Escape");
   const ringToast = await toastWith("💡 A ring line");
   check("a ring line with a train: a one-time toast says Reverse turns its trains round", !!ringToast, ringToast ?? "no toast");
   await clearToasts();
@@ -346,7 +361,7 @@ if (!setup.error) {
   await enterGame();
   await p.waitForTimeout(2500);
   const after = await p.evaluate(() => ({ row: document.querySelector(".goal.feature-tip")?.dataset.featureTip ?? null, current: window.woodrail.tips().current()?.id ?? null, done: window.woodrail.tips().toJSON().done }));
-  check("after a reload no tip used or tapped away comes back", after.row === null && after.current === null && ["sidings", "tunnels", "jam", "telegraph", "leave-now", "ring-reverse"].every((id) => after.done.includes(id)), JSON.stringify(after));
+  check("after a reload no tip used or tapped away comes back", after.row === null && after.current === null && ["sidings", "tunnels", "jam", "telegraph", "leave-now", "keeps", "ring-reverse"].every((id) => after.done.includes(id)), JSON.stringify(after));
 
   // Idle: nothing drawn while nothing moves (the tips are checked with the goals, never per frame).
   await p.evaluate(() => {
