@@ -41,6 +41,14 @@ export class Progress {
   dug = 0;
   /** People carried to another town by coach, all game (they unlock the passenger line of blueprints). */
   riders = 0;
+  /**
+   * The circus (late-game spec K1: src/game/circus.ts): the town its big top stands in, its seconds of play left there,
+   * and the big top's prop; null while it's on the road. `circusLast`: the town it showed in last (−1: none yet).
+   */
+  circus: { town: number; left: number; prop: number } | null = null;
+  circusLast = -1;
+  /** Towns the circus has shown in, by id (for the "every town" sticker and the card's next town). */
+  readonly circusTowns = new Set<number>();
   /** What your map has that a blueprint can require (a market; a school beside a city): not saved (see `landmarksAt`). */
   readonly landmarks = new Set<string>();
   /** What the schools are researching (see `research.ts`). */
@@ -105,7 +113,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), ...(this.dug > 0 ? { dug: this.dug } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), regates: REGATES, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), ...(this.dug > 0 ? { dug: this.dug } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), regates: REGATES, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}), ...(this.circus ? { circus: { ...this.circus } } : {}), ...(this.circusLast >= 0 ? { circusLast: this.circusLast } : {}), ...(this.circusTowns.size > 0 ? { circusTowns: [...this.circusTowns] } : {}) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -151,6 +159,10 @@ export class Progress {
     // (The queue in order, prerequisites first: one out of order moves back behind them, one without them is dropped.)
     repairQueue(p);
     if (d && Array.isArray(d.taken)) for (const t of d.taken) if (isTaken(t)) p.taken.push(t);
+    const c = d?.circus;
+    if (c && Number.isInteger(c.town) && Number.isFinite(c.left) && c.left > 0 && Number.isInteger(c.prop)) p.circus = { town: c.town, left: c.left, prop: c.prop };
+    if (Number.isInteger(d?.circusLast)) p.circusLast = d!.circusLast!;
+    if (d && Array.isArray(d.circusTowns)) for (const t of d.circusTowns) if (Number.isInteger(t)) p.circusTowns.add(t);
     return p;
   }
 }
@@ -174,6 +186,10 @@ export interface ProgressData {
   making?: boolean;
   research?: ResearchData;
   taken?: Taken[];
+  /** The circus's big top, where it stands (absent: on the road). */
+  circus?: { town: number; left: number; prop: number };
+  circusLast?: number;
+  circusTowns?: number[];
   /** How many of `REGATE_LIST`'s moves the save was written after (absent: none, an older save). */
   regates?: number;
 }

@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { testClockIn } from "../../scripts/e2e/lib/fast.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/research";
@@ -36,9 +37,16 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chro
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
 pinClocksIn(b);
+// (The game's test clock: animations keep up with real time under SwiftShader, where a frame is a second and the sim
+// went at a fifteenth of it; and game time 4× real time: a lesson studies 20 or 45 s of game time, and the run waited
+// out 17 of them (12 min). The check that the pill counts a study down looks 1.3 s after its goods are in: 5 s of a
+// 20 s study. lib/fast.mjs.)
+testClockIn(b, { speed: 4 });
 // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
 stillIndustriesIn(b);
-const p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+// (At a device scale of 1, not 2: the checks read the layout (CSS pixels either way) and the game's state, not pixels,
+// and a frame at 2 costs SwiftShader half as much again. E2E_PHONE_DPR=2: as before.)
+const p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: Number(process.env.E2E_PHONE_DPR ?? 1), hasTouch: true, isMobile: true });
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 p.on("console", (m) => {

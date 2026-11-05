@@ -229,6 +229,37 @@ no line there, asks for its moves among them all, so they meet only at passing l
 7. **Unplanned trains** (hand-run) lock the points just ahead as they lie while moving (nothing is ever set for them),
    stop short of points another train holds for a road that meets theirs, and otherwise take the points as they lie
    (step 7).
+8. **A dead end is one block for entry** (2026-11-05, the town-ring fuzz and #29: a routed train waiting to go into a
+   dead end a hand-run train was shuttling in, each waiting on the other for good). A *dead-end region* is track a train
+   can only leave the way it came in: the pieces on no cycle of the track (a passing loop, a ring, a wye's triangle are
+   cycles) that join the rest at one place, its *mouth* (`Topology.deadEnds`; per layout revision). A shuttle line with
+   no cycle at all has no mouth and isn't one: sections' slots and loops work it as before. A passing loop inside one
+   splits it: the region is only the track beyond the loop, and the loop's roads are where trains wait to go in.
+   - **Entry:** a train goes in at the mouth only while no other train is in the region, none has a move granted into
+     it, and none has just found its way in free (a claim, kept while it asks again on its way there: a hand-run train
+     holds no move). Else its way stops short of the mouth (`Way.dest` −1, `mouth`, blocked by the train in there): it
+     comes up to the points outside the mouth and waits there, standing short of them (never on them: rule 9). A line
+     whose ways go into a region counts all of it as its network, so a train anywhere in there works the track with
+     the line's (`Sections.loopsOn`).
+   - **Coming out has priority:** a train waiting to go in isn't in the way of one coming out unless it stands on that
+     one's way out. At the points just outside the mouth, a train coming out takes a road no train stands on facing it
+     (`roadBlocked`), if the points have one: thrown for a hand-run train as for giving way (back to the player's way
+     once it's passed), the plan's choice for a routed one (kept as its line's way, so sections grant it that way).
+   - **Hand-run trains** keep the rule too (a train on no line on a line's network is one of its users), so one never
+     goes back into a dead end a routed train has gone into.
+   - **Signals** don't change it: a signal inside a region gives a waiting point, not a passing place, so the region is
+     still one block for entry; a signal at the mouth holds trains there as before. With Routes and Signals one research
+     item, the rule holds whether or not any signal is laid.
+   - **Cost:** regions per layout revision (a pass over the pieces and joints: `deadEndsOf`); per ask, a map lookup per
+     step of a way, and a scan of the trains only when a way crosses a mouth or a train in a region asks. Nothing per
+     frame, and nothing in `Stalls.tick`.
+   - **Measured** (town-ring fuzz, 30 seeds × 180 s, no loop): seeds stalling with a route 12 → 3, stuck seconds
+     1556 → 325, the routed trains' stops 114 → 153, seeds where it came to no stop 4 → 0; with a loop, 2 → 2 (both a
+     routed train waiting for a hand-run one circling against it); all hand-run, 0 throughout.
+9. **No train is held standing on points or a crossing.** A train in a section with no move asks again as it comes up
+   to points ahead, and held, it stands short of them (`STAND_SHORT`), as at a slot's end. A train following another
+   into facing points waits short of them till they've been clear 0.5 s (`POINTS_CLEAR_S`), so the player can throw them
+   between the two.
 
 ## 6. Running forward (#7)
 

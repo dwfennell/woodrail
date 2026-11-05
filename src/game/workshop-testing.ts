@@ -1,4 +1,4 @@
-import { CARGO, type CargoKind } from "../economy/cargo";
+import { CARGO, CARRIES, type CargoKind } from "../economy/cargo";
 import { WAGON_CAPACITY } from "../economy/constants";
 import { SIM_HZ, type CarKind } from "../sim";
 import type { PieceTypeId } from "../track";
@@ -39,7 +39,8 @@ export function deliverByTrain(w: World, shopPiece: number, kind: CargoKind, uni
     lines.get(w.layout)!.set(shopPiece, start);
   }
   const wagons = Math.ceil(units / WAGON_CAPACITY);
-  const cars: CarKind[] = ["engine", ...Array<CarKind>(wagons).fill(kind === "planks" || kind === "iron" || kind === "log" ? "timber" : "hopper")];
+  const wagon: CarKind = kind === "planks" || kind === "iron" || kind === "log" ? "timber" : CARRIES.van!.includes(kind) ? "van" : "hopper";
+  const cars: CarKind[] = ["engine", ...Array<CarKind>(wagons).fill(wagon)];
   const placed = w.sim.addTrain(cars, { pieceId: start, pathIndex: 0, reversed: false, s: 150 });
   if (placed.kind !== "placed") throw new Error("no room for the train");
   const train = w.sim.getTrain(placed.trainId)!;

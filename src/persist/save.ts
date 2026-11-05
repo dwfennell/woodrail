@@ -148,7 +148,7 @@ export function serializeWorld(world: World): SaveData {
           lever: c.lever,
           ...(look !== "classic" ? { look } : {}),
           ...(c.kind === "engine" && sim.nameOf(c.id) ? { name: sim.nameOf(c.id) } : {}),
-          ...(c.kind === "engine" && sim.liveryOf(c.id) ? { livery: sim.liveryOf(c.id) } : {}),
+          ...(sim.liveryOf(c.id) ? { livery: sim.liveryOf(c.id) } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
@@ -173,7 +173,7 @@ export function serializeWorld(world: World): SaveData {
     wyeLevers: 3,
     trains,
     ids: sim.idCounters(),
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...storeOf(d), ...keepsOf(d), ...landedOf(world, d.id), ...(d.powerAsk > 0 ? { power: d.powerAsk } : {}), ...vanYardOf(world, d.id), ...tracksSaved(world, d.id) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...(d.flyers > 0 ? { flyers: d.flyers } : {}), ...storeOf(d), ...keepsOf(d), ...landedOf(world, d.id), ...(d.powerAsk > 0 ? { power: d.powerAsk } : {}), ...vanYardOf(world, d.id), ...tracksSaved(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
@@ -385,6 +385,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     state.takesAll = (d.role === "workshop" || d.role === "school") && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
     state.powerAsk = d.power ?? 0;
+    if (d.role === "airport" || d.role === "mast") state.flyers = d.flyers ?? 0;
     // A workshop's keep amounts (older saves have none: the game's own).
     if (d.role === "workshop") for (const kind of CARGO_KINDS) state.keeps[CARGO[kind].index] = d.keeps?.[kind] ?? null;
     // A warehouse's store settings (older saves have none: it takes and gives everything).
@@ -403,7 +404,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     const cap = state.role === "warehouse" ? capAt(state) * LIFT_STACK : capAt(state);
     for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(cap, d.piles[CARGO[kind].index] ?? 0) : 0;
     state.timer = d.timer;
-    if (d.role === "town") state.waiting = d.waiting ?? 0;
+    if (d.role === "town" || d.role === "airport") state.waiting = d.waiting ?? 0;
     if (d.role === "town" && d.vanYard) {
       const yard: Bag = {};
       for (const k of CARGO_KINDS) if (d.vanYard[k]) yard[k] = d.vanYard[k];
@@ -469,7 +470,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       const name = t.cars[i].name;
       if (car.kind === "engine" && name) sim.setName(car.id, name);
       const livery = t.cars[i].livery;
-      if (car.kind === "engine" && livery) sim.setLivery(car.id, livery);
+      if (livery) sim.setLivery(car.id, livery);
       const on = t.cars[i].line;
       if (car.kind === "engine" && on) {
         joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next, on.via);

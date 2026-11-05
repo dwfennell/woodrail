@@ -1,5 +1,7 @@
 import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
+import { VISITOR_BONUS } from "./airports";
+import { circusFare, circusRiders } from "./circus";
 import { isBridge, OBSERVATORY_KIT, RISER_HEIGHT } from "../track";
 import { CELL } from "../landscape/grid";
 import type { Progress } from "./progress";
@@ -65,7 +67,7 @@ export function riderSeconds(level: number, busy = false): number {
  * since its last arrival, by town id (a quarter's by −2 − its depot id), kept by the caller between calls. Cheap: a few
  * towns, called about once a second.
  */
-export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>): void {
+export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>, boost: (townId: number) => number = () => 1): void {
   // No one waits for coaches that can't be made yet.
   if (!p.learned.has("passengers")) return;
   // (And riders on an observation car's train who are over a view now have had it.)
@@ -103,7 +105,8 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
     // A full town doesn't save up people for later.
     clock.set(key, waiting >= cap ? 0 : t);
   };
-  for (const [townId, list] of stops) arrive(townId, list, riderSeconds(statusOf(world, townId).level, busy));
+  // (`boost`: a town that hears about the trains, its radio mast powered, sends more: src/game/radio.ts.)
+  for (const [townId, list] of stops) arrive(townId, list, riderSeconds(statusOf(world, townId).level, busy) / (circusRiders(p, townId) * boost(townId)));
   for (const [townId, list] of quarters) {
     const every = riderSeconds(statusOf(world, townId).level, busy) * METRO_SLOWER;
     // (A quarter's clock is keyed by its depot: −2 − its id, apart from the towns' own.)
@@ -137,8 +140,13 @@ export function visitorsFor(world: World, from: DepotState, to: DepotState, mont
   return from.townId === to.townId ? 1 : visitorsAt(world, to, month);
 }
 
-/** One rider's fare from station `from` to station `to`, riding coach `carId` (in `month`, for visitors' seasons). */
+/**
+ * One rider's fare from station `from` to station `to`, riding coach `carId` (in `month`, for visitors' seasons). A
+ * visitor off a plane (`from` an airport) pays `VISITOR_BONUS` times as much; one taken to an airport pays nothing here
+ * (the plane takes their fare), and so does one taken to an airship's mast (the tour takes it).
+ */
 export function fareFor(world: World, from: DepotState, to: DepotState, carId: number, month?: number): number {
+  if (to.role === "airport" || to.role === "mast") return 0;
   const a = world.layout.getPiece(from.pieceId)?.pose;
   const b = world.layout.getPiece(to.pieceId)?.pose;
   // Whole coins for the ride, then first class and a dining car on top.
@@ -152,6 +160,7 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
     if (world.economy.ridersOf(carId).scenic && hasObservation(world, found.train.cars)) fare *= OBSERVATION;
   }
+  if (from.role === "airport") fare *= VISITOR_BONUS;
   // Getting off at a town with a leisure place, from another town: a visitor, who pays more.
   fare *= visitorsFor(world, from, to, month);
   if (world.economy.isLookout(to)) fare *= world.layout.getPiece(to.pieceId)?.type === OBSERVATORY_KIT ? STARGAZER_FARE : LOOKOUT_FARE;
@@ -191,7 +200,8 @@ export function noteViews(world: World): void {
 
 /** Someone got off: pay their fare and count them. Returns the coins paid. */
 export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number, month?: number): number {
-  const fare = fareFor(world, from, to, carId, month);
+  // (The circus's town pays double: src/game/circus.ts.)
+  const fare = fareFor(world, from, to, carId, month) * circusFare(p, to);
   p.coins += fare;
   p.riders++;
   // (Visitors counted, for the Day out sticker.)

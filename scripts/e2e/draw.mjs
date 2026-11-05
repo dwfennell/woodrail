@@ -6,6 +6,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
+import { batterySaverIn, mouseMoves, steps, testClockIn, touchMoves } from "./lib/fast.mjs";
 import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
 
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out";
@@ -61,6 +62,10 @@ const check = (name, ok, detail = "") => {
 
 let p = null;
 const errors = [];
+// The phones' pages at a device scale of 1, not 2: what's checked is the layout, the line laid and the moves' times,
+// none of it the pixels, and a frame at 2 cost SwiftShader half as much again (a stroke's moves each wait for one).
+// The layout is in CSS pixels either way. E2E_PHONE_DPR=2: as before.
+const PHONE_DPR = Number(process.env.E2E_PHONE_DPR ?? 1);
 async function start() {
   if (b) return;
   // Any free port (other dev servers may be running).
@@ -72,16 +77,25 @@ async function start() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (The game's test clock, and the desktop page as Battery saver: none of this looks at pixels. lib/fast.mjs.)
+  testClockIn(b);
+  batterySaverIn(b);
   // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
   watchBrowser(b);
   watchServer(server);
   // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
   stillIndustriesIn(b);
+}
+/** The first page (the desktop one most groups share), opened when a group first needs it. */
+async function mainPage() {
+  if (p) return;
   p = await b.newPage({ viewport: { width: 1200, height: 800 } });
   p.on("pageerror", (e) => errors.push(e.message));
   await boot(p);
   await installD(p);
 }
+// (The groups on pages of their own: a run of only these never opens the first page.)
+const OWN_PAGE = /^(phone|qa-.*|terrace-repeat|terrace-qa|junctions|loop|under-slant|ghosts)$/;
 
 /** Load the game and start playing (condition waits: software rendering under load can be slow). */
 const boot = async (page, tries = 3) => {
@@ -157,7 +171,7 @@ suite.add("shelf-drag", async () => {
   const box = await shelf.boundingBox();
   await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await p.mouse.down();
-  for (let k = 1; k <= 12; k++) await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - k * 25);
+  await mouseMoves(p, Array.from({ length: 12 }, (_, k) => [box.x + box.width / 2, box.y + box.height / 2 - (k + 1) * 25]));
   const held = await p.evaluate(() => window.woodrail.interaction.mode.kind === "drag-piece" && window.woodrail.interaction.mode.type);
   await p.keyboard.press("Escape");
   await p.mouse.up();
@@ -223,8 +237,7 @@ const drawThrough = async (pts, { shotAt = -1, shotName = "", stepPx = 14 } = {}
   for (let i = 1; i < screen.length; i++) {
     const [ax, ay] = screen[i - 1];
     const [bx, by] = screen[i];
-    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / stepPx));
-    for (let k = 1; k <= n; k++) await p.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    await mouseMoves(p, steps([ax, ay], [bx, by], Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / stepPx))));
     if (i === shotAt) await shot(p, `${OUT}/${shotName}`);
   }
   // The ghosts showing just before the finger lifts: what goes down must be exactly these.
@@ -398,7 +411,7 @@ if (site) {
 suite.add("phone-drag", async () => {
 step("7");
 if (await findSite()) {
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: PHONE_DPR, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
   await boot(q);
@@ -445,8 +458,7 @@ if (await findSite()) {
   for (let i = 1; i < pts.length; i++) {
     const [ax, ay] = pts[i - 1];
     const [bx, by] = pts[i];
-    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
-    for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    await touchMoves(cdp, steps([ax, ay], [bx, by], Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10))));
     if (i === pts.length - 3) await shot(q, `${OUT}/draw-7-phone-drawing.png`);
   }
   await touch("touchEnd", 0, 0);
@@ -491,7 +503,7 @@ suite.add("phone", async () => {
 });
 
 async function phoneSwipe() {
-  const ctx = await b.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await b.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: PHONE_DPR, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
   await boot(q);
@@ -564,10 +576,9 @@ async function phoneSwipe() {
     const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
     const n0 = await q.evaluate(() => window.woodrail.layout.pieceCount);
     await touch("touchStart", pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) {
-      await touch("touchMove", pts[i][0], pts[i][1]);
-      if (i === pts.length - 4) await shot(q, `${OUT}/draw-7b-landscape-drawing.png`);
-    }
+    await touchMoves(cdp, pts.slice(1, pts.length - 3));
+    await shot(q, `${OUT}/draw-7b-landscape-drawing.png`);
+    await touchMoves(cdp, pts.slice(pts.length - 3));
     await touch("touchEnd", 0, 0);
     await settled(q);
     await shot(q, `${OUT}/draw-7b-landscape-laid.png`);
@@ -634,6 +645,7 @@ suite.add("lift", async () => {
 }, { extra: true, about: "a lift waiting a frame to go down, and what puts it down at once" });
 await suite.run(async (g, go) => {
   await start();
+  if (!OWN_PAGE.test(g.name)) await mainPage();
   await go();
 });
 await finishRun();
@@ -830,7 +842,7 @@ async function slantedRiver() {
       const n0 = await p.evaluate(() => D.pieces());
       await p.mouse.move(pts[0][0], pts[0][1]);
       await p.mouse.down();
-      for (const [x, y] of pts.slice(1)) await p.mouse.move(x, y);
+      await mouseMoves(p, pts.slice(1));
       await p.mouse.up();
       await settled(p);
       await shot(p, `${OUT}/draw-8-slanted-river.png`);
@@ -877,7 +889,7 @@ function qaCases() {
 async function qaCase(c) {
   {
     // A fresh page for each, as QA ran them.
-    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: PHONE_DPR, isMobile: true, hasTouch: true });
     const q = await ctx.newPage();
     q.on("pageerror", (e) => errors.push(e.message));
     await boot(q);
@@ -995,8 +1007,7 @@ async function qaCase(c) {
       for (let i = 1; i < screen.length; i++) {
         const [ax, ay] = screen[i - 1];
         const [bx, by] = screen[i];
-        const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
-        for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+        await touchMoves(cdp, steps([ax, ay], [bx, by], Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10))));
       }
       await touch("touchEnd", 0, 0);
       await settled(q);
@@ -1059,7 +1070,7 @@ async function junctions(fresh = true) {
   // A fresh map (earlier cases leave track about, which a branch's press could land on, and their autosave): a page of
   // its own, in a context of its own, as when run alone.
   if (fresh) {
-    await p.close();
+    await p?.close();
     p = await b.newPage({ viewport: { width: 1200, height: 800 } });
     p.on("pageerror", (e) => errors.push(e.message));
     await boot(p);
@@ -1366,7 +1377,11 @@ async function ghostMatch() {
     let ti = 0;
     const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t0 + 0.016 * ti++, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
     await touch("touchStart", pts[0][0], pts[0][1]);
-    for (const [x, y] of pts.slice(1)) await touch("touchMove", x, y);
+    await touchMoves(cdp, pts.slice(1), { timestamp: () => t0 + 0.016 * ti++ });
+    // (The last move in: Chrome hands touch moves to the page lined up with its frames, and one sent while no frame
+    // was due came a frame later, after the ghosts were read: they showed the line one move short, and the lift laid
+    // it with that move. A frame or two asked for, it's in.)
+    await q.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     // (The finger resting a moment: the ghosts are worked out a slice a frame, and catch up within a frame or two.)
     await q.waitForFunction(() => window.woodrail.interaction.draw.ghostsCaughtUp ?? true, null, { timeout: 10000 }).catch(() => {});
     // (The ghosts' pieces: `shown`, or on a build before it, the line's own pieces, which were all its ghosts showed.)
@@ -1508,8 +1523,7 @@ async function underSlant() {
     for (let i = 1; i < sc.length; i++) {
       const [ax, ay] = sc[i - 1];
       const [bx, by] = sc[i];
-      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 8));
-      for (let k = 1; k <= n; k++) await q.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+      await mouseMoves(q, steps([ax, ay], [bx, by], Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 8))));
     }
     const drawn = await q.evaluate(() => (window.woodrail.interaction.draw.line?.pieces ?? []).map((p) => ({ type: p.type, red: !!p.blocked, why: p.blocked ?? null })));
     const slowest = await q.evaluate(() => Math.round(window.__slowest * 10) / 10);
@@ -1660,7 +1674,7 @@ async function liftFlush() {
     for (let i = 1; i < screen.length; i++) {
       const [ax, ay] = screen[i - 1];
       const [bx, by] = screen[i];
-      for (let k = 1; k <= 8; k++) await p.mouse.move(ax + ((bx - ax) * k) / 8, ay + ((by - ay) * k) / 8);
+      await mouseMoves(p, steps([ax, ay], [bx, by], 8));
     }
     await p.waitForFunction(() => window.woodrail.interaction.draw.ghostsCaughtUp ?? true, null, { timeout: 30000 }).catch(() => {});
     // The lift, then the trigger, in one go: no frame between them.
@@ -1782,10 +1796,7 @@ async function terraceQA() {
       clock = Math.max(clock + 0.5, Date.now() / 1000);
       const tp = (x, y) => [{ x, y, radiusX: 1, radiusY: 1, force: 1, id: 1 }];
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: tp(...res[0]), timestamp: clock });
-      for (const p of res.slice(1)) {
-        clock += 0.016;
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: tp(...p), timestamp: clock });
-      }
+      await touchMoves(cdp, res.slice(1), { touchPoints: tp, timestamp: () => (clock += 0.016) });
       clock += endAfter / 1000;
       await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [], timestamp: clock });
       await settled(q);
@@ -1858,8 +1869,7 @@ async function terraceRepeat() {
     for (let i = 1; i < path.length; i++) {
       const [ax, ay] = path[i - 1];
       const [bx, by] = path[i];
-      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
-      for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+      await touchMoves(cdp, steps([ax, ay], [bx, by], Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10))));
     }
     await touch("touchEnd", 0, 0);
     await settled(q);
@@ -1890,7 +1900,7 @@ async function terraceRepeat() {
  * "Turn it to fit" and "Another piece is in the way").
  */
 async function loopOffStraight() {
-  const ctx = await b.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await b.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: PHONE_DPR, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
@@ -2045,8 +2055,7 @@ async function loopOffStraight() {
   for (let i = 1; i < corners.length; i++) {
     const [ax, ay] = corners[i - 1];
     const [bx, by] = corners[i];
-    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 5));
-    for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    await touchMoves(cdp, steps([ax, ay], [bx, by], Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 5))), { timestamp: () => t0 + 0.016 * ti++ });
     modes.push(await mode());
   }
   // (QA: a loop merged back went down 2.5 to 3.8 mm and 0.84° off its ghosts.)
@@ -2174,10 +2183,7 @@ async function branchZNear(q, cdp) {
     clock += 1;
     const tp = (x, y) => [{ x, y, radiusX: 1, radiusY: 1, force: 1, id: 1 }];
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: tp(...res[0]), timestamp: clock });
-    for (const pt of res.slice(1)) {
-      clock += 0.016;
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: tp(...pt), timestamp: clock });
-    }
+    await touchMoves(cdp, res.slice(1), { touchPoints: tp, timestamp: () => (clock += 0.016) });
     clock += 0.016;
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [], timestamp: clock });
     await settled(q);

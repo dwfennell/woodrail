@@ -18,6 +18,7 @@ import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, trainKey,
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
 import { planWay, WayMemory } from "./plan";
+import { mouthWay } from "./dead-ends";
 
 /** How often (sim ticks) routed trains ask for the points ahead. */
 const STEER_TICKS = 8;
@@ -168,6 +169,8 @@ export class Router {
   handLooks = 0;
   handMs = 0;
   handWaits = 0;
+  /** Points thrown for a hand-run train coming out of a dead end (`outOfDeadEnd`). */
+  outThrows = 0;
   /** Points thrown for a hand-run train giving way (`giveWayRoad`). */
   gaveWayThrows = 0;
   /**
@@ -759,7 +762,9 @@ export class Router {
       if (!n) break;
       const ways = waysFrom(layout, n.pieceId, n.entry);
       if (ways.length === 0) break;
-      const option = ways.length > 1 ? pointsWayFrom(layout, n.pieceId, n.entry, ways.length) : 0;
+      let option = ways.length > 1 ? pointsWayFrom(layout, n.pieceId, n.entry, ways.length) : 0;
+      // (Coming out of a dead end, the points as they lie for a road a train faces it on: thrown for a free one.)
+      if (ways.length > 1) option = this.outOfDeadEnd(train, n.pieceId, n.entry, ways, option);
       const w = ways[option] ?? ways[0];
       // (Another train on them: only looked at (locked against it, it waits for the one they're locked for); it
       // locks nothing there or beyond.)
@@ -774,6 +779,25 @@ export class Router {
       exit = w.exit;
     }
     return want;
+  }
+
+  /**
+   * A hand-run train coming out of a dead end onto the points outside its mouth: if the road they lie for has a train
+   * facing it and another road hasn't (`mouthWay`), the points are thrown to that one (the player's way kept as their
+   * default, so they go back once it has passed, as for giving way). Not points pinned, locked for another train, or
+   * with a train on them. The option it'll take.
+   */
+  private outOfDeadEnd(train: Train, pieceId: number, entry: number, ways: readonly { option: number; path: number; exit: number }[], option: number): number {
+    const { layout, sim } = this.host;
+    const out = mouthWay(layout, sim, train, pieceId, entry, ways, option);
+    if (out === option || !isPoints(layout, pieceId) || layout.isPinned(pieceId) || sim.pointsHeld(pieceId)) return option;
+    const lock = this.locks.get(pieceId);
+    if (lock && [...lock.holders].some((e) => sim.findCar(e)?.train !== train)) return option;
+    this.laid();
+    layout.setSwitchState(pieceId, pointsStateFor(layout, pieceId, entry, out));
+    this.outThrows++;
+    this.onSwitch?.(pieceId);
+    return out;
   }
 
   /** Is another train (not `trainId`) on this piece? */
@@ -1046,9 +1070,20 @@ export class Router {
         const followed = follow ? ways.filter((x) => follow(n.pieceId, x.path)) : [];
         // (Its line's way kept where two cost nearly the same: stickiness, remembered as it's set.)
         const cost = this.costOut;
-        const best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost);
+        let best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost);
         // (No way on leads there: nothing set, and nothing further asked for.)
         if (best === -1) break;
+        // (Coming out of a dead end: a road no train faces it on, if one still gets there (routing spec §5 rule 8), as
+        // sections granted it.)
+        if (followed.length !== 1) {
+          const out = mouthWay(layout, this.host.sim, train, n.pieceId, n.entry, ways, best, (x) => planWay(layout, n.pieceId, n.entry, [{ option: 0, path: x.path, exit: x.exit }], target) !== -1);
+          if (out !== best) {
+            const o = { cost: Infinity };
+            planWay(layout, n.pieceId, n.entry, [ways[out]], target, undefined, undefined, o);
+            best = out;
+            cost.cost = o.cost;
+          }
+        }
         if (followed.length !== 1) this.ways.set(owner, n.pieceId, n.entry, target, best, cost.cost, cost.best);
         want.push({ pieceId: n.pieceId, state: best, ways: ways.length, entry: n.entry, d });
         w = ways[best];

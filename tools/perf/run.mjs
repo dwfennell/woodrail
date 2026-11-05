@@ -314,14 +314,29 @@ async function spotChanges(page, spot) {
         const cell = g.cellAtWorld(x, z);
         if (cell !== -1) at = { x, z, y: g.groundY(cell) };
       }
-    if (at) {
-      let id = -1;
-      out.layStraight = await timed(() => (id = w.editor().place("straight-108", { x: at.x, z: at.z, heading: 0 }, at.y, false)));
-      if (id > 0) out.takeUp = await timed(() => w.editor().remove(id));
+    // (Each change made and undone REPEATS times, each measure the median: one sample swung by a third run to run, and
+    // failed its budget now and then on nothing but noise.)
+    const REPEATS = 5;
+    const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+    const of = (runs) => runs.length && { opMs: median(runs.map((r) => r.opMs)), frameMs: median(runs.map((r) => r.frameMs)), ok: runs.every((r) => r.ok), n: runs.length };
+    const lays = [];
+    const takeUps = [];
+    const plants = [];
+    const takeOuts = [];
+    for (let k = 0; k < REPEATS; k++) {
+      if (at) {
+        let id = -1;
+        lays.push(await timed(() => (id = w.editor().place("straight-108", { x: at.x, z: at.z, heading: 0 }, at.y, false))));
+        if (id > 0) takeUps.push(await timed(() => w.editor().remove(id)));
+      }
+      let prop = null;
+      plants.push(await timed(() => (prop = w.props.add("scene-lollipop-tree", { x: spot.centre.x + 400, z: spot.centre.z + 400, y: 0, heading: 0 }))));
+      if (prop) takeOuts.push(await timed(() => w.props.remove(prop.id)));
     }
-    let prop = null;
-    out.plantTree = await timed(() => (prop = w.props.add("scene-lollipop-tree", { x: spot.centre.x + 400, z: spot.centre.z + 400, y: 0, heading: 0 })));
-    if (prop) out.takeOutTree = await timed(() => w.props.remove(prop.id));
+    if (lays.length) out.layStraight = of(lays);
+    if (takeUps.length) out.takeUp = of(takeUps);
+    out.plantTree = of(plants);
+    if (takeOuts.length) out.takeOutTree = of(takeOuts);
     return out;
   }, spot);
 }
@@ -532,6 +547,13 @@ async function runMap(id) {
   result.idle.trainsRunning = trainsRunning;
   phase("settle, frame, idle");
 
+  // 2b. At 3× (Game mode's time control, src/game/time-scale.ts): what running fast costs a phone, the same view.
+  await page.evaluate(() => (window.woodrail.timeScale = 3));
+  result.fast = await stretch(page, cdp, Math.min(IDLE_S, 10), null, `${id}-fast`);
+  result.fast.simMs = await page.evaluate(() => window.woodrail.simMs);
+  await page.evaluate(() => (window.woodrail.timeScale = 1));
+  await settle(page);
+
   // 3. Paused, as still as the game gets (the idle floor).
   if (trainsRunning) {
     await page.evaluate(() => (window.woodrail.paused = true));
@@ -551,10 +573,12 @@ async function runMap(id) {
     cdp,
     0,
     async () => {
-      // (Bounded by time, not by moves: each move waits for a frame, and SwiftShader's frames are slow.)
+      // (All three drags' moves, so the pointermove times are over about 90 of them, not however many fitted in the
+      // time: a p95 over a few dozen was its worst one or two, and swung past its budget run to run. Bounded at three
+      // times PAN_S all the same: each move waits for a frame, and SwiftShader's frames are slow.)
       const cx = 195;
       const cy = 420;
-      const until = Date.now() + PAN_S * 1000;
+      const until = Date.now() + 3 * PAN_S * 1000;
       for (let k = 0; k < 3 && Date.now() < until; k++) {
         await page.mouse.move(cx - 100, cy);
         await page.mouse.down();
@@ -907,6 +931,9 @@ function table(run) {
     ["idle: browser CPU % of a core", "idle.browserCpuPct"],
     ["idle: frame ms p50 / p95", (m) => fmt2(get(m, "idle.frameMs.p50"), get(m, "idle.frameMs.p95"))],
     ["idle: sim ms (last frame)", "idle.simMs"],
+    ["3×: main thread %", "fast.mainThreadPct"],
+    ["3×: frame ms p50 / p95", (m) => fmt2(get(m, "fast.frameMs.p50"), get(m, "fast.frameMs.p95"))],
+    ["3×: sim ms (last frame)", "fast.simMs"],
     ["paused: frames / main thread %", (m) => (m.paused ? `${m.paused.framesDrawn} / ${m.paused.mainThreadPct}` : "–")],
     ["pan: fps", "pan.fps"],
     ["pan: frame ms p50 / p95", (m) => fmt2(get(m, "pan.frameMs.p50"), get(m, "pan.frameMs.p95"))],

@@ -1384,6 +1384,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* A harbour's card: goods to buy from the next boat. */
 .harbour-buy { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+/* The time control's clock (Game mode, Clockmaker): its speed in the HUD's own chip, lit when running fast. */
+.chip.speed { font-weight: 900; font-size: 15px; min-width: 44px; }
+.chip.speed.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
 /* Game mode's power on a depot card: a power station's sparks, a yard's Power it. */
 .depot-power { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .depot-power .power-line { font-size: 13.5px; font-weight: 700; color: #5e4128; line-height: 1.3; text-align: center; }
@@ -1612,6 +1615,21 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .paint-swatch.chosen { border-color: #3f7d3a; background: #eef6e6; }
 .paint-swatch.locked { opacity: 0.55; cursor: default; }
 .paint-go { width: 100%; min-height: 48px; }
+/* Taller than a phone with your own colours: the panel scrolls (its place kept as a tap redraws it). */
+.paint-panel { max-height: calc(100dvh - max(12px, env(safe-area-inset-top))); overflow-y: auto; overscroll-behavior: contain; }
+/* Your own colours (Paint your trains): Body and Trim, a grid of lacquers, the wagons too, Paint for pots of paint. */
+.paint-title { margin: 4px 0 8px; font-size: 14px; font-weight: 900; color: #5a3f26; }
+.paint-own-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.paint-own-look { flex: none; width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 0 0 3px #fff, 0 0 0 4.5px #d8c6a6; }
+.paint-part { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+.paint-part i { width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 1.5px #d8c6a6; }
+.paint-part.on { border-color: #3f7d3a; background: #eef6e6; }
+.paint-colours { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+.paint-colour { aspect-ratio: 1; min-height: 34px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1.5px #d8c6a6; cursor: pointer; padding: 0; }
+.paint-colour.chosen { box-shadow: 0 0 0 3px #3f7d3a; }
+.paint-own-foot { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.paint-wagons, .paint-own-go { width: 100%; min-height: 44px; }
+.paint-wagons.on { border-color: #3f7d3a; background: #eef6e6; }
 .paint-engine { min-height: 40px; }
 /* (The cloud card open over the title: the cards and the link wait behind it, out of the way.) */
 .title-screen.cloud-open :is(.title-cards, .title-foot) { visibility: hidden; }

@@ -66,6 +66,11 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] 
   // sections took the hand-run trains in, three of them in the ring's one section, each waiting on the next: all four
   // stuck from the first second, no stop in 600 s. Now a train follows one on no line going its way.)
   { file: "route-stuck.txt", seconds: 600, arrivals: 4, what: "play-test: a routed train among hand-run trains following each other round a ring" },
+  // (Issue #29, 2026-11-05: "This train is blocked by a train all the way on the other side of the map!" (v154). The
+  // routed train, and a hand-run one, waited for good on an engine parked across the map: on no line, standing in the
+  // map's one big section, it was the end of the line for every move through it, on the way or not. Now a train
+  // standing off a way isn't in it (`Sections.ask`, `heldIn`). Stuck 295 s of 300 with no stop, it's now 0 s, 8 stops.)
+  { file: "far-train.txt", seconds: 300, arrivals: 6, what: "issue #29: a train held by an engine parked across the map" },
 ];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {

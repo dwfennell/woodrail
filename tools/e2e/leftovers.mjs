@@ -20,6 +20,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { testClockIn } from "../../scripts/e2e/lib/fast.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/leftovers";
@@ -32,6 +33,8 @@ await server.warmupRequest("/src/main.ts");
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// (The game's test clock: trains, loads and animations keep up with real time under SwiftShader. lib/fast.mjs.)
+testClockIn(b);
 
 let failures = 0;
 const check = (what, ok, detail = "") => {
@@ -41,7 +44,9 @@ const check = (what, ok, detail = "") => {
 
 /** A fresh phone page and its helpers (as tools/e2e/post.mjs's). */
 async function phone() {
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  // (At a device scale of 1, not 2: no check looks at pixels, the layout is in CSS pixels either way, and a frame at 2
+  // costs SwiftShader half as much again. E2E_PHONE_DPR=2: as before.)
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: Number(process.env.E2E_PHONE_DPR ?? 1), hasTouch: true, isMobile: true });
   await ctx.addInitScript(() => {
     localStorage.setItem("woodrail.helpSeen", "1");
     window.__allClicks = 0;

@@ -113,9 +113,17 @@ npm run e2e:affected -- --check      # every rule names a real suite and group
 
 It diffs the working tree (commits, staged, unstaged, new files) against the merge base, and maps each path through
 `RULES` in `scripts/e2e/affected.mjs`: a glob (or list of them) and what it affects, `"suite"` or
-`"suite:group,group"`. Rules add up. An e2e script maps to its own suite. `IGNORE` (docs, `*.md`, unit tests, tools
-that aren't e2e) maps to nothing. **A path no rule matches gets the core set (touch, click)** and is listed as unmapped:
-add a rule for it. The map is by hand, from what each suite's header says it drives; when you add a suite, add it to
+`"suite:group,group"`. Rules add up. An e2e script maps to its own suite; touch.mjs's own changes to the groups whose
+functions they're in (`touchGroupsOf`: a change to a shared helper, the boot or `openMode` is the whole suite).
+`IGNORE` (docs, `*.md`, unit tests, tools that aren't e2e) maps to nothing. **A path no rule matches gets `SMOKE`**, a
+few quick touch groups across the game and click's `desktop` (about 6 min), and is listed as unmapped: add a rule for
+it. So do the paths that reach everywhere (src/main.ts, game.ts, the build, the harness's lib).
+
+touch and click are selected by group: `TOUCH_INPUT` (presses, holds, drags and drops), `TOUCH_TRACK` (laying track,
+points), `TOUCH_TRAINS` and `TOUCH_ROUTES` (the sim, routing), `TOUCH_UI` (the HUD), `CLICK_INPUT`; a rule for a file
+names the ones it exercises. Neither is run whole on a landing any more: **run them whole nightly**, `npm run
+e2e:affected -- --nightly --run` (about 80 min), so what the narrowed selection leaves out is still run every day.
+The estimate it prints is from each group's measured time (`GROUP_SECONDS`; else the suite's minutes shared out). The map is by hand, from what each suite's header says it drives; when you add a suite, add it to
 `SUITES` and give it rules for the code it's there to cover; when you add a module, a rule saves every later branch the
 core set's hour.
 
@@ -127,3 +135,31 @@ timeout (2 min) and a bound of its own past Playwright's, and on failure prints 
 before a picture of a page that has only just loaded in a fresh context: it is still drawing its tray pictures, each read
 back from the graphics card, and under load a frame then takes seconds. (e2e:copy-map's last screenshot waited 23–30 s
 there for a frame, and ran out on a slower box after every check had passed; after `quiet` it took under a second.)
+
+## Speed: where the time goes, and `scripts/e2e/lib/fast.mjs`
+
+Under SwiftShader (no GPU, 4 cores) a frame of the game costs about a second on a 390×844 phone page and two on the
+1200×800 desktop page: about a million triangles a frame, so it's bound by vertices more than pixels. Nearly all of a
+suite's time is frames: a pointer move waits for one, `settled()` waits for animations to end, a two-`requestAnimationFrame`
+wait is two. Three things made that worse than it has to be, and `lib/fast.mjs` takes each away without changing a check:
+
+- **The test clock** (`testClockIn(browser)`): a frame's step of the world was capped at 0.1 s (and the sim at 8 ticks
+  of 1/120 s: 0.067 s), so at a frame a second the sim and every animation ran at a fifteenth of real time. A laid
+  line's settling took 12 s, a research a minute. In the test clock's pages (`window.__e2eClock`, read by
+  `e2eMaxDt` in src/game/game.ts; never set in play) a frame's step may be up to 1 s: the same fixed sim ticks, more of
+  them a frame, so game time keeps up with real time. `E2E_CLOCK=0`: as before. A suite that waits on game time
+  itself (a lesson's 20 or 45 s of study) may also run it faster than real time: `testClockIn(b, { speed: 4 })`
+  (e2e:research), still at most a second's step a frame. Opt in per suite, saying why, and check that nothing it
+  looks at mid-way (a study counting down) is over before it looks. `E2E_SPEED=1`: at real time.
+- **Moves a few to a frame** (`mouseMoves`, `touchMoves`, `inFrames`): a phone samples a finger at 120 Hz and the
+  game draws 30 frames a second, so a frame's pointer event carries about four moves, the rest in
+  `getCoalescedEvents()`, and the game takes every one in order (`coalesced` in src/game/interaction.ts). The helpers
+  send `MOVES_PER_FRAME` (4) moves at once and await them together: the same points in the same order, a quarter of
+  the frames. Stamped strokes keep their stamps. `E2E_MOVES_PER_FRAME=1`: one a frame, as before.
+- **Cheaper frames where pixels aren't checked**: phone pages at a device scale of 1 (`E2E_PHONE_DPR=2`: as before;
+  the layout is in CSS pixels either way), and the desktop page as "Battery saver" (`batterySaverIn`: the mobile tier,
+  no ambient occlusion or depth of field, which cost a desktop frame several seconds). `E2E_SAVER=0`: high, as before.
+
+To see where a suite's time goes: `E2E_PROFILE=1 npm run e2e:<suite>` (`lib/profile.mjs`) times every Playwright call
+by the line of the suite that made it (inclusive up its own call chain), and prints the top lines after each group and
+for the run (`E2E_PROFILE_TOP=n` lines). A helper's line (`settled`, `boot`, `drag`) shows everything through it.

@@ -3933,7 +3933,9 @@ async function routeKeep(ctx, p, tapSel) {
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 360, height: 740 });
   await frames(p);
-  const setup = await p.evaluate(async () => {
+  // (The view it drags in is the stuck groups' (`STUCK_VIEW`): left as earlier groups had it, the straight from the tray
+  // didn't seat by the sawmill in the full run (2026-11-05, claude/dead-end-block: 75/78; 5/5 alone).)
+  const setup = await p.evaluate(async (view) => {
     const w = window.woodrail;
     const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
     const { loopOn } = await import("/src/economy/loop-fixtures.ts");
@@ -3956,6 +3958,11 @@ async function routeKeep(ctx, p, tapSel) {
     const b = loop.side[2];
     let g = null;
     let turn = 0;
+    // (Searched from the middle of where the view can go, and framed at the suite's own heading and tilt, not wherever
+    // the groups before left the view: as the stuck groups (STUCK_VIEW). Run after them, the tray's straight dropped
+    // beside the sawmill laid nothing, 2026-11-05.)
+    const bounds = w.director.bounds;
+    const from = { x: (bounds.x0 + bounds.x1) / 2, z: (bounds.z0 + bounds.z1) / 2 };
     const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
     for (let k = 0; k < 4 && !g; k++) {
       turn = (k * Math.PI) / 2;
@@ -3967,7 +3974,7 @@ async function routeKeep(ctx, p, tapSel) {
           const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
           return c.kind === "clear" || (id !== more && c.reason === "off-mat");
         });
-      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more), ok });
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(more), ok, from });
     }
     if (!g) {
       // (Why not, for the record: with only the clear points, then the land too.)
@@ -4025,9 +4032,9 @@ async function routeKeep(ctx, p, tapSel) {
     window.__keepRun(20);
     const q = at(L.getPiece(more).pose);
     const mid = { x: q.x + Math.cos(q.heading) * 108, z: q.z + Math.sin(q.heading) * 108 };
-    w.director.glideTo(w.controls.target.clone().set(mid.x, 0, mid.z), frameDistance(1400, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    w.director.glideTo(w.controls.target.clone().set(mid.x, 0, mid.z), frameDistance(1400, w.camera.fov, w.camera.aspect), { duration: 0.3, theta: view.theta, phi: view.phi });
     return { E, mid, sawmill: sawmill.id, sawmillPiece: real(b) };
-  });
+  }, STUCK_VIEW);
   const lines0 = await p.evaluate(() => window.__keepLines());
   // The player lays the straight on at the sawmill's open end: dragged out of the Straight shelf by touch (as stuck's
   // missing straight), held its lift above the finger, nudged by what's seen till it seats there.
@@ -4050,11 +4057,11 @@ async function routeKeep(ctx, p, tapSel) {
     return [r.x + r.width / 2, r.y + r.height / 2];
   });
   if (!item) throw new Error("no straight-216 in the Straight shelf");
-  await p.evaluate((m) => {
+  await p.evaluate(([m, v]) => {
     const w = window.woodrail;
     w.paused = true;
-    w.director.glideTo(w.controls.target.clone().set(m.x, 0, m.z), 1200, { duration: 0.2 });
-  }, setup.mid);
+    w.director.glideTo(w.controls.target.clone().set(m.x, 0, m.z), 1200, { duration: 0.2, theta: v.theta, phi: v.phi });
+  }, [setup.mid, STUCK_VIEW]);
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
   await frames(p);
   const target = await p.evaluate((m) => {
@@ -5115,7 +5122,11 @@ async function routeRing(ctx, p) {
 /** A phone's page in `mode`, on the map past the title and the first visit's help: what every group starts from. */
 async function openMode(mode, { settle = false } = {}) {
   await boot();
-  const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
+  // (At a device scale of 1, not 2: nothing here looks at pixels, the layout is in CSS pixels either way, and a frame at
+  // 2 costs SwiftShader half as much again. E2E_PHONE_DPR=2: as before. Not the game's test clock or moves a few to a
+  // frame (lib/fast.mjs): checks here hold and pick up running trains by a finger, and at real-time game speed the
+  // train moved on from under it; and a tray drag's moves batched lost a drop in a full run.)
+  const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: Number(process.env.E2E_PHONE_DPR ?? 1), isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
   await ctx.addInitScript(() => localStorage.setItem("woodrail.favourites", "[]"));
   // Every click, counted before the game's own listeners (the click shield's included) see it.
