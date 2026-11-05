@@ -264,6 +264,22 @@ export class Game {
     this.renderer.shadowMap.type = PCFShadowMap;
     // Redrawn only when something casting a shadow moves (see frame): not for a camera move alone.
     this.renderer.shadowMap.autoUpdate = false;
+    // The browser can take the drawing away (the WebGL context lost: on a phone, most often when it's short of
+    // memory, or the GPU process restarted). three asks for it back (its own listener, added first, calls
+    // preventDefault); nothing is drawn meanwhile. When it comes back, three uploads geometry and textures again by
+    // itself; what was only ever drawn on the GPU (the environment map, the shadow map) is made again here, and the
+    // stage's hook on three's shadow renderer (made anew) put back.
+    canvas.addEventListener("webglcontextlost", () => {
+      this.contextLost = true;
+      this.onContextLost?.();
+    });
+    canvas.addEventListener("webglcontextrestored", () => {
+      this.contextLost = false;
+      this.stage.restored();
+      this.resize();
+      this.invalidate();
+      this.onContextRestored?.();
+    });
 
     this.camera = new PerspectiveCamera(30, 1, 5, 40000);
     this.camera.position.set(700, 620, 1050);
@@ -947,6 +963,12 @@ export class Game {
     this.post.setSize(Math.floor(w * pr), Math.floor(h * pr));
   }
 
+  /** The WebGL context is lost (see the constructor): nothing is drawn till it's back. */
+  contextLost = false;
+  /** Told when the WebGL context is lost, and when it's back. */
+  onContextLost: (() => void) | null = null;
+  onContextRestored: (() => void) | null = null;
+
   /** Frames drawn since start (for tests and measuring: an idle game should add none). */
   framesDrawn = 0;
   /** Those waiting for the scene to be still: how many ticks in a row each still wants, and how many it's seen. */
@@ -1177,6 +1199,8 @@ export class Game {
       this.shadowsMoving = true;
       return;
     }
+    // (No drawing while the context is lost: the frame stays wanted, for when it's back.)
+    if (this.contextLost) return;
     const once = this.dirty;
     this.dirty = false;
     if (!once && now - this.lastActive > IDLE_TAIL) {

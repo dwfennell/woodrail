@@ -53,6 +53,7 @@ export const SUITES = {
   locked: { script: "e2e:locked", minutes: 6 },
   signals: { script: "e2e:signals", minutes: 7 },
   life: { script: "e2e:life", minutes: 4 },
+  "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge" },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
 };
@@ -72,7 +73,7 @@ export const RULES = [
   // The suites themselves, and what they share.
   ["scripts/e2e/lib/**", CORE],
   ["scripts/e2e/feedback-flow.mjs", ["touch:feedback", "click:feedback"]],
-  ["scripts/e2e/pin-clocks.mjs", ["touch", "click", "station-clock", "signals", "life"]],
+  ["scripts/e2e/pin-clocks.mjs", ["touch", "click", "station-clock", "signals", "life", "gl-lost"]],
   ["scripts/e2e/affected.mjs", []],
   ["scripts/e2e/phone-audit.mjs", []],
   ["tools/e2e/**", []], // (each file maps to its own suite: see suiteOfScript)
@@ -108,6 +109,8 @@ export const RULES = [
 
   // Rendering.
   ["src/render/**", ["touch", "click", "life"]],
+  // The drawing lost and back, the card to reload, and lean settings after (and what the post-processing makes).
+  [["src/render/post.ts", "src/render/quality.ts", "src/render/stage.ts", "src/ui/context-lost.ts", "src/game/game.ts"], ["gl-lost"]],
   ["src/render/clock-*", ["station-clock"]],
   ["src/render/hopper-load.ts", ["hopper-load"]],
   ["src/render/station-touches.ts", ["station-touches"]],

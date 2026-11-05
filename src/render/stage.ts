@@ -12,6 +12,7 @@ import {
   SphereGeometry,
   type Camera,
   type WebGLRenderer,
+  type WebGLRenderTarget,
 } from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
@@ -32,6 +33,13 @@ export interface Stage {
   readonly shadowFit: { x: number; z: number; radius: number };
   /** Keep the sky centred on the camera (call once per frame, before rendering). */
   update(camera: Camera): void;
+  /**
+   * Make the environment map again: after a lost WebGL context comes back, what was drawn into a render target (as
+   * the environment map was) is gone, and three can't upload it again as it does a texture from an image.
+   */
+  renewEnvironment(): void;
+  /** After a lost context is back (three's new shadow map renderer): the environment map made again, shadows as before. */
+  restored(): void;
 }
 
 /** A sky dome coloured by elevation: haze at and below the horizon, rising to pale blue. */
@@ -61,8 +69,17 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   const group = new Group();
   scene.add(group);
 
-  const pmrem = new PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  let environment: WebGLRenderTarget | null = null;
+  const renewEnvironment = () => {
+    environment?.dispose();
+    const pmrem = new PMREMGenerator(renderer);
+    environment = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    scene.environment = environment.texture;
+    // (Its working target and shaders aren't needed again: 6 MB of GPU memory, a 768×1024 half-float target, kept for
+    // nothing otherwise. The environment map made is kept.)
+    pmrem.dispose();
+  };
+  renewEnvironment();
   scene.environmentIntensity = 0.22;
   scene.background = new Color(HAZE_COLOR);
   // The land it hazes around is set by the game (see `setHazeLand`).
@@ -85,16 +102,20 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   sun.shadow.camera.layers.enable(SHADOW_PROXY_LAYER);
   // three tests a caster's layers against the view's camera, not the shadow camera: during the shadow pass only, the
   // view's camera sees the stand-ins too. (They still never reach the screen: its list is made before the shadow pass.)
-  const renderShadows = renderer.shadowMap.render.bind(renderer.shadowMap);
-  renderer.shadowMap.render = (lights, scene, camera) => {
-    const had = camera.layers.isEnabled(SHADOW_PROXY_LAYER);
-    camera.layers.enable(SHADOW_PROXY_LAYER);
-    try {
-      renderShadows(lights, scene, camera);
-    } finally {
-      if (!had) camera.layers.disable(SHADOW_PROXY_LAYER);
-    }
+  // (Installed again after a lost context comes back: three makes a new shadow map renderer then.)
+  const patchShadows = () => {
+    const renderShadows = renderer.shadowMap.render.bind(renderer.shadowMap);
+    renderer.shadowMap.render = (lights, scene, camera) => {
+      const had = camera.layers.isEnabled(SHADOW_PROXY_LAYER);
+      camera.layers.enable(SHADOW_PROXY_LAYER);
+      try {
+        renderShadows(lights, scene, camera);
+      } finally {
+        if (!had) camera.layers.disable(SHADOW_PROXY_LAYER);
+      }
+    };
   };
+  patchShadows();
   scene.add(sun);
   scene.add(sun.target);
   scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), shades.fill));
@@ -128,5 +149,12 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
     sky.updateMatrixWorld();
   };
 
-  return { group, sun, fitShadow, shadowFit, update };
+  const restored = () => {
+    // (The old one's GL objects went with the lost context: dropped, not disposed, which would only warn.)
+    environment = null;
+    renewEnvironment();
+    patchShadows();
+  };
+
+  return { group, sun, fitShadow, shadowFit, update, renewEnvironment, restored };
 }
