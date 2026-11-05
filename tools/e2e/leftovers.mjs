@@ -173,11 +173,15 @@ async function phone() {
               tried++;
               const before = new Set(w.layout.pieceIds());
               const r = play(w.world.layout, w.editor(), connectorRef(s0, i), connectorRef(s1, j), { blocked: rulesFor(w.world), maxPieces, fiddle: 3 });
-              if (r.ok) {
-                laid = [...w.layout.pieceIds()].filter((id) => !before.has(id));
+              const fresh = [...w.layout.pieceIds()].filter((id) => !before.has(id));
+              // A line of its own, long enough for the trains and with a straight to swap for a post office (two
+              // stations already joined by the map's own track give none: taken up again, and the next tried).
+              if (r.ok && fresh.length >= 4 && fresh.some((id) => w.layout.getPiece(id).type === "straight-216")) {
+                laid = fresh;
                 towns = pair;
                 break search;
               }
+              for (const id of fresh.reverse()) w.editor().remove(id);
             }
           }
         }
