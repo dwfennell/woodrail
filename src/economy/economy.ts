@@ -2499,8 +2499,14 @@ export class Economy {
         this.letCraneGo(s);
         continue;
       }
-      // (One crane for a depot's several tracks: it moves a unit for one train at a time, each in turn.)
-      if (s.ticks === 0 && this.tracks.has(d.id) && !this.craneTurn(s)) continue;
+      if (s.ticks === 0) {
+        // A train ahead on the same track still being served goes first, so it can leave and this one move up. While
+        // it only waits for a load, this one may unload (that may be what it waits for), not load.
+        const ahead = this.queuedBehind(s, train, d);
+        if (ahead === BEHIND || (ahead === UNLOAD_ONLY && !this.canUnload(d, s.carId))) continue;
+        // (One crane for a depot's several tracks: it moves a unit for one train at a time, each in turn.)
+        if (this.tracks.has(d.id) && !this.craneTurn(s)) continue;
+      }
       if (++s.ticks < this.craneTicks) continue;
       s.ticks = 0;
       if (this.craneBy.get(d.id) === s.trainId) {
@@ -2823,10 +2829,42 @@ export class Economy {
       if (at > mine || (at === mine && o.trainId > s.trainId)) continue;
       const t = this.sim.getTrain(o.trainId);
       if (!t || this.drive(t) === 0) continue;
-      if (this.canUnload(o.depot, o.carId) || this.loadKind(o.depot, o.carId) !== null) return false;
+      // (Not one queued behind a train on its own track: it isn't asking for the crane yet.)
+      const queued = this.queuedBehind(o, t, o.depot);
+      if (queued === BEHIND) continue;
+      if (this.canUnload(o.depot, o.carId) || (queued === FREE && this.loadKind(o.depot, o.carId) !== null)) return false;
     }
     this.craneBy.set(s.depotId, s.trainId);
     return true;
+  }
+
+  /**
+   * Is this halted train queued behind another on the same track of the depot (the user's two trains nose to tail at
+   * a mill)? The front one (furthest on in its direction of travel) is served first, so it can fill and leave and the
+   * one behind move up: `BEHIND` while a train ahead still has its visit going (halted for the crane or crawling up to
+   * its next wagon, its lever on); `UNLOAD_ONLY` while the only ones ahead are just waiting for a load (the goods this
+   * one brings may be what makes it); else `FREE`. Trains on other tracks of a depot aren't ahead (`craneTurn` shares
+   * the crane among those). Cheap: a pass over the services, no allocation, asked only as a crane move would start.
+   */
+  private queuedBehind(s: Service, train: Train, d: DepotState): number {
+    if (this.services.size < 2) return FREE;
+    const len = this.depotLength(d);
+    const k = leadOn(train, d.pieceId);
+    if (k < 0) return FREE;
+    const dir = train.bogies[k].reversed ? -1 : 1;
+    const mine = along(train.bogies[k], len);
+    let out = FREE;
+    for (const o of this.services.values()) {
+      if (o === s || o.depot !== d || o.phase === NONE) continue;
+      const t = this.sim.getTrain(o.trainId);
+      if (!t || t.derailed || this.drive(t) <= 0) continue;
+      const j = leadOn(t, d.pieceId);
+      if (j < 0 || (t.bogies[j].reversed ? -1 : 1) !== dir || (along(t.bogies[j], len) - mine) * dir <= 0) continue;
+      // Ahead of this one. Just waiting for goods to come (nothing for the crane to move for it now)?
+      if (o.phase === HALTED && !this.canUnload(d, o.carId) && this.loadKind(d, o.carId) === null && this.waitsForLoad(d, o.carId)) out = UNLOAD_ONLY;
+      else return BEHIND;
+    }
+    return out;
   }
 
   /** This train's wagon no longer has its depot's crane (it moves on to its next wagon, or stops). */
@@ -2926,6 +2964,17 @@ function cycleTicks(seconds: number, rate: number): number {
 /** A cursor's distance from its path's `from` end. */
 /** A train braking to wait at its stop (auto-spacing) stops this far (mm) short of the stop's far end. */
 const STOP_SHORT = 6;
+
+/** `queuedBehind`'s answers. */
+const FREE = 0;
+const BEHIND = 1;
+const UNLOAD_ONLY = 2;
+
+/** The first (leading) bogie of a train on this piece, or −1. */
+function leadOn(train: Train, pieceId: number): number {
+  for (let k = 0; k < train.bogies.length; k++) if (train.bogies[k].pieceId === pieceId) return k;
+  return -1;
+}
 
 function along(c: Cursor, len: number): number {
   return c.reversed ? len - c.s : c.s;
