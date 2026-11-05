@@ -5,7 +5,7 @@ import { costTag } from "../ui/cost-tag";
 import type { Progress } from "./progress";
 import { costOf as researchCost } from "./research";
 import { PAINT_KEPT } from "./paint-shop";
-import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
+import { isFree, isGift, ruleOf, THING_RULES, type ThingId } from "./things";
 import type { World } from "./world";
 
 /** Seconds of play to make one thing, once its goods are taken. */
@@ -341,7 +341,7 @@ export class Crafting {
   }
 
   order(id: ThingId): void {
-    if (ruleOf(id) && !isFree(id) && this.progress.knows(id)) this.progress.orders.push(id);
+    if (ruleOf(id) && !isFree(id) && !isGift(id) && this.progress.knows(id)) this.progress.orders.push(id);
   }
 
   /** Take the last order of this kind off the list (not one already being made). */

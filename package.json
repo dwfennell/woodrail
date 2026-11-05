@@ -73,6 +73,7 @@
     "e2e:signals": "node scripts/e2e/lib/run.mjs tools/e2e/signals.mjs",
     "e2e:sandbox-chains": "node scripts/e2e/lib/run.mjs tools/e2e/sandbox-chains.mjs",
     "e2e:life": "node scripts/e2e/lib/run.mjs tools/e2e/life.mjs",
+    "e2e:circus": "node scripts/e2e/lib/run.mjs tools/e2e/circus.mjs",
     "e2e:power": "node scripts/e2e/lib/run.mjs tools/e2e/power.mjs",
     "e2e:post": "node scripts/e2e/lib/run.mjs tools/e2e/post.mjs",
     "e2e:gl-lost": "node scripts/e2e/lib/run.mjs tools/e2e/gl-lost.mjs",

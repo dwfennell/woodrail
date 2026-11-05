@@ -1,5 +1,6 @@
 import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
+import { circusFare, circusRiders } from "./circus";
 import { isBridge, OBSERVATORY_KIT, RISER_HEIGHT } from "../track";
 import { CELL } from "../landscape/grid";
 import type { Progress } from "./progress";
@@ -103,7 +104,7 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
     // A full town doesn't save up people for later.
     clock.set(key, waiting >= cap ? 0 : t);
   };
-  for (const [townId, list] of stops) arrive(townId, list, riderSeconds(statusOf(world, townId).level, busy));
+  for (const [townId, list] of stops) arrive(townId, list, riderSeconds(statusOf(world, townId).level, busy) / circusRiders(p, townId));
   for (const [townId, list] of quarters) {
     const every = riderSeconds(statusOf(world, townId).level, busy) * METRO_SLOWER;
     // (A quarter's clock is keyed by its depot: −2 − its id, apart from the towns' own.)
@@ -191,7 +192,8 @@ export function noteViews(world: World): void {
 
 /** Someone got off: pay their fare and count them. Returns the coins paid. */
 export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number, month?: number): number {
-  const fare = fareFor(world, from, to, carId, month);
+  // (The circus's town pays double: src/game/circus.ts.)
+  const fare = fareFor(world, from, to, carId, month) * circusFare(p, to);
   p.coins += fare;
   p.riders++;
   // (Visitors counted, for the Day out sticker.)

@@ -47,7 +47,7 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
-import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
+import { costText, isFree, isGift, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
@@ -79,6 +79,7 @@ import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, want
 import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pillKey, pillResearch, pillView, removedText, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
 import { TelegraphWires } from "./render/telegraph-wires";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
+import { BIG_TOP, bigTopSpot, CIRCUS_FARE, circusTick } from "./game/circus";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
 import { canPower, POWERED_RATE, powerOf } from "./game/power";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
@@ -2376,7 +2377,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (id === "vans") deliveryVans.sync();
     if (id === "buses") buses.sync();
     if (id === "tunnels") game.setTunnels(true);
-    const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
+    const makes = unlocksOf(id).filter((t) => !isGift(t)).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
     // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
     const gift = learnGift(progress, id);
@@ -2821,6 +2822,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else warnedHeavy.delete(id);
     }
     peopleArrive(game.world, progress, 1, peopleClock);
+    // The circus (late-game spec K1): a show opens where its train stands at a town, and closes after three months.
+    if (mode === "game" && progress.learned.has("circus")) tickCircus();
     // Sparks: a power station's coal may have run out (or come), a train put on or away (src/game/power.ts).
     syncPower();
     // Metro trains draw power: a coal from a power station now and then, as they run (not while paused: they stand,
@@ -3081,6 +3084,50 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     line.className = "station-waiting";
     line.textContent = text;
     box.append(line);
+  }
+
+  /** The circus's second of play: its big top put up or taken down, and what's said (src/game/circus.ts). */
+  function tickCircus(): void {
+    // (The big top's model, fetched ahead of its first show: its footprint finds it room.)
+    if (!game.propLibrary.footprint(BIG_TOP)) void game.propLibrary.load(BIG_TOP).catch(() => {});
+    const town = (id: number) => game.landscape.towns.find((t) => t.id === id);
+    const events = circusTick(
+      game.world,
+      progress,
+      1,
+      (townId) => {
+        const piece = game.layout.getPiece(game.stations.get(townId) ?? -1);
+        if (!piece) return -1;
+        // (Before its model is in, a big top's own size: about 160 mm across.)
+        const fp = game.propLibrary.footprint(BIG_TOP) ?? { cx: 0, cz: 0, hw: 80, hd: 80 };
+        const spot = bigTopSpot(game.world, piece.pose, fp, game.propLibrary.footprint);
+        if (!spot) return -1;
+        const id = game.props.add(BIG_TOP, spot).id;
+        game.propsChanged();
+        return id;
+      },
+      (prop) => {
+        if (!game.props.get(prop)) return;
+        game.props.remove(prop);
+        game.propsChanged();
+      },
+    );
+    for (const e of events) {
+      const t = town(e.town);
+      const name = t?.name ?? "The town";
+      if (e.kind === "opened") {
+        note({ kind: "milestone", text: `The circus is in ${name}! Riders to ${name} pay ${CIRCUS_FARE}× for 3 months`, place: t ? { x: t.centre.x, z: t.centre.z } : undefined }, 4200, true);
+        hud.toast(`✨ The circus is in ${name}! Riders there pay ${CIRCUS_FARE}×`, true, 3600);
+      } else {
+        const level = Math.max(1, statusOf(game.world, e.town).level);
+        const offer = offerOnGrowth(progress, game.world, name, level, Math.random);
+        hud.toast(`The circus leaves ${name}.${offer ? ` ${name} thanks you: pick a reward` : ""}`, true, 3600, offer ? () => openRewards() : undefined);
+        if (offer) refreshBoard();
+      }
+      audio.chime();
+      scheduleSave();
+      scheduleSave("progress");
+    }
   }
 
   // ---- depot tracks: an industry upgraded to 2, then 3 tracks, from its card (Sidings learned) ---------------------
@@ -3407,7 +3454,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const stock = workshopStock(game.world);
     const SHELVES = ["Track", "Trains", "Industries", "Railway"];
     for (const tid of Object.keys(THING_RULES) as ThingId[]) {
-      if (!progress.knows(tid) || isFree(tid)) continue;
+      if (!progress.knows(tid) || isFree(tid) || isGift(tid)) continue;
       const rule = ruleOf(tid)!;
       rows.push({
         id: tid,

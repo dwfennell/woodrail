@@ -10,6 +10,7 @@ import { buildOilTanker, oilTankerBogies } from "../catalogue/assets/oil-tanker"
 import { breakdownCraneBogies, buildBreakdownCrane } from "../catalogue/assets/breakdown-crane";
 import { buildMailVan, buildSortingVan, mailVanBogies } from "../catalogue/assets/mail-van";
 import { buildCarCarrier, carCarrierBogies } from "../catalogue/assets/car-carrier";
+import { buildCircusCage, circusCageBogies } from "../catalogue/assets/circus-cage";
 import { buildObservationCar, observationBogies } from "../catalogue/assets/observation-car";
 import { blenderCar } from "./blender-models";
 import type { Materials } from "./materials";
@@ -184,6 +185,7 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   if (kind === "passenger" && look === "observation") return codeCarModel(mats, "passenger", buildObservationCar, observationBogies);
   if (kind === "mailvan") return codeCarModel(mats, "mailvan", buildMailVan, mailVanBogies);
   if (kind === "sortvan") return codeCarModel(mats, "sortvan", buildSortingVan, mailVanBogies);
+  if (kind === "cage") return codeCarModel(mats, "cage", buildCircusCage, circusCageBogies);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
   const rack = kind === "engine" && look === "rack";
   const metro = look === "metro";

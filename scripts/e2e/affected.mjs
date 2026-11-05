@@ -63,6 +63,7 @@ export const SUITES = {
   "gl-lost-desktop": { script: "e2e:gl-lost-desktop", minutes: 2 },
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
+  circus: { script: "e2e:circus", minutes: 6 },
   power: { script: "e2e:power", minutes: 6 },
   crane: { script: "e2e:crane", minutes: 4 },
   tunnels: { script: "e2e:tunnels", minutes: 6 },
@@ -245,6 +246,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // The touring circus (late-game spec K1).
+  [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
   // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.
   [["src/game/boats.ts", "src/game/ferry.ts", "src/game/harbours.ts", "src/ui/boat-card.ts", "src/ui/water-controls.ts", "src/render/river-boats-view.ts", "src/render/ferries-view.ts", "src/render/boats-view.ts", "src/economy/boats.ts", "src/catalogue/assets/water.ts", "src/catalogue/assets/boat-parts.ts", "src/game/yards.ts", "src/render/yards-view.ts"], ["water"]],
   // Power as sparks and the wind farm (late-game spec W1).
