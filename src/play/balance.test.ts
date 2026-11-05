@@ -2047,6 +2047,7 @@ class Playthrough {
       // (The seeded pick drawn as before, also under BALANCE_CARD, so the draws after it stay the same.)
       let i = choices.length > 0 ? choices[((k) => (CARD_PICK === "first" ? 0 : CARD_PICK === "last" ? choices.length - 1 : k))(Math.floor(P.picks() * choices.length))] : -1;
       if (i === -1) i = o.cards.findIndex((c, k) => c.kind === "coins" && ok[k]);
+      if (i === -1) i = ok.findIndex((y, k) => y && !isEngine(k));
       if (i === -1) i = ok.indexOf(true);
       const card = o.cards[i];
       const took = i === -1 ? null : takeCard(s, w, 0, i);
