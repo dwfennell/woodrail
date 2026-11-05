@@ -2041,7 +2041,9 @@ class Playthrough {
         crate: this.shop === -1,
         wagon: this.carsWait,
       };
-      const choices = o.cards.map((_, k) => k).filter((k) => ok[k] && sensible[o.cards[k].kind]);
+      // (A city's wagon card is an engine once Signals and routes are learned: no help to a goods train waiting on cars.)
+      const isEngine = (k: number) => { const c = o.cards[k]; return c.kind === "wagon" && "id" in c && c.id === "car:engine"; };
+      const choices = o.cards.map((_, k) => k).filter((k) => ok[k] && sensible[o.cards[k].kind] && !isEngine(k));
       // (The seeded pick drawn as before, also under BALANCE_CARD, so the draws after it stay the same.)
       let i = choices.length > 0 ? choices[((k) => (CARD_PICK === "first" ? 0 : CARD_PICK === "last" ? choices.length - 1 : k))(Math.floor(P.picks() * choices.length))] : -1;
       if (i === -1) i = o.cards.findIndex((c, k) => c.kind === "coins" && ok[k]);

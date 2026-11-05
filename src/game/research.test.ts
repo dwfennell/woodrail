@@ -17,7 +17,7 @@ describe("research costs", () => {
     // The passenger line: light on planks, and from tier 2 mostly coins (P5).
     expect(costOf("halts")).toEqual({ goods: { planks: 6 } });
     expect(costOf("express")).toEqual({ goods: { planks: 10 }, coins: 240 });
-    expect(costOf("routes")).toEqual({ goods: { planks: 9 }, coins: 40 });
+    expect(costOf("routes")).toEqual({ goods: { planks: 5 }, coins: 60 });
     expect(costOf("mills")).toEqual({ goods: { planks: 6, grain: 6 }, coins: 40 });
     expect(costOf("goods-engine")).toEqual({ goods: { planks: 6, flour: 6 }, coins: 80 });
     expect(costOf("electricity")).toEqual({ goods: { iron: 10, coal: 10 }, coins: 240 });
@@ -295,21 +295,21 @@ describe("the research queue (#14)", () => {
   it("when one finishes the next starts by itself, paying its coins as it starts; then the one after moves up", () => {
     const p = player(0);
     toggleQueue(p, "bridges");
-    toggleQueue(p, "routes"); // 40 coins
+    toggleQueue(p, "routes"); // 60 coins
     toggleQueue(p, "tank");
     deliver(p, "planks", 10);
     // Learned with the coins short: Routes waits up next, the Tank engine behind it (the queue keeps its order).
     expect(tick(p, 20)).toBe("bridges");
     expect([p.research.current, p.research.next, p.research.later]).toEqual([null, "routes", ["tank"]]);
-    expect(coinsShort(p)).toBe(40);
+    expect(coinsShort(p)).toBe(60);
     tick(p, 1);
     expect(p.research.current).toBeNull();
     // The coins come in: it starts on the next tick, paid, and the Tank engine moves up.
-    p.coins = 50;
+    p.coins = 70;
     tick(p, 1);
     expect([p.research.current, p.research.next, p.research.later, p.coins]).toEqual(["routes", "tank", [], 10]);
     // Finished: the Tank engine starts (free of coins).
-    deliver(p, "planks", 9);
+    deliver(p, "planks", 5);
     expect(tick(p, 45)).toBe("routes");
     expect([p.research.current, p.research.next]).toEqual(["tank", null]);
   });

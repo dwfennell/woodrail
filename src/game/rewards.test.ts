@@ -528,7 +528,7 @@ describe("crates and presents", { timeout: 30_000 }, () => {
     p.learned.add("switches");
     p.coins = 100;
     expect(pick(p, "routes")).toBe("current");
-    deliver(p, "planks", 9);
+    deliver(p, "planks", 5);
     // Not before the study is done.
     expect(tick(p, 1)).toBeNull();
     expect(p.owned.get("car:engine")).toBe(1);

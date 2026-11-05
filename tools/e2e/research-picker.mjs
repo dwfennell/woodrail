@@ -394,7 +394,7 @@ const chipsInWords = (w) => !!w && w.chips.length > 0 && w.chips.every((c) => {
   const m = c.text.match(/^(\S+) (?:\d+\/)?(\d+)$/);
   return m && w.cost.includes(`${m[2]} ${m[1]} `) && c.title.length > 0;
 });
-check("tap Signals and routes: it says what it unlocks, and its full cost (goods and coins) in words", /^Unlocks: Signal, .*Routes on the engine card/.test(routesWords?.unlocks ?? "") && /^Costs: \d+ \uE000 planks, 40 🪙 coins$/.test(routesWords?.cost ?? "") && chipsInWords(routesWords), JSON.stringify(routesWords));
+check("tap Signals and routes: it says what it unlocks, and its full cost (goods and coins) in words", /^Unlocks: Signal, .*Routes on the engine card/.test(routesWords?.unlocks ?? "") && /^Costs: \d+ \uE000 planks, 60 🪙 coins$/.test(routesWords?.cost ?? "") && chipsInWords(routesWords), JSON.stringify(routesWords));
 check("tap Bridges (under way): unlocks named, every good it needs in the cost line", /^Unlocks: \S/.test(bridgesWords?.unlocks ?? "") && /^Costs: 10 \uE000 planks/.test(bridgesWords?.cost ?? "") && chipsInWords(bridgesWords), JSON.stringify(bridgesWords));
 check("a learned card names what it unlocked, and no cost", /^Unlocks: Switch, Y switch/.test(learnedWords?.unlocks ?? "") && learnedWords.cost === undefined, JSON.stringify(learnedWords));
 check("the tag's tooltip says the same (hover on desktop)", routesWords?.title === `Signals and routes. Unlocks: ${routesWords?.unlocks?.replace(/^Unlocks: /, "")}. ${routesWords?.cost}`, String(routesWords?.title));
@@ -450,7 +450,7 @@ await p.evaluate(() => {
   w.hud.setCoins(10);
 });
 await p.waitForTimeout(700);
-check("nothing under way, Signals and routes waiting for coins: the pill shows them", (await pill()) === "📘 Signals and routes 🪙10/40", String(await pill()));
+check("nothing under way, Signals and routes waiting for coins: the pill shows them", (await pill()) === "📘 Signals and routes 🪙10/60", String(await pill()));
 await board(true);
 await select("Junctions and loops");
 await board(false);
