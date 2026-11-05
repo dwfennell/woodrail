@@ -59,7 +59,7 @@ export const SUITES = {
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   post: { script: "e2e:post", minutes: 5 },
   "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
-  "gl-lost-desktop": { script: "e2e:gl-lost:desktop", minutes: 2 },
+  "gl-lost-desktop": { script: "e2e:gl-lost-desktop", minutes: 2 },
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   power: { script: "e2e:power", minutes: 6 },
@@ -94,6 +94,7 @@ export const RULES = [
   [
     ["src/game/metro.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/progress.ts", "src/game/interaction.ts", "src/economy/economy.ts", "src/landscape/clearance.ts", "src/landscape/trees-aside.ts", "src/track/kits.ts", "src/render/props/library.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts"],
     ["metro"],
+  ],
   // Tech tree 5: the viaduct, the lift bridge, Lift and load, the sleeper and observation car, the observatory.
   [
     ["src/sim/sim.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/track/constants.ts", "src/track/overlap.ts", "src/landscape/support.ts", "src/landscape/clearance.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/game/upgrades.ts", "src/game/lift-bridges.ts", "src/game/engine-status.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/kit-motions.ts", "src/render/depot-view.ts", "src/render/train-models.ts", "src/catalogue/assets/observatory.ts", "src/catalogue/assets/observation-car.ts", "src/catalogue/assets/mechanisms.ts", "src/ui/tray-catalogue.ts"],
