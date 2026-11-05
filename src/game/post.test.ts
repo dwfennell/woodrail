@@ -245,8 +245,9 @@ describe("balance: the post against the food chains it sits beside", () => {
     expect(post).toBeLessThan(hi * 1.25);
   });
 
-  it("a city posts more than a hamlet, and one post office sorts the post of three big cities", () => {
+  it("a city posts more than a hamlet, and one post office sorts the post of two big cities, not three (a second office for more)", () => {
     expect(60 / mailSeconds(3)).toBeGreaterThan(60 / mailSeconds(0));
-    expect(3 * (1 / mailSeconds(99))).toBeLessThanOrEqual(1 / RECIPES.postoffice.cycle!.seconds);
+    expect(2 * (1 / mailSeconds(99))).toBeLessThanOrEqual(1 / RECIPES.postoffice.cycle!.seconds);
+    expect(3 * (1 / mailSeconds(99))).toBeGreaterThan(1 / RECIPES.postoffice.cycle!.seconds);
   });
 });
