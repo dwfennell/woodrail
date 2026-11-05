@@ -342,7 +342,9 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
       async (id) => {
         const { progressOf } = await import("/src/game/yards.ts");
         const o = window.woodrail.economy.yardOrders.get(id);
-        return o && progressOf(o) >= 0.5 ? { needs: document.querySelector(".yard-needs")?.textContent ?? "" } : null;
+        // (The card redraws on the frame after the tick that put the goods in.)
+        const needs = document.querySelector(".yard-needs")?.textContent ?? "";
+        return o && progressOf(o) >= 0.5 && /10/.test(needs) ? { needs } : null;
       },
       C.depot,
       10,
@@ -358,7 +360,9 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     // Its route: from the boat's chip on the yard's card, ✎ Route, the two landings, Done; the first landing set to
     // drop and pick up (a tap on its chip).
     await tapButton(".landing-boat-chips .chip");
-    await tapButton(".boat-card .route-plan");
+    // (A boat with no route yet opens planning: ✎ Route only if it didn't.)
+    await p.waitForSelector(".boat-card:not([hidden]) .route-plan", { timeout: 20000 });
+    if (!(await p.evaluate(() => !!document.querySelector(".boat-card .route-plan.on")))) await tapButton(".boat-card .route-plan");
     await look(quay(A), 1300);
     await tapWorld(quay(A));
     await look(quay(B), 1300);
