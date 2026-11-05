@@ -740,7 +740,13 @@ if (route && route.path.length <= 60) {
 if (route && route.path.length <= 60) {
   const ahead = (seconds) => p.evaluate((n) => { const w = window.woodrail; for (let k = 0; k < n; k++) { w.sim.tick(); w.economy.tick(); } }, Math.round(seconds * 120));
   const van = () => p.evaluate(() => { const w = window.woodrail; const v = w.economy.roadVehicles.list[0]; return v ? { leg: v.leg, sq: w.landscape.grid.cellAtWorld(v.x, v.z), x: v.x, z: v.z, t: v.t } : null; });
-  const sent = await p.evaluate(({ a, b }) => window.woodrail.vans.drive(a, b), route);
+  // (Paused from the moment it's sent, but for V1's look at it moving: the settle below waits out the camera, not the
+  // van, which keeps the scene busy, and under the test clock its 30 s were 30 s of game time, the van's whole trip, so
+  // V2 found it on its way back. The trip's legs are V2's own sim steps.)
+  const sent = await p.evaluate(({ a, b }) => {
+    window.woodrail.paused = true;
+    return window.woodrail.vans.drive(a, b);
+  }, route);
   const home = await p.evaluate((a) => window.woodrail.vans.homeOf(a), route.a);
   // Drawn while it drives in view (frames come from the van alone: no train runs).
   await p.evaluate(() => { const w = window.woodrail; const v = w.economy.roadVehicles.list[0]; const V = w.camera.position.constructor; w.director.focus(new V(v.x, v.y, v.z), 260); });
@@ -748,10 +754,12 @@ if (route && route.path.length <= 60) {
   // (Up to 30 s for it to move and be drawn: software drawing manages about a frame a second here.)
   const drawn = await p.evaluate(async () => {
     const w = window.woodrail;
+    w.paused = false;
     const v = w.economy.roadVehicles.list[0];
     const f = w.framesDrawn;
     const t = v.t;
     for (let k = 0; k < 300 && !(w.framesDrawn > f && v.t > t); k++) await new Promise((r) => setTimeout(r, 100));
+    w.paused = true;
     return { frames: w.framesDrawn - f, moved: v.t - t, leg: v.leg };
   });
   // (The scene had settled: any frame drawn is the van's.)
@@ -767,6 +775,7 @@ if (route && route.path.length <= 60) {
   }, route);
   await ahead(60);
   const back = await van();
+  await p.evaluate(() => (window.woodrail.paused = false));
   check(`V2 it reaches ${route.bName}'s streets, comes back and parks by the station`, there.leg === "there" && there.inTown && back.leg === "home" && back.sq === home, `${JSON.stringify(there)} → ${JSON.stringify(back)} (home ${home})`);
   // Parked: a still instance, no frames.
   await p.evaluate(() => Promise.race([window.woodrail.settled(30), new Promise((r) => setTimeout(r, 60000))]));
