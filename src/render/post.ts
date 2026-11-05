@@ -6,6 +6,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { BokehShader } from "three/examples/jsm/shaders/BokehShader.js";
 import { CopyShader } from "three/examples/jsm/shaders/CopyShader.js";
 import type { QualitySettings } from "./quality";
+import { dofLook, type DofLook } from "./dof";
 import { shadowLook } from "./shadow-strength";
 
 /**
@@ -76,6 +77,22 @@ export function aoFor(distance: number): number {
 }
 
 /**
+ * three's bokeh shader, with what's nearer than the focus blurred `near` as much, and a sharp band `dead` (mm) beyond
+ * the focus. (As three's when `near` is 1 and `dead` 0.)
+ */
+function dofShader(look: DofLook) {
+  const factor = "float factor = ( focus + viewZ );";
+  if (!BokehShader.fragmentShader.includes(factor)) throw new Error("BokehShader changed: no focus factor to adjust");
+  return {
+    ...BokehShader,
+    uniforms: { ...BokehShader.uniforms, near: { value: look.near }, dead: { value: 0 } },
+    fragmentShader: BokehShader.fragmentShader
+      .replace("uniform float focus;", "uniform float focus;\nuniform float near;\nuniform float dead;")
+      .replace(factor, `${factor}\nfactor = factor > 0.0 ? factor * near : min( 0.0, factor + dead );`),
+  };
+}
+
+/**
  * Draws the scene into its own multisampled target, whose depth texture the effects share (so none of them has to
  * draw the scene again for its own depth), then hands the colour on down the chain.
  */
@@ -117,7 +134,9 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
   // Multisampled half-float targets need a colour-buffer extension: without one (some phones), antialiasing would
   // quietly fail, so draw into an 8-bit target instead (a little banding in deep shadow, but smooth edges).
   const halfFloat = renderer.extensions.has("EXT_color_buffer_float") || renderer.extensions.has("EXT_color_buffer_half_float");
-  const effects = quality.ambientOcclusion || quality.depthOfField;
+  const dof = dofLook();
+  const depthOfField = quality.depthOfField && dof.aperture > 0;
+  const effects = quality.ambientOcclusion || depthOfField;
   const scenePass = new ScenePass(scene, camera, halfFloat, quality.sceneSamples, effects);
   // Tone mapping and sRGB output happen in the lens pass, saving a full-screen pass of their own.
   const lens = new ShaderPass(LensShader);
@@ -166,11 +185,11 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
 
   // Depth of field: three's bokeh shader, reading the shared depth (BokehPass would draw the scene again for it).
   let bokeh: ShaderPass | null = null;
-  if (quality.depthOfField) {
-    bokeh = new ShaderPass(BokehShader, "tColor");
+  if (depthOfField) {
+    bokeh = new ShaderPass(dofShader(dof), "tColor");
     bokeh.material.defines.DEPTH_PACKING = 0;
     bokeh.uniforms.tDepth.value = depth;
-    bokeh.uniforms.maxblur.value = 0.006;
+    bokeh.uniforms.maxblur.value = dof.maxblur;
     composer.addPass(bokeh);
   }
 
@@ -189,7 +208,8 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
       }
       if (!bokeh) return;
       bokeh.uniforms.focus.value = distance;
-      bokeh.uniforms.aperture.value = apertureFor(distance);
+      bokeh.uniforms.aperture.value = apertureFor(distance) * dof.aperture;
+      bokeh.uniforms.dead.value = dof.dead * distance;
     },
     render(time) {
       lens.uniforms.time.value = time % 100;
