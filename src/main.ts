@@ -3773,6 +3773,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let viewCar = -1;
   let viewStanding = false;
   const viewStatus = { shown: "", next: "", since: 0 };
+  /** Since when the open engine has stood at a stop (−1: it isn't): Leave now shows after LEAVE_SHOW_MS. */
+  let stopSince = -1;
+  const LEAVE_SHOW_MS = 1200;
   /** Who's in the open engine's way, with the status shown (and the latest, not shown yet): Show's and the fix's. */
   const viewBlocker: { shown: Blocker | null; next: Blocker | null } = { shown: null, next: null };
   /** A place the status shown says isn't on the train's line (it keeps goods that place takes): "Add …" offers it. */
@@ -3792,8 +3795,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
     // Waiting to turn back where the track ends: Continue sends it on now.
     hud.setContinue(canContinue(game.sim, game.economy, carId));
-    // Waiting under the crane for a full load: Leave now sends it on with what it has.
-    hud.setLeaveNow(game.economy.waitingToFill(found.train.id) !== null);
+    // Standing at a stop (worked by the crane, or waiting to fill): Leave now sends it on with what it has. Shown once
+    // it has stood there LEAVE_SHOW_MS (a crane's quick unit doesn't flash it in and out), at once while it waits to
+    // fill (the feature tip points at it).
+    const atStop = game.economy.atStop(found.train.id) !== null;
+    const clock = performance.now();
+    if (!atStop || carId !== viewCar) stopSince = atStop ? clock : -1;
+    else if (stopSince === -1) stopSince = clock;
+    hud.setLeaveNow(atStop && (clock - stopSince >= LEAVE_SHOW_MS || game.economy.waitingToFill(found.train.id) !== null));
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go

@@ -2136,16 +2136,31 @@ export class Economy {
   }
 
   /**
-   * Leave now (its engine's card): a train waiting for a full load (`waitingToFill`) goes with what it has. Only this
-   * visit is let off (`skipVisit`): at its next stop that stop's own settings apply again, waiting to fill included.
-   * Nothing is saved or undone: a train reloaded mid-wait waits again, as it would have. False if it wasn't waiting.
+   * The depot where this train stands at a stop, halted under its crane (being loaded or unloaded, waiting its turn for
+   * the crane, or waiting to fill): where its engine card's Leave now goes on at once. Null if it isn't (on its way in,
+   * crawling to the crane, lever off, or gone on). Cheap: its service, asked while the card is open.
+   */
+  atStop(trainId: number): DepotState | null {
+    const s = this.services.get(trainId);
+    if (!s || s.phase !== HALTED) return null;
+    const d = this.depots[s.depotId];
+    return d && d.auto ? d : null;
+  }
+
+  /**
+   * Leave now (its engine's card): a train standing at a stop (`atStop`: being worked, or waiting to fill) goes on now
+   * with what it has. Only this visit is let off: at its next stop that stop's own settings apply again, waiting to fill
+   * included. The crane drops what it was about to move (a unit moves whole, so nothing is lost) and turns to the next
+   * train. Nothing is saved or undone: a train reloaded mid-visit is worked again, as it would have been. False if it
+   * wasn't at a stop.
    */
   leaveNow(trainId: number): boolean {
     const train = this.sim.getTrain(trainId);
-    if (!train || !this.waitingToFill(trainId)) return false;
-    // (As `skipVisit`, at the depot it's waiting at: every car done there, the crane lets it go.)
+    if (!train || !this.atStop(trainId)) return false;
     const s = this.service(trainId);
+    this.letCraneGo(s);
     s.phase = NONE;
+    s.ticks = 0;
     for (const car of train.cars) s.done.add(car.id);
     return true;
   }

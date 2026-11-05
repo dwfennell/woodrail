@@ -252,15 +252,29 @@ describe("automatic servicing", () => {
     it("hand-run, at a depot set to wait for a full load", () => run(false));
     it("routed, at a stop set to Wait here till full", () => run(true));
 
-    it("isn't offered to a train being worked at a depot not set to wait", () => {
+    it("a train being worked at a depot not set to wait leaves too, its crane let go, the rest of its load kept", () => {
       const w = setup("sawmill");
       for (const car of w.wagons()) w.economy.setCargo(car.id, "log", 3);
-      let seen = false;
-      for (let i = 0; i < 40 * SIM_HZ; i++) {
+      const id = () => w.train().id;
+      // On its way in: not at the stop yet.
+      expect(w.economy.atStop(id())).toBeNull();
+      expect(w.economy.leaveNow(id())).toBe(false);
+      let i = 0;
+      while (!w.economy.atStop(id()) && i++ < 40 * SIM_HZ) w.step();
+      expect(w.economy.atStop(id())?.id).toBe(w.depot.id);
+      // (Not waiting to fill: the feature tip's Leave now is for that alone.)
+      expect(w.economy.waitingToFill(id())).toBeNull();
+      expect(w.economy.leaveNow(id())).toBe(true);
+      expect(w.economy.atStop(id())).toBeNull();
+      expect(w.economy.servicedCar(w.depot.id)).toBe(-1);
+      let left = false;
+      for (let k = 0; k < 15 * SIM_HZ && !left; k++) {
         w.step();
-        seen ||= w.economy.waitingToFill(w.train().id) !== null;
+        left = !w.train().bogies.some((b) => b.pieceId === w.depot.pieceId);
       }
-      expect(seen).toBe(false);
+      expect(left).toBe(true);
+      // Logs still aboard: it went before the crane had them all off.
+      expect(w.wagons().reduce((n, c) => n + w.economy.cargoOf(c.id).count, 0)).toBeGreaterThan(0);
     });
   });
 
