@@ -28,6 +28,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { printEvents } from "./page-watch.mjs";
 
+// (E2E_PROFILE=1: every Playwright call timed by the script line that made it, printed after each group: lib/profile.mjs.)
+if (process.env.E2E_PROFILE === "1") await import("./profile.mjs");
+
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".e2e-cache");
 
@@ -167,6 +170,7 @@ export function groups(suite, { results, errors = [], check }) {
         console.log(`group ${g.name}: ${ok ? "pass" : "FAIL"} (${mine.length} checks, ${seconds}s)${errors.length > e0 ? ` — page errors: ${errors.slice(e0).join(" | ")}` : ""}`);
         // (What the pages and the dev server did meanwhile, for a suite that watches them: lib/page-watch.mjs.)
         if (!ok) printEvents(t0, `${g.name}: page and server events while it ran`);
+        globalThis.__e2eProfileMark?.(`group ${g.name} (${seconds} s)`);
         if (ok && mine.length) {
           state.groups[g.name] = { checks: mine.length, seconds, at: new Date().toISOString() };
           save();
