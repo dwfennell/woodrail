@@ -32,12 +32,13 @@ export async function feedbackFlow(p, { press, check, label }) {
   // ☰ → Report a bug or give feedback.
   await press('button[aria-label="Menu"]');
   await p.waitForFunction(() => !document.querySelector(".menu").hidden, null, { timeout: 10000 });
+  // (Popped in before an item's tapped: its box is where the finger goes.)
+  await p.evaluate(() => Promise.all(document.querySelector(".menu").getAnimations().map((a) => a.finished)));
   check(`${label}: ☰ has Report a bug or give feedback, beside Copy map`, await p.evaluate(() => {
     const items = [...document.querySelectorAll(".menu .menu-item")].map((x) => x.textContent);
     const i = items.indexOf("Report a bug or give feedback");
     return i >= 0 && items[i + 1] === "Copy map for a bug report";
   }));
-  { const d = await p.evaluate(() => { const m = document.querySelector(".menu"); const a = m.getAnimations(); const r = document.querySelector(".menu .feedback-item").getBoundingClientRect(); return { running: a.filter((x) => x.playState === "running").length, t: a.map((x) => Math.round(x.currentTime)), box: [r.x, r.y, r.width, r.height].map(Math.round) }; }); console.log("DIAG before tap", JSON.stringify(d)); }
   await press(".menu .feedback-item");
   await p.waitForFunction(() => { const s = document.querySelector(".feedback-sheet"); return s && !s.hidden; }, null, { timeout: 10000 });
   // (Popped in: measured once its animation is done.)
