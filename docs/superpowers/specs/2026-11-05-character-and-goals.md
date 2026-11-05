@@ -280,6 +280,13 @@ brambles are few-sided balls.)
   bunting are in the model. Found, it's a tourist stop like the rack's Lookout halt: no one lives there, riders from
   every town get off for a day out and pay twice the fare. A test checks nothing of a site stands on its track.
 - **Where they're placed:**
+  - **At most one secret in the starting plots** (the ones unlocked at the start). The rest are hidden in locked
+    plots, the ones bought with "Buy some land", so buying land is how most are found:
+    - **spread out:** each in a different locked plot, no two in the same or neighbouring plots where the map allows
+      (if it can't, the fewest neighbours possible);
+    - **not too far out:** prefer the first and second ring of locked plots round the starting ones, not the map's far
+      edge;
+    - the shipwreck's beach rule still holds: it goes only in a coast plot that meets these, or not at all.
   - **The shipwreck spawns only on a beach at the sea's edge.** Its seaward side (`SHIPWRECK_SEA_Z`, z −144 in its
     frame, a straight edge) lies on the line where the sand meets the sea, so the hull and its treasure stand on the
     beach squares, the sea right behind it, and its halt faces inland. The model's sand runs all the way to that edge;
