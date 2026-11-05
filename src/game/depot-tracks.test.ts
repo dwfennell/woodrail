@@ -282,9 +282,9 @@ describe("depot tracks: the one crane drawn", () => {
 
 describe("depot tracks: which industries", () => {
   // QA 2026-11-05 #3: the tank wagons' wells and the goods chains' industries (built alongside) had no Second track.
-  // Every industry piece's role offers it but a school and an airport (not crane industries: an airport is a rider
-  // stop, its planes calling by themselves). The car factory too (the owner's call).
-  const NOT: ReadonlySet<string> = new Set(["school", "airport"]);
+  // Every industry piece's role offers it but a school, an airport and an airship's mast (not crane industries: the
+  // last two are rider stops). The car factory too (the owner's call).
+  const NOT: ReadonlySet<string> = new Set(["school", "airport", "mast"]);
   it("every crane industry offers more tracks", () => {
     const missing = [...new Set(Object.values(INDUSTRY_ROLE))].filter((r) => r && !NOT.has(r) && !TRACK_ROLES.has(r));
     expect(missing).toEqual([]);
