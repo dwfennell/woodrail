@@ -7,7 +7,9 @@ import { BLUEPRINTS } from "./blueprints";
 import { buysText } from "./town-ledger";
 import { FULL_PAY, PRICES } from "./towns";
 import { THING_RULES } from "./things";
-import { INDUSTRY_ROLE } from "./world";
+import { buildStarterWorld, INDUSTRY_ROLE } from "./world";
+import { checkYard } from "./depot-footprint";
+import { trackBlock } from "./track-rules";
 import { resourceAt, siteWhy } from "./industries";
 import { coastWorld, harbourSite } from "./harbours-testing";
 import { firstFoodNews } from "./food-text";
@@ -91,6 +93,29 @@ describe("Tank wagons", () => {
     expect(van.got("water")).toBe(0);
   }, 120_000);
 
+  it("a water pump fits by the starter map's river, near the start, and by one square of water (QA 2026-11-05)", () => {
+    const w = buildStarterWorld();
+    const land = w.landscape;
+    const ctx = { land, layout: w.layout, props: w.props, footprint: () => undefined };
+    // Every pose within reach of the start (the first towns' stations, x −1500..1500, z −1200..1200), each eighth of a
+    // turn: where the track and the yard may go and the water's enough.
+    let fits = 0;
+    let one = 0;
+    for (let x = -1500; x <= 1500; x += 36)
+      for (let z = -1200; z <= 1200; z += 36)
+        for (let k = 0; k < 8; k++) {
+          const pose = { x, z, heading: (k * Math.PI) / 4 };
+          if (trackBlock(ctx, "depot-waterpump", false, pose, 0, -1) || checkYard(ctx, "depot-waterpump", pose, 0, -1)) continue;
+          if (siteWhy(land, "depot-waterpump", pose)) continue;
+          fits++;
+          if (resourceAt(land, "waterpump", pose)!.count === 1) one++;
+        }
+    // (Two squares within 110 mm, as it was: 331 here, 13% of the places by the water it could stand; now 825, 35%.)
+    expect(fits).toBeGreaterThan(600);
+    // A single square of water is enough to stand by, at a quarter of the pump's rate.
+    expect(one).toBeGreaterThan(0);
+  }, 120_000);
+
   it("a water pump must stand by water; an oil well stands anywhere", () => {
     const w = coastWorld();
     const pose = harbourSite(w, SURF_SEA);
@@ -98,7 +123,7 @@ describe("Tank wagons", () => {
     expect(resourceAt(w.landscape, "waterpump", pose)!.count).toBeGreaterThanOrEqual(2);
     // (Far inland, turned away from the coast: no water.)
     const dry = { x: pose.x + Math.cos(pose.heading + Math.PI) * 2000, z: pose.z + Math.sin(pose.heading + Math.PI) * 2000, heading: pose.heading + Math.PI };
-    expect(siteWhy(w.landscape, "depot-waterpump", dry)).toMatch(/^Needs water past its yard: \d of 2\. Turn it to face the water$/);
+    expect(siteWhy(w.landscape, "depot-waterpump", dry)).toMatch(/^Needs water past its yard: \d of 1\. Turn it to face the water$/);
     expect(resourceAt(w.landscape, "oilwell", dry)).toBeNull();
   });
 });

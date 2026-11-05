@@ -97,7 +97,10 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   // has no recipe of its own, so its rate is only what its card says. The least it's placed with stays 4.)
   harbour: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 5, least: 4, l: 150 },
   // A water pump draws from a river or lake just past its yard's far side (as a harbour's quay, a little less of it).
-  waterpump: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 4, least: 2, l: 150 },
+  // One square of water within 150 mm is enough to stand by (QA 2026-11-05: the generator's rivers are a square wide
+  // and wind; with two squares within 110 it fitted only 13% of the places by the water it could stand, and none was
+  // found by hand near the start). It pumps at its count of 4, so a trickle pumps slowly.
+  waterpump: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 150, need: 4, least: 1, l: 150 },
   // A school stands beside a town: one of its lots near the yard (see `schoolTown`, which also says which town).
   school: { what: "a town", counts: isTownLot, reach: SCHOOL_REACH, need: 1 },
 };

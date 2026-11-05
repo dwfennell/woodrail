@@ -116,6 +116,7 @@ export class DrawHand {
     (type) => this.outOf(type),
     pieceName,
     (type) => this.unlearned?.(type) ?? null,
+    (type) => type === "ramp" && tunnelsOn() && !!this.hooks.tunnel,
   );
   /** A new line on empty ground, before the finger has moved far enough to know which way it goes. */
   private origin: Vector3 | null = null;

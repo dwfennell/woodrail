@@ -109,7 +109,7 @@ describe("industries near their resource", () => {
       "depot-quarry": "Needs hillside nearby: 0 of 6",
       "depot-mine": "Needs hillside nearby: 0 of 6",
       "depot-harbour": "Needs water past its yard: 0 of 4. Turn it to face the water",
-      "depot-waterpump": "Needs water past its yard: 0 of 2. Turn it to face the water",
+      "depot-waterpump": "Needs water past its yard: 0 of 1. Turn it to face the water",
       "depot-school": "Needs to be beside a town",
     });
   });
