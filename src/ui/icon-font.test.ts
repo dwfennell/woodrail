@@ -52,7 +52,8 @@ describe("the icon font (src/icons → scripts/icon-font.py → style.css)", () 
   });
 
   it("the font is one small file (a few kB for every icon)", async () => {
+    // (26 kB at 106 icons: batch H's goods chains, tank wagons, post and places.)
     const { statSync } = await fs();
-    expect(statSync(new URL("../assets/woodrail-icons.woff2", import.meta.url)).size).toBeLessThan(24 * 1024);
+    expect(statSync(new URL("../assets/woodrail-icons.woff2", import.meta.url)).size).toBeLessThan(28 * 1024);
   });
 });

@@ -1,5 +1,5 @@
 import { CatmullRomCurve3, CylinderGeometry, Frustum, Group, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Sphere, Vector3, type Camera, type Object3D } from "three";
-import { CAR_KINDS, CAR_SPECS, type SimSnapshot } from "../sim";
+import { CAR_BY_INDEX, CAR_SPECS, type SimSnapshot } from "../sim";
 import { kitOf, kitPlace, type Layout } from "../track";
 import { AXLE_HEIGHT, WHEEL_RADIUS } from "./train-models";
 
@@ -561,7 +561,7 @@ export class LoopShowView {
       if (j < 0 || j >= snap.count || snap.trainIds[j] !== train) continue;
       const o = j * 6;
       const h = snap.transforms[o + 3];
-      const len = CAR_SPECS[CAR_KINDS[snap.kinds[j]]].length / 2;
+      const len = CAR_SPECS[CAR_BY_INDEX[snap.kinds[j]]].length / 2;
       // The car's end nearer the engine.
       const sign = (snap.transforms[o] - ex) * Math.cos(h) + (snap.transforms[o + 2] - ez) * Math.sin(h) < 0 ? 1 : -1;
       va.set(snap.transforms[o] + sign * Math.cos(h) * len, snap.transforms[o + 1] + AXLE_HEIGHT, snap.transforms[o + 2] + sign * Math.sin(h) * len).applyMatrix4(show.toPlaced);

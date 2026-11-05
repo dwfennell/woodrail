@@ -14,7 +14,7 @@ import { buildStarterWorld, type World } from "./world";
 
 let footprintOf: (asset: string) => Footprint | undefined;
 beforeAll(async () => {
-  footprintOf = await loadFootprints(["bldg"]);
+  footprintOf = await loadFootprints(["bldg", "scene"]);
 });
 
 /** A starter world whose towns grow a level per `deliver` (what the next level wants, delivered), as in play. */

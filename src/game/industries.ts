@@ -96,6 +96,11 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   // harbour, old or new, showed 0.75 at best (QA: "Water nearby: 5 of 8"); an old harbour now has 5 of 5. (A harbour
   // has no recipe of its own, so its rate is only what its card says. The least it's placed with stays 4.)
   harbour: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 5, least: 4, l: 150 },
+  // A water pump draws from a river or lake just past its yard's far side (as a harbour's quay, a little less of it).
+  // One square of water within 150 mm is enough to stand by (QA 2026-11-05: the generator's rivers are a square wide
+  // and wind; with two squares within 110 it fitted only 13% of the places by the water it could stand, and none was
+  // found by hand near the start). It pumps at its count of 4, so a trickle pumps slowly.
+  waterpump: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 150, need: 4, least: 1, l: 150 },
   // A school stands beside a town: one of its lots near the yard (see `schoolTown`, which also says which town).
   school: { what: "a town", counts: isTownLot, reach: SCHOOL_REACH, need: 1 },
 };
@@ -160,6 +165,9 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
   if (r.count < least) {
     // (A farm's in fields: "Needs farm fields nearby: ½ of 1" is no help beside a whole one just out of reach.)
     if (r.rule.per) return r.count === 0 ? FARM_NO_FIELD : FARM_FIELD_FAR;
+    // (A harbour's quay and a water pump draw from just past the yard's far side: which way it faces matters. QA
+    // 2026-11-05: "Needs water nearby: 0 of 2" a square from a river, the yard facing away from it.)
+    if (r.rule.what === "water") return `Needs water past its yard: ${r.count} of ${least}. Turn it to face the water`;
     return `Needs ${r.rule.what} nearby: ${r.count} of ${least}`;
   }
   // A harbour's boats must be able to get to it.

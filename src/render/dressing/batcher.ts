@@ -2,6 +2,7 @@ import { BufferAttribute, BufferGeometry, Color, Group, Mesh, type Material } fr
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { shadowProxyMesh } from "./blocks";
 import { nonIndexed } from "../non-indexed";
+import { floatVertices } from "../compact-vertices";
 
 /** Parts smaller than this every way (mm) cast no shadow of their own: window frames, sills, signs' letters. */
 const STAND_IN_MIN = 8;
@@ -70,7 +71,8 @@ export class Batcher {
     const bucket = paintColor ? this.paint! : material;
     let list = this.buckets.get(bucket);
     if (!list) this.buckets.set(bucket, (list = []));
-    const g = nonIndexed(geometry);
+    // (A compact model's normals and colours as floats again: merged geometry has one array type throughout.)
+    const g = floatVertices(nonIndexed(geometry));
     if (this.withStandIns) {
       const stand = partStandIn(g);
       if (stand) this.standIns.push(stand);

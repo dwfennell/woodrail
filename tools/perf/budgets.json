@@ -2,7 +2,7 @@
   "about": "Budgets for npm run perf:check (tools/perf/check.mjs; docs/agents/perf.md). A measure fails when it is over max by more than its kind's margin. --update writes each max afresh from a run (value x headroom, or value + floor, whichever is more).",
   "run": [
     "--maps",
-    "fresh,sandbox",
+    "fresh,sandbox,features",
     "--throttle",
     "2",
     "--dpr",
@@ -10,7 +10,9 @@
     "--idle",
     "6",
     "--pan",
-    "8"
+    "8",
+    "--spot",
+    "3"
   ],
   "kinds": {
     "frames": {
@@ -37,11 +39,15 @@
   "budgets": {
     "bundle.jsKB": {
       "kind": "size",
-      "max": 2920
+      "max": 3120
     },
     "bundle.entryJsKB": {
       "kind": "size",
-      "max": 1850
+      "max": 1580
+    },
+    "bundle.firstJsKB": {
+      "kind": "size",
+      "max": 2360
     },
     "fresh.idle.framesDrawn": {
       "kind": "frames",
@@ -113,7 +119,7 @@
     },
     "sandbox.frame.triangles": {
       "kind": "count",
-      "max": 1710000
+      "max": 1650000
     },
     "sandbox.frame.programs": {
       "kind": "count",
@@ -130,6 +136,230 @@
     "sandbox.ops.autosave.avg": {
       "kind": "time",
       "max": 28
+    },
+    "features.idle.mainThreadPct": {
+      "kind": "time",
+      "max": 2.9
+    },
+    "features.frame.drawCalls": {
+      "kind": "count",
+      "max": 495
+    },
+    "features.frame.triangles": {
+      "kind": "count",
+      "max": 2260000
+    },
+    "features.spots.tunnel.frame.drawCalls": {
+      "kind": "count",
+      "max": 321
+    },
+    "features.spots.tunnel.frame.triangles": {
+      "kind": "count",
+      "max": 1380000
+    },
+    "features.spots.tunnel.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.tunnel.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 58
+    },
+    "features.spots.tunnel.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 38
+    },
+    "features.spots.post.frame.drawCalls": {
+      "kind": "count",
+      "max": 401
+    },
+    "features.spots.post.frame.triangles": {
+      "kind": "count",
+      "max": 1180000
+    },
+    "features.spots.post.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.post.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 53
+    },
+    "features.spots.post.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 38
+    },
+    "features.spots.metro.frame.drawCalls": {
+      "kind": "count",
+      "max": 496
+    },
+    "features.spots.metro.frame.triangles": {
+      "kind": "count",
+      "max": 2380000
+    },
+    "features.spots.metro.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.metro.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 51
+    },
+    "features.spots.metro.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 50
+    },
+    "features.spots.gantry.frame.drawCalls": {
+      "kind": "count",
+      "max": 318
+    },
+    "features.spots.gantry.frame.triangles": {
+      "kind": "count",
+      "max": 1370000
+    },
+    "features.spots.gantry.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.gantry.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 39
+    },
+    "features.spots.gantry.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 38
+    },
+    "features.spots.crane.frame.drawCalls": {
+      "kind": "count",
+      "max": 228
+    },
+    "features.spots.crane.frame.triangles": {
+      "kind": "count",
+      "max": 633000
+    },
+    "features.spots.crane.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.crane.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 44
+    },
+    "features.spots.crane.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 34
+    },
+    "features.spots.pumps.frame.drawCalls": {
+      "kind": "count",
+      "max": 325
+    },
+    "features.spots.pumps.frame.triangles": {
+      "kind": "count",
+      "max": 1350000
+    },
+    "features.spots.pumps.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.pumps.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 40
+    },
+    "features.spots.pumps.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 30
+    },
+    "features.spots.telegraph.frame.drawCalls": {
+      "kind": "count",
+      "max": 250
+    },
+    "features.spots.telegraph.frame.triangles": {
+      "kind": "count",
+      "max": 1270000
+    },
+    "features.spots.telegraph.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.telegraph.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 37
+    },
+    "features.spots.telegraph.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 25
+    },
+    "features.spots.chains.frame.drawCalls": {
+      "kind": "count",
+      "max": 397
+    },
+    "features.spots.chains.frame.triangles": {
+      "kind": "count",
+      "max": 1370000
+    },
+    "features.spots.chains.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.chains.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 41
+    },
+    "features.spots.chains.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 48
+    },
+    "features.spots.underpass.frame.drawCalls": {
+      "kind": "count",
+      "max": 286
+    },
+    "features.spots.underpass.frame.triangles": {
+      "kind": "count",
+      "max": 1120000
+    },
+    "features.spots.underpass.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.underpass.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 46
+    },
+    "features.spots.underpass.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 58
+    },
+    "features.spots.civic.frame.drawCalls": {
+      "kind": "count",
+      "max": 356
+    },
+    "features.spots.civic.frame.triangles": {
+      "kind": "count",
+      "max": 1550000
+    },
+    "features.spots.civic.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.civic.changes.layStraight.frameMs": {
+      "kind": "time",
+      "max": 31
+    },
+    "features.spots.civic.changes.plantTree.frameMs": {
+      "kind": "time",
+      "max": 37
+    },
+    "features.spots.awayStill.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.craneWork.paused.framesDrawn": {
+      "kind": "frames",
+      "max": 2
+    },
+    "features.spots.craneWork.away.framesDrawn": {
+      "kind": "frames",
+      "max": 2
     }
   }
 }
