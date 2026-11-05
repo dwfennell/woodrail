@@ -294,16 +294,39 @@ if (!setup.error && setup.engine !== -1) {
     check("zoomed out: the post van moves on unseen, no frames drawn", g1 - g0 <= 1, JSON.stringify({ frames: g1 - g0, leg: driving }));
   }
 
-  // 8. That town's card: a Post row with its post van, and "Always buys 📮 post at full pay".
+  // 8. That town's card: a Post row with its post van, and "Always buys 📮 post at full pay". The train has stopped at
+  // its station, so the tap goes where the game's own pick says this town is (its station or its streets and houses),
+  // not a car: the spot nearest the station that `interaction.pick` gives as this town's depot.
   // (Straight after the view came back from far out a tap can land before the map has settled: tapped again if no card.)
   const postRow = () => p.waitForFunction(() => [...document.querySelectorAll(".ledger-row-name")].some((e) => e.textContent === "Post" && e.getBoundingClientRect().width > 0), null, { timeout: 30000 }).then(() => true, () => false);
-  await settle();
-  await tapOn({ depot: towns[got] });
-  if (!(await postRow())) {
+  const tapTown = async (depotId) => {
+    await showing({ depot: depotId });
     await settle();
-    await tapOn({ depot: towns[got] });
+    const at = await p.evaluate(([depotId, v]) => {
+      const w = window.woodrail;
+      const c = new w.camera.position.constructor(v.x, v.y, v.z).project(w.camera);
+      const cx = ((c.x + 1) / 2) * innerWidth;
+      const cy = ((1 - c.y) / 2) * innerHeight;
+      const spots = [];
+      for (let dx = -160; dx <= 160; dx += 8) for (let dy = -160; dy <= 160; dy += 8) spots.push([cx + dx, cy + dy]);
+      spots.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+      for (const [x, y] of spots) {
+        if (x < 1 || y < 1 || x > innerWidth - 1 || y > innerHeight - 1 || document.elementFromPoint(x, y) !== w.canvas) continue;
+        const hit = w.interaction.pick(x, y, true);
+        if (hit?.kind === "depot" && hit.depotId === depotId) return [x, y];
+      }
+      return null;
+    }, [depotId, await worldAt({ depot: depotId })]);
+    if (at) await tapped(() => p.touchscreen.tap(at[0], at[1]));
+    return at;
+  };
+  await settle();
+  let townAt = await tapTown(towns[got]);
+  if (!(await postRow())) {
+    townAt = await tapTown(towns[got]);
     await postRow();
   }
+  check("a spot that is the town, not the train, found by the game's own pick", !!townAt, JSON.stringify(townAt));
   const card = await p.evaluate(() => {
     const row = [...document.querySelectorAll(".ledger-row")].find((r) => r.querySelector(".ledger-row-name")?.textContent === "Post" && r.getBoundingClientRect().width > 0);
     const buys = [...document.querySelectorAll(".ledger-buys")].find((e) => e.getBoundingClientRect().width > 0);
