@@ -161,7 +161,7 @@ try {
   const bp = await device(ctxB);
   const seedB0 = await seed(bp);
   await menu(bp, "Cloud save");
-  await tap(bp, "I have a code");
+  await tap(bp, "Load a save from another device");
   await bp.fill(".cloud-input", "not a code");
   await tap(bp, "Load");
   await bp.waitForFunction(() => !document.querySelector(".cloud-error")?.hidden, null, { timeout: 10000 });
@@ -178,6 +178,51 @@ try {
   const seedB = await seed(bp);
   check("B carries on with A's railway (after a reload, straight into Sandbox)", seedB === seedA && seedB0 !== seedA, `A ${seedA}; B ${seedB0} → ${seedB}`);
   check("B keeps the code", (await bp.evaluate(() => JSON.parse(localStorage.getItem("woodrail.cloud.v1")).code)) === code);
+
+  // 2b. E: a new device, from the title screen's "Load a cloud save" (by taps): Cancel goes back to the title; the code
+  // and Load start the game on A's railway.
+  const ctxE = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  const ep = await ctxE.newPage();
+  ep.on("pageerror", (e) => errors.push(String(e)));
+  await ep.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await ep.goto(URL);
+  await ep.waitForFunction(() => !!window.woodrail && window.woodrail.title.shown && !window.woodrail.title.root.classList.contains("placing") && !!document.querySelector(".title-cloud"), null, { timeout: 180000 });
+  const tapEl = async (sel) => {
+    const r = await ep.evaluate((sel) => {
+      const e = [...document.querySelectorAll(sel)].find((x) => x.offsetParent && getComputedStyle(x).visibility !== "hidden");
+      if (!e) return null;
+      e.scrollIntoView({ block: "center" });
+      const q = e.getBoundingClientRect();
+      return [q.x + q.width / 2, q.y + q.height / 2];
+    }, sel);
+    if (!r) throw new Error(`nothing to tap: ${sel}`);
+    await ep.touchscreen.tap(r[0], r[1]);
+    await ep.waitForTimeout(250);
+  };
+  const link = await ep.evaluate(() => {
+    const q = document.querySelector(".title-cloud").getBoundingClientRect();
+    return { text: document.querySelector(".title-cloud").textContent, h: q.height, inside: q.left >= 0 && q.right <= innerWidth };
+  });
+  check("title: a quiet “Load a cloud save”, a finger's height", /Load a cloud save/.test(link.text) && link.h >= 44 && link.inside, JSON.stringify(link));
+  await tapEl(".title-cloud");
+  const entry = await ep.evaluate(() => {
+    const c = document.querySelector(".title-screen .cloud-card");
+    const q = c?.getBoundingClientRect();
+    return { open: !!c && !c.hidden, input: !!c?.querySelector(".cloud-input"), says: c?.textContent ?? "", inside: !!q && q.top >= 0 && q.bottom <= innerHeight, cards: getComputedStyle(document.querySelector(".title-cards")).visibility };
+  });
+  check("…opens the code entry over the title, saying what Load does", entry.open && entry.input && /kept aside and can be restored/.test(entry.says) && entry.inside && entry.cards === "hidden", JSON.stringify(entry));
+  await tapEl(".title-screen .cloud-card button:not(.primary)");
+  const back = await ep.evaluate(() => ({ closed: document.querySelector(".title-screen .cloud-card").hidden, title: window.woodrail.title.shown, cards: getComputedStyle(document.querySelector(".title-cards")).visibility }));
+  check("…Cancel: back to the title", back.closed && back.title && back.cards === "visible", JSON.stringify(back));
+  await tapEl(".title-cloud");
+  await ep.fill(".title-screen .cloud-input", shown);
+  const eLoaded = ep.waitForEvent("load", { timeout: 60000 });
+  await tapEl(".title-screen .cloud-card button.primary");
+  await eLoaded;
+  await ep.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  const seedE = await seed(ep);
+  check("…Load: the game starts on A's railway", seedE === seedA, `A ${seedA}; E ${seedE}`);
+  await ctxE.close();
 
   // 3. B changes the railway (another new map), and its page hides: sent on the way out.
   await menu(bp, "New map");
@@ -298,7 +343,7 @@ try {
   await d.goto(URL);
   await inMode(d, "game");
   await menu(d, "Cloud save");
-  await tap(d, "I have a code");
+  await tap(d, "Load a save from another device");
   await d.fill(".cloud-input", code2);
   const dIn = d.waitForEvent("load", { timeout: 60000 });
   await tap(d, "Load");

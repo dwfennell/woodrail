@@ -539,6 +539,16 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-art { width: 84px; height: 84px; border-radius: 16px; background: #efe0c6 center / 112% no-repeat; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.06); margin-bottom: 6px; }
 .title-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .title-buttons .chip { flex: 1; justify-content: center; }
+/* A quiet way in for a railway saved on another device (a build with a cloud): a small pill under the cards, not a
+   third big button. Its card opens over the title, in the middle. */
+.title-foot { display: flex; justify-content: center; }
+.title-foot[hidden] { display: none; }
+.title-cloud { min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: rgba(250, 243, 230, 0.82); box-shadow: 0 4px 14px rgba(30, 20, 10, 0.25); font: inherit; font-weight: 800; font-size: 14px; color: #5c4632; cursor: pointer; }
+.title-cloud:hover { background: rgba(250, 243, 230, 0.95); }
+.title-screen .cloud-card { position: fixed; top: 50%; bottom: auto; transform: translate(-50%, -50%); }
+/* (A phone on its side has no room under the cards: the link sits in the empty top right corner instead.) */
+@media (max-height: 500px) { .title-foot { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); } }
+.title-screen .cloud-card { max-height: calc(100dvh - 24px); overflow-y: auto; }
 @media (max-width: 560px), (max-height: 520px) {
   .title-card { padding: 14px 16px 16px; display: grid; grid-template-columns: 64px 1fr; column-gap: 12px; }
   .title-art { width: 64px; height: 64px; grid-row: span 2; }
@@ -570,6 +580,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals-label { flex: none; font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #74522f; }
 .goals-count { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 12px; background: #d9ead2; color: #2d5a2a; border-radius: 999px; padding: 2px 8px; }
 .goals-now { display: none; font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* The fold chevron: points up (fold) when open, down (unfold) when folded. */
+.goals-fold { flex: none; margin-left: auto; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: #74522f; background: rgba(201, 165, 122, 0.22); transition: transform 0.2s ease-out; }
+.goals.collapsed .goals-fold { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .goals-fold { transition: none; } }
 .goals.collapsed .goals-label { display: none; }
 .goals.collapsed .goals-now { display: block; }
 .goals.collapsed .goals-body { display: none; }
@@ -676,6 +690,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .cloud-card .card-row { justify-content: flex-end; flex-wrap: wrap; }
 .cloud-card .chip.asking { background: linear-gradient(180deg, #f0b49a, #d9785a); }
 .cloud-text { margin: 0; font-size: 15px; line-height: 1.35; }
+.cloud-small { margin: 0; font-size: 13px; line-height: 1.35; color: #6a5340; }
+.cloud-load-row .cloud-load { flex: 1; justify-content: center; }
 .cloud-status { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; }
 .cloud-label { font-size: 13px; font-weight: 800; color: #6a4a2c; text-transform: uppercase; letter-spacing: 0.04em; }
 .cloud-code-row { display: flex; align-items: center; gap: 10px; }
@@ -685,6 +701,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .cloud-card .cloud-restore { align-self: flex-start; }
 .cloud-copy-field { position: fixed; left: -9999px; top: 0; opacity: 0; }
 .cloud-credit { margin: 0; font-size: 11px; color: #8a6c4c; text-align: center; }
+/* ☰ Credits: a list in the report card's place, scrolling on a short screen. */
+.credits-sheet { gap: 8px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 20px); overflow-y: auto; overscroll-behavior: contain; }
+.credits-intro { margin: 0; font-size: 13px; color: #6a5340; text-align: center; }
+.credits-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.credits-item { font-size: 13px; line-height: 1.35; color: #6a5340; }
+.credits-what { font-weight: 800; font-size: 14px; color: #3a2a1c; }
+.credits-link { color: #2f5f9a; text-decoration: underline; text-underline-offset: 2px; display: inline-block; min-height: 24px; }
+.credits-licence { font-weight: 700; }
 /* A phone on its side: docked under the top bar as the other cards are, but free to come down over the tray (it's in
    charge while it's open), so it all fits. */
 @media (max-height: 520px) {
@@ -1142,16 +1166,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
 }
 /* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10\uE000"); tap for the picker. */
-.research-pill { position: relative; overflow: hidden; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
+.research-pill { position: relative; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
-.research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
+.research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .research-pill .rp-line { display: flex; flex: 0 100 auto; align-items: center; gap: 4px; min-width: 0; }
 .research-pill .rp-icon { flex: none; font-size: 16px; line-height: 1; }
 .research-pill .rp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The count: every good the research needs ("\uE0000/6 🌾0/6"). Where they don't all fit, `fitPill` shortens it to the
    goods still lacking, then to the one most lacking and "+1" (it's measured against this room: the name gives way first). */
 .research-pill .rp-count { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; font-variant-numeric: tabular-nums; color: #1f4f8a; }
-.research-pill .rp-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; }
+/* (Across the pill's foot, filled to --fill, and cut to its rounded corners: the pill itself doesn't clip, so the
+   queue's "+1" can sit out on its corner.) */
+.research-pill .rp-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: linear-gradient(to right, #2f6db5 var(--fill, 0%), transparent var(--fill, 0%)); clip-path: inset(-14px 0 0 0 round 0 0 14px 14px); pointer-events: none; }
 /* (Fitted by `fitPill`: a name that's cut goes a little smaller, then over two lines.) */
 .research-pill.rp-small .rp-name { font-size: 0.875em; letter-spacing: -0.01em; }
 .research-pill.rp-wrap .rp-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; line-height: 1.05; }
@@ -1160,8 +1186,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill.rp-goods .rp-line { display: none; }
 .research-pill.rp-goods .rp-text { display: flex; flex-direction: column; justify-content: center; }
 .research-pill.rp-goods .rp-count { white-space: normal; max-height: 2.4em; line-height: 1.15; }
-/* (Clear of the queue's "+1" in the corner.) */
-.research-pill.rp-goods:not([data-more=""])[data-more] .rp-text { padding-top: 9px; }
 .research-pill.idle { background: #fff1c2; box-shadow: 0 0 0 2px #e2a12b, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill.idle .rp-count { color: inherit; }
 /* Nothing to research (the school's idle): an amber dot. It pulses gently a few times (about 10 s) as the school goes
@@ -1174,7 +1198,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes idle-pulse { 50% { transform: scale(1.35); opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) { .research-pill.idle:not(.active)::after { animation: none; } }
 /* The queue behind it (#14): "+2" in the top right corner, over the pill (no layout: the name and count keep their room). */
-.research-pill:not([data-more=""])[data-more]::before { content: attr(data-more); position: absolute; top: 1px; right: 3px; font-size: 10px; line-height: 1; font-weight: 800; color: #fff; background: #2f6db5; border-radius: 6px; padding: 1px 3px; pointer-events: none; }
+/* (Out on the corner, a badge, not inside it: playthrough, it sat jammed in the corner over the count. Taking no room,
+   so the pill fits a 360 px phone as before.) */
+.research-pill:not([data-more=""])[data-more]::before { content: attr(data-more); position: absolute; top: -6px; right: -5px; z-index: 1; font-size: 10px; line-height: 1; font-weight: 800; color: #fff; background: #2f6db5; border-radius: 8px; padding: 2px 4px; box-shadow: 0 0 0 2px #faf3e6; pointer-events: none; }
 .research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill:active { transform: scale(0.96); }
 @media (max-width: 640px) {
@@ -1544,3 +1570,5 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .paint-swatch.locked { opacity: 0.55; cursor: default; }
 .paint-go { width: 100%; min-height: 48px; }
 .paint-engine { min-height: 40px; }
+/* (The cloud card open over the title: the cards and the link wait behind it, out of the way.) */
+.title-screen.cloud-open :is(.title-cards, .title-foot) { visibility: hidden; }

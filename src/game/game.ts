@@ -1204,6 +1204,10 @@ export class Game {
     const detail = detailReach(dist);
     const landCulled = this.landscapeView.cull(this.camera, reach, detail);
     const culled = cullTiles([this.depotView.group, this.ruinsView.group, this.touches.group], this.camera, reach, detail) || landCulled;
+    // Track too small to see its carving is drawn in its far version (a tenth of the triangles). (Not the shadows':
+    // they're cast by plain blocks either way.)
+    const pixelsHigh = this.canvas.clientHeight * Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio);
+    this.trackView.setDetail(this.camera.position, pixelsHigh / (2 * Math.tan((this.camera.fov * Math.PI) / 360)));
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
     // The very first frame draws no shadows (it's behind the loading screen), and the next one does: three draws the
     // shadow pass before it sets the frame's lights up, so on a scene's first frame its depth shaders were compiled for

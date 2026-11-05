@@ -7,6 +7,7 @@ import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
+import { doubleThreeWayGroup, slipsGroup, turntableGroup } from "./track-pieces.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -1221,7 +1222,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // game-shelves (a touch tap on each shelf and Back, in each mode), and Sandbox's checks by name: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
-// wait (a train waiting at points set for another), wye (a wye's three levers, #15), stuck (two trains of a line head
+// wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
@@ -4938,6 +4939,10 @@ const SANDBOX = {
   "route-ux-more": (f) => routeUxMore(f.ctx, f.p),
   "route-reorder": (f) => routeReorder(f.ctx, f.p),
   "route-share": (f) => routeShare(f.ctx, f.p),
+  // The tech tree's track pieces (track-pieces.mjs): slips, the double three-way, a turntable turned by a tap on a road.
+  slips: (f) => slipsGroup(f, check),
+  "double-three-way": (f) => doubleThreeWayGroup(f, check),
+  "turntable-taps": (f) => turntableGroup(f, check),
 };
 let fixture = null;
 const FRESH = process.env.E2E_FRESH === "1";

@@ -41,7 +41,11 @@
     },
     "bundle.entryJsKB": {
       "kind": "size",
-      "max": 1850
+      "max": 1480
+    },
+    "bundle.firstJsKB": {
+      "kind": "size",
+      "max": 2220
     },
     "fresh.idle.framesDrawn": {
       "kind": "frames",
@@ -113,7 +117,7 @@
     },
     "sandbox.frame.triangles": {
       "kind": "count",
-      "max": 1710000
+      "max": 1650000
     },
     "sandbox.frame.programs": {
       "kind": "count",

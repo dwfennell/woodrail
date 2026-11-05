@@ -14,6 +14,7 @@ import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, resto
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
+import { loadSaveSchemas } from "./persist/schemas";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
@@ -106,6 +107,7 @@ import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, ty
 import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
+import { TURNTABLE_CONTROLS } from "./game/deck-roads";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
 import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, saveMuted } from "./ui/prefs";
@@ -1442,7 +1444,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // Back online: what's waiting goes up.
   addEventListener("online", () => void cloud?.flush());
 
-  const title = new TitleScreen(document.body, { play }, { thumbnails });
+  /**
+   * The title's "Load a cloud save" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
+   * it. Loaded, the game starts on that railway (Game's, else Sandbox's).
+   */
+  let titleCloud: CloudCard | null = null;
+  const loadCloud = cloud
+    ? () => {
+        titleCloud ??= new CloudCard(title.root, cloud, {
+          mode: () => "game",
+          reload: () => reloadInto(hasSave("game") ? "game" : "sandbox"),
+          toast: (m) => hud.toast(m),
+        });
+        title.root.classList.add("cloud-open");
+        titleCloud.showEntry(() => title.root.classList.remove("cloud-open"));
+      }
+    : undefined;
+  const title = new TitleScreen(document.body, { play, loadCloud }, { thumbnails });
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
   let pausedBeforeTitle = false;
@@ -2364,6 +2382,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return makes;
   }
 
+  /**
+   * A station's `makes`, worked out when the board first reads it (only the selected ticket shows them, and the
+   * pictures for every blueprint were 40 ms of the first tap at 4× CPU): a getter, left out of the board's keys and of
+   * spreads (not enumerable).
+   */
+  function withMakes(station: Station, t: (typeof TECHS)[number]): Station {
+    Object.defineProperty(station, "makes", { get: () => makesOf(t), enumerable: false, configurable: true });
+    return station;
+  }
+
   const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
 
   function refreshBoard(): void {
@@ -2379,8 +2407,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const level = n.kind === "landmark" ? (n.id === COLLEGE_SCHOOL_ID ? "college" : n.id === UNIVERSITY_SCHOOL_ID ? "university" : null) : null;
       return level ? `${describeNeed(n)}: ${schoolHowTo(game.world, progress.learned, level)}` : describeNeed(n);
     };
-    const stations: Station[] = TECHS.map((t) => {
-      const makes = makesOf(t);
+    const stations: Station[] = TECHS.map((t) => withMakes(stationOf(t), t));
+    function stationOf(t: (typeof TECHS)[number]): Station {
+      // (Its `makes` put on after, when it's asked for: see `withMakes`.)
+      const makes: Station["makes"] = [];
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
       // Its price is its research: every good brought to a school, and from tier 2 coins (left out once paid: one
       // started and set aside keeps them).
@@ -2403,7 +2433,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // Locked till you have the school it's studied at (tech tree 3): its tag says which.
       const gate = t.school && unmet.includes(SCHOOL_NEED[t.school]) ? (t.school === "university" ? "University" : "College") : undefined;
       return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : {}) };
-    });
+    }
     const focus = goalPick(progress, goalTech, school !== null);
     board.show({
       stations,
@@ -5107,6 +5137,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.draw.stock = mode === "game" ? pieceStock : null;
     interaction.tunnelStock = mode === "game" ? () => pieceStock("tunnel-mouth-short") : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
+    // A tap on a road turns a turntable to it (Game mode's Turntable controls blueprint; Sandbox, always).
+    interaction.deckRoads = () => mode !== "game" || progress.learned.has(TURNTABLE_CONTROLS);
     // Road squares cost coins (Game mode's Roads blueprint): a square beyond those in the box is bought as it goes down.
     interaction.roadTill = mode === "game" ? { refuse: (added) => roadRefusal(added) } : null;
     if (mode === "game") {
@@ -5854,6 +5886,8 @@ requestAnimationFrame(() =>
       loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (loadBar.set("thumbnails", 1), t)),
       models(),
       texturesKept,
+      // (Zod and the save's schemas, not in the first download: wanted before the save is read, below.)
+      loadSaveSchemas(),
     ]).then(async ([, thumbs]) => {
       // The cloud check, under way all this while: waited for only a little longer than the rest took.
       const cloudNotes = { ...takeCloudNote(), ...((await Promise.race([cloudStarted, sleep(CLOUD_WAIT_MS).then(() => ({}))])) as CloudNotes) };
