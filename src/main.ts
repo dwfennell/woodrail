@@ -1,4 +1,5 @@
 import { CRANE_TEXT } from "./game/crane-text";
+import { placeNear, type Place } from "./game/place-near";
 import { installDevChecks, recentBreaks } from "./game/dev-checks";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
@@ -78,7 +79,7 @@ import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summar
 import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
-import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
+import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
@@ -2411,7 +2412,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             : "Later";
       // Locked till you have the school it's studied at (tech tree 3): its tag says which.
       const gate = t.school && unmet.includes(SCHOOL_NEED[t.school]) ? (t.school === "university" ? "University" : "College") : undefined;
-      return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : {}) };
+      // Else, with what it needs learned, the first thing it waits for (a city, goods delivered), not a price it can't
+      // be bought for yet (QA 2026-11-05 #5).
+      const other = !gate && missing.length === 0 ? unmet[0] : undefined;
+      return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : other ? { gate: other.kind === "delivered" && GOODS_ICON[other.good as CargoKind] ? `${GOODS_ICON[other.good as CargoKind]} ${other.n} ${other.good}` : needTag(other) } : {}) };
     });
     const focus = goalPick(progress, goalTech, school !== null);
     board.show({
@@ -3425,25 +3429,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * `PLACE_NEAR` ("Elder", "the sawmill"); "" when nowhere's that near. Asked only for a train in another's way.
    */
   function trainPlace(carId: number): string {
-    const at = carAt(carId, _a);
-    if (!at) return "";
-    let best = "";
-    let bestD = PLACE_NEAR * PLACE_NEAR;
-    const consider = (x: number, z: number, name: string) => {
-      const d = (x - at.x) ** 2 + (z - at.z) ** 2;
-      if (d < bestD && name.length <= PLACE_NAME) {
-        bestD = d;
-        best = name;
-      }
+    const snap = game.snapshot;
+    let i = 0;
+    while (i < snap.count && snap.ids[i] !== carId) i++;
+    if (i === snap.count) return "";
+    const o = i * 6;
+    // (Each place by its stretch of track, its piece's two ends: a town by its station's.)
+    const places: Place[] = [];
+    const add = (pieceId: number | undefined, name: string) => {
+      const p = pieceId === undefined ? undefined : game.layout.getPiece(pieceId);
+      if (!p) return;
+      const a = game.layout.worldConnector(connectorRef(p.id, 0), createWorldConnector());
+      const b = game.layout.worldConnector(connectorRef(p.id, 1), createWorldConnector());
+      places.push({ name, a: { x: a.x, z: a.z }, b: { x: b.x, z: b.z } });
     };
-    for (const t of game.world.landscape.towns) consider(t.station.x, t.station.z, t.name);
+    for (const t of game.world.landscape.towns) add(game.world.stations.get(t.id), t.name);
     for (const st of routeStops(game.world)) {
       const d = game.economy.depot(st.depotId);
-      const p = d && game.layout.getPiece(d.pieceId);
-      if (!d || !p || d.role === "town") continue;
-      consider(p.pose.x, p.pose.z, `the ${st.name.toLowerCase()}`);
+      if (!d || d.role === "town") continue;
+      add(d.pieceId, `the ${st.name.toLowerCase()}`);
     }
-    return best;
+    return placeNear({ x: snap.transforms[o], z: snap.transforms[o + 2] }, snap.transforms[o + 3], places, PLACE_NEAR, PLACE_NAME);
   }
 
   /** What the breakdown cranes did (src/economy/breakdown.ts): a toast each, and a save once a train is put right. */
@@ -3452,7 +3458,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (e.kind === "sent") {
         if (e.auto) hud.toast(CRANE_TEXT.auto);
       } else if (e.kind === "rerailed" || e.kind === "removed") {
-        hud.toast(CRANE_TEXT[e.kind]);
+        const engine = e.kind === "rerailed" && e.goes ? game.sim.findCar(e.target)?.train.cars.find((c) => c.kind === "engine") : undefined;
+        hud.toast(engine ? CRANE_TEXT.carriesOn(game.sim.nameOf(engine.id)) : CRANE_TEXT[e.kind]);
         scheduleSave();
       } else hud.toast(CRANE_TEXT[e.why]);
     }

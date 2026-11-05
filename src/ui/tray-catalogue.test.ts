@@ -127,6 +127,22 @@ describe("Game mode's railway kits on the tray", () => {
   });
 });
 
+describe("the Industries shelf in Game mode (QA 2026-11-05 #7)", () => {
+  const tab = (id: string) => trayTabs("game").find((t) => t.id === id)!;
+  it("shows what's learned first, then the Locked ones, each in the shelf's own order", () => {
+    const learned = new Set(["piece:depot-workshop", "piece:depot-sawmill", "piece:depot-oilwell", "piece:depot-waterpump"]);
+    const known = (i: TrayItem) => learned.has(trayKey(i));
+    const shelf = shownGroups(tab("industries").groups, known).find((g) => g.label === "Industries")!;
+    expect(shelf.items.slice(0, 4).map(trayKey)).toEqual(["piece:depot-workshop", "piece:depot-sawmill", "piece:depot-oilwell", "piece:depot-waterpump"]);
+    expect(shelf.items).toHaveLength(INDUSTRY_GROUPS[0].items.length);
+    const rest = shelf.items.slice(4).map(trayKey);
+    expect(rest).toEqual(INDUSTRY_GROUPS[0].items.map(trayKey).filter((k) => !learned.has(k)));
+    // Other shelves keep their order (the track's Switch stays where it is, Locked or not).
+    const track = shownGroups(tab("track").groups, () => false);
+    expect(track.find((g) => g.label === "Switch")!.items.map(trayKey)).toEqual(tab("track").groups.find((g) => g.label === "Switch")!.items.map(trayKey));
+  });
+});
+
 describe("the track cleaner on the Trains tab", () => {
   const cleanerIn = (mode: "sandbox" | "game") =>
     trayTabs(mode)

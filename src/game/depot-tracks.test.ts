@@ -79,7 +79,10 @@ describe("depot tracks: the ladder", () => {
 
   it("says why, in squares, when the line ends, bends or has points too near", () => {
     const short = line(1, 4);
-    expect(planTracks(short, short.mill, open)).toMatch(/needs 4½ squares of straight track on the line at each end: the line ends/);
+    expect(planTracks(short, short.mill, open)).toMatch(/needs 4½ squares of straight track on the line at each end: the track stops short there/);
+    // Nothing joined at all at one end (a yard dropped on its own): lay track there first (QA 2026-11-05 #6).
+    const bare = line(0, 4);
+    expect(planTracks(bare, bare.mill, open)).toMatch(/at each end: lay track there first$/);
     const layout = new Layout();
     const ids = (["straight-216", "straight-216", "depot-mill", "curve-large"] as PieceTypeId[]).map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
     const sim = new Sim(layout);
@@ -279,9 +282,8 @@ describe("depot tracks: the one crane drawn", () => {
 
 describe("depot tracks: which industries", () => {
   // QA 2026-11-05 #3: the tank wagons' wells and the goods chains' industries (built alongside) had no Second track.
-  // Every industry piece's role offers it but those the spec leaves out: a school (not a crane industry), and the car
-  // factory (not on the spec's list).
-  const NOT: ReadonlySet<string> = new Set(["school", "carworks"]);
+  // Every industry piece's role offers it but a school (not a crane industry). The car factory too (the owner's call).
+  const NOT: ReadonlySet<string> = new Set(["school"]);
   it("every crane industry offers more tracks", () => {
     const missing = [...new Set(Object.values(INDUSTRY_ROLE))].filter((r) => r && !NOT.has(r) && !TRACK_ROLES.has(r));
     expect(missing).toEqual([]);

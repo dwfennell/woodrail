@@ -55,7 +55,13 @@ export interface CraneJob {
   readonly kind: CraneJobKind;
   /** Set out by itself (a derailed train and an idle crane), or sent from a card. */
   readonly auto: boolean;
-  phase: "drive" | Step;
+  /**
+   * "drive": out to the train; the steps of the work; then "home": back to where it set out from (`home`), clear of
+   * the line it worked on (QA 2026-11-05 #2: it stood in the way of the train it put right).
+   */
+  phase: "drive" | Step | "home";
+  /** The piece the crane train stood on when it was sent: where it goes back to after the work. */
+  home: number;
   /** Ticks into the phase. */
   t: number;
   /** Ticks driving, and standing still with its lever on. */
@@ -72,7 +78,8 @@ export interface CraneJob {
 
 export type CraneEvent =
   | { kind: "sent"; crane: number; target: number; auto: boolean }
-  | { kind: "rerailed"; crane: number; target: number }
+  /** `goes`: the train carries on (its levers set back as they were). */
+  | { kind: "rerailed"; crane: number; target: number; goes: boolean }
   | { kind: "removed"; crane: number; target: number }
   | { kind: "gave-up"; crane: number; target: number; why: "no-way" | "blocked" | "no-room" };
 
@@ -135,6 +142,8 @@ export class Breakdown {
     if (this.jobs.size === 0) return undefined;
     const found = this.sim.findCar(carId);
     for (const j of this.jobs.values()) {
+      // (Going home, its job for the train is done.)
+      if (j.phase === "home") continue;
       if (j.target === carId) return j;
       if (found && found.train.cars.some((c) => c.id === j.target)) return j;
     }
@@ -149,7 +158,7 @@ export class Breakdown {
   /** How a crane's turret and rope stand now (its rest when it has no job). */
   poseOf(job: CraneJob): { slew: number; rope: number } {
     const p = job.phase;
-    const f = p === "drive" ? 0 : ease(job.t / (CRANE_STEPS[p] * SIM_HZ));
+    const f = p === "drive" || p === "home" ? 0 : ease(job.t / (CRANE_STEPS[p] * SIM_HZ));
     const rope = p === "lower" ? ROPE_REST + (ROPE_DOWN - ROPE_REST) * f : p === "lift" ? ROPE_DOWN - (ROPE_DOWN - ROPE_REST) * f * 0.8 : p === "set" ? ROPE_REST + (ROPE_DOWN - ROPE_REST) * 0.2 * (1 - f) : ROPE_REST;
     return { slew: job.slew, rope };
   }
@@ -180,7 +189,8 @@ export class Breakdown {
       const crane = t.cars.find((c) => c.kind === "crane");
       if (!crane) continue;
       const engines = t.cars.filter((c) => c.kind === "engine");
-      const free = !t.derailed && engines.length > 0 && !engines.some((e) => this.host.onLine(e.id)) && !this.jobs.has(crane.id);
+      // (Going home after a job, it's free: sent again, the new job takes over.)
+      const free = !t.derailed && engines.length > 0 && !engines.some((e) => this.host.onLine(e.id)) && (!this.jobs.has(crane.id) || this.jobs.get(crane.id)!.phase === "home");
       out.push({ crane: crane.id, train: t, free, idle: free && t.speed < 1 && engines.every((e) => e.lever === 0) });
     }
     return out;
@@ -216,7 +226,7 @@ export class Breakdown {
       if (way && (!best || way.length < best.length)) best = { crane: c.crane, train: c.train, sign: way.sign, length: way.length };
     }
     if (!best) return { ok: false, why: "no-way" };
-    const job: CraneJob = { crane: best.crane, target, kind, auto, phase: "drive", t: 0, driven: 0, blocked: 0, sign: best.sign, slew: 0, slewTo: 0, hoist: 0 };
+    const job: CraneJob = { crane: best.crane, target, kind, auto, phase: "drive", home: best.train.bogies[0]?.pieceId ?? -1, t: 0, driven: 0, blocked: 0, sign: best.sign, slew: 0, slewTo: 0, hoist: 0 };
     this.jobs.set(best.crane, job);
     this.events.push({ kind: "sent", crane: best.crane, target, auto });
     // (Already in reach: straight to work. Else off it goes.)
@@ -260,6 +270,7 @@ export class Breakdown {
   private step(job: CraneJob): void {
     const sim = this.sim;
     const craneAt = sim.findCar(job.crane);
+    if (job.phase === "home") return this.goHome(job, craneAt?.train);
     const target = sim.findCar(job.target)?.train;
     // (The crane or the train gone, the crane come off the rails, or the train put right some other way: the job's over.)
     const over = !craneAt || craneAt.train.derailed || !target || (job.kind === "rerail" && !target.derailed && job.phase !== "set" && job.phase !== "stow") || (job.kind === "remove" && target.derailed);
@@ -304,6 +315,8 @@ export class Breakdown {
     if (job.t < CRANE_STEPS[job.phase] * SIM_HZ) return;
     const next = ORDER[ORDER.indexOf(job.phase) + 1];
     if (!next) {
+      // (Stowed: back to where it set out from, unless it's there.)
+      if (job.home !== -1 && !sim.piecesUnder(crane.id).has(job.home) && this.startHome(job, crane)) return;
       this.jobs.delete(job.crane);
       return;
     }
@@ -314,14 +327,26 @@ export class Breakdown {
         carMiddle(crane, crane.cars.findIndex((c) => c.id === job.crane), _a);
         // (Nearest the crane's hook: the train was lifted toward it.)
         const near = this.nearestCar(t, _a);
-        if (sim.rerail(t.id, 150, near) === -1) {
+        // (Each engine's lever as it was, toward the train's own front or back: set again once it's back on the track.)
+        const levers = new Map<number, number>();
+        for (const c of t.cars) if (c.kind === "engine") levers.set(c.id, c.lever * c.facing);
+        const back = sim.rerail(t.id, 150, near);
+        if (back === -1) {
           job.hoist = 0;
           this.events.push({ kind: "gave-up", crane: job.crane, target: job.target, why: "no-room" });
           this.enter(job, "stow");
           return;
         }
         this.rerailed++;
-        this.events.push({ kind: "rerailed", crane: job.crane, target: job.target });
+        // It carries on as it was going (a routed train along its route): set down, its motor would be off.
+        let goes = false;
+        for (const c of sim.getTrain(back)?.cars ?? []) {
+          const was = levers.get(c.id);
+          if (c.kind !== "engine" || !was) continue;
+          sim.setLever(c.id, (was * c.facing) as -1 | 0 | 1);
+          goes = true;
+        }
+        this.events.push({ kind: "rerailed", crane: job.crane, target: job.target, goes });
       } else {
         sim.removeTrain(t.id);
         this.host.removed();
@@ -363,6 +388,50 @@ export class Breakdown {
     this.setLevers(crane, 0);
     this.jobs.delete(job.crane);
     this.events.push({ kind: "gave-up", crane: job.crane, target: job.target, why });
+  }
+
+  /** Set off home after the work: false if there's no way back (it stays where it is). */
+  private startHome(job: CraneJob, crane: Train): boolean {
+    const way = this.wayFor(crane, [job.home]);
+    if (!way) return false;
+    job.phase = "home";
+    job.t = 0;
+    job.driven = 0;
+    job.blocked = 0;
+    job.sign = way.sign;
+    this.setPoints(way.leg);
+    this.setLevers(crane, way.sign);
+    return true;
+  }
+
+  /**
+   * Driving home: it stops once on the piece it set out from. Stopped by the player, blocked (the train it put right
+   * is in its way, say), or too long on the way: it stops where it is, saying nothing (the job's done).
+   */
+  private goHome(job: CraneJob, crane: Train | undefined): void {
+    if (!crane || crane.derailed) {
+      this.jobs.delete(job.crane);
+      return;
+    }
+    job.driven++;
+    if (crane.speed < 1 && crane.cars.some((c) => c.kind === "engine" && c.lever !== 0)) job.blocked++;
+    else job.blocked = 0;
+    if (job.driven % DRIVE_TICKS !== 0) return;
+    const stop = () => {
+      this.setLevers(crane, 0);
+      this.jobs.delete(job.crane);
+    };
+    if (this.sim.piecesUnder(crane.id).has(job.home)) return stop();
+    if (crane.cars.every((c) => c.kind !== "engine" || c.lever === 0)) {
+      this.jobs.delete(job.crane);
+      return;
+    }
+    if (job.blocked > BLOCKED_S * SIM_HZ || job.driven > DRIVE_MAX_S * SIM_HZ) return stop();
+    const way = this.wayFor(crane, [job.home]);
+    if (!way) return stop();
+    job.sign = way.sign;
+    this.setPoints(way.leg);
+    this.setLevers(crane, way.sign);
   }
 
   /** Set its way off again: the points ahead, and its levers. False: no way there now. */

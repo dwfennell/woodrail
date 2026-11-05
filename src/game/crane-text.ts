@@ -5,6 +5,8 @@ export const CRANE_TEXT = {
   /** Sent from a stuck train's card. */
   sent: "🏗️ The breakdown crane is on its way to lift the train off",
   rerailed: "🏗️ The crane put the train back on the track",
+  /** Put back with its levers as they were (`goes`): it carries on, a routed train along its route. */
+  carriesOn: (name: string) => `🏗️ Back on the rails: ${name} carries on`,
   removed: "🏗️ The crane lifted the train off the line, back into the box",
   "no-crane": "Put a breakdown crane on the track first (an engine and a crane wagon)",
   busy: "The breakdown crane is busy, or on a line: take it off its line to send it",

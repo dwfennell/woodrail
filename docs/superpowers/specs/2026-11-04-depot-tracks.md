@@ -92,7 +92,8 @@ tracks is the goods yard**. No separate piece. The research is **Sidings** (Logi
 Junctions and loops, 6 planks + 120 coins): "Give an industry a second and a third track…", for every crane industry.
 
 Industries: harvester, sawmill, workshop, farm yard, mill, quarry, warehouse, mine, foundry, carpenter, smithy, power
-station, harbour (landward side), dairy, bakery, orchard, juice works, creamery, ice cream factory, brickworks; and
+station, harbour (landward side), dairy, bakery, orchard, juice works, creamery, ice cream factory, brickworks, car
+factory; and
 those built alongside (QA 2026-11-05 #3): oil well, water pump, sugar beet field, jam kitchen, chocolate factory, flower
 field, dye works, toy workshop. Not a
 town's station (Big stations), a school, a halt or Sandbox's loaders.

@@ -362,6 +362,17 @@ export function describeNeed(n: Need): string {
   }
 }
 
+/**
+ * A need, short, for a locked card's tag in the research web (in place of its price, which it can't be bought for yet;
+ * QA 2026-11-05 #5): "🏙️ A city", "📦 30 furniture", "60 coal dug".
+ */
+export function needTag(n: Need): string {
+  const words = describeNeed(n);
+  if (n.kind === "level") return `🏙️ ${words[0].toUpperCase()}${words.slice(1)}`;
+  if (n.kind === "delivered") return `📦 ${n.n} ${n.good}`;
+  return words;
+}
+
 /** A price in words: "16 planks + 40 coins", "10 iron + 60 coins". */
 export function describePrice(p: Price): string {
   const parts: string[] = [];

@@ -166,11 +166,43 @@ describe("Breakdown crane", () => {
     // It drove there: its crane moved, and it stands within reach.
     const now = sim.findCar(craneCar)!.train;
     expect(Math.hypot(now.world[2].x - start.x, now.world[2].z - start.z)).toBeGreaterThan(300);
-    // The turret swings home and the job's over; the crane train waits there, levers off.
+    // The turret swings home; then it drives back to where it set out from (QA 2026-11-05 #2), and waits there, levers
+    // off. The goods train had its levers off (standing): it's put back standing.
+    expect(drain().find((e) => e.kind === "rerailed")).toMatchObject({ goes: false });
     tick(3);
-    expect(economy.breakdown.jobOf(craneCar)).toBeUndefined();
-    expect(now.cars.every((c) => c.lever === 0)).toBe(true);
+    expect(economy.breakdown.jobOf(craneCar)?.phase).toBe("home");
+    expect(tick(150, () => !economy.breakdown.jobOf(craneCar))).toBe(true);
+    const home = sim.findCar(craneCar)!.train;
+    expect(sim.piecesUnder(home.id).has(ids[6])).toBe(true);
+    expect(home.cars.every((c) => c.lever === 0)).toBe(true);
     expect(economy.breakdown.rerailed).toBe(1);
+  }, 60_000);
+
+  it("a running train put back carries on, and the crane goes back out of its way (QA 2026-11-05 #2)", () => {
+    const { sim, economy, ids, tick, drain } = oval();
+    const goods = sim.addTrain(["engine", "van"], { pieceId: ids[16], pathIndex: 0, reversed: false, s: 100 });
+    const crane = sim.addTrain(["engine", "crane"], { pieceId: ids[6], pathIndex: 0, reversed: false, s: 100 });
+    if (goods.kind !== "placed" || crane.kind !== "placed") throw new Error("no room");
+    const goodsCar = sim.getTrain(goods.trainId)!.cars[0].id;
+    const craneCar = sim.getTrain(crane.trainId)!.cars[1].id;
+    // Running when it came off (its lever on), as a train on its route is.
+    sim.setLever(goodsCar, 1);
+    tick(0.5);
+    sim.trackChanged([sim.getTrain(goods.trainId)!.bogies[0].pieceId]);
+    expect(sim.findCar(goodsCar)!.train.derailed).toBe(true);
+    expect(tick(150, () => drain().some((e) => e.kind === "rerailed"))).toBe(true);
+    expect(drain().find((e) => e.kind === "rerailed")).toMatchObject({ target: goodsCar, goes: true });
+    // Its lever is on again: it runs on (the crane, first in its way or not, sets off home).
+    const back = sim.findCar(goodsCar)!.train;
+    expect(back.derailed).toBe(false);
+    expect(back.cars[0].lever).not.toBe(0);
+    expect(tick(150, () => !economy.breakdown.jobOf(craneCar))).toBe(true);
+    expect(sim.piecesUnder(sim.findCar(craneCar)!.train.id).has(ids[6])).toBe(true);
+    // The goods train has got going round the oval.
+    const at = { ...sim.findCar(goodsCar)!.train.world[0] };
+    tick(5);
+    const now = sim.findCar(goodsCar)!.train.world[0];
+    expect(Math.hypot(now.x - at.x, now.z - at.z)).toBeGreaterThan(100);
   }, 60_000);
 
   it("is sent to lift a train off the line, back into the box", () => {
