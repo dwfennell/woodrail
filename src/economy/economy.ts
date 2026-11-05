@@ -1,4 +1,4 @@
-import { getPieceDef, isKit, LOOKOUT_KIT, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { getPieceDef, isKit, LOOKOUT_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -1199,9 +1199,14 @@ export class Economy {
     return !route || this.picksAt(route, d, null);
   }
 
-  /** Is this a lookout halt's stop (`LOOKOUT_KIT`): a destination for riders from anywhere, where no one lives? */
+  /**
+   * Is this a lookout halt's stop (`LOOKOUT_KIT`), or an observatory's (`OBSERVATORY_KIT`): a destination for riders
+   * from anywhere, where no one lives?
+   */
   isLookout(d: DepotState | undefined): boolean {
-    return !!d && d.role === "town" && this.layout.getPiece(d.pieceId)?.type === LOOKOUT_KIT;
+    if (!d || d.role !== "town") return false;
+    const type = this.layout.getPiece(d.pieceId)?.type;
+    return type === LOOKOUT_KIT || type === OBSERVATORY_KIT;
   }
 
   /** The town a passenger stop (a station's depot, or a halt's) is for, by its depot id: −1 for none. */

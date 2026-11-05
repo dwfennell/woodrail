@@ -111,6 +111,7 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-country-halt": p("Country halt", "A little stop where passenger trains wait."),
   "kit-mountain-station": p("Mountain station", "A station up in the hills."),
   "kit-lookout": p("Lookout halt", "On a hilltop: riders come for the view, at twice the fare."),
+  "kit-observatory": p("Observatory", "On a hilltop: stargazers come by train, at three times the fare."),
   "kit-harbour-station": p("Harbour station", "A station by the water."),
   "kit-two-platform-station": p("Two-platform station", "A station on two lines."),
   "kit-grand-terminus": p("Grand terminus", "A big station at the end of the line."),

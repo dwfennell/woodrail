@@ -103,6 +103,8 @@ export type KitTypeId = `kit-${string}`;
 
 /** The lookout halt (the rack's): a passenger stop on a hilltop, where riders from any town get off (see src/game/world.ts). */
 export const LOOKOUT_KIT: KitTypeId = "kit-lookout";
+/** The observatory (Tech tree 5): a lookout's kind of stop, for stargazers (see src/game/world.ts `SIGHT_FARES`). */
+export const OBSERVATORY_KIT: KitTypeId = "kit-observatory";
 
 /** The furnished platform's depth across, and how far off the track's edge it stands (mm). */
 const PLATFORM_DEPTH = 26;
@@ -313,6 +315,21 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     footprint: [
       { t: 108, l: beside(24), w: 216, d: 26 },
       { t: 103, l: 63, w: 90, d: 34 },
+    ],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  // The observatory: a halt on a hilltop two levels up or more, as the lookout is; stargazers from any town ride there
+  // and pay three times the fare. The model is drawn in the piece's frame, beside the track (src/catalogue/assets/observatory.ts).
+  "kit-observatory": {
+    asset: "bldg-observatory",
+    name: "observatory",
+    track: straight("kit-observatory", 216),
+    rails: "track",
+    place: { t: 108, l: TRACK_HALF + PLATFORM_GAP },
+    footprint: [
+      { t: 108, l: beside(24), w: 216, d: 26 },
+      { t: 108, l: TRACK_HALF + PLATFORM_GAP + 62, w: 54, d: 54 },
     ],
     splices: true,
     stop: PASSENGERS,

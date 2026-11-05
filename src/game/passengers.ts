@@ -1,6 +1,6 @@
 import type { DepotState } from "../economy";
 import type { CarLook } from "../sim";
-import { isBridge, RISER_HEIGHT } from "../track";
+import { isBridge, OBSERVATORY_KIT, RISER_HEIGHT } from "../track";
 import { CELL } from "../landscape/grid";
 import type { Progress } from "./progress";
 import { townStatus } from "./towns";
@@ -39,6 +39,8 @@ export const WAITING_CAP = 6;
 
 /** A ride to a lookout halt pays this many times the fare: a day out for the view. */
 export const LOOKOUT_FARE = 2;
+/** A ride to an observatory pays this many times the fare: a night out to see the stars. */
+export const STARGAZER_FARE = 3;
 
 /** Each mm between the two stations is worth this much fare (and never less than `MIN_FARE`). */
 const FARE_PER_MM = 1 / 800;
@@ -119,7 +121,7 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
     if (world.economy.ridersOf(carId).scenic && hasObservation(world, found.train.cars)) fare *= OBSERVATION;
   }
-  if (world.economy.isLookout(to)) fare *= LOOKOUT_FARE;
+  if (world.economy.isLookout(to)) fare *= world.layout.getPiece(to.pieceId)?.type === OBSERVATORY_KIT ? STARGAZER_FARE : LOOKOUT_FARE;
   return Math.round(fare);
 }
 

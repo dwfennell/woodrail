@@ -66,6 +66,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:rack": { label: "Rack", cost: { planks: 3 }, coins: 20, tech: "rack" },
   "piece:rack-short": { label: "Short rack", cost: { planks: 2 }, coins: 10, tech: "rack" },
   "piece:kit-lookout": { label: "Lookout halt", cost: { planks: 6 }, coins: 40, tech: "rack" },
+  // Tech tree 5: the observatory, a lookout's kind of stop for stargazers. Iron for its dome and telescope.
+  "piece:kit-observatory": { label: "Observatory", cost: { planks: 10, iron: 4 }, coins: 120, tech: "observatory" },
   "piece:tunnel-mouth": { label: "Tunnel mouth", cost: { planks: 2 }, coins: 30, tech: "tunnels" },
   "car:engine": { label: "Engine", cost: { planks: 6 } },
   "car:timber": { label: "Flatbed wagon", cost: { planks: 3 } },

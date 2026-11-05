@@ -276,7 +276,7 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
   },
   {
     label: "Halts",
-    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform"), kit("kit-lookout", "Lookout halt")],
+    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform"), kit("kit-lookout", "Lookout halt"), kit("kit-observatory", "Observatory")],
   },
   {
     label: "Lineside",

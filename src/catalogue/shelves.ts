@@ -25,6 +25,7 @@ export const PROP_TABS: readonly PropTab[] = [
         assets: [
           "bldg-country-halt",
           "bldg-mountain-station",
+          "bldg-observatory",
           "bldg-harbour-station",
           "bldg-signal-box",
           "bldg-ticket-booth",
