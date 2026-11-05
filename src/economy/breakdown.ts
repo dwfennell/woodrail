@@ -187,6 +187,17 @@ export class Breakdown {
   }
 
   /**
+   * Is there a crane train to lift the train with car `target` off the line for the train with car `stuck`: one that is
+   * neither of them? (The only crane on the map can be the train in the way, parked after a job: then there's none to
+   * send, and the stuck train's card offers no "Send the crane".)
+   */
+  canLift(target: number, stuck: number): boolean {
+    const a = this.sim.findCar(target)?.train;
+    const b = this.sim.findCar(stuck)?.train;
+    return this.cranes().some((c) => c.train !== a && c.train !== b);
+  }
+
+  /**
    * Send the nearest free crane train to the train with car `target`: to lift it back on (it's derailed) or off the
    * line (`kind` "remove"). `idleOnly`: only a crane standing with its levers off (setting out by itself).
    */

@@ -3386,7 +3386,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // A line with a train too many: Remove beside the status (with the status it belongs to).
     if (status === latest) hud.setCrowded(!!view.crowded);
     // (A train in the way, and a crane train on the map to lift it off: Send the crane.)
-    hud.setSendCrane(!!b && b.car >= 0 && status.startsWith("Stuck") && game.economy.breakdown.cranes().some((c) => c.train.cars.every((x) => x.id !== carId)) && !game.economy.breakdown.jobFor(b.car));
+    hud.setSendCrane(!!b && b.car >= 0 && status.startsWith("Stuck") && game.economy.breakdown.canLift(b.car, carId) && !game.economy.breakdown.jobFor(b.car));
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
     let angle = 0;

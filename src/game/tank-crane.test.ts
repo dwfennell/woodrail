@@ -210,6 +210,24 @@ describe("Breakdown crane", () => {
     expect(tick(10, () => drain().some((e) => e.kind === "removed"))).toBe(true);
   }, 60_000);
 
+  it("offers no crane when the only one is the train in the way (QA 2026-11-05 #1)", () => {
+    const { sim, economy, ids } = oval();
+    // The crane train parked on the line after a job, and a train stuck behind it.
+    const stuck = sim.addTrain(["engine", "oiltank"], { pieceId: ids[14], pathIndex: 0, reversed: false, s: 100 });
+    const parked = sim.addTrain(["engine", "crane"], { pieceId: ids[16], pathIndex: 0, reversed: false, s: 100 });
+    if (stuck.kind !== "placed" || parked.kind !== "placed") throw new Error("no room");
+    const stuckCar = sim.getTrain(stuck.trainId)!.cars[0].id;
+    const parkedCar = sim.getTrain(parked.trainId)!.cars[0].id;
+    // (Sent anyway, it would say there's no crane: the card mustn't offer it.)
+    expect(economy.breakdown.send(parkedCar, "remove")).toEqual({ ok: false, why: "no-crane" });
+    expect(economy.breakdown.canLift(parkedCar, stuckCar)).toBe(false);
+    // A second crane train elsewhere can: the card offers it, and it goes.
+    const other = sim.addTrain(["engine", "crane"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 100 });
+    if (other.kind !== "placed") throw new Error("no room");
+    expect(economy.breakdown.canLift(parkedCar, stuckCar)).toBe(true);
+    expect(economy.breakdown.send(parkedCar, "remove")).toMatchObject({ ok: true });
+  });
+
   it("throws the points on its way: a derailed train on the branch the switch isn't set for", () => {
     const layout = new Layout();
     let end = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
