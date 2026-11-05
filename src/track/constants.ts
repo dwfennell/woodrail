@@ -62,6 +62,10 @@ export const JOINER_LENGTH = 1;
 export const ARCH_CENTRES = [0.28, 0.72] as const;
 export const ARCH_RADIUS = 0.19;
 export const ARCH_CROWN_DROP = RISER_HEIGHT / 4;
+/** The stone viaduct (Tech tree 5): twice a bridge's length, on four arches the size of a bridge's. */
+export const VIADUCT_LENGTH = 2 * BRIDGE_LENGTH;
+export const VIADUCT_ARCH_CENTRES = [0.14, 0.38, 0.62, 0.86] as const;
+export const VIADUCT_ARCH_RADIUS = ARCH_RADIUS / 2;
 
 // Joint play: how far a peg can be from perfectly seated and still hold. Generous, like real wooden track: straight
 // lengths step by 18 mm, so 9 mm lets any straight run close between two fixed ends (station to station).

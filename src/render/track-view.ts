@@ -1007,7 +1007,7 @@ export class TrackView {
     for (const [key, ids] of groups) {
       const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
       const unseen = modelRails(type);
-      const mesh = new InstancedMesh(carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
+      const mesh = new InstancedMesh(carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint, this.mats.viaductStone], ids.length);
       mesh.castShadow = !unseen;
       mesh.receiveShadow = !unseen;
       ids.forEach((id, i) => {

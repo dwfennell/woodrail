@@ -3252,7 +3252,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     g.scene.add(mesh);
     g.trackView.setHidden(id, true);
@@ -3870,7 +3870,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     mesh.position.set(p.pose.x, p.y, p.pose.z);
     mesh.rotation.y = -p.pose.heading;
@@ -4031,7 +4031,7 @@ export class Interaction {
     });
     // Stand-ins lift and shrink away where the pieces were (a few, for a big sweep).
     for (const p of pieces.slice(0, 24)) {
-      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
       mesh.position.set(p.pose.x, p.y, p.pose.z);
       mesh.rotation.y = -p.pose.heading;
       g.scene.add(mesh);
@@ -4245,7 +4245,7 @@ export class Interaction {
     if (!this.editor().removeGroup(ids)) return;
     // Stand-ins lift and shrink away where the pieces were (a few, for a big group).
     for (const p of pieces.slice(0, 24)) {
-      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
       mesh.position.set(p.pose.x, p.y, p.pose.z);
       mesh.rotation.y = -p.pose.heading;
       g.scene.add(mesh);
@@ -4882,7 +4882,7 @@ export class Interaction {
     // The stand-in stops sharing the held-piece material (the next piece picked up re-tints that): plain wood when
     // it's going down, see-through red when it's refused.
     const refused = final !== null || m.overTray;
-    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint];
+    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone];
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";

@@ -5,6 +5,11 @@ import {
   SMALL_LOOP_RADIUS,
   JOINER_LENGTH,
   BRIDGE_LENGTH,
+  ARCH_CENTRES,
+  ARCH_RADIUS,
+  VIADUCT_ARCH_CENTRES,
+  VIADUCT_ARCH_RADIUS,
+  VIADUCT_LENGTH,
   BUFFER_LENGTH,
   CROSSING_SIZE,
   CURVE_SWEEP,
@@ -73,6 +78,7 @@ export type PieceTypeId =
   | "riser"
   | "bridge"
   | "bridge-curve"
+  | "viaduct"
   | "underpass"
   | "tunnel-mouth"
   | "tunnel-mouth-short"
@@ -163,6 +169,11 @@ export interface PieceDef {
    * comes onto the platform halts on it, and it's carried to the other end over `seconds`, then drives off there.
    */
   readonly lift?: { readonly seconds: number };
+  /**
+   * A lift bridge's span (`gated` too, one path): raised for a boat (`Sim.raiseBridge`), it joins nothing (its ends
+   * hold trains as a closed lift's do) till it's down again. `rise`: how high it goes (mm).
+   */
+  readonly drawbridge?: { readonly rise: number };
   /**
    * Points with a lever at every end (a wye's three corners, #15): each end's road is its own bit of the state (bit k:
    * end k's second road), so a train can be sent any of the ways. Other points have one lever: the state picks the road
@@ -441,6 +452,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   // `bridgeLevels`): the piece's base is its deck.
   bridge: straight("bridge", BRIDGE_LENGTH),
   "bridge-curve": curve("bridge-curve", LARGE_CURVE_RADIUS),
+  // The stone viaduct: a bridge twice as long, on four arches (`archesOf`), painted stone.
+  viaduct: straight("viaduct", VIADUCT_LENGTH),
   // A tunnel mouth: a straight sloping down two levels into the board, in a wooden-lined cutting, to track under the
   // felt (see `TUNNEL_COVER`); the short one down one level, to track under a hill. Its top end at the ground; flipped,
   // its ends swap (to come back up).
@@ -666,7 +679,14 @@ for (const [type, kit] of Object.entries(KITS) as [KitTypeId, (typeof KITS)[KitT
 export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 
 /** Bridges stand on their own arches, down to the ground under them. */
-export const isBridge = (type: PieceTypeId): boolean => type === "bridge" || type === "bridge-curve";
+export const isBridge = (type: PieceTypeId): boolean => type === "bridge" || type === "bridge-curve" || type === "viaduct";
+
+/** Where a bridge's arch openings are (fractions of its length) and how wide (a fraction of its length, as a radius). */
+export function archesOf(type: PieceTypeId): { readonly centres: readonly number[]; readonly radius: number } {
+  return type === "viaduct" ? VIADUCT_ARCHES : BRIDGE_ARCHES;
+}
+const BRIDGE_ARCHES = { centres: ARCH_CENTRES, radius: ARCH_RADIUS };
+const VIADUCT_ARCHES = { centres: VIADUCT_ARCH_CENTRES, radius: VIADUCT_ARCH_RADIUS };
 
 /** Ramps up a level: the straight one, and the curved ones. Each stands on its own sloping support. */
 export const isRamp = (type: PieceTypeId): boolean => type === "ramp" || isRack(type) || type === "ramp-curve" || type === "ramp-curve-small" || type === "ramp-curve-wide";

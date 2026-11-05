@@ -17,7 +17,7 @@ const pieces: Asset[] = PIECE_TYPES.filter((type) => !isJoin(type) && !isKit(typ
   inGame: true,
   build: (k) => {
     const g = new Group();
-    const mesh = new Mesh(withPegs(buildPieceGeometry(getPieceDef(type, false), isBridge(type) ? 1 : 0), getPieceDef(type, false)), [k.mats.track, k.mats.trackCut, k.mats.bridgePaint]);
+    const mesh = new Mesh(withPegs(buildPieceGeometry(getPieceDef(type, false), isBridge(type) ? 1 : 0), getPieceDef(type, false)), [k.mats.track, k.mats.trackCut, k.mats.bridgePaint, k.mats.viaductStone]);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // Raised pieces stand on their arches: bring the lowest point to the ground.

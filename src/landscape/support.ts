@@ -1,4 +1,4 @@
-import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, TRENCH_HALF, TRENCH_INSET, TRENCH_WALL, createSample, getPieceDef, ignores, isBridge, isLift, isRamp, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
+import { archesOf, canStandOnArches, TRENCH_HALF, TRENCH_INSET, TRENCH_WALL, createSample, getPieceDef, ignores, isBridge, isLift, isRamp, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { hillsOf } from "./hill-shape";
 import { inTunnel } from "./clearance";
@@ -141,13 +141,14 @@ export function archFloors(land: Landscape, type: PieceTypeId, flipped: boolean,
   const sh = Math.sin(pose.heading);
   const hills = hillsOf(land.grid);
   // Half an opening's width along the deck (its widest: a lower arch is narrower), and samples along it this far apart.
-  const half = len * ARCH_RADIUS;
+  const arches = archesOf(type);
+  const half = len * arches.radius;
   const n = Math.max(2, Math.ceil((2 * half) / ARCH_STEP));
   const step = (2 * half) / n;
   // How many samples a track's width spans.
   const span = Math.min(n, Math.ceil(TRACK_WIDTH / step));
   const ground: number[] = [];
-  const floors = ARCH_CENTRES.map((at) => {
+  const floors = arches.centres.map((at) => {
     // The highest ground across the viaduct at each step along the opening.
     ground.length = 0;
     for (let k = 0; k <= n; k++) {

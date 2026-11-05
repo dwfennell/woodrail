@@ -64,6 +64,7 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "rack", label: "Rack" },
   { kind: "piece", type: "rack-short", label: "Short rack" },
   { kind: "piece", type: "bridge", label: "Bridge" },
+  { kind: "piece", type: "viaduct", label: "Stone viaduct" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
   { kind: "piece", type: "underpass", label: "Underpass" },
   { kind: "piece", type: "tunnel-mouth-short", label: "Short tunnel mouth" },
@@ -164,7 +165,7 @@ export const ROAD_GROUPS: TrayGroup[] = [
 ];
 
 /** The track bridges: a shelf of the Track tab (with the catalogue's decorative bridges after it, in Sandbox). */
-export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve", "underpass", "tunnel-mouth-short", "tunnel-mouth") }];
+export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve", "viaduct", "underpass", "tunnel-mouth-short", "tunnel-mouth") }];
 
 /** Industries the player builds (Game mode): depot pieces placed like track. */
 export const INDUSTRY_GROUPS: TrayGroup[] = [
@@ -236,6 +237,7 @@ export const GAME_TRACK_KITS: TrayGroup = {
     kit("kit-turntable", "Turntable"),
     kit("kit-transfer-table", "Transfer table"),
     kit("kit-train-lift", "Train lift"),
+    kit("kit-lift-bridge", "Lift bridge"),
     kit("kit-loop-the-loop", "Loop-the-loop"),
     kit("kit-buffer-stop-lamp", "Buffer stop"),
   ],

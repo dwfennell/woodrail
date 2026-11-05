@@ -71,7 +71,7 @@ describe("Observation car", () => {
     const { w, ids, layout } = line(["engine", "passenger"], 4, 2);
     expect(isView(w, ids[2])).toBe(true);
     expect(isView(w, ids[0])).toBe(false);
-    layout.getPiece(ids[1])!.y = 2 * RISER_HEIGHT;
+    (layout.getPiece(ids[1])! as { y: number }).y = 2 * RISER_HEIGHT;
     expect(isView(w, ids[1])).toBe(true);
   });
 

@@ -246,6 +246,19 @@ function trainLift(type: PieceTypeId): PieceDef {
   };
 }
 
+/** The lift bridge (Tech tree 5): its span's length, and how high it goes for a boat (a level and a half). */
+export const LIFT_BRIDGE_LENGTH = 216;
+export const LIFT_BRIDGE_RISE = 1.5 * RISER_HEIGHT;
+export const LIFT_BRIDGE_KIT: KitTypeId = "kit-lift-bridge";
+
+/**
+ * A lift bridge's track: a straight at the ground, one way for its span (`gated`, `drawbridge`): raised for a boat it
+ * joins nothing (see `Sim.raiseBridge`). It stands over a river (`checkPlacement`), its towers on the banks.
+ */
+function liftBridge(type: PieceTypeId): PieceDef {
+  return { ...straight(type, LIFT_BRIDGE_LENGTH), gated: true, drawbridge: { rise: LIFT_BRIDGE_RISE } };
+}
+
 /** Every kit, by piece type. */
 export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
   // A 216 straight with the furnished platform along its left (+l) side: passenger trains stop at it for 4 s.
@@ -649,6 +662,23 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
       { t: LIFT_LENGTH / 2, l: 0, w: LIFT_LENGTH - 2 * LIFT_END_NOTCH, d: 2 * LIFT_BAND_IN },
       { ...LIFT_WEIGHT, overhead: true },
       { ...LIFT_WEIGHT, l: -LIFT_WEIGHT.l, overhead: true },
+    ],
+    moves: "state",
+  },
+  // A lift bridge: the line across a river at the ground, its span between two towers going straight up for a boat
+  // (a tap, or the water's hook `Sim.raiseBridge`), trains waiting at its ends meanwhile. The model draws the span's rails.
+  "kit-lift-bridge": {
+    asset: "mech-lift-bridge",
+    name: "lift bridge",
+    track: liftBridge("kit-lift-bridge"),
+    rails: "model",
+    place: { t: LIFT_BRIDGE_LENGTH / 2, l: 0 },
+    // Its towers' feet on the banks at each end (the span itself is over the water).
+    footprint: [
+      { t: 7, l: 30, w: 14, d: 14, trackPad: 2 },
+      { t: 7, l: -30, w: 14, d: 14, trackPad: 2 },
+      { t: LIFT_BRIDGE_LENGTH - 7, l: 30, w: 14, d: 14, trackPad: 2 },
+      { t: LIFT_BRIDGE_LENGTH - 7, l: -30, w: 14, d: 14, trackPad: 2 },
     ],
     moves: "state",
   },

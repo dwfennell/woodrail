@@ -26,6 +26,8 @@ export interface Materials {
   glass: MeshPhysicalMaterial;
   /** The painted viaduct under bridge pieces (track geometry's third slot). */
   bridgePaint: MeshPhysicalMaterial;
+  /** The stone viaduct's arches (track geometry's fourth slot): sandstone paint. */
+  viaductStone: MeshPhysicalMaterial;
   lacquer: (color: string) => MeshPhysicalMaterial;
   /** Lacquer in any colour, taken from the geometry's vertex colours (for merged static scenery). */
   paint: MeshPhysicalMaterial;
@@ -185,6 +187,7 @@ export function createMaterials(anisotropy: number): Materials {
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
     lacquer,
     bridgePaint: lacquer("#c8442f"),
+    viaductStone: lacquer("#cdb08c"),
     scenery,
     paint,
   };
