@@ -12,6 +12,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   PMREMGenerator,
+  RedFormat,
   Scene,
   SphereGeometry,
   UnsignedIntType,
@@ -76,7 +77,9 @@ function buildSky(): Mesh {
  * ~440 on the late map). Made beforehand, the sampler always has a depth texture to compare against.
  */
 export function shadowTarget(size: number): WebGLRenderTarget {
-  const target = new WebGLRenderTarget(size, size);
+  // (three gives every render target a colour attachment; the depth pass needs none, so the smallest renderable one: one
+  // byte a texel, not four: 4 MB at 2048², not 16.)
+  const target = new WebGLRenderTarget(size, size, { format: RedFormat, generateMipmaps: false });
   const depth = new DepthTexture(size, size, UnsignedIntType);
   depth.name = "sun.shadowMap";
   depth.format = DepthFormat;

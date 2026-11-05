@@ -88,7 +88,7 @@ out.contextLoss = await page.evaluate(async () => {
   const card2 = document.querySelector(".gl-lost");
   return { lost, restored: !w.renderer.getContext().isContextLost(), cardAfterRestore: card2 ? !card2.hidden : null, framesAfter: w.framesDrawn - f0, gl: window.__gl.summary() };
 });
-await page.screenshot({ path: outFile.replace(/\.json$/, "-after-restore.png") });
+await page.screenshot({ path: outFile.replace(/\.json$/, "-after-restore.png"), timeout: 120000 }).catch(() => {});
 out.errors = errors; out.logs = [...new Set(logs.map((l) => l.replace(/^\d+s /, "")))].map((u) => { const m = logs.filter((l) => l.endsWith(u)); return `${m.length}× first ${m[0].split(" ")[0]} last ${m.at(-1).split(" ")[0]}: ${u}`; });
 writeFileSync(outFile, JSON.stringify(out, null, 2));
 console.log(JSON.stringify(out.contextLoss), errors.slice(0, 10));

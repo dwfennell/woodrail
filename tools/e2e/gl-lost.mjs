@@ -53,6 +53,11 @@ const tap = async (selector, text) => {
   if (r) await p.touchscreen.tap(r.x, r.y);
   return !!r;
 };
+/** Open ☰, unless it's open already (Escape closes it in some versions, not in others). */
+const openMenu = async () => {
+  const open = await p.evaluate(() => [...document.querySelectorAll(".menu-item")].some((e) => e.getBoundingClientRect().width > 0 && !e.closest("[hidden]")));
+  if (!open) await openMenu();
+};
 const menuItem = (text) => p.evaluate((t) => [...document.querySelectorAll(".menu-item")].find((e) => e.textContent.startsWith(t))?.textContent ?? null, text);
 await p.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
@@ -154,7 +159,7 @@ check("…it draws", lum2 > 20, `brightness ${lum2.toFixed(0)}`);
 await shot("3-lean");
 
 // 4. Crash reports switched off in ☰, then on again.
-await tap(".hud button[title='Menu'], button[aria-label='Menu']");
+await openMenu();
 check("☰ says “Crash reports: on”", (await menuItem("Crash reports")) === "Crash reports: on");
 await shot("4-menu");
 await tap(".menu-item", "Crash reports");
@@ -164,7 +169,7 @@ await p.keyboard.press("Escape");
 await p.evaluate(() => { sessionStorage.removeItem("woodrail.crashSent"); setTimeout(() => { throw new Error("e2e: on purpose, off"); }); });
 await p.waitForTimeout(1500);
 check("off: an error sends nothing", crashes.length === 1, `${crashes.length} sent`);
-await tap(".hud button[title='Menu'], button[aria-label='Menu']");
+await openMenu();
 await tap(".menu-item", "Crash reports");
 check("…on again", (await menuItem("Crash reports")) === "Crash reports: on");
 await p.keyboard.press("Escape");
