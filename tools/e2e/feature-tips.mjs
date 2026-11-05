@@ -155,7 +155,13 @@ const setup = await p.evaluate(async () => {
   const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
   const g = w.world.landscape.grid;
   const t = w.controls.target;
-  const free = (pieces) => pieces.every((q) => w.interaction.placeWhyIgnoring(q.type, q.flipped, q.pose, q.y, -1) === null);
+  const why = new Map();
+  const free = (pieces) =>
+    pieces.every((q) => {
+      const r = w.interaction.placeWhyIgnoring(q.type, q.flipped, q.pose, q.y, -1);
+      if (r) why.set(r, (why.get(r) ?? 0) + 1);
+      return r === null;
+    });
   /** The nearest open ground where `make(X, Z)` gives pieces the drop rule takes (and `taken` doesn't overlap). */
   const ground = (make, avoid) => {
     for (let d = 300; d < 9000; d += 72)
@@ -163,8 +169,9 @@ const setup = await p.evaluate(async () => {
         const X = Math.round((t.x + d * Math.cos(a)) / 18) * 18;
         const Z = Math.round((t.z + d * Math.sin(a)) / 18) * 18;
         if (g.groundY(g.cellAtWorld(X, Z)) !== 0) continue;
-        if (avoid && Math.hypot(X - avoid.x, Z - avoid.z) < 2600) continue;
         const { pieces, probes } = make(X, Z);
+        // (Clear of track laid already: the line, its extra tracks' room beside it.)
+        if (avoid && pieces.some((q) => avoid.some((a) => Math.hypot(q.pose.x - a.x, q.pose.z - a.z) < 520))) continue;
         if (pieces.every((q) => g.cellAtWorld(q.pose.x, q.pose.z) !== -1) && free([...pieces, ...probes])) return { X, Z, pieces };
       }
     return null;
@@ -192,9 +199,9 @@ const setup = await p.evaluate(async () => {
   const shape = o.map((id) => s.getPiece(id));
   const oval = ground(
     (X, Z) => ({ pieces: shape.map((q) => ({ type: q.type, pose: { x: X + q.pose.x, z: Z + q.pose.z, heading: q.pose.heading }, y: 0, flipped: q.flipped })), probes: [] }),
-    { x: line.X, z: line.Z },
+    line.pieces.map((q) => q.pose),
   );
-  if (!oval) return { error: "no open ground for the oval" };
+  if (!oval) return { error: "no open ground for the oval", why: [...why].sort((a, b) => b[1] - a[1]).slice(0, 4) };
   const ov = w.editor().placeRun(oval.pieces);
   const forest = w.economy.depotAtPiece(ov[0]) ?? w.economy.addDepot("forest", ov[0]);
   const sawmill = w.economy.depotAtPiece(ov[7]) ?? w.economy.addDepot("sawmill", ov[7]);
