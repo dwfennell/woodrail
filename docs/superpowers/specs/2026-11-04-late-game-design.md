@@ -348,3 +348,36 @@ Each on its own branch. Names and numbers below are what the code has; change th
 - **The close:** the big top comes down and the town offers a reward card. The circus doesn't show in the same town
   twice running.
 - **Saved** in the progress.
+
+### Clockmaker (`claude/clockmaker`)
+- **2×:** learning Clockmaker (after the Smithy and a college) puts a clock by Pause on the HUD. A tap runs the sim
+  twice the steps a frame, and every clock on game time with it: research, the workshop, harbours, people coming to
+  stations, metro trains' coal, the calendar.
+- **3×:** opens once a clock tower stands in a town. The Clock tower is batch I's town place, built from a town hall's
+  card (`game/places.ts`), so 3× follows a city's own building, not a blueprint of its own.
+- **Slow phones** (`SlowWatch`): over 90 frames at more than 1×, if 45 fell behind (steps cut short, or the sim over
+  16 ms a frame), the game goes a speed slower and says so in a toast.
+- **Perf:** the perf harness measures a 3× stretch (`fast.*`).
+
+### Radio (`claude/radio`, stacked on `claude/power`)
+- **The mast** is a prop (`mech-radio-mast`), made at the workshop once Radio mast is learned (after Electricity).
+- **Its spark:** it takes one after the electric engines and before the yards.
+- **The boost:** with its spark, its town (the nearest town middle within 700 mm) gets people at its stations 1.5×
+  as often. Without a spark, it does nothing.
+
+### Your own colours (`claude/paint-picker`)
+- **Built on the civic paint shop.** Paint your trains (after the Dye works) adds "Your own colours" to the engine's
+  paint sheet:
+  - a Body and a Trim chip, and a grid of 24 lacquers (`PAINT_COLOURS`);
+  - "And its N wagons";
+  - Paint, for a pot of paint a car.
+- **Paint** comes by train to the workshop, which keeps up to 6 once it's learned (an owed good, as stone is).
+- **Saved** as a livery id `custom:rrggbb:rrggbb` on any car.
+- **Wagons:** the modelled body and trim colours of hoppers, coaches, cabooses, flatbeds and vans are swapped
+  (`WAGON_SLOTS`). The code-made wagons (tank wagons, cold vans, car carriers, mail vans, cages) aren't painted.
+
+### Merged with batch I (2026-11-05)
+- **Metro trains** draw their own coal from a power station, as batch I made them, and stand with none. They take no
+  spark. Only the electric engine runs on sparks.
+- **Indices and lists:** the cage wagon is car index 17. The airport and the mast are rider stops of their own beside
+  batch I's metro quarters and lookouts.
