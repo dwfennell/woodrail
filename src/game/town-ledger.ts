@@ -3,8 +3,9 @@ import { kindsOf } from "../economy/goods";
 import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
 import { ruleOf, type ThingId } from "./things";
-import { growthOf } from "./town-life";
-import { FULL_PAY, townLevel, townStatus } from "./towns";
+import { statusOf } from "./town-life";
+import { FULL_PAY, townLevel } from "./towns";
+import { hasPostOffice, postLine, POST_TECH } from "./post";
 import { DEPOT_NAMES, depotName, type World } from "./world";
 import { townLinks } from "../roads/graph";
 
@@ -51,6 +52,8 @@ export interface TownLedger {
    * Bakery is, fruit once Orchards is): "Always buys 🥛 milk and 🥖 bread at full pay", or null.
    */
   buys: string | null;
+  /** Its post (once Post office is learned): "2 ✉️ mail to send · a post van on its streets", or null. */
+  post: string | null;
 }
 
 /** What the ledger needs of the game beyond the world: what's learned, and the station's room for waiting people. */
@@ -67,7 +70,7 @@ export interface LedgerContext {
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
-const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks"];
+const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", "postoffice"];
 
 /** The goods a town always buys at full pay (`FULL_PAY`), by the blueprint that brings its maker, in cargo order. */
 const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
@@ -88,6 +91,7 @@ const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
   ["flowers", "paint"],
   ["paint", "paint"],
   ["toys", "toys"],
+  ["post", "post-office"],
 ];
 
 /** "Always buys 🥛 milk, 🥖 bread and 🍎 fruit at full pay" for the foods whose blueprint is learned, or null. */
@@ -116,7 +120,7 @@ function howToGet(kind: CargoKind, learned: ReadonlySet<string>): string {
 export function townLedger(world: World, d: DepotState, ctx: LedgerContext): TownLedger | null {
   const town = world.landscape.towns.find((t) => t.id === d.townId);
   if (!town) return null;
-  const status = townStatus(growthOf(world, town.id));
+  const status = statusOf(world, town.id);
   const goods = kindsOf(status.wants).map((kind) => ({ kind, icon: GOODS_ICON[kind], label: CARGO[kind].label, have: status.got[kind] ?? 0, need: status.wants[kind]! }));
   const have = goods.reduce((t, g) => t + g.have, 0);
   const need = goods.reduce((t, g) => t + g.need, 0);
@@ -152,6 +156,7 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried },
     lines,
     buys: buysText(ctx.learned),
+    post: postLine(ctx.learned.has(POST_TECH), d.piles[CARGO.mail.index], world.economy.deliveredGoods.get(town.id)?.post ?? 0, hasPostOffice(world.economy)),
   };
 }
 
@@ -194,6 +199,7 @@ export function ledgerKey(world: World, d: DepotState, ctx: LedgerContext): numb
   h = mix(h, ctx.room ?? -1);
   h = mix(h, ctx.carried);
   h = mix(h, d.waiting);
+  h = mix(h, d.piles[CARGO.mail.index]);
   if (ctx.van) h = mix(h, ctx.van.key(d));
   if (ctx.bus) h = mix(h, ctx.bus.key(d));
   for (const l of world.economy.lines.values()) {

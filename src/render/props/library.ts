@@ -176,11 +176,11 @@ export function partsOf(root: Object3D): MotionParts {
 const NO_PARTS: readonly Object3D[] = [];
 
 /** A model stood where a kit's place says (turned about its own origin, then set at t, l), in the piece's frame. */
-function placedForKit(model: Object3D, at: { t: number; l: number; turn: number }): Object3D {
+function placedForKit(model: Object3D, at: { t: number; l: number; turn: number; up?: number }): Object3D {
   const placed = new Group();
   placed.add(model);
   placed.rotation.y = at.turn;
-  placed.position.set(at.t, 0, at.l);
+  placed.position.set(at.t, at.up ?? 0, at.l);
   const root = new Group();
   root.add(placed);
   return root;

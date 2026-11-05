@@ -2,7 +2,7 @@
    (scripts/icon-font.py, which also writes this unicode-range). Each draws the character it stands for (🪙, 📘, ⏱, the
    goods; planks have no emoji, so they're U+E000), so strings keep their emoji and screen readers their words. Listed
    first wherever a font is named, it draws only these characters; everything else is Nunito's. */
-@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26CF, U+26F0, U+26F5, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F337, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F3A8, U+1F3AF, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3E1, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5FA, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26BD, U+26CF, U+26F0, U+26F2, U+26F3, U+26F5, U+2709, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F333, U+1F337, U+1F33C, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F39F, U+1F3A0, U+1F3A8, U+1F3AC, U+1F3AD, U+1F3AF, U+1F3D6, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3DF, U+1F3E1, U+1F3E5, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F4EE, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5BC, U+1F5FA, U+1F60A, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6DD, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
 :root {
   --ink: #2b2118;
   --paper: #f6efe3;
@@ -407,6 +407,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-extra.ledger .ledger-side:not(:has(> :not(.ledger-pay))) { display: none; }
   .depot-card:has(.depot-extra.ledger) > .card-row { grid-column: 2; grid-row: 3; position: static; margin: 0; padding: 0; background: none; box-shadow: none; justify-content: flex-start; }
   .depot-extra.ledger .station-upgrade { grid-column: 2; grid-row: 4; }
+  /* (A town's Places and Treats: the card's whole width, under both columns.) */
+  .depot-extra.ledger .places-sec { grid-column: 1 / -1; }
+  .depot-extra.ledger .place-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   /* (Narrower columns: the good's name, its bar and its count fit in half a 667 px phone's card.) */
   .depot-extra.ledger .ledger-good { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 8px; font-size: 13.5px; }
   .depot-extra.ledger .ledger-row { font-size: 13.5px; }
@@ -884,6 +887,31 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ledger-line { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
 .ledger-line-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(58, 42, 28, 0.45); }
 .ledger-pay { margin: 0; font-size: 12px; line-height: 1.4; color: #6b5440; }
+/* A town's Places and Treats (game/place-row.ts): a tile per place, a big green Build button, a dashed tile for one to research. */
+.places-sec { margin-top: 6px; padding-top: 10px; border-top: 1.5px dashed #e2cfae; display: flex; flex-direction: column; gap: 6px; }
+.places-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.places-title { font-size: 15px; font-weight: 800; color: #3a2a1c; }
+.places-smiles { font-size: 17px; letter-spacing: 1px; color: #b49c78; }
+.places-note { font-size: 12.5px; font-weight: 700; color: #7a5a3a; }
+.places-sub { margin: 0; font-size: 12.5px; line-height: 1.35; font-weight: 700; color: #6b5440; }
+.place-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.place-tile { display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 12px; background: #fffaf0; border: 2px solid #e2cfae; font-size: 12.5px; line-height: 1.3; color: #5a3c1e; }
+.place-name { display: flex; gap: 6px; align-items: center; font-size: 14px; font-weight: 800; color: #3a2a1c; }
+.place-icon { font-size: 20px; }
+.place-blurb { color: #6b5038; font-weight: 600; }
+.place-btn { margin-top: auto; min-height: 44px; padding: 6px 6px; border: none; border-radius: 10px; background: #3f7d3a; color: #fff; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.place-btn:active { background: #346a30; }
+.place-note { margin-top: auto; padding: 4px 2px; text-align: center; font-weight: 800; color: #7a5a3a; }
+.place-tile.built, .place-tile.building, .place-tile.waiting-room { background: #eef6e6; border-color: #9cc48a; }
+.place-tile.built .place-note, .place-tile.building .place-note { color: #3f7a2c; }
+.place-tile.short .place-note, .place-tile.saving .place-note, .place-tile.busy .place-note, .place-tile.level .place-note { padding: 7px 4px; border-radius: 10px; background: #e9dcc4; }
+.place-tile.research { opacity: 0.7; background: #f3ece0; border-style: dashed; }
+.place-tile.elsewhere { opacity: 0.7; }
+.place-goods { display: inline-flex; flex-wrap: wrap; gap: 0 6px; }
+.place-good { white-space: nowrap; }
+.place-plan { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 12px; background: #fbe7cf; font-size: 13px; font-weight: 800; color: #7a3d10; }
+.place-plan .place-good.done { color: #3f7a2c; }
+.place-stop { align-self: flex-start; min-height: 40px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 12.5px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
 .make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
 .make-now .bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }
 .make-now .bar i { display: block; height: 100%; background: #5aa35a; }
@@ -1538,5 +1566,15 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* "Add Foxley": the status's fix, one tap (audit F15). */
 .route-fix { display: flex; }
 .route-fix .route-add-stop { min-height: 44px; }
+/* The paint shop's sheet (ui/paint-sheet.ts): a swatch per livery, body and trim on one round chip. */
+.paint-sub { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: #6a4f34; }
+.paint-swatches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.paint-swatch { display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 92px; padding: 8px 4px; border: 2px solid #d8c6a6; border-radius: 14px; background: #fffaf0; font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
+.paint-swatch i { display: block; width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 0 0 3px #fff, 0 0 0 4.5px #d8c6a6; }
+.paint-swatch small { font-size: 11.5px; font-weight: 700; color: #6a4f34; }
+.paint-swatch.chosen { border-color: #3f7d3a; background: #eef6e6; }
+.paint-swatch.locked { opacity: 0.55; cursor: default; }
+.paint-go { width: 100%; min-height: 48px; }
+.paint-engine { min-height: 40px; }
 /* (The cloud card open over the title: the cards and the link wait behind it, out of the way.) */
 .title-screen.cloud-open :is(.title-cards, .title-foot) { visibility: hidden; }

@@ -14,6 +14,9 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | `node tools/perf/scene.mjs [<root>] [<map file>]` | What the scene holds to draw: its biggest meshes by triangles (instances counted), what casts shadows. Use an unminified build for names. |
 | `node tools/perf/threads.mjs [<s>]` | Which Chromium threads are busy while the game sits idle (a worker, the GPU process, audio). |
 | `node tools/perf/idle-frames.mjs`, `idle-cpu.mjs` | Older, narrower checks: frames drawn and CPU over 20 s idle; audio threads. |
+| `node tools/perf/first-download.mjs [<dist>]` | The first download: the entry script and the chunks it imports statically (what a first visit fetches before the game runs), against what loads later. `bundle.firstJsKB` in a run. |
+| `node tools/perf/research-tap.mjs [--taps 4] [--trace <f>] [--profile <f>]` | The research board's tap on its own, on the late map: the tap handler's time each tap, and with `--trace` the style and layout it forces. |
+| `node tools/shots/track-far.mjs [<out>]` | Track carved and in its far version, at four zooms on the Sandbox map: pictures, the pixels that differ, the triangles. |
 
 Run them after `npm run build` (they measure `dist/`). `--root <dir>` measures another build (a directory with a
 `dist/` in it): keep a copy of main's build to compare a change against it on the same machine, in the same hour.
@@ -109,10 +112,23 @@ Open ones, biggest first:
 - **Tray and research pictures** (first visit, or a new build). Fixed: the studio's 2D canvas is on the CPU (encoding
   a picture waited on the GPU), and pictures asked for on demand are read back asynchronously. In SwiftShader the
   readback itself still costs the same either way.
-- **Triangles.** A curved track piece is ~3.1k triangles; the big Sandbox map draws 1.6 M a full frame. Lead: a
-  simpler piece far out (where the carving can't be seen).
-- **Research board** refresh: ~110–290 ms of tap handler at 4× on the late map.
-- **Bundle**: the entry is 1.8 MB; the CSG libraries (three-bvh-csg, three-mesh-bvh, polygon-clipping) are in it as
-  well as in the carving worker, for the main thread's fallback carving; zod too. Lead: load them lazily.
+- **Triangles.** A curved track piece is ~3.1k triangles (an S-curve 10k), carved. Fixed: plain track (straights,
+  curves, S-curves, joins) is drawn in its far version (`buildPieceFar`: its body and grooves swept as one, no holes,
+  its curve every 7.5°; ~250 triangles a curve) where a millimetre is under half a pixel (`FAR_TRACK_PX_PER_MM`;
+  beyond ~6.3 m at DPR 2), a tile at a time (`TrackView.setDetail`): the late map's full frame 1.81 M → 1.38 M. At
+  normal zoom nothing changes (`tools/shots/track-far.mjs`: 0 pixels differ). Left: the big Sandbox map, 1.56 M, is
+  mostly near; switches, ramps and bridges are always carved.
+- **Research board** tap. Fixed: the board was laid out twice in the tap (a scroll position read before its tags went
+  in, then written after: now kept from scroll events), every blueprint's "Unlocks" pictures were made for the web
+  though only the ticket shows them (now when read), and a board opened again on the same tag with nothing changed
+  was built and laid out afresh (now kept). Tap handler at 4× on the late map, 8 taps (`tools/perf/research-tap.mjs`):
+  median 129 → 22 ms. Left: the first open of a visit, ~200 ms, most of it the browser's first style and layout of the
+  board (~100 ms). Lead: to paint, on a first visit, the ticket's tray pictures drawn on demand
+  (`drawWantedPictures`) wait on their shader programs' compiles (`getShaderInfoLog`, `getProgramInfoLog`: 8.5 s of a
+  13.7 s tap-to-paint at 4× in SwiftShader).
+- **Bundle**. Fixed: the CSG carving (three-bvh-csg, three-mesh-bvh, polygon-clipping: `piece-carve.ts`) and Zod
+  (the save's schemas: `save-schema.ts`) load on their own (`carver.ts`, `persist/schemas.ts`), not in the first
+  download: 2377 → 2153 KB (723 → 661 KB gzipped). The schemas are fetched as loading starts, beside the models; the
+  carver only when the main thread carves (a join piece, or no workers).
 - **Idle tick**: `Game.frame` and `onFrame` cost ~1.3 ms a tick at 4× when nothing draws (~4% of the main thread),
   many small checks; nothing large left.

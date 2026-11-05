@@ -137,6 +137,8 @@ export class DrawHand {
   private branchStroke: { x: number; z: number }[] = [];
   /** The switch the line branches off through (swapped into the line it started on), or null. */
   private branch: PieceSwap | null = null;
+  /** A 45° crossing made a slip by a stroke along its turn (`slipFrom`): shown as a ghost, down as the finger lifts. */
+  private slip: PieceSwap | null = null;
   /** The switch the line would merge through if let go now (shown), or null; and its key, so it's shown afresh only when it changes. */
   private merge: Merge | null = null;
   private mergeKey = "";
@@ -283,6 +285,13 @@ export class DrawHand {
         this.clear();
         return;
       }
+      // A slip: its ghost over the crossing (outlined), nothing drawn after it.
+      if (b.kind === "slip") {
+        this.slip = b.swap;
+        this.swapGhosts = this.showSwap(b.swap);
+        this.game.trackView.setHighlights([...b.swap.covers], "select", false);
+        return;
+      }
       // The switch shows as a ghost over the straights it takes the place of (outlined), and the line goes on from its branch.
       this.branch = b.swap;
       this.branchStart = { onto: pending.onto, press: pending.press };
@@ -352,7 +361,9 @@ export class DrawHand {
     this.flushLift();
     const line = this.line;
     if (!line) {
+      const slip = this.slip;
       this.clear();
+      if (slip) this.laySlip(slip);
       return;
     }
     // (Lifted before the ghosts had caught up with the line, and the line goes down otherwise than they showed: they
@@ -500,6 +511,17 @@ export class DrawHand {
       );
     });
     g.invalidate();
+  }
+
+  /** A slip goes down in the 45° crossing's place (`slip`, see `slipFrom`), one undo step, unless a train came onto it. */
+  private laySlip(w: PieceSwap): void {
+    if (w.covers.some((id) => this.hooks.occupied(id))) {
+      this.hooks.toast("A train is on that crossing");
+      return;
+    }
+    const ids = this.editor().replaceRun(w.covers, w.pieces);
+    if (ids.length) this.hooks.onPlaced(0);
+    this.game.invalidate();
   }
 
   /** A ghost-style mesh for a piece of a swap (a switch, the straights beside it), placed. */
@@ -1062,7 +1084,8 @@ export class DrawHand {
   private clear(): void {
     for (const gh of this.ghosts) this.game.scene.remove(gh.mesh);
     for (const m of [...this.swapGhosts, ...this.mergeGhosts, ...this.crossed.ghosts]) this.game.scene.remove(m);
-    if (this.branch || this.merge || this.crossed.covers.length) this.game.trackView.setHighlights([], "select", false);
+    if (this.branch || this.slip || this.merge || this.crossed.covers.length) this.game.trackView.setHighlights([], "select", false);
+    this.slip = null;
     this.crossed = { pieces: [], covers: [], ghosts: [], used: new Map() };
     this.crossing = null;
     this.crossLooked = null;

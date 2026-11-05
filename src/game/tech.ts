@@ -20,9 +20,22 @@ export const techOf = (id: string): Tech | undefined => BY_ID.get(id);
 /** Is it in the game yet (not just planned, "coming soon")? */
 export const built = (t: Tech): boolean => t.plan === undefined;
 
-/** What a blueprint lets you make. */
+/** What each blueprint lets you make (`THING_RULES` never changes): made the first time it's asked. */
+let unlocks: Map<string, ThingId[]> | null = null;
+
+/** What a blueprint lets you make. (The research board asks for every blueprint's on each refresh.) */
 export function unlocksOf(id: string): ThingId[] {
-  return (Object.keys(THING_RULES) as ThingId[]).filter((t) => THING_RULES[t]!.tech === id);
+  if (!unlocks) {
+    unlocks = new Map();
+    for (const t of Object.keys(THING_RULES) as ThingId[]) {
+      const tech = THING_RULES[t]!.tech;
+      if (tech === undefined) continue;
+      let list = unlocks.get(tech);
+      if (!list) unlocks.set(tech, (list = []));
+      list.push(t);
+    }
+  }
+  return [...(unlocks.get(id) ?? [])];
 }
 
 /** A counted thing toward a requirement: people carried, blueprints learned, and the counters the game keeps. */

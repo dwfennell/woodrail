@@ -52,6 +52,8 @@ export interface HudHandlers {
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
+  /** The open engine card's Paint (Game mode's paint shop, once a town is a Town): its sheet. */
+  paint?(): void;
   /** The open engine card's engine renamed (as typed: the sim tidies it). Returns the name it now has. */
   renameEngine(name: string): string;
   /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
@@ -359,6 +361,8 @@ export class Hud {
   private readonly sendCraneBtn: HTMLButtonElement;
   /** The engine card's Remove (marked as the quick fix while its line has a train too many: `setCrowded`). */
   private engineRemoveBtn!: HTMLButtonElement;
+  /** 🎨 Paint, on an engine's card (shown by the game once the paint shop is open: `paintBtn.hidden`). */
+  readonly paintBtn = el("button", "chip text paint-engine");
   private crowdShown = false;
   private readonly wayBtn: HTMLButtonElement;
   /** Continue (see `setContinue`): a row of its own under Go, so both stay a thumb's size at 360 px. */
@@ -689,7 +693,16 @@ export class Hud {
       this.swapBtn,
       this.engineDecoupleBtn,
       (this.engineRemoveBtn = button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove")),
+      this.paintBtn,
     );
+    this.paintBtn.type = "button";
+    this.paintBtn.textContent = "🎨 Paint";
+    this.paintBtn.title = "Paint this engine in your own colours";
+    this.paintBtn.hidden = true;
+    this.paintBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      h.paint?.();
+    });
     controls.append(this.goBtn, this.wayBtn, this.continueBtn, this.leaveNowBtn, engineActions);
     this.engineCard.appendChild(controls);
     this.engineExtra.hidden = true;
@@ -751,11 +764,14 @@ export class Hud {
     this.depotExtra.hidden = true;
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
+    // (A metro stop's card: its line, shown through the ground for a moment. Main sets `onShowLine`.)
+    this.depotLineBtn = button("Show the line", "Show the metro line under the town", () => this.onShowLine?.(), "chip text primary depot-line");
+    this.depotLineBtn.hidden = true;
     this.depotYard.hidden = true;
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, depotRow, this.depotModeHint, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.root.appendChild(this.depotCard);
 
@@ -2272,6 +2288,7 @@ export class Hud {
   showDepotCard(title: string): void {
     this.hideCards();
     this.depotTitle.textContent = title;
+    this.depotLineBtn.hidden = true;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
     this.depotYard.hidden = true;
@@ -2426,6 +2443,14 @@ export class Hud {
 
   /** Called when a card changes size (as it opens, as its rows fill in): the view may make room for what it's for. */
   onCardResize: (() => void) | null = null;
+  /** The depot card's Show the line (a metro stop's): main draws its line through the ground. */
+  onShowLine: (() => void) | null = null;
+  readonly depotLineBtn: HTMLButtonElement;
+
+  /** The depot card's Show the line button: shown on a metro stop's card. */
+  setDepotLine(shown: boolean): void {
+    this.depotLineBtn.hidden = !shown;
+  }
 
   /** Where the open card for one thing (an engine, a car, a piece, a depot) is on screen, or null. */
   openCardRect(): DOMRect | null {

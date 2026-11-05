@@ -37,6 +37,8 @@ export class Progress {
    * Those not on the map are in the box, free to lay.
    */
   roads = 0;
+  /** Squares of town dug under for track two levels down (the metro's tunnels: src/game/metro.ts), paid for. */
+  dug = 0;
   /** People carried to another town by coach, all game (they unlock the passenger line of blueprints). */
   riders = 0;
   /** What your map has that a blueprint can require (a market; a school beside a city): not saved (see `landmarksAt`). */
@@ -103,7 +105,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), regates: REGATES, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), ...(this.dug > 0 ? { dug: this.dug } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), regates: REGATES, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -138,6 +140,7 @@ export class Progress {
     p.coins = Number.isInteger(d?.coins) && d!.coins! > 0 ? d!.coins! : 0;
     p.fieldsPlanted = Number.isInteger(d?.fieldsPlanted) && d!.fieldsPlanted! > 0 ? d!.fieldsPlanted! : 0;
     p.roads = Number.isInteger(d?.roads) && d!.roads! > 0 ? d!.roads! : 0;
+    p.dug = Number.isInteger(d?.dug) && d!.dug! > 0 ? d!.dug! : 0;
     p.riders = Number.isInteger(d?.riders) && d!.riders! > 0 ? d!.riders! : 0;
     p.bestLevel = Number.isInteger(d?.bestLevel) && d!.bestLevel! > 0 ? d!.bestLevel! : 0;
     if (d && Array.isArray(d.counts)) for (const e of d.counts) if (Array.isArray(e) && typeof e[0] === "string" && Number.isFinite(e[1]) && e[1] > 0) p.counts.set(e[0], e[1]);
@@ -162,6 +165,7 @@ export interface ProgressData {
   fieldsPlanted?: number;
   /** Road squares owned (absent: none beyond the map's lanes, covered on load). */
   roads?: number;
+  dug?: number;
   riders?: number;
   bestLevel?: number;
   firstFlour?: boolean;
@@ -212,7 +216,7 @@ export function isTaken(t: unknown): t is Taken {
 
 /** How many of a thing are on the map. */
 export function inUse(world: World, id: ThingId): number {
-  const kind = id.slice(0, id.indexOf(":")) as "piece" | "car" | "prop";
+  const kind = id.slice(0, id.indexOf(":")) as "piece" | "car" | "prop" | "look";
   const name = id.slice(id.indexOf(":") + 1);
   let n = 0;
   if (kind === "prop") {
@@ -222,6 +226,9 @@ export function inUse(world: World, id: ThingId): number {
     for (const pid of world.layout.pieceIds()) if (world.layout.getPiece(pid)!.type === name) n++;
     // A generated depot isn't the player's: only count pieces they could have placed.
     if (name.startsWith("depot-")) for (const pid of world.depots.values()) if (world.layout.getPiece(pid)?.type === name) n--;
+  } else if (kind === "look") {
+    // (A train in that look: its engines in it, one each.)
+    for (const tid of world.sim.trainIds()) for (const c of world.sim.getTrain(tid)!.cars) if (c.kind === "engine" && world.sim.lookOf(c.id) === name) n++;
   } else {
     for (const tid of world.sim.trainIds()) for (const c of world.sim.getTrain(tid)!.cars) if (c.kind === name) n++;
   }

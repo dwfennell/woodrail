@@ -21,9 +21,9 @@ export const SUITES = {
   names: { script: "e2e:names", minutes: 12 },
   cloud: { script: "e2e:cloud", groups: true, minutes: 20 },
   tutorial: { script: "e2e:tutorial" },
-  joints: { script: "e2e:joints" },
+  joints: { script: "e2e:joints", groups: true },
   ramps: { script: "e2e:ramps" },
-  tray: { script: "e2e:tray" },
+  tray: { script: "e2e:tray", groups: true },
   decks: { script: "e2e:decks" },
   kits: { script: "e2e:kits", minutes: 12 },
   "kits-game": { script: "e2e:kits-game" },
@@ -44,6 +44,7 @@ export const SUITES = {
   "train-parts": { script: "e2e:train-parts" },
   "train-summary": { script: "e2e:train-summary", minutes: 8 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
+  civic: { script: "e2e:civic", minutes: 5 },
   stickers: { script: "e2e:stickers" },
   stats: { script: "e2e:stats", minutes: 2 },
   workshop: { script: "e2e:workshop" },
@@ -55,9 +56,12 @@ export const SUITES = {
   life: { script: "e2e:life", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge", groups: true },
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
+  post: { script: "e2e:post", minutes: 5 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   crane: { script: "e2e:crane", minutes: 4 },
   tunnels: { script: "e2e:tunnels", minutes: 6 },
+  rack: { script: "e2e:rack", minutes: 3 },
+  metro: { script: "e2e:metro", minutes: 3 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -67,17 +71,30 @@ export const CORE = ["touch", "click"];
 export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore"];
 
 // Touch's groups that plan, run or show routes and lines.
-const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring";
+const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way";
+// Touch's groups for the tech tree's track pieces (scripts/e2e/track-pieces.mjs).
+const TOUCH_PIECES = "touch:slips,double-three-way,turntable-taps";
 const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade", "sites"];
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
+  // The rack and the lookout halt: the pieces, the sim's rule, the engine, the stop, the card, the tray.
+  [
+    ["src/sim/sim.ts", "src/sim/cars.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/game/engines.ts", "src/game/engine-status.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts", "src/ui/piece-info.ts", "src/landscape/hill-shape.ts"],
+    ["rack"],
+  ],
+  // The metro: its stops under towns, its train, its riders and costs, the town growing over the line.
+  [
+    ["src/game/metro.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/progress.ts", "src/game/interaction.ts", "src/economy/economy.ts", "src/landscape/clearance.ts", "src/landscape/trees-aside.ts", "src/track/kits.ts", "src/render/props/library.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts"],
+    ["metro"],
+  ],
   // The suites themselves, and what they share.
   ["scripts/e2e/lib/**", CORE],
   ["scripts/e2e/feedback-flow.mjs", ["touch:feedback", "click:feedback"]],
   ["scripts/e2e/pin-clocks.mjs", ["touch", "click", "station-clock", "signals", "life"]],
   ["scripts/e2e/affected.mjs", []],
   ["scripts/e2e/phone-audit.mjs", []],
+  ["scripts/e2e/track-pieces.mjs", [TOUCH_PIECES]],
   ["tools/e2e/**", []], // (each file maps to its own suite: see suiteOfScript)
 
   // Build and page.
@@ -89,9 +106,13 @@ export const RULES = [
   // Simulation and routing.
   ["src/sim/**", ["touch", "click:model-train,routes", "signals", "train-summary", "train-parts", "lift", "loop", "kits", "decks"]],
   ["src/sim/engine-names.ts", ["engine-names"]],
+  // Town places, treats and the paint shop (spec 2026-11-04-civic-leisure-design.md).
+  [["src/game/places.ts", "src/game/place-row.ts", "src/game/paint-shop.ts", "src/ui/places-row.ts", "src/ui/paint-sheet.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/render/train-models.ts", "src/render/train-view.ts"], ["civic"]],
   ["src/routing/**", [TOUCH_ROUTES, "click:routes", "signals", "warehouse", "depot-tracks"]],
   ["src/track/**", ["touch", "click", "draw", "joints", "ramps", "kits", "decks", "lift", "loop", "low-bridge"]],
   ["src/track/underpass.ts", ["low-bridge"]],
+  // Turntable controls: a tap on a road turns a deck to it.
+  ["src/game/deck-roads.ts", ["touch:turntable-taps", "decks"]],
   ["src/editor/**", ["touch", "click", "draw", "joints", "ramps", "landscaping"]],
   ["src/landscape/**", ["click", "draw", "roads", "landscaping", "sites", "touch:select-drag,trap"]],
   [["src/landscape/clearance.ts", "src/landscape/support.ts"], ["low-bridge"]],
@@ -130,7 +151,9 @@ export const RULES = [
   [["src/render/ruins-view.ts", "src/render/goal-marks.ts", "src/render/halt-reach-view.ts"], ["sites", "big-stations"]],
   ["src/render/thumbnails.ts", ["tray", "names"]],
   ["src/render/train-models.ts", ["train-parts", "train-summary", "hopper-load"]],
-  ["src/render/track-geometry.ts", ["low-bridge", "ramps"]],
+  [["src/render/track-geometry.ts", "src/render/piece-carve.ts"], ["low-bridge", "ramps", "tunnels"]],
+  // The main thread's carver, loaded on its own (join pieces carved when first wanted): the tray's pictures, joints.
+  ["src/render/carver.ts", ["tray", "joints"]],
   ["src/render/chain-hints-view.ts", ["sandbox-chains"]],
 
   // UI.
@@ -186,13 +209,17 @@ export const RULES = [
   [["src/game/crafting.ts", "src/game/workshop-text.ts"], ["workshop", "growth"]],
   [["src/game/warehouse-text.ts", "src/game/cargo-drop.ts", "src/game/supply.ts"], ["warehouse", "train-summary"]],
   [["src/game/map-sites.ts", "src/game/restore.ts", "src/game/across-river.ts", "src/game/map-markers.ts", "src/game/landmarks.ts", "src/game/harbours.ts"], ["sites"]],
-  [["src/game/road-*", "src/game/town-cars.ts", "src/game/buses.ts", "src/game/delivery-vans.ts", "src/game/vans.ts"], ["roads"]],
+  [["src/game/road-*", "src/game/town-cars.ts", "src/game/buses.ts", "src/game/delivery-vans.ts", "src/game/vans.ts"], ["roads", "post"]],
+  // The post: towns' mail, the post office, mail vans, post vans on the streets.
+  [["src/game/post.ts", "src/catalogue/assets/mail-van.ts", "src/game/town-ledger.ts", "src/ui/town-ledger.ts"], ["post"]],
   [["src/game/industries.ts", "src/game/lineside.ts", "src/game/fields.ts", "src/game/depot-footprint.ts", "src/game/things.ts", "src/game/food-text.ts"], ["kits-game", "warehouse", "workshop", "hopper-load", "life", "sandbox-chains"]],
   [["src/game/passengers.ts"], ["big-stations", "station-touches", "station-upgrade"]],
   [["src/game/touches.ts", "src/game/calendar.ts"], ["life", "station-clock"]],
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // The tests' setup (what the game loads on its own, loaded before each test file).
+  ["src/test-setup.ts", []],
 ];
 
 // A tiny glob: ** any depth, * within a path segment.

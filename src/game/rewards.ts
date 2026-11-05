@@ -1,4 +1,4 @@
-import { growthOf } from "./town-life";
+import { statusOf } from "./town-life";
 import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { capOf, RECIPES } from "../economy/economy";
 import { kindsOf, total, type Bag } from "../economy/goods";
@@ -6,11 +6,12 @@ import type { Town } from "../landscape";
 import { workshops } from "./crafting";
 import { amountAt, BOOST_FLOOR, CARD_AMOUNTS, CARD_KINDS, CARDS_PER_OFFER, type CardKind, type GrowthCard, type Offer } from "./growth-cards";
 import { MARKET_BONUS, townLandmarks } from "./landmarks";
+import { FUNFAIR_FOOD, townPlaces } from "./places";
 import { TAKEN_KEPT, type Progress, type Taken } from "./progress";
 import { deliver, lacking, lacks } from "./research";
 import { techOf } from "./tech";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
-import { payFor, townStatus, type TownStatus } from "./towns";
+import { FOODS, payFor, type TownStatus } from "./towns";
 import type { World } from "./world";
 import type { CarKind } from "../sim";
 import { trainIcon } from "../ui/icons";
@@ -24,7 +25,9 @@ import { trainIcon } from "../ui/icons";
 /** A town received `n` units of `kind` (it was `before` then): pay for them. Returns the coins paid. */
 export function payDelivery(p: Progress, kind: CargoKind, n: number, before: TownStatus, town?: Town): number {
   // A town with a market pays half again.
-  const bonus = town && townLandmarks(town).has("market") ? MARKET_BONUS : 1;
+  // A town with a funfair pays a quarter more for food (game/places.ts).
+  const fair = town && FOODS.has(kind) && townPlaces(town).has("funfair") ? FUNFAIR_FOOD : 1;
+  const bonus = (town && townLandmarks(town).has("market") ? MARKET_BONUS : 1) * fair;
   let paid = Math.round(payFor(kind, before) * n * bonus);
   // The game's first flour pays a bonus, once: the mill (400 coins, minute ~48) pays its way sooner.
   if (kind === "flour" && n > 0 && !p.firstFlour) {
@@ -271,7 +274,7 @@ export function redrawOldOffers(p: Progress, world: World, random: () => number)
   if (p.oldOffers.length === 0) return false;
   for (const from of p.oldOffers.splice(0)) {
     const town = world.landscape.towns.find((t) => t.name === from);
-    const level = town ? townStatus(growthOf(world, town.id)).level : 0;
+    const level = town ? statusOf(world, town.id).level : 0;
     offerOnGrowth(p, world, from, Math.max(1, level), random);
   }
   return true;

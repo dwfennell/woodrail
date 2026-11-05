@@ -47,6 +47,9 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "switch-3way": p("Three-way switch", "Splits three ways: left, ahead or right. Tap to change."),
   crossing: p("Crossing", "Two lines cross straight over each other."),
   "crossing-45": p("45° crossing", "Two lines cross at a slant."),
+  "slip-single": p("Single slip", "A crossing that can turn onto the other line. Tap to change."),
+  "slip-double": p("Double slip", "A crossing that turns either way onto the other line. Tap it."),
+  "switch-3way-double": p("Double three-way", "A three-way with two levers, one for each side. Tap a lever."),
   signal: p("Signal", "Tap it for red or green. Trains stop at red."),
   crossover: p("Crossover", "Double track with a link: trains can change lines."),
   "double-straight": p("Double track", "Two straight lines side by side."),
@@ -57,6 +60,8 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "balloon-loop-small": p("Small loop", "Trains go round and come back the way they came."),
   wye: p("Wye", "A track triangle: run in, back out, and come out turned round."),
   ramp: p("Ramp", "Goes up one level, or down."),
+  rack: p("Rack", "Two levels up in a ramp's length, for a rack engine."),
+  "rack-short": p("Short rack", "A level up in half a ramp's length, for a rack engine."),
   bridge: p("Bridge", "Carries the line over a road or track."),
   "bridge-curve": p("Curved bridge", "A bend up high, over a road or track."),
   underpass: p("Underpass", "Dips the line so a bridge one level up fits over it."),
@@ -88,6 +93,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-creamery": p("Creamery", "Makes cheese from milk."),
   "depot-icecream": p("Ice cream factory", "Makes ice cream from milk and fruit, for cold vans."),
   "depot-brickworks": p("Brickworks", "Fires bricks from stone and coal."),
+  "depot-postoffice": p("Post office", "Sorts the towns' mail into post for towns."),
   "depot-carworks": p("Car factory", "Builds cars from iron and planks, for car carriers."),
   "depot-oilwell": p("Oil well", "Pumps oil, for tank wagons."),
   "depot-waterpump": p("Water pump", "Pumps water from a river or lake nearby, for tank wagons."),
@@ -107,6 +113,8 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-platform-furnished": p("Platform", "Passenger trains stop here."),
   "kit-country-halt": p("Country halt", "A little stop where passenger trains wait."),
   "kit-mountain-station": p("Mountain station", "A station up in the hills."),
+  "kit-metro-stop": p("Metro stop", "Under a town, its entrance by a green."),
+  "kit-lookout": p("Lookout halt", "On a hilltop: riders come for the view, at twice the fare."),
   "kit-harbour-station": p("Harbour station", "A station by the water."),
   "kit-two-platform-station": p("Two-platform station", "A station on two lines."),
   "kit-grand-terminus": p("Grand terminus", "A big station at the end of the line."),
@@ -172,6 +180,7 @@ const CAR_DETAIL: Record<CarKind, string> = {
   carrier: "Carries new cars from a car factory, on two decks.",
   oiltank: "Carries oil from an oil well, or water from a water pump.",
   crane: "Lifts a derailed train back on, or a stuck train off.",
+  mailvan: "Carries towns' mail to a post office, and the post on to towns.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
