@@ -88,7 +88,7 @@ import { drawnKey, modelKey, type PropModel } from "./render/props/library";
 import { CLOCK_ASSETS } from "./render/clock-hands";
 import { renderThumbnails, renderThumbnailsAsync, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
-import { texturesMade, useTextureCache } from "./render/textures";
+import { forgetTextureCache, texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
@@ -5765,6 +5765,8 @@ requestAnimationFrame(() =>
       boot(thumbs, opening, cloudNotes);
       const madeTextures = texturesMade();
       if (madeTextures) void saveCached("textures", __BUILD_ID__, madeTextures);
+      // (The game's materials are made: the pixels kept for them can go.)
+      forgetTextureCache();
     });
   }, 30),
 );

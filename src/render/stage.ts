@@ -55,6 +55,10 @@ function buildSky(): Mesh {
   return sky;
 }
 
+/** The environment map's cube face size (px): three's default, and on the mobile tier. */
+const ENV_SIZE = 256;
+const ENV_SIZE_MOBILE = 128;
+
 /** Lights, sky and haze: the world around the toys. */
 export function createStage(scene: Scene, renderer: WebGLRenderer, quality: QualitySettings): Stage {
   installHaze();
@@ -62,7 +66,12 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   scene.add(group);
 
   const pmrem = new PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  // A soft room's light (at a fifth of its strength, below): half the size on a phone, where its blur hides the
+  // difference (a 384 × 512 map, ¼ the memory). The generator's working target is freed once it's made.
+  const room = new RoomEnvironment();
+  scene.environment = pmrem.fromScene(room, 0.04, 0.1, 100, { size: quality.tier === "mobile" ? ENV_SIZE_MOBILE : ENV_SIZE }).texture;
+  pmrem.dispose();
+  room.dispose();
   scene.environmentIntensity = 0.22;
   scene.background = new Color(HAZE_COLOR);
   // The land it hazes around is set by the game (see `setHazeLand`).

@@ -90,6 +90,12 @@ so memory is a budget like frame time. Measure with `tools/perf/memory.mjs` (abo
   nothing (it says so in the console). Its normals and colours are made compact too (`compact-vertices.ts`).
 - **Prop models**: baked in compact vertices; a plain model's geometry is let go once its batch has it
   (`PropLibrary.release`) and baked again if it's wanted (a prop picked up, a tray picture).
+- **Textures**: most of the GPU's texture memory is render targets (the shadow map, the post passes), not maps. The
+  generated maps' canvases are freed once uploaded (`freedOnUpload`, textures.ts, only while `gpuOnlyEnabled`), the
+  felts share one speckle and one fibre tile (their colour is the material's), the felt is half size on the mobile
+  tier, and the env map is 128 a face there with its generator freed. The beech stays full size. Compare pictures
+  with the drawing resolution pinned: the resolution governor steps down on a busy machine, which softens a
+  picture more than any of this.
 - **What grows after load is the map finishing itself** (the land around, props, track carving), not a leak: it levels
   off within a minute. `--early` shows the curve.
 
