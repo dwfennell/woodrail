@@ -90,7 +90,7 @@ export class RiverBoatsView {
    * Make, change and place the boats: `extra` seconds of game time since the fleet's last tick. True if a moving one is
    * in view (a frame should be drawn).
    */
-  update(fleet: Fleet, boats: ReadonlyMap<number, BoatState>, extra: number, camera: Camera, eye: AmbientEye | null): boolean {
+  update(fleet: Fleet, boats: ReadonlyMap<number, BoatState>, extra: number, camera: Camera, eye: AmbientEye | null, piecesVersion = 0): boolean {
     if (boats.size === 0 && this.shown.size === 0) return false;
     // Gone.
     for (const [id, s] of this.shown) {
@@ -116,10 +116,11 @@ export class RiverBoatsView {
       }
       if (s.parts.length === 0) continue;
       const moving = !b.docked && b.going && b.stops.length >= 2;
-      const poses = fleet.poses(b, moving ? extra : 0);
-      const sig = moving ? "" : poses.map((p) => `${p.x.toFixed(1)},${p.z.toFixed(1)},${p.heading.toFixed(3)}`).join("|");
+      // A still boat is placed again only when where it lies may have changed (its stop, its route, the pieces).
+      const sig = moving ? "" : `${b.from}|${b.docked}|${b.t > 0 ? 1 : 0}|${b.stops.length}|${b.going}|${piecesVersion}`;
       if (!moving && sig === s.placed) continue;
       s.placed = sig;
+      const poses = fleet.poses(b, moving ? extra : 0);
       poses.forEach((p, i) => {
         const part = s!.parts[i];
         if (!part) return;

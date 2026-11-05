@@ -209,6 +209,14 @@ export function attachWater(ctx: WaterContext): WaterControls {
       card.show(viewOf(b));
     },
     tick(seconds) {
+      // The train ferries: a train aboard sold abroad, one back with goods from abroad.
+      for (const e of game.ferries.tick(game.world, ctx.progress(), seconds)) {
+        hud.setCoins(ctx.progress().coins);
+        ctx.paid();
+        if (e.kind === "boarded") hud.toast(e.sold > 0 ? `Off abroad on the ferry: its ${e.sold} loads sold for ${e.coins} coins` : "Off abroad on the ferry", false, 3600);
+        else hud.toast(Object.keys(e.goods).length > 0 ? `Back from abroad with ${describeGoods(e.goods)} (${e.coins} coins)` : "Back from abroad", false, 3600);
+        game.invalidate();
+      }
       const events = fleet.tick(seconds);
       fleet.tickedAt = game.simSeconds;
       if (events.some((e) => e.kind === "docked" && e.dropped + e.picked > 0)) {
@@ -219,6 +227,7 @@ export function attachWater(ctx: WaterContext): WaterControls {
     },
     open: openBoat,
     reset() {
+      game.ferries.reset(game.world);
       setPlanning(false);
       open = -1;
       card.hide();

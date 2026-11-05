@@ -428,6 +428,8 @@ export class Economy {
   readonly boats = new Map<number, BoatState>();
   /** Loads boats have dropped at a dock other than where they picked them up (the goal "Float goods down the river"). */
   boatDelivered = 0;
+  /** Cars whose trains are held still where they stand, whatever else says (a train on the ferry abroad). */
+  readonly held = new Set<number>();
   /** Loads cargo ships have taken from harbours (the goal "Send a ship abroad"). */
   shipLoads = 0;
   readonly lineIdOf = new Map<number, number>();
@@ -1980,6 +1982,9 @@ export class Economy {
    * `KitStops`), whichever is lower.
    */
   private capFor(train: Train): number {
+    // Held where it stands (a train gone abroad on the ferry: src/game/ferry.ts): by any of its cars, so it stays held
+    // through turning round.
+    if (this.held.size > 0 && train.cars.some((c) => this.held.has(c.id))) return 0;
     const depot = this.depotCap(train);
     if (depot === 0) return 0;
     const kit = this.kitStops.cap(train);
