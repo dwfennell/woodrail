@@ -9,7 +9,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { METRO_KIT, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, placeGhost } from "../render/signal-marks-view";
@@ -33,12 +33,13 @@ import type { Game } from "./game";
 import { pointsSetFor } from "./engine-status";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
-import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
+import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag, type RoadTill } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { eraseRefusal, sweepLooks, type EraseRefusal } from "./erase";
 import { branchesOff } from "./draw-junctions";
+import { deckLiesAlong, deckRoadAt } from "./deck-roads";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { DIG_MESSAGES, DIG_TRAIN, planUnderpass, planUnderpassAhead, UNDER_BRIDGE, type DigPlan } from "./underpass-dig";
@@ -190,7 +191,7 @@ type Press =
   /** A via point's disc of the route being planned (the piece it's on). */
   | { kind: "route-via"; pieceId: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
-  | { kind: "piece"; pieceId: number; deck?: boolean }
+  | { kind: "piece"; pieceId: number; deck?: boolean; at?: { x: number; z: number }; tapOnly?: boolean }
   /** A depot's yard, building or crane (economy depot id). */
   | { kind: "depot"; depotId: number }
   /** A log or plank bundle on a pile or wagon. */
@@ -438,6 +439,11 @@ export class Interaction {
   onDepart: (() => void) | null = null;
   /** A switch was thrown, or pinned or unpinned (it's saved; nothing else changed). */
   onSwitched: (() => void) | null = null;
+  /**
+   * May a tap on a road turn a turntable's deck to it (Turntable controls, `deckRoadAt`)? Game mode: once learned;
+   * Sandbox: always. Null: never (a tap on the deck steps it round, as before).
+   */
+  deckRoads: (() => boolean) | null = null;
   /** A switch's points were thrown by hand (its lever swings over: the clunk). */
   onLeverThrown: ((pieceId: number) => void) | null = null;
   /**
@@ -452,6 +458,8 @@ export class Interaction {
   onPickPlace: ((depotId: number) => boolean) | null = null;
   /** Planning a route: plain track tapped (or a via point's disc), a via point (true: taken as one). */
   onPickVia: ((pieceId: number) => boolean) | null = null;
+  /** Do signal boxes reach along telegraph poles (the Telegraph learned, or Sandbox)? Null: no. */
+  telegraph: (() => boolean) | null = null;
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
   routeGroup: Object3D | null = null;
   onTapStopDisc: ((index: number) => void) | null = null;
@@ -1870,7 +1878,10 @@ export class Interaction {
     const place = !!this.onPickPlace && hit?.kind === "piece";
     // (Drawing, though, a line's body branches from any zoom: only taking hold of it needs to be close by. See `far`.)
     let far = false;
-    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) {
+    // (A tap on a road that turns a turntable to it, as a lever's, is from any zoom (`deckRoadMeant`): only a tap,
+    // though: from out of reach the piece isn't held or dragged, a drag there pans.)
+    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId) && this.deckRoadMeant(hit)) hit = { ...hit, tapOnly: true };
+    else if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) {
       const p = this.drawsNow ? this.game.layout.getPiece(hit.pieceId) : undefined;
       if (p && branchesOff(p.type) && this.fixedLabel(hit.pieceId) === null) far = true;
       else hit = null;
@@ -1935,6 +1946,7 @@ export class Interaction {
     if (this.onPickPlace) return false;
     switch (press.kind) {
       case "piece":
+        if (press.tapOnly) return false;
         if (this.picking) return this.picked.has(press.pieceId);
         return dragMoves("piece", press.pieceId === this.selectedPiece, pointerType);
       case "car":
@@ -2137,8 +2149,8 @@ export class Interaction {
    * buzz where the phone has one.
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
-    // (Out of reach, a line's body is only branched off: see `far`.)
-    if (m.far) return;
+    // (Out of reach, a line's body is only branched off: see `far`. A road tapped to turn a deck, only tapped.)
+    if (m.far || (m.press.kind === "piece" && m.press.tapOnly)) return;
     const k = m.press.kind;
     // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
     // (And a town's street, as its houses: issue #18.)
@@ -2670,14 +2682,21 @@ export class Interaction {
       return;
     }
     if (p.kind === "piece" && p.deck && !this.picking && !add) {
+      // (Turntable controls: a tap toward one of its roads turns it there; on its hub, or along the road it lies on,
+      // it steps round as before.)
+      if (this.turnDeckToRoad(p)) return;
       this.throwLever(p.pieceId);
       return;
     }
+    // (A tap on a road leading off a turntable, or on its pit by a road, turns the deck to it: a second tap, the deck
+    // now lying along it, takes the road's piece as any tap does.)
+    if (p.kind === "piece" && !this.picking && !add && this.turnDeckToRoad(p)) return;
     if (p.kind === "piece") {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
       // (A town's station upgraded to a big station's kit still opens its town's card.)
-      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId);
+      // (A metro stop opens its stop's card, with Show the line: its track is two levels down, out of sight.)
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId) && !g.economy.isMetro(depot);
       const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
       else if (ruin !== -1 && this.onRuinTap) {
@@ -2946,11 +2965,31 @@ export class Interaction {
     later();
   }
 
+  /** How long a metro line shows through the ground once asked (ms). */
+  private static readonly LINE_MS = 12000;
+  private lineTimer = 0;
+
+  /** Show the metro line through a stop (its card's Show the line) for a few seconds: built once, hidden after. */
+  showMetroLine(pieceId: number): void {
+    const g = this.game;
+    g.metroLine.show(g.layout, pieceId);
+    g.invalidate();
+    clearTimeout(this.lineTimer);
+    this.lineTimer = window.setTimeout(() => {
+      g.metroLine.hide();
+      g.invalidate();
+    }, Interaction.LINE_MS);
+  }
+
   private openDepot(depotId: number): void {
     this.clearSelection();
     this.selectedDepot = depotId;
     this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
+    const stop = this.game.economy.depot(depotId);
+    const metro = this.game.economy.isMetro(stop);
+    this.hud.setDepotLine(metro);
+    if (metro) this.hud.onShowLine = () => this.showMetroLine(stop!.pieceId);
     this.refreshDepotCard();
     this.keepClearOfCard(() => this.pieceCentre(this.game.economy.depot(depotId)?.pieceId ?? -1));
     // An industry the player placed moves too (select first, as anything else).
@@ -3305,9 +3344,10 @@ export class Interaction {
     }
     // A new plain straight on the ground under a bridge one level up: straights on from its end to an underpass under
     // the bridge go down in its place (`planUnderpassAhead`). An underpass laid by hand there: said where it goes.
-    // Draw (`ahead` false): its own straights under a bridge are "under-bridge", for it to lay straights on to an
+    // Draw (`ahead` false): its own plain pieces under a bridge are "under-bridge", for it to lay straights on to an
     // underpass instead (`DrawLine.underBridge`; it asks `planUnderpassAhead` from the line's end).
-    if ((reason === "headroom" || reason === "piece") && !ahead && isPlainStraight(type) && this.underBridge(type, flipped, pose, y, ignoreId)) reason = "under-bridge";
+    // (A curve too: a line drawn at a slant zigzags, and the piece that meets the bridge may be one.)
+    if ((reason === "headroom" || reason === "piece") && !ahead && (isPlainStraight(type) || DRAW_TYPES.includes(type)) && this.underBridge(type, flipped, pose, y, ignoreId)) reason = "under-bridge";
     if ((reason === "headroom" || reason === "piece") && ahead && ignoreId === -1 && isPlainStraight(type)) {
       const plan = this.aheadPlan(type, flipped, pose, y);
       if (plan?.kind === "dig") reason = null;
@@ -3353,7 +3393,7 @@ export class Interaction {
     if (yard) return { reason: yard, risers: [] };
     const s = trackSupport(this.rules, type, flipped, pose, y, ignoreId);
     if (s.reason) return { reason: s.reason, risers: [] };
-    const site = this.siteRule?.(type, pose, ignoreId) ?? null;
+    const site = this.siteRule?.(type, pose, ignoreId, y) ?? null;
     if (site) {
       this.siteWhy = site;
       return { reason: "site", risers: [] };
@@ -3405,7 +3445,7 @@ export class Interaction {
    * as the message to show, or null. `ignoreId`: the piece being moved (it doesn't count against itself). Runs on
    * every move while a piece is held: keep it cheap.
    */
-  siteRule: ((type: PieceTypeId, pose: Pose, ignoreId: Ignore) => string | null) | null = null;
+  siteRule: ((type: PieceTypeId, pose: Pose, ignoreId: Ignore, y?: number) => string | null) | null = null;
   /** The message for the last "site" refusal. */
   private siteWhy = "";
   /**
@@ -3421,7 +3461,8 @@ export class Interaction {
    * own depots (they stand where the map put them). While a depot is held, the last answer is kept for its pose.
    */
   private yardBlock(type: PieceTypeId, pose: Pose, y: number, ignoreId: Ignore): YardBlock | null {
-    if (!hasFootprint(type)) return null;
+    // (A metro stop's footprint is its entrance, up on a town's green or street: its own rule, `metroTown`.)
+    if (!hasFootprint(type) || type === METRO_KIT) return null;
     const own = typeof ignoreId === "number" ? ignoreId : (ignoreId.values().next().value ?? -1);
     if (own !== -1 && this.fixedLabel(own) !== null) return null;
     const g = this.game;
@@ -3626,6 +3667,12 @@ export class Interaction {
    */
   placeWhy(type: PieceTypeId, pose: Pose, y: number, ignoreId: number): string | null {
     const r = this.placement(type, false, pose, y, ignoreId).reason;
+    return r ? this.blockMessage(r) : null;
+  }
+
+  /** As `placeWhy`, for a piece mirrored or not, leaving out of the checks the pieces `ignore` (ones about to be taken up). */
+  placeWhyIgnoring(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore): string | null {
+    const r = this.placement(type, flipped, pose, y, ignore).reason;
     return r ? this.blockMessage(r) : null;
   }
 
@@ -5538,7 +5585,31 @@ export class Interaction {
    * Throw a switch's points, or hold or let go a signal (`road`: which of a signal piece's, a gantry's road): redrawn
    * and saved, nothing else rebuilt (a signal skin's model follows its aspect: `KitStateMotion.source`).
    */
-  private throwLever(pieceId: number, road = 0, corner = 0): void {
+  /** Does a tap on this piece mean a road of a deck to turn it to (Turntable controls; not the road it lies along)? */
+  private deckRoadMeant(p: { pieceId: number; at?: { x: number; z: number } }): boolean {
+    if (!p.at || !this.deckRoads?.()) return false;
+    const r = deckRoadAt(this.game.layout, p.pieceId, p.at.x, p.at.z);
+    return !!r && !deckLiesAlong(this.game.layout, r);
+  }
+
+  /**
+   * Turntable controls: a tap at `p.at` that means a road of a deck (`deckRoadAt`) turns the deck to it, or says why
+   * it can't. False (nothing done) if they aren't learned, the tap means no road, or the deck lies along it already.
+   */
+  private turnDeckToRoad(p: { pieceId: number; at?: { x: number; z: number } }): boolean {
+    if (!p.at || !this.deckRoads?.()) return false;
+    const r = deckRoadAt(this.game.layout, p.pieceId, p.at.x, p.at.z);
+    if (!r || deckLiesAlong(this.game.layout, r)) return false;
+    this.throwLever(r.deck, 0, 0, r.road);
+    return true;
+  }
+
+  /**
+   * Throw a switch's points, or hold or let go a signal (`road`: which of a signal piece's, a gantry's road): redrawn
+   * and saved, nothing else rebuilt (a signal skin's model follows its aspect: `KitStateMotion.source`). A deck steps
+   * round to its next road, or (`deckTo`, Turntable controls) turns straight to that one.
+   */
+  private throwLever(pieceId: number, road = 0, corner = 0, deckTo = -1): void {
     const g = this.game;
     const piece = g.layout.getPiece(pieceId);
     const pd = piece && getPieceDef(piece.type, piece.flipped);
@@ -5568,7 +5639,7 @@ export class Interaction {
         this.hud.toast(lift ? `${name} works while the game's running` : `${name} turns a train while the game's running`);
         return;
       }
-      if (refused || !g.sim.toggleSwitch(pieceId)) {
+      if (refused || !(deckTo >= 0 ? g.sim.turnDeckTo(pieceId, deckTo) : g.sim.toggleSwitch(pieceId))) {
         this.hud.toast(
           lift
             ? refused === "turning"
@@ -5605,13 +5676,15 @@ export class Interaction {
     const g = this.game;
     const p = g.props.get(propId);
     if (!p) return;
-    const levers = leversNear(g.layout, p.x, p.z);
+    // (With the Telegraph, the points and signals by every pole wired to it too, marked "by wire", after the near ones.)
+    const levers = leversWorked(g.layout, g.props, p.x, p.z, this.telegraph?.() ?? false);
     const counts = { points: 0, signal: 0 };
     const items = levers.map((l) => {
       const n = ++counts[l.kind];
+      const by = l.wired ? " (by wire)" : "";
       return l.kind === "points"
-        ? { label: `Points ${n}: ${pointsWay(g.layout, l.pieceId, l.corner)}`, title: "Throw these points" }
-        : { label: `Signal ${n}: ${g.sim.signalHeld(l.pieceId, l.road) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
+        ? { label: `Points ${n}${by}: ${pointsWay(g.layout, l.pieceId, l.corner)}`, title: "Throw these points" }
+        : { label: `Signal ${n}${by}: ${g.sim.signalHeld(l.pieceId, l.road) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
     });
     this.hud.showLevers(items, (i) => {
       const l = levers[i];
@@ -5871,7 +5944,10 @@ export class Interaction {
     const own = exact?.kind === "piece" && exact.pieceId === lever.id;
     if (!post || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace) || this.hiddenFromEye({ x: post.x, y: post.y + post.height / 2, z: post.z })) lever = { id: -1, d: Infinity };
     const won = fingertipWinner(car, lever);
-    if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(post?.corner ? { corner: post.corner } : {}), slack: lever.d };
+    // (A piece with levers a finger's width apart, a double three-way's: the one whose knob is nearest the tap. Seen
+    // from the side, one stands in front of the other's knob, so neither the ray nor the nearest upright can tell.)
+    const corner = won === "lever" ? this.nearestKnob(x, y, posts, lever.id, post?.corner) : undefined;
+    if (won === "lever") return { kind: "lever", pieceId: lever.id, ...(corner ? { corner } : {}), slack: lever.d };
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
   }
 
@@ -5899,6 +5975,28 @@ export class Interaction {
       if (inFrontOfCamera(az, bz)) ends.push({ id: d.pieceId, ax, ay, bx, by });
     }
     return nearestOnScreen(x, y, ends, slack).id;
+  }
+
+  /**
+   * Of piece `pieceId`'s levers (`posts`), the corner of the one whose knob (its top) is nearest (x, y) on screen;
+   * `fallback` when it has one lever. Asked once a tap.
+   */
+  private nearestKnob(x: number, y: number, posts: { pieceId: number; corner?: number; x: number; y: number; z: number; height: number }[], pieceId: number, fallback: number | undefined): number | undefined {
+    const own = posts.filter((p) => p.pieceId === pieceId);
+    if (own.length < 2) return fallback;
+    const r = this.game.canvas.getBoundingClientRect();
+    const v = new Vector3();
+    let best = fallback;
+    let bestD = Infinity;
+    for (const p of own) {
+      v.set(p.x, p.y + p.height, p.z).project(this.game.camera);
+      const d = Math.hypot(r.left + ((v.x + 1) / 2) * r.width - x, r.top + ((1 - v.y) / 2) * r.height - y);
+      if (d < bestD) {
+        bestD = d;
+        best = p.corner;
+      }
+    }
+    return best;
   }
 
   /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
@@ -5940,6 +6038,8 @@ export class Interaction {
    */
   private deckOverTrain(hit: Press | null, exact: Press | null): Press | null {
     if (hit?.kind !== "car") return hit;
+    // (Turntable controls: the deck's pit by one of its roads, round the train standing on it, means that road.)
+    if (exact?.kind === "piece" && this.game.sim.deckUnder(hit.carId) === exact.pieceId && this.deckRoadMeant(exact)) return exact;
     const deck = deckTapWins(this.game.sim.deckUnder(hit.carId), exact, this.selectedPiece);
     return deck === -1 ? hit : { kind: "piece", pieceId: deck, deck: true };
   }
@@ -6031,7 +6131,7 @@ export class Interaction {
         // on one hidden by a 2-riser hill threw it.)
         if (this.hiddenFromEye(h.point)) continue;
         const corner = h.object.userData.corner as number | undefined;
-        return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId, ...(corner ? { corner } : {}) };
+        return h.object.userData.deck ? { kind: "piece", pieceId, deck: true, at: { x: h.point.x, z: h.point.z } } : { kind: "lever", pieceId, ...(corner ? { corner } : {}) };
       }
       // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any
       // other kit's model is passed through, to the track or ground behind it.
@@ -6039,6 +6139,8 @@ export class Interaction {
       if (kitPiece !== -1) {
         const road = signalRoadAt(g.layout, kitPiece, h.point.x, h.point.z);
         if (road !== -1) return { kind: "lever", pieceId: kitPiece, road };
+        // (A metro stop's entrance is all there is of it to see: a tap on it is a tap on the stop.)
+        if (g.layout.getPiece(kitPiece)?.type === METRO_KIT) return { kind: "piece", pieceId: kitPiece };
         continue;
       }
       // A level crossing's style (its barriers or gates) is its prop's.
@@ -6047,7 +6149,7 @@ export class Interaction {
       const propId = g.propsView.propAt(h.object, h.batchId);
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
-      if (pieceId !== -1) return { kind: "piece", pieceId };
+      if (pieceId !== -1) return { kind: "piece", pieceId, at: { x: h.point.x, z: h.point.z } };
       // An old industry's ruin: its stub's (a tap opens its card; it stays put). One on land not yet bought: passed
       // through, to the ground.
       if (g.ruinsView.isRuin(h.object)) {

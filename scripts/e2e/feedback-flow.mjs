@@ -4,6 +4,8 @@
 // payoff: the posted report's map loads (src/play/bugmap.ts) into the same railway, and its picture is a JPEG within
 // 1280 px. The page's VITE_FEEDBACK_URL must be FEEDBACK_URL (the scripts set it before their dev server starts).
 
+import { shot } from "./lib/shot.mjs";
+
 /** Where the e2e's game sends feedback: no such host; Playwright answers for it. */
 export const FEEDBACK_URL = "http://feedback.test";
 
@@ -63,7 +65,7 @@ export async function feedbackFlow(p, { press, check, label }) {
   await p.waitForFunction(() => { const t = document.querySelector(".feedback-thumb"); return t && !t.hidden && t.naturalWidth > 0; }, null, { timeout: 60000 }).catch(() => {});
   check(`${label}: the picture is taken once, as it opens (its preview shows)`, await visible(".feedback-thumb"));
   // (E2E_SHOTS=<dir>: a picture of the sheet, to look at.)
-  if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/feedback-${label.replace(/\W+/g, "-")}.png` });
+  if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/feedback-${label.replace(/\W+/g, "-")}.png`);
 
   // Idea frees the map's box; Bug locks it again.
   await press(".feedback-kind:nth-child(2)");

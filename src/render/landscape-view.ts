@@ -59,6 +59,7 @@ import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
 import { HillCutsView } from "./dressing/hill-cuts";
+import { gpuOnly } from "./gpu-only";
 import { buildShed, buildStation, buildTown, buildWaiting, MAX_WAITING_DOLLS, stationClockAt } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltTiles, type FeltTiles } from "./dressing/felt";
@@ -435,6 +436,8 @@ export class LandscapeView {
       if (prints.length > 0) group.add(buildContactShadows(prints));
     }
     setCullRects(group, [plotRect({ px, pz })], 4 * RISER_HEIGHT);
+    // (Only drawn: its vertex data is freed once on the GPU. So are the tiles', felt's and scenery's below.)
+    gpuOnly(group);
     this.plotGroups.set(slot, group);
     this.landTile(this.tileOfSlot(slot)).group.add(group);
   }
@@ -455,6 +458,7 @@ export class LandscapeView {
     const slots = grid.plots.map((_, slot) => slot).filter((slot) => this.tileOfSlot(slot) === key);
     // Hills: stacks of individual wooden blocks, painted green on top.
     tile.blocks = buildBlocks(grid, land.seed, this.mats, this.blockIndex, false, slots);
+    gpuOnly(tile.blocks);
     tile.group.add(tile.blocks);
 
     // Towns with their stations and signs, fenced paddocks of toy animals, and the shed.
@@ -486,6 +490,7 @@ export class LandscapeView {
     if (land.shed && here(land.shed.x, land.shed.z)) buildShed(land, land.shed, this.mats, b);
     b.build(things);
     if (this.contactShadows && prints.length > 0) things.add(buildContactShadows(prints));
+    gpuOnly(things);
     tile.things = things;
     tile.group.add(things);
     this.clockTowns.set(key, clocks);
@@ -534,6 +539,7 @@ export class LandscapeView {
     const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
     const group = buildRoadTiles(grids, roadMaterials(this.mats), this.roadTiles);
     group.name = "roads";
+    gpuOnly(group);
     return group;
   }
 
@@ -561,6 +567,8 @@ export class LandscapeView {
     group.add(buildFeltGround(this.mats, shown, grid.plots, this.feltHoles));
     // Felt rivers, roads and lanes in tiles, so the camera skips those out of view.
     group.add(this.feltOf("river"), this.feltOf("roads"), this.roadsGroup());
+    // (Not the felt's and roads' tiles: their cache's, and a build made ahead frees ones still drawn, so they're kept.)
+    gpuOnly(group);
     return group;
   }
 
@@ -578,6 +586,7 @@ export class LandscapeView {
     if (!old) return;
     const grid = this.land.grid;
     const ground = buildFeltGround(this.mats, extentOf([...grid.plots, ...this.around]), grid.plots, holes);
+    gpuOnly(ground);
     this.feltGroup.remove(old);
     disposeTree(old as Group);
     this.feltGroup.add(ground);
@@ -637,6 +646,7 @@ export class LandscapeView {
     for (const part of this.backdrop!.parts) group.add(buildScenery([part], this.mats, this.landRect));
     const sea = this.seaPlane();
     if (sea) group.add(sea);
+    gpuOnly(group);
     return group;
   }
 
@@ -912,6 +922,8 @@ export class LandscapeView {
     const marks: Map<Material, number>[] = [];
     const usual = buildWaiting(town, MAX_WAITING_DOLLS, this.mats, b, () => marks.push(b.vertexCounts()));
     b.build(group);
+    // (Shown by draw range: the vertex data itself never changes.)
+    gpuOnly(group);
     const dolls: WaitingDolls = { group, marks, usual };
     showDolls(dolls, this.waiting.get(town.id) ?? null, this.heldFrom.get(town.id));
     this.waitingGroups.set(town.id, dolls);

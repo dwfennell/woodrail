@@ -100,7 +100,7 @@ describe("Game mode's railway kits on the tray", () => {
   it("track kits on the Track tab, buildings and services on the Industries tab's railway shelves", () => {
     expect(keys(tab("track").groups.find((g) => g.label === "Railway kit")!)).toEqual(["piece:kit-turntable", "piece:kit-transfer-table", "piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"]);
     expect(tab("industries").groups.map((g) => g.label)).toEqual(["Industries", "Railway", "Stations", "Yard", "Halts", "Lineside"]);
-    expect(keys(tab("industries").groups.find((g) => g.label === "Halts")!)).toEqual(["piece:kit-country-halt", "piece:kit-mountain-station", "piece:kit-harbour-station", "piece:kit-platform-furnished"]);
+    expect(keys(tab("industries").groups.find((g) => g.label === "Halts")!)).toEqual(["piece:kit-country-halt", "piece:kit-mountain-station", "piece:kit-harbour-station", "piece:kit-platform-furnished", "piece:kit-lookout", "piece:kit-metro-stop"]);
   });
 
   it("Sandbox's cargo loaders and unloaders (the goods shed among them) are on the Yard shelf, as looks (no depot in Game mode: kit-unlocks.test.ts)", () => {
@@ -146,14 +146,15 @@ describe("the Trains tab's shelves", () => {
   const shelvesOf = (mode: "sandbox" | "game") => trayTabs(mode).find((t) => t.id === "trains")!.groups;
   it("Game mode: no ready-made trains, only the parts to make one up (Engines, Wagons, Coaches)", () => {
     const game = shelvesOf("game");
-    expect(game.map((g) => g.label)).toEqual(["Engines", "Wagons", "Coaches"]);
-    for (const g of game) for (const item of g.items) expect(item.kind === "train" && item.cars.length, `${g.label}/${item.label}`).toBe(1);
+    expect(game.map((g) => g.label)).toEqual(["Engines", "Metro", "Wagons", "Coaches"]);
+    // (But the metro train: its motor car and two cars come as one, on a shelf of their own.)
+    for (const g of game) for (const item of g.items) expect(item.kind === "train" && item.cars.length, `${g.label}/${item.label}`).toBe(g.label === "Metro" ? 3 : 1);
     // A shelf dragged up takes out its first item: the Engines shelf's is a plain engine.
     expect(game[0].items[0]).toMatchObject({ kind: "train", cars: ["engine"], label: "Engine" });
   });
   it("Sandbox keeps its ready-made Trains shelf first", () => {
     const sandbox = shelvesOf("sandbox");
-    expect(sandbox.map((g) => g.label)).toEqual(["Trains", "Engines", "Wagons", "Coaches"]);
+    expect(sandbox.map((g) => g.label)).toEqual(["Trains", "Engines", "Metro", "Wagons", "Coaches"]);
     expect(sandbox[0].items.map((i) => i.label)).toEqual(["Full train", "Flatbed train"]);
   });
   it("an old Game-mode favourite that was a ready-made train isn't offered there (Sandbox still has it)", () => {

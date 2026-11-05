@@ -6,12 +6,14 @@ import { LandEditor } from "../landscape/edit";
 import type { Town } from "../landscape";
 import { propsInRect } from "../props/placement";
 import { joinedByRoad } from "../roads/graph";
-import { addTownProps, setTownStoreys } from "../props/towns";
+import { addTownProps, fitScale, PLACE_MIN_FIT, setTownStoreys } from "../props/towns";
 import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
-import { buildOnLots, changedBuildings, lotPoint, nextLots } from "./town-growth";
+import { buildOnLots, changedBuildings, lotPoint, nextLots, type Lot } from "./town-growth";
 import { dueLandmarks } from "./landmarks";
+import { placeOf, planDone, planLacks, townPlaces, townSmiles, type Place } from "./places";
+import { hasPostOffice, mailSeconds, POST_TECH } from "./post";
 import { housesBy, LUXURIES, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 
@@ -42,6 +44,17 @@ export function growthOf(world: World, townId: number): Bag {
   const bonus = roadBonus(world, townId);
   for (const k of kindsOf(bonus)) received[k] = (received[k] ?? 0) + bonus[k]!;
   return received;
+}
+
+/** A town's smiles (game/places.ts: its smiling places), 0 for a town not on the map. */
+export function smilesOf(world: World, townId: number): number {
+  const town = world.landscape?.towns.find((t) => t.id === townId);
+  return town ? townSmiles(town) : 0;
+}
+
+/** Where a town stands now: what counts toward its growth, less what its places cut (`townStatus`). */
+export function statusOf(world: World, townId: number): TownStatus {
+  return townStatus(growthOf(world, townId), smilesOf(world, townId));
 }
 
 /** The badge a town's sign shows in Game mode: the first thing it still wants, and how far along it is. */
@@ -90,6 +103,16 @@ export interface TownLifeEvents {
    * Asked once per unit as it lands.
    */
   vanShare?(d: DepotState): boolean;
+  /** A place went up in a town (its goods all in, or bought outright): where. */
+  placeBuilt?(town: Town, place: Place, at: { x: number; z: number }): void;
+  /** A place's goods are all in but there's no lot for it yet: it waits (told once per place). */
+  placeStuck?(town: Town, place: Place): void;
+}
+
+/** A town's place under way and its goods: what it still lacks of `kind` (0: none, or no place under way). */
+export function placeLacks(world: World, townId: number, kind: CargoKind): number {
+  const plan = world.economy.placePlans.get(townId);
+  return plan ? planLacks(plan, kind) : 0;
 }
 
 /**
@@ -104,6 +127,12 @@ export class TownLife {
   private had = new Map<number, Bag>();
   /** What each sign shows now (a key), so an unchanged frame repaints nothing. */
   private shown = new Map<number, string>();
+  /** Towns whose place under way had goods since last looked at (its last may be in). */
+  private placeGoods = new Set<number>();
+  /** Places told stuck (no room), by town, so it's said once. */
+  private stuck = new Map<number, string>();
+  /** Bumped as a place goes up or opens: towns' smiles may have changed (`wants`' cache). */
+  private placesVersion = 0;
 
   constructor(
     private readonly game: TownLifeHost,
@@ -119,17 +148,26 @@ export class TownLife {
     // (Made goods, furniture and tools, and everyday food, milk, bread and fruit, are always welcome: towns pay for
     // them, wanted or not.)
     // A school takes only what its research still lacks (`TownLifeEvents.school`; none: nothing).
-    this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind, d) : d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind) || !!this.events.vanTakes?.(d, kind));
+    this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind, d) : d.role !== "town" || placeLacks(this.game, d.townId, kind) > 0 || this.wants(d.townId, kind) || LUXURIES.has(kind) || !!this.events.vanTakes?.(d, kind));
+    // A place under way in a town takes the goods it lacks first, as they land (game/places.ts).
+    this.game.economy.placeWants = (townId, kind) => placeLacks(this.game, townId, kind);
+    this.game.economy.onPlaceGoods = (d) => this.placeGoods.add(d.townId);
+    this.placeGoods = new Set(this.game.economy.placePlans.keys());
+    this.stuck.clear();
     // A good its delivery van takes goes on the van's yard (roads spec D5): all of it if its own town doesn't want it,
     // else every other unit (the station shares with the town off the line, as a school shares a load).
     this.game.economy.toVan = this.events.vanTakes
       ? (d, kind) => !!this.events.vanTakes?.(d, kind) && (!(this.wants(d.townId, kind) || LUXURIES.has(kind)) || !!this.events.vanShare?.(d))
       : null;
     this.game.economy.onVanYard = this.events.vanYard ? (d) => this.events.vanYard?.(d) : null;
+    // Towns post mail once Post office is learned, quicker the bigger they are (src/game/post.ts).
+    // (Only at its station: a halt is a stop for its people, not a second post box. And only while a post office stands
+    // on the map: no mail piling up, the game's state changing each second, for nothing that could take it.)
+    this.game.economy.mailEvery = (d) => (this.events.knows?.(POST_TECH) && this.game.stations.get(d.townId) === d.pieceId && hasPostOffice(this.game.economy) ? mailSeconds(this.levels.get(d.townId) ?? 0) : 0);
     // A town joined by road to another counts some of what it receives twice toward growing (roads spec D2).
     this.game.economy.joinedByRoad = (townId) => joinedByRoad(this.game.landscape, townId);
     for (const t of this.game.landscape.towns) {
-      this.levels.set(t.id, townStatus(growthOf(this.game, t.id)).level);
+      this.levels.set(t.id, statusOf(this.game, t.id).level);
       this.had.set(t.id, receivedBy(this.game, t.id));
     }
     // Its houses as tall as its size (a save from before towns grew upward: they rise now; else nothing changes).
@@ -147,15 +185,17 @@ export class TownLife {
     this.game.economy.toVan = null;
     this.game.economy.onVanYard = null;
     this.game.economy.joinedByRoad = null;
+    this.game.economy.placeWants = null;
+    this.game.economy.onPlaceGoods = null;
   }
 
   /** Does a town still want some of `kind` for its next level? (Cached per town until something more arrives.) */
   wants(townId: number, kind: CargoKind): boolean {
     const goods = this.game.economy.deliveredGoods.get(townId);
     const road = this.game.economy.roadGot.get(townId);
-    const key = (this.game.economy.delivered.get(townId) ?? 0) + (goods ? total(goods) : 0) + (road ? total(road) : 0);
+    const key = (this.game.economy.delivered.get(townId) ?? 0) + (goods ? total(goods) : 0) + (road ? total(road) : 0) + this.placesVersion * 1e7;
     let s = this.statuses.get(townId);
-    if (!s || s.key !== key) this.statuses.set(townId, (s = { key, status: townStatus(growthOf(this.game, townId)) }));
+    if (!s || s.key !== key) this.statuses.set(townId, (s = { key, status: statusOf(this.game, townId) }));
     return (s.status.got[kind] ?? 0) < (s.status.wants[kind] ?? 0);
   }
   private readonly statuses = new Map<number, { key: number; status: TownStatus }>();
@@ -169,18 +209,24 @@ export class TownLife {
 
   /** Call each frame: cheap unless something was delivered. */
   update(): void {
+    // A place whose last goods are in goes up (or waits for room).
+    if (this.placeGoods.size > 0) {
+      for (const townId of this.placeGoods) this.finishPlace(townId);
+      this.placeGoods.clear();
+    }
     for (const town of this.game.landscape.towns) {
       const received = receivedBy(this.game, town.id);
-      // Deliveries only add up: their total changes whenever anything arrives (any good, not just planks).
-      const key = `${total(received)}`;
+      // Deliveries only add up: their total changes whenever anything arrives (any good, not just planks). A place
+      // going up may cut what it wants (its smiles: `placesVersion`).
+      const key = `${total(received)}.${this.placesVersion}`;
       if (this.shown.get(town.id) === key) continue;
       this.shown.set(town.id, key);
       // (Its level from what it received and its road's bonus; what's said to have arrived is only what did.)
       const bonus = roadBonus(this.game, town.id);
-      const status = townStatus(growthOf(this.game, town.id));
+      const status = statusOf(this.game, town.id);
       const had = this.had.get(town.id);
       if (had) {
-        const before = townStatus(plus(had, bonus));
+        const before = townStatus(plus(had, bonus), smilesOf(this.game, town.id));
         for (const k of kindsOf(minus(received, had))) this.events.received(town, k, received[k]! - (had[k] ?? 0), before);
       }
       this.had.set(town.id, received);
@@ -193,7 +239,96 @@ export class TownLife {
 
   /** What a town is now (for the map view and cards). */
   status(townId: number): TownStatus {
-    return townStatus(growthOf(this.game, townId));
+    return statusOf(this.game, townId);
+  }
+
+  /** Town `townId`'s place under way: up, if its goods are all in and there's a lot for it. */
+  private finishPlace(townId: number): void {
+    const plan = this.game.economy.placePlans.get(townId);
+    const town = this.game.landscape.towns.find((t) => t.id === townId);
+    const place = plan && placeOf(plan.id);
+    if (!plan || !town || !place || !planDone(plan)) return;
+    const at = this.addPlace(town, place);
+    if (!at) {
+      if (this.stuck.get(townId) !== place.id) this.events.placeStuck?.(town, place);
+      this.stuck.set(townId, place.id);
+      return;
+    }
+    this.stuck.delete(townId);
+    this.game.economy.placePlans.delete(townId);
+    this.game.economy.acceptsChanged();
+    this.events.placeBuilt?.(town, place, at);
+  }
+
+  /** Try again to put up the places waiting for room (a town grew, or something moved). Cheap: a few towns. */
+  retryPlaces(): void {
+    for (const townId of this.game.economy.placePlans.keys()) this.placeGoods.add(townId);
+  }
+
+  /** The editor growth uses: clear of track, props and stations' ways in, every town still reachable. */
+  private editor(): LandEditor {
+    const g = this.game;
+    return new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, (a) => g.footprintOf(a), x0, z0, x1, z1) });
+  }
+
+  /** The lot a place would go up on in `town` now, or null (no room). Changes nothing. */
+  lotFor(town: Town, place: Place): Lot | null {
+    const m = place.models;
+    const lots = nextLots(this.game.landscape, town, this.editor(), 1, { wide: m.two.length > 0 ? 1 : 0, big: m.four?.length ? 1 : 0 });
+    // (Asked for a wide lot, it may give a street's one square first and the wide one beyond: the biggest that fits.)
+    const fits = (lot: Lot) => {
+      const squares = lot.cells.length >= 4 ? 4 : lot.cells.length;
+      const list = squares === 4 ? [...(m.four ?? []), ...m.two] : squares === 2 ? m.two : m.one;
+      return list.some((a) => fitScale(a, squares, PLACE_MIN_FIT) !== null);
+    };
+    return [...lots].sort((a, b) => b.cells.length - a.cells.length).find(fits) ?? null;
+  }
+
+  /**
+   * Put a place up in `town` on a lot of its own (growth by one lot: no other building changes), and return where; null
+   * with nothing changed if there's no room. Its smiles count at once: the town may grow a level.
+   */
+  addPlace(town: Town, place: Place): { x: number; z: number } | null {
+    const g = this.game;
+    const lot = this.lotFor(town, place);
+    if (!lot) return null;
+    lot.landmark = place.id;
+    delete lot.changes;
+    const level = this.levels.get(town.id) ?? 0;
+    const slots = buildOnLots(g.landscape, town, [lot], level);
+    addTownProps(g.landscape, g.props, (id) => this.levels.get(id) ?? 0);
+    g.editLand(slots);
+    g.propsChanged();
+    this.placeOpened();
+    return lotPoint(g.landscape, lot);
+  }
+
+  /**
+   * A blueprint learned: plain buildings already standing in a place's model (`Place.opensFree`) become that place,
+   * free, in towns big enough for it and without one (one per map: the first). Returns the towns, for a toast.
+   */
+  openFree(place: Place): Town[] {
+    if (!place.opensFree) return [];
+    const opened: Town[] = [];
+    const dressed = new Map<number, string>();
+    for (const p of this.game.props.all()) if (p.building !== undefined) dressed.set(p.building, p.asset);
+    for (const town of this.game.landscape.towns) {
+      if (place.onePerMap && opened.length > 0) break;
+      if ((this.levels.get(town.id) ?? 0) < place.level || townPlaces(town).has(place.id)) continue;
+      const b = town.buildings.find((x) => !x.landmark && dressed.get(x.id) === place.opensFree);
+      if (!b) continue;
+      b.landmark = place.id;
+      opened.push(town);
+    }
+    if (opened.length > 0) this.placeOpened();
+    return opened;
+  }
+
+  /** A place stood up or opened: smiles may have changed, so wants and levels are looked at again. */
+  private placeOpened(): void {
+    this.placesVersion++;
+    this.statuses.clear();
+    this.game.economy.acceptsChanged();
   }
 
   private grow(town: Town, from: number, status: TownStatus): void {
@@ -225,6 +360,8 @@ export class TownLife {
     }
     // Some of its houses grow upward, the middle most, the edge and the new ones staying single-storey (issue #17):
     // only this town's props whose storeys change are redrawn.
+    // A place waiting for room may find some now.
+    if (g.economy.placePlans.size > 0) this.retryPlaces();
     const taller = setTownStoreys(g.landscape, town, g.props, status.level);
     if (lots.length > 0 || taller > 0) g.propsChanged();
     this.events.grew(

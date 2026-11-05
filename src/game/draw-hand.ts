@@ -3,7 +3,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
-import { bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight, tunnelsOn } from "../landscape";
+import { bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight, plinthLevels, tunnelsOn } from "../landscape";
 import { dustPuff } from "../render/dust";
 import { delayed, settle } from "../render/flourishes";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
@@ -136,6 +136,8 @@ export class DrawHand {
   private branchStroke: { x: number; z: number }[] = [];
   /** The switch the line branches off through (swapped into the line it started on), or null. */
   private branch: PieceSwap | null = null;
+  /** A 45° crossing made a slip by a stroke along its turn (`slipFrom`): shown as a ghost, down as the finger lifts. */
+  private slip: PieceSwap | null = null;
   /** The switch the line would merge through if let go now (shown), or null; and its key, so it's shown afresh only when it changes. */
   private merge: Merge | null = null;
   private mergeKey = "";
@@ -282,6 +284,13 @@ export class DrawHand {
         this.clear();
         return;
       }
+      // A slip: its ghost over the crossing (outlined), nothing drawn after it.
+      if (b.kind === "slip") {
+        this.slip = b.swap;
+        this.swapGhosts = this.showSwap(b.swap);
+        this.game.trackView.setHighlights([...b.swap.covers], "select", false);
+        return;
+      }
       // The switch shows as a ghost over the straights it takes the place of (outlined), and the line goes on from its branch.
       this.branch = b.swap;
       this.branchStart = { onto: pending.onto, press: pending.press };
@@ -351,7 +360,9 @@ export class DrawHand {
     this.flushLift();
     const line = this.line;
     if (!line) {
+      const slip = this.slip;
       this.clear();
+      if (slip) this.laySlip(slip);
       return;
     }
     // (Lifted before the ghosts had caught up with the line, and the line goes down otherwise than they showed: they
@@ -501,6 +512,17 @@ export class DrawHand {
     g.invalidate();
   }
 
+  /** A slip goes down in the 45° crossing's place (`slip`, see `slipFrom`), one undo step, unless a train came onto it. */
+  private laySlip(w: PieceSwap): void {
+    if (w.covers.some((id) => this.hooks.occupied(id))) {
+      this.hooks.toast("A train is on that crossing");
+      return;
+    }
+    const ids = this.editor().replaceRun(w.covers, w.pieces);
+    if (ids.length) this.hooks.onPlaced(0);
+    this.game.invalidate();
+  }
+
   /** A ghost-style mesh for a piece of a swap (a switch, the straights beside it), placed. */
   private pieceMesh(p: SwapPiece, mat: Material = this.okMat): Mesh {
     const mesh = ghostMesh(p.type, p.flipped, mat);
@@ -515,7 +537,8 @@ export class DrawHand {
     const out = w.pieces.map((p) => this.pieceMesh(p));
     for (const m of out) this.game.scene.add(m);
     this.outlineCovers();
-    this.game.invalidate();
+    // (Ghosts and outlines cast no shadow: the shadow map stays as it is.)
+    this.game.redraw();
     return out;
   }
 
@@ -626,7 +649,7 @@ export class DrawHand {
     for (const g of this.mergeGhosts) this.game.scene.add(g);
     this.trimToMerge();
     this.outlineCovers();
-    this.game.invalidate();
+    this.game.redraw();
     return true;
   }
 
@@ -950,7 +973,7 @@ export class DrawHand {
       // A bridge (or a ramp up off the ground) on its arches. (Its arches all the way down: arches cut short over a
       // hill's edge are another geometry, built on the move that needed it, up to 36 ms in QA's replay; the piece put
       // down has them.)
-      const levels = canStandOnArches(p.type) ? bridgeLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : 0;
+      const levels = canStandOnArches(p.type) ? bridgeLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : p.type === "underpass" ? plinthLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : 0;
       const floors = null;
       // A ramp, let into a hill, is drawn over it (its cutting isn't made till it's put down: making it on each move
       // that changed the line's last ramp took up to 118 ms on a terrace, QA N2).
@@ -965,7 +988,8 @@ export class DrawHand {
     for (const gh of this.ghosts.splice(i)) g.scene.remove(gh.mesh);
     this.trimToMerge();
     if (grew) this.hooks.onGrow();
-    if (changed) g.invalidate();
+    // (Ghosts cast no shadow: a frame, without drawing the shadow map again. On every drag frame that changes them.)
+    if (changed) g.redraw();
     if (this.line && !this.line.previewDone) this.catchUp();
     return changed;
   }
@@ -990,8 +1014,10 @@ export class DrawHand {
       dispose: () => {
         this.catching = false;
       },
+      // (Ghosts: no shadows, so no shadow pass on the frames it runs.)
+      shadows: false,
     });
-    this.game.invalidate();
+    this.game.redraw();
   }
 
   /** The ghosts on show as the last line went down (for the tests: what went down must be exactly these). */
@@ -1042,13 +1068,15 @@ export class DrawHand {
       const canvas = this.game.canvas;
       for (const { material } of this.trailLines) material.resolution.set(canvas.clientWidth, canvas.clientHeight);
     }
-    this.game.invalidate();
+    // (The finger's trail casts no shadow.)
+    this.game.redraw();
   }
 
   private clear(): void {
     for (const gh of this.ghosts) this.game.scene.remove(gh.mesh);
     for (const m of [...this.swapGhosts, ...this.mergeGhosts, ...this.crossed.ghosts]) this.game.scene.remove(m);
-    if (this.branch || this.merge || this.crossed.covers.length) this.game.trackView.setHighlights([], "select", false);
+    if (this.branch || this.slip || this.merge || this.crossed.covers.length) this.game.trackView.setHighlights([], "select", false);
+    this.slip = null;
     this.crossed = { pieces: [], covers: [], ghosts: [], used: new Map() };
     this.crossing = null;
     this.crossLooked = null;

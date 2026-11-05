@@ -47,6 +47,9 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "switch-3way": p("Three-way switch", "Splits three ways: left, ahead or right. Tap to change."),
   crossing: p("Crossing", "Two lines cross straight over each other."),
   "crossing-45": p("45° crossing", "Two lines cross at a slant."),
+  "slip-single": p("Single slip", "A crossing that can turn onto the other line. Tap to change."),
+  "slip-double": p("Double slip", "A crossing that turns either way onto the other line. Tap it."),
+  "switch-3way-double": p("Double three-way", "A three-way with two levers, one for each side. Tap a lever."),
   signal: p("Signal", "Tap it for red or green. Trains stop at red."),
   crossover: p("Crossover", "Double track with a link: trains can change lines."),
   "double-straight": p("Double track", "Two straight lines side by side."),
@@ -57,6 +60,8 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "balloon-loop-small": p("Small loop", "Trains go round and come back the way they came."),
   wye: p("Wye", "A track triangle: run in, back out, and come out turned round."),
   ramp: p("Ramp", "Goes up one level, or down."),
+  rack: p("Rack", "Two levels up in a ramp's length, for a rack engine."),
+  "rack-short": p("Short rack", "A level up in half a ramp's length, for a rack engine."),
   bridge: p("Bridge", "Carries the line over a road or track."),
   "bridge-curve": p("Curved bridge", "A bend up high, over a road or track."),
   underpass: p("Underpass", "Dips the line so a bridge one level up fits over it."),
@@ -88,7 +93,16 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-creamery": p("Creamery", "Makes cheese from milk."),
   "depot-icecream": p("Ice cream factory", "Makes ice cream from milk and fruit, for cold vans."),
   "depot-brickworks": p("Brickworks", "Fires bricks from stone and coal."),
+  "depot-postoffice": p("Post office", "Sorts the towns' mail into post for towns."),
   "depot-carworks": p("Car factory", "Builds cars from iron and planks, for car carriers."),
+  "depot-oilwell": p("Oil well", "Pumps oil, for tank wagons."),
+  "depot-waterpump": p("Water pump", "Pumps water from a river or lake nearby, for tank wagons."),
+  "depot-beet": p("Sugar beet field", "Beets boiled down into sugar, in sacks for vans."),
+  "depot-jam": p("Jam kitchen", "Makes jam from fruit and sugar, in jars."),
+  "depot-chocolate": p("Chocolate factory", "Makes chocolate from cocoa and milk."),
+  "depot-flowers": p("Flower field", "Rows of flowers, picked into crates for flatbeds."),
+  "depot-dyeworks": p("Dye works", "Boils flowers into bright paint, in tins."),
+  "depot-toyworks": p("Toy workshop", "Makes toys from planks and paint."),
   "depot-power": p("Power station", "Burns coal so electric engines can run."),
   "depot-harbour": p("Harbour", "Ships bring and take goods here."),
   "depot-warehouse": p("Warehouse", "Keeps goods until a train takes them."),
@@ -99,6 +113,8 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-platform-furnished": p("Platform", "Passenger trains stop here."),
   "kit-country-halt": p("Country halt", "A little stop where passenger trains wait."),
   "kit-mountain-station": p("Mountain station", "A station up in the hills."),
+  "kit-metro-stop": p("Metro stop", "Under a town, its entrance by a green."),
+  "kit-lookout": p("Lookout halt", "On a hilltop: riders come for the view, at twice the fare."),
   "kit-harbour-station": p("Harbour station", "A station by the water."),
   "kit-two-platform-station": p("Two-platform station", "A station on two lines."),
   "kit-grand-terminus": p("Grand terminus", "A big station at the end of the line."),
@@ -162,6 +178,9 @@ const CAR_DETAIL: Record<CarKind, string> = {
   tanker: "Carries milk from a dairy farm.",
   reefer: "Keeps cheese, fish and ice cream cold on the way.",
   carrier: "Carries new cars from a car factory, on two decks.",
+  oiltank: "Carries oil from an oil well, or water from a water pump.",
+  crane: "Lifts a derailed train back on, or a stuck train off.",
+  mailvan: "Carries towns' mail to a post office, and the post on to towns.",
 };
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
@@ -191,6 +210,8 @@ export function trayInfo(item: TrayItem): ItemInfo {
       const look = item.looks?.[0] ?? "classic";
       if (kind === "engine") return p(item.label, engineDetail(look));
       const carries = CARRIES[kind];
+      // (A van carries a dozen goods since the goods chains: too long to list, it names a few.)
+      if (carries && carries.length > 7) return p(item.label, `Carries sacks and crates: ${listed([...carries.slice(0, 3).map((c) => CARGO[c].label.toLowerCase()), "more"])}.`);
       if (carries) return p(item.label, `Carries ${listed(carries.map((c) => CARGO[c].label.toLowerCase()))}.`);
       return p(item.label, LOOK_DETAIL[look] ?? CAR_DETAIL[kind]);
     }

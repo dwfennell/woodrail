@@ -2,7 +2,7 @@ import { CARGO, COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
 import { describeNeed, type Need } from "./blueprints";
-import { canResearch, chainBlock, chainOf, coinsShort, costOf, lacks, missingNeeds, nowTarget, QUEUE_MAX, queueOf, queuePlace, studying, studyLeft, studyTime } from "./research";
+import { aheadLacking, canResearch, chainBlock, chainOf, coinsShort, costOf, lacks, missingNeeds, nowTarget, QUEUE_MAX, queueOf, queuePlace, READING_ROOM, studying, studyLeft, studyTime } from "./research";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./tech";
 import { ruleOf } from "./things";
 
@@ -449,7 +449,21 @@ export function schoolCard(p: Progress): { piles: { label: string; count: number
   const piles = (Object.keys(goods) as CargoKind[]).map((k) => ({ label: GOODS_ICON[k], count: r.got[k] ?? 0, cap: goods[k]! }));
   // (A college studies twice as fast: said while it matters, the goods all in.)
   const fast = r.speed > 1 ? " (college: 2×)" : "";
-  return { piles, note: (studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}`) + then, idle: false };
+  return { piles, note: (studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}`) + then + readingAhead(p), idle: false };
+}
+
+/**
+ * The Reading room's line on the school's card: what the research up next has collected ahead, of what it needs
+ * (" · Reading ahead for Mills: 🌾3/6"); "" without the Reading room or nothing up next.
+ */
+export function readingAhead(p: Progress): string {
+  const r = p.research;
+  if (r.next === null || !p.learned.has(READING_ROOM)) return "";
+  const goods = costOf(r.next, p.learned).goods;
+  const kinds = Object.keys(goods) as CargoKind[];
+  if (kinds.length === 0) return "";
+  const parts = kinds.map((k) => `${GOODS_ICON[k]}${goods[k]! - aheadLacking(p, k)}/${goods[k]}`);
+  return ` · Reading ahead for ${label(r.next)}: ${parts.join(" ")}`;
 }
 
 /** The school's idle line, as a research finishes with nothing up next: "Larkfield school is idle: pick what to learn next". */

@@ -1,8 +1,7 @@
-import { growthOf } from "./town-life";
+import { statusOf } from "./town-life";
 import type { DepotState } from "../economy/economy";
 import type { Landscape, Town } from "../landscape";
 import { BLUEPRINTS, CITY_SCHOOL_ID, COLLEGE_SCHOOL_ID, SCHOOL_RANK, UNIVERSITY_SCHOOL_ID, type SchoolLevel } from "./blueprints";
-import { townStatus } from "./towns";
 import type { World } from "./world";
 
 /**
@@ -54,7 +53,8 @@ export const landmarkAt = (level: number): Landmark | undefined => LANDMARKS.fin
 
 /** The landmarks a town has. */
 export function townLandmarks(town: Town): Set<string> {
-  return new Set(town.buildings.flatMap((b) => (b.landmark ? [b.landmark] : [])));
+  // (Only `LANDMARKS`: a town's places and treats share `Building.landmark` but are never landmarks: game/places.ts.)
+  return new Set(town.buildings.flatMap((b) => (b.landmark && landmarkOf(b.landmark) ? [b.landmark] : [])));
 }
 
 /** The schools on the map (a school whose piece was taken up doesn't count). */
@@ -65,7 +65,7 @@ export function placedSchools(world: World): DepotState[] {
 /** The level of a school's town (0: not yet a village, or no town). */
 export function schoolTownLevel(world: World, d: DepotState): number {
   if (d.townId < 0 || !world.landscape.towns.some((t) => t.id === d.townId)) return 0;
-  return townStatus(growthOf(world, d.townId)).level;
+  return statusOf(world, d.townId).level;
 }
 
 /**
@@ -110,6 +110,11 @@ const SCHOOL_OF = new Map(BLUEPRINTS.flatMap((b) => (b.school ? [[b.id, b.school
 export function atSchool(world: World, d: DepotState, p: { readonly learned: ReadonlySet<string>; readonly research: { readonly current: string | null } }): boolean {
   const need = p.research.current === null ? undefined : SCHOOL_OF.get(p.research.current);
   return !need || schoolTakes(world, d, p.learned, need);
+}
+
+/** Does school `d` take goods for research `id` (one studied at a College or a University: only such a school)? */
+export function schoolTakesFor(world: World, d: DepotState, learned: ReadonlySet<string>, id: string): boolean {
+  return schoolTakes(world, d, learned, SCHOOL_OF.get(id));
 }
 
 /**

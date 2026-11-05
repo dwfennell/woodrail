@@ -1,4 +1,4 @@
-import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, createSample, getPieceDef, ignores, isBridge, isLift, isRamp, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
+import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, TRENCH_HALF, TRENCH_INSET, TRENCH_WALL, createSample, getPieceDef, ignores, isBridge, isLift, isRamp, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { hillsOf } from "./hill-shape";
 import { inTunnel } from "./clearance";
@@ -72,6 +72,42 @@ export function bridgeLevels(land: Landscape, type: PieceTypeId, flipped: boolea
   // A bridge ramp's high end counts toward the limit too.
   const rise = Math.max(0, ...getPieceDef(type, flipped).connectors.map((c) => c.y)) / RISER_HEIGHT;
   return whole >= 1 && whole + rise <= MAX_BRIDGE_LEVELS && Math.abs(n - whole) * RISER_HEIGHT <= TOL ? whole : 0;
+}
+
+/** The deepest an underpass's block reaches down to the ground off a hill's edge, in levels. */
+export const MAX_PLINTH_LEVELS = 3;
+const plinthSample = createSample();
+
+/**
+ * How many levels an underpass's wooden block stands on a plinth down to the ground: where it runs off a hill's edge
+ * (or along raised track), the block under its trench reaches down to the lowest ground under it, a whole number of
+ * levels below its ends, at most `MAX_PLINTH_LEVELS`. 0 on level ground at its ends' height (sunk into the felt or the
+ * hilltop), for anything but an underpass, or where the ground under it isn't whole levels down (a ramp's cutting) or
+ * rises over its ends anywhere (a hillside: see `checkPlacement`). A few dozen ground samples: called while one's held.
+ */
+export function plinthLevels(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): number {
+  if (type !== "underpass") return 0;
+  const g = getPieceDef(type, flipped).paths[0].geom;
+  const len = pathLength(g);
+  const ch = Math.cos(pose.heading);
+  const sh = Math.sin(pose.heading);
+  const hills = hillsOf(land.grid);
+  const out = TRENCH_HALF + TRENCH_WALL - 1;
+  let low = Infinity;
+  const n = Math.ceil((len - 2 * TRENCH_INSET) / 18);
+  for (let k = 0; k <= n; k++) {
+    samplePath(g, TRENCH_INSET + ((len - 2 * TRENCH_INSET) * k) / n, plinthSample);
+    for (const w of [-out, 0, out]) {
+      const lx = plinthSample.x - Math.sin(plinthSample.heading) * w;
+      const lz = plinthSample.z + Math.cos(plinthSample.heading) * w;
+      const ground = hills.groundBeside(pose.x + lx * ch - lz * sh, pose.z + lx * sh + lz * ch);
+      if (ground > y + 0.5) return 0;
+      low = Math.min(low, ground);
+    }
+  }
+  const levels = (y - low) / RISER_HEIGHT;
+  const whole = Math.round(levels);
+  return whole >= 1 && whole <= MAX_PLINTH_LEVELS && Math.abs(levels - whole) * RISER_HEIGHT <= TOL ? whole : 0;
 }
 
 /**
@@ -167,7 +203,7 @@ function gatherHolders(layout: Layout, x: number, z: number, ignoreId: Ignore): 
   for (const id of layout.pieceIds()) {
     if (ignores(ignoreId, id)) continue;
     const p = layout.getPiece(id)!;
-    if (p.type !== "riser" && !canStandOnArches(p.type) && !isLift(p.type)) continue;
+    if (p.type !== "riser" && p.type !== "underpass" && !canStandOnArches(p.type) && !isLift(p.type)) continue;
     if (Math.abs(p.pose.x - x) > r || Math.abs(p.pose.z - z) > r || layout.isLifted(id)) continue;
     holders.push(p);
   }
@@ -206,9 +242,9 @@ function restHeights(land: Landscape, near: readonly Holder[], x: number, z: num
   for (const p of near) {
     if (p.type === "riser") {
       if (Math.hypot(p.pose.x - x, p.pose.z - z) <= RISER_REACH) out.push(p.y + RISER_HEIGHT);
-    } else if (isBridge(p.type) || isLift(p.type) || isRamp(p.type) || bridgeLevels(land, p.type, p.flipped, p.pose, p.y) > 0) {
-      // Bridge ends, a ramp's (held up by its own support, or its arches), and a train lift's (its high end held up by
-      // its tower). (QA: a curve on a curved ramp's top wanted a riser there, standing in the ramp.)
+    } else if (isBridge(p.type) || isLift(p.type) || isRamp(p.type) || bridgeLevels(land, p.type, p.flipped, p.pose, p.y) > 0 || plinthLevels(land, p.type, p.flipped, p.pose, p.y) > 0) {
+      // Bridge ends, a ramp's (held up by its own support, or its arches), a train lift's (its high end held up by
+      // its tower), and an underpass's on its plinth off a hill's edge. (QA: a curve on a curved ramp's top wanted a riser there, standing in the ramp.)
       for (const f of feet(p.type, p.flipped, p.pose)) {
         if (Math.hypot(f.x - x, f.z - z) <= JOINT_POS_TOLERANCE) out.push(p.y + f.dy);
       }
@@ -253,6 +289,8 @@ export function checkSupport(
   if (isBridge(type)) return bridgeLevels(land, type, flipped, pose, y) > 0 ? { kind: "held", risers } : { kind: "unsupported" };
   // So does a ramp up off the ground (coming off a bridge or raised track).
   if (bridgeLevels(land, type, flipped, pose, y) > 0) return { kind: "held", risers };
+  // And an underpass off a hill's edge: its block stands on a plinth down to the ground.
+  if (plinthLevels(land, type, flipped, pose, y) > 0) return { kind: "held", risers };
   const near = gatherHolders(layout, pose.x, pose.z, ignoreId);
   for (const f of feet(type, flipped, pose)) {
     const fy = y + f.dy;

@@ -14,6 +14,7 @@ import { cpus } from "node:os";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { preview } from "vite";
+import { firstDownload } from "./first-download.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const args = process.argv.slice(2);
@@ -622,9 +623,15 @@ function bundleSize() {
       if (/^index-.*\.js$/.test(f)) entry = Math.max(entry, n);
     }
   } catch {}
+  // The entry and the chunks it imports statically: what a first visit fetches before any of the game runs.
+  let first = 0;
+  try {
+    for (const f of firstDownload(`${ROOT}/dist`)) first += readFileSync(`${ROOT}/dist/${f}`).length;
+  } catch {}
   return {
     jsKB: Math.round(js / 1024),
     entryJsKB: Math.round(entry / 1024),
+    firstJsKB: Math.round(first / 1024),
     cssKB: Math.round(css / 1024),
   };
 }
@@ -693,7 +700,7 @@ function table(run) {
   function fmt2(a, b) {
     return a === undefined || a === null ? "–" : `${a} / ${b}`;
   }
-  const head = `Perf run ${run.when} (${run.commit ?? "?"}), throttle ${run.settings.throttle}×, DPR ${run.settings.dpr}, 390×844; bundle JS ${run.bundle.jsKB} KB (entry ${run.bundle.entryJsKB} KB)\n\n`;
+  const head = `Perf run ${run.when} (${run.commit ?? "?"}), throttle ${run.settings.throttle}×, DPR ${run.settings.dpr}, 390×844; bundle JS ${run.bundle.jsKB} KB (entry ${run.bundle.entryJsKB} KB, first download ${run.bundle.firstJsKB} KB)\n\n`;
   let s = head + `| | ${ids.map((i) => run.maps[i].label ?? i).join(" | ")} |\n|---|${ids.map(() => "---").join("|")}|\n`;
   for (const [name, path] of rows) {
     const cells = ids.map((i) => {

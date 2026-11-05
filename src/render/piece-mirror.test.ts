@@ -1,7 +1,8 @@
 import { Box3, Mesh, MeshBasicMaterial, Vector3, type BufferGeometry } from "three";
 import { describe, expect, it } from "vitest";
 import { getPieceDef } from "../track";
-import { buildPieceGeometry, withPegs } from "./track-geometry";
+import { withPegs } from "./track-geometry";
+import { buildPieceGeometry } from "./piece-carve";
 import { pieceGeometry } from "./track-view";
 
 const box = (g: BufferGeometry) => new Box3().setFromObject(new Mesh(g, new MeshBasicMaterial()));
