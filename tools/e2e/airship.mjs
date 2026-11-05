@@ -214,7 +214,8 @@ if (!setup.error && setup.engine !== -1) {
   check("…full, it takes off on its tour", !!touring && touring.aboard === 8, JSON.stringify(touring));
   if (touring) {
     await p.evaluate(() => window.__run(15));
-    await p.waitForTimeout(1500);
+    // (Posed on the next frame drawn: slow under SwiftShader.)
+    await p.waitForFunction(() => (window.woodrail.airshipView.group.children[0]?.position.y ?? 0) > 200, null, { timeout: 30000 }).catch(() => {});
     const at = await p.evaluate(() => {
       const s = window.woodrail.airshipView.group.children[0];
       return s ? { x: s.position.x, y: s.position.y, z: s.position.z } : null;
