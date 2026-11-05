@@ -12,6 +12,11 @@
 // idle checks pause the game by its flag (a running train draws); the Worker's /crash is answered by the page's route,
 // read with the Worker's own parser (its handling is cloud/test/crash.test.ts's); a new session is a cleared flag.
 //
+// A phone frees its drawn-only geometry once uploaded (gpu-only.ts, the mobile tier only), so a loss there goes to the
+// card at once. `npm run e2e:gl-lost:desktop` (GL_LOST_DESKTOP=1) runs on a desktop instead (1440×900, a mouse, the
+// high tier): its copies are kept, and a brief loss comes back in place, the scene drawn again with no card; then it
+// stops (what follows is the phone's: the reload into a lean phone).
+//
 // Usage: npm run e2e:gl-lost [-- <out dir>]   (default out: e2e-out/gl-lost)
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -20,7 +25,10 @@ import { createServer } from "vite";
 import { pinClocks } from "../../scripts/e2e/pin-clocks.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/gl-lost";
+const DESKTOP = process.env.GL_LOST_DESKTOP === "1";
+const OUT = process.argv[2] ?? (DESKTOP ? "e2e-out/gl-lost-desktop" : "e2e-out/gl-lost");
+/** The device, as the crash report should give it. */
+const DEVICE = DESKTOP ? { dpr: 1, pr: 1, tier: "high" } : { dpr: 2.625, pr: 2, tier: "mobile" };
 mkdirSync(OUT, { recursive: true });
 const FEEDBACK = "http://feedback.test";
 process.env.VITE_FEEDBACK_URL = FEEDBACK;
@@ -30,12 +38,14 @@ const { parseCrash } = await server.ssrLoadModule("/cloud/src/crash.ts");
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const ctx = await b.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, hasTouch: true, isMobile: true });
+const ctx = await b.newContext(DESKTOP ? { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 } : { viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, hasTouch: true, isMobile: true });
 // (The station clocks held still: they draw a frame each minute, which an idle check could catch.)
 await pinClocks(ctx);
 const p = await ctx.newPage();
 const errors = [];
 p.on("pageerror", (e) => { if (!e.message.includes("e2e: on purpose")) errors.push(e.message); });
+// (A geometry uploaded again after its data was freed draws nothing: gpu-only.ts says so.)
+p.on("console", (m) => { if (m.type() === "error" && m.text().includes("uploaded again")) errors.push(m.text().slice(0, 200)); });
 /** Crash reports the game sent, as posted. */
 const crashes = [];
 await ctx.route(`${FEEDBACK}/**`, async (route) => {
@@ -59,6 +69,24 @@ const openMenu = async () => {
   if (!open) await tap(".hud button[title='Menu'], button[aria-label='Menu']");
 };
 const menuItem = (text) => p.evaluate((t) => [...document.querySelectorAll(".menu-item")].find((e) => e.textContent.startsWith(t))?.textContent ?? null, text);
+/**
+ * Tap ☰'s "Crash reports" till it reads `want` (waited for, not slept on: under load a tap can land late or not at
+ * all; tapped again only if it never changed).
+ */
+const switchCrashReports = async (want) => {
+  const reads = () => p.waitForFunction((w) => [...document.querySelectorAll(".menu-item")].some((e) => e.textContent === w), want, { timeout: 8000 }).then(() => true, () => false);
+  for (let i = 0; i < 2; i++) {
+    await openMenu();
+    await tap(".menu-item", "Crash reports");
+    if (await reads()) return;
+  }
+};
+/** Wait for the next crash report to be posted (up to 20 s), then for it to be in `crashes`. */
+const nextCrash = async (n) => {
+  await p.waitForRequest((r) => r.url().endsWith("/crash"), { timeout: 20000 }).catch(() => {});
+  // (The route's handler records it a moment after the request.)
+  for (let i = 0; i < 40 && crashes.length < n; i++) await p.waitForTimeout(50);
+};
 await p.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
   localStorage.setItem("woodrail.stats.asked", "1");
@@ -106,8 +134,13 @@ await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game butt
 await inPlay();
 await settle();
 await p.keyboard.press("Escape");
-const q0 = await p.evaluate(() => ({ tier: window.woodrail.quality.tier, lean: window.woodrail.quality.lean, pr: window.woodrail.renderer.getPixelRatio() }));
-check("a phone: the mobile tier at a pixel ratio of 2, not lean", q0.tier === "mobile" && !q0.lean && q0.pr === 2, JSON.stringify(q0));
+const q0 = await p.evaluate(() => ({ tier: window.woodrail.quality.tier, lean: window.woodrail.quality.lean, pr: window.woodrail.renderer.getPixelRatio(), inPlace: window.woodrail.restoreInPlace }));
+if (DESKTOP) {
+  check("a desktop: the high tier, its CPU copies kept (restores in place)", q0.tier === "high" && !q0.lean && q0.inPlace === true, JSON.stringify(q0));
+} else {
+  check("a phone: the mobile tier at a pixel ratio of 2, not lean", q0.tier === "mobile" && !q0.lean && q0.pr === 2, JSON.stringify(q0));
+  check("…its drawn-only geometry freed once uploaded (a loss reloads)", q0.inPlace === false, JSON.stringify(q0));
+}
 {
   const n = await idleFrames();
   check("idle: nothing drawn", n === 0, `${n} frames`);
@@ -126,7 +159,7 @@ if (!inPlace) {
   const c0 = crashes[0] ? JSON.parse(crashes[0]) : null;
   check("a crash report sent for the loss", crashes.length === 1 && c0?.kind === "context-lost", `${crashes.length} sent`);
   check("…holding only the error and the device: no map, no save", !!c0 && JSON.stringify(Object.keys(c0).sort()) === JSON.stringify(["build", "kind", "message", "pixelRatio", "quality", "screen", "stack", "userAgent"]) && !crashes[0].includes("woodrail-map"), crashes[0]);
-  check("…the screen, DPR and tier", c0?.screen?.dpr === 2.625 && c0?.pixelRatio === 2 && c0?.quality === "mobile", JSON.stringify({ screen: c0?.screen, pr: c0?.pixelRatio, q: c0?.quality }));
+  check("…the screen, DPR and tier", c0?.screen?.dpr === DEVICE.dpr && c0?.pixelRatio === DEVICE.pr && c0?.quality === DEVICE.tier, JSON.stringify({ screen: c0?.screen, pr: c0?.pixelRatio, q: c0?.quality }));
   check("…which the Worker takes", typeof parseCrash(c0) === "object");
   await shot("1-card-at-once");
   if (b0) await p.touchscreen.tap(b0.x, b0.y);
@@ -149,8 +182,17 @@ await p.waitForTimeout(500);
 const first = crashes[0] ? JSON.parse(crashes[0]) : null;
 check("a crash report sent for the loss", crashes.length === 1 && first?.kind === "context-lost", `${crashes.length} sent`);
 check("…holding only the error and the device: no map, no save", !!first && JSON.stringify(Object.keys(first).sort()) === JSON.stringify(["build", "kind", "message", "pixelRatio", "quality", "screen", "stack", "userAgent"]) && !crashes[0].includes("woodrail-map"), crashes[0]);
-check("…the screen, DPR and tier", first?.screen?.dpr === 2.625 && first?.pixelRatio === 2 && first?.quality === "mobile", JSON.stringify({ screen: first?.screen, pr: first?.pixelRatio, q: first?.quality }));
+check("…the screen, DPR and tier", first?.screen?.dpr === DEVICE.dpr && first?.pixelRatio === DEVICE.pr && first?.quality === DEVICE.tier, JSON.stringify({ screen: first?.screen, pr: first?.pixelRatio, q: first?.quality }));
 check("…which the Worker takes", typeof parseCrash(first) === "object");
+}
+
+// The desktop's run ends here: the rest is the phone's (a reload into a lean phone, by taps).
+if (DESKTOP) {
+  check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+  console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
+  await b.close();
+  await server.close();
+  process.exit(failures === 0 ? 0 : 1);
 }
 
 // 3. Lost for good: a piece laid just before, the card, a tap to reload.
@@ -187,19 +229,19 @@ await shot("3-lean");
 await openMenu();
 check("☰ says “Crash reports: on”", (await menuItem("Crash reports")) === "Crash reports: on");
 await shot("4-menu");
-await tap(".menu-item", "Crash reports");
+await switchCrashReports("Crash reports: off");
 check("…a tap: “Crash reports: off”, kept", (await menuItem("Crash reports")) === "Crash reports: off" && (await p.evaluate(() => localStorage.getItem("woodrail.crashReports"))) === "off");
 await p.keyboard.press("Escape");
 // (A new session: the once-a-session flag cleared.)
 await p.evaluate(() => { sessionStorage.removeItem("woodrail.crashSent"); setTimeout(() => { throw new Error("e2e: on purpose, off"); }); });
 await p.waitForTimeout(1500);
 check("off: an error sends nothing", crashes.length === 1, `${crashes.length} sent`);
-await openMenu();
-await tap(".menu-item", "Crash reports");
+await switchCrashReports("Crash reports: on");
 check("…on again", (await menuItem("Crash reports")) === "Crash reports: on");
 await p.keyboard.press("Escape");
+const posted = nextCrash(2);
 await p.evaluate(() => setTimeout(() => { throw new Error("e2e: on purpose, on"); }));
-await p.waitForTimeout(1500);
+await posted;
 const err = crashes[1] ? JSON.parse(crashes[1]) : null;
 check("on: an uncaught error sends one, its stack's links cut short", crashes.length === 2 && err?.kind === "error" && err.message.includes("on purpose, on") && !/https?:|localhost/.test(err.stack) && err.quality === "mobile-lean", crashes[1] ?? "");
 

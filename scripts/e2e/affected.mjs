@@ -59,6 +59,7 @@ export const SUITES = {
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   post: { script: "e2e:post", minutes: 5 },
   "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
+  "gl-lost-desktop": { script: "e2e:gl-lost:desktop", minutes: 2 },
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   power: { script: "e2e:power", minutes: 6 },
@@ -149,7 +150,9 @@ export const RULES = [
   // Rendering.
   ["src/render/**", ["touch", "click", "life"]],
   // The drawing lost and back, the card to reload, and lean settings after (and what the post-processing makes).
-  [["src/render/post.ts", "src/render/quality.ts", "src/render/stage.ts", "src/ui/context-lost.ts", "src/game/game.ts"], ["gl-lost"]],
+  [["src/render/post.ts", "src/render/quality.ts", "src/render/stage.ts", "src/ui/context-lost.ts", "src/game/game.ts"], ["gl-lost", "gl-lost-desktop"]],
+  // Drawn-only geometry freed on phones, kept on desktops (in-place restore): both of gl-lost's paths.
+  [["src/render/gpu-only.ts", "tools/e2e/gl-lost.mjs", "tools/e2e/gl-lost-desktop.mjs"], ["gl-lost", "gl-lost-desktop"]],
   ["src/render/clock-*", ["station-clock"]],
   ["src/render/hopper-load.ts", ["hopper-load"]],
   ["src/render/station-touches.ts", ["station-touches"]],

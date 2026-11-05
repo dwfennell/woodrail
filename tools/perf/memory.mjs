@@ -4,7 +4,7 @@
 // geometry three keeps; at load and again after `--play` seconds of play (trains running, pans now and then). Also load
 // time and frame time. `--snapshots` writes heap snapshots at load and at the end (open both in DevTools: Comparison).
 //
-//   npm run build && node tools/perf/memory.mjs [--map late] [--play 600] [--root <dir with dist/>] [--out <dir>]
+//   npm run build && node tools/perf/memory.mjs [--desktop] [--map late] [--play 600] [--root <dir with dist/>] [--out <dir>]
 import { mkdirSync, readFileSync, writeFileSync, createWriteStream } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
@@ -21,6 +21,8 @@ const PLAY_S = Number(opt("play", 600));
 const ROOT = opt("root", process.cwd());
 const OUT = opt("out", `perf-out/memory-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
 const SNAPSHOTS = args.includes("--snapshots");
+/** A desktop (1440×900, DPR 1, a mouse: the high tier, its CPU copies kept) instead of the phone. */
+const DESKTOP = args.includes("--desktop");
 /** Measure the moment it's ready, not once its background work has settled (what grows after load), and sample every 10 s. */
 const EARLY = args.includes("--early");
 mkdirSync(OUT, { recursive: true });
@@ -33,7 +35,7 @@ const browser = await chromium.launch({
   headless: false,
   args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--enable-precise-memory-info"],
 });
-const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, hasTouch: true, isMobile: true });
+const ctx = await browser.newContext(DESKTOP ? { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 } : { viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, hasTouch: true, isMobile: true });
 const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
