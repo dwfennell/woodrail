@@ -179,7 +179,8 @@ const CAR_DETAIL: Record<CarKind, string> = {
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
   dining: "Passengers eat on the way.",
-  sleeper: "Passengers sleep on long trips.",
+  sleeper: "Bunks: riders going a long way pay more.",
+  observation: "Glass all round: riders pay more over bridges and hills.",
   "double-decker": "Two floors of passengers.",
   "first-class": "Comfy seats for passengers.",
   "bay-window": "Goes at the back. Its windows look out to the sides.",

@@ -107,6 +107,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
   { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
   { kind: "train", cars: ["passenger"], looks: ["first-class"], label: "First class" },
+  { kind: "train", cars: ["passenger"], looks: ["observation"], label: "Observation car" },
   { kind: "train", cars: ["caboose"], label: "Caboose", gameDetail: CABOOSE_DETAIL },
   { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay caboose", gameDetail: CABOOSE_DETAIL },
 ];

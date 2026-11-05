@@ -180,7 +180,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
  * Cars in a look of their own that needs a blueprint (the passenger line's coaches, the express engine). Other looks
  * come with the car.
  */
-export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine", rack: "rack" };
+export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine", rack: "rack", sleeper: "sleeper", observation: "observation" };
 
 /** A thing's whole price, for cards, by icon as tickets show it: "12\uE000 30🪙" ("free" if nothing). */
 export function costText(rule: ThingRule): string {

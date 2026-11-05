@@ -351,6 +351,8 @@ export interface DepotState {
 export interface Riders {
   count: number;
   from: number;
+  /** They've been over a bridge or along a hilltop on this ride (an observation car's riders pay more: `markScenic`). */
+  scenic?: boolean;
 }
 
 export interface CarCargo {
@@ -1145,7 +1147,17 @@ export class Economy {
   setRiders(carId: number, count: number, from: number): void {
     this.loadsVersion++;
     if (count <= 0) this.riders.delete(carId);
-    else this.riders.set(carId, { count, from });
+    else {
+      // (Riders getting off or on keep the view the coach has had: not saved, a load starts the ride's view afresh.)
+      const scenic = this.riders.get(carId)?.scenic;
+      this.riders.set(carId, scenic ? { count, from, scenic } : { count, from });
+    }
+  }
+
+  /** The people on this coach have had a view (over a bridge, along a hilltop): see `Riders.scenic`. */
+  markScenic(carId: number): void {
+    const r = this.riders.get(carId);
+    if (r && !r.scenic) r.scenic = true;
   }
 
   /**
@@ -2354,8 +2366,9 @@ export class Economy {
         const r = this.riders.get(s.carId);
         if (alight) {
           const from = this.depots[r!.from];
-          this.setRiders(s.carId, r!.count - 1, r!.from);
+          // (Paid while still aboard: the fare reads what the coach's riders have had, `Riders.scenic`.)
           if (from) this.onAlight?.(from, d, s.carId);
+          this.setRiders(s.carId, r!.count - 1, r!.from);
           this.stationNote("off", d.pieceId, s.trainId, s.carId);
         } else {
           d.waiting--;
