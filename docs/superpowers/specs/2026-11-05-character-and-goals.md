@@ -240,7 +240,7 @@ Every town keeps the plain ones. The paint shop offers the path's colours as liv
 
 | Asset | Stage 1 | Stage 2 | Stage 3 |
 |---|---|---|---|
-| Grand Exhibition hall | 2,088 | 4,378 | 5,048 |
+| Grand Exhibition hall (redone in the town buildings' style) | 4,344 | 5,784 | 9,688 |
 | Cathedral | 2,832 | 3,444 | 2,108 |
 | Royal Train | 2,616 | 4,124 | 4,116 |
 | Grand Central station | 2,628 | 4,378 | 3,850 |
@@ -453,7 +453,7 @@ A ladder of big builds, each at a site you choose in a city.
   - The ribbon's ⌖ (Show me) frames the site.
   - A tap opens the project card: stages, goods, and which train is bringing what.
   - The site is a marker in the 🗺 map view.
-  - Mock: `design-character-project.jpg`.
+  - Mock: `docs/agents/shots/design-option-project.jpg`.
 - **Size: L (4–5 sessions).**
   1. The site depot, stages and card (Town hall only).
   2. The ribbon, the map marker and saves.
@@ -633,8 +633,16 @@ where they exist; the rest are system emoji.
   chip, grain in place of flour, the line saying why, and the windmill landmark beside it.
 - `docs/agents/shots/design-character-paths.jpg`: the City growth sheet with **paths**: Industrial, Market, and
   Seaside resort (locked: no sea near).
-- `docs/agents/shots/design-character-project.jpg`: the **project ribbon** in the goal bar's place, the exhibition
-  ground pinned on the map, and the project card's four stages.
+- `docs/agents/shots/design-option-project.jpg`: the **project ribbon** in the goal bar's place, the real
+  Exhibition hall half built beside a city, and the project card's four stages. This replaces an earlier mock built
+  from stray stand-in props, which the user said looked broken.
+- **The other goal structures** (Part 2's options), as clean mocks on the game's own camera:
+  - `docs/agents/shots/design-option-chapters.jpg`: **chapters**. The Railway Storybook: chapter 4 of 8, its four
+    tasks, the chapter's gift, and the goal bar showing the chapter.
+  - `docs/agents/shots/design-option-jubilee.jpg`: **a yearly Jubilee score**. Each game year's report: stars, what
+    grew, what makes the next star, and the Jubilee at year 10.
+  - `docs/agents/shots/design-option-events.jpg`: **cozy events**. The circus train comes to call and waits for a
+    route; the other events are shown as chips.
 - `docs/agents/shots/design-character-map.jpg`: neighbouring plots as **regions** (Fens, Highlands), with sights
   and a ❓ secret pinned, and the Add land card naming the region.
 - `docs/agents/shots/design-character-new-game.jpg`: **map shapes** on New game.

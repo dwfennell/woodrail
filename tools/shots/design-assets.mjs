@@ -59,6 +59,36 @@ await p.addStyleTag({
 #mock .legend s { text-decoration: none; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
 #mock .line { font-size: 13px; line-height: 1.35; color: #5e4128; margin-top: 8px; }
 #mock .line b { color: #2b2118; }
+#mock .ribbon { position: absolute; left: 12px; right: 12px; top: 74px; background: rgba(250,243,230,0.96); border-radius: 16px; box-shadow: 0 4px 18px rgba(60,40,20,0.2); padding: 7px 12px; display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: 14px; }
+#mock .ribbon .bar { flex: 1; height: 10px; background: #efe2cc; border-radius: 6px; overflow: hidden; }
+#mock .ribbon .bar i { display: block; height: 100%; background: linear-gradient(90deg, #e9b949, #d9902c); }
+#mock .ribbon .show { width: 34px; height: 34px; border-radius: 50%; background: #efe2cc; display: grid; place-items: center; font-size: 17px; }
+#mock .stage { display: flex; gap: 10px; align-items: flex-start; margin-top: 8px; font-size: 13.5px; }
+#mock .stage .dot { width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 13px; background: #efe2cc; color: #74522f; }
+#mock .stage.done .dot { background: #8fd08a; color: #13310f; }
+#mock .stage.now .dot { background: #e9b949; color: #3a2a1c; }
+#mock .goods { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+#mock .goods span { background: #fffaf0; border-radius: 8px; padding: 2px 7px; font-weight: 800; font-size: 13px; box-shadow: inset 0 -2px 0 rgba(176,122,68,0.25); }
+#mock .sub { text-align: center; font-size: 13px; color: #74522f; margin-top: 2px; font-weight: 700; }
+#mock .tabs { display: flex; gap: 6px; justify-content: center; margin-top: 10px; }
+#mock .tabs span { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 900; font-size: 13px; background: #efe2cc; color: #74522f; }
+#mock .tabs span.done { background: #8fd08a; color: #13310f; }
+#mock .tabs span.now { background: #e9b949; color: #3a2a1c; box-shadow: 0 0 0 2px #3a2a1c inset; }
+#mock .task { display: flex; gap: 10px; align-items: center; margin-top: 9px; font-size: 14.5px; font-weight: 800; }
+#mock .task .box { width: 24px; height: 24px; border-radius: 7px; flex: none; display: grid; place-items: center; background: #efe2cc; font-size: 14px; }
+#mock .task.done { color: #74522f; }
+#mock .task.done .box { background: #8fd08a; color: #13310f; }
+#mock .gift { margin-top: 12px; background: #fdf3cf; border-radius: 12px; padding: 8px 12px; font-size: 13.5px; font-weight: 800; }
+#mock .stat { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; font-size: 14.5px; font-weight: 800; }
+#mock .stat em { font-style: normal; color: #5aa35a; font-size: 13px; }
+#mock .stars { text-align: center; font-size: 30px; letter-spacing: 3px; color: #e3a43a; margin-top: 6px; }
+#mock .stars s { text-decoration: none; color: #e4d6bd; }
+#mock .toast { position: absolute; left: 24px; right: 24px; top: 128px; background: #fdf3cf; border-left: 6px solid #e9b949; border-radius: 10px; padding: 10px 14px; font-weight: 900; font-size: 15px; box-shadow: 0 4px 14px rgba(60,40,20,0.25); }
+#mock .btns { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+#mock .btn { background: #5aa35a; color: #fff; font-weight: 900; border-radius: 12px; padding: 10px 16px; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.18); font-size: 14px; }
+#mock .btn.soft { background: #efe2cc; color: #3a2a1c; }
+#mock .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; justify-content: center; }
+#mock .chips span { background: #fffaf0; border-radius: 999px; padding: 4px 10px; font-weight: 800; font-size: 12.5px; box-shadow: inset 0 -2px 0 rgba(176,122,68,0.25); }
 #mock .note { position: absolute; left: 0; right: 0; top: 4px; text-align: center; font-size: 11px; font-weight: 800; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
 `,
 });
@@ -102,6 +132,17 @@ const screenOf = (x, z, y = 0) =>
     },
     { x, z, y },
   );
+/** The camera at (dist, phi, theta), panned so world point (x, z) shows at screen (sx, sy). */
+const frame = async (x, z, dist, phi, theta, sx, sy) => {
+  await look(x, z, dist, phi, theta);
+  const s0 = await screenOf(x, z);
+  const a1 = await screenOf(x + 100, z);
+  const b1 = await screenOf(x, z + 100);
+  const a = (a1.x - s0.x) / 100, b = (b1.x - s0.x) / 100, c = (a1.y - s0.y) / 100, d = (b1.y - s0.y) / 100;
+  const ex = s0.x - sx, ey = s0.y - sy;
+  const det = a * d - b * c;
+  await look(x + (d * ex - b * ey) / det, z + (-c * ex + a * ey) / det, dist, phi, theta);
+};
 /** Put props down (asset, x, z, heading); returns their ids. Waits for their models. */
 const put = (list) =>
   p.evaluate(async (list) => {
@@ -355,6 +396,108 @@ if (want("path")) {
   );
   await p.evaluate(() => document.querySelectorAll(".tray").forEach((el) => (el.style.visibility = "hidden")));
   await shot("design-character-leaning");
+}
+
+// ---- The options, as mocks on clean game views (HTML over the game; the hall is the real asset) -------------------------
+if (want("options")) {
+  await growAll(3);
+  const hide = () => p.evaluate(() => document.querySelectorAll(".goals, .tray, .toast, .card, .reward-badge, .growth-sheet").forEach((el) => (el.style.visibility = "hidden")));
+  // 1. The grand project: the Great Exhibition half built beside a city, the ribbon in the goal bar's place, its card.
+  const T = TOWNS[2] ?? TOWNS[0];
+  const site = await findOpen(340, 200, T.x + 300, T.z + 300);
+  const hall = await put([["grand-exhibition-2", site[0], site[1], 0]]);
+  await frame(site[0], site[1], 1500, 0.95, Math.PI / 4, 195, 470);
+  const pin = await screenOf(site[0], site[1], 110);
+  await overlay(
+    `<div class="ribbon"><span>🏛️ Great Exhibition</span><span style="color:#74522f;font-size:12.5px">2 of 4</span><span class="bar"><i style="width:46%"></i></span><span style="font-size:12.5px">46%</span><span class="show">⌖</span></div>
+     <div class="pin" style="left:${pin.x}px;top:${pin.y}px">🏗️ The iron hall</div>
+     <div class="sheet">
+       <h2>The Great Exhibition</h2>
+       <div class="sub">beside ${T.name} · the whole map builds it</div>
+       <div class="stage done"><div class="dot">✓</div><div><b>Foundations</b><div class="goods"><span>🪨 40 stone</span><span> 30 planks</span></div></div></div>
+       <div class="stage now"><div class="dot">2</div><div><b>The iron hall</b> · a train is bringing bricks<div class="goods"><span>⚙️ 22/40 iron</span><span>🧱 11/30 bricks</span></div></div></div>
+       <div class="stage"><div class="dot">3</div><div><b>The stands</b> · an exhibit from 3 kinds of city</div></div>
+       <div class="stage"><div class="dot">4</div><div><b>Opening day</b> · the Royal Train, then the report card</div></div>
+     </div>`,
+    false,
+  );
+  await hide();
+  await shot("design-option-project");
+  await takeAway(hall);
+
+  // 2. Chapters: the railway's storybook.
+  await look(MID.x, MID.z, 4200, 0.7, Math.PI / 4);
+  await overlay(
+    `<div class="ribbon"><span>📖 Chapter 4</span><span style="color:#74522f;font-size:12.5px">2 of 4</span><span class="bar"><i style="width:50%;background:#8fd08a"></i></span><span class="show">⌖</span></div>
+     <div class="sheet">
+       <h2>The line to the coast</h2>
+       <div class="sub">Chapter 4 of 8 · the Railway Storybook</div>
+       <div class="tabs"><span class="done">1</span><span class="done">2</span><span class="done">3</span><span class="now">4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+       <div class="task done"><span class="box">✓</span>Buy the plot by the sea</div>
+       <div class="task done"><span class="box">✓</span>Bridge the river</div>
+       <div class="task"><span class="box"></span>Run a train to the beach halt</div>
+       <div class="task"><span class="box"></span>Bring 10 🐟 fish back to a town</div>
+       <div class="gift">🎁 Chapter gift: a seaside station and a striped canopy for every station on the line</div>
+       <div class="line">Next: <b>Chapter 5 · Fair weather</b>, the first fair by train.</div>
+     </div>`,
+    false,
+  );
+  await hide();
+  await shot("design-option-chapters");
+
+  // 3. The yearly Jubilee report.
+  await look(TOWNS[0].x + 200, TOWNS[0].z, 2600, 0.8, Math.PI / 4);
+  await overlay(
+    `<div class="sheet" style="top:96px;bottom:auto">
+       <h2>Your railway's year</h2>
+       <div class="sub">Spring 2003 · year 3 of 10 to the Jubilee</div>
+       <div class="stars">★★★<s>★★</s></div>
+       <div class="stat"><span>🏙️ Towns grown</span><span>2 cities, 2 towns <em>+2</em></span></div>
+       <div class="stat"><span>📦 Loads carried</span><span>412 <em>+180</em></span></div>
+       <div class="stat"><span>🧺 Kinds of goods</span><span>7 <em>+2</em></span></div>
+       <div class="stat"><span>🛤️ Longest line</span><span>38 pieces <em>+9</em></span></div>
+       <div class="stat"><span>🧑 Riders</span><span>260 <em>+140</em></span></div>
+       <div class="line" style="margin-top:12px"><b>For a 4th star:</b> join the fourth town, or carry a new kind of good.</div>
+       <div class="gift">🎖️ A rosette for the station at Larkfield. At year 10, the Jubilee: every town's best, on one card, and a parade by train.</div>
+       <div class="btns"><span class="btn">Lovely!</span></div>
+     </div>`,
+    false,
+  );
+  await hide();
+  await shot("design-option-jubilee");
+
+  // 4. Cozy events: the circus train comes to call.
+  const t0 = TOWNS[1];
+  const ev = await findOpen(900, 200, t0.x, t0.z + 400);
+  const evLine = await p.evaluate(
+    ({ ex, ez }) => {
+      const w = window.woodrail;
+      const run = [0, 1, 2, 3].map((n) => ({ type: "straight-216", pose: { x: ex - 432 + n * 216, z: ez, heading: 0 }, y: 0, flipped: false }));
+      const pieces = w.editor().placeRun(run);
+      const r = w.sim.addTrain(["engine", "passenger", "passenger", "passenger"], { pieceId: pieces[2], pathIndex: 0, s: 150, reversed: false });
+      w.invalidate();
+      return { pieces, r: r.kind };
+    },
+    { ex: ev[0], ez: ev[1] },
+  );
+  console.log("event line", JSON.stringify(evLine));
+  const tents = await put([["scene-tent", ev[0] - 80, ev[1] - 90, 0.3], ["scene-bunting", ev[0] + 40, ev[1] - 70, 0], ["scene-tent", ev[0] + 60, ev[1] - 110, -0.4]]);
+  await frame(ev[0], ev[1] - 30, 1250, 0.9, Math.PI / 4, 195, 400);
+  await overlay(
+    `<div class="toast">🎪 The circus train has come to call!</div>
+     <div class="sheet">
+       <h2>The circus train</h2>
+       <div class="sub">a visiting train · it waits until you're ready</div>
+       <div class="line" style="text-align:center"><b>Give it a route through 3 towns.</b> Wherever it stops, crowds come to see, and that town grows a little.</div>
+       <div class="btns"><span class="btn">Plan its route</span><span class="btn soft">Later</span></div>
+       <div class="chips"><span>🚢 A big ship wants 30 planks</span><span>🌾 Harvest: farms give double in Sep</span><span>👑 A royal visit</span><span>🎡 Fair week</span></div>
+       <div class="line" style="text-align:center">Events never close a line or take anything away.</div>
+     </div>`,
+    false,
+  );
+  await hide();
+  await shot("design-option-events");
+  await takeAway(tents);
 }
 
 await b.close();

@@ -1,6 +1,6 @@
 import { Group, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
-import { goodsStacks, hoarding, named, pennant, plinth, ribs, scaffold, stick, towerCrane, vault, vaultZ } from "../build-parts";
+import { goodsStacks, hoarding, named, pennant, plinth, ribs, scaffold, stick, towerCrane, vault } from "../build-parts";
 import type { Asset } from "../types";
 
 /** Glass as the toys paint it: a pale sky-blue lacquer (the game's glass material draws dark in the props' batches). */
@@ -18,68 +18,191 @@ export const STAGES: readonly Stage[] = [1, 2, 3];
 
 const CAT = "Stations & buildings" as const;
 
-// ——— The Grand Exhibition hall: glass and iron ———
+// ——— The Grand Exhibition hall: glass and iron, in the town buildings' toy style ———
+
+/** The town buildings' colours (tools/blender/bldg_parts.py): printed-look windows, stone, frames. */
+const WIN = "#2b3644";
+const STONE = "#b9b2a5";
+const FRAME = "#fbf6ec";
+/** Victorian ironwork, in the toy's green. */
+const IRON = "#2d6b3f";
+
+/** A printed-look window on a wall facing ±z (its face at z): a dark pane in a white surround, just proud of the wall. */
+function winZ(k: Kit, x: number, y: number, z: number, w = 9, h = 13): Group {
+  const g = new Group();
+  g.add(k.box(k.paint(FRAME), w + 2, h + 2, 1, 0, 0, -1, 0), k.box(k.paint(WIN), w, h, 1.3, 0, 0, 0, 0));
+  return k.at(g, x, y, z);
+}
+
+/** The same on a wall facing ±x. */
+function winX(k: Kit, x: number, y: number, z: number, w = 9, h = 13): Group {
+  return k.at(winZ(k, 0, 0, 0, w, h), x, y, z, Math.PI / 2);
+}
+
+/** A half-round glass end to a vault along x: a pane with an iron rim and three glazing bars, facing ±x at x. */
+function vaultEnd(k: Kit, r: number, x: number, y: number, z = 0): Group {
+  const g = new Group();
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= 12; i++) pts.push([Math.cos((i / 12) * Math.PI) * r, Math.sin((i / 12) * Math.PI) * r]);
+  const pane = k.extrude(k.paint(GLASS), pts, 2, 0, 0, 0, 0.3);
+  g.add(pane);
+  g.add(k.ring(k.paint(IRON), r, 2, 0, 0, 0, true, Math.PI));
+  for (const a of [Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4]) {
+    const bar = k.box(k.paint(IRON), 2, r, 2.6, 0, 0, 0, 0);
+    bar.geometry.translate(0, r / 2, 0);
+    bar.position.set(0, 0, 0);
+    bar.rotation.z = a - Math.PI / 2;
+    g.add(bar);
+  }
+  g.add(k.box(k.paint(IRON), 2 * r, 2.4, 2.6, 0.6, 0, 0, 0));
+  return k.at(g, x, y, z, Math.PI / 2);
+}
+
+/** A glass vault along x on its iron ribs: `len` long, radius `r`, springing at y; glazed over `glazed` of its length from −x. */
+function glassVault(k: Kit, r: number, len: number, x: number, y: number, z: number, glazed = len): Group {
+  const g = new Group();
+  const n = Math.max(2, Math.round(len / 26));
+  g.add(ribs(k, k.paint(IRON), r + 0.5, len, n + 1, x, y, z, 2.2));
+  if (glazed > 0) g.add(vault(k, k.paint(GLASS), r, glazed, x - len / 2 + glazed / 2, y, z, 16));
+  // The ridge and two purlins along it (a little of the toy's chunk), over the glazed part.
+  if (glazed > 0) {
+    g.add(k.box(k.paint(IRON), glazed, 3, 4, 1, x - len / 2 + glazed / 2, y + r - 1, z));
+    for (const s of [-1, 1]) {
+      const p = k.box(k.paint(IRON), glazed, 2, 2.5, 0, 0, 0, 0);
+      p.position.set(x - len / 2 + glazed / 2, y + r * Math.sin(Math.PI / 4) - 1, z + s * r * Math.cos(Math.PI / 4));
+      p.rotation.x = -s * (Math.PI / 4);
+      g.add(p);
+    }
+  }
+  return g;
+}
+
+/** The front porch (+x): a cream block with a pediment, a red door, a clock lantern like the market hall's. */
+function porch(k: Kit, x: number, y: number): Group {
+  const g = new Group();
+  const cream = k.paint(TOY.cream);
+  g.add(k.box(cream, 26, 30, 40, 3, 0, 0, 0));
+  g.add(k.extrude(cream, [[-22, 0], [22, 0], [0, 12]], 28, 0, 0, 0, 0.6).rotateY(Math.PI / 2).translateY(30));
+  g.add(k.box(k.paint(TOY.red), 1.4, 18, 12, 0.8, 13.4, 0, 0), k.box(k.paint(TOY.yellow), 1.6, 1.6, 4, 0.4, 14, 9, 3));
+  for (const z of [-13, 13]) g.add(winX(k, 13.4, 12, z, 7, 11));
+  // The clock lantern.
+  g.add(k.box(k.paint(TOY.white), 12, 10, 12, 1.4, 0, 40, 0));
+  g.add(k.cylX(k.paint(TOY.white), 3.8, 1.2, 6.4, 45, 0, 16), k.box(k.paint(TOY.black), 0.6, 3, 0.6, 0, 7.1, 45, 0), k.box(k.paint(TOY.black), 0.6, 0.6, 2.4, 0, 7.1, 45, 1));
+  g.add(k.cone(k.paint(TOY.teal), 10.6, 9, 0, 50, 0, 4).rotateY(Math.PI / 4), k.ball(k.paint(TOY.yellow), 1.6, 0, 60, 0));
+  return k.at(g, x, y, 0);
+}
+
+/** A turned lamp post, its foot at (x, y, z). */
+function lampPost(k: Kit, x: number, y: number, z: number): Group {
+  const g = new Group();
+  g.add(k.cyl(k.paint(TOY.black), 2.4, 3, 0, 0, 0, 2, 10), k.cyl(k.paint(TOY.black), 1, 26, 0, 3, 0, 1, 8));
+  g.add(k.ball(k.paint(TOY.yellow), 2.8, 0, 31, 0), k.cone(k.paint(TOY.black), 3, 3, 0, 33, 0, 8));
+  return k.at(g, x, y, z);
+}
+
+/** A site hut: a little cream block with a red roof, a window and a door. */
+function siteHut(k: Kit, x: number, z: number): Group {
+  const g = new Group();
+  g.add(k.box(k.paint(TOY.cream), 26, 16, 18, 2.5, 0, 0, 0));
+  g.add(k.roof(k.paint(TOY.red), 30, 22, 7, 0, 15.5, 0, 2.5));
+  g.add(winZ(k, -5, 6, 9.2, 7, 7), k.box(k.paint(TOY.blue), 7, 12, 1.2, 0.5, 7, 0, 9.2));
+  return k.at(g, x, 0, z);
+}
+
+/** A board fence round a site, on posts, painted in two colours, a gate gap at +x. */
+function siteFence(k: Kit, w: number, d: number, x = 0, z = 0): Group {
+  const g = new Group();
+  const a = k.paint(TOY.blue);
+  const b = k.paint(TOY.white);
+  const post = k.wood;
+  const run = (x0: number, z0: number, x1: number, z1: number) => {
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    const n = Math.max(1, Math.round(len / 18));
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      const board = k.box(i % 2 ? b : a, len / n - 1, 14, 2.4, 0, 0, 0, 0);
+      board.position.set(x0 + (x1 - x0) * t, 9, z0 + (z1 - z0) * t);
+      board.rotation.y = -Math.atan2(z1 - z0, x1 - x0);
+      g.add(board);
+    }
+    for (let i = 0; i <= n; i++) g.add(k.box(post, 3, 18, 3, 0, x0 + ((x1 - x0) * i) / n, 2, z0 + ((z1 - z0) * i) / n));
+  };
+  const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
+  run(x0, z0, x1, z0);
+  run(x0, z1, x1, z1);
+  run(x0, z0, x0, z1);
+  run(x1, z0, x1, z - 16);
+  run(x1, z + 16, x1, z1);
+  return g;
+}
 
 function exhibition(k: Kit, stage: Stage): Object3D {
   const g = new Group();
-  const pane = k.paint(GLASS);
-  const L = 240;
-  const W = 84;
-  const WALL = 30;
-  const iron = k.paint("#3e5f78");
+  const L = 220;
+  const W = 80;
+  const WALL = 22;
   const cream = k.paint(TOY.cream);
-  g.add(plinth(k, L + 24, W + 60, 5));
+  const iron = k.paint(IRON);
+  // The ground: a stone step and a beech floor, as the town's buildings stand on.
+  g.add(k.box(k.paint(STONE), L + 60, 2, W + 70, 0.8, 0, 0, 0));
+  g.add(k.box(k.wood, L + 50, 2, W + 60, 1, 0, 2, 0));
+  const y0 = 4;
   if (stage === 1) {
-    g.add(hoarding(k, L + 30, W + 70, TOY.blue));
-    g.add(scaffold(k, 90, W, 48, -60, 0));
-    for (let i = 0; i < 7; i++) for (const s of [-1, 1]) g.add(stick(k, iron, 3, WALL, 3, -L / 2 + 20 + i * 33, 5, (s * W) / 2));
-    g.add(goodsStacks(k, 70, 0));
-    g.add(towerCrane(k, 120, 110, 40, -W / 2 - 20, 0));
+    // A fenced site: the hall's iron columns started, a hut, the goods brought so far, a crane.
+    g.add(siteFence(k, L + 44, W + 54, 0, 0));
+    for (let i = 0; i <= 6; i++) for (const s of [-1, 1]) g.add(k.box(iron, 4, i < 4 ? WALL + 8 : 8, 4, 0, -L / 2 + (L * i) / 6, y0, (s * W) / 2));
+    g.add(k.box(k.paint(STONE), L, 4, W, 1, 0, y0, 0));
+    g.add(siteHut(k, L / 2 - 4, W / 2 - 6));
+    g.add(goodsStacks(k, 30, -6));
+    g.add(goodsStacks(k, -60, 8));
+    g.add(towerCrane(k, 120, 110, -L / 2 + 14, -W / 2 + 8, 0));
+    g.add(k.peg(TOY.orange, TOY.yellow, 6, y0 + 4, 20), k.peg(TOY.orange, TOY.yellow, -20, y0 + 4, -14));
     return g;
   }
-  // Walls: a cream base, a band of glass and iron posts.
+  // The walls: a cream block all round, with printed-look windows; iron columns between them.
   for (const s of [-1, 1]) {
-    g.add(k.box(cream, L, 10, 4, 1, 0, 5, (s * W) / 2));
-    g.add(k.box(pane, L, WALL - 10, 2, 0, 0, 15, (s * W) / 2));
-    for (let i = 0; i <= 8; i++) g.add(stick(k, iron, 2.4, WALL, 2.4, -L / 2 + (L * i) / 8, 5, (s * W) / 2 + s * 1.5));
+    g.add(k.box(cream, L, WALL, 8, 3, 0, y0, s * (W / 2 - 4)));
+    for (let i = 0; i < 9; i++) g.add(winZ(k, -L / 2 + 14 + i * ((L - 28) / 8), y0 + 6, s * W / 2 + s * 0.4));
+    for (let i = 0; i <= 8; i++) g.add(k.box(iron, 4, WALL + 2, 4, 0, -L / 2 + (L * i) / 8, y0, s * (W / 2 + 1)));
   }
-  for (const s of [-1, 1]) g.add(k.box(pane, 2, WALL - 10, W, 0, (s * L) / 2, 15, 0));
-  // The nave: iron ribs, glass over the part that's done.
-  const top = 5 + WALL;
-  g.add(ribs(k, iron, W / 2, L, 9, 0, top, 0));
-  const glazed = stage === 3 ? L : L * 0.45;
-  g.add(vault(k, pane, W / 2 - 0.5, glazed, -L / 2 + glazed / 2, top, 0, 14));
-  // The transept: a taller vault across the middle.
+  g.add(k.box(cream, 8, WALL, W, 3, -L / 2 + 4, y0, 0));
+  g.add(k.box(cream, 8, WALL, W, 3, L / 2 - 4, y0, 0));
+  const top = y0 + WALL;
+  // A cornice the vault springs from.
+  for (const s of [-1, 1]) g.add(k.box(k.paint(TOY.white), L + 4, 3, 10, 1, 0, top, s * (W / 2 - 3)));
+  g.add(glassVault(k, W / 2, L, 0, top + 3, 0, stage === 3 ? L : L * 0.45));
   if (stage === 3) {
+    g.add(vaultEnd(k, W / 2, -L / 2, top + 3), vaultEnd(k, W / 2, L / 2, top + 3));
+    // The transept: a taller crossing across the middle, glazed, with its own glass ends.
+    const T = 64;
+    const TW = W + 50;
     for (const s of [-1, 1]) {
-      g.add(k.box(cream, 70, 10, 4, 1, 0, 5, s * (W / 2 + 30)));
-      g.add(k.box(pane, 70, WALL - 10, 2, 0, 0, 15, s * (W / 2 + 30)));
+      g.add(k.box(cream, T, WALL + 6, 8, 3, 0, y0, s * (TW / 2 - 4)));
+      for (const dx of [-16, 16]) g.add(winZ(k, dx, y0 + 6, s * TW / 2 + s * 0.4, 9, 16));
+      for (const sx of [-1, 1]) g.add(k.box(cream, 8, WALL + 6, (TW - W) / 2, 3, sx * (T / 2 - 4), y0, s * (W / 2 + (TW - W) / 4)));
     }
-    for (const s of [-1, 1]) g.add(k.box(pane, 2, WALL - 10, 30, 0, s * 35, 15, s * (W / 2 + 15)), k.box(pane, 2, WALL - 10, 30, 0, -s * 35, 15, s * (W / 2 + 15)));
-    g.add(vaultZ(k, pane, 35, W + 60, 0, top, 0, 14));
-    const arches = new Group();
-    for (const s of [-1, 0, 1]) {
-      const rib = k.ring(iron, 35, 1.6, 0, 0, s * (W / 2 + 29), true, Math.PI);
-      arches.add(rib);
-    }
-    g.add(k.at(arches, 0, top, 0));
-    // The great arched window on the front, flags along the ridge.
-    g.add(k.ring(iron, W / 2 - 4, 2, L / 2 + 1, top, 0, true, Math.PI));
-    g.add(k.at(k.ring(iron, W / 2 - 4, 2, 0, 0, 0, true, Math.PI), L / 2 + 1, top, 0, Math.PI / 2));
-    for (const fx of [-L / 2 + 10, -60, 60, L / 2 - 10]) g.add(pennant(k, fx % 120 === 0 ? TOY.red : TOY.blue, 26, fx, top + W / 2 - 4, 0));
-    g.add(pennant(k, TOY.red, 30, 0, top + 35, 0));
-    // A path and lamps to the door.
-    g.add(k.box(k.paint("#d9cdb6"), 40, 1, 24, 0.4, L / 2 + 30, 0, 0));
-    for (const s of [-1, 1]) {
-      g.add(k.cyl(k.paint(TOY.black), 1, 26, L / 2 + 30, 0, s * 16, 1, 8));
-      g.add(k.ball(k.paint(TOY.yellow), 3, L / 2 + 30, 28, s * 16));
-    }
-    g.add(k.peg(TOY.red, TOY.black, L / 2 + 22, 1, 4), k.peg(TOY.blue, null, L / 2 + 36, 1, -6), k.peg(TOY.purple, TOY.yellow, L / 2 + 44, 1, 6));
+    const tv = new Group();
+    tv.add(glassVault(k, T / 2, TW, 0, 0, 0));
+    tv.add(vaultEnd(k, T / 2, -TW / 2, 0), vaultEnd(k, T / 2, TW / 2, 0));
+    tv.rotation.y = Math.PI / 2;
+    tv.position.set(0, top + 9, 0);
+    g.add(tv);
+    g.add(k.box(k.paint(TOY.white), T + 4, 3, TW + 4, 1, 0, top + 6, 0));
+    // A lantern over the crossing, flags along the ridge.
+    g.add(k.cyl(k.paint(FRAME), 9, 10, 0, top + 9 + T / 2, 0, 9, 10), k.cone(k.paint(TOY.teal), 11, 12, 0, top + 19 + T / 2, 0, 10));
+    g.add(pennant(k, TOY.red, 22, 0, top + 31 + T / 2, 0));
+    for (const fx of [-L / 2 + 22, -60, 60, L / 2 - 22]) g.add(pennant(k, fx < 0 ? TOY.blue : TOY.yellow, 18, fx, top + 3 + W / 2, 0));
+    // The porch, a path to it, lamps and the first visitors.
+    g.add(porch(k, L / 2 + 13, y0));
+    g.add(k.box(k.paint("#d9cdb6"), 22, 1, 20, 0.4, L / 2 + 37, y0, 0));
+    for (const s of [-1, 1]) g.add(lampPost(k, L / 2 + 36, y0, s * 18));
+    g.add(k.peg(TOY.red, TOY.black, L / 2 + 40, y0, 6), k.peg(TOY.blue, null, L / 2 + 44, y0, -6), k.peg(TOY.purple, TOY.yellow, L / 2 + 34, y0, -2));
   } else {
-    g.add(ribs(k, iron, 35, 0, 1, 0, top, 0));
-    g.add(scaffold(k, 110, W + 20, 70, 60, 0));
-    g.add(goodsStacks(k, 0, W / 2 + 26));
-    g.add(towerCrane(k, 130, 120, 70, -W / 2 - 26, Math.PI));
+    // Half built: the far half's glass not on yet, scaffolding over it, a crane and goods.
+    g.add(scaffold(k, L * 0.55, W + 14, W / 2 + WALL + 10, L * 0.22, 0));
+    g.add(towerCrane(k, 130, 120, L / 2 + 20, -W / 2 - 18, Math.PI));
+    g.add(goodsStacks(k, L / 2 + 10, W / 2 + 18));
+    g.add(siteHut(k, -L / 2 + 10, W / 2 + 22));
   }
   return g;
 }
