@@ -301,5 +301,5 @@ one per map, save, treats, look-alikes), `src/game/paint-shop.test.ts`, and `npm
   (the engine's own green and red), six bands for Rainbow (on cream). Built once with the car's model, one merged mesh
   per colour from the lacquer cache: nothing per frame. The paint sheet's swatches show the stripe.
 - **City ★★'s bunting**, the free gift: a landmark (`bunting`, level 5) that goes up by itself on a lot of its own as a
-  town reaches City ★★, the catalogue's `scene-bunting`.
+  town reaches City ★★, the catalogue's `scene-bunting` (a `scene-flagpole` where the lot is one square: too short for its string).
 

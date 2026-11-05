@@ -497,7 +497,7 @@ await run("paint", async () => {
     const prop = b ? [...w.props.all()].find((q) => q.building === b.id) : null;
     return { level: w.progress().bestLevel, building: !!b, asset: prop?.asset ?? null, at: prop ? { x: prop.x, y: prop.y, z: prop.z } : null };
   });
-  check("paint: a City ★★'s bunting goes up by itself, the catalogue's bunting on a lot", bunting.level >= 5 && bunting.building && bunting.asset === "scene-bunting", JSON.stringify(bunting));
+  check("paint: a City ★★'s bunting goes up by itself, the catalogue's bunting on a lot", bunting.level >= 5 && bunting.building && ["scene-bunting", "scene-flagpole"].includes(bunting.asset), JSON.stringify(bunting));
   if (bunting.at) {
     await p.keyboard.press("Escape");
     await h.showing({ at: bunting.at }, 320);

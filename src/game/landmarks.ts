@@ -40,7 +40,8 @@ export const LANDMARKS: readonly Landmark[] = [
     name: "Bunting",
     level: 5,
     blurb: "Flags over its streets, for the biggest towns of all.",
-    models: { two: ["scene-bunting"], one: ["scene-bunting"] },
+    // (A one-square lot is too short for the bunting's string: a flagpole there.)
+    models: { two: ["scene-bunting"], one: ["scene-flagpole"] },
   },
 ];
 

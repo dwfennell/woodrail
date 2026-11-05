@@ -304,6 +304,20 @@ if (!setup.error && setup.engine !== -1) {
     await tapOn({ depot: towns[got] });
     await postRow();
   }
+  // (The stopped train may stand on the station, and the tap open its card: a tap on one of the town's houses opens
+  // the town's card too.)
+  if (!(await postRow())) {
+    await p.keyboard.press("Escape");
+    const house = await p.evaluate((id) => {
+      const q = [...window.woodrail.props.all()].find((x) => x.town === id && x.building !== undefined);
+      return q ? { x: q.x, y: q.y + 10, z: q.z } : null;
+    }, townIds[got]);
+    if (house) {
+      await settle();
+      await tapOn({ at: house });
+      await postRow();
+    }
+  }
   const card = await p.evaluate(() => {
     const row = [...document.querySelectorAll(".ledger-row")].find((r) => r.querySelector(".ledger-row-name")?.textContent === "Post" && r.getBoundingClientRect().width > 0);
     const buys = [...document.querySelectorAll(".ledger-buys")].find((e) => e.getBoundingClientRect().width > 0);
