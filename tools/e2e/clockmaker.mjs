@@ -69,9 +69,17 @@ const rate = (ms) =>
   p.evaluate(async (ms) => {
     const w = window.woodrail;
     const s0 = w.simSeconds;
+    const f0 = w.framesDrawn;
     const t0 = performance.now();
+    let raf = 0;
+    const tick = () => {
+      raf++;
+      if (performance.now() - t0 < ms) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
     await new Promise((r) => setTimeout(r, ms));
-    return (w.simSeconds - s0) / ((performance.now() - t0) / 1000);
+    const rate = (w.simSeconds - s0) / ((performance.now() - t0) / 1000);
+    return { rate, raf, drawn: w.framesDrawn - f0 };
   }, ms);
 
 await p.goto(PAGE);
@@ -101,12 +109,24 @@ await shot("1-clock");
 const date0 = await p.evaluate(() => document.querySelector(".date, .hud-date")?.textContent ?? null);
 await p.evaluate(() => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(0, 0, -4000), 3000, { duration: 0.1 }));
 await settle();
-const one = await rate(6000);
+/**
+ * The game's time a second at the speed it's at, over a stretch where the page's frames come freely (the main thread
+ * not busy with other work: the tray's pictures are drawn after a learn, and the machine may be loaded): a stretch
+ * with few frames tells nothing, so it's tried again, a few times.
+ */
+const steady = async () => {
+  let r = await rate(6000);
+  for (let k = 0; k < 12 && r.raf < 200; k++) r = await rate(6000);
+  return r;
+};
+const oneR = await steady();
 await tapClock();
 const c2 = await clock();
-const two = await rate(6000);
+const twoR = await steady();
+const one = oneR.rate;
+const two = twoR.rate;
 check("3. a tap: 2×", c2?.text === "2×" && (await p.evaluate(() => window.woodrail.timeScale)) === 2, JSON.stringify(c2));
-check("…and the game's time runs about twice as fast", two / one > 1.6, JSON.stringify({ one: one.toFixed(2), two: two.toFixed(2) }));
+check("…and the game's time runs about twice as fast", two / one > 1.6, JSON.stringify({ oneR, twoR }));
 await shot("2-two-times");
 void date0;
 
