@@ -98,6 +98,8 @@ describe("the train ferry", () => {
     expect(p.coins).toBe(coins - brought * PRICES.iron!);
     for (const c of train.cars) expect(w.economy.held.has(c.id)).toBe(false);
     expect(ferries.tripAt(slip.id)).toBeNull();
+    // Still standing on the slip, it isn't taken aboard again till it has left.
+    for (let t = 0; t < 5; t++) expect(ferries.tick(w, p, 1)).toEqual([]);
   });
 
   it("leaves a train that isn't routed there", () => {

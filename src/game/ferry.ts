@@ -50,7 +50,8 @@ export type FerryEvent =
 export function slipWhy(land: Landscape, pose: Pose): string | null {
   const g = land.grid;
   let sea = 0;
-  for (const t of [SLIP_LENGTH + 40, SLIP_LENGTH + 110, SLIP_LENGTH + 180]) {
+  // (Past its end, along its line: the ferry's berth. A drop a square short of the water still finds it.)
+  for (const t of [SLIP_LENGTH + 40, SLIP_LENGTH + 110, SLIP_LENGTH + 180, SLIP_LENGTH + 250]) {
     const p = depotPoint(pose, t, 0);
     const cell = g.cellAtWorld(p.x, p.z);
     if (cell !== -1 && g.surface[cell] === SURF_SEA) sea++;
@@ -74,6 +75,8 @@ export function ferryPose(pose: Pose, trip: FerryTrip | null, extra = 0): { x: n
 /** The ferries' trips, by slip: one train at a time each. Ticked once a second of play, as the boats are. Not saved. */
 export class Ferries {
   private readonly trips = new Map<number, FerryTrip>();
+  /** Cars just back from abroad, by the slip they came off at: not taken again till their train has left it. */
+  private readonly back = new Map<number, number>();
 
   /** The trip at a slip, or null (the ferry tied up there, waiting). */
   tripAt(slip: number): FerryTrip | null {
@@ -95,6 +98,7 @@ export class Ferries {
   reset(world: World): void {
     for (const t of this.trips.values()) for (const c of t.cars) world.economy.held.delete(c);
     this.trips.clear();
+    this.back.clear();
   }
 
   tick(world: World, p: Progress, seconds: number): FerryEvent[] {
@@ -149,10 +153,18 @@ export class Ferries {
           coins += n * price;
         }
         p.coins -= coins;
-        for (const c of trip.cars) economy.held.delete(c);
+        for (const c of trip.cars) {
+          economy.held.delete(c);
+          this.back.set(c, d.pieceId);
+        }
         this.trips.delete(d.id);
         events.push({ kind: "landed", slip: d.id, engine, goods, coins });
       }
+    }
+    // Trains back from abroad that have left their slip (or gone): they may go again.
+    for (const [car, piece] of this.back) {
+      const t = sim.findCar(car)?.train;
+      if (!t || !t.bogies.some((b) => b.pieceId === piece)) this.back.delete(car);
     }
     // A slip taken up with a train aboard: it's let go where it stands.
     for (const [slip, trip] of this.trips) {
@@ -170,7 +182,7 @@ export class Ferries {
     for (const id of sim.trainIds()) {
       const t = sim.getTrain(id)!;
       if (Math.abs(t.speed) > 1 || !t.bogies.some((b) => b.pieceId === pieceId)) continue;
-      if (t.cars.some((c) => this.tripOf(c.id))) continue;
+      if (t.cars.some((c) => this.tripOf(c.id) || this.back.has(c.id))) continue;
       const routed = t.cars.some((c) => c.kind === "engine" && economy.routeOf(c.id)?.stops.some((s) => s.depotId === slip));
       if (routed) return t;
     }

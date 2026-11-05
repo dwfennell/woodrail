@@ -103,8 +103,8 @@ export type KitTypeId = `kit-${string}`;
 
 /** A river landing's line: this far across from its model's middle (the model's track is at its z −40). */
 const LANDING_TRACK = 40;
-/** Water may lie under a landing beyond its quay's stone edge (the jetty's piles), this far across from its line. */
-export const LANDING_WET = 70;
+/** Water may lie under a landing beyond its quay's back, this far across from its line (its edge and jetty, on piles). */
+export const LANDING_WET = 56;
 
 /** The furnished platform's depth across, and how far off the track's edge it stands (mm). */
 const PLATFORM_DEPTH = 26;
@@ -500,9 +500,11 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     track: straight("kit-landing", 216),
     rails: "track",
     place: { t: 108, l: LANDING_TRACK },
-    // The quay (to its stone edge, 70 across); the jetty beyond it stands on the water (`wetFrom`).
+    // The quay's back, on dry land; its stone edge and the jetty beyond may stand on the water (`wetFrom`), so a
+    // landing fits a bank anywhere the water starts between its quay and its jetty's end (a finger's drop, not a
+    // millimetre's).
     footprint: [
-      { t: 108, l: 45, w: 216, d: 50 },
+      { t: 108, l: 38, w: 216, d: 36 },
       { t: 120, l: 87, w: 76, d: 34 },
     ],
     wetFrom: LANDING_WET,

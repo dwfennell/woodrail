@@ -1896,7 +1896,8 @@ export class Interaction {
       return;
     }
     // A boat on the water (no piece or model there): a tap opens its card; a drag pans, as on the floor.
-    const boat = !hit && !this.onPickPlace ? (this.boatAt?.(e.clientX, e.clientY) ?? -1) : -1;
+    // (Over the track or a dock's model too: a boat tied up at a landing lies over its jetty. Not over a train or a lever.)
+    const boat = (!hit || hit.kind === "piece" || hit.kind === "depot") && !this.onPickPlace ? (this.boatAt?.(e.clientX, e.clientY) ?? -1) : -1;
     if (boat !== -1) {
       this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, boat } : null;
       return;
@@ -6056,6 +6057,9 @@ export class Interaction {
       if (kitPiece !== -1) {
         const road = signalRoadAt(g.layout, kitPiece, h.point.x, h.point.z);
         if (road !== -1) return { kind: "lever", pieceId: kitPiece, road };
+        // (A river landing's or a ferry slip's model, its quay or pier: the piece, whose card a tap opens.)
+        const role = g.economy.depotAtPiece(kitPiece)?.role;
+        if (role === "landing" || role === "slip") return { kind: "piece", pieceId: kitPiece };
         continue;
       }
       // A level crossing's style (its barriers or gates) is its prop's.

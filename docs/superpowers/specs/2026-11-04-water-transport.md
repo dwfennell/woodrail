@@ -296,3 +296,24 @@ baked by the prop library into a few merged parts with shared materials (no new 
 
 Settled without asking (say if not): goods change at a shared jetty pile (C1); boats are bought at a dock, not
 dragged from the tray; boats are kinematic, saved, and paused with the game.
+
+## 11. As built (2026-11-05, `claude/water`)
+
+The user picked A for all six (§10) and asked the cargo ship to hold its containers better (raised sides and a hold:
+`docs/agents/shots/water-ship-{before,after}.jpg`). What changed from the design while building:
+
+- **The landing is a kit** (`kit-landing`, src/track/kits.ts): the catalogue model on real track, its depot a store
+  (`landing`, as a warehouse: its Takes rows on its card). Its quay's back needs dry land; its edge and jetty may stand
+  on water (`LANDING_WET`), and its jetty must reach the water (`landingWhy`, a few steps out): so a finger's drop
+  anywhere the bank fits takes, not a millimetre's. Boats tie up at the first water out from its jetty.
+- **A boat's card is its own** (src/ui/boat-card.ts), laid out as the engine card, not the engine card itself: route
+  chips (a tap changes Drop and pick up / Pick up / Only drop; ✕ while planning), ✎ Route / Done, + Barge, Go/Stop,
+  Sell. Planning goes through the train planner's own hook (`Interaction.onPickPlace`). New stops: the first Pick up,
+  the rest Only drop. No undo for boat routes yet, and no ribbon on the water (the stops' chips say the route).
+- **The ferry holds the train where it stands** (`Economy.held`: its speed cap 0) and draws a copy on the ferry's deck,
+  rather than taking it off the track: nothing in the sim or the routing changes for a trip. Imports are paid for at
+  a town's price (as many as the coins go to), so a trip isn't free money.
+- **Goals**: both are allowlisted in the goals play-through (its player builds no landing, and Cargo ships needs River
+  barges): their player's path is `npm run e2e:water`'s.
+- **Not built**: Lines view rows for boats, the map markers for a train abroad, a landing's goods drawn on its jetty
+  (the card counts them), the perf harness's river map (the e2e checks 0 idle frames with boats tied up instead).

@@ -66,7 +66,7 @@ export function mooring(world: Waters, depotId: number): (Point & { heading: num
   const d = world.economy.depot(depotId);
   const piece = d && world.layout.getPiece(d.pieceId);
   if (!d || !piece) return null;
-  const at = d.role === "harbour" ? QUAY : LANDING_MOOR;
+  const at = d.role === "harbour" ? QUAY : { t: LANDING_MOOR.t, l: landingMoorL(world.landscape, piece.pose) };
   return { ...depotPoint(piece.pose, at.t, at.l), heading: piece.pose.heading };
 }
 
@@ -549,14 +549,33 @@ export function depotLabel(world: Waters, depotId: number): string {
   return best ? `${best.name} ${what}` : what[0].toUpperCase() + what.slice(1);
 }
 
+/** How far across from a landing's line its boats tie up: the first of a few steps out from its jetty that's water. */
+export function landingMoorL(land: Landscape, pose: Pose): number {
+  const g = land.grid;
+  for (const l of MOOR_STEPS) {
+    const p = depotPoint(pose, LANDING_MOOR.t, l);
+    const cell = g.cellAtWorld(p.x, p.z);
+    if (cell !== -1 && isWater(g.surface[cell])) return l + 14;
+  }
+  return LANDING_MOOR.l;
+}
+
+/** Out from a landing's line (mm) where its jetty may meet the water. */
+const MOOR_STEPS = [86, 100, 114, 128];
+
 /** Why a landing can't stand here (its jetty must reach the water), or null. */
 export function landingWhy(land: Landscape, pose: Pose): string | null {
   const g = land.grid;
   let wet = 0;
   for (const t of [70, 120, 170]) {
-    const p = depotPoint(pose, t, LANDING_MOOR.l);
-    const cell = g.cellAtWorld(p.x, p.z);
-    if (cell !== -1 && isWater(g.surface[cell])) wet++;
+    if (
+      MOOR_STEPS.some((l) => {
+        const p = depotPoint(pose, t, l);
+        const cell = g.cellAtWorld(p.x, p.z);
+        return cell !== -1 && isWater(g.surface[cell]);
+      })
+    )
+      wet++;
   }
   return wet >= 2 ? null : "A landing goes on a bank, its jetty out over the water";
 }

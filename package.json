@@ -58,6 +58,7 @@
     "e2e:stats": "node scripts/e2e/lib/run.mjs tools/e2e/stats.mjs",
     "e2e:workshop": "node scripts/e2e/lib/run.mjs tools/e2e/workshop-modes.mjs",
     "e2e:warehouse": "node scripts/e2e/lib/run.mjs tools/e2e/warehouse.mjs",
+    "e2e:water": "node scripts/e2e/lib/run.mjs tools/e2e/water.mjs",
     "e2e:focus-ring": "node scripts/e2e/lib/run.mjs tools/e2e/focus-ring.mjs",
     "e2e:hopper-load": "node scripts/e2e/lib/run.mjs tools/e2e/hopper-load.mjs",
     "e2e:locked": "node scripts/e2e/lib/run.mjs tools/e2e/locked-tiles.mjs",
