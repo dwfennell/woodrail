@@ -117,7 +117,7 @@ const tiles = () => p.evaluate(() => [...document.querySelectorAll(".places-sec:
 check("1. the City's card has Places, with only a town hall to build", JSON.stringify(await tiles()) === JSON.stringify(["town-hall:build"]), JSON.stringify(await tiles()));
 check("1. its line says a town hall comes first", (await p.evaluate(() => document.querySelector(".places-sub")?.textContent ?? "")).includes("town hall"));
 const buildLabel = await p.evaluate(() => document.querySelector('.place-btn[data-place="town-hall"]')?.textContent ?? "");
-check("1. the Build button says its coins and goods", /Build · 60 🪙 \+\s*12/.test(buildLabel), buildLabel);
+check("1. the Build button says its coins and goods", /Build · 60 🪙 \+\s*6/.test(buildLabel), buildLabel);
 await shot("1-places-card");
 
 /**
@@ -179,8 +179,8 @@ const growthBefore = await p.evaluate(async (id) => {
   const { growthOf } = await import("/src/game/town-life.ts");
   return growthOf(window.woodrail.world, id);
 }, town.id);
-const brought = await bringPlanks(12);
-check("2. trains brought 12 planks to the station", brought.brought === 12, JSON.stringify(brought));
+const brought = await bringPlanks(6);
+check("2. trains brought 6 planks to the station", brought.brought === 6, JSON.stringify(brought));
 const after = await p.evaluate(async (id) => {
   const { townPlaces } = await import("/src/game/places.ts");
   const { growthOf } = await import("/src/game/town-life.ts");
@@ -201,7 +201,7 @@ const wantsBefore = await p.evaluate(async (id) => {
   return statusOf(window.woodrail.world, id).wants;
 }, town.id);
 await tap('.place-btn[data-place="park"]');
-await bringPlanks(8);
+await bringPlanks(4);
 const park = await p.evaluate(async (id) => {
   const { townSmiles, townPlaces } = await import("/src/game/places.ts");
   const { statusOf } = await import("/src/game/town-life.ts");
@@ -256,7 +256,7 @@ for (let k = 0; k < 3 && (await p.evaluate(() => document.querySelector(".paint-
   await tap(".paint-engine");
 }
 check("5. the paint shop opens", (await p.evaluate(() => !document.querySelector(".paint-sheet")?.hidden)) === true);
-check("5. City colours open, City ★ ones locked", (await p.evaluate(() => [...document.querySelectorAll(".paint-swatch")].map((s) => `${s.dataset.livery}:${s.classList.contains("locked")}`).join(","))).includes("plum:false,black:false,gold:true"));
+check("5. City colours open, City ★ ones locked", (await p.evaluate(() => [...document.querySelectorAll(".paint-swatch")].map((s) => `${s.dataset.livery}:${s.classList.contains("locked")}`).join(","))).includes("plum:false,black:false,lining:false,gold:true"));
 await tap('.paint-swatch[data-livery="red"]');
 await shot("5-paint-shop");
 const coins5 = await p.evaluate(() => window.woodrail.progress().coins);

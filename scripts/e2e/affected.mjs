@@ -58,8 +58,11 @@ export const SUITES = {
   "low-bridge": { script: "e2e:low-bridge", groups: true },
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
   post: { script: "e2e:post", minutes: 5 },
+  "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
+  leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   crane: { script: "e2e:crane", minutes: 4 },
+  tunnels: { script: "e2e:tunnels", minutes: 6 },
   rack: { script: "e2e:rack", minutes: 3 },
   metro: { script: "e2e:metro", minutes: 3 },
 };
@@ -91,7 +94,7 @@ export const RULES = [
   // The suites themselves, and what they share.
   ["scripts/e2e/lib/**", CORE],
   ["scripts/e2e/feedback-flow.mjs", ["touch:feedback", "click:feedback"]],
-  ["scripts/e2e/pin-clocks.mjs", ["touch", "click", "station-clock", "signals", "life"]],
+  ["scripts/e2e/pin-clocks.mjs", ["touch", "click", "station-clock", "signals", "life", "gl-lost"]],
   ["scripts/e2e/affected.mjs", []],
   ["scripts/e2e/phone-audit.mjs", []],
   ["scripts/e2e/track-pieces.mjs", [TOUCH_PIECES]],
@@ -102,6 +105,8 @@ export const RULES = [
   ["src/main.ts", CORE],
   ["src/style.css", [...CORE, "names", "locked", "focus-ring"]],
   ["cloud/**", ["cloud", "stats", "touch:feedback", "click:feedback"]],
+  // Crash reports: sent on a lost drawing and on errors, and the ☰ switch (e2e:gl-lost).
+  [["src/feedback/crash.ts", "cloud/src/crash.ts"], ["gl-lost"]],
 
   // Simulation and routing.
   ["src/sim/**", ["touch", "click:model-train,routes", "signals", "train-summary", "train-parts", "lift", "loop", "kits", "decks"]],
@@ -136,6 +141,8 @@ export const RULES = [
 
   // Rendering.
   ["src/render/**", ["touch", "click", "life"]],
+  // The drawing lost and back, the card to reload, and lean settings after (and what the post-processing makes).
+  [["src/render/post.ts", "src/render/quality.ts", "src/render/stage.ts", "src/ui/context-lost.ts", "src/game/game.ts"], ["gl-lost"]],
   ["src/render/clock-*", ["station-clock"]],
   ["src/render/hopper-load.ts", ["hopper-load"]],
   ["src/render/station-touches.ts", ["station-touches"]],
@@ -191,6 +198,10 @@ export const RULES = [
   ["src/game/signal-place.ts", ["signals"]],
   // The breakdown crane (claude/tank-crane): its system, words and model.
   [["src/economy/breakdown.ts", "src/game/crane-text.ts", "src/catalogue/assets/breakdown-crane.ts", "src/game/engine-status.ts"], ["crane"]],
+  // Where a train in the way is "by" on its card (QA 2026-11-05 #2).
+  ["src/game/place-near.ts", ["touch:train-card,blocker", "crane"]],
+  // Tunnels (2026-11-04): the dig and Draw's words when it can't go under.
+  ["src/game/tunnel-dig.ts", ["tunnels"]],
   // The game's icon font (src/icons, scripts/icon-font.py): drawn in every bar and card.
   ["src/assets/woodrail-icons.woff2", ["names", "locked", "research"]],
   // Hand-made bug maps (src/play/bugmaps): unit tests only.
@@ -207,7 +218,9 @@ export const RULES = [
   [["src/game/map-sites.ts", "src/game/restore.ts", "src/game/across-river.ts", "src/game/map-markers.ts", "src/game/landmarks.ts", "src/game/harbours.ts"], ["sites"]],
   [["src/game/road-*", "src/game/town-cars.ts", "src/game/buses.ts", "src/game/delivery-vans.ts", "src/game/vans.ts"], ["roads", "post"]],
   // The post: towns' mail, the post office, mail vans, post vans on the streets.
-  [["src/game/post.ts", "src/catalogue/assets/mail-van.ts", "src/game/town-ledger.ts", "src/ui/town-ledger.ts"], ["post"]],
+  [["src/game/post.ts", "src/catalogue/assets/mail-van.ts", "src/game/town-ledger.ts", "src/ui/town-ledger.ts"], ["post", "leftovers"]],
+  // The leftovers: the sorting van, Sandbox's post, the Telegraph's trains and Call home, Lined and Rainbow, bunting.
+  [["src/game/telegraph.ts", "src/game/lineside.ts", "src/game/paint-shop.ts", "src/ui/paint-sheet.ts", "src/game/landmarks.ts", "src/render/train-models.ts"], ["leftovers"]],
   [["src/game/industries.ts", "src/game/lineside.ts", "src/game/fields.ts", "src/game/depot-footprint.ts", "src/game/things.ts", "src/game/food-text.ts"], ["kits-game", "warehouse", "workshop", "hopper-load", "life", "sandbox-chains"]],
   [["src/game/passengers.ts"], ["big-stations", "station-touches", "station-upgrade"]],
   [["src/game/touches.ts", "src/game/calendar.ts"], ["life", "station-clock"]],

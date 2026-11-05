@@ -1,4 +1,4 @@
-export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner" | "tanker" | "reefer" | "carrier" | "oiltank" | "crane" | "mailvan";
+export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner" | "tanker" | "reefer" | "carrier" | "oiltank" | "crane" | "mailvan" | "sortvan";
 export type Pole = "N" | "S";
 
 export interface CarSpec {
@@ -37,6 +37,8 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
   // A mail van (Game mode's Post office): the van's length and running gear, red, with a letter slot.
   // (Index 15, the coordinator's range for it: 12-14 are unused.)
   mailvan: { kind: "mailvan", index: 15, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
+  // A sorting van (Game mode's Sorting van): a mail van with windows and a mail-bag arm, sorting its mail on the move.
+  sortvan: { kind: "sortvan", index: 16, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
 };
 
 /**
@@ -58,11 +60,12 @@ export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
   oiltank: ["classic"],
   crane: ["classic"],
   mailvan: ["classic"],
+  sortvan: ["classic"],
 };
 export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods", "rack", "metro"];
 
 /** In snapshot-index order. */
-export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier", "oiltank", "crane", "mailvan"];
+export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier", "oiltank", "crane", "mailvan", "sortvan"];
 
 /** Each car kind by its snapshot index (`CAR_SPECS[k].index`; indices can leave gaps, as other branches take ranges). */
 export const CAR_BY_INDEX: readonly CarKind[] = (() => {

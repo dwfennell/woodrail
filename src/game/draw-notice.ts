@@ -34,6 +34,12 @@ export class DrawNotice {
     private readonly name: (type: PieceTypeId) => string,
     /** A piece not learned yet (Game mode), as the tray says it, or null. */
     private readonly unlearned: (type: PieceTypeId) => string | null = () => null,
+    /**
+     * Wanting this piece, say nothing mid-stroke, only at the lift if it's still wanted: a ramp, with Tunnels learned
+     * (the line may yet back up and go under the hill: QA 2026-11-05 #12, "Out of ramps…" shown on a stroke that then
+     * tunnelled).
+     */
+    private readonly quiet: (type: PieceTypeId) => boolean = () => false,
   ) {}
 
   /** A new stroke. */
@@ -67,6 +73,7 @@ export class DrawNotice {
     }
     this.stuckAt ??= this.travel;
     if (this.told || this.travel - this.stuckAt < STALL_HOLD) return null;
+    if (line.refused && this.quiet(line.refused)) return null;
     this.told = true;
     return this.stuckWhy(line);
   }
@@ -82,6 +89,8 @@ export class DrawNotice {
     if (line.refused) {
       const why = this.unlearned(line.refused);
       if (why) return why;
+      // (Held back mid-stroke: said now, as it would have been, with why it didn't go under.)
+      if (this.quiet(line.refused) && !this.told) return this.outOf(line.refused);
       return `No ${this.name(line.refused)} left${placed > 0 ? ": the line used other pieces" : ""}`;
     }
     // Left behind, and not said yet (QA: a tight U-turn laid nothing and said nothing).

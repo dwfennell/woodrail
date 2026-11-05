@@ -107,6 +107,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["crane"], label: "Breakdown crane", unlearned: "hide" },
   // (Game mode's once Post office is learned.)
   { kind: "train", cars: ["mailvan"], label: "Mail van", unlearned: "hide" },
+  // (Game mode's once Sorting van is learned.)
+  { kind: "train", cars: ["sortvan"], label: "Sorting van", unlearned: "hide" },
   // (Game mode's once Scenery kit is learned.)
   { kind: "train", cars: ["cleaner"], label: "Track cleaner", unlearned: "hide" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
@@ -124,6 +126,11 @@ export interface TrayGroup {
   items: TrayItem[];
   /** Shown in these modes only (default: wherever its tab is). */
   modes?: readonly GameMode[];
+  /**
+   * Game mode: what's learned comes first, the Locked ones after, each in its own order (the Industries shelf: thirty
+   * long, a new research's industry was found past a row of Locked ones. QA 2026-11-05 #7).
+   */
+  knownFirst?: boolean;
 }
 
 const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t && !i.auto)!);
@@ -143,7 +150,7 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2), modes: ["sandbox"] },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
   { label: "Metro", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.label === "Metro train") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "carrier" || i.cars[0] === "mailvan" || i.cars[0] === "oiltank" || i.cars[0] === "crane" || i.cars[0] === "cleaner")) },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "carrier" || i.cars[0] === "mailvan" || i.cars[0] === "sortvan" || i.cars[0] === "oiltank" || i.cars[0] === "crane" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
@@ -177,6 +184,7 @@ export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("br
 export const INDUSTRY_GROUPS: TrayGroup[] = [
   {
     label: "Industries",
+    knownFirst: true,
     items: [
       { kind: "piece", type: "depot-workshop", label: "Workshop" },
       { kind: "piece", type: "depot-school", label: "School" },
@@ -303,11 +311,18 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
 ];
 
 /**
- * What a shelf shows now: its items but those hidden till learned (`unlearned: "hide"`, by `known`), and none of the
- * shelves left empty. Game mode's first hour sees only what it can use, or will soon (locked pieces show "Locked").
+ * What a shelf shows now: its items but those hidden till learned (`unlearned: "hide"`, by `known`), the learned ones
+ * first on a shelf that asks for it (`knownFirst`), and none of the shelves left empty. Game mode's first hour sees only what it can use, or will soon (locked pieces show "Locked").
  */
 export function shownGroups(groups: readonly TrayGroup[], known: (item: TrayItem) => boolean): TrayGroup[] {
-  return groups.map((g) => (g.items.some((i) => "unlearned" in i && i.unlearned === "hide") ? { ...g, items: g.items.filter((i) => !("unlearned" in i && i.unlearned === "hide") || known(i)) } : g)).filter((g) => g.items.length > 0);
+  return groups
+    .map((g) => (g.items.some((i) => "unlearned" in i && i.unlearned === "hide") ? { ...g, items: g.items.filter((i) => !("unlearned" in i && i.unlearned === "hide") || known(i)) } : g))
+    .map((g) => {
+      if (!g.knownFirst) return g;
+      const yes = g.items.filter(known);
+      return yes.length === 0 || yes.length === g.items.length ? g : { ...g, items: [...yes, ...g.items.filter((i) => !known(i))] };
+    })
+    .filter((g) => g.items.length > 0);
 }
 
 /** A tab of the tray: its shelves, and the modes that show it. */

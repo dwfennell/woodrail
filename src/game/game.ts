@@ -6,7 +6,7 @@ import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
-import { AMBIENT_FRAME_MS, AmbientEye } from "../render/ambient";
+import { AMBIENT_FRAME_MS, AMBIENT_MIN_PX, AmbientEye } from "../render/ambient";
 import { RoadVehiclesView } from "../render/road-vehicles-view";
 import { Vans } from "./vans";
 import { PropsView } from "../render/props/props-view";
@@ -270,6 +270,24 @@ export class Game {
     this.renderer.shadowMap.type = PCFShadowMap;
     // Redrawn only when something casting a shadow moves (see frame): not for a camera move alone.
     this.renderer.shadowMap.autoUpdate = false;
+    // The browser can take the drawing away (the WebGL context lost: on a phone, most often when it's short of
+    // memory, or the GPU process restarted). three asks for it back (its own listener, added first, calls
+    // preventDefault); nothing is drawn meanwhile. When it comes back, three uploads geometry and textures again by
+    // itself; what was only ever drawn on the GPU (the environment map, the shadow map) is made again here, and the
+    // stage's hook on three's shadow renderer (made anew) put back.
+    canvas.addEventListener("webglcontextlost", () => {
+      this.contextLost = true;
+      this.onContextLost?.();
+    });
+    canvas.addEventListener("webglcontextrestored", () => {
+      // (Not when the geometry can't be uploaded again: nothing drawn till the reload.)
+      if (!this.restoreInPlace) return;
+      this.contextLost = false;
+      this.stage.restored();
+      this.resize();
+      this.invalidate();
+      this.onContextRestored?.();
+    });
 
     this.camera = new PerspectiveCamera(30, 1, 5, 40000);
     this.camera.position.set(700, 620, 1050);
@@ -289,7 +307,7 @@ export class Game {
       this.controls.dispatchEvent({ type: "start" });
     });
 
-    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
+    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy(), this.quality.tier === "mobile");
     this.stage = createStage(this.scene, this.renderer, this.quality);
     // The kinds of piece this railway has (carved while loading; any other kind is carved in the background, and shown
     // as a stand-in for a moment if it's wanted before its turn).
@@ -958,6 +976,18 @@ export class Game {
     this.post.setSize(Math.floor(w * pr), Math.floor(h * pr));
   }
 
+  /** The WebGL context is lost (see the constructor): nothing is drawn till it's back. */
+  contextLost = false;
+  /**
+   * Can the scene come back by itself after a lost context? three uploads geometry and textures again from their
+   * arrays: true while those are kept. Set false once the CPU copies are freed after upload (they can't be uploaded
+   * again): then a loss goes straight to the card to reload (the railway saved), and a context given back changes that.
+   */
+  restoreInPlace = true;
+  /** Told when the WebGL context is lost, and when it's back. */
+  onContextLost: (() => void) | null = null;
+  onContextRestored: (() => void) | null = null;
+
   /** Frames drawn since start (for tests and measuring: an idle game should add none). */
   framesDrawn = 0;
   /** Those waiting for the scene to be still: how many ticks in a row each still wants, and how many it's seen. */
@@ -1016,29 +1046,48 @@ export class Game {
     );
   }
 
-  /** Crane cars posed for a job last frame (set back to rest when it's over). */
-  private readonly cranesPosed = new Set<number>();
+  /**
+   * Crane cars posed for a job, and the pose they were given last (slew, rope, and how far the train they lift is up):
+   * a crane's last pose is set back to rest when its job is over.
+   */
+  private readonly cranesPosed = new Map<number, { slew: number; rope: number; hoist: number; seen: number }>();
+  /** This frame's mark for `cranesPosed` (a crane not marked has no job now). */
+  private craneMark = 0;
 
-  /** Pose each working crane's turret and rope (`Breakdown.poseOf`); true while one works. */
+  /**
+   * Pose each working crane's turret and rope (`Breakdown.poseOf`). True when one moved where it can be seen: a frame.
+   * Nothing while paused (the job holds still), and a crane whose pose didn't change (it's driving out: its train
+   * moving draws) or that's out of view or too small to see asks for none.
+   */
   private poseCranes(): boolean {
+    if (this.paused) return false;
     const b = this.economy.breakdown;
-    const now = new Set<number>();
+    const mark = ++this.craneMark;
+    let moved = false;
     for (const job of b.all()) {
       const o = this.trainView.carObject(job.crane);
       if (!o) continue;
       const p = b.poseOf(job);
+      let was = this.cranesPosed.get(job.crane);
+      if (!was) this.cranesPosed.set(job.crane, (was = { slew: 0, rope: ROPE_REST, hoist: 0, seen: mark }));
+      was.seen = mark;
+      if (was.slew === p.slew && was.rope === p.rope && was.hoist === job.hoist) continue;
+      was.slew = p.slew;
+      was.rope = p.rope;
+      was.hoist = job.hoist;
       poseCrane(o, p.slew, p.rope);
-      now.add(job.crane);
+      const m = o.matrixWorld.elements;
+      // (The crane and the train it lifts, beside it: within its reach, 160 mm.)
+      if (this.ambientEye.sees(m[12], m[13], m[14], 120, AMBIENT_MIN_PX.mote, 300)) moved = true;
     }
-    for (const id of this.cranesPosed) {
-      if (now.has(id)) continue;
+    for (const [id, was] of this.cranesPosed) {
+      if (was.seen === mark) continue;
       const o = this.trainView.carObject(id);
       if (o) poseCrane(o, 0, ROPE_REST);
+      this.cranesPosed.delete(id);
       this.invalidate();
     }
-    this.cranesPosed.clear();
-    for (const id of now) this.cranesPosed.add(id);
-    return now.size > 0;
+    return moved;
   }
 
   start(): void {
@@ -1115,7 +1164,7 @@ export class Game {
     if (this.marksView.animate(dt)) active = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
     const trainsMoved = this.trainsChanged();
-    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, trainsMoved || tipping, this.ambientEye);
+    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, trainsMoved || tipping || this.trainView.hoisted, this.ambientEye);
     if (depots === "moving") {
       if (this.depotView.ambientOnly) ambient = true;
       else active = true;
@@ -1227,6 +1276,8 @@ export class Game {
       this.shadowsMoving = true;
       return;
     }
+    // (No drawing while the context is lost: the frame stays wanted, for when it's back.)
+    if (this.contextLost) return;
     const once = this.dirty;
     // (A change that casts no shadow, `redraw`: drawn, the shadow map kept.)
     const shown = this.redrawn;

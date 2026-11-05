@@ -281,6 +281,8 @@ export class Hud {
   private readonly pieceRow = el("div", "card-row");
   /** A signal box's or lever frame's card: the points and signals near it, each a chip to throw (see `showLevers`). */
   private readonly leverList = el("div", "card-row lever-list");
+  /** A signal box's card with the Telegraph: the trains in its reach, each with Call home (see `showReachTrains`). */
+  private readonly reachList = el("div", "card-row reach-list");
   private readonly doneBtn: HTMLButtonElement;
   private readonly deleteBtn: HTMLButtonElement;
   private readonly selectMoreBtn: HTMLButtonElement;
@@ -752,7 +754,8 @@ export class Hud {
     this.doneBtn = button("Done", "Finish picking", h.doneSelecting, "chip text primary");
     this.groupRow.append(this.joinedBtn, this.doneBtn);
     this.leverList.hidden = true;
-    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.leverList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
+    this.reachList.hidden = true;
+    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.leverList, this.reachList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -2038,6 +2041,7 @@ export class Hud {
     this.groupHint.hidden = true;
     this.groupRow.hidden = true;
     this.leverList.hidden = true;
+    this.reachList.hidden = true;
     this.pieceCard.classList.remove("group");
   }
 
@@ -2050,6 +2054,27 @@ export class Hud {
       ...(levers.length === 0 ? [el("div", "card-hint", "No points or signals near: put it by a junction")] : levers.map((l, i) => button(l.label, l.title, () => onThrow(i), "chip text lever-chip"))),
     );
     this.leverList.hidden = false;
+  }
+
+  /**
+   * On a signal box's card, with the Telegraph: the trains in its reach (`trains`, nearest first), each a row with its
+   * name and Call home (`onCall` with its index); `called` marks those already on their way. Built on the tap and after
+   * each call, never per frame. An empty list says none are near.
+   */
+  showReachTrains(trains: readonly { name: string; called: boolean }[], onCall: (i: number) => void): void {
+    const head = el("div", "reach-head", `🔔 Trains in reach (${trains.length})`);
+    const rows =
+      trains.length === 0
+        ? [el("div", "card-hint", "No trains near: wire telegraph poles along the line to see further")]
+        : trains.map((t, i) => {
+            const row = el("div", "reach-row");
+            const call = button(t.called ? "Coming home" : "Call home", `Call ${t.name} home`, () => onCall(i), "chip text reach-call");
+            call.disabled = t.called;
+            row.append(el("span", "reach-name", `🚂 ${t.name}`), call);
+            return row;
+          });
+    this.reachList.replaceChildren(head, ...rows);
+    this.reachList.hidden = false;
   }
 
   /** The card while picking several pieces: how many, what a tap and a drag do, and what can be done to them all. */
@@ -2204,6 +2229,19 @@ export class Hud {
         onTap();
       }, "menu-item feedback-item"),
     );
+  }
+
+  /**
+   * "Crash reports: on/off" in the menu (the build can send them: see feedback/crash.ts), after Copy map. A tap
+   * switches them, and the item says which.
+   */
+  addCrashItem(on: () => boolean, toggle: () => void): void {
+    const label = () => `Crash reports: ${on() ? "on" : "off"}`;
+    const item = button(label(), "If the game crashes, send us the error, your browser and screen size: never your map or save", () => {
+      toggle();
+      item.textContent = label();
+    }, "menu-item crash-item");
+    this.copyMapItem.after(item);
   }
 
   /** Offer "Help improve Woodrail" in the menu (the build can send play stats: see stats/stats.ts). */

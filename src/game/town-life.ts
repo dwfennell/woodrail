@@ -12,10 +12,18 @@ import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
 import { buildOnLots, changedBuildings, lotPoint, nextLots, type Lot } from "./town-growth";
 import { dueLandmarks } from "./landmarks";
+import { hasPostOffice, mailEveryAt, POST_TECH, SANDBOX_MAIL_LEVEL } from "./post";
 import { placeOf, planDone, planLacks, townPlaces, townSmiles, type Place } from "./places";
-import { hasPostOffice, mailSeconds, POST_TECH } from "./post";
 import { housesBy, LUXURIES, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
+
+/** How many goods a town has received in all (`total(receivedBy(…))`, without making the bag). */
+export function receivedTotal(world: World, townId: number): number {
+  let n = world.economy.delivered.get(townId) ?? 0;
+  const bag = world.economy.deliveredGoods.get(townId);
+  if (bag) for (const k in bag) if (k !== "planks") n += bag[k as keyof Bag] ?? 0;
+  return n;
+}
 
 /** Everything a town has received, by kind. */
 export function receivedBy(world: World, townId: number): Bag {
@@ -126,7 +134,7 @@ export class TownLife {
   /** What each town had received when last looked at. */
   private had = new Map<number, Bag>();
   /** What each sign shows now (a key), so an unchanged frame repaints nothing. */
-  private shown = new Map<number, string>();
+  private shown = new Map<number, number>();
   /** Towns whose place under way had goods since last looked at (its last may be in). */
   private placeGoods = new Set<number>();
   /** Places told stuck (no room), by town, so it's said once. */
@@ -163,7 +171,7 @@ export class TownLife {
     // Towns post mail once Post office is learned, quicker the bigger they are (src/game/post.ts).
     // (Only at its station: a halt is a stop for its people, not a second post box. And only while a post office stands
     // on the map: no mail piling up, the game's state changing each second, for nothing that could take it.)
-    this.game.economy.mailEvery = (d) => (this.events.knows?.(POST_TECH) && this.game.stations.get(d.townId) === d.pieceId && hasPostOffice(this.game.economy) ? mailSeconds(this.levels.get(d.townId) ?? 0) : 0);
+    this.game.economy.mailEvery = (d) => mailEveryAt(!!this.events.knows?.(POST_TECH), this.game.stations.get(d.townId) === d.pieceId, hasPostOffice(this.game.economy), this.levels.get(d.townId) ?? 0);
     // A town joined by road to another counts some of what it receives twice toward growing (roads spec D2).
     this.game.economy.joinedByRoad = (townId) => joinedByRoad(this.game.landscape, townId);
     for (const t of this.game.landscape.towns) {
@@ -187,6 +195,8 @@ export class TownLife {
     this.game.economy.joinedByRoad = null;
     this.game.economy.placeWants = null;
     this.game.economy.onPlaceGoods = null;
+    // Sandbox's towns post mail too, once a post office stands (no research there): its post offices sort it.
+    this.game.economy.mailEvery = (d) => mailEveryAt(true, this.game.stations.get(d.townId) === d.pieceId, hasPostOffice(this.game.economy), SANDBOX_MAIL_LEVEL);
   }
 
   /** Does a town still want some of `kind` for its next level? (Cached per town until something more arrives.) */
@@ -215,12 +225,13 @@ export class TownLife {
       this.placeGoods.clear();
     }
     for (const town of this.game.landscape.towns) {
-      const received = receivedBy(this.game, town.id);
       // Deliveries only add up: their total changes whenever anything arrives (any good, not just planks). A place
-      // going up may cut what it wants (its smiles: `placesVersion`).
-      const key = `${total(received)}.${this.placesVersion}`;
+      // going up may cut what it wants (its smiles: `placesVersion`). (A number, summed without a copy: this runs
+      // every frame for every town, paused too.)
+      const key = receivedTotal(this.game, town.id) + this.placesVersion * 2 ** 32;
       if (this.shown.get(town.id) === key) continue;
       this.shown.set(town.id, key);
+      const received = receivedBy(this.game, town.id);
       // (Its level from what it received and its road's bonus; what's said to have arrived is only what did.)
       const bonus = roadBonus(this.game, town.id);
       const status = statusOf(this.game, town.id);

@@ -7,7 +7,7 @@ import { BLUEPRINTS } from "./blueprints";
 import { landmarksOf, townLandmarks } from "./landmarks";
 import { buyTreat, placeRow, startPlace, stopPlace } from "./place-row";
 import { inSeason, MAX_SMILES, PLACES, placeOf, planDone, townPlaces, townSmiles, treatPrice, TREATS, visitorFactor } from "./places";
-import { fareFor } from "./passengers";
+import { fareFor, visitorsFor } from "./passengers";
 import { Progress } from "./progress";
 import { built } from "./tech";
 import { growthOf, statusOf, TownLife, type TownLifeHost } from "./town-life";
@@ -126,6 +126,19 @@ describe("visitors", () => {
     expect(visitorFactor(b, 3)).toBe(1.5);
     expect(visitorFactor(b, 11)).toBe(2);
   });
+
+  it("a ride within one town is no visitor's (a metro ride across a city pays its plain fare)", () => {
+    const { w } = game();
+    const [a, b] = w.landscape.towns;
+    const from = w.economy.depotAtPiece(stationOf(w, a.id))!;
+    const to = w.economy.depotAtPiece(stationOf(w, b.id))!;
+    b.buildings[0].landmark = "cinema";
+    // (A stop of the same town, as a metro stop is: the first town's station counted as the second town's.)
+    const within = { ...from, townId: b.id };
+    expect(visitorsFor(w, from, to, 11)).toBe(2);
+    expect(visitorsFor(w, within, to, 11)).toBe(1);
+    expect(fareFor(w, within, to, -1, 11)).toBe(fareFor(w, within, to, -1, 3));
+  });
 });
 
 describe("building a place: the player's path", () => {
@@ -148,8 +161,8 @@ describe("building a place: the player's path", () => {
     expect(w.economy.placePlans.get(town.id)).toEqual({ id: "town-hall", got: {} });
     const grown = { ...growthOf(w, town.id) };
     received.length = 0;
-    // A train brings 12 planks to the station.
-    const left = deliverByTrain(w, stationOf(w, town.id), "planks", 12);
+    // A train brings the town hall's planks to the station.
+    const left = deliverByTrain(w, stationOf(w, town.id), "planks", placeOf("town-hall")!.goods.planks!);
     expect(left).toBe(0);
     life.update();
     expect(townPlaces(town).has("town-hall")).toBe(true);

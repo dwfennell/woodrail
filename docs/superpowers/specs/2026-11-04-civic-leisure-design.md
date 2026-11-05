@@ -260,11 +260,12 @@ goods**, the goods brought by train to the town (as a school's research goods ar
   learned place, and locked tiles for those that can be researched now), the place under way with its goods and Stop
   (coins back), and Treats once any town is a City (`treatPrice` 100 + 50 per treat on the map, bought outright).
   Keyed by `placeRowKey`, drawn only when it changes.
-- **Prices** (Build): town hall 60🪙+12🪵; park 80🪙+8🪵; fire and police stations 120🪙+10🪵 6🪨; hospital 200🪙+10🪨 8🪵;
-  bank 300🪙+10🪨 6🔩; museum 300🪙+12🪨 8🪵; clock tower 200🪙+8🪨 6🔩; sports field 120🪙+10🪵; swimming baths
-  240🪙+10🪨 6🪵; cinema 200🪙+10🪵 6🪨; theatre 260🪙+12🪵 8🪨; beach 160🪙+12🪵; sailing club 180🪙+12🪵; golf
-  300🪙+10🪵 6🪨; funfair 240🪙+12🪵 6🔩; stadium 500🪙+20🪨 6🔩. Only planks, stone and iron: no flowers or paint (they
-  land with `claude/goods-chains`). Bricks could replace some stone once the brickworks is common.
+- **Prices** (Build): town hall 60🪙+6🪵; park 80🪙+4🪵; fire and police stations 120🪙+5🪵 3🪨; hospital 200🪙+5🪨 4🪵;
+  bank 300🪙+5🪨 3🔩; museum 300🪙+6🪨 4🪵; clock tower 200🪙+4🪨 3🔩; sports field 120🪙+5🪵; swimming baths
+  240🪙+5🪨 3🪵; cinema 200🪙+5🪵 3🪨; theatre 260🪙+6🪵 4🪨; beach 160🪙+6🪵; sailing club 180🪙+6🪵; golf
+  300🪙+5🪵 3🪨; funfair 240🪙+6🪵 3🔩; stadium 500🪙+10🪨 3🔩. Only planks, stone and iron. (The goods were halved in
+  the balance pass of 2026-11-05: at twice these, a town's first four smiles cost 52 goods and saved them back only by
+  City ★★★, which no town reaches by minute 360; now 26, back during City ★ → ★★. The coins are the sink.)
 - **Research rows** made real (no longer "soon"/"later"): Town hall (t2, 4🪵+80🪙, a City), Fire station, Police station,
   Hospital, Bank, Museum, Clock tower (needs Foundry: Clockmaker isn't built), Park (← Town hall), Beach, Sports field,
   Swimming baths, Cinema, Theatre, Funfair (← Park, Bakery: Toys isn't built), Golf, Stadium, Sailing club. Still later:
@@ -292,3 +293,14 @@ nice-to-have band is 150–600: this is the surplus the places are there to spen
 
 Checks: `src/game/places.test.ts` (17: the town hall by train, the park's payoff, smiles, visitors, Stop, no room,
 one per map, save, treats, look-alikes), `src/game/paint-shop.test.ts`, and `npm run e2e:civic`.
+
+## Built later (2026-11-05, `claude/leftovers-1`)
+
+- **Lined** (City, 80🪙) and **Rainbow** (City ★★, 600🪙) in the paint shop, as §4 has them (Starlight stays). Each is a
+  livery with a painted stripe (`Livery.stripe`): `addStripes` (render/train-models) puts a band along both sides of
+  every body-coloured panel big enough for one, at its middle height and widest point: one gold line for Lined
+  (the engine's own green and red), six bands for Rainbow (on cream). Built once with the car's model, one merged mesh
+  per colour from the lacquer cache: nothing per frame. The paint sheet's swatches show the stripe.
+- **City ★★'s bunting**, the free gift: a landmark (`bunting`, level 5) that goes up by itself on a lot of its own as a
+  town reaches City ★★, the catalogue's `scene-bunting` (a `scene-flagpole` where the lot is one square: too short for its string).
+

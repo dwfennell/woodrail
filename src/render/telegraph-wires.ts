@@ -14,13 +14,16 @@ const WIRE_THICK = 0.9;
 /**
  * The Telegraph's wires (tech tree 4): from each signal box or lever frame along the telegraph poles wired to it
  * (`wiredPoles`), so a player sees which far points a box works. One mesh in one of the game's own paints (no draw call
- * or material of its own per wire), built again only when the props change or the Telegraph comes or goes (`sync`: two
- * compares a frame otherwise). Static: it asks for no frames.
+ * or material of its own per wire), built again only when the poles or boxes change or the Telegraph comes or goes
+ * (`sync`: two compares a frame otherwise; on a props change, a look at which props are poles and boxes, and no
+ * rebuild when a tree or a house moved). Static: it asks for no frames.
  */
 export class TelegraphWires {
   readonly mesh: Mesh;
   private propsVersion = -1;
   private on = false;
+  /** The poles and boxes the wires were built for (`wiredSignature`). */
+  private signature = "";
 
   constructor(material: Material) {
     this.mesh = new Mesh(undefined, material);
@@ -34,7 +37,10 @@ export class TelegraphWires {
     if (props.version === this.propsVersion && on === this.on) return false;
     const was = this.mesh.visible;
     this.propsVersion = props.version;
+    const signature = on ? wiredSignature(props) : "";
+    if (on === this.on && signature === this.signature) return false;
     this.on = on;
+    this.signature = signature;
     const parts = on ? wireParts(props) : [];
     this.mesh.geometry.dispose();
     if (parts.length === 0) {
@@ -46,6 +52,13 @@ export class TelegraphWires {
     this.mesh.visible = true;
     return true;
   }
+}
+
+/** Where the telegraph poles and the boxes they wire to stand: the wires are the same while this is. */
+function wiredSignature(props: PropStore): string {
+  let s = "";
+  for (const p of props.all()) if (p.asset === TELEGRAPH_POLE || LEVER_PROPS.has(p.asset)) s += `${p.asset}@${p.x},${p.y},${p.z};`;
+  return s;
 }
 
 /** Each wire's span, as a thin box from one end to the other (world space). */

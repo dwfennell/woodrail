@@ -5,7 +5,7 @@ import { DrawLine, findLowCrossing, Layout, RISER_HEIGHT, type DrawEnd } from ".
 import { drawOptions } from "./draw-testing";
 import type { World } from "./world";
 import { trackBlock, type TrackRules } from "./track-rules";
-import { planBore, planTunnel } from "./tunnel-dig";
+import { outOfRampsText, planBore, planTunnel } from "./tunnel-dig";
 
 /** Tunnels (docs/superpowers/specs/2026-11-04-tunnels.md): track under two levels of ground, a hill's and the board's. */
 
@@ -228,5 +228,19 @@ describe("tunnels: Draw", () => {
     const types = draw(true, 520).map((p) => p.type);
     expect(types).toContain("ramp");
     expect(types).not.toContain("tunnel-mouth-short");
+  });
+});
+
+describe("tunnels: what Draw says when it can't go under (QA 2026-11-05)", () => {
+  it("adds why to Out of ramps: too near the hill, or no mouths", () => {
+    setTunnels(true);
+    const land = oneLevel();
+    const rules = rulesOf(land, new Layout());
+    // (A stroke begun a few mm short of the hill's side, as played: no room for the mouth.)
+    const near = planTunnel(rules, { x: 250, z: 36, heading: 0, y: 0, kind: "peg" });
+    expect(near).toMatchObject({ kind: "refused", why: "near" });
+    expect(outOfRampsText("Out of ramps", near.kind === "refused" ? near.why : null)).toBe("Out of ramps. Too near the hill for a tunnel mouth: start a square further back");
+    expect(outOfRampsText("Out of ramps", "mouths")).toBe("Out of ramps, and short tunnel mouths (make two at the workshop to go under)");
+    expect(outOfRampsText("Out of ramps", null)).toBe("Out of ramps");
   });
 });

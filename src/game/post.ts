@@ -23,6 +23,21 @@ export function mailSeconds(level: number): number {
   return MAIL_SECONDS[Math.max(0, Math.min(MAIL_SECONDS.length - 1, level))];
 }
 
+/**
+ * Sandbox's towns post mail as a Town does (`mailSeconds` at this level), once a post office stands on the map: no
+ * research there, and Sandbox's towns don't grow, so one pace for all.
+ */
+export const SANDBOX_MAIL_LEVEL = 2;
+
+/**
+ * Seconds between a town depot's sacks of mail (0: it posts none): only at a town's station (a halt is a stop for its
+ * people, not a second post box), only once the post is learned (always, in Sandbox), and only while a post office
+ * stands on the map (no mail piling up for nothing that could take it).
+ */
+export function mailEveryAt(learned: boolean, atStation: boolean, office: boolean, level: number): number {
+  return learned && atStation && office ? mailSeconds(level) : 0;
+}
+
 /** Post vans a town has at most. */
 export const POST_VANS_PER_TOWN = 2;
 /** A town's first post van comes with its first post; each further one this many sacks of post later. */
