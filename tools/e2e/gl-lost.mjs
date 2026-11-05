@@ -113,9 +113,29 @@ check("a phone: the mobile tier at a pixel ratio of 2, not lean", q0.tier === "m
   check("idle: nothing drawn", n === 0, `${n} frames`);
 }
 
-// 2. Lost for a moment, and back.
+// 2. Lost for a moment. With drawn-only geometry freed after upload (gpu-only.ts, on by default), the scene can't be
+// uploaded again, so the game can't come back in place (Game.restoreInPlace false): the card at once, and a tap reloads.
+// With it off, it comes back by itself, with no card.
+const inPlace = await p.evaluate(() => window.woodrail.restoreInPlace);
 await lose();
 await p.waitForTimeout(800);
+if (!inPlace) {
+  check("lost, freed geometry: the card at once", await cardShown());
+  const b0 = await p.evaluate(() => { const r = document.querySelector(".gl-lost button")?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; });
+  await p.waitForTimeout(500);
+  const c0 = crashes[0] ? JSON.parse(crashes[0]) : null;
+  check("a crash report sent for the loss", crashes.length === 1 && c0?.kind === "context-lost", `${crashes.length} sent`);
+  check("…holding only the error and the device: no map, no save", !!c0 && JSON.stringify(Object.keys(c0).sort()) === JSON.stringify(["build", "kind", "message", "pixelRatio", "quality", "screen", "stack", "userAgent"]) && !crashes[0].includes("woodrail-map"), crashes[0]);
+  check("…the screen, DPR and tier", c0?.screen?.dpr === 2.625 && c0?.pixelRatio === 2 && c0?.quality === "mobile", JSON.stringify({ screen: c0?.screen, pr: c0?.pixelRatio, q: c0?.quality }));
+  check("…which the Worker takes", typeof parseCrash(c0) === "object");
+  await shot("1-card-at-once");
+  if (b0) await p.touchscreen.tap(b0.x, b0.y);
+  await p.waitForLoadState("load");
+  await inPlay();
+  await settle();
+  const lum0 = await drawn();
+  check("…a tap: reloaded straight into play, and it draws", !(await p.evaluate(() => window.woodrail.title.shown)) && lum0 > 20, `brightness ${lum0.toFixed(0)}`);
+} else {
 check("lost: no card at once (it may come back)", !(await cardShown()));
 await p.evaluate(() => window.__lose.restoreContext());
 await p.waitForFunction(() => !window.woodrail.renderer.getContext().isContextLost(), null, { timeout: 20000 }).catch(() => {});
@@ -131,6 +151,7 @@ check("a crash report sent for the loss", crashes.length === 1 && first?.kind ==
 check("…holding only the error and the device: no map, no save", !!first && JSON.stringify(Object.keys(first).sort()) === JSON.stringify(["build", "kind", "message", "pixelRatio", "quality", "screen", "stack", "userAgent"]) && !crashes[0].includes("woodrail-map"), crashes[0]);
 check("…the screen, DPR and tier", first?.screen?.dpr === 2.625 && first?.pixelRatio === 2 && first?.quality === "mobile", JSON.stringify({ screen: first?.screen, pr: first?.pixelRatio, q: first?.quality }));
 check("…which the Worker takes", typeof parseCrash(first) === "object");
+}
 
 // 3. Lost for good: a piece laid just before, the card, a tap to reload.
 const pieces = await p.evaluate(() => {
