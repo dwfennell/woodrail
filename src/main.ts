@@ -2111,16 +2111,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    */
   function yardModel(asset: string): { parts: PropModel["parts"] } | null | undefined {
     const m = game.propLibrary.model(asset);
-    if (m === undefined)
-      void game.propLibrary.load(asset).then(
-        () => {
-          game.depotView.setWorld(game.economy, game.layout);
-          game.invalidate();
-        },
-        () => {},
-      );
+    // (Each asset waited for once, however many yards ask for it while it loads; the yards drawn again once when the
+    // last of those loading is in, not once an asset and a yard: each `setWorld` builds every yard on the map.)
+    if (m === undefined && !yardsLoading.has(asset)) {
+      yardsLoading.add(asset);
+      const done = () => {
+        yardsLoading.delete(asset);
+        if (yardsLoading.size > 0) return;
+        game.depotView.setWorld(game.economy, game.layout);
+        game.invalidate();
+      };
+      void game.propLibrary.load(asset).then(done, done);
+    }
     return m;
   }
+  /** Catalogue models yards are waiting for (`yardModel`). */
+  const yardsLoading = new Set<string>();
 
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
@@ -2733,8 +2739,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else warnedHeavy.delete(id);
     }
     peopleArrive(game.world, progress, 1, peopleClock);
-    // Metro trains draw power: a coal from a power station now and then, as they run.
-    metroDraw(game.world, 1, metroClock);
+    // Metro trains draw power: a coal from a power station now and then, as they run (not while paused: they stand,
+    // though they keep their speed for after).
+    if (!game.paused) metroDraw(game.world, 1, metroClock);
     // (A town grown out over a line two levels down: those squares weren't dug for it, so nothing's paid.)
     if (mode === "game") settleDigging(progress, squaresDugUnder(game.world), false);
     // A bus at a station's stop goes for the people waiting in its town off the line.

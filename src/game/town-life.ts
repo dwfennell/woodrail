@@ -17,6 +17,14 @@ import { hasPostOffice, mailSeconds, POST_TECH } from "./post";
 import { housesBy, LUXURIES, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 
+/** How many goods a town has received in all (`total(receivedBy(…))`, without making the bag). */
+export function receivedTotal(world: World, townId: number): number {
+  let n = world.economy.delivered.get(townId) ?? 0;
+  const bag = world.economy.deliveredGoods.get(townId);
+  if (bag) for (const k in bag) if (k !== "planks") n += bag[k as keyof Bag] ?? 0;
+  return n;
+}
+
 /** Everything a town has received, by kind. */
 export function receivedBy(world: World, townId: number): Bag {
   // Planks from `delivered` (saves from before goods were counted by kind have only that).
@@ -126,7 +134,7 @@ export class TownLife {
   /** What each town had received when last looked at. */
   private had = new Map<number, Bag>();
   /** What each sign shows now (a key), so an unchanged frame repaints nothing. */
-  private shown = new Map<number, string>();
+  private shown = new Map<number, number>();
   /** Towns whose place under way had goods since last looked at (its last may be in). */
   private placeGoods = new Set<number>();
   /** Places told stuck (no room), by town, so it's said once. */
@@ -215,12 +223,13 @@ export class TownLife {
       this.placeGoods.clear();
     }
     for (const town of this.game.landscape.towns) {
-      const received = receivedBy(this.game, town.id);
       // Deliveries only add up: their total changes whenever anything arrives (any good, not just planks). A place
-      // going up may cut what it wants (its smiles: `placesVersion`).
-      const key = `${total(received)}.${this.placesVersion}`;
+      // going up may cut what it wants (its smiles: `placesVersion`). (A number, summed without a copy: this runs
+      // every frame for every town, paused too.)
+      const key = receivedTotal(this.game, town.id) + this.placesVersion * 2 ** 32;
       if (this.shown.get(town.id) === key) continue;
       this.shown.set(town.id, key);
+      const received = receivedBy(this.game, town.id);
       // (Its level from what it received and its road's bonus; what's said to have arrived is only what did.)
       const bonus = roadBonus(this.game, town.id);
       const status = statusOf(this.game, town.id);

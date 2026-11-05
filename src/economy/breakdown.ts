@@ -157,13 +157,23 @@ export class Breakdown {
   /** Cars of trains a crane is lifting, and how far (0 to 1): a car not in it isn't lifted. */
   hoistOf(carId: number): number {
     if (this.jobs.size === 0) return 0;
-    for (const j of this.jobs.values()) {
-      if (j.hoist <= 0) continue;
-      const t = this.sim.findCar(j.target)?.train;
-      if (t && t.cars.some((c) => c.id === carId)) return j.hoist;
+    // (Asked for every car every frame while a crane works: the lifted cars are found once a tick, not once a car.)
+    if (this.hoistedAt !== this.ticks) {
+      this.hoistedAt = this.ticks;
+      this.hoisted.clear();
+      for (const j of this.jobs.values()) {
+        if (j.hoist <= 0) continue;
+        const t = this.sim.findCar(j.target)?.train;
+        if (t) for (const c of t.cars) if (!this.hoisted.has(c.id)) this.hoisted.set(c.id, j.hoist);
+      }
     }
-    return 0;
+    return this.hoisted.get(carId) ?? 0;
   }
+  /** The cars being lifted now, and how far (`hoistOf`), as of tick `hoistedAt`. */
+  private readonly hoisted = new Map<number, number>();
+  private hoistedAt = -1;
+  /** Ticks run (`tick`). */
+  private ticks = 0;
 
   drainEvents(): CraneEvent[] {
     if (this.events.length === 0) return NO_EVENTS;
@@ -207,6 +217,7 @@ export class Breakdown {
     if (!best) return { ok: false, why: "no-way" };
     const job: CraneJob = { crane: best.crane, target, kind, auto, phase: "drive", t: 0, driven: 0, blocked: 0, sign: best.sign, slew: 0, slewTo: 0, hoist: 0 };
     this.jobs.set(best.crane, job);
+    this.hoistedAt = -1;
     this.events.push({ kind: "sent", crane: best.crane, target, auto });
     // (Already in reach: straight to work. Else off it goes.)
     if (!this.inReach(best.train, best.crane, found.train)) this.drive(job, best.train);
@@ -218,12 +229,14 @@ export class Breakdown {
     const job = this.jobs.get(craneCar);
     if (!job) return;
     this.jobs.delete(craneCar);
+    this.hoistedAt = -1;
     const t = this.sim.findCar(craneCar)?.train;
     if (t && job.phase === "drive") this.setLevers(t, 0);
   }
 
   /** One sim tick. */
   tick(): void {
+    this.ticks++;
     const ticks = this.sim.ticks;
     if (this.jobs.size === 0) {
       if (ticks % LOOK_TICKS === 0) this.lookForDerailed();
@@ -276,6 +289,7 @@ export class Breakdown {
       // (The player stopped it, its levers off: the job's called off, and it stays where it stands.)
       if (crane.cars.every((c) => c.kind !== "engine" || c.lever === 0)) {
         this.jobs.delete(job.crane);
+        this.hoistedAt = -1;
         if (job.auto) this.calledOff.add(job.target);
         return;
       }
@@ -294,6 +308,7 @@ export class Breakdown {
     const next = ORDER[ORDER.indexOf(job.phase) + 1];
     if (!next) {
       this.jobs.delete(job.crane);
+      this.hoistedAt = -1;
       return;
     }
     if (next === "set") {
@@ -351,6 +366,7 @@ export class Breakdown {
   private giveUp(job: CraneJob, crane: Train, why: "no-way" | "blocked" | "no-room"): void {
     this.setLevers(crane, 0);
     this.jobs.delete(job.crane);
+    this.hoistedAt = -1;
     this.events.push({ kind: "gave-up", crane: job.crane, target: job.target, why });
   }
 

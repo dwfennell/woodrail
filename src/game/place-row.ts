@@ -147,17 +147,19 @@ export function placeRow(world: World, p: Progress, town: Town, level: number): 
 export function placeRowKey(world: World, p: Progress, town: Town): number {
   let k = town.buildings.length * 131 + p.bestLevel * 17 + p.learned.size * 7 + (coinsShort(p) > 0 ? 1 : 0);
   // Coins matter only against the prices (Build or "Needs …"): how many of them they reach, not every coin a train pays.
+  // (Asked every frame while a town's card is open: the map's treats counted once, with no copies.)
+  const treats = treatsOnMap(world.landscape);
   let reach = 0;
   for (const place of BUILDINGS) if (p.coins >= place.coins) reach++;
-  if (p.coins >= treatPrice(treatsOnMap(world.landscape))) reach += 100;
+  if (p.coins >= treatPrice(treats)) reach += 100;
   k = Math.imul(k, 31) + reach;
   for (const b of town.buildings) if (b.landmark) k = Math.imul(k, 31) + b.landmark.length + b.id;
   const plan = world.economy.placePlans.get(town.id);
   if (plan) {
     k = Math.imul(k, 31) + plan.id.length;
-    for (const v of Object.values(plan.got)) k = Math.imul(k, 31) + (v ?? 0);
+    for (const g in plan.got) k = Math.imul(k, 31) + (plan.got[g as keyof typeof plan.got] ?? 0);
   }
-  k = Math.imul(k, 31) + treatsOnMap(world.landscape);
+  k = Math.imul(k, 31) + treats;
   k = Math.imul(k, 31) + world.economy.placePlans.size;
   return k | 0;
 }
