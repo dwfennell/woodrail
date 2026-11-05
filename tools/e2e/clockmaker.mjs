@@ -6,7 +6,7 @@
 //      fits the phone's top bar.
 //   3. A tap: "2×", and the payoff: the game's time runs twice as fast (its seconds per second of the page's, over a
 //      stretch of each, the view still), and the calendar with it.
-//   4. Clock tower learned: taps go 2× → 3× → 1×.
+//   4. No 3× till a clock tower stands in a town (built from its card: a setup shortcut here); then taps go 2× → 3× → 1×.
 //   5. A phone too slow for 3× (the game's own slow-phone call, made by hand: a setup shortcut, the detection is unit
 //      tested): back to 2×, and the player is told.
 //
@@ -130,13 +130,19 @@ check("…and the game's time runs about twice as fast", two / one > 1.6, JSON.s
 await shot("2-two-times");
 void date0;
 
-// 4. Clock tower: 3×, then round to 1×.
-await p.evaluate(() => window.woodrail.learn("clock-tower"));
+// 4. A clock tower in a town: 3×, then round to 1×. (Standing there as built from the town's card: its building's
+// landmark the place, a setup shortcut. Building it by the card is e2e:civic's; the 3× is what's tested here.)
+check("4. no 3× before a clock tower stands", (await p.evaluate(() => window.woodrail.timeScale)) === 2 && (await tapClock()) && (await clock())?.text === "1×");
+await tapClock();
+await p.evaluate(() => {
+  const t = window.woodrail.world.landscape.towns[0];
+  t.buildings[0].landmark = "clock-tower";
+});
 await p.waitForTimeout(1500);
 await tapClock();
 const c3 = await clock();
 await shot("3-three-times");
-check("4. Clock tower learned: the next tap, 3×", c3?.text === "3×", JSON.stringify(c3));
+check("4. a clock tower in a town: the next tap, 3×", c3?.text === "3×", JSON.stringify(c3));
 
 // 5. Too slow for 3× (the game's own call, made by hand): back to 2×, said.
 await p.evaluate(() => {

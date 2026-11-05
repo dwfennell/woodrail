@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Toys</title>
+<circle cx="5.8" cy="4.6" r="3" fill="#4f2c16"/>
+<circle cx="18.2" cy="4.6" r="3" fill="#4f2c16"/>
+<circle cx="5.8" cy="4.6" r="1.6" fill="#e0b080"/>
+<circle cx="18.2" cy="4.6" r="1.6" fill="#e0b080"/>
+<ellipse cx="12" cy="17" rx="7.6" ry="6.4" fill="#4f2c16"/>
+<ellipse cx="12" cy="17.2" rx="6.4" ry="5.2" fill="#a0612e"/>
+<ellipse cx="12" cy="18" rx="3.4" ry="3.2" fill="#e0b080"/>
+<circle cx="12" cy="9.4" r="7" fill="#4f2c16"/>
+<circle cx="12" cy="9.4" r="5.8" fill="#a0612e"/>
+<ellipse cx="12" cy="11.6" rx="2.8" ry="2.2" fill="#e0b080"/>
+<ellipse cx="12" cy="10.8" rx="1.1" ry="0.8" fill="#2a160a"/>
+<circle cx="9.6" cy="8" r="0.9" fill="#2a160a"/>
+<circle cx="14.4" cy="8" r="0.9" fill="#2a160a"/>
+<rect x="7.4" y="14.4" width="9.2" height="1.8" rx="0.9" fill="#c8442f"/></svg>

@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import type { MapSite } from "../landscape";
 import type { Pose } from "../track";
 import { Batcher } from "./dressing/batcher";
+import { gpuOnly } from "./gpu-only";
 import { setCullBox, tileAt } from "./dressing/tiles";
 import type { DepotView } from "./depot-view";
 import type { Materials } from "./materials";
@@ -148,6 +149,8 @@ export class RuinsView {
     const group = new Group();
     group.userData.ruins = true;
     b.build(group);
+    // Only drawn, and picked by a ray (a tap opens a ruin's card): positions kept, the rest freed once on the GPU.
+    gpuOnly(group, { pickable: true });
     // Yards reach about 250 mm from their stub's middle.
     setCullBox(group, points.flatMap((p) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
     return group;

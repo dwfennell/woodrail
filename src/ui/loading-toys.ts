@@ -155,6 +155,10 @@ export class LoadingToys {
     cancelAnimationFrame(this.frame);
     this.renderer.dispose();
     this.renderer.forceContextLoss();
+    // Its own materials' canvases and its toys go with it (the page keeps this object).
+    this.scene.clear();
+    this.toys.length = 0;
+    this.matsMade = null;
   }
 
   /** When the last toy will have finished hopping in (ms, `performance.now()` time; 0 with none). */

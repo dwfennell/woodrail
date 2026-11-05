@@ -1,10 +1,12 @@
+import type { Town } from "../landscape";
+import { townPlaces } from "./places";
 import type { Progress } from "./progress";
 
 /**
  * Time control (late-game spec, Clockmaker CA: docs/superpowers/specs/2026-11-04-late-game-design.md). Learning
  * Clockmaker puts a clock on the HUD: a tap runs the railway at 2× (the sim takes twice the steps a frame, and every
- * clock on game time with it: research, the workshop, harbours, people coming to stations, the calendar). Learning
- * Clock tower (once a town is a city) adds 3×.
+ * clock on game time with it: research, the workshop, harbours, people coming to stations, the calendar). A clock
+ * tower built in a town (a place from its town hall, the Clock tower blueprint) adds 3×.
  *
  * Phones: a frame at 3× costs about three times the sim's CPU. `SlowWatch` sees the sim falling behind (its steps
  * cut short by the per-frame cap, or the sim alone over `SIM_BUDGET_MS` a frame) and asks for a slower speed: 3× drops
@@ -15,11 +17,12 @@ import type { Progress } from "./progress";
 export const SPEEDS = [1, 2, 3] as const;
 export type Speed = (typeof SPEEDS)[number];
 
-/** The speeds open now: 1× always, 2× with Clockmaker, 3× with Clock tower too. */
-export function speedsOpen(p: Pick<Progress, "learned">): Speed[] {
+/** The speeds open now: 1× always, 2× with Clockmaker, 3× with a clock tower standing in a town too. */
+export function speedsOpen(p: Pick<Progress, "learned">, towns: readonly Town[]): Speed[] {
   const out: Speed[] = [1];
-  if (p.learned.has("clockmaker")) out.push(2);
-  if (p.learned.has("clockmaker") && p.learned.has("clock-tower")) out.push(3);
+  if (!p.learned.has("clockmaker")) return out;
+  out.push(2);
+  if (towns.some((t) => townPlaces(t).has("clock-tower"))) out.push(3);
   return out;
 }
 

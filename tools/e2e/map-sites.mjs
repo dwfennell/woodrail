@@ -27,8 +27,10 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { shot as picture } from "../../scripts/e2e/lib/shot.mjs";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { groups } from "../../scripts/e2e/lib/groups.mjs";
+import { printEvents, watchBrowser, watchServer } from "../../scripts/e2e/lib/page-watch.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out/sites";
@@ -48,6 +50,9 @@ async function boot() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
+  watchBrowser(b);
+  watchServer(server);
   // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
   stillIndustriesIn(b);
 }
@@ -575,7 +580,7 @@ const sandbox = await q.evaluate(async () => {
   return { sites: land.sites?.length ?? 0, siteless: !!land.siteless, ruins: w.world.ruins.size, meshes, forSale: plotsForSale(land).reduce((n, q) => n + (landForSale(land, q.px, q.pz).sites?.length ?? 0), 0) };
 });
 check("Sandbox: no sites or ruins (none drawn in the opening view, none on the land for sale)", sandbox.siteless && sandbox.sites === 0 && sandbox.ruins === 0 && sandbox.meshes === 0 && sandbox.forSale === 0, JSON.stringify(sandbox));
-await q.screenshot({ path: `${OUT}/08-sandbox-start.png` }).catch(() => {});
+await picture(q, `${OUT}/08-sandbox-start.png`);
 });
 
 // 14. A phone on its side (667×375, a fresh game): the ruin card's Restore and Clear stay in view, pinned at its foot
@@ -645,7 +650,7 @@ const lCard = await L.evaluate(async () => {
 });
 check("667×375: the ruin card opens (a stamped tap on the old farm, no fallback)", !!lAt && lTapped && lCard.open, JSON.stringify({ at: lAt, tapped: lTapped }));
 check("667×375: Restore and Clear fully in view, above the tray, nothing over them", lCard.buttons.length === 2 && lCard.buttons.every((x) => x.ok && x.hit), JSON.stringify(lCard));
-await L.screenshot({ path: `${OUT}/14-ruin-card-667x375.png` }).catch(() => {});
+await picture(L, `${OUT}/14-ruin-card-667x375.png`);
 // A tap on Restore lands: no workshop yet, so it says where the planks come from.
 const restoreBtn = lCard.buttons.find((x) => x.text.startsWith("Restore"));
 if (restoreBtn) await stampedTap(L, restoreBtn.at[0], restoreBtn.at[1]);
@@ -746,7 +751,7 @@ check("…its lock readable: 16 px or more, on a pale disc", !!farmMark?.lock &&
 check("…the land around's ruins marked too (by role)", map1.ruins.filter((r) => r.key.startsWith("ruin-around:")).length > 0, JSON.stringify(map1.ruins.map((r) => [r.key, r.icon, r.shown, r.shown ? [Math.round(r.box.l), Math.round(r.box.t)] : null])));
 const clashes = map1.ruins.filter((r) => r.shown).flatMap((r) => map1.labels.filter((l) => overlaps(r.box, l.box)).map((l) => `${r.key}×${l.key}`));
 check("…no ruin marker over a town's or a station's label", clashes.length === 0, clashes.join(", "));
-await M.screenshot({ path: `${OUT}/15-map-markers.png` }).catch(() => {});
+await picture(M, `${OUT}/15-map-markers.png`);
 // Idle in the map view, markers shown: no frames.
 const mcdp = await M.context().newCDPSession(M);
 await mcdp.send("Performance.enable");
@@ -790,7 +795,7 @@ check("idle in the map view with ruin markers: no frames drawn in 30 s (but one 
 await M.evaluate(() => window.woodrail.learn("farming"));
 // (The map's markers are looked at again each second; learning is a busy moment in swiftshader.)
 await M.waitForFunction((key) => !document.querySelector(`.map-marker[data-key='${key}'] .map-ruin-lock`), `ruin:${mFarm}`, { timeout: 20000, polling: 250 }).catch(() => {});
-await M.screenshot({ path: `${OUT}/15-map-learned.png` }).catch(() => {});
+await picture(M, `${OUT}/15-map-learned.png`);
 const map2 = await mapState();
 const farmMark2 = map2.ruins.find((r) => r.key === `ruin:${mFarm}`);
 check("…Farming learned: the farm's lock goes (the others' stay)", farmMark2?.shown && !farmMark2.locked && map2.ruins.filter((r) => r.icon !== "🌾").every((r) => r.locked), JSON.stringify(map2.ruins.map((r) => [r.key, r.icon, r.locked])));
@@ -815,7 +820,7 @@ const mCard = await M.evaluate(() => {
 });
 check("…tapped: the map closes and the old farm's card opens, Restore on it", !mCard.map && mCard.card?.title === "Old farm" && mCard.card.buttons[0] === "Restore · 3\uE000 45🪙", JSON.stringify(mCard));
 await M.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 15000))]));
-await M.screenshot({ path: `${OUT}/15-marker-card.png` }).catch(() => {});
+await picture(M, `${OUT}/15-marker-card.png`);
 // Restore it: back on the map, its marker is gone.
 await M.evaluate(() => document.querySelector(".ruin-card .ruin-restore")?.click());
 await M.waitForTimeout(1500);
@@ -823,7 +828,7 @@ const mRestored = await M.evaluate((id) => !!window.woodrail.world.landscape.sit
 await openMapView();
 const map4 = await mapState();
 check("…restored: its marker is gone from the map (the others stay)", mRestored && map4.open && map4.ruins.length > 0 && !map4.ruins.some((r) => r.key === `ruin:${mFarm}`), JSON.stringify({ mRestored, open: map4.open, ruins: map4.ruins.map((r) => r.key) }));
-await M.screenshot({ path: `${OUT}/15-map-restored.png` }).catch(() => {});
+await picture(M, `${OUT}/15-map-restored.png`);
 });
 
 // 16. The map view on a phone on its side (667×375 and 844×390, a fresh game): no ruin's badge under a label and no
@@ -873,7 +878,7 @@ for (const [W, H] of [
     }),
   );
   check(`${W}×${H} map view: a tap on any badge, middle or edge, lands on the badge`, hits.length > 0 && hits.every((h) => h.ok), JSON.stringify(hits));
-  await S.screenshot({ path: `${OUT}/16-map-${W}x${H}.png` }).catch(() => {});
+  await picture(S, `${OUT}/16-map-${W}x${H}.png`);
   // Tap one (one on the player's land if one's shown: its card opens; else one on the land around: the view goes there).
   const pick = st.ruins.find((r) => r.shown && r.key.startsWith("ruin:")) ?? st.ruins.find((r) => r.shown);
   if (pick) await stampedTap(S, (pick.box.l + pick.box.r) / 2, (pick.box.t + pick.box.b) / 2);
@@ -929,7 +934,7 @@ suite.add("big-map", async () => {
   const seen = new Set(first.filter((r) => r.shown).map((r) => r.key));
   const harbours = first.filter((r) => r.harbour);
   console.log(`  (seed ${bought.seed}, ${bought.n} plots bought: ${first.length} ruins on the land, ${seen.size} shown as the map opens, ${harbours.filter((r) => r.shown).length} of ${harbours.length} harbours)`);
-  await G.screenshot({ path: `${OUT}/17-map-big-390x844.png` }).catch(() => {});
+  await picture(G, `${OUT}/17-map-big-390x844.png`);
   /** A slow one-finger drag (no fling): the ground under the finger stays under it. */
   const cdp = await G.context().newCDPSession(G);
   const drag = async (x0, y0, x1, y1) => {
@@ -979,7 +984,7 @@ suite.add("big-map", async () => {
   const still = await G.evaluate(() => !document.querySelector(".map-view").hidden);
   const missed = first.filter((r) => !seen.has(r.key)).map((r) => r.key);
   check("big map (22 plots, 390×844): every ruin on the land gets its badge on screen in the map view, panning to it", still && first.length > 0 && missed.length === 0, JSON.stringify({ ruins: first.length, shownAtOpen: first.filter((r) => r.shown).length, seen: seen.size, missed }));
-  await G.screenshot({ path: `${OUT}/17-map-big-panned-390x844.png` }).catch(() => {});
+  await picture(G, `${OUT}/17-map-big-panned-390x844.png`);
   await G.close();
 }
 });

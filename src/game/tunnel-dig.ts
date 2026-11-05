@@ -39,6 +39,16 @@ export const TUNNEL_MESSAGES: Record<TunnelRefusal, string> = {
   busy: "Something's in the way of the tunnel",
 };
 
+/**
+ * "Out of ramps", said by Draw up a hill with Tunnels learned, and why the line didn't go under instead (QA 2026-11-05:
+ * "Out of ramps" alone, with two tunnel mouths in the box, a stroke begun too near the hill). `why`: the tunnel's
+ * refusal, or "mouths" (fewer than two short mouths in the box); null: as it was.
+ */
+export function outOfRampsText(out: string, why: TunnelRefusal | "mouths" | null): string {
+  if (!why) return out;
+  return why === "mouths" ? `${out}, and short tunnel mouths (make two at the workshop to go under)` : `${out}. ${TUNNEL_MESSAGES[why]}`;
+}
+
 /** The longest tunnel under a hill (mm): 20 squares. */
 export const MAX_TUNNEL = 20 * 72;
 const STEP = 6;

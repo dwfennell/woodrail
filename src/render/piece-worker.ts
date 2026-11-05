@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 // Builds track piece geometry off the main thread (the CSG carving is the slow part of loading).
-import { buildPieceGeometry, compactPiece } from "./track-geometry";
+import { compactPiece } from "./track-geometry";
+import { buildPieceGeometry } from "./piece-carve";
 import { getPieceDef, type PieceTypeId } from "../track";
 
 export interface PieceJob {

@@ -51,6 +51,9 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "switch-3way", label: "Three-way" },
   { kind: "piece", type: "crossing", label: "Crossing" },
   { kind: "piece", type: "crossing-45", label: "45° crossing" },
+  { kind: "piece", type: "slip-single", label: "Single slip" },
+  { kind: "piece", type: "slip-double", label: "Double slip" },
+  { kind: "piece", type: "switch-3way-double", label: "Double three-way" },
   { kind: "piece", type: "signal", label: "Signal" },
   { kind: "piece", type: "crossover", label: "Crossover" },
   { kind: "piece", type: "double-straight", label: "Double track" },
@@ -61,6 +64,8 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "balloon-loop-small", label: "Small loop" },
   { kind: "piece", type: "wye", label: "Wye" },
   { kind: "piece", type: "ramp", label: "Ramp" },
+  { kind: "piece", type: "rack", label: "Rack" },
+  { kind: "piece", type: "rack-short", label: "Short rack" },
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
   { kind: "piece", type: "underpass", label: "Underpass" },
@@ -84,6 +89,9 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
   { kind: "train", cars: ["engine"], looks: ["express"], label: "Express" },
   { kind: "train", cars: ["engine"], looks: ["goods"], label: "Goods engine" },
+  { kind: "train", cars: ["engine"], looks: ["rack"], label: "Rack engine" },
+  // (Game mode's once Metro is learned: a motor car and two cars, as one.)
+  { kind: "train", cars: ["engine", "passenger", "passenger"], looks: ["metro", "metro", "metro"], label: "Metro train", unlearned: "hide" },
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Flatbed wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
@@ -93,6 +101,14 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["reefer"], label: "Cold van", unlearned: "hide" },
   // (Game mode's once Car carrier is learned.)
   { kind: "train", cars: ["carrier"], label: "Car carrier", unlearned: "hide" },
+  // (Game mode's once Tank wagons is learned.)
+  { kind: "train", cars: ["oiltank"], label: "Tank wagon", unlearned: "hide" },
+  // (Game mode's once Breakdown crane is learned.)
+  { kind: "train", cars: ["crane"], label: "Breakdown crane", unlearned: "hide" },
+  // (Game mode's once Post office is learned.)
+  { kind: "train", cars: ["mailvan"], label: "Mail van", unlearned: "hide" },
+  // (Game mode's once Sorting van is learned.)
+  { kind: "train", cars: ["sortvan"], label: "Sorting van", unlearned: "hide" },
   // (Game mode's once Scenery kit is learned.)
   { kind: "train", cars: ["cleaner"], label: "Track cleaner", unlearned: "hide" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
@@ -110,6 +126,11 @@ export interface TrayGroup {
   items: TrayItem[];
   /** Shown in these modes only (default: wherever its tab is). */
   modes?: readonly GameMode[];
+  /**
+   * Game mode: what's learned comes first, the Locked ones after, each in its own order (the Industries shelf: thirty
+   * long, a new research's industry was found past a row of Locked ones. QA 2026-11-05 #7).
+   */
+  knownFirst?: boolean;
 }
 
 const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t && !i.auto)!);
@@ -117,8 +138,8 @@ const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i
 export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
-  { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45"), SIGNAL_ITEM] },
-  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser") },
+  { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "switch-3way-double", "crossover", "wye", "crossing", "crossing-45", "slip-single", "slip-double"), SIGNAL_ITEM] },
+  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser", "rack", "rack-short") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
 ];
@@ -128,7 +149,8 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   // ready-made set picks the cars for the player.
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2), modes: ["sandbox"] },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "carrier" || i.cars[0] === "cleaner")) },
+  { label: "Metro", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.label === "Metro train") },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "tanker" || i.cars[0] === "reefer" || i.cars[0] === "carrier" || i.cars[0] === "mailvan" || i.cars[0] === "sortvan" || i.cars[0] === "oiltank" || i.cars[0] === "crane" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
@@ -162,6 +184,7 @@ export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("br
 export const INDUSTRY_GROUPS: TrayGroup[] = [
   {
     label: "Industries",
+    knownFirst: true,
     items: [
       { kind: "piece", type: "depot-workshop", label: "Workshop" },
       { kind: "piece", type: "depot-school", label: "School" },
@@ -175,13 +198,23 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-juicer", label: "Juice works" },
       { kind: "piece", type: "depot-creamery", label: "Creamery" },
       { kind: "piece", type: "depot-icecream", label: "Ice cream factory" },
+      // The goods chains (2026-11-04): sugar and jam, chocolate, flowers to paint to toys.
+      { kind: "piece", type: "depot-beet", label: "Sugar beet field" },
+      { kind: "piece", type: "depot-jam", label: "Jam kitchen" },
+      { kind: "piece", type: "depot-chocolate", label: "Chocolate factory" },
+      { kind: "piece", type: "depot-flowers", label: "Flower field" },
+      { kind: "piece", type: "depot-dyeworks", label: "Dye works" },
       { kind: "piece", type: "depot-quarry", label: "Quarry" },
       { kind: "piece", type: "depot-mine", label: "Mine" },
       { kind: "piece", type: "depot-foundry", label: "Foundry" },
       { kind: "piece", type: "depot-brickworks", label: "Brickworks" },
       { kind: "piece", type: "depot-carworks", label: "Car factory" },
+      { kind: "piece", type: "depot-oilwell", label: "Oil well" },
+      { kind: "piece", type: "depot-waterpump", label: "Water pump" },
+      { kind: "piece", type: "depot-postoffice", label: "Post office" },
       { kind: "piece", type: "depot-carpenter", label: "Carpenter's yard" },
       { kind: "piece", type: "depot-smithy", label: "Smithy" },
+      { kind: "piece", type: "depot-toyworks", label: "Toy workshop" },
       { kind: "piece", type: "depot-power", label: "Power station" },
       { kind: "piece", type: "depot-harbour", label: "Harbour" },
       { kind: "piece", type: "depot-warehouse", label: "Warehouse" },
@@ -191,13 +224,14 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
 
 /**
  * Sandbox's industries (free, as everything there): the goods chains' makers and users, and a warehouse. Not the
- * workshop or school (Game mode's research and building), nor the harbour (Game mode's boats). Each works from what's
+ * workshop or school (Game mode's research and building), nor the harbour (Game mode's boats), nor the chocolate factory
+ * (its cocoa only comes by boat). Each works from what's
  * around it, as in Game mode (a harvester by trees, a farm yard by a field); its card says what it lacks.
  */
 export const SANDBOX_INDUSTRY_GROUPS: TrayGroup[] = [
   {
     label: "Industries",
-    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour"].includes(i.type)),
+    items: INDUSTRY_GROUPS[0].items.filter((i) => i.kind === "piece" && !["depot-workshop", "depot-school", "depot-harbour", "depot-chocolate"].includes(i.type)),
   },
 ];
 
@@ -256,7 +290,7 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
   },
   {
     label: "Halts",
-    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform")],
+    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform"), kit("kit-lookout", "Lookout halt"), kit("kit-metro-stop", "Metro stop")],
   },
   {
     label: "Lineside",
@@ -268,6 +302,7 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
       furniture("mech-whistle-post", "Whistle post"),
       furniture("bldg-signal-box", "Signal box"),
       furniture("mech-lever-frame", "Lever frame"),
+      furniture("mech-telegraph-pole", "Telegraph pole"),
       furniture("mech-level-crossing", "Level crossing"),
       furniture("mech-gated-crossing", "Gated crossing"),
       furniture("scene-bus-stop", "Bus stop"),
@@ -276,11 +311,18 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
 ];
 
 /**
- * What a shelf shows now: its items but those hidden till learned (`unlearned: "hide"`, by `known`), and none of the
- * shelves left empty. Game mode's first hour sees only what it can use, or will soon (locked pieces show "Locked").
+ * What a shelf shows now: its items but those hidden till learned (`unlearned: "hide"`, by `known`), the learned ones
+ * first on a shelf that asks for it (`knownFirst`), and none of the shelves left empty. Game mode's first hour sees only what it can use, or will soon (locked pieces show "Locked").
  */
 export function shownGroups(groups: readonly TrayGroup[], known: (item: TrayItem) => boolean): TrayGroup[] {
-  return groups.map((g) => (g.items.some((i) => "unlearned" in i && i.unlearned === "hide") ? { ...g, items: g.items.filter((i) => !("unlearned" in i && i.unlearned === "hide") || known(i)) } : g)).filter((g) => g.items.length > 0);
+  return groups
+    .map((g) => (g.items.some((i) => "unlearned" in i && i.unlearned === "hide") ? { ...g, items: g.items.filter((i) => !("unlearned" in i && i.unlearned === "hide") || known(i)) } : g))
+    .map((g) => {
+      if (!g.knownFirst) return g;
+      const yes = g.items.filter(known);
+      return yes.length === 0 || yes.length === g.items.length ? g : { ...g, items: [...yes, ...g.items.filter((i) => !known(i))] };
+    })
+    .filter((g) => g.items.length > 0);
 }
 
 /** A tab of the tray: its shelves, and the modes that show it. */

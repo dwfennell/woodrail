@@ -19,6 +19,7 @@ import {
   type PieceTypeId,
   type Pose,
 } from "../track";
+import { checkSupport, plinthLevels, RISER_REACH } from "../landscape";
 import { trackBlock, type TrackRules } from "./track-rules";
 
 /** A piece to put down: where, how high, which way round. */
@@ -30,7 +31,7 @@ export interface DigPiece {
 }
 
 /** Why a bridge one level up over track can't have an underpass dug under it. */
-export type DigRefusal = "curve" | "points" | "lines" | "short" | "angle" | "centre" | "pier" | "signal" | "ground" | "busy";
+export type DigRefusal = "curve" | "points" | "lines" | "short" | "angle" | "centre" | "pier" | "signal" | "ground" | "hillside" | "edge" | "busy";
 
 /** Said when a train stands on the straights an underpass would take up (the caller knows the trains, not the plan). */
 export const DIG_TRAIN = "A train's on the track under the bridge: move it first";
@@ -48,6 +49,8 @@ export const DIG_MESSAGES: Record<DigRefusal, string> = {
   pier: "The bridge's end would stand in the underpass: cross the line nearer the bridge's middle",
   signal: "A signal is on the track under the bridge: move it off before an underpass can go in",
   ground: "An underpass needs flat open ground under the bridge",
+  hillside: "The hill's in the way: an underpass can't dig into a hillside. Put the bridge over the hilltop, or clear of the hill",
+  edge: "Off the hill's edge the track beside the underpass would be left in the air: put the bridge further onto the hill",
   busy: "Something's in the way of an underpass under this bridge",
 };
 
@@ -170,8 +173,15 @@ export function planUnderpass(rules: TrackRules, type: PieceTypeId, flipped: boo
       out.push({ type, pose: { x: first.pose.x + at * ux, z: first.pose.z + at * uz, heading: forward ? h : h + Math.PI }, y: below, flipped: false });
       s += l;
     }
-    const verdict = check(rules, { type, flipped, pose, y }, covered.map((p) => p.id), out, ignore);
-    if (verdict === null) return { kind: "dig", covers: covered.map((p) => p.id), pieces: out };
+    // Off a hill's edge (raised track on risers): the risers under the underpass make way for its block's plinth.
+    const covers = [...covered.map((p) => p.id), ...risersUnder(rules, out)];
+    // The run's two outer ends stay joined to the track beyond, held up as they were.
+    const ends = [
+      { x: first.pose.x + a * ux, z: first.pose.z + a * uz },
+      { x: first.pose.x + b * ux, z: first.pose.z + b * uz },
+    ];
+    const verdict = check(rules, { type, flipped, pose, y }, covers, out, ignore, ends);
+    if (verdict === null) return { kind: "dig", covers, pieces: out };
     if (verdict !== "angle" && verdict !== "pier") return { kind: "refused", why: verdict };
     pier ||= verdict === "pier";
   }
@@ -190,8 +200,53 @@ function signalOn(layout: TrackRules["layout"], id: number): boolean {
   return false;
 }
 
+/**
+ * The risers standing under where an underpass among `pieces` would go, a level or more below it (raised track off a
+ * hill's edge): its block's plinth takes their place. Only where it would stand on one.
+ */
+function risersUnder(rules: TrackRules, pieces: readonly DigPiece[]): number[] {
+  const u = pieces.find((p) => p.type === "underpass");
+  if (!u || plinthLevels(rules.land, u.type, u.flipped, u.pose, u.y) === 0) return [];
+  const layout = rules.layout;
+  const c = Math.cos(u.pose.heading);
+  const sn = Math.sin(u.pose.heading);
+  const out: number[] = [];
+  for (const id of layout.pieceIds()) {
+    const q = layout.getPiece(id)!;
+    if (q.type !== "riser" || q.y >= u.y - 0.5 || layout.isLifted(id)) continue;
+    const dx = q.pose.x - u.pose.x;
+    const dz = q.pose.z - u.pose.z;
+    const along = dx * c + dz * sn;
+    const across = -dx * sn + dz * c;
+    if (along > -RISER_REACH && along < UNDERPASS_LENGTH + RISER_REACH && Math.abs(across) < RISER_REACH) out.push(id);
+  }
+  return out;
+}
+
+/**
+ * Is every new piece held up without new risers (none go in with a dig)? The underpass by the ground or its plinth (its
+ * own rule, `checkPlacement`); the rest by the ground, risers left standing, or at a joint with the underpass or at one
+ * of `ends` (where they meet the track already there).
+ */
+function held(rules: TrackRules, pieces: readonly DigPiece[], without: Ignore, ends: readonly { x: number; z: number }[]): boolean {
+  const u = pieces.find((p) => p.type === "underpass");
+  const free = [...ends];
+  if (u) {
+    const c = Math.cos(u.pose.heading);
+    const sn = Math.sin(u.pose.heading);
+    free.push({ x: u.pose.x, z: u.pose.z }, { x: u.pose.x + UNDERPASS_LENGTH * c, z: u.pose.z + UNDERPASS_LENGTH * sn });
+  }
+  for (const p of pieces) {
+    if (p.type === "underpass") continue;
+    const s = checkSupport(rules.land, rules.layout, p.type, p.flipped, p.pose, p.y, without);
+    if (s.kind === "unsupported") return false;
+    for (const r of s.risers) if (!free.some((e) => Math.hypot(e.x - r.pose.x, e.z - r.pose.z) < 2)) return false;
+  }
+  return true;
+}
+
 /** Would the bridge and the pieces dug under it all go down (the covered straights taken up)? Why not, or null. */
-function check(rules: TrackRules, bridge: DigPiece, covers: readonly number[], pieces: readonly DigPiece[], ignore: Ignore): DigRefusal | null {
+function check(rules: TrackRules, bridge: DigPiece, covers: readonly number[], pieces: readonly DigPiece[], ignore: Ignore, ends: readonly { x: number; z: number }[]): DigRefusal | null {
   const without = new Set<number>(covers);
   if (typeof ignore === "number") without.add(ignore);
   else for (const id of ignore) without.add(id);
@@ -203,9 +258,9 @@ function check(rules: TrackRules, bridge: DigPiece, covers: readonly number[], p
   if (trackBlock(rules, bridge.type, bridge.flipped, bridge.pose, bridge.y, without) !== null) return "busy";
   for (const p of pieces) {
     const why = trackBlock(rules, p.type, p.flipped, p.pose, p.y, without);
-    if (why !== null) return p.type === "underpass" ? "ground" : "busy";
+    if (why !== null) return p.type === "underpass" ? (why === "dip-hill" ? "hillside" : "ground") : "busy";
   }
-  return null;
+  return held(rules, pieces, without, ends) ? null : "edge";
 }
 
 /**
@@ -260,7 +315,7 @@ export function planUnderpassAhead(rules: TrackRules, type: PieceTypeId, flipped
         out.push({ type: p, pose: { x: e.x + e.way * s * ux, z: e.z + e.way * s * uz, heading }, y, flipped: false });
         s += p === "underpass" ? UNDERPASS_LENGTH : straightLength(p, false);
       }
-      const verdict = checkAhead(rules, bridge, out, ignore);
+      const verdict = checkAhead(rules, bridge, out, ignore, e);
       if (verdict === null) return { kind: "dig", covers: [], pieces: out };
       why = verdict;
     }
@@ -305,12 +360,12 @@ function hasEndAt(layout: TrackRules["layout"], x: number, z: number, y: number,
 const end = { x: 0, z: 0, heading: 0, y: 0, kind: "peg" as const };
 
 /** Would these pieces all go down, and the bridge already there clear them? Why not, or null. */
-function checkAhead(rules: TrackRules, bridge: DigPiece, pieces: readonly DigPiece[], ignore: Ignore): DigRefusal | null {
+function checkAhead(rules: TrackRules, bridge: DigPiece, pieces: readonly DigPiece[], ignore: Ignore, from: { x: number; z: number }): DigRefusal | null {
   for (const p of pieces) if (crossesLow(bridge, p)) return "angle";
   for (const p of pieces) if (supportInTrench(bridge, p)) return "pier";
   for (const p of pieces) {
     const why = trackBlock(rules, p.type, p.flipped, p.pose, p.y, ignore);
-    if (why !== null) return p.type === "underpass" ? "ground" : "busy";
+    if (why !== null) return p.type === "underpass" ? (why === "dip-hill" ? "hillside" : "ground") : "busy";
   }
-  return null;
+  return held(rules, pieces, ignore, [from]) ? null : "edge";
 }
