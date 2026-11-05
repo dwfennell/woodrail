@@ -230,7 +230,7 @@ Every town keeps the plain ones. The paint shop offers the path's colours as liv
   - `secret-<name>-hidden` and `secret-<name>`.
 - **Tested:** `src/catalogue/assets/design-assets.test.ts` checks that each one:
   - builds;
-  - stays under its triangle budget (grand 14,000, secret 6,000, path 8,000, at the props' detail);
+  - stays under its triangle budget (grand 14,000, secret 8,000 with its halt, path 8,000, at the props' detail);
   - loads by its file;
   - is on a shelf.
 
@@ -246,14 +246,14 @@ Every town keeps the plain ones. The paint shop offers the path's colours as liv
 | Grand Central station | 2,628 | 4,378 | 3,850 |
 | World's Fair wheel (animated: turns, gondolas stay level) | 2,304 | 2,756 | 4,900 |
 
-| Secret site | Hidden | Found |
+| Secret site (with its halt) | Hidden | Found |
 |---|---|---|
-| Lost mine | 3,300 | 1,860 |
-| Ruined castle | 5,644 | 3,748 |
-| Hidden lake | 3,204 | 2,144 |
-| Shipwreck | 2,748 | 2,112 |
-| Standing stones | 3,372 | 3,352 |
-| Giant's footprint | 4,584 | 2,904 |
+| Lost mine | 7,520 | 6,288 |
+| Ruined castle | 7,060 | 5,920 |
+| Hidden lake | 7,660 | 6,980 |
+| Shipwreck | 7,724 | 7,894 |
+| Standing stones | 7,452 | 7,698 |
+| Giant's footprint | 6,828 | 6,850 |
 
 Path landmarks:
 
@@ -265,8 +265,30 @@ Path landmarks:
 | Observatory | 1,440 |
 | Customs house | 2,110 |
 
-(Counted before the props' merge, which keeps the triangles and cuts the draw calls. The hidden sites cost more than
-the found ones because of the overgrowth: bushes are balls.)
+(Counted before the props' merge, which keeps the triangles and cuts the draw calls. The hidden sites' mist and
+brambles are few-sided balls.)
+
+**Secret sites, second pass: spectacles with a halt** (`secrets.ts`, shots by `node tools/shots/secret-sites.mjs`):
+- **Each is a spectacle:** the mine's rock face seamed with gold, its headframe and winding house, a cart of glinting
+  gold; the castle's curtain walls, four towers, gatehouse and keep with banners; the lake's waterfall, temple island,
+  boathouse and swans; the whole galleon heeled on the beach by its spilt treasure; the full ring of capped stones round
+  a horseshoe of trilithons and a capstone; the footprint pond with the next stride, the staff and a look-out tower.
+- **Hidden, each is a mystery:** dulled, ruined or fallen, grown over and lying in banks of mist, an old platform
+  rotting in the brambles.
+- **Each has its own halt** (`SECRET_HALT`): a straight-216 and a buffer, real track pieces on the site's +z side,
+  joining the network at the straight's open end; the platform, shelter, nameboard (the site's emblem), lamps and
+  bunting are in the model. Found, it's a tourist stop like the rack's Lookout halt: no one lives there, riders from
+  every town get off for a day out and pay twice the fare. A test checks nothing of a site stands on its track.
+- **Pictures:** `docs/agents/shots/secret2-<name>-hidden.jpg`, `-found.jpg` (its halt laid, a train standing at
+  it) and `-close.jpg`.
+
+**Tourist trips: a sticker and a count** (mock: `node tools/shots/secret-stickers.mjs`):
+- **A tiered sticker, "Exploring":** **Day tripper**, **Tour guide**, **Grand tourist** for 25, 100 and 250 tourist
+  trips to found secrets (riders getting off at a secret's halt, all secrets together). Drawings in the icon font's
+  style, `docs/design/secret-stickers/` (a ticket, the guide's flag, a suitcase with labels), to add to `src/icons`
+  and the font when built. Mock: `docs/agents/shots/secret2-sticker.jpg`.
+- **The halt's card** shows its trip count: the total big, this year and the fares, the sticker's progress across
+  all secrets, and the towns its tourists came from. Mock: `docs/agents/shots/secret2-halt-card.jpg`.
 
 **Pictures** (`node tools/shots/design-assets.mjs`, a fresh Game map at 390×844):
 - **The setup (harness shortcuts, for looking only):**
@@ -297,7 +319,7 @@ the found ones because of the overgrowth: bushes are balls.)
 
 **Known looks to polish if we keep them:**
 - The pier stands on grass when it's not by the sea. Its water is a catalogue-only underlay.
-- The shipwreck's hull reads as open ribs more than a hull.
+- (The shipwreck is a whole hull now, second pass.)
 - The Royal Train is a display model on its own track, not a running train. It would need the car models' own
   machinery to run.
 
