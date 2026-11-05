@@ -112,6 +112,7 @@ function brambles(k: Kit, n: number, r: number, x: number, z: number, seed: numb
  */
 function mist(k: Kit, n: number, r: number, x: number, z: number, seed: number, y = 4): Group {
   const g = new Group();
+  g.name = "mist";
   const R = rnd(seed);
   const mats = [k.paint("#eef1ee"), k.paint("#e2e7e4"), k.paint("#d5dcd9")];
   for (let i = 0; i < n; i++) {
@@ -635,19 +636,26 @@ function palm(k: Kit, paint: (c: string) => Material, x: number, z: number, lean
   return k.at(g, x, 0, z);
 }
 
+/**
+ * The shipwreck's seaward edge (z in its frame): it's placed only on a beach at the sea's edge, this side on the line
+ * where the sand meets the sea (see the spec's placement rules), its sand running all the way to it.
+ */
+export const SHIPWRECK_SEA_Z = -144;
+
 function shipwreck(k: Kit, found: boolean): Object3D {
   const g = new Group();
   const { paint, wood } = sitePaint(k, found);
   const sand = paint("#e6d29f");
-  // The beach, the sea along the back with its surf.
-  g.add(k.cyl(found ? k.water : paint("#7e9198"), 150, 2, 0, 0, -20, 150, 48));
-  g.add(k.cyl(sand, 122, 2.6, 0, 0, 22, 120, 48));
-  for (const [a, w] of [[-2.2, 50], [-1.75, 60], [-1.3, 60], [-0.9, 50]] as const) {
-    const f = stick(k, paint(TOY.white), w, 2, 4, 0, 1.6, 0);
-    f.position.set(Math.cos(a) * 140, 1.6, 22 + Math.sin(a) * 136);
-    f.rotation.y = -a - Math.PI / 2;
-    g.add(f);
-  }
+  // The beach, to a straight seaward edge (z = SHIPWRECK_SEA_Z) where the map's sea begins: the site stands on a shore,
+  // its sand over the beach squares, its halt inland. The sea and surf past that edge are the catalogue's (an underlay:
+  // left out in the game, where the map's own sea is there).
+  const sea = SHIPWRECK_SEA_Z;
+  g.add(k.box(sand, 290, 2.6, -sea, 1, 0, 0, sea / 2), k.cyl(sand, 122, 2.6, 0, 0, 22, 120, 48));
+  const shore = new Group();
+  shore.userData.underlay = true;
+  shore.add(k.box(found ? k.water : paint("#7e9198"), 330, 2, 70, 0, 0, 0, sea - 35));
+  for (const [x, w] of [[-100, 60], [-20, 80], [76, 70]] as const) shore.add(stick(k, paint(TOY.white), w, 2, 4, x, 1.6, sea - 4 - (x % 7)));
+  g.add(shore);
   // The ship: a toy galleon's hull (stern castle at −x, bow at +x), deck, stripe, portholes, a hole in her side.
   const ship = new Group();
   const side = new Shape();

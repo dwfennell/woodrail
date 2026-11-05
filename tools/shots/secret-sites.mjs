@@ -207,6 +207,33 @@ console.log("spot", JSON.stringify(spot));
 for (const [id, slug, name, hiddenLine, foundLine] of SITES) {
   if (!pick(id)) continue;
   const [cx, cz] = [spot[0] + 20, spot[1] - 20];
+  // The shipwreck stands on a beach at the sea's edge (its placement rule): a stretch of shore behind it, sand to its
+  // seaward edge (z −144 in its frame) and sea past that, written into the squares (a harness shortcut: the starter
+  // map has no coast). Put back after.
+  const shore =
+    id === "secret-shipwreck"
+      ? await p.evaluate(
+          ({ cx, cz }) => {
+            const w = window.woodrail;
+            const g = w.world.landscape.grid;
+            const was = [];
+            const slots = new Set();
+            for (let x = cx - 360; x <= cx + 360; x += 36)
+              for (let z = cz - 144 - 324; z < cz - 144 + 108; z += 36) {
+                const i = g.cellAtWorld(x, z + 18);
+                if (i < 0) continue;
+                was.push([i, g.surface[i], g.height[i], g.feature[i]]);
+                g.surface[i] = z + 18 < cz - 144 ? 5 : 6;
+                g.height[i] = 0;
+                g.feature[i] = 0;
+                slots.add(Math.floor(i / (31 * 23)));
+              }
+            w.editLand([...slots]);
+            return { was, slots: [...slots] };
+          },
+          { cx, cz },
+        )
+      : null;
   // Not found yet.
   let ids = await put([[`${id}-hidden`, cx, cz, 0]]);
   await look(cx - 10, cz + 55, 1080, 0.82, UP);
@@ -250,6 +277,13 @@ for (const [id, slug, name, hiddenLine, foundLine] of SITES) {
     w.paused = false;
     w.invalidate();
   }, line.pieces);
+  if (shore)
+    await p.evaluate((shore) => {
+      const w = window.woodrail;
+      const g = w.world.landscape.grid;
+      for (const [i, s, h, f] of shore.was) [g.surface[i], g.height[i], g.feature[i]] = [s, h, f];
+      w.editLand(shore.slots);
+    }, shore);
 }
 
 await b.close();

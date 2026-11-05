@@ -6,7 +6,7 @@ import { fileOf } from "../registry";
 import { PROP_TABS } from "../shelves";
 import { ASSETS as grand } from "./grand";
 import { ASSETS as paths } from "./paths";
-import { ASSETS as secrets, SECRET_HALT } from "./secrets";
+import { ASSETS as secrets, SECRET_HALT, SHIPWRECK_SEA_Z } from "./secrets";
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
 function stubMaterials(): Materials {
@@ -56,6 +56,23 @@ describe("design assets: grand projects, secret sites, path landmarks", () => {
   it("every grand project has its three stages, and every secret its hidden and found states", () => {
     for (const p of ["grand-exhibition", "grand-cathedral", "grand-central", "grand-ferris-wheel", "grand-royal-train"]) for (const n of [1, 2, 3]) expect(grand.some((a) => a.id === `${p}-${n}`), `${p}-${n}`).toBe(true);
     for (const a of secrets.filter((s) => !s.id.endsWith("-hidden"))) expect(secrets.some((s) => s.id === `${a.id}-hidden`), a.id).toBe(true);
+  });
+
+  it("the shipwreck stands on a beach: its sand runs to its straight seaward edge, nothing solid past it", () => {
+    for (const id of ["secret-shipwreck", "secret-shipwreck-hidden"]) {
+      const root = secrets.find((a) => a.id === id)!.build(kit);
+      root.updateMatrixWorld(true);
+      let sandToEdge = false;
+      root.traverse((o) => {
+        const m = o as Mesh;
+        if (!m.isMesh) return;
+        for (let p: Object3D | null = m; p; p = p.parent) if (p.userData.underlay || p.name === "mist") return;
+        const box = new Box3().setFromObject(m);
+        if (Math.abs(box.min.z - SHIPWRECK_SEA_Z) < 1 && box.max.x - box.min.x > 280 && box.max.y < 4) sandToEdge = true;
+        expect(box.min.z, `${id}: a part past the sea's edge`).toBeGreaterThan(SHIPWRECK_SEA_Z - 1);
+      });
+      expect(sandToEdge, id).toBe(true);
+    }
   });
 
   it("every secret site's halt is a straight beside its platform and a buffer, the open end joining the network", () => {

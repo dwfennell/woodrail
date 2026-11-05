@@ -279,8 +279,18 @@ brambles are few-sided balls.)
   joining the network at the straight's open end; the platform, shelter, nameboard (the site's emblem), lamps and
   bunting are in the model. Found, it's a tourist stop like the rack's Lookout halt: no one lives there, riders from
   every town get off for a day out and pay twice the fare. A test checks nothing of a site stands on its track.
+- **Where they're placed:**
+  - **The shipwreck spawns only on a beach at the sea's edge.** Its seaward side (`SHIPWRECK_SEA_Z`, z −144 in its
+    frame, a straight edge) lies on the line where the sand meets the sea, so the hull and its treasure stand on the
+    beach squares, the sea right behind it, and its halt faces inland. The model's sand runs all the way to that edge;
+    the sea and surf past it are a catalogue underlay, left out in the game, where the map's own sea is there. A test
+    checks the sand reaches the edge and nothing solid stands past it (only sea mist, hidden).
+  - **A map without a coast never gets the shipwreck:** its secrets are picked from the other five.
+  - The other five need flat land, clear of track, towns and industries, with room for the site and its halt
+    (about 300 × 330 mm, 9 × 10 squares).
 - **Pictures:** `docs/agents/shots/secret2-<name>-hidden.jpg`, `-found.jpg` (its halt laid, a train standing at
-  it) and `-close.jpg`.
+  it) and `-close.jpg`. The shipwreck's are on a stretch of shore written into the squares behind it (sand, then sea; a harness
+  shortcut, as the starter map has no coast).
 
 **Tourist trips: a sticker and a count** (mock: `node tools/shots/secret-stickers.mjs`):
 - **A tiered sticker, "Exploring":** **Day tripper**, **Tour guide**, **Grand tourist** for 25, 100 and 250 tourist
