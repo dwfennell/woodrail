@@ -92,6 +92,7 @@ export class PropsView {
         }
         if (model === null) continue;
         d = { asset: key, instances: [], key: "", visible: true };
+        let fresh = false;
         for (const part of model.parts) {
           const batch = this.batchFor(part.material);
           let gid = batch.geometryOf.get(key);
@@ -104,6 +105,7 @@ export class PropsView {
             }
             gid = mesh.addGeometry(part.geometry);
             batch.geometryOf.set(key, gid);
+            fresh = true;
           }
           if (batch.mesh.instanceCount >= batch.mesh.maxInstanceCount) batch.mesh.setInstanceCount(batch.mesh.maxInstanceCount * 2);
           const id = batch.mesh.addInstance(gid);
@@ -111,6 +113,8 @@ export class PropsView {
           d.instances.push({ batch, id });
           touched.add(batch);
         }
+        // Its batches have their own copy of its geometry now: the library's can go (baked again if it's wanted).
+        if (fresh) this.library.release(key);
         this.drawn.set(p.id, d);
       }
       const poseKey = `${p.x}|${p.z}|${p.heading}|${p.y}|${p.scale ?? 1}`;

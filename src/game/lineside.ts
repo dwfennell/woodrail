@@ -170,6 +170,53 @@ export function leversNear(layout: Layout, x: number, z: number): Lever[] {
   return out.sort((a, b) => a.distance - b.distance);
 }
 
+/** The telegraph pole (the Telegraph, tech tree 4): a chain of them carries a signal box's reach along the line. */
+export const TELEGRAPH_POLE = "mech-telegraph-pole";
+/** How far apart (mm) a signal box and a pole, or two poles, may stand and still be wired together. */
+export const WIRE_SPAN = 700;
+
+/**
+ * The telegraph poles wired to a signal box or lever frame at (x, z): each within `WIRE_SPAN` of it or of a pole wired
+ * to it, in the order the wires reach them. Worked out on a tap (a few poles), never per frame.
+ */
+export function wiredPoles(props: PropStore, x: number, z: number): { x: number; z: number }[] {
+  const left = [...props.all()].filter((p) => p.asset === TELEGRAPH_POLE).map((p) => ({ x: p.x, z: p.z }));
+  const out: { x: number; z: number }[] = [];
+  const from = [{ x, z }];
+  while (from.length > 0) {
+    const at = from.shift()!;
+    for (let i = left.length - 1; i >= 0; i--)
+      if (Math.hypot(left[i].x - at.x, left[i].z - at.z) <= WIRE_SPAN) {
+        const [pole] = left.splice(i, 1);
+        out.push(pole);
+        from.push(pole);
+      }
+  }
+  return out;
+}
+
+/**
+ * The levers a signal box or lever frame at (x, z) works: those near it (`leversNear`), and with the Telegraph
+ * (`wired`) those near every pole wired to it (`wiredPoles`), each once, marked `wired` (by the wires), after the near
+ * ones.
+ */
+export function leversWorked(layout: Layout, props: PropStore, x: number, z: number, wired: boolean): (Lever & { readonly wired?: boolean })[] {
+  const near = leversNear(layout, x, z);
+  if (!wired) return near;
+  const key = (l: Lever) => `${l.pieceId}:${l.road}:${l.corner ?? 0}`;
+  const seen = new Map<string, Lever & { wired: boolean }>();
+  for (const l of near) seen.set(key(l), { ...l, wired: false });
+  const far: (Lever & { wired: boolean })[] = [];
+  for (const pole of wiredPoles(props, x, z))
+    for (const l of leversNear(layout, pole.x, pole.z)) {
+      if (seen.has(key(l))) continue;
+      const w = { ...l, wired: true };
+      seen.set(key(l), w);
+      far.push(w);
+    }
+  return [...near, ...far];
+}
+
 /**
  * Which of a signal piece's signals a tap at world (x, z) is for: the road (path) whose line is nearest across the
  * piece (a gantry's two roads), 0 for a plain signal; −1 if the piece isn't a signal.
@@ -195,7 +242,7 @@ export function pointsWay(layout: Layout, pieceId: number, corner = 0): string {
   if (!p) return "";
   const def = getPieceDef(p.type, p.flipped);
   // (A wye's branch corner: back to its trunk, or across to the other branch.)
-  if (corner > 0) return wayAt(def, layout.switchState(pieceId), corner, 2) === 0 ? "to the trunk" : "across";
+  if (corner > 0 && def.cornerLevers) return wayAt(def, layout.switchState(pieceId), corner, 2) === 0 ? "to the trunk" : "across";
   const routes = def.paths.filter((r) => r.from === 0);
   const route = routes[wayAt(def, layout.switchState(pieceId), 0, Math.max(1, routes.length))];
   if (!route) return "";

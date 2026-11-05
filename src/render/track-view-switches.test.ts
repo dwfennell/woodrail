@@ -1,13 +1,12 @@
 import { Color, Matrix4, Mesh, MeshBasicMaterial, MultiplyBlending, Vector3 } from "three";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { buildPieceStandIn } from "./track-geometry";
+import { setCarver } from "./carver";
 
 // These tests are about the switches' chevrons and levers, not the pieces' carved wood: each kind of piece is drawn as
 // its plain body (no CSG), so the suite doesn't spend seconds carving five switches before its first test (it timed out
 // under a loaded full run).
-vi.mock("./track-geometry", async (importOriginal) => {
-  const m = await importOriginal<typeof import("./track-geometry")>();
-  return { ...m, buildPieceGeometry: (def: Parameters<typeof m.buildPieceStandIn>[0]) => m.buildPieceStandIn(def) };
-});
+setCarver({ buildPieceGeometry: (def) => buildPieceStandIn(def) });
 import { Flourishes } from "./flourishes";
 import { createSample, getPieceDef, Layout, pathLength, PIECE_TYPES, samplePath, TRACK_THICKNESS, wayAt, type PathDef, type PieceDef, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";

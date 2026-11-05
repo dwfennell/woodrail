@@ -1,4 +1,5 @@
-# Woodrail's cloud saves (see README.md). Deployed by hand, never from CI.
+# Woodrail's cloud saves (see README.md). Deployed from CI when main changes cloud/
+# (.github/workflows/deploy-worker.yml).
 name = "woodrail-cloud"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"

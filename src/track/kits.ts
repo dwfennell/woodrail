@@ -49,7 +49,7 @@ export interface KitDef {
    * three.js turns, so π puts the model's +z on the piece's −l side). Default: the middle of the track, unturned (an
    * asset authored round its own slab of track).
    */
-  readonly place?: { readonly t: number; readonly l: number; readonly turn?: number };
+  readonly place?: { readonly t: number; readonly l: number; readonly turn?: number; readonly up?: number };
   /** Ground it needs clear, in piece-local t/l rectangles (stations' platforms, cranes' legs, a shed's walls). */
   readonly footprint: readonly KitRect[];
   /**
@@ -105,6 +105,17 @@ export type KitTypeId = `kit-${string}`;
 const LANDING_TRACK = 40;
 /** Water may lie under a landing beyond its quay's back, this far across from its line (its edge and jetty, on piles). */
 export const LANDING_WET = 56;
+
+/** The lookout halt (the rack's): a passenger stop on a hilltop, where riders from any town get off (see src/game/world.ts). */
+export const LOOKOUT_KIT: KitTypeId = "kit-lookout";
+
+/**
+ * A metro stop: a platform in a tunnel two levels under a town (`METRO_DEPTH`), its entrance kiosk up on the town's
+ * ground over it (`METRO_KIOSK`: along and across from the piece's origin). See src/game/world.ts.
+ */
+export const METRO_KIT: KitTypeId = "kit-metro-stop";
+export const METRO_DEPTH = 96;
+export const METRO_KIOSK = { t: 108, l: 0 } as const;
 
 /** The furnished platform's depth across, and how far off the track's edge it stands (mm). */
 const PLATFORM_DEPTH = 26;
@@ -288,6 +299,32 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
       // The chalet and its pines behind the platform.
       { t: 103, l: 63, w: 90, d: 34 },
     ],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  // A lookout halt (the rack's): the mountain station's chalet, standing only on a hilltop two levels up or more. Riders
+  // from any town get off there for a day out and pay twice the fare (src/game/world.ts `LOOKOUT_KIT`).
+  "kit-lookout": {
+    asset: "bldg-mountain-station",
+    name: "lookout",
+    track: straight("kit-lookout", 216),
+    rails: "track",
+    place: { t: 108, l: TRACK_HALF + PLATFORM_GAP + 30, turn: Math.PI },
+    footprint: [
+      { t: 108, l: beside(24), w: 216, d: 26 },
+      { t: 103, l: 63, w: 90, d: 34 },
+    ],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  // A metro stop (Metro): the platform is down in the tunnel; the model drawn is its entrance kiosk, up on the felt.
+  "kit-metro-stop": {
+    asset: "bldg-ticket-booth",
+    name: "metro stop",
+    track: straight("kit-metro-stop", 216),
+    rails: "track",
+    place: { t: METRO_KIOSK.t, l: METRO_KIOSK.l, turn: Math.PI, up: METRO_DEPTH },
+    footprint: [{ t: METRO_KIOSK.t, l: METRO_KIOSK.l, w: 40, d: 30 }],
     splices: true,
     stop: PASSENGERS,
   },
@@ -798,12 +835,16 @@ export const isKit = (type: PieceTypeId): type is KitTypeId => byType.has(type);
 export const KIT_TYPES = Object.keys(KITS) as readonly KitTypeId[];
 
 /** The kit that draws this catalogue asset, if any (for the tray: its shelf offers the kit, not the prop). */
-const byAsset = new Map<string, KitTypeId>(KIT_TYPES.map((t) => [KITS[t].asset, t]));
+const byAsset = new Map<string, KitTypeId>();
+// (The first kit of an asset: the lookout halt wears the mountain station's chalet, and the catalogue's chalet is still
+// the mountain station.)
+// (The metro stop's ticket booth is its entrance only: the catalogue's booth stays a prop.)
+for (const t of KIT_TYPES) if (!byAsset.has(KITS[t].asset) && t !== METRO_KIT) byAsset.set(KITS[t].asset, t);
 export const kitForAsset = (asset: string): KitTypeId | undefined => byAsset.get(asset);
 
 /** Where a kit's model stands in its piece's frame (see `KitDef.place`). */
-export function kitPlace(kit: KitDef): { t: number; l: number; turn: number } {
-  if (kit.place) return { t: kit.place.t, l: kit.place.l, turn: kit.place.turn ?? 0 };
+export function kitPlace(kit: KitDef): { t: number; l: number; turn: number; up?: number } {
+  if (kit.place) return { t: kit.place.t, l: kit.place.l, turn: kit.place.turn ?? 0, ...(kit.place.up ? { up: kit.place.up } : {}) };
   const end = kit.track.connectors[1]?.pose;
   return { t: end ? end.x / 2 : 0, l: end ? end.z / 2 : 0, turn: 0 };
 }

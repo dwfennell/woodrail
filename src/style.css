@@ -2,7 +2,7 @@
    (scripts/icon-font.py, which also writes this unicode-range). Each draws the character it stands for (🪙, 📘, ⏱, the
    goods; planks have no emoji, so they're U+E000), so strings keep their emoji and screen readers their words. Listed
    first wherever a font is named, it draws only these characters; everything else is Nunito's. */
-@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26CF, U+26F0, U+26F5, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F37D, U+1F381, U+1F393, U+1F3AF, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3E1, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5FA, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5; font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26BD, U+26CF, U+26F0, U+26F2, U+26F3, U+26F5, U+2709, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F333, U+1F337, U+1F33C, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F39F, U+1F3A0, U+1F3A8, U+1F3AC, U+1F3AD, U+1F3AF, U+1F3D6, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3DF, U+1F3E1, U+1F3E5, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F4EE, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5BC, U+1F5FA, U+1F60A, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6DD, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
 :root {
   --ink: #2b2118;
   --paper: #f6efe3;
@@ -187,6 +187,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card .lever-list { flex-wrap: wrap; justify-content: center; width: 340px; max-width: 100%; max-height: min(42vh, 260px); overflow-y: auto; overscroll-behavior: contain; }
 .piece-card .lever-list .lever-chip { flex: 1 1 140px; height: auto; min-height: 44px; padding: 6px 10px; line-height: 1.2; white-space: normal; }
 .piece-card .lever-list .card-hint { margin-top: 0; }
+.piece-card .reach-list { flex-direction: column; align-items: stretch; gap: 6px; width: 340px; max-width: 100%; max-height: min(34vh, 220px); overflow-y: auto; overscroll-behavior: contain; }
+.piece-card .reach-head { font-size: 13px; font-weight: 800; color: #6a4f34; text-align: left; }
+.piece-card .reach-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; }
+.piece-card .reach-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; text-align: left; }
+.piece-card .reach-call { flex: 0 0 auto; min-height: 44px; }
+.piece-card .reach-list .card-hint { margin-top: 0; text-align: left; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 /* An old industry's ruin: what's around it, what opens it (the lock line the boldest), and that you needn't use it. */
 .ruin-card { gap: 8px; }
@@ -325,10 +331,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* A finger's size, drawn (QA: Pause was 40 x 40, with a tap 2 px around it): 44 x 44, set 2 px apart rather than 5
      so the bar still fits a 360 px screen beside the coins and the research pill. */
   .actions > .chip { min-width: 44px; height: 44px; padding: 0 8px; }
-  /* Re-rail, under the bar at the right, level with the goals bar (and as tall), which gives it room while it shows:
-     over the goals' right end it took the taps meant for it (QA). */
-  .actions > .chip.attention { position: absolute; top: 60px; right: 0; height: 44px; }
-  body:has(.actions > .chip.attention:not([hidden])) .goals { max-width: calc(100% - 24px - 70px); }
+  /* Re-rail, at the right just under the goals bar (as tall as it): over the goals' right end it took the taps meant
+     for it (QA), and beside it the goal shrank to "Make up a…" (QA 2026-11-05 #8). The goals bar keeps its width. */
+  .actions > .chip.attention { position: absolute; top: 112px; right: 0; height: 44px; }
   .chip { min-width: 44px; height: 44px; padding: 0 10px; font-size: 16px; }
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
@@ -415,6 +420,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-extra.ledger .ledger-side:not(:has(> :not(.ledger-pay))) { display: none; }
   .depot-card:has(.depot-extra.ledger) > .card-row { grid-column: 2; grid-row: 3; position: static; margin: 0; padding: 0; background: none; box-shadow: none; justify-content: flex-start; }
   .depot-extra.ledger .station-upgrade { grid-column: 2; grid-row: 4; }
+  /* (A town's Places and Treats: the card's whole width, under both columns.) */
+  .depot-extra.ledger .places-sec { grid-column: 1 / -1; }
+  .depot-extra.ledger .place-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   /* (Narrower columns: the good's name, its bar and its count fit in half a 667 px phone's card.) */
   .depot-extra.ledger .ledger-good { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 8px; font-size: 13.5px; }
   .depot-extra.ledger .ledger-row { font-size: 13.5px; }
@@ -892,6 +900,31 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ledger-line { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
 .ledger-line-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(58, 42, 28, 0.45); }
 .ledger-pay { margin: 0; font-size: 12px; line-height: 1.4; color: #6b5440; }
+/* A town's Places and Treats (game/place-row.ts): a tile per place, a big green Build button, a dashed tile for one to research. */
+.places-sec { margin-top: 6px; padding-top: 10px; border-top: 1.5px dashed #e2cfae; display: flex; flex-direction: column; gap: 6px; }
+.places-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.places-title { font-size: 15px; font-weight: 800; color: #3a2a1c; }
+.places-smiles { font-size: 17px; letter-spacing: 1px; color: #b49c78; }
+.places-note { font-size: 12.5px; font-weight: 700; color: #7a5a3a; }
+.places-sub { margin: 0; font-size: 12.5px; line-height: 1.35; font-weight: 700; color: #6b5440; }
+.place-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.place-tile { display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 12px; background: #fffaf0; border: 2px solid #e2cfae; font-size: 12.5px; line-height: 1.3; color: #5a3c1e; }
+.place-name { display: flex; gap: 6px; align-items: center; font-size: 14px; font-weight: 800; color: #3a2a1c; }
+.place-icon { font-size: 20px; }
+.place-blurb { color: #6b5038; font-weight: 600; }
+.place-btn { margin-top: auto; min-height: 44px; padding: 6px 6px; border: none; border-radius: 10px; background: #3f7d3a; color: #fff; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.place-btn:active { background: #346a30; }
+.place-note { margin-top: auto; padding: 4px 2px; text-align: center; font-weight: 800; color: #7a5a3a; }
+.place-tile.built, .place-tile.building, .place-tile.waiting-room { background: #eef6e6; border-color: #9cc48a; }
+.place-tile.built .place-note, .place-tile.building .place-note { color: #3f7a2c; }
+.place-tile.short .place-note, .place-tile.saving .place-note, .place-tile.busy .place-note, .place-tile.level .place-note { padding: 7px 4px; border-radius: 10px; background: #e9dcc4; }
+.place-tile.research { opacity: 0.7; background: #f3ece0; border-style: dashed; }
+.place-tile.elsewhere { opacity: 0.7; }
+.place-goods { display: inline-flex; flex-wrap: wrap; gap: 0 6px; }
+.place-good { white-space: nowrap; }
+.place-plan { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 12px; background: #fbe7cf; font-size: 13px; font-weight: 800; color: #7a3d10; }
+.place-plan .place-good.done { color: #3f7a2c; }
+.place-stop { align-self: flex-start; min-height: 40px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 12.5px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
 .make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
 .make-now .bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }
 .make-now .bar i { display: block; height: 100%; background: #5aa35a; }
@@ -946,6 +979,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-tag.soon { color: #5e4128; background: transparent; border: 1.5px dashed #a08a6c; padding: 0 6px; }
 /* Locked till you have a College or a University (tech tree 3): the Learning branch's purple, as Soon's dashed tag. */
 .bp-tag.school { color: #5b3a7a; background: #efe6f6; border: 1.5px dashed #7b4fa0; padding: 0 6px; }
+/* What a locked card waits for (a city, goods delivered), in place of its price: the school tag's shape, in the wood's colours. */
+.bp-tag.gate { color: #6b4316; background: #fbecd2; border: 1.5px dashed #b07a3c; padding: 0 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 15px; }
 .bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; }
 .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
 /* The tag slot on a card: one height, one shape, whatever it says. */
@@ -1369,6 +1404,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (On a phone held upright, the actions under the whole row: four fit in a line at 360 px.) */
 @media (max-width: 480px) { .lines-actions { padding-left: 0; } .lines-actions button { flex: 1 1 auto; padding-inline: 8px; } }
 .lines-actions button { min-height: 44px; }
+/* Reversed on a ring, trains that couldn't be turned round: why, in the warning ink, and Turn round to try again. */
+.lines-note { display: flex; align-items: center; gap: 8px; padding-left: 54px; font-size: 0.85em; color: var(--warn-ink); font-weight: 600; line-height: 1.3; }
+.lines-note span { flex: 1 1 auto; min-width: 0; }
+.lines-note button { flex: 0 0 auto; min-height: 44px; }
+@media (max-width: 480px) { .lines-note { padding-left: 0; } }
 .lines-head .lines-new { margin-left: auto; margin-right: 6px; }
 /* A place's card: the lines that call there, and New route from here (audit F12). */
 .depot-routes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -1539,5 +1579,23 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* "Add Foxley": the status's fix, one tap (audit F15). */
 .route-fix { display: flex; }
 .route-fix .route-add-stop { min-height: 44px; }
+/* The paint shop's sheet (ui/paint-sheet.ts): a swatch per livery, body and trim on one round chip. */
+.paint-sub { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: #6a4f34; }
+.paint-swatches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.paint-swatch { display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 92px; padding: 8px 4px; border: 2px solid #d8c6a6; border-radius: 14px; background: #fffaf0; font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
+.paint-swatch i { display: block; width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 0 0 3px #fff, 0 0 0 4.5px #d8c6a6; }
+.paint-swatch small { font-size: 11.5px; font-weight: 700; color: #6a4f34; }
+.paint-swatch.chosen { border-color: #3f7d3a; background: #eef6e6; }
+.paint-swatch.locked { opacity: 0.55; cursor: default; }
+.paint-go { width: 100%; min-height: 48px; }
+.paint-engine { min-height: 40px; }
 /* (The cloud card open over the title: the cards and the link wait behind it, out of the way.) */
 .title-screen.cloud-open :is(.title-cards, .title-foot) { visibility: hidden; }
+
+/* The drawing lost and not back (ui/context-lost.ts): over everything, a card to reload. */
+.gl-lost { position: fixed; inset: 0; z-index: 60; background: rgba(40, 28, 16, 0.45); display: grid; place-items: center; padding: 16px; }
+.gl-lost[hidden] { display: none; }
+.gl-lost-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); border-radius: 22px; padding: 22px 24px; max-width: 360px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+.gl-lost-card h2 { margin: 0; font-size: 22px; }
+.gl-lost-card p { margin: 0; line-height: 1.4; color: var(--ink-soft); }
+.gl-lost-card .chip { align-self: center; font-size: 17px; padding: 12px 22px; }

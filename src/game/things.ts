@@ -8,7 +8,7 @@ import type { PieceTypeId } from "../track";
  * (`car:engine`) or a catalogue model placed as a prop (`prop:bldg-station-clock`: lineside furniture). Industries and
  * kits are track pieces too (`piece:depot-workshop`, `piece:kit-water-tower`).
  */
-export type ThingId = `piece:${PieceTypeId}` | `car:${CarKind}` | `prop:${string}`;
+export type ThingId = `piece:${PieceTypeId}` | `car:${CarKind}` | `prop:${string}` | `look:${CarLook}`;
 
 export const pieceThing = (type: PieceTypeId): ThingId => `piece:${type}`;
 export const carThing = (kind: CarKind): ThingId => `car:${kind}`;
@@ -42,6 +42,10 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:switch-3way": { label: "Three-way", cost: { planks: 5 }, tech: "junctions" },
   "piece:crossing": { label: "Crossing", cost: { planks: 3 }, tech: "junctions" },
   "piece:crossing-45": { label: "45° crossing", cost: { planks: 3 }, tech: "junctions" },
+  // Tech-tree T3 and T4: a three-way with a lever for each side; crossings that can also turn.
+  "piece:switch-3way-double": { label: "Double three-way", cost: { planks: 6 }, tech: "double-three-way" },
+  "piece:slip-single": { label: "Single slip", cost: { planks: 5 }, tech: "slips" },
+  "piece:slip-double": { label: "Double slip", cost: { planks: 6 }, tech: "slips" },
   "piece:crossover": { label: "Crossover", cost: { planks: 5 }, tech: "junctions" },
   "piece:wye": { label: "Wye", cost: { planks: 4 }, tech: "junctions" },
   "piece:double-straight": { label: "Double track", cost: { planks: 2 }, tech: "junctions" },
@@ -60,6 +64,14 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // Dug as much as made: coins for the digging (a tunnel takes two). A short one goes a level down, under a hill; a
   // long one two, under the felt (and anything on it).
   "piece:tunnel-mouth-short": { label: "Short tunnel mouth", cost: { planks: 1 }, coins: 20, tech: "tunnels" },
+  // The rack (Mountain railway): a steep ramp only a rack engine climbs, and the lookout halt on a hilltop.
+  "piece:rack": { label: "Rack", cost: { planks: 3 }, coins: 20, tech: "rack" },
+  "piece:rack-short": { label: "Short rack", cost: { planks: 2 }, coins: 10, tech: "rack" },
+  "piece:kit-lookout": { label: "Lookout halt", cost: { planks: 6 }, coins: 40, tech: "rack" },
+  // The metro (spec 2026-11-04-rail-types.md §2): dear on purpose. A stop (its platform dug two levels under a town,
+  // its entrance on the town's ground) and the metro train (its motor car and two cars, besides the cars themselves).
+  "piece:kit-metro-stop": { label: "Metro stop", cost: { planks: 10, iron: 25 }, coins: 600, tech: "metro" },
+  "look:metro": { label: "Metro train", cost: { planks: 6, iron: 15 }, coins: 400, tech: "metro" },
   "piece:tunnel-mouth": { label: "Tunnel mouth", cost: { planks: 2 }, coins: 30, tech: "tunnels" },
   "car:engine": { label: "Engine", cost: { planks: 6 } },
   "car:timber": { label: "Flatbed wagon", cost: { planks: 3 } },
@@ -70,6 +82,11 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:tanker": { label: "Milk tank wagon", cost: { planks: 3 }, tech: "dairy" },
   "car:reefer": { label: "Cold van", cost: { planks: 4 }, tech: "reefer" },
   "car:carrier": { label: "Car carrier", cost: { planks: 3, iron: 2 }, tech: "car-carrier" },
+  "car:oiltank": { label: "Tank wagon", cost: { planks: 3 }, tech: "tankers" },
+  "car:crane": { label: "Breakdown crane", cost: { planks: 8 }, tech: "breakdown" },
+  "car:mailvan": { label: "Mail van", cost: { planks: 3 }, tech: "post-office" },
+  // (Dearer than a mail van: it sorts on the move, so it needs no post office stop.)
+  "car:sortvan": { label: "Sorting van", cost: { planks: 5 }, tech: "mail" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 10 }, coins: 300, tech: "sawmills" },
@@ -85,7 +102,18 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-creamery": { label: "Creamery", cost: { planks: 10 }, coins: 240, tech: "creamery" },
   "piece:depot-icecream": { label: "Ice cream factory", cost: { planks: 12 }, coins: 360, tech: "ice-cream" },
   "piece:depot-brickworks": { label: "Brickworks", cost: { planks: 10 }, coins: 320, tech: "brickworks" },
+  "piece:depot-postoffice": { label: "Post office", cost: { planks: 8 }, coins: 180, tech: "post-office" },
   "piece:depot-carworks": { label: "Car factory", cost: { planks: 12, iron: 4 }, coins: 420, tech: "car-factory" },
+  // Tank wagons' wells (Tank wagons): oil anywhere, water by a river or lake.
+  "piece:depot-oilwell": { label: "Oil well", cost: { planks: 8 }, coins: 220, tech: "tankers" },
+  "piece:depot-waterpump": { label: "Water pump", cost: { planks: 6 }, coins: 160, tech: "tankers" },
+  // The goods chains (2026-11-04): mostly coins, as the spec asks of new nodes.
+  "piece:depot-beet": { label: "Sugar beet field", cost: { planks: 6 }, coins: 150, tech: "sugar" },
+  "piece:depot-jam": { label: "Jam kitchen", cost: { planks: 10 }, coins: 260, tech: "jam" },
+  "piece:depot-chocolate": { label: "Chocolate factory", cost: { planks: 12 }, coins: 380, tech: "chocolate" },
+  "piece:depot-flowers": { label: "Flower field", cost: { planks: 6 }, coins: 150, tech: "paint" },
+  "piece:depot-dyeworks": { label: "Dye works", cost: { planks: 10 }, coins: 240, tech: "paint" },
+  "piece:depot-toyworks": { label: "Toy workshop", cost: { planks: 14 }, coins: 440, tech: "toys" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 15 }, coins: 480, tech: "foundry" },
@@ -136,8 +164,10 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:cleaner": { label: "Track cleaner", cost: { planks: 3 }, tech: "scenery" },
   "prop:bldg-station-clock": { label: "Station clock", cost: { planks: 2 }, tech: "scenery" },
   "prop:mech-whistle-post": { label: "Whistle post", cost: { planks: 1 }, tech: "scenery" },
-  "prop:bldg-signal-box": { label: "Signal box", cost: { planks: 4 }, tech: "scenery" },
-  "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "scenery" },
+  // Signal boxes (tech tree 4): the box and lever frame (from the Scenery kit before), and the Telegraph's poles.
+  "prop:bldg-signal-box": { label: "Signal box", cost: { planks: 4 }, tech: "signal-boxes" },
+  "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "signal-boxes" },
+  "prop:mech-telegraph-pole": { label: "Telegraph pole", cost: { planks: 1 }, tech: "telegraph" },
   // Big stations: passenger stops of their own (looks only for now: not a town's halt).
   "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
   "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },
@@ -169,7 +199,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
  * Cars in a look of their own that needs a blueprint (the passenger line's coaches, the express engine). Other looks
  * come with the car.
  */
-export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine" };
+export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine", rack: "rack", metro: "metro" };
 
 /** A thing's whole price, for cards, by icon as tickets show it: "12\uE000 30🪙" ("free" if nothing). */
 export function costText(rule: ThingRule): string {
@@ -193,13 +223,20 @@ export const ruleOf = (id: ThingId): ThingRule | undefined => THING_RULES[id];
 export const isFree = (id: ThingId): boolean => THING_RULES[id]?.free !== undefined || !THING_RULES[id];
 
 /** A tray item that puts things on the map: a piece, a train, or a catalogue model (a prop). */
-export type ThingItem = { kind: "piece"; type: PieceTypeId } | { kind: "train"; cars: readonly CarKind[] } | { kind: "prop"; asset: string };
+export type ThingItem = { kind: "piece"; type: PieceTypeId } | { kind: "train"; cars: readonly CarKind[]; looks?: readonly CarLook[] } | { kind: "prop"; asset: string };
 
 /** The things a tray item puts on the map, with how many of each (a train: its cars). */
 export function thingsFor(item: ThingItem): Map<ThingId, number> {
   const out = new Map<ThingId, number>();
   if (item.kind === "piece") out.set(pieceThing(item.type), 1);
   else if (item.kind === "prop") out.set(propThing(item.asset), 1);
-  else for (const c of item.cars) out.set(carThing(c), (out.get(carThing(c)) ?? 0) + 1);
+  else {
+    for (const c of item.cars) out.set(carThing(c), (out.get(carThing(c)) ?? 0) + 1);
+    // (A look with a price of its own, the metro train: one for the train.)
+    for (const look of new Set(item.looks ?? [])) {
+      const id: ThingId = `look:${look}`;
+      if (THING_RULES[id]) out.set(id, 1);
+    }
+  }
   return out;
 }

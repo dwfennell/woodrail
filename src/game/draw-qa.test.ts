@@ -104,6 +104,29 @@ function stub(s: Partial<{ stalled: boolean; stopped: DrawLine["stopped"]; refus
   return { stalled: false, stopped: null, refused: null, leftBehind: false, goingBack: false, pieces: [], ...s } as unknown as DrawLine;
 }
 
+describe("drawing: a ramp wanted with Tunnels learned (QA 2026-11-05 #12)", () => {
+  it("says nothing mid-stroke (the line may yet go under); still wanted at the lift, it's said then, once", () => {
+    const n = new DrawNotice((t) => `Out of ${t}s. Too near the hill`, (t) => t, () => null, (t) => t === "ramp");
+    n.start();
+    const stuck = stub({ stalled: true, refused: "ramp" });
+    const said: (string | null)[] = [];
+    for (let x = 0; x <= 600; x += 10) said.push(n.moved(stuck, { x, z: 0 }, 0));
+    expect(said.filter((s) => s !== null)).toEqual([]);
+    // It went under after all: nothing at the lift either.
+    expect(n.lifted(stub({ pieces: [{}, {}] }), 2)).toBe(null);
+    // Still wanting a ramp when the finger lifts: said then, with the why.
+    n.start();
+    for (let x = 0; x <= 600; x += 10) n.moved(stuck, { x, z: 0 }, 0);
+    expect(n.lifted(stuck, 0)).toBe("Out of ramps. Too near the hill");
+    // (Without Tunnels: mid-stroke, as before.)
+    const plain = new DrawNotice((t) => `Out of ${t}s`, (t) => t);
+    plain.start();
+    const out: (string | null)[] = [];
+    for (let x = 0; x <= 600; x += 10) out.push(plain.moved(stuck, { x, z: 0 }, 0));
+    expect(out.filter((s) => s !== null)).toEqual(["Out of ramps"]);
+  });
+});
+
 describe("drawing: what the line says (QA sweep item 1)", () => {
   it("(a) a stall the line gets past says nothing; one that lasts says 'Too sharp' once; one left at the lift says it then", () => {
     const n = new DrawNotice((t) => `Out of ${t}`, (t) => t);

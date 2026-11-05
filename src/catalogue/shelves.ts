@@ -227,6 +227,7 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-magnet-crane",
           "mech-lever-frame",
           "mech-whistle-post",
+          "mech-telegraph-pole",
           "mech-ticket-barrier",
           "mech-lighthouse-beacon",
           // A show piece: a 216 straight, a toy copy of an engine crossing it running the loop beside it.

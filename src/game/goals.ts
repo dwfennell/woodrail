@@ -6,8 +6,7 @@ import { workshops, workshopStock } from "./crafting";
 import { THING_RULES, type ThingId } from "./things";
 import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
-import { growthOf } from "./town-life";
-import { townStatus } from "./towns";
+import { statusOf } from "./town-life";
 import { schoolTown, type World, fixedPieces, plotsForSale } from "./world";
 import { nearestRuin } from "./restore";
 import { restoredType } from "./map-sites";
@@ -179,7 +178,7 @@ export function guideSchool(w: World): GoalGuide {
     return { points: [at, ...guideDepot(w, "sawmill").points.slice(0, 1)], towns: [], marks: [at] };
   }
   const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
-  const towns = [...w.landscape.towns].sort((a, b) => townStatus(growthOf(w, b.id)).fill - townStatus(growthOf(w, a.id)).fill);
+  const towns = [...w.landscape.towns].sort((a, b) => statusOf(w, b.id).fill - statusOf(w, a.id).fill);
   for (const town of towns) {
     const station = w.stations.get(town.id);
     if (station === undefined) continue;
@@ -455,12 +454,12 @@ export const GOALS: readonly Goal[] = [
     title: "Grow a town into a village",
     hint: "A town's sign shows what it wants. Fill its bar and it grows.",
     check: (w) => {
-      const best = Math.max(0, ...w.landscape.towns.map((t) => townStatus(growthOf(w, t.id)).level));
+      const best = Math.max(0, ...w.landscape.towns.map((t) => statusOf(w, t.id).level));
       return { done: best >= 1 };
     },
     guide: (w) => {
       // The town nearest to growing.
-      const fills = w.landscape.towns.map((t) => ({ id: t.id, fill: townStatus(growthOf(w, t.id)).fill }));
+      const fills = w.landscape.towns.map((t) => ({ id: t.id, fill: statusOf(w, t.id).fill }));
       const best = fills.sort((a, b) => b.fill - a.fill)[0];
       return best ? { ...guideTowns(w, [best.id]), marks: [] } : guideDepot(w, "sawmill");
     },

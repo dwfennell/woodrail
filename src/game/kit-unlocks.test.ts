@@ -25,9 +25,10 @@ const UNLOCKS: Record<string, ThingId[]> = {
     "car:cleaner",
     "prop:bldg-station-clock",
     "prop:mech-whistle-post",
-    "prop:bldg-signal-box",
-    "prop:mech-lever-frame",
   ],
+  // Signal boxes and the Telegraph (tech tree 4): the box and lever frame moved here from the Scenery kit.
+  "signal-boxes": ["prop:bldg-signal-box", "prop:mech-lever-frame"],
+  telegraph: ["prop:mech-telegraph-pole"],
   // The crossing styles moved from Scenery kit to the Roads branch's Crossing gates (roads spec, decision 3).
   "road-crossings": ["prop:mech-level-crossing", "prop:mech-gated-crossing"],
   buses: ["prop:scene-bus-stop"],
@@ -36,6 +37,9 @@ const UNLOCKS: Record<string, ThingId[]> = {
   shipyards: ["piece:kit-shipyard"],
   ferry: ["piece:kit-ferry-slip"],
   lighthouse: ["prop:bldg-lighthouse"],
+  // The rack's lookout halt (Mountain railway): the mountain station's chalet, on a hilltop.
+  rack: ["piece:rack", "piece:rack-short", "piece:kit-lookout"],
+  metro: ["piece:kit-metro-stop", "look:metro"],
   // Sandbox's kits brought into Game mode behind research (tech-tree spec step 2), looks only at first.
   "big-stations": ["piece:kit-two-platform-station", "piece:kit-grand-terminus"],
   "fun-track": ["piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"],

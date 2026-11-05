@@ -1,11 +1,13 @@
 import { BackSide, Box3, Color, GreaterDepth, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3, type Object3D } from "three";
-import { CAR_KINDS, type CarLook, type SimSnapshot } from "../sim";
+import { CAR_BY_INDEX, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { OUTLINE_TONES } from "./track-view";
 import { NamePlates } from "./name-plates";
 import { buildCarModel, carVariant, disposeObject, WHEEL_RADIUS, type CarModel } from "./train-models";
 
 interface CarEntry {
+  /** The livery it was built in ("": as it came). */
+  livery: string;
   model: CarModel;
   lastX: number;
   lastZ: number;
@@ -16,6 +18,8 @@ interface CarEntry {
   lastLever: number;
   spin: number;
   tip: number;
+  /** How far a breakdown crane has it lifted (0 to 1) as last placed. */
+  hoist: number;
   /**
    * Its selection shells (made the first time it's selected), and how strongly they show: 0 off, 1 its train, 2 it, 3
    * its train flashed (in another train's way, shown from that one's card: see `setFlash`).
@@ -26,6 +30,9 @@ interface CarEntry {
   ghosts: Mesh[] | null;
   inTunnel: boolean;
 }
+
+/** How high (mm) a breakdown crane lifts a train clear of the track. */
+const HOIST_HEIGHT = 30;
 
 /** How far a selection shell stands proud of a car's parts (mm). */
 const SHELL_GROW = 1.8;
@@ -50,6 +57,15 @@ const LAMP_COLORS: Record<number, [Color, number]> = {
 export class TrainView {
   /** Each car's look (see `Sim.lookOf`). */
   lookOf: (carId: number) => CarLook = () => "classic";
+  /**
+   * How far a breakdown crane has lifted this car (0 to 1; `Breakdown.hoistOf`): it rises, coming upright as it does.
+   * Cheap when no crane is at work (one size check).
+   */
+  hoistOf: (carId: number) => number = () => 0;
+  /** A car's hoist changed in the last `update` (a crane lifting it). */
+  hoisted = false;
+  /** Each engine's livery from the paint shop (see `Sim.liveryOf`; null: as it came). */
+  liveryOf: (carId: number) => { id: string; body: string; trim: string; stripes?: readonly string[] } | null = () => null;
   /** Each engine's name, painted on its plates (see `Sim.nameOf`). */
   nameOf: (carId: number) => string = () => "";
   private readonly plates = new NamePlates();
@@ -106,6 +122,7 @@ export class TrainView {
   /** Draw the cars where the sim has them. True while a derailed car is still toppling over. */
   update(snap: SimSnapshot, dt: number): boolean {
     let tipping = false;
+    this.hoisted = false;
     const seen = this.seen;
     seen.clear();
     for (let i = 0; i < snap.count; i++) {
@@ -117,10 +134,11 @@ export class TrainView {
       const y = snap.transforms[o + 1];
       const z = snap.transforms[o + 2];
       if (!entry) {
-        const kind = CAR_KINDS[snap.kinds[i]];
+        const kind = CAR_BY_INDEX[snap.kinds[i]];
         // The colour scheme follows the car (its id survives being picked up and put down), not the order models were built.
         const look = this.lookOf(id);
-        const model = buildCarModel(kind, this.mats, carVariant(kind, id), look);
+        const livery = kind === "engine" ? this.liveryOf(id) : null;
+        const model = buildCarModel(kind, this.mats, carVariant(kind, id), look, false, livery ?? undefined);
         if (kind === "engine") {
           const plates = this.plates.make(id, this.nameOf(id), look);
           if (plates) model.root.add(plates);
@@ -128,7 +146,7 @@ export class TrainView {
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
-        entry = { model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
+        entry = { livery: livery?.id ?? "", model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
         this.cars.set(id, entry);
       }
       const heading = snap.transforms[o + 3];
@@ -136,8 +154,10 @@ export class TrainView {
       const lever = snap.levers[i];
       // A car standing as it was last placed (paused, waiting, parked), its lamp as it was, not toppling: left as it is.
       // (Each rotation set works its quaternion out again: 64 cars a tick, all for nothing, while a Sandbox map waits.)
-      const targetTip = snap.derailed[i] ? 1 : 0;
-      if (lever === entry.lastLever && x === entry.lastX && y === entry.lastY && z === entry.lastZ && heading === entry.lastHeading && pitch === entry.lastPitch && entry.tip === targetTip) continue;
+      // (Lifted by a crane, a derailed car comes upright as it rises.)
+      const hoist = this.hoistOf(id);
+      const targetTip = snap.derailed[i] ? 1 - hoist : 0;
+      if (lever === entry.lastLever && x === entry.lastX && y === entry.lastY && z === entry.lastZ && heading === entry.lastHeading && pitch === entry.lastPitch && entry.tip === targetTip && entry.hoist === hoist) continue;
       entry.lastY = y;
       entry.lastHeading = heading;
       entry.lastPitch = pitch;
@@ -157,11 +177,17 @@ export class TrainView {
       entry.lastZ = z;
 
       // A derailed car topples onto its side where it is.
-      entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
+      // (Lifted, it follows the crane's hoist exactly: the crane's own easing is the motion.)
+      if (hoist > 0) entry.tip = targetTip;
+      else entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
       if (Math.abs(targetTip - entry.tip) < 0.002) entry.tip = targetTip;
       else tipping = true;
+      // (A car lifted higher by a crane: its loads follow it, but the frames are the crane's to ask for, where it's
+      // seen: `Game.poseCranes`.)
+      if (hoist !== entry.hoist) this.hoisted = true;
+      entry.hoist = hoist;
       root.rotation.x = entry.tip * (Math.PI / 2) * (id % 2 ? 1 : -1);
-      root.position.y = y + entry.tip * 12;
+      root.position.y = y + entry.tip * 12 + hoist * HOIST_HEIGHT;
 
       // (Only a car that moved can have gone into or out of a tunnel.)
       const under = this.underground ? this.underground(x, y, z) : false;
@@ -189,6 +215,20 @@ export class TrainView {
       }
     }
     return tipping;
+  }
+
+  /**
+   * Engines painted (`Sim.liveriesVersion`): a car built in another livery is taken down, and built again in its new
+   * one on the next update (one car's model, from the lacquer cache). Not per frame.
+   */
+  syncLiveries(): void {
+    for (const [id, entry] of this.cars) {
+      if ((this.liveryOf(id)?.id ?? "") === entry.livery) continue;
+      this.group.remove(entry.model.root);
+      disposeObject(entry.model.root);
+      this.plates.release(id);
+      this.cars.delete(id);
+    }
   }
 
   /** Engines' names changed (`Sim.namesVersion`): plates showing an old name are painted again. Not per frame. */

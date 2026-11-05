@@ -138,4 +138,24 @@ The user liked the girder look. The CoS chose all stock kept: a 30 dip and a 288
 - Costs: a plan per pointer move 0.33 ms; the felt cut for 7 underpasses 0.26 ms; 0 idle frames.
 - Pictures: `low-bridge-2-hill.jpg`, `low-bridge-2-road-refused.jpg`, `low-bridge-2-drawn-under.jpg`.
 
-**Not done:** an underpass across a hill's edge (part on the hill, part on the felt) is refused ("dip"); a road bridge over an underpass (see above).
+**Not done (then):** an underpass across a hill's edge (part on the hill, part on the felt) was refused ("dip"); a road bridge over an underpass (see above).
+
+## Phase 5: off a hill's edge, and Draw at a slant
+
+**Off a hill's edge.**
+- An underpass at a hilltop's height may run off the hill's edge (or along raised track over lower ground): its wooden block reaches down to the ground there on a plinth, a whole number of levels (1 to `MAX_PLINTH_LEVELS`, 3) below its ends (`plinthLevels`, `src/landscape/support.ts`). On the hill the block is hidden in it; past the edge it stands on the felt. Drawn as its own geometry variant, keyed like a bridge's levels (`Game.bridgeLevelsOf` returns the plinth for an underpass; `trenchBrush(def, plinth)`).
+- On a plinth it holds itself up (no risers), and the track it joins rests on its ends, as on a bridge's.
+- A bridge dropped over a hilltop line near its edge digs one running off the edge: the risers that stood where its block goes are taken up with the straights (one undo puts them back). The new pieces must all be held without new risers (none go in with a dig); otherwise "edge": "Off the hill's edge the track beside the underpass would be left in the air: put the bridge further onto the hill".
+- Still refused, saying why:
+  - into a hillside (ground higher than its ends under its track or its trench's walls): "dip-hill", "An underpass can't dig into a hillside: lay it on the hilltop, or clear of the hill" (and for a dig, "hillside");
+  - over ground that isn't whole levels down (a ramp's sloping cutting), or more than 3: "dip", "An underpass needs level ground under it, or a whole level down off a hill's edge";
+  - a road under its plinth: "dip-road".
+
+**Draw at a slant.**
+- A line drawn at a slant to the grid zigzags (straights and curves), so the piece that meets the bridge was often a curve (refused "go two levels up") or a straight crossing near the bridge's end (refused "pier") or too shallow.
+- Now a curve under a bridge one level up is "under-bridge" too, and `DrawLine.underBridge` takes off up to three plain pieces (curves too) and from each end tries straight on, a curve, or a straight then a curve (`leadsFrom`) before the straights to an underpass, so the line crosses under the bridge's middle squarely; it bends back to the stroke after. Plans are kept per end for the stroke (`underFrom`); the lead pieces are checked only when a plan was found.
+- Where none fits (the bridge nearly along the stroke), the piece shows red: "Too low under the bridge: draw straight under its middle and an underpass goes in".
+
+**Checks.** Unit: `underpass-places.test.ts` (off the edge: placement, plinth, support, a dig at five spots with no riser in the block and nothing in the air, the hillside refusals; Draw at a slant: seven strokes and bridges, the refusal, the cost). e2e:low-bridge is now split into groups (`-- --list`); new: `hill-edge`, `hill-edge-curved` (the dig, the plinth, no riser left, a train with the tallest cars through the dip at 18, one undo), `hillside`. e2e:draw: `under-slant` (a 20° stroke under a bridge: a curve in the line, the underpass, the train through the dip; a bridge nearly along the stroke refused; the slowest pointer move).
+
+**Pictures** (390×844, before on main / after): `docs/agents/shots/underpass-3-{before,after}-{hill-edge,hill-edge-curved}-{held,down}.jpg`, `underpass-3-{before,after}-slant-{drawing,down}.jpg` (`tools/shots/underpass-3.mjs`).

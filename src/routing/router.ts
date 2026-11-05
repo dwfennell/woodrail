@@ -13,7 +13,7 @@
  * short of them and waits (`RouteWait`), as a routed train does, for as long as that train holds them. Nothing turns it
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
-import { connectorRef, getPieceDef, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
+import { connectorRef, getPieceDef, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, trainKey, type Cursor, type Sim, type Train } from "../sim";
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
@@ -101,6 +101,11 @@ export interface RouterHost {
   awaitingGrant(engine: number): boolean;
   /** Engines sections just granted a move (asked for at once, and cleared here). */
   readonly soon: Set<number>;
+  /**
+   * Its next stop is a depot of several tracks, all taken (depot tracks): it waits short of the first of `ladder`'s
+   * points on its way, for `by` (an engine on one of them). Asked right after `goal`. Null: it goes on.
+   */
+  fullAt?(engine: number): { ladder: ReadonlySet<number>; by: number } | null;
 }
 
 /** A route lock (§3.2): points set to `state` for the trains holding it; they don't move while anyone does. */
@@ -257,7 +262,7 @@ export class Router {
       const from = this.deferred.get(pieceId) === lock ? this.defaultOf(pieceId) : layout.switchState(pieceId);
       // (A wye: only the tapped corner's lever, from the way it's shown; its other corners keep their defaults.)
       const bit = 1 << corner;
-      this.defaults.set(pieceId, def.cornerLevers ? (this.defaultOf(pieceId) & ~bit) | (~from & bit) : (from + 1) % ways);
+      this.defaults.set(pieceId, def.cornerLevers ? (this.defaultOf(pieceId) & ~bit) | (~from & bit) : def.pairLevers ? pairLeverState(from, corner) : (from + 1) % ways);
       this.deferred.set(pieceId, lock);
       return { deferred: true, by: lock.holders.values().next().value! };
     }
@@ -419,12 +424,18 @@ export class Router {
       const want = this.walk(layout, train, net > 0, target, grant?.follow, h, this.host.owner?.(engine) ?? engine, grant ? -1 : (this.host.then?.(engine) ?? -1));
       // (Pinned points against its way end the walk: it asks for those before them, and waits at them.)
       const pin = want.length > 0 && want[want.length - 1].pinned ? want.pop()! : null;
+      // (Every track of its next stop taken: it asks for the points before the stop's ladder, and waits short of it.)
+      const full = grant ? null : (this.host.fullAt?.(engine) ?? null);
+      const k = full ? want.findIndex((w) => full.ladder.has(w.pieceId)) : -1;
+      const short = k >= 0 ? want[k] : null;
+      if (short) want.length = k;
       h.want.clear();
       for (const w of want) h.want.set(w.pieceId, w.state);
       h.asked = want;
       this.keep(engine, train, h, want);
       const refused = this.ask(engine, h, want);
       if (refused) this.wait(engine, train, Math.sign(net), { kind: "points", pieceId: refused.stop.pieceId, by: refused.by }, refused.stop);
+      else if (short) this.wait(engine, train, Math.sign(net), { kind: "points", pieceId: short.pieceId, by: full!.by }, short);
       else if (pin) this.wait(engine, train, Math.sign(net), { kind: "pinned", pieceId: pin.pieceId }, pin);
       else this.waits.delete(engine);
     }

@@ -1,6 +1,6 @@
 import { Color, MeshPhysicalMaterial, MeshStandardMaterial, Vector2 } from "three";
 import type { Texture } from "three";
-import { beechTextures, feltTextures, mottleTexture, stitchTexture, type SurfaceTextures } from "./textures";
+import { beechTextures, feltTextures, feltTileTextures, mottleTexture, stitchTexture, type SurfaceTextures } from "./textures";
 
 export interface Materials {
   track: MeshPhysicalMaterial;
@@ -64,7 +64,11 @@ function woodMaterial(t: SurfaceTextures, bump: number): MeshPhysicalMaterial {
   });
 }
 
-export function createMaterials(anisotropy: number): Materials {
+/**
+ * The game's materials. `small` (the mobile tier): the felt's maps at half size (see `halved` in textures.ts), a
+ * quarter of the memory, the same at play zoom. (Not the beech: its grain on the track was softer at play zoom.)
+ */
+export function createMaterials(anisotropy: number, small = false): Materials {
   const beech = beechTextures(anisotropy);
   const track = woodMaterial(beech, 0.6);
 
@@ -103,9 +107,12 @@ export function createMaterials(anisotropy: number): Materials {
   const trackCut = new MeshStandardMaterial({ map: beech.map, color: new Color("#a88866"), roughness: 0.85, bumpMap: beech.bumpMap, bumpScale: 0.4 });
 
   const mottle = mottleTexture();
+  const feltTiles = feltTileTextures(small);
   const feltMaterial = (color: string, repeat: number, sheen: string, mottleStrength: number) => {
-    const t = feltTextures(anisotropy, color, repeat);
+    const t = feltTextures(anisotropy, color, repeat, feltTiles);
     const m = new MeshPhysicalMaterial({
+      // (The felt's colour: its map is a speckle every felt shares.)
+      color: t.color,
       map: t.map,
       bumpMap: t.bumpMap,
       bumpScale: 1.6,

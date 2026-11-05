@@ -1,4 +1,4 @@
-import { connectorRef, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
+import { connectorRef, isRack, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, pairLeverState, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -79,6 +79,10 @@ const MAX_BLOCK = 64;
  */
 const CROSS_LOOK = 24;
 const CROSS_GAP = 4;
+/** A train that may not climb a rack stops with its nose this far (mm) short of the rack's joint. */
+const RACK_GAP = 6;
+/** A train with a rack engine runs this much slower on a rack (its cog clacking round). */
+export const RACK_SLOW = 0.5;
 /** Paths a piece may have, for keying a piece's path (`crossClaims`). */
 const MAX_PATHS = 16;
 
@@ -245,6 +249,16 @@ export class Sim {
   topSpeed: ((train: Train) => number) | null = null;
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
   quickness: ((train: Train) => number) | null = null;
+  /**
+   * Optional (Game mode): may this train run onto a rack (`isRack`: it has a rack engine)? One that may not stops short
+   * of a rack's end and waits there (`rackHeld`); one that may runs `RACK_SLOW` on it. Null: any train may (Sandbox).
+   */
+  mayRack: ((train: Train) => boolean) | null = null;
+  /** The racks on the layout, found again when its pieces change (`Layout.piecesVersion`). */
+  private racks = new Set<number>();
+  private racksVersion = -1;
+  /** The tick each train (by id) last stood short of a rack it may not climb, and that rack. */
+  private readonly rackStops = new Map<number, { tick: number; pieceId: number }>();
 
   /**
    * The signals on the layout, found again after the track or the marks change (see `trackChanged`): old signal pieces
@@ -531,6 +545,26 @@ export class Sim {
     return true;
   }
 
+  /**
+   * Each engine's livery from the paint shop, by car id (game/paint-shop.ts: a colour scheme's id; none: as it came).
+   * Looks only: the sim never reads it, but it follows the car, as names and looks do.
+   */
+  private readonly liveries = new Map<number, string>();
+  /** Goes up whenever an engine is painted (its model is built again). */
+  liveriesVersion = 0;
+
+  liveryOf(carId: number): string {
+    return this.liveries.get(carId) ?? "";
+  }
+
+  /** Paint an engine (`""`: back as it came). */
+  setLivery(carId: number, livery: string): void {
+    if ((this.liveries.get(carId) ?? "") === livery) return;
+    if (livery) this.liveries.set(carId, livery);
+    else this.liveries.delete(carId);
+    this.liveriesVersion++;
+  }
+
   /** Give a new engine a name no other engine on the track has. */
   private nameEngine(carId: number): void {
     const taken = new Set<string>();
@@ -563,6 +597,26 @@ export class Sim {
     turned.lastTurn = t.lastTurn;
     this.events.push({ kind: "turned", trainId: t.id, newTrainId: turned.id });
     return turned;
+  }
+
+  /**
+   * Lift a train, moving or not, and put it down turned round where it stands (`turnAround`), as a child turns a toy
+   * train the other way: it sets off again from standing (its levers kept), its pending turnback dropped. A line run
+   * the other way round on a ring (lines.ts `reverseLine`). Returns the turned train, or why it couldn't be: off the
+   * track ("derailed"), riding a lift or turntable deck ("riding"), or no room to set it down turned round ("no-room",
+   * `by`: the train in the way, if one is).
+   */
+  liftAndTurn(trainId: number): { kind: "turned"; train: Train } | { kind: "derailed" | "riding" | "none" } | { kind: "no-room"; by: number | null } {
+    const t = this.trains.get(trainId);
+    if (!t || t.bogies.length === 0) return { kind: "none" };
+    if (t.derailed) return { kind: "derailed" };
+    if (this.rides.size > 0 && this.riding(t)) return { kind: "riding" };
+    const turned = this.turnAround(t);
+    if (!turned) return { kind: "no-room", by: this.turnBlocker(t) };
+    turned.lastTurn = t.lastTurn;
+    this.turnBlocked.delete(trainKey(t));
+    this.events.push({ kind: "turned", trainId: t.id, newTrainId: turned.id });
+    return { kind: "turned", train: turned };
   }
 
   /** Turn a car around in place (swaps which magnet faces which way). */
@@ -883,17 +937,47 @@ export class Sim {
       this.updateSignals();
       return true;
     }
+    // (A double three-way: the tapped branch's lever, the other put back.)
+    if (def?.pairLevers) {
+      this.layout.setSwitchState(pieceId, pairLeverState(this.layout.switchState(pieceId), corner));
+      this.updateSignals();
+      return true;
+    }
     const routes = !def ? 2 : def.gated ? def.paths.length : def.paths.filter((p) => p.from === 0).length;
     const was = this.layout.switchState(pieceId);
+    if (def?.gated) return this.turnDeck(pieceId, def, (was + 1) % routes, false);
     this.layout.setSwitchState(pieceId, (was + 1) % Math.max(2, routes));
-    // A deck joins nothing till it's turned to its next road, and carries round any train standing on it.
-    if (def?.gated) {
-      this.layout.setDeckTurning(pieceId, true);
-      const done = this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ);
-      this.decksTurning.set(pieceId, done);
-      this.startRide(pieceId, was % def.paths.length, this.layout.switchState(pieceId), done);
-    }
     // A signal held or let go shows it at once (even paused).
+    this.updateSignals();
+    return true;
+  }
+
+  /**
+   * Turn a deck (a turntable's, a transfer table's: not a lift) straight to road `road` (Turntable controls: a tap on a
+   * road turns the deck to it), over one glide however far round, carrying any train standing wholly on it. False if
+   * it can't turn now (`deckRefusal`), it isn't a deck, or it lies along that road already.
+   */
+  turnDeckTo(pieceId: number, road: number): boolean {
+    const piece = this.layout.getPiece(pieceId);
+    const def = piece ? getPieceDef(piece.type, piece.flipped) : null;
+    if (!def?.gated || def.lift || this.deckRefusal(pieceId)) return false;
+    const to = ((road % def.paths.length) + def.paths.length) % def.paths.length;
+    if (this.layout.switchState(pieceId) % def.paths.length === to) return false;
+    // (Its model always turns on round the same way, `KitStateMotion.round`: a train on it goes round with it.)
+    return this.turnDeck(pieceId, def, to, true);
+  }
+
+  /**
+   * A deck set to road `to`: it joins nothing till it's there, and carries round any train standing on it (`forward`:
+   * round the way its model turns, however far, rather than the nearer way).
+   */
+  private turnDeck(pieceId: number, def: PieceDef, to: number, forward: boolean): boolean {
+    const was = this.layout.switchState(pieceId);
+    this.layout.setSwitchState(pieceId, to);
+    this.layout.setDeckTurning(pieceId, true);
+    const done = this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ);
+    this.decksTurning.set(pieceId, done);
+    this.startRide(pieceId, was % def.paths.length, to, done, forward);
     this.updateSignals();
     return true;
   }
@@ -954,7 +1038,7 @@ export class Sim {
    * the new road (its start is the old one's turned or slid there); on a turntable turned past half round the new road
    * points the other way, so the train runs along it the other way.
    */
-  private startRide(pieceId: number, from: number, to: number, done: number): void {
+  private startRide(pieceId: number, from: number, to: number, done: number, forward = false): void {
     const piece = this.layout.getPiece(pieceId)!;
     const def = getPieceDef(piece.type, piece.flipped);
     const riders = [...this.trains.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((b) => b.pieceId === pieceId));
@@ -965,7 +1049,9 @@ export class Sim {
     // The old road's start, turned onto the new road's: by the angle between them, or half round more if that's
     // nearer (then the new road runs the other way).
     let angle = normalizeAngle(b.start.heading - a.start.heading);
-    const flip = Math.abs(angle) > Math.PI / 2;
+    // (Turned straight to a road, `turnDeckTo`, the deck goes on round the way its model turns, up to half round, its
+    // road the same either way along: so does the train, the new road then run the other way if the turn's back.)
+    const flip = forward ? angle < -1e-9 : Math.abs(angle) > Math.PI / 2;
     if (flip) angle = normalizeAngle(angle + Math.PI);
     const from0 = riders.map((t) => t.world.map((w) => ({ ...w })));
     for (const t of riders) {
@@ -2065,6 +2151,8 @@ export class Sim {
     let net = 0;
     for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
     let target = net === 0 ? 0 : Math.sign(net) * (this.topSpeed ? this.topSpeed(train) : ENGINE_SPEED);
+    // (A rack engine's train climbs a rack slowly, its cog clacking round.)
+    if (target !== 0 && this.mayRack !== null && this.onRack(train)) target *= RACK_SLOW;
     const cap = net !== 0 ? Math.min(this.speedCap ? this.speedCap(train) : Infinity, this.signalCap(train), this.lifts && this.lifts.length > 0 ? this.liftCap(train, true) : Infinity) : Infinity;
     if (target > cap) target = cap;
     let v = train.speed;
@@ -2081,6 +2169,8 @@ export class Sim {
     if (v > 0 && this.trains.size > 1 && hasEngine(train)) v = Math.min(v, this.followCap(train, v));
     // Coming to a crossing, or a switch, another train is on or coming onto by the other road: it stops short and waits.
     if (v > 0 && this.trains.size > 1) v = Math.min(v, this.crossCap(train, v));
+    // Coming to a rack it has no rack engine for: it stops short and waits (Game mode).
+    if (v > 0 && this.mayRack !== null) v = Math.min(v, this.rackCap(train, v));
     // (Too slow to see: standing.)
     if (v < MIN_SPEED) v = 0;
     train.speed = v;
@@ -2330,6 +2420,70 @@ export class Sim {
       c.s = 0;
     }
     return false;
+  }
+
+  /** The racks on the layout (piece ids), found again when its pieces change. */
+  private racksNow(): ReadonlySet<number> {
+    if (this.racksVersion !== this.layout.piecesVersion) {
+      this.racksVersion = this.layout.piecesVersion;
+      this.racks.clear();
+      for (const id of this.layout.pieceIds()) if (isRack(this.layout.getPiece(id)!.type)) this.racks.add(id);
+    }
+    return this.racks;
+  }
+
+  /** Is any of this train's axles on a rack? */
+  private onRack(train: Train): boolean {
+    const racks = this.racksNow();
+    if (racks.size === 0) return false;
+    for (const b of train.bogies) if (racks.has(b.pieceId)) return true;
+    return false;
+  }
+
+  /**
+   * The speed a train may run at to stop short of a rack ahead that it may not climb (`mayRack`): Infinity when it may,
+   * or there's none within its stopping distance. On one already (put down there), it goes on. A walk over the few
+   * pieces ahead, only while the layout has a rack.
+   */
+  private rackCap(train: Train, v: number): number {
+    const racks = this.racksNow();
+    if (racks.size === 0 || this.mayRack === null || this.mayRack(train)) return Infinity;
+    const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
+    const look = (v * v) / (2 * ACCELERATION) + v * SIM_DT + CROSS_LOOK + inset + RACK_GAP;
+    const c = crossAt;
+    Object.assign(c, train.bogies[0]);
+    let dist = -c.s;
+    for (let k = 0; k < MAX_BLOCK; k++) {
+      const piece = this.layout.getPiece(c.pieceId);
+      if (!piece) break;
+      if (racks.has(c.pieceId)) {
+        if (k === 0) return Infinity;
+        const room = dist - inset - RACK_GAP;
+        if (room < 0.5) {
+          this.rackStops.set(train.id, { tick: this.ticks, pieceId: c.pieceId });
+          return 0;
+        }
+        return Math.sqrt(2 * ACCELERATION * (room - 0.5));
+      }
+      const len = pathLength(getPieceDef(piece.type, piece.flipped).paths[c.pathIndex].geom);
+      dist += len;
+      if (dist - inset - RACK_GAP > look) break;
+      advanceCursor(this.layout, c, len - c.s + 0.01, null, crossAdv);
+      if (crossAdv.status !== ADV_OK) break;
+      c.s = 0;
+    }
+    return Infinity;
+  }
+
+  /** The rack a train stands short of, unable to climb it (no rack engine: `mayRack`), or −1. For its card. */
+  rackHeld(trainId: number): number {
+    const r = this.rackStops.get(trainId);
+    if (!r) return -1;
+    if (r.tick < this.ticks - 2) {
+      this.rackStops.delete(trainId);
+      return -1;
+    }
+    return r.pieceId;
   }
 
   /**
