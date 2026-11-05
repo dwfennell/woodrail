@@ -72,14 +72,20 @@ const rate = (ms) =>
     const f0 = w.framesDrawn;
     const t0 = performance.now();
     let raf = 0;
-    const tick = () => {
+    // (The page's time as the game counts it: each frame's at most 0.1 s, as `Game.frame` clamps it, so a stall of a
+    // loaded machine isn't counted against the speed.)
+    let counted = 0;
+    let last = t0;
+    const tick = (now) => {
       raf++;
+      counted += Math.min(Math.max(0, now - last), 100);
+      last = now;
       if (performance.now() - t0 < ms) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
     await new Promise((r) => setTimeout(r, ms));
-    const rate = (w.simSeconds - s0) / ((performance.now() - t0) / 1000);
-    return { rate, raf, drawn: w.framesDrawn - f0 };
+    const rate = (w.simSeconds - s0) / (counted / 1000);
+    return { rate, raf, drawn: w.framesDrawn - f0, wall: (w.simSeconds - s0) / ((performance.now() - t0) / 1000) };
   }, ms);
 
 await p.goto(PAGE);
