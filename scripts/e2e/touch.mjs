@@ -1241,22 +1241,22 @@ let openContext = null;
  * Open ground, in the page (window.__clearAt, window.__openGround). The Sandbox seed's land (its mat) is about
  * 4.2 × 3.2 m, most of it hills, a town and its own track: its open ground has no room for the longer runs (the trap's
  * line, restore's and wait's, 2 to 2.6 m). So a spot's points may each be on the land where the game's own rule
- * (`checkPlacement`) would take a straight there, either way round (no hill, road, river, town, field or site), and
- * inside the view's bounds (where the view can go). Never past the land's edge, on the table: a player can't lay track
- * there, and the view can't frame what's there (the director keeps what it looks at over the land, half a plot past its
- * edge). Once a harness shortcut for runs the harness lays itself, it failed groups that looked at them: route-ux's F5
- * (the route framed above the card, a glide's goal 713 mm past the edge) and others. Each point clear of every piece and
+ * (`checkPlacement`) would take a straight there, either way round (no hill, road, river, town, field or site), or
+ * past the land's edge on the flat table (harness shortcut, setup only: a player can't lay track there, but it's flat
+ * and nothing hides it), and inside the view's bounds (where the view can go). (Refused for every group, ten groups
+ * found no ground: the land has no room for their runs. A group whose checks frame the view over its run keeps it on
+ * the land itself, with `ok` or `onLand`: the view can't frame what's on the table.) Each point clear of every piece and
  * model. Searched over all of it, outward from the view's target (where the steps before left it): null if there's
  * none anywhere.
  */
 function openGroundScript() {
   let checkPlacement = null;
   const ready = () => (checkPlacement ? Promise.resolve() : import("/src/landscape/clearance.ts").then((m) => void (checkPlacement = m.checkPlacement)));
-  // (On the land always. `onMat`: a straight there clear either way round, for pieces laid from the tray. Without it,
-  // one that would only run off the land's edge counts too, for runs the harness lays itself: the point is on the land.)
+  // (`onMat`: only where a player may build, for pieces laid from the tray. Without it, past the land's edge on the
+  // flat table too: a named harness shortcut, for runs the harness lays itself.)
   const groundOk = (x, z, onMat) => {
     const w = window.woodrail;
-    if (w.landscape.grid.cellAtWorld(x, z) === -1) return false;
+    if (w.landscape.grid.cellAtWorld(x, z) === -1) return !onMat;
     return [0, Math.PI / 2].every((h) => {
       const c = checkPlacement(w.landscape, "straight-216", false, { x: x - 108 * Math.cos(h), z: z - 108 * Math.sin(h), heading: h }, 0);
       return c.kind === "clear" || (!onMat && c.reason === "off-mat");
@@ -4869,7 +4869,9 @@ async function openMode(mode, { settle = false } = {}) {
         const r = document.querySelector(sel)?.getBoundingClientRect();
         const top = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
         const say = (e) => (e ? `${e.tagName.toLowerCase()}.${[...e.classList].join(".")}` : "nothing");
-        return r ? `${say(top)} (in ${say(top?.parentElement)}) at ${Math.round(r.left + r.width / 2)},${Math.round(r.top + r.height / 2)}` : "no box";
+        const v = window.visualViewport;
+        const view = `viewport ${innerWidth}×${innerHeight}, visual ${Math.round(v.width)}×${Math.round(v.height)} at ${Math.round(v.offsetLeft)},${Math.round(v.offsetTop)} ×${v.scale.toFixed(2)}, scrolled ${scrollX},${scrollY}`;
+        return r ? `${say(top)} (in ${say(top?.parentElement)}) at ${Math.round(r.left + r.width / 2)},${Math.round(r.top + r.height / 2)}; ${view}` : `no box; ${view}`;
       }, selector);
       throw new Error(`${selector} isn't what a tap on it would hit: ${over}`);
     }
@@ -4897,10 +4899,19 @@ async function shelves({ mode, p, tapOn }) {
  * run goes on. Then what it laid is taken up (harness shortcut, setup only: the trains on it, then its pieces, places
  * with them), so the small Sandbox map has room for the next, whatever the checks before did.
  */
+/** The Sandbox page's phone, as `openMode` opens it. */
+const PHONE = { width: 390, height: 844 };
 async function step(name, p, fn) {
   // (Pieces by type and where they lie: a reload, as some checks make, gives out piece and car ids afresh.)
   const pieceKeys = () => p.evaluate(() => [...window.woodrail.layout.pieceIds()].map((i) => { const q = window.woodrail.layout.getPiece(i); return `${q.type}@${Math.round(q.pose.x)},${Math.round(q.pose.z)}`; }));
   const before = await pieceKeys();
+  // (The phone a fresh page has, as when the group runs alone: groups that try a 360×740 phone left it so, and the
+  // gate's feedback group then tapped ☰'s Report a bug at y 754, below a 740 px page: no click, a 60 s wait.)
+  const size = p.viewportSize();
+  if (size.width !== PHONE.width || size.height !== PHONE.height) {
+    await p.setViewportSize(PHONE);
+    await frames(p);
+  }
   try {
     await fn();
   } catch (e) {
