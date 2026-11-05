@@ -297,6 +297,8 @@ export class Hud {
   readonly depotExtra = el("div", "depot-extra");
   /** A place's routes (audit F12): the lines that call there, and "New route from here" (filled by main). */
   readonly depotRoutes = el("div", "depot-routes");
+  /** Game mode's power on a depot card (src/game/power.ts): a power station's sparks, or a yard's Power it. Filled by main. */
+  readonly depotPower = el("div", "depot-power");
   /** The depot card's choice of how it shares (the workshop's planks): beside the extra, its own so it can move up. */
   readonly depotYard = el("div", "depot-yard");
   /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
@@ -780,8 +782,9 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
+    this.depotPower.hidden = true;
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -2355,6 +2358,8 @@ export class Hud {
     this.depotExtra.className = "depot-extra";
     this.depotRoutes.hidden = true;
     this.depotRoutes.innerHTML = "";
+    this.depotPower.hidden = true;
+    this.depotPower.innerHTML = "";
     this.depotCard.hidden = false;
     // (A card scrolled on a phone opens at its top again: its title and ✕ in view.)
     this.depotCard.scrollTop = 0;
@@ -2518,7 +2523,25 @@ export class Hud {
   /** The depot card was put away (Sandbox's chain hints on the map go with it). */
   onDepotCardClosed: (() => void) | null = null;
 
+  /** Cards of other modules' (a boat's: src/ui/boat-card.ts), put away with the HUD's own. */
+  private readonly ownCards: HTMLElement[] = [];
+
+  /** Add another module's card to the HUD: it sits where the HUD's cards do, and goes with them (`hideCards`). */
+  addCard(card: HTMLElement): void {
+    card.hidden = true;
+    this.ownCards.push(card);
+    this.root.appendChild(card);
+  }
+
+  /** Put the HUD's own cards away (not the other modules' added ones): before one of those opens. */
+  hideOwnCards(): void {
+    const others = this.ownCards.map((c) => c.hidden);
+    this.hideCards();
+    this.ownCards.forEach((c, i) => (c.hidden = others[i]));
+  }
+
   hideCards(): void {
+    for (const c of this.ownCards) if (!c.hidden) c.hidden = true;
     if (!this.depotCard.hidden) this.onDepotCardClosed?.();
     // A toast waiting for room: once the cards are put away (and any card opening in their place is up), it comes on.
     if (this.toastWaitsForCard) requestAnimationFrame(() => this.flushToasts());

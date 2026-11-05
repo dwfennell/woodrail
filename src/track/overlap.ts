@@ -1,8 +1,8 @@
-import { ARCH_CENTRES, ARCH_CROWN_DROP, ARCH_RADIUS, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, TRAIN_HEADROOM } from "./constants";
+import { ARCH_CROWN_DROP, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, TRAIN_HEADROOM } from "./constants";
 import type { Layout, PlacedPiece } from "./layout";
 import type { Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
-import { getPieceDef, type PieceTypeId } from "./pieces";
+import { archesOf, getPieceDef, type PieceTypeId } from "./pieces";
 
 /**
  * A piece's footprint as a chain of discs along its track (piece-local), each with the height band it occupies.
@@ -65,13 +65,14 @@ function footprint(type: PieceTypeId, flipped: boolean): { discs: Disc[]; arches
     }
     // The viaduct, finely enough to catch its narrow piers: under an arch opening, the round top of the arch (open
     // from the ground up to it); elsewhere, solid wall.
-    const r = len * ARCH_RADIUS;
+    const arches_ = archesOf(type);
+    const r = len * arches_.radius;
     const m = Math.max(1, Math.ceil(span / WALL_STEP));
     for (let k = 0; k <= m; k++) {
       const at = END_INSET + (span * k) / m;
       samplePath(path.geom, at, s);
       let ceiling = -Infinity;
-      for (const c of ARCH_CENTRES) {
+      for (const c of arches_.centres) {
         const ds = Math.abs(at - c * len);
         if (ds < r) ceiling = s.y - ARCH_CROWN_DROP - r + Math.sqrt(r * r - ds * ds);
       }

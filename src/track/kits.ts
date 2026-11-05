@@ -101,8 +101,15 @@ export interface KitDef {
 /** Kit piece types: `kit-` and the asset's name without its catalogue prefix. */
 export type KitTypeId = `kit-${string}`;
 
+/** A river landing's line: this far across from its model's middle (the model's track is at its z −40). */
+const LANDING_TRACK = 40;
+/** Water may lie under a landing beyond its quay's back, this far across from its line (its edge and jetty, on piles). */
+export const LANDING_WET = 56;
+
 /** The lookout halt (the rack's): a passenger stop on a hilltop, where riders from any town get off (see src/game/world.ts). */
 export const LOOKOUT_KIT: KitTypeId = "kit-lookout";
+/** The observatory (Tech tree 5): a lookout's kind of stop, for stargazers (see src/game/world.ts `SIGHT_FARES`). */
+export const OBSERVATORY_KIT: KitTypeId = "kit-observatory";
 
 /**
  * A metro stop: a platform in a tunnel two levels under a town (`METRO_DEPTH`), its entrance kiosk up on the town's
@@ -254,6 +261,19 @@ function trainLift(type: PieceTypeId): PieceDef {
   };
 }
 
+/** The lift bridge (Tech tree 5): its span's length, and how high it goes for a boat (a level and a half). */
+export const LIFT_BRIDGE_LENGTH = 216;
+export const LIFT_BRIDGE_RISE = 1.5 * RISER_HEIGHT;
+export const LIFT_BRIDGE_KIT: KitTypeId = "kit-lift-bridge";
+
+/**
+ * A lift bridge's track: a straight at the ground, one way for its span (`gated`, `drawbridge`): raised for a boat it
+ * joins nothing (see `Sim.raiseBridge`). It stands over a river (`checkPlacement`), its towers on the banks.
+ */
+function liftBridge(type: PieceTypeId): PieceDef {
+  return { ...straight(type, LIFT_BRIDGE_LENGTH), gated: true, drawbridge: { rise: LIFT_BRIDGE_RISE } };
+}
+
 /** Every kit, by piece type. */
 export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
   // A 216 straight with the furnished platform along its left (+l) side: passenger trains stop at it for 4 s.
@@ -308,6 +328,21 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     footprint: [
       { t: 108, l: beside(24), w: 216, d: 26 },
       { t: 103, l: 63, w: 90, d: 34 },
+    ],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  // The observatory: a halt on a hilltop two levels up or more, as the lookout is; stargazers from any town ride there
+  // and pay three times the fare. The model is drawn in the piece's frame, beside the track (src/catalogue/assets/observatory.ts).
+  "kit-observatory": {
+    asset: "bldg-observatory",
+    name: "observatory",
+    track: straight("kit-observatory", 216),
+    rails: "track",
+    place: { t: 108, l: TRACK_HALF + PLATFORM_GAP },
+    footprint: [
+      { t: 108, l: beside(24), w: 216, d: 26 },
+      { t: 108, l: TRACK_HALF + PLATFORM_GAP + 62, w: 54, d: 54 },
     ],
     splices: true,
     stop: PASSENGERS,
@@ -523,6 +558,69 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     depot: "loader-planks",
     moves: "stopped",
   },
+  // Water transport (Game mode's River barges and Train ferry; docs/superpowers/specs/2026-11-04-water-transport.md).
+  // A river landing: a siding beside a plank quay, its jetty on piles out over the water beyond (the model's track at
+  // its z −40, so it stands 40 across from the piece's line). Trains and the barges leave goods there for each other.
+  "kit-landing": {
+    asset: "water-landing",
+    name: "landing",
+    track: straight("kit-landing", 216),
+    rails: "track",
+    place: { t: 108, l: LANDING_TRACK },
+    // The quay's back, on dry land; its stone edge and the jetty beyond may stand on the water (`wetFrom`), so a
+    // landing fits a bank anywhere the water starts between its quay and its jetty's end (a finger's drop, not a
+    // millimetre's).
+    footprint: [
+      { t: 108, l: 38, w: 216, d: 36 },
+      { t: 120, l: 87, w: 76, d: 34 },
+    ],
+    wetFrom: LANDING_WET,
+    splices: true,
+    depot: "landing",
+  },
+  // A boatyard: the landing's siding, quay and jetty, with an open boat shed and the ways a hull slides down sideways
+  // into the river (src/catalogue/assets/water.ts). Tugs and barges are built there, and tie up there.
+  "kit-boatyard": {
+    asset: "water-boatyard",
+    name: "boatyard",
+    track: straight("kit-boatyard", 216),
+    rails: "track",
+    place: { t: 108, l: LANDING_TRACK },
+    footprint: [
+      { t: 108, l: 38, w: 216, d: 36 },
+      { t: 138, l: 92, w: 80, d: 44 },
+    ],
+    wetFrom: LANDING_WET,
+    splices: true,
+    depot: "boatyard",
+  },
+  // A shipyard: a stone quay by the sea, a gantry crane over a long berth whose ways run down into the water.
+  "kit-shipyard": {
+    asset: "water-shipyard",
+    name: "shipyard",
+    track: straight("kit-shipyard", 216),
+    rails: "track",
+    place: { t: 108, l: LANDING_TRACK },
+    footprint: [{ t: 108, l: 38, w: 216, d: 36 }],
+    wetFrom: LANDING_WET,
+    splices: true,
+    depot: "shipyard",
+  },
+  // A ferry slip: a stone pier carrying the line to the shore's edge, its hinged ramp and the frame that holds it out
+  // over the sea past the track's end (the pier's end, the model's x 55, at the piece's far end).
+  "kit-ferry-slip": {
+    asset: "water-ferry-slip",
+    name: "ferry slip",
+    track: straight("kit-ferry-slip", 216),
+    rails: "track",
+    place: { t: 216 - 55, l: 0 },
+    // The pier along the last 150 of the line, and the hut beside it.
+    footprint: [
+      { t: 141, l: 0, w: 150, d: 56 },
+      { t: 101, l: -40, w: 34, d: 24 },
+    ],
+    depot: "slip",
+  },
   "kit-harbour-crane": {
     asset: "mech-harbour-crane",
     name: "harbour crane",
@@ -668,6 +766,23 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
       { t: LIFT_LENGTH / 2, l: 0, w: LIFT_LENGTH - 2 * LIFT_END_NOTCH, d: 2 * LIFT_BAND_IN },
       { ...LIFT_WEIGHT, overhead: true },
       { ...LIFT_WEIGHT, l: -LIFT_WEIGHT.l, overhead: true },
+    ],
+    moves: "state",
+  },
+  // A lift bridge: the line across a river at the ground, its span between two towers going straight up for a boat
+  // (a tap, or the water's hook `Sim.raiseBridge`), trains waiting at its ends meanwhile. The model draws the span's rails.
+  "kit-lift-bridge": {
+    asset: "mech-lift-bridge",
+    name: "lift bridge",
+    track: liftBridge("kit-lift-bridge"),
+    rails: "model",
+    place: { t: LIFT_BRIDGE_LENGTH / 2, l: 0 },
+    // Its towers' feet on the banks at each end (the span itself is over the water).
+    footprint: [
+      { t: 7, l: 30, w: 14, d: 14, trackPad: 2 },
+      { t: 7, l: -30, w: 14, d: 14, trackPad: 2 },
+      { t: LIFT_BRIDGE_LENGTH - 7, l: 30, w: 14, d: 14, trackPad: 2 },
+      { t: LIFT_BRIDGE_LENGTH - 7, l: -30, w: 14, d: 14, trackPad: 2 },
     ],
     moves: "state",
   },

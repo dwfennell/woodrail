@@ -8,7 +8,8 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | Tool | What it does |
 |---|---|
 | `npm run perf -- [options]` (`tools/perf/run.mjs`) | Loads representative maps in a 390×844 phone page (DPR 2, CPU throttled 4×) and measures what a player pays for. Writes `perf.json` and `perf.md` (a table) to `--out` (default `perf-out/<time>`). |
-| `npm run perf:check` (`tools/perf/check.mjs`) | A short run checked against `tools/perf/budgets.json`: `--quick` with the options in `budgets.json`'s `run` (the fresh, Sandbox and features maps, CPU 2×, DPR 1, a first visit only, short stretches, 3 s a spot). Exit 1 when a measure is over budget by more than its margin. About 15 min (14 here: the features map is most of it). |
+| `npm run perf:check` (`tools/perf/check.mjs`) | A short run checked against `tools/perf/budgets.json`: `--quick` with the options in `budgets.json`'s `run` (the fresh, Sandbox and features maps, CPU 2×, DPR 1, a first visit only, short stretches, 3 s a spot), then `perf:memory`. Exit 1 when a measure is over budget by more than its margin, or over a memory budget. About 16 min (11 the run, the features map most of it; 4.5 memory). `--no-memory` leaves the memory check out. Each map's time by phase is printed (`perf: <map> phases`) and kept (`phases`). |
+| `npm run perf:memory` (`tools/perf/memory-check.mjs`) | The memory budget check (below, Memory budgets): the features map on a Pixel-10-like phone and a desktop page, checked against `tools/perf/memory-budgets.json`. About 4.5 min. `--suggest` prints the budgets this run would give; `--from <memory.json>` checks a run already made. |
 | `node tools/perf/compare.mjs <before.json> <after.json>` | Two runs side by side, the main measures per map with the change: for a commit message. |
 | `node tools/perf/profile-top.mjs <file.cpuprofile> [<regex>]` | The top functions of a `--profile` CPU profile, by total and self time. |
 | `node tools/perf/scene.mjs [<root>] [<map file>]` | What the scene holds to draw: its biggest meshes by triangles (instances counted), what casts shadows. Use an unminified build for names. |
@@ -109,6 +110,82 @@ so memory is a budget like frame time. Measure with `tools/perf/memory.mjs` (abo
   picture more than any of this.
 - **What grows after load is the map finishing itself** (the land around, props, track carving), not a leak: it levels
   off within a minute. `--early` shows the curve.
+
+## Memory budgets (`tools/perf/memory-budgets.json`)
+
+Players on phones (a Pixel 10, on itch) lost the game at about 650–700 MB between the tab and the GPU process
+(`docs/mobile-crash-2026-11-05.md`). `npm run perf:memory`, run by `perf:check`, holds memory to budgets so a growth
+fails the release gate before it ships.
+
+What it does: the features map (the late Game map with every newer feature on it) opened in two pages, one after the
+other: a Pixel-10-like phone (412×915 at DPR 2.625, touch, a Pixel 10 user agent: the mobile tier, drawing at a pixel
+ratio of 2, as in e2e:gl-lost) and a desktop page (1440×900, DPR 1: the high tier, with ambient occlusion, depth of
+field and a 4096 shadow map). No CPU throttling (counts and bytes don't depend on it). It waits for the first visit's
+own work (tray pictures) and then until the GPU tally and three's counts are the same at two looks a few seconds apart,
+and measures:
+
+| measure | what |
+|---|---|
+| `gpu.totalMB` | everything WebGL holds by the game's own tally (`gpu-tally.js`: every buffer, texture and renderbuffer as it's allocated and deleted), plus the canvas |
+| `gpu.geometryMB` | vertex and index buffers |
+| `gpu.texturesMB` | textures not drawn into (maps: wood, felt, labels, the env map) |
+| `gpu.targetsMB` | render targets: textures attached to a framebuffer (the shadow map, the scene's target, post passes) and renderbuffers (multisampled colour and depth) |
+| `gpu.canvasMB` | the canvas's own buffers (colour, back buffer, depth) |
+| `js.heapMB` | V8's heap after two GCs |
+| `js.arrayBuffersMB` | ArrayBuffers outside it (typed arrays: three's CPU copies of geometry, the game's caches) |
+| `counts.*` | three's geometries, textures and programs; WebGL's live buffers and textures |
+| `leak.*` (mobile) | growth over 4 rebuild cycles after a first one: pieces laid and undone (track rebuilds), a zoom out and back every other cycle (far detail, culling), ☰ opened and shut: heap, ArrayBuffers, GPU, geometries, textures |
+
+Deterministic: one map file, a browser of its own for each tier (in one browser the second load was quicker, and
+what it left built moved with that), the game held paused from the moment it exists (the trains and the sim hold
+still: a harness shortcut), the
+drawing resolution held at the tier's own (the check fails if it isn't: a smaller target isn't comparable), the
+device's memory pinned at 8 GB (a 4 GB machine would make the game lean), the clocks pinned and the industries'
+movers still.
+
+The budgets: each measure's `max`, and `measured` (its value when it was set). A measure over its `max` fails, and the
+table says by how much and against what. The maxes are three runs' highest value plus a margin (6% for MB, 5% for
+counts, at least 1 MB or 2; leaks 1 MB or 2 objects over the most three runs saw), above the noise:
+
+Three runs (2026-11-05, this container's 4 cores; each about 4.5 min). Desktop repeats exactly but for the heap's
+0.3 MB; the phone's load leaves a few geometries more or fewer (816–822: what it builds depends on the load's timing),
+0.7% at most. Leak growth is over 4 cycles (the heap's 1.2–1.3 MB, steady from run to run, not looked into yet; nothing on the GPU).
+
+| measure | run 1 | run 2 | run 3 | spread | budget (max) |
+|---|---|---|---|---|---|
+| mobile.gpu.totalMB | 263.5 | 263 | 263 | 0.5 (0.2%) | 280 |
+| mobile.gpu.geometryMB | 134.1 | 133.6 | 133.6 | 0.5 (0.4%) | 143 |
+| mobile.gpu.texturesMB | 8.4 | 8.4 | 8.4 | 0.0 (0.0%) | 9.4 |
+| mobile.gpu.targetsMB | 109.5 | 109.5 | 109.5 | 0.0 (0.0%) | 117 |
+| mobile.gpu.canvasMB | 11.5 | 11.5 | 11.5 | 0.0 (0.0%) | 13 |
+| mobile.js.heapMB | 39.9 | 39.8 | 39.8 | 0.1 (0.3%) | 43 |
+| mobile.js.arrayBuffersMB | 243.4 | 243.2 | 243 | 0.4 (0.2%) | 260 |
+| mobile.counts.geometries | 822 | 816 | 816 | 6 (0.7%) | 864 |
+| mobile.counts.textures | 43 | 43 | 43 | 0 (0.0%) | 46 |
+| mobile.counts.programs | 64 | 64 | 64 | 0 (0.0%) | 68 |
+| mobile.counts.glBuffers | 3476 | 3458 | 3458 | 18 (0.5%) | 3650 |
+| mobile.counts.glTextures | 47 | 47 | 47 | 0 (0.0%) | 50 |
+| mobile.leak.heapMB | 1.2 | 1.3 | 1.3 | 0.1 | 2.3 |
+| mobile.leak.arrayBuffersMB | 0 | 0.1 | 0.1 | 0.1 | 1.1 |
+| mobile.leak.gpuMB | 0 | 0 | 0 | 0 | 1 |
+| mobile.leak.geometries | 1 | 1 | 1 | 0 | 3 |
+| mobile.leak.textures | 0 | 0 | 0 | 0 | 2 |
+| desktop.gpu.totalMB | 363.4 | 363.4 | 363.4 | 0.0 (0.0%) | 390 |
+| desktop.gpu.geometryMB | 143.6 | 143.6 | 143.6 | 0.0 (0.0%) | 153 |
+| desktop.gpu.texturesMB | 11.1 | 11.1 | 11.1 | 0.0 (0.0%) | 13 |
+| desktop.gpu.targetsMB | 198.7 | 198.7 | 198.7 | 0.0 (0.0%) | 215 |
+| desktop.gpu.canvasMB | 9.9 | 9.9 | 9.9 | 0.0 (0.0%) | 11 |
+| desktop.js.heapMB | 40.5 | 40.2 | 40.5 | 0.3 (0.7%) | 43 |
+| desktop.js.arrayBuffersMB | 242.5 | 242.5 | 242.5 | 0.0 (0.0%) | 260 |
+| desktop.counts.geometries | 857 | 857 | 857 | 0 (0.0%) | 900 |
+| desktop.counts.textures | 42 | 42 | 42 | 0 (0.0%) | 45 |
+| desktop.counts.programs | 69 | 69 | 69 | 0 (0.0%) | 73 |
+| desktop.counts.glBuffers | 3609 | 3609 | 3609 | 0 (0.0%) | 3790 |
+| desktop.counts.glTextures | 46 | 46 | 46 | 0 (0.0%) | 49 |
+
+**Changing a budget** is an edit of `memory-budgets.json` by hand, in the commit that changes the memory, with the
+reason and the numbers in the message. `npm run perf:memory -- --suggest` prints the file as this run would make it;
+copy in what you mean to change. A change that saves a lot tightens the maxes too, so the saving is kept.
 
 ## Before adding per-frame work
 

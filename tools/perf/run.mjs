@@ -411,15 +411,40 @@ async function closeCards(page) {
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
   await page.keyboard.press("Escape");
-  await settle(page, 3000);
+  await settleView(page, 3000);
 }
 
 async function settle(page, ms = 15000) {
   await page.evaluate((ms) => Promise.race([window.woodrail.settled(5), new Promise((r) => setTimeout(r, ms))]), ms);
 }
 
+/**
+ * After a camera move or a card closed, before a measure: wait for the view to come to rest (the move's last frames,
+ * far and near detail swapped, pieces carved), with the game paused for the wait if it's running and then running
+ * again. Running, `settled()` never comes while a train moves in view (each tick draws), so every such wait ran out
+ * its whole time (8 s a spot: 90 s of the features map). What's measured after is the same: the game is running again
+ * before it.
+ */
+async function settleView(page, ms = 15000) {
+  const was = await page.evaluate(() => {
+    const p = window.woodrail.paused;
+    window.woodrail.paused = true;
+    return p;
+  });
+  await settle(page, ms);
+  await page.evaluate((p) => (window.woodrail.paused = p), was);
+}
+
 async function runMap(id) {
   const def = MAP_DEFS[id];
+  // Where the run's time goes, by phase (printed as it goes, and kept in the results: `phases`, seconds).
+  const phases = {};
+  let lap = Date.now();
+  const phase = (name) => {
+    const s = Math.round((Date.now() - lap) / 100) / 10;
+    phases[name] = Math.round(((phases[name] ?? 0) + s) * 10) / 10;
+    lap = Date.now();
+  };
   const ctx = await browser.newContext({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: DPR,
@@ -494,6 +519,7 @@ async function runMap(id) {
     }
   }
   result.load = { cold, warm };
+  phase("load");
   await page.keyboard.press("Escape");
   await settle(page, 20000);
   await page.waitForTimeout(2000);
@@ -504,6 +530,7 @@ async function runMap(id) {
   const trainsRunning = await page.evaluate(() => window.woodrail.sim.trainIds().some((id) => window.woodrail.sim.getTrain(id).speed > 0));
   result.idle = await stretch(page, cdp, IDLE_S, null, `${id}-idle`);
   result.idle.trainsRunning = trainsRunning;
+  phase("settle, frame, idle");
 
   // 2b. At 3× (Game mode's time control, src/game/time-scale.ts): what running fast costs a phone, the same view.
   await page.evaluate(() => (window.woodrail.timeScale = 3));
@@ -551,7 +578,8 @@ async function runMap(id) {
     `${id}-pan`,
   );
   if (TRACE) await browser.stopTracing();
-  await settle(page);
+  await settleView(page);
+  phase("paused, pan");
 
   // 5. Operations.
   const ops = {};
@@ -639,6 +667,7 @@ async function runMap(id) {
   ops.autosave = result.idle.timers["interval:5000"] ?? null;
   ops.hudSecond = Object.fromEntries(Object.entries(result.idle.timers).filter(([k]) => k === "interval:1000" || k === "interval:500"));
   result.ops = ops;
+  phase("operations");
 
   // 5b. Spots (a map with `spots`): the camera on each feature alone, as a player looks at it. For each: one full
   // frame there (draw calls, triangles), a running stretch (frames drawn, frame cost, main thread), a paused one (the
@@ -652,17 +681,22 @@ async function runMap(id) {
       const r = {};
       try {
         await lookAt(page, spot.centre.x, spot.centre.z, spot.dist ?? 900);
-        await settle(page, 8000);
+        await settleView(page, 8000);
         await page.waitForTimeout(800);
+        phase("spots: look, settle");
         const f = await frameInfo(page);
+        phase("spots: frame");
         r.frame = { drawCalls: f.drawCalls, triangles: f.triangles, programs: f.programs, geometries: f.geometries };
         const run = await stretch(page, cdp, SPOT_S, null, PROFILE ? `${id}-${spot.id}-run` : null);
+        phase("spots: running");
         r.running = { framesDrawn: run.framesDrawn, fps: run.fps, mainThreadPct: run.mainThreadPct, frameMs: run.frameMs, rafMsPerSecond: run.rafMsPerSecond };
         await page.evaluate(() => (window.woodrail.paused = true));
         await settle(page, 5000);
         const pz = await stretch(page, cdp, Math.min(SPOT_S, 4), null, null);
         r.paused = { framesDrawn: pz.framesDrawn, mainThreadPct: pz.mainThreadPct, rafMsPerSecond: pz.rafMsPerSecond };
+        phase("spots: paused");
         r.changes = await spotChanges(page, spot);
+        phase("spots: changes");
         await page.evaluate(() => (window.woodrail.paused = false));
       } catch (e) {
         r.failed = String(e).slice(0, 300);
@@ -674,8 +708,9 @@ async function runMap(id) {
     // Away from every feature (high over an empty corner of the board), the game running: what still asks for frames.
     const away = spots.reduce((a, x) => ({ x: Math.max(a.x, x.centre.x), z: Math.max(a.z, x.centre.z) }), { x: -Infinity, z: -Infinity });
     await lookAt(page, away.x + 30000, away.z + 30000, 900);
-    await settle(page, 8000);
+    await settleView(page, 8000);
     const aw = await stretch(page, cdp, SPOT_S, null, null);
+    phase("away");
     result.spots.away = { running: { framesDrawn: aw.framesDrawn, mainThreadPct: aw.mainThreadPct, rafMsPerSecond: aw.rafMsPerSecond } };
     // Every train stopped (levers to 0, as a player stops them; the game running): what's left moving is ambient
     // motion (a pumpjack, a saw, road vehicles), which asks for frames only where it's seen. Each spot again, and away.
@@ -684,11 +719,13 @@ async function runMap(id) {
       for (const id of w.sim.trainIds()) for (const c of w.sim.getTrain(id).cars) if (c.kind === "engine") w.sim.setLever(c.id, 0);
     });
     await page.waitForFunction(() => window.woodrail.sim.trainIds().every((id) => window.woodrail.sim.getTrain(id).speed === 0), null, { timeout: 60000 }).catch(() => {});
+    phase("trains stopping");
     for (const spot of spots) {
       try {
         await lookAt(page, spot.centre.x, spot.centre.z, spot.dist ?? 900);
-        await settle(page, 6000);
+        await settleView(page, 6000);
         const st = await stretch(page, cdp, SPOT_S, null, null);
+        phase("spots: still");
         result.spots[spot.id].still = { framesDrawn: st.framesDrawn, mainThreadPct: st.mainThreadPct, frameMs: st.frameMs, rafMsPerSecond: st.rafMsPerSecond };
       } catch (e) {
         result.spots[spot.id].still = { failed: String(e).slice(0, 200) };
@@ -697,8 +734,9 @@ async function runMap(id) {
     {
       const far = spots.reduce((a, x) => ({ x: Math.max(a.x, x.centre.x), z: Math.max(a.z, x.centre.z) }), { x: -Infinity, z: -Infinity });
       await lookAt(page, far.x + 30000, far.z + 30000, 900);
-      await settle(page, 6000);
+      await settleView(page, 6000);
       const st = await stretch(page, cdp, SPOT_S, null, null);
+      phase("away still");
       result.spots.awayStill = { framesDrawn: st.framesDrawn, mainThreadPct: st.mainThreadPct, rafMsPerSecond: st.rafMsPerSecond };
     }
     // A breakdown crane at work (crane spot): sent to lift the train nearest it off the line, watched once it's there,
@@ -737,7 +775,7 @@ async function runMap(id) {
         r.paused = { framesDrawn: pz.framesDrawn, mainThreadPct: pz.mainThreadPct, busy: await page.evaluate(() => window.woodrail.economy.breakdown.busy) };
         await page.evaluate(() => (window.woodrail.paused = false));
         await lookAt(page, (at?.x ?? 0) + 30000, (at?.z ?? 0) + 30000, 900);
-        await settle(page, 4000);
+        await settleView(page, 4000);
         const aw = await stretch(page, cdp, Math.min(SPOT_S, 4), null, null);
         r.away = { framesDrawn: aw.framesDrawn, mainThreadPct: aw.mainThreadPct, busy: await page.evaluate(() => window.woodrail.economy.breakdown.busy) };
       } catch (e) {
@@ -745,6 +783,7 @@ async function runMap(id) {
         await page.evaluate(() => (window.woodrail.paused = false)).catch(() => {});
       }
       result.spots.craneWork = r;
+      phase("crane at work");
       console.log(`  ${id} crane at work: ${JSON.stringify(r)}`);
     }
   }
@@ -780,6 +819,9 @@ async function runMap(id) {
     };
   }
   result.heapEndMB = await heap(cdp);
+  phase("end");
+  result.phases = phases;
+  console.error(`perf: ${id} phases (s): ${JSON.stringify(phases)}`);
   result.errors = errors;
   await ctx.close();
   return result;

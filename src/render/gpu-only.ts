@@ -13,7 +13,8 @@ import { compactVertices } from "./compact-vertices";
  * thumbnails.
  *
  * A lost WebGL context can't bring freed data back: restore by building the scene again (or reloading), not by letting
- * three upload what it has. `setGpuOnlyEnabled(false)` turns it off (for a session that wants to restore in place).
+ * three upload what it has. `Game` turns it on for the mobile tier only (`setGpuOnlyEnabled`): a desktop keeps its
+ * copies and restores in place.
  */
 let enabled = true;
 

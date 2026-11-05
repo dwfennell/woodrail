@@ -931,6 +931,8 @@ export class Sim {
     if (this.pointsHeld(pieceId)) return false;
     if (def?.gated && this.deckRefusal(pieceId)) return false;
     // A lift sends its platform to its other end, with any train standing on it.
+    // A lift bridge goes up for a while, and comes down by itself.
+    if (def?.drawbridge) return this.raiseBridge(pieceId);
     if (def?.lift) return this.carry(pieceId, (this.layout.switchState(pieceId) + 1) % def.paths.length, def.lift.seconds) !== null;
     if (def?.cornerLevers) {
       this.layout.setSwitchState(pieceId, this.layout.switchState(pieceId) ^ (1 << corner));
@@ -1234,6 +1236,7 @@ export class Sim {
     const piece = this.layout.getPiece(pieceId);
     const def = piece && getPieceDef(piece.type, piece.flipped);
     if (!def) return 0;
+    if (def.drawbridge) return this.bridgePosition(pieceId);
     const at = this.layout.switchState(pieceId) % Math.max(1, def.paths.length);
     const r = this.rides.get(pieceId);
     if (!r || !def.lift) return at;
@@ -1278,6 +1281,91 @@ export class Sim {
     if (!t || t.derailed || !this.lifts || this.lifts.length === 0) return null;
     for (const [id, r] of this.rides) if (r.trainIds.includes(t.id) && this.liftDef(id)) return "riding";
     return t.speed < 1 && drive(t) !== 0 && this.liftCap(t, false) === 0 ? "waiting" : null;
+  }
+
+  /**
+   * Lift bridges up (or on their way up or down), by piece id: the tick each began to rise. It rises over
+   * `BRIDGE_RISE_S`, stays up `BRIDGE_UP_S`, comes down over `BRIDGE_RISE_S`, and joins nothing meanwhile
+   * (`Layout.deckTurning`): trains coming to it halt at its end, as at a closed lift. Not saved: a loaded bridge is down.
+   */
+  private readonly raised = new Map<number, number>();
+
+  /** A lift bridge's def, or undefined. */
+  private bridgeDef(pieceId: number): PieceDef | undefined {
+    const p = this.layout.getPiece(pieceId);
+    const def = p && getPieceDef(p.type, p.flipped);
+    return def?.drawbridge ? def : undefined;
+  }
+
+  /**
+   * Raise a lift bridge for a boat (the water's hook, or a tap): up, a while, and down by itself. Refused (false) with
+   * a train on it or coming in within its braking distance, or while it's already up: the boat waits and asks again.
+   */
+  raiseBridge(pieceId: number): boolean {
+    if (!this.bridgeDef(pieceId) || this.raised.has(pieceId) || this.pieceOccupied(pieceId) || this.approaching(pieceId)) return false;
+    this.raised.set(pieceId, this.ticks);
+    this.layout.setDeckTurning(pieceId, true);
+    this.ridesVersion++;
+    return true;
+  }
+
+  /** Is this lift bridge up (or moving): a boat may pass under it while `bridgeOpen`. */
+  bridgeRaised(pieceId: number): boolean {
+    return this.raised.has(pieceId);
+  }
+
+  /** Is this lift bridge all the way up now (a boat under it passes)? */
+  bridgeOpen(pieceId: number): boolean {
+    const at = this.raised.get(pieceId);
+    if (at === undefined) return false;
+    const t = (this.ticks - at) / SIM_HZ;
+    return t >= BRIDGE_RISE_S && t <= BRIDGE_RISE_S + BRIDGE_UP_S;
+  }
+
+  /** How high a raised bridge's span stands: 0 down, 1 up, eased between. */
+  private bridgePosition(pieceId: number): number {
+    const at = this.raised.get(pieceId);
+    if (at === undefined) return 0;
+    const t = (this.ticks - at) / SIM_HZ;
+    const u = t < BRIDGE_RISE_S ? t / BRIDGE_RISE_S : t <= BRIDGE_RISE_S + BRIDGE_UP_S ? 1 : Math.max(0, 1 - (t - BRIDGE_RISE_S - BRIDGE_UP_S) / BRIDGE_RISE_S);
+    return u * u * (3 - 2 * u);
+  }
+
+  /** Each raised bridge, once a tick: its span moving (redrawn) or held up, and down again in the end. */
+  private updateBridges(): void {
+    for (const [id, at] of this.raised) {
+      const t = (this.ticks - at) / SIM_HZ;
+      if (!this.bridgeDef(id) || t >= 2 * BRIDGE_RISE_S + BRIDGE_UP_S) {
+        this.raised.delete(id);
+        this.layout.setDeckTurning(id, false);
+        this.ridesVersion++;
+      } else if (t < BRIDGE_RISE_S || t > BRIDGE_RISE_S + BRIDGE_UP_S) this.ridesVersion++;
+    }
+  }
+
+  /**
+   * How fast a train may go for a raised lift bridge ahead: to halt with its front face at the joint, as at a closed
+   * lift. Infinity otherwise (and at once with none up).
+   */
+  private bridgeCap(train: Train): number {
+    if (this.raised.size === 0) return Infinity;
+    const lead = train.bogies[0];
+    const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
+    const v = train.speed;
+    const c: Cursor = { ...lead };
+    advanceCursor(this.layout, c, (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + LIFT_LOOK + inset, null, lookAdv);
+    if (lookAdv.status !== ADV_OPEN_END) return Infinity;
+    const p = this.layout.getPiece(c.pieceId)!;
+    const exit = pathExitConnector(getPieceDef(p.type, p.flipped), c.pathIndex, c.reversed);
+    const joined = exit < 0 ? -1 : this.layout.joinedConnector(connectorRef(c.pieceId, exit));
+    if (joined === -1 || !this.raised.has(pieceOfRef(joined))) return Infinity;
+    return brakeTo(lookAdv.moved - inset - LIFT_FACE_GAP);
+  }
+
+  /** A train held at a raised lift bridge, for its engine's card. */
+  bridgeWait(trainId: number): boolean {
+    const t = this.trains.get(trainId);
+    return !!t && !t.derailed && t.speed < 1 && drive(t) !== 0 && this.bridgeCap(t) === 0;
   }
 
   /** A lift piece's def, or undefined. */
@@ -1483,7 +1571,7 @@ export class Sim {
       const net = drive(t);
       if (t.speed === 0 && net === 0) continue;
       // Standing, held at a lift's end (waiting behind the train it's carrying) or at a red signal: it isn't coming.
-      if (t.speed === 0 && (this.liftCap(t, false) === 0 || this.signalCap(t) === 0)) continue;
+      if (t.speed === 0 && (this.liftCap(t, false) === 0 || this.signalCap(t) === 0 || this.bridgeCap(t) === 0)) continue;
       // Standing, about to set off backwards: its back leads.
       const back = t.speed === 0 && net < 0;
       const c: Cursor = { ...(back ? t.bogies[t.bogies.length - 1] : t.bogies[0]) };
@@ -1545,6 +1633,7 @@ export class Sim {
   tick(): void {
     this.ticks++;
     if (this.rides.size > 0) this.updateRides();
+    if (this.raised.size > 0) this.updateBridges();
     if (this.lifts === null || this.lifts.length > 0) {
       this.updateLifts();
       // (Who's on a lift now, for `comingOffLift`; those long off it forgotten.)
@@ -2153,7 +2242,7 @@ export class Sim {
     let target = net === 0 ? 0 : Math.sign(net) * (this.topSpeed ? this.topSpeed(train) : ENGINE_SPEED);
     // (A rack engine's train climbs a rack slowly, its cog clacking round.)
     if (target !== 0 && this.mayRack !== null && this.onRack(train)) target *= RACK_SLOW;
-    const cap = net !== 0 ? Math.min(this.speedCap ? this.speedCap(train) : Infinity, this.signalCap(train), this.lifts && this.lifts.length > 0 ? this.liftCap(train, true) : Infinity) : Infinity;
+    const cap = net !== 0 ? Math.min(this.speedCap ? this.speedCap(train) : Infinity, this.signalCap(train), this.lifts && this.lifts.length > 0 ? this.liftCap(train, true) : Infinity, this.bridgeCap(train)) : Infinity;
     if (target > cap) target = cap;
     let v = train.speed;
     const step = ACCELERATION * (this.quickness ? this.quickness(train) : 1) * SIM_DT;
@@ -2604,6 +2693,9 @@ export const LIFT_DWELL = SIM_HZ;
 const LIFT_FACE_GAP = 2;
 /** How far (mm) past its braking distance a train looks for a lift's end, and counts as coming in to one. */
 const LIFT_LOOK = 24;
+/** A lift bridge rises (or comes down) over this many seconds, and stays up this long. */
+export const BRIDGE_RISE_S = 2;
+export const BRIDGE_UP_S = 5;
 
 /** How fast a train may go to stop within `d` mm (as at a red signal). */
 const brakeTo = (d: number): number => (d < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (d - 0.5)));

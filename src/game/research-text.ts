@@ -495,8 +495,12 @@ export class IdleNotice {
  * use it (`how`, else its blurb). The toast adds the goal it opens and, when the queue moves on, what's studied next
  * (QA 2026-11-03: that was a second toast, "Learned Switches! Next: Tank engine", after "Learned switches! …").
  */
-export function learnedText(o: { label: string; makes: string; how?: string; blurb: string; present?: string; goal?: string; next?: string }): { line: string; toast: string } {
+export function learnedText(o: { label: string; makes: string; how?: string; blurb: string; present?: string; goal?: string; tip?: string; next?: string }): { line: string; toast: string; tipped: boolean } {
   const line = `Learned ${o.label}! ${o.makes || o.how || o.blurb}${o.present ?? ""}`;
-  const toast = [line, o.goal, o.next ? `Next: ${o.next}` : ""].filter(Boolean).join(" · ");
-  return { line, toast };
+  // A feature's tip (feature-tips.ts): how to start using it, unless the line says it already (its `how`).
+  // (Its first clause is enough to tell: Sidings' how "Tap an industry, then Second track" is its tip's start.)
+  const said = o.tip && (line.includes(o.tip) || line.includes(o.tip.split(":")[0]));
+  const tip = o.tip && !said ? `💡 ${o.tip}` : "";
+  const toast = [line, o.goal, tip, o.next ? `Next: ${o.next}` : ""].filter(Boolean).join(" · ");
+  return { line, toast, tipped: !!tip };
 }

@@ -80,7 +80,8 @@ const sample = createSample();
  * track (the caller caches it per spot).
  */
 export function planUnderpass(rules: TrackRules, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore): DigPlan | null {
-  if (!isBridge(type)) return null;
+  // (Not under a viaduct: its four arches stand on the line, and it spans valleys, not lines.)
+  if (!isBridge(type) || type === "viaduct") return null;
   const layout = rules.layout;
   const lows = lowCrossings(layout, type, flipped, pose, y, ignore);
   if (lows.length === 0) return null;

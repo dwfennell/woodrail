@@ -1,10 +1,12 @@
 import { Group, type Material, type Mesh, type Object3D } from "three";
 import { type Kit, TOY } from "../kit";
 import type { Asset } from "../types";
+import { boatFelt } from "./boat-parts";
 
 /**
  * Road, farm, works, water and air vehicles at toy scale: chunky lacquered bodies on round black wheels with red hubs,
- * about 40–90 mm long (ships and airships a bit more). They face +x and stand on y = 0; boats sit on a blue felt disc.
+ * about 40–90 mm long (ships and airships a bit more). They face +x and stand on y = 0; boats sit on blue felt just round their hulls
+ * (`boatFelt`).
  */
 
 type Pt = [number, number];
@@ -141,10 +143,6 @@ function hull(k: Kit, color: string, len: number, w: number, h: number, bottom: 
   );
 }
 
-/** Blue felt water for a boat to sit on. */
-function water(k: Kit, r: number): Mesh {
-  return k.feltDisc(r, k.water);
-}
 
 /** A two-bladed propeller called "prop" turning about x, at the nose. */
 function propeller(k: Kit, x: number, y: number, z = 0, r = 10): Group {
@@ -1082,7 +1080,7 @@ export const ASSETS: Asset[] = [
       boat.add(k.peg(TOY.yellow, TOY.red, -6, 6, 0));
       boat.add(oar(1));
       boat.add(oar(-1));
-      return k.group(water(k, 42), boat);
+      return k.group(boatFelt(k, 46, 20, 1, 42), boat);
     },
     animate: (root, t) => {
       bob(root, t, 0.6);
@@ -1128,7 +1126,7 @@ export const ASSETS: Asset[] = [
         ], 0.6, 1.5, 58, 0, 0.2),
         k.peg(TOY.orange, TOY.yellow, -18, 9, 0),
       );
-      return k.group(water(k, 44), boat);
+      return k.group(boatFelt(k, 56, 22, 1, 44), boat);
     },
     animate: (root, t) => bob(root, t, 1.4),
   },
@@ -1165,7 +1163,7 @@ export const ASSETS: Asset[] = [
         car,
         ramp,
       );
-      return k.group(water(k, 62), boat);
+      return k.group(boatFelt(k, 100, 36, 1, 62), boat);
     },
     animate: (root, t) => {
       bob(root, t, 0.6);
@@ -1204,7 +1202,7 @@ export const ASSETS: Asset[] = [
           }
         }
       }
-      return k.group(water(k, 76), boat);
+      return k.group(boatFelt(k, 130, 34, 1, 76), boat);
     },
     animate: (root, t) => bob(root, t, 0.35),
   },
@@ -1235,7 +1233,7 @@ export const ASSETS: Asset[] = [
         boat.add(tyre);
       }
       boat.add(k.ring(k.paint(TOY.black), 4, 1.8, 31, 6, 0, false));
-      return k.group(water(k, 44), boat);
+      return k.group(boatFelt(k, 60, 28, 1, 44), boat);
     },
     animate: (root, t) => {
       bob(root, t, 1);
@@ -1286,7 +1284,7 @@ export const ASSETS: Asset[] = [
           [0, 4],
         ], 0.6, -36, 18, 0, 0.2),
       );
-      return k.group(water(k, 54), boat);
+      return k.group(boatFelt(k, 90, 38, 1, 54), boat);
     },
     animate: (root, t) => {
       bob(root, t, 0.5);
@@ -1319,7 +1317,7 @@ export const ASSETS: Asset[] = [
         k.ring(k.paint(TOY.red), 2.8, 1, -16, 16, 8.5, true),
       );
       for (let i = 0; i < 3; i++) boat.add(k.ball(k.paint(TOY.sky), 1.4, 0 + i * 2, 15.5, 6, 0.6));
-      return k.group(water(k, 44), boat);
+      return k.group(boatFelt(k, 62, 24, 1, 44), boat);
     },
     animate: (root, t) => {
       bob(root, t, 1);
@@ -1363,7 +1361,7 @@ export const ASSETS: Asset[] = [
         prop,
       );
       for (const x of [-20, -8, 16, 28]) for (const s of [-1, 1]) boat.add(k.cylZ(k.glass, 2, 1, x, 7, s * 9.4, 12));
-      return k.group(water(k, 50), boat);
+      return k.group(boatFelt(k, 82, 24, 1, 50), boat);
     },
     animate: (root, t) => {
       bob(root, t, 0.8);
@@ -1432,7 +1430,7 @@ export const ASSETS: Asset[] = [
         boat.add(rod(k, k.paint(TOY.grey), -8, 7, -6, 20, 0.8, z * 0.8));
         boat.add(rod(k, k.paint(TOY.grey), 8, 20, 10, 27, 0.8, z * 1.6));
       }
-      return k.group(water(k, 50), boat);
+      return k.group(boatFelt(k, 60, 40, 0.6, 50), boat);
     },
     animate: (root, t) => {
       bob(root, t, 0.7);
