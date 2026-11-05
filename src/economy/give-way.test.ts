@@ -95,8 +95,12 @@ describe("the user's map, small (2026-11-05): a routed train behind a hand-run o
 function townWorld(opts: { line: number; branch: number; spur: number; loop?: boolean }) {
   const layout = new Layout();
   const ring = chain(layout, ["depot-farm", S, S, C, C, C, C, "depot-dairy"]);
-  const wye = appendPiece(layout, "wye", false, connectorRef(ring[7], 1), 2);
-  const back = chain(layout, ["straight-72", C, C, C, C], connectorRef(wye, 1));
+  // (The wye joined by its connector 1, the ring going on from 2: its stem, the line, runs out away from the ring. Till
+  // 2026-11-05 it was joined by 2 and on from 1, and the line ran in across the ring's far side, over its track with no
+  // crossing: a layout the player can't lay (clearance refuses it), where trains met side on, or held at the wye for a
+  // train standing on the overlap. Six of the 30 seeds' stalls were that.)
+  const wye = appendPiece(layout, "wye", false, connectorRef(ring[7], 1), 1);
+  const back = chain(layout, ["straight-72", C, C, C, C], connectorRef(wye, 2));
   if (layout.joinedConnector(connectorRef(ring[0], 0)) === -1) throw new Error("the ring doesn't close");
   layout.setSwitchState(wye, 0b110);
   const line = chain(layout, Array<PieceTypeId>(opts.line).fill(S), connectorRef(wye, 0));
@@ -132,31 +136,50 @@ function townWorld(opts: { line: number; branch: number; spur: number; loop?: bo
  * hand-run too. A stall with the route where all hand-run had none fails (the user: "without the route these same trains
  * ran fine"); so does a routed train that comes to no stop and isn't said stuck. Known ones, each with why, in `KNOWN`.
  *
- *   TOWN_FUZZ=100 npx vitest run src/economy/give-way.test.ts    (more seeds; SHOW=1 prints each, TRACE=<seed> traces one)
+ *   TOWN_FUZZ=30 npx vitest run src/economy/give-way.test.ts    (the long run, about 5 min: the known lists cover 1–30;
+ *                                                               SHOW=1 prints each, TRACE=<seed> traces one)
+ *
+ * CI runs the first 12 (about 2 min). Past 30, seeds aren't in the known lists yet: expect new entries to sort.
  */
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const SEEDS = Number(ENV.TOWN_FUZZ ?? 12);
 /**
- * Seeds where the route still stalls and all hand-run doesn't, and why (2026-11-05). On main (before giving way) 9 of
- * these 12 stalled all hand-run too, and 11 with the route; now all hand-run never does. Fixes since: giving way
- * (stalls.ts); a stale wait in sections (`capOf`: a train a look let go stood held by its last wait between looks); a
- * train on no line going round a ring isn't in a way it's clear of (`clearOfCircling`: the ring is one section, and it
- * kept it for good). What's left, with no passing loop, is one class: their network (ring, line and points) is one
- * section with no passing place, room for one train. The routed train waits in it for the sawmill line, where the
- * hand-run one is and can only come out through it (or, given way on the ring, comes round against it). The card says
- * "Add a passing loop here", and with one laid all but seed 9 run: asserted below (`loop`).
+ * Seeds (1–30) where the route still stalls and all hand-run doesn't, and why (2026-11-05, on the corrected layout: see
+ * `townWorld`'s wye). Fixes before: giving way (stalls.ts); a stale wait in sections (`capOf`); a train on no line going
+ * round a ring isn't in a way it's clear of (`clearOfCircling`). Their network (ring, line and points) is one section,
+ * the dead ends its slots. What's left, traced at the stall's start, is two classes:
+ * - `DEAD_END`: the routed train's stop is in a dead end (the sawmill line or the forest yard) the hand-run train is in.
+ *   It waits on the ring for it to come out; the hand-run train, at the dead end's mouth, waits for it (it stands on the
+ *   way out as the points lie, facing it). Given way, the hand-run train turns back into the dead end, and it comes again.
+ * - `HEAD_ON`: they meet head on at the wye or on the single line, each waiting on the other.
+ * With a passing loop laid, all of them run clean: asserted below (`LOOP_FIXES`).
  */
-const NO_LOOP = "no passing place: the card's fix is a loop";
-const KNOWN: Record<number, string> = { 2: NO_LOOP, 3: NO_LOOP, 4: NO_LOOP, 9: NO_LOOP, 11: NO_LOOP };
+const DEAD_END = "its stop is in the dead end the hand-run train is in, which can't come out past it";
+const HEAD_ON = "head on with the hand-run train at the wye or on the single line";
+const KNOWN: Record<number, string> = {
+  2: DEAD_END,
+  3: DEAD_END,
+  11: DEAD_END,
+  14: DEAD_END,
+  15: HEAD_ON,
+  17: DEAD_END,
+  18: DEAD_END,
+  19: DEAD_END,
+  22: HEAD_ON,
+  26: HEAD_ON,
+  27: DEAD_END,
+  30: DEAD_END,
+};
 /** Of those: laid a loop, they never stall. */
-const LOOP_FIXES = [2, 3, 4, 11];
+const LOOP_FIXES = [2, 3, 11, 14, 15, 17, 18, 19, 22, 26, 27, 30];
 /**
- * With a passing loop laid (`loop`), seeds that still stall (2026-11-05). Seed 9: the hand-run train goes round the ring
- * non-stop, and the routed one's way round from the loop to its stops runs against it, so they'd meet head on: it waits,
- * and is said stuck after `STARVED_S`. Only planning it the same way round would help: a follow-up. Seed 8: a 22 s stall,
- * not looked into yet.
+ * With a passing loop laid (`loop`), seeds that still stall (2026-11-05), both one class: the hand-run train goes round
+ * the ring non-stop, and the routed one, in the loop, waits for it, its way round to its stop running against it (they'd
+ * meet head on); seed 8 for 22 s, then it gets by, seed 9 said stuck after `STARVED_S`. Planning it the way round the
+ * traffic already goes would help: a follow-up.
  */
-const KNOWN_LOOP: Record<number, string> = { 8: "a 22 s stall, not looked into", 9: "its way round the ring runs against a hand-run train going round non-stop" };
+const AGAINST = "its way round the ring runs against a hand-run train going round non-stop";
+const KNOWN_LOOP: Record<number, string> = { 8: AGAINST, 9: AGAINST };
 
 describe(`a route never makes it worse, with depots: ${SEEDS} town-ring layouts × 180 s`, () => {
   const deal = (seed: number, routed: boolean, loop = false) => {
