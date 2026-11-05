@@ -1,5 +1,11 @@
-/** Where a model may stand: on land, floating on the river (its middle over water), or either (a bridge spans it). */
-export type PlaceOn = "land" | "water" | "any";
+/**
+ * Where a model may stand: on land, floating on the river (its middle over water), either (a bridge spans it), or on a
+ * hill's top only (a wind turbine: `hill`).
+ */
+export type PlaceOn = "land" | "water" | "any" | "hill";
+
+/** Models that stand only on a hill's top. */
+const HILL: ReadonlySet<string> = new Set(["mech-wind-turbine"]);
 
 const WATER: ReadonlySet<string> = new Set([
   "veh-rowing-boat",
@@ -10,6 +16,19 @@ const WATER: ReadonlySet<string> = new Set([
   "veh-paddle-steamer",
   "veh-fishing-boat",
   "veh-submarine",
+  "water-river-tug",
+  "water-barge",
+  "water-barge-logs",
+  "water-barge-stone",
+  "water-barge-ore",
+  "water-barge-coal",
+  "water-barge-grain",
+  "water-cargo-ship",
+  "water-train-ferry",
+  "water-tug-frame",
+  "water-tug-planked",
+  "water-ship-frame",
+  "water-ship-planked",
   "life-swans",
   "life-fish-jumping",
 ]);
@@ -26,9 +45,13 @@ const ANY: ReadonlySet<string> = new Set([
   "mech-covered-bridge",
   "mech-trestle",
   "mech-river-ford",
+  "water-landing",
+  "water-boatyard",
+  "water-shipyard",
+  "water-ferry-slip",
   "life-ducks",
 ]);
 
 export function placeOn(asset: string): PlaceOn {
-  return WATER.has(asset) ? "water" : ANY.has(asset) ? "any" : "land";
+  return WATER.has(asset) ? "water" : ANY.has(asset) ? "any" : HILL.has(asset) ? "hill" : "land";
 }

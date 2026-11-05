@@ -762,6 +762,70 @@ export const OTHERS: readonly Scenario[] = [
   removedUnderLock,
 ];
 
+// ── Giving way (economy/stalls.ts): a ring of waits broken where the track allows ──────────────────────────────────
+
+/**
+ * The user's 2026-11-05 deadlock, small: a line with a station spur (`junction`: Forest yard ⊐ Y ══ ══ ══ ══ points, the
+ * straight road on to a buffer, the curved one ══ Sawmill ⊏). Clover is routed Sawmill → Forest yard (a single-train line);
+ * Willow, four cars, has no route ("goes anywhere") and shuttles along the straight as the points lie. They met head on
+ * on the trunk and stood for good, each "in the way" of the other, though Willow could have turned back. Now Willow
+ * gives way (turns round, as at the end of the line), and Clover gets on with its route.
+ */
+export const routedMeetsHandRun: Scenario = {
+  name: "a routed train meets a hand-run one head on by a station spur",
+  seconds: 5 * 60,
+  build: (layout) => {
+    const j = junction(layout, "switch", 0, [1, 2], 4);
+    return {
+      trains: [
+        { pieceId: j.trunk[1], stops: [j.p, j.y], cars: CARS },
+        { pieceId: j.x, reversed: true, cars: ["engine", "timber", "timber", "timber"] },
+      ],
+    };
+  },
+};
+
+/**
+ * Two single-train lines, Red and Blue, both A ⇄ B round an oval but put down going opposite ways, close: they meet
+ * nose to nose. Turned round, either has a way round the oval to its stop that doesn't run through the other
+ * (`wayRound`), so one gives way, and both go the same way round from then on.
+ */
+export const routedHeadOnRing: Scenario = {
+  name: "two routed trains head on round an oval",
+  seconds: 5 * 60,
+  build: (layout) => {
+    const o = oval(layout);
+    return {
+      trains: [
+        { pieceId: o.ids[1], stops: [o.a, o.b], next: 1, line: 1, cars: CARS },
+        { pieceId: o.ids[4], reversed: true, stops: [o.a, o.b], next: 0, line: 2, cars: CARS },
+      ],
+    };
+  },
+};
+
+/**
+ * A true deadlock: a hand-run train between a buffer and a routed train whose stop is behind it (`⊐ A ══ … ══ B ⊏`, the
+ * routed one going for A). The hand-run one gives way once (it turns, runs to the buffer, turns there and comes back),
+ * but there's nowhere for it to go: it doesn't again till the routed one has got somewhere, so both are said stuck.
+ */
+export const handRunBoxedIn: Scenario = {
+  name: "a hand-run train boxed in between a buffer and a routed train",
+  seconds: 120,
+  build: (layout) => {
+    const ids = shuttleLine(layout, 6);
+    return {
+      trains: [
+        { pieceId: ids[1], cars: ["engine", "timber", "timber", "timber"] },
+        { pieceId: ids[ids.length - 2], reversed: true, stops: [ids[0], ids[ids.length - 1]], cars: CARS },
+      ],
+    };
+  },
+};
+
+/** Giving way's cases. */
+export const GIVE_WAY: readonly Scenario[] = [routedMeetsHandRun, routedHeadOnRing, handRunBoxedIn];
+
 // ── Seeded fuzz over the loop fixtures ──────────────────────────────────────────────────────────────────────────────
 
 /** A small seeded random (mulberry32). */

@@ -3,6 +3,7 @@ import { ALL_CAR_LOOKS, CAR_KINDS, type CarKind, type CarLook } from "../sim";
 import { AIRPORT_LOUNGE, CARGO_KINDS, CARGO_SLOTS, KIT_DEPOT_ROLES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type StoreMode } from "../economy";
 import { MAX_CONNECTORS, PIECE_TYPES, type PieceTypeId } from "../track";
 import { MAX_VIAS } from "../game/lines";
+import { BARGE_LOADS, MAX_BARGES, MAX_BOATS } from "../game/boats";
 import { JOURNAL_CAP } from "../game/journal";
 import { landscapeSchema } from "./landscape-schema";
 import { MAX_PILE, MAX_RIDERS, MAX_SAVED_SPEED, SAVE_VERSION } from "./save-limits";
@@ -97,7 +98,7 @@ export const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", "postoffice", "airport", ...KIT_DEPOT_ROLES]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", "postoffice", "landing", "slip", "boatyard", "shipyard", "airport", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -110,6 +111,8 @@ export const saveSchema = z.object({
       waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
       /** A harbour's dock sheds. */
       sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
+      /** Asked to be powered (Game mode's sparks): the nth ask. */
+      power: z.number().int().min(1).optional(),
       /** Riders in an airport's lounge, waiting for a plane. */
       flyers: z.number().int().min(0).max(AIRPORT_LOUNGE).optional(),
       /**
@@ -163,6 +166,32 @@ export const saveSchema = z.object({
       }),
     )
     .optional(),
+  /**
+   * The player's boats (Game mode's River barges): stops are depot indices in `depots`. No new save version: older
+   * saves simply have none.
+   */
+  boats: z
+    .array(
+      z.object({
+        name: z.string().max(40),
+        barges: z.number().int().min(1).max(MAX_BARGES),
+        load: z.record(z.string(), z.number().int().min(0).max(MAX_BARGES * BARGE_LOADS)),
+        stops: z.array(z.tuple([z.number().int().min(0), z.enum(["both", "pick", "drop"])])).min(1),
+        from: z.number().int().min(0),
+        docked: z.boolean(),
+        t: z.number().finite().min(0),
+        going: z.boolean(),
+        home: z.number().int().min(0),
+      }),
+    )
+    .max(MAX_BOATS)
+    .optional(),
+  /** What each yard is building (its depot index in `depots`) and the goods gone in; absent: none. */
+  yards: z
+    .array(z.object({ depot: z.number().int().min(0), build: z.enum(["tug", "barge", "ship", "ferry"]), got: z.record(z.string(), z.number().int().min(0).max(100)) }))
+    .optional(),
+  /** Cargo ships and train ferries built at shipyards; absent: none. */
+  built: z.object({ ships: z.number().int().min(0).max(999), ferries: z.number().int().min(0).max(999) }).optional(),
   /** Placed catalogue models (optional: saves from before props load with none). */
   props: z
     .array(

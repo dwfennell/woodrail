@@ -12,7 +12,7 @@ export interface Footprint {
 }
 
 /** Why a prop can't stand somewhere. */
-export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard" | "no-crossing" | "town";
+export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard" | "no-crossing" | "town" | "low";
 
 export const PROP_MESSAGES: Record<PropBlock, string> = {
   "off-land": "That's past the edge of your land",
@@ -28,6 +28,7 @@ export const PROP_MESSAGES: Record<PropBlock, string> = {
   "no-crossing": "Drop it where the track crosses a road",
   // (A town's house in Game mode is told why by town-moves.ts: this is only its outline's red.)
   town: "A house goes on one of its town's lots",
+  low: "Wind turbines go on a hilltop, where the wind blows",
 };
 
 /**
@@ -179,7 +180,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
     if (f === FEAT_STATION) return { kind: "blocked", reason: "station" };
     if (f === FEAT_DEPOT || f === FEAT_RUIN) return { kind: "blocked", reason: "depot" };
     const river = isWater(grid.surface[cell]);
-    if (river && on === "land") return { kind: "blocked", reason: "river" };
+    if (river && (on === "land" || on === "hill")) return { kind: "blocked", reason: "river" };
     const g = hills.groundAt(x, z);
     if (Number.isNaN(y)) y = g;
     else if (Math.abs(g - y) > LEVEL) return { kind: "blocked", reason: "uneven" };
@@ -197,6 +198,8 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
     const ofp = scaleFootprint(ctx.footprint(other.asset), other.scale);
     if (ofp && footprintsOverlap(fp, pose, ofp, other)) return { kind: "blocked", reason: "prop" };
   }
+  // (A wind turbine stands only on a hill's top: not on the felt.)
+  if (on === "hill" && !(y > 0)) return { kind: "blocked", reason: "low" };
   return { kind: "clear", y: Number.isNaN(y) ? 0 : y };
 }
 
