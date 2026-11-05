@@ -37,9 +37,11 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chro
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
 pinClocksIn(b);
-// (The game's test clock: research, deliveries and animations keep up with real time under SwiftShader, where a frame
-// is a second and the sim went at a fifteenth of it. lib/fast.mjs.)
-testClockIn(b);
+// (The game's test clock: animations keep up with real time under SwiftShader, where a frame is a second and the sim
+// went at a fifteenth of it; and game time 4× real time: a lesson studies 20 or 45 s of game time, and the run waited
+// out 17 of them (12 min). The check that the pill counts a study down looks 1.3 s after its goods are in: 5 s of a
+// 20 s study. lib/fast.mjs.)
+testClockIn(b, { speed: 4 });
 // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
 stillIndustriesIn(b);
 // (At a device scale of 1, not 2: the checks read the layout (CSS pixels either way) and the game's state, not pixels,

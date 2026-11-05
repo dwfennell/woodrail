@@ -27,12 +27,17 @@ function everyPage(browser, script, arg) {
   return browser;
 }
 
-/** The game's test clock in every page `browser` opens (see above). `E2E_CLOCK=0` turns it off (as before). */
-export function testClockIn(browser, { maxDt = 1 } = {}) {
+/**
+ * The game's test clock in every page `browser` opens (see above). `speed` (1 to 8): game time that many times real
+ * time, for a suite that waits on game time (a lesson's study, a train's run): opt in, and say why. `E2E_CLOCK=0`
+ * turns it off (as before); `E2E_SPEED=1` keeps the longer step but game time at real time.
+ */
+export function testClockIn(browser, { maxDt = 1, speed = 1 } = {}) {
   if (process.env.E2E_CLOCK === "0") return browser;
-  return everyPage(browser, (maxDt) => {
-    window.__e2eClock = { maxDt };
-  }, maxDt);
+  if (process.env.E2E_SPEED) speed = Number(process.env.E2E_SPEED);
+  return everyPage(browser, (c) => {
+    window.__e2eClock = c;
+  }, { maxDt, speed });
 }
 
 /** "Battery saver" (the mobile tier) in every page `browser` opens, unless the page's storage already chose one. */
