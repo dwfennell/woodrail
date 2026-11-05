@@ -100,6 +100,7 @@ import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, ty
 import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
+import { TURNTABLE_CONTROLS } from "./game/deck-roads";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
 import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, saveMuted } from "./ui/prefs";
@@ -5009,6 +5010,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.draw.stock = mode === "game" ? pieceStock : null;
     interaction.tunnelStock = mode === "game" ? () => pieceStock("tunnel-mouth-short") : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
+    // A tap on a road turns a turntable to it (Game mode's Turntable controls blueprint; Sandbox, always).
+    interaction.deckRoads = () => mode !== "game" || progress.learned.has(TURNTABLE_CONTROLS);
     // Road squares cost coins (Game mode's Roads blueprint): a square beyond those in the box is bought as it goes down.
     interaction.roadTill = mode === "game" ? { refuse: (added) => roadRefusal(added) } : null;
     if (mode === "game") {

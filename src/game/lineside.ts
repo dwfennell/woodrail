@@ -195,7 +195,7 @@ export function pointsWay(layout: Layout, pieceId: number, corner = 0): string {
   if (!p) return "";
   const def = getPieceDef(p.type, p.flipped);
   // (A wye's branch corner: back to its trunk, or across to the other branch.)
-  if (corner > 0) return wayAt(def, layout.switchState(pieceId), corner, 2) === 0 ? "to the trunk" : "across";
+  if (corner > 0 && def.cornerLevers) return wayAt(def, layout.switchState(pieceId), corner, 2) === 0 ? "to the trunk" : "across";
   const routes = def.paths.filter((r) => r.from === 0);
   const route = routes[wayAt(def, layout.switchState(pieceId), 0, Math.max(1, routes.length))];
   if (!route) return "";

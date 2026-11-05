@@ -612,10 +612,11 @@ export function setRoute(def: PieceDef, state: number, end = 0): PathDef | null 
 
 /**
  * The ends of a switch whose set route its chevrons show: its trunk; on double track (a crossover), every end with a
- * choice, so each line shows the way it's set (QA N4); a wye, each of its corners (a lever at each, #15).
+ * choice, so each line shows the way it's set (QA N4); a wye, each of its corners (a lever at each, #15); a slip, every
+ * end with a choice (each line's way across, or onto its curve).
  */
 export function arrowEnds(def: PieceDef): number[] {
-  const ends = def.web || def.cornerLevers ? def.connectors.map((_, i) => i) : [0];
+  const ends = def.web || def.cornerLevers || def.slip ? def.connectors.map((_, i) => i) : [0];
   return ends.filter((e) => routesFrom(def, e).length > 1);
 }
 
@@ -821,6 +822,8 @@ function cornerLever(def: PieceDef, k: number, state: number): { at: Matrix4; le
 
 /** A switch's lever lean (radians about the piece's x) for a state: toward the route set (a three-way's upright for straight on). */
 function leverLean(def: PieceDef, state: number): number {
+  // (A slip's lever stands on its curve's side: leaning toward it when set to turn.)
+  if (def.slip) return (state % 2 === 1 ? 1 : -1) * (Math.sign(def.connectors[3].pose.z) || 1) * 0.45;
   const branchSide = Math.sign(def.connectors[2].pose.z) || 1;
   if (def.cornerLevers) state = wayAt(def, state, 0, 2);
   return (def.paths.filter((p) => p.from === 0).length === 3 ? (state === 0 ? 0 : state === 1 ? 1 : -1) * branchSide : (state === 1 ? 1 : -1) * branchSide) * 0.45;
@@ -1484,14 +1487,29 @@ export class TrackView {
       const branchSide = Math.sign(def.connectors[2].pose.z) || 1;
       const trunk = Math.abs(def.connectors[1].pose.x);
       const piece = pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading);
-      const leverAt = [new Matrix4().makeTranslation(this.clearX(p, [30, 60, 90, 120, 150, 180, 6].filter((x) => x < trunk - 10), -branchSide * SWITCH_LEVER_OFFSET), 0, -branchSide * SWITCH_LEVER_OFFSET)];
+      // (A slip: its other line crosses the trunk's side away from the curve, so its lever stands by its first end on
+      // the curve's side, where the curve has hardly left the trunk, and its signal across from it.)
+      const leverSide = def.slip ? Math.sign(def.connectors[3].pose.z) || 1 : -branchSide;
+      const leverXs = def.slip ? [6] : [30, 60, 90, 120, 150, 180, 6].filter((x) => x < trunk - 10);
+      const leverAt = [new Matrix4().makeTranslation(this.clearX(p, leverXs, leverSide * SWITCH_LEVER_OFFSET), 0, leverSide * SWITCH_LEVER_OFFSET)];
+      // (A double three-way: a lever beside the trunk on each branch's side, by its first end.)
+      if (def.pairLevers) {
+        leverAt.length = 0;
+        for (let k = 0; k < 2; k++) {
+          const side = Math.sign(def.connectors[k + 2].pose.z) || 1;
+          leverAt.push(new Matrix4().makeTranslation(this.clearX(p, [30, 6], side * SWITCH_LEVER_OFFSET), 0, side * SWITCH_LEVER_OFFSET));
+        }
+      }
 
       // Signal at the trunk end on the lever's side, its arm reaching away from the track.
       const signal = this.signalPost(id);
+      // (A double three-way's two levers say how it's set: no post, which would stand by a lever and take its taps.)
+      signal.root.visible = !def.pairLevers;
       const post = signal.root.children[0];
-      post.position.set(this.clearX(p, [6, 54, 84, 114, 144].filter((x) => x < trunk - 10), -branchSide * (SWITCH_LEVER_OFFSET + 4)), 0, -branchSide * (SWITCH_LEVER_OFFSET + 4));
+      const postSide = def.slip ? -leverSide : -branchSide;
+      post.position.set(this.clearX(p, [6, 54, 84, 114, 144].filter((x) => x < trunk - 10), postSide * (SWITCH_LEVER_OFFSET + 4)), 0, postSide * (SWITCH_LEVER_OFFSET + 4));
       // Arm geometry points along +z; turn it to reach away from the track, then raise it for the branch.
-      post.rotation.y = branchSide > 0 ? Math.PI : 0;
+      post.rotation.y = postSide < 0 ? Math.PI : 0;
       signal.root.matrix.copy(piece);
 
       // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve. The chevrons
@@ -1499,9 +1517,11 @@ export class TrackView {
       const state = this.layout.switchState(id);
       const arrows = switchArrows(def, state, this.arrowScale).flatMap((a) => [a.x, a.z, a.heading]);
       const was = this.shown.get(id);
-      const lean = [leverLean(def, state)];
+      // (A double three-way's two: each leaning out toward its branch when it's set there, else upright (leaning in, the two
+      // knobs would meet over the trunk, one hiding the other from a tap).)
+      const lean = def.pairLevers ? [0, 1].map((k) => (state === k + 1 ? 0.45 : 0) * (Math.sign(def.connectors[k + 2].pose.z) || 1)) : [leverLean(def, state)];
       // (A wye's other corners: a lever beside each, leaning toward the road it's set to there.)
-      for (let k = 1; k < leverCount(def); k++) {
+      for (let k = 1; k < leverCount(def) && def.cornerLevers; k++) {
         const c = cornerLever(def, k, state);
         leverAt.push(c.at);
         lean.push(c.lean);
@@ -1596,6 +1616,7 @@ export class TrackView {
       }
     }
     for (const [id, signal] of this.signals) {
+      if (!signal.root.visible) continue;
       const post = signal.root.children[0];
       v.copy(post.position).applyMatrix4(signal.root.matrix);
       out.push({ pieceId: id, x: v.x, y: v.y, z: v.z, height: SIGNAL_HEIGHT });
