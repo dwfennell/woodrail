@@ -2595,6 +2595,38 @@ async function leaveNowWait(ctx, p) {
     // "wait" tests that).
     const ids = w.editor().placeRun(poses.map((q) => ({ type: q.type, pose: { x: g.x + q.pose.x, z: g.z + q.pose.z, heading: q.pose.heading }, y: 0, flipped: q.flipped })));
     const forest = w.economy.depotAtPiece(ids[3]) ?? w.economy.addDepot("forest", ids[3]);
+    // (Trees planted round its yard, as from Nature › Trees, on 12 squares of the 10 it needs: a harvester works as fast
+    // as the trees around it allow, and the open ground the run lands on is wherever earlier groups left room, with
+    // none there or a few: at rate 0 it gave nothing and the train ran on by; at 0.1 to 0.5 it made no log in the time.
+    // One to a square, the squares in its reach (`resourceAt`'s, 250 mm of its yard's middle) past the yard's far side
+    // first, then beyond its ends.)
+    const { yardMiddle } = await import("/src/game/industries.ts");
+    const fp = w.layout.getPiece(ids[3]).pose;
+    const ym = yardMiddle(fp);
+    const [c, sn] = [Math.cos(fp.heading), Math.sin(fp.heading)];
+    const grid = w.landscape.grid;
+    const cells = [];
+    for (let dr = -4; dr <= 4; dr++)
+      for (let dc = -4; dc <= 4; dc++) {
+        const col = grid.colAt(ym.x) + dc;
+        const row = grid.rowAt(ym.z) + dr;
+        if (grid.index(col, row) === -1) continue;
+        const x = grid.centreX(col);
+        const z = grid.centreZ(row);
+        if (Math.hypot(x - ym.x, z - ym.z) > 240) continue;
+        // (In the depot's frame: t along it from its start, l across, its yard's side +l.)
+        const t = c * (x - fp.x) + sn * (z - fp.z);
+        const l = -sn * (x - fp.x) + c * (z - fp.z);
+        const rank = l >= 130 ? 0 : l >= 40 && (t < -20 || t > 236) ? 1 : -1;
+        if (rank >= 0) cells.push({ x, z, rank });
+      }
+    const spots = cells.sort((a, b) => a.rank - b.rank).slice(0, 12).map(({ x, z }) => ({ x, z, heading: 0, y: 0 }));
+    // (Through the editor's props step, as a tree dropped from the tray is: the game recounts industries' speeds then.)
+    const trees = [];
+    w.editor().editProps({
+      do: () => trees.splice(0, trees.length, ...spots.map((at) => w.props.add("scene-lollipop-tree", at).id)),
+      undo: () => { for (const id of trees) w.props.remove(id); },
+    });
     w.economy.setWaitFull(forest.id, true);
     forest.piles.fill(0);
     const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: ids[2], pathIndex: 0, s: 150, reversed: false });
@@ -2603,11 +2635,16 @@ async function leaveNowWait(ctx, p) {
     w.sim.setLever(engine, 0);
     w.paused = true;
     w.invalidate();
-    return { engine, forest: forest.id, forestPiece: ids[3] };
+    return { engine, forest: forest.id, forestPiece: ids[3], trees };
   });
   const { tapOn, tapButton } = mapHelpers(p);
   // Go on its card, a tap; then (harness shortcut: the game's own ticks, run ahead of SwiftShader's frames) on till it
   // stands under the crane waiting to fill.
+  // (The trees counted: the game recounts industries' speeds on a frame after the land or its props change.)
+  const rate = await p
+    .waitForFunction((id) => window.woodrail.economy.depot(id).rate >= 1, setup.forest, { timeout: 10000 })
+    .then(() => true, () => false)
+    .then(() => p.evaluate((id) => window.woodrail.economy.depot(id).rate, setup.forest));
   await tapOn({ engine: setup.engine });
   await tapButton(".engine-card .go");
   // (The Go taken: its lever set, before the game's ticks are run. Under load the tap's click came in but its lever
@@ -2626,7 +2663,7 @@ async function leaveNowWait(ctx, p) {
     const d = w.economy.waitingToFill(t().id);
     return { at: d?.id ?? null, loads: t().cars.filter((c) => c.kind === "timber").map((c) => w.economy.cargoOf(c.id).count) };
   }, setup);
-  check("leave-now: the hand-run train stands under the forest's crane waiting for a full load, a log or more on", waiting.at === setup.forest && waiting.loads[0] >= 1, JSON.stringify({ ...waiting, going }));
+  check("leave-now: the hand-run train stands under the forest's crane waiting for a full load, a log or more on", waiting.at === setup.forest && waiting.loads[0] >= 1, JSON.stringify({ ...waiting, going, rate }));
   const shown = await p.waitForFunction(() => { const b = document.querySelector(".engine-card .leave-now"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 30000 }).then(() => true, () => false);
   const box = await p.evaluate(() => { const r = document.querySelector(".engine-card .leave-now")?.getBoundingClientRect(); return r ? { w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right) } : null; });
   check("leave-now: its card shows Leave now, 44 px or more and inside the phone's width", shown && box && box.h >= 44 && box.w >= 44 && box.right <= 390, JSON.stringify({ shown, box }));
@@ -2659,6 +2696,13 @@ async function leaveNowWait(ctx, p) {
   check("leave-now: a tap sends it on with what it has (not full), the button goes, and it's no undo step", after.hidden && after.left >= 0 && after.loads[0] >= 1 && after.loads.some((n) => n < after.cap) && after.undo === undoBefore, JSON.stringify({ ...after, undoBefore }));
   check("leave-now: this visit only: back at the forest it waits to fill again", after.again, JSON.stringify(after));
   await p.keyboard.press("Escape");
+  // (The trees taken up again, as the group's track is after it: later groups look for open ground.)
+  await p.evaluate((ids) => {
+    const w = window.woodrail;
+    const at = ids.map((id) => w.props.get(id)).filter(Boolean).map((q) => ({ x: q.x, z: q.z, heading: q.heading, y: q.y }));
+    w.editor().editProps({ do: () => { for (const id of ids) w.props.remove(id); }, undo: () => { for (const q of at) w.props.add("scene-lollipop-tree", q); } });
+    w.invalidate();
+  }, setup.trees);
 }
 
 /**
@@ -4220,10 +4264,25 @@ async function routeUx(ctx, p) {
     w.director.glideTo(new w.controls.target.constructor(q.x, 0, q.z), 380, { duration: 0.2 });
   }, setup.pieces[2]);
   await still();
+  // (What moves the view after Done, for the check's words if it fails: each glide's goal, distance, the room then,
+  // and who asked. Only read, never changed.)
+  await p.evaluate(() => {
+    const d = window.woodrail.director;
+    const glide = d.glideTo;
+    window.__glides = [];
+    d.glideTo = function (target, distance, opts) {
+      const room = d.roomOf?.();
+      window.__glides.push({ at: Math.round(performance.now()), target: [Math.round(target.x), Math.round(target.z)], distance: Math.round(distance), room: room && [room.top, room.bottom].map(Math.round), card: Math.round(document.querySelector(".engine-card")?.getBoundingClientRect().top ?? -1), by: (new Error().stack ?? "").split("\n").slice(2, 4).map((l) => l.trim().replace(/\(.*\//, "(")).join(" < ") });
+      return glide.call(this, target, distance, opts);
+    };
+    d.__glide = glide;
+  });
   await tapButton(".engine-extra .route-plan.on");
+  const doneAt = await p.evaluate(() => Math.round(performance.now()));
   await frames(p);
   await p.waitForTimeout(300);
   await still();
+  const glides = await p.evaluate(() => { const d = window.woodrail.director; d.glideTo = d.__glide; delete d.__glide; return window.__glides; });
   // (Upright at 360×740 the full card covers two thirds of the screen: where the route can't fit above it however far
   // out, the view is as far out as it goes, with the route's middle above the card.)
   const done = {
@@ -4239,7 +4298,7 @@ async function routeUx(ctx, p) {
   };
   if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/route-ux-done.png`);
   const asFarAsItGoes = done.distance >= done.max - 2 && done.middleY > done.top && done.middleY < done.bottom;
-  check("route-ux (F5): after Done, the whole route shows above the card (or the view is as far out as it goes, the route's middle above it)", (done.ok || asFarAsItGoes) && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify(done));
+  check("route-ux (F5): after Done, the whole route shows above the card (or the view is as far out as it goes, the route's middle above it)", (done.ok || asFarAsItGoes) && (await route()).stops.every((s) => s.via.length === 0), JSON.stringify({ ...done, doneAt, glides }));
 
   // F7: the chips keep their numbers; the next stop's filled; no ▶ anywhere on the card.
   const chips = await p.evaluate(() => ({
