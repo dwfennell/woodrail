@@ -1581,6 +1581,8 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .paint-swatch.chosen { border-color: #3f7d3a; background: #eef6e6; }
 .paint-swatch.locked { opacity: 0.55; cursor: default; }
 .paint-go { width: 100%; min-height: 48px; }
+/* Taller than a phone with your own colours: the panel scrolls (its place kept as a tap redraws it). */
+.paint-panel { max-height: calc(100dvh - max(12px, env(safe-area-inset-top))); overflow-y: auto; overscroll-behavior: contain; }
 /* Your own colours (Paint your trains): Body and Trim, a grid of lacquers, the wagons too, Paint for pots of paint. */
 .paint-title { margin: 4px 0 8px; font-size: 14px; font-weight: 900; color: #5a3f26; }
 .paint-own-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }

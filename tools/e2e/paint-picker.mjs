@@ -199,10 +199,11 @@ const ready = await p.evaluate(() => ({ go: document.querySelector(".paint-own-g
 check("4. Body blue, Trim gold; Paint all 3 for 3 paint", ready.off === false && /Paint all 3 · 3 🎨 paint/.test(ready.go ?? ""), JSON.stringify(ready));
 await shot("1-own-colours");
 const sheetFits = await p.evaluate(() => {
-  const r = document.querySelector(".paint-panel").getBoundingClientRect();
-  return { top: r.top, bottom: r.bottom, h: innerHeight, scroll: document.querySelector(".paint-sheet").scrollHeight };
+  const panel = document.querySelector(".paint-panel");
+  const r = panel.getBoundingClientRect();
+  return { top: r.top, bottom: r.bottom, h: innerHeight, scrolls: panel.scrollHeight > panel.clientHeight + 1, at: panel.scrollTop };
 });
-check("4. the sheet's own colours are reachable on the phone", sheetFits.bottom <= sheetFits.h + 1 || sheetFits.scroll > sheetFits.h, JSON.stringify(sheetFits));
+check("4. the sheet fits the phone, scrolling inside (its top and ✕ in reach)", sheetFits.top >= 0 && sheetFits.bottom <= sheetFits.h + 1, JSON.stringify(sheetFits));
 await tap(".paint-own-go");
 await p.waitForTimeout(800);
 const after = { liveries: await p.evaluate((cars) => cars.map((c) => window.woodrail.sim.liveryOf(c)), train) };
@@ -229,11 +230,12 @@ check("4. each car is built again in blue and gold (the payoff)", built.every((s
 await closeSheet();
 await p.evaluate(async (id) => {
   const w = window.woodrail;
+  // (From the side and above, the whole train in the picture: its middle car's piece.)
   const f = w.sim.findCar(id);
-  const b = f.train.bogies[0];
+  const b = f.train.bogies[Math.floor(f.train.bogies.length / 2)];
   const pose = w.world.layout.getPiece(b.pieceId).pose;
   const V = w.camera.position.constructor;
-  w.lookAt(new V(pose.x, 0, pose.z), 520, 0.9);
+  w.lookAt(new V(pose.x - 150, 0, pose.z), 700, 0.95, Math.PI / 2 - 0.35);
   await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 20000))]);
 }, engine);
 await p.waitForTimeout(1500);

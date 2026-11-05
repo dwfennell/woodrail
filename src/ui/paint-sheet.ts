@@ -132,7 +132,10 @@ export class PaintSheet {
       if (this.on.paint(this.carId, chosen)) this.draw();
     });
     panel.append(head, sub, ...(this.on.ownOpen() ? this.ownBlock() : []), grid, go);
+    // (Drawn afresh at each tap: scrolled where it was.)
+    const scrolled = this.root.firstElementChild?.scrollTop ?? 0;
     this.root.replaceChildren(panel);
+    panel.scrollTop = scrolled;
   }
 
   /**
