@@ -213,6 +213,22 @@ if (!setup.error && setup.engine !== -1) {
   await p.waitForTimeout(1500);
   const plane = await p.evaluate(() => window.woodrail.planesView.count);
   check("…its plane stands on the apron", plane === 1, String(plane));
+  // (The picture: the plane on its apron, the airport beside it.)
+  await p.evaluate(async () => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    const at = new V();
+    let found = false;
+    w.planesView.group.traverse((o) => {
+      if (!found && o.isMesh && o.visible) {
+        o.getWorldPosition(at);
+        found = true;
+      }
+    });
+    if (found) w.lookAt(new V(at.x, 0, at.z), 800, 0.85);
+    await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 20000))]);
+  });
+  await p.waitForTimeout(1500);
   await shot("2-plane-landed");
   const before = await p.evaluate(async ({ airport, town, engine }) => {
     const w = window.woodrail;
