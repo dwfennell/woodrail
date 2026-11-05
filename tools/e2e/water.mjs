@@ -115,7 +115,7 @@ const openShelf = async (tab, shelf) => {
   return true;
 };
 /** A tray item dragged out by a finger and let go over a world point (the piece's middle there). */
-const dragOut = async (key, v) => {
+const dragOut = async (key, v, want = null) => {
   await p.evaluate((key) => document.querySelector(`.scroller .tray-item[data-key="${key}"]`)?.scrollIntoView({ inline: "center" }), key);
   await frames();
   const from = await p.evaluate((key) => {
@@ -125,13 +125,27 @@ const dragOut = async (key, v) => {
     return [r.x + r.width / 2, r.y + r.height / 2];
   }, key);
   if (!from) return false;
-  const [tx, ty] = await screenOf(v);
+  let [tx, ty] = await screenOf(v);
   let t = Date.now() / 1000;
   await touch("touchStart", from[0], from[1], t);
   for (let k = 1; k <= 16; k++) await touch("touchMove", from[0] + ((tx - from[0]) * k) / 16, from[1] + ((ty - from[1]) * k) / 16, (t += 0.04));
   // (A moment held still over the spot: the ghost settles there.)
   for (let k = 0; k < 4; k++) await touch("touchMove", tx, ty, (t += 0.05));
   await frames();
+  // (Held, the ghost sits off the finger: nudged, as a player does, until it stands where it's wanted.)
+  for (let n = 0; want && n < 3; n++) {
+    const at = await p.evaluate(() => window.woodrail.interaction.mode?.pose ?? null);
+    if (!at) break;
+    const dx = want.x - at.x;
+    const dz = want.z - at.z;
+    if (Math.hypot(dx, dz) < 6) break;
+    v = { x: v.x + dx, z: v.z + dz };
+    const [nx, ny] = await screenOf(v);
+    for (let k = 1; k <= 6; k++) await touch("touchMove", tx + ((nx - tx) * k) / 6, ty + ((ny - ty) * k) / 6, (t += 0.04));
+    for (let k = 0; k < 3; k++) await touch("touchMove", nx, ny, (t += 0.05));
+    [tx, ty] = [nx, ny];
+    await frames();
+  }
   if (process.env.WATER_DEBUG) await shot(`debug-drag-${key.replace(/[:]/g, "_")}-${Date.now() % 100000}`);
   if (process.env.WATER_DEBUG) console.log("drop", key, v, await p.evaluate(() => { const m = window.woodrail.interaction.mode; return JSON.stringify({ kind: m.kind, pose: m.pose, snap: m.snap?.kind, blocked: m.blocked ?? null, hint: m.hint ?? null }); }));
   await touch("touchEnd", 0, 0, (t += 0.05));
@@ -296,7 +310,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
       const want = (((Math.round((cc.heading - Math.PI) / (Math.PI / 4)) % 8) + 8) % 8);
       await turnTray((want - trayTurns + 8) % 8);
       await look(cc.mid, 1500);
-      await dragOut("piece:kit-boatyard", { x: cc.mid.x, z: cc.mid.z + dz * (cc.heading === 0 ? 1 : -1) });
+      await dragOut("piece:kit-boatyard", { x: cc.mid.x, z: cc.mid.z + dz * (cc.heading === 0 ? 1 : -1) }, { x: cc.x, z: cc.z + dz * (cc.heading === 0 ? 1 : -1) });
       if (process.env.WATER_DEBUG) console.log("yard drop", dz, await p.evaluate(() => JSON.stringify({ kits: [...window.woodrail.layout.pieceIds()].map((id) => window.woodrail.layout.getPiece(id).type).filter((t) => t.startsWith("kit")), owned: window.woodrail.progress().owned.get("piece:kit-boatyard"), avail: window.woodrail.progress().available(window.woodrail.world, "piece:kit-boatyard"), toasts: [...document.querySelectorAll(".toast")].map((t) => t.textContent) })));
     }
     const C = await p.evaluate(() => {
@@ -529,7 +543,7 @@ if (sea) {
     const want = (((Math.round((sea.yard.heading - Math.PI) / (Math.PI / 4)) % 8) + 8) % 8);
     await turnTray((want - trayTurns + 8) % 8);
     await look(sea.yard.mid, 1600);
-    await dragOut("piece:kit-shipyard", sea.yard.mid);
+    await dragOut("piece:kit-shipyard", sea.yard.mid, sea.yard);
   }
   const Y = await p.evaluate(() => {
     const w = window.woodrail;
