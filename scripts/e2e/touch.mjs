@@ -5108,7 +5108,11 @@ async function routeRing(ctx, p) {
 /** A phone's page in `mode`, on the map past the title and the first visit's help: what every group starts from. */
 async function openMode(mode, { settle = false } = {}) {
   await boot();
-  const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }));
+  // (At a device scale of 1, not 2: nothing here looks at pixels, the layout is in CSS pixels either way, and a frame at
+  // 2 costs SwiftShader half as much again. E2E_PHONE_DPR=2: as before. Not the game's test clock or moves a few to a
+  // frame (lib/fast.mjs): checks here hold and pick up running trains by a finger, and at real-time game speed the
+  // train moved on from under it; and a tray drag's moves batched lost a drop in a full run.)
+  const ctx = (openContext = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: Number(process.env.E2E_PHONE_DPR ?? 1), isMobile: true, hasTouch: true }));
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
   await ctx.addInitScript(() => localStorage.setItem("woodrail.favourites", "[]"));
   // Every click, counted before the game's own listeners (the click shield's included) see it.
