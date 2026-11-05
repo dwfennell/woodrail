@@ -65,7 +65,7 @@ export interface TipShown {
 
 /** The tip's row: 💡 its name and line, Show me and Got it. */
 export function tipRowHtml(t: TipShown): string {
-  return `<div class="goal tip" data-tip="${escapeHtml(t.id)}"><span class="goal-box tip-box" aria-hidden="true">💡</span><div><b>New: ${escapeHtml(t.title)}</b><p>${escapeHtml(t.text)}</p><span class="tip-buttons"><button class="chip text tip-show" title="Show me where to use it">Show me</button><button class="chip text tip-done" title="Hide this tip">Got it</button></span></div></div>`;
+  return `<div class="goal feature-tip" data-tip="${escapeHtml(t.id)}"><span class="goal-box tip-box" aria-hidden="true">💡</span><div><b>New: ${escapeHtml(t.title)}</b><p>${escapeHtml(t.text)}</p><span class="tip-buttons"><button class="chip text tip-show" title="Show me where to use it">Show me</button><button class="chip text tip-done" title="Hide this tip">Got it</button></span></div></div>`;
 }
 
 /**
