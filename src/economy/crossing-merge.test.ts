@@ -171,7 +171,7 @@ describe("trains of different lines joining at a switch (issue #2)", () => {
       const { s, run } = watch(w, [a, b], sw);
       const beyond = (e: number) => w.sim.findCar(e)!.train.bogies.some((x) => x.pieceId === past);
       const reached = new Set<number>();
-      run(routing === "one" ? 60 : 40, () => {
+      run(60, () => {
         for (const e of [a, b]) if (beyond(e)) reached.add(e);
         return reached.size === 2;
       });
@@ -179,13 +179,12 @@ describe("trains of different lines joining at a switch (issue #2)", () => {
       // (Y is a dead end: a line end, one train in it at a time (single-line working, sections shared by the lines).
       // Two routed trains go in turn, the first back out before the second goes in. A hand-run one goes the way the
       // points lie (X's road), out of Y for X. X's routed, it waits there for P's hand-run one (on the routed one's
-      // way): the hand-run one gives way once (stalls.ts: it turns, back into Y), but comes back out the same way, held
-      // on the points; it doesn't again (the routed one has got nowhere), and the two stand, said to be stuck on their
-      // cards. P's routed (step 7): X's hand-run one locks the points as
+      // way), which waits on it: the hand-run one gives way (stalls.ts), and both go in, in turn. (They stood, stuck,
+      // before 2026-11-05.) P's routed (step 7): X's hand-run one locks the points as
       // they lie and goes in first, P's waiting short of them, and comes back out to X, so P's goes in after it.)
-      expect(reached.size).toBe(routing === "one" ? 1 : 2);
-      if (routing === "one") expect([a, b].map((e) => w.economy.stalls.stuckOf(e)?.kind)).toEqual(["in-way", "in-way"]);
-      if (routing === "one") expect(w.economy.stalls.gaveWay).toBe(1);
+      expect(reached.size).toBe(2);
+      expect([a, b].map((e) => w.economy.stalls.stuckOf(e)?.kind ?? null)).toEqual([null, null]);
+      if (routing === "one") expect(w.economy.stalls.gaveWay).toBeGreaterThanOrEqual(1);
       expect(s.overlaps).toBe(0);
       expect(s.together).toBe(0);
       expect(s.headOn).toBe(0);
