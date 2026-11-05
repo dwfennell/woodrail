@@ -318,10 +318,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* A finger's size, drawn (QA: Pause was 40 x 40, with a tap 2 px around it): 44 x 44, set 2 px apart rather than 5
      so the bar still fits a 360 px screen beside the coins and the research pill. */
   .actions > .chip { min-width: 44px; height: 44px; padding: 0 8px; }
-  /* Re-rail, under the bar at the right, level with the goals bar (and as tall), which gives it room while it shows:
-     over the goals' right end it took the taps meant for it (QA). */
-  .actions > .chip.attention { position: absolute; top: 60px; right: 0; height: 44px; }
-  body:has(.actions > .chip.attention:not([hidden])) .goals { max-width: calc(100% - 24px - 70px); }
+  /* Re-rail, at the right just under the goals bar (as tall as it): over the goals' right end it took the taps meant
+     for it (QA), and beside it the goal shrank to "Make up a…" (QA 2026-11-05 #8). The goals bar keeps its width. */
+  .actions > .chip.attention { position: absolute; top: 112px; right: 0; height: 44px; }
   .chip { min-width: 44px; height: 44px; padding: 0 10px; font-size: 16px; }
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
@@ -967,6 +966,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-tag.soon { color: #5e4128; background: transparent; border: 1.5px dashed #a08a6c; padding: 0 6px; }
 /* Locked till you have a College or a University (tech tree 3): the Learning branch's purple, as Soon's dashed tag. */
 .bp-tag.school { color: #5b3a7a; background: #efe6f6; border: 1.5px dashed #7b4fa0; padding: 0 6px; }
+/* What a locked card waits for (a city, goods delivered), in place of its price: the school tag's shape, in the wood's colours. */
+.bp-tag.gate { color: #6b4316; background: #fbecd2; border: 1.5px dashed #b07a3c; padding: 0 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 15px; }
 .bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; }
 .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
 /* The tag slot on a card: one height, one shape, whatever it says. */
