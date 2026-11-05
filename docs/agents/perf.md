@@ -14,6 +14,8 @@ Woodrail runs on phones. AGENTS.md's "Performance" section has the rules; this i
 | `node tools/perf/scene.mjs [<root>] [<map file>]` | What the scene holds to draw: its biggest meshes by triangles (instances counted), what casts shadows. Use an unminified build for names. |
 | `node tools/perf/threads.mjs [<s>]` | Which Chromium threads are busy while the game sits idle (a worker, the GPU process, audio). |
 | `node tools/perf/idle-frames.mjs`, `idle-cpu.mjs` | Older, narrower checks: frames drawn and CPU over 20 s idle; audio threads. |
+| `node tools/perf/memory.mjs [--map late] [--play 600] [--early] [--snapshots]` | Memory on an emulated Pixel 10 (412×915, DPR 2.625): the JS heap and the ArrayBuffers outside it, the GPU's allocations (`gpu-tally.js`: every WebGL buffer, texture and renderbuffer, by a hook on the context), at load and after `--play` seconds of play; load and frame time. `--early` measures the moment it's ready (what grows after), `--snapshots` writes heap snapshots. |
+| `node tools/perf/buffers.mjs <file.heapsnapshot>` | Where a snapshot's ArrayBuffer memory is (vertex data: most of what a map holds), summed by the path that holds it. |
 
 Run them after `npm run build` (they measure `dist/`). `--root <dir>` measures another build (a directory with a
 `dist/` in it): keep a copy of main's build to compare a change against it on the same machine, in the same hour.
@@ -73,6 +75,23 @@ when a measure is over `max × (1 + margin)`.
 A change that rightly costs more (a new kind of thing on the map, a bigger feature): `npm run perf:check -- --update`
 writes the budgets from that run; commit them with the reason and the numbers. A change that saves a lot: update them
 too, so the saving is kept.
+
+## Memory
+
+A phone kills the tab well before its RAM is full (a Pixel 10 at about 300 MB for the renderer and the GPU together),
+so memory is a budget like frame time. Measure with `tools/perf/memory.mjs` (above). What to know:
+
+- **The JS heap's "used size" misses most of it.** Typed arrays (vertex data) live outside the V8 heap: on the late map
+  the heap is ~35 MB and the ArrayBuffers were ~315 MB. `memory.mjs` reports both (`jsTotalMB`).
+- **Drawn-only geometry frees its CPU copy** (`gpuOnly`, `src/render/gpu-only.ts`): three keeps every attribute's array
+  after upload, so a static mesh was held twice. Mark what's only drawn (the land's tiles, felt, scenery, waiting
+  dolls), `pickable` what a raycast hits (ruins, depots: positions and index kept). Don't mark a cache's sources, what
+  is merged or cloned later, or anything that's disposed and drawn again: a freed geometry uploaded again draws
+  nothing (it says so in the console). Its normals and colours are made compact too (`compact-vertices.ts`).
+- **Prop models**: baked in compact vertices; a plain model's geometry is let go once its batch has it
+  (`PropLibrary.release`) and baked again if it's wanted (a prop picked up, a tray picture).
+- **What grows after load is the map finishing itself** (the land around, props, track carving), not a leak: it levels
+  off within a minute. `--early` shows the curve.
 
 ## Before adding per-frame work
 
