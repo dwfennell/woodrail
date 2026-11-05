@@ -52,7 +52,8 @@ import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
-import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, isStore, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode } from "../economy";
+import { progressOf, YARD_COSTS } from "./yards";
+import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, isStore, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode, type YardBuild, type YardOrder } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 import { givesBlockText, GIVES_HELP, STORE_HELP, storeStock } from "./warehouse-text";
@@ -3019,7 +3020,7 @@ export class Interaction {
       this.townCard.show(d);
       return;
     }
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : isStore(d.role) || givesChoice(d.role) ? storeKey(d) : d.sheds;
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : isStore(d.role) || givesChoice(d.role) ? storeKey(d) : d.role === "boatyard" || d.role === "shipyard" ? yardKey(this.game.economy.yardOrders.get(d.id)) : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
     // this per-frame check.
@@ -3046,6 +3047,11 @@ export class Interaction {
     // A harbour's quay takes any good: it lists only what's there. (So does a town's card in Sandbox, which has no
     // ledger: a row for each of the nine goods a town takes was a wall of "0/12". Its chain rows say what can come.)
     if (d.role === "harbour" || d.role === "town") piles = piles.filter((p) => p.count > 0);
+    // A yard building: what the hull has had against what it needs (its goods go in as they come, so its piles would
+    // read 0 while the card says what's still to come).
+    const building = (d.role === "boatyard" || d.role === "shipyard") && economy.yardOrders.get(d.id);
+    if (building)
+      piles = Object.entries(YARD_COSTS[building.build]).map(([k, n]) => ({ label: `${GOODS_ICON[k as CargoKind]} ${CARGO[k as CargoKind].label}`, count: Math.min(n ?? 0, building.got[k as CargoKind] ?? 0), cap: n ?? 0 }));
     // A warehouse: how to use it, and a row for each good it holds or lists (its count, and what it lets trains do with
     // it), "Any other goods", and "+ Add a good" (goods the map makes, not shown yet). "Empty" while it holds nothing.
     if (isStore(d.role)) {
@@ -6209,4 +6215,12 @@ function storeKey(d: DepotState): number {
   let key = STORE_MODES.indexOf(d.others) + 1;
   for (const m of d.modes) key = key * 5 + (m === null ? 0 : STORE_MODES.indexOf(m) + 1);
   return key;
+}
+
+const YARD_KEYS: readonly YardBuild[] = ["tug", "barge", "ship", "ferry"];
+
+/** A yard's card key: what it builds and how far (goods go from its piles into the hull, so its piles alone miss the
+ * order starting, stopping and finishing). */
+function yardKey(o: YardOrder | undefined): number {
+  return o ? 1 + YARD_KEYS.indexOf(o.build) * 10000 + Math.round(progressOf(o) * 1000) : 0;
 }

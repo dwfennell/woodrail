@@ -148,6 +148,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
+/* A landing's or yard's own rows (water-controls.ts): stacked with room, each line clear of the buttons around it. */
+.landing-boats { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.landing-boats .card-hint { margin-top: 0; }
+.landing-boats .yard-building { font-size: 15px; font-weight: 800; color: #4a3220; text-align: center; }
+.landing-boats .yard-building + .yard-needs { margin-top: -8px; }
+.landing-boats > .card-row { justify-content: center; flex-wrap: wrap; gap: 8px; }
+.landing-boats > .card-row:empty { display: none; }
 /* What a placed piece does, under its name: two lines at most at 360 px (piece-info.ts's DETAIL_MAX). */
 .piece-card > .piece-detail { padding: 0 8px; }
 .piece-card .select-more { background: transparent; box-shadow: none; height: 32px; font-size: 14px; color: #8a6036; text-decoration: underline dotted; text-underline-offset: 4px; margin-top: -4px; }

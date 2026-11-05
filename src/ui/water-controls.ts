@@ -178,7 +178,8 @@ export function attachWater(ctx: WaterContext): WaterControls {
     }
     if (role === "shipyard") line("card-hint", `Built here: ${game.economy.shipsBuilt} cargo ship${game.economy.shipsBuilt === 1 ? "" : "s"}, ${game.economy.ferriesBuilt} train ferr${game.economy.ferriesBuilt === 1 ? "y" : "ies"}.`);
     if (role !== "shipyard") {
-      line("card-hint", boats.length > 0 ? "Boats here:" : role === "landing" ? "Tugs and barges are built at a boatyard: give one a route to call here." : "");
+      const hint = boats.length > 0 ? "Boats here:" : role === "landing" ? "Tugs and barges are built at a boatyard: give one a route to call here." : "";
+      if (hint) line("card-hint", hint);
       const chips = document.createElement("div");
       chips.className = "card-row landing-boat-chips";
       for (const b of boats) {
