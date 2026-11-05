@@ -179,7 +179,10 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   // The rack (spec 2026-11-04-rail-types.md): mid game, coins rather than planks (the tech tree's rule before City).
   row({ id: "rack", label: "Mountain railway", branch: "track", tier: 2, needs: ["bridges", "tank"], price: { planks: 8, coins: 120 }, requires: [TOWN], blurb: "A rack up the side of a hill: two levels in one ramp's length. Only a rack engine climbs it. A lookout halt on a hilltop: riders pay twice the fare for the view.", brings: "Rack, short rack, rack engine, lookout halt" }),
   row({ id: "monorail", label: "Monorail", branch: "track", tier: 3, plan: "later", needs: ["electricity", "viaduct"], price: { planks: 30, coins: 200, goods: { iron: 30 } }, blurb: "A rail in the sky over a city.", brings: "Monorail track and car" }),
-  row({ id: "metro", label: "Metro", branch: "track", tier: 3, plan: "later", needs: ["tunnels", "electricity"], price: { planks: 30, coins: 200, goods: { iron: 30 } }, requires: [CITY_STAR], blurb: "Trains under a city: a station in every quarter.", brings: "Metro stations, metro train" }),
+  // The metro (spec 2026-11-04-rail-types.md §2): late, and the dearest way to carry people on purpose (the user: "It
+  // should be expensive to move folks by metro"). Stops, the train and digging under a town each cost more (things.ts,
+  // metro.ts).
+  row({ id: "metro", label: "Metro", branch: "track", tier: 3, needs: ["tunnels", "electricity"], price: { planks: 10, coins: 400, goods: { iron: 40 } }, requires: [CITY_STAR], blurb: "Trains under a city. A metro stop under a town, its entrance on a green or a street: riders of its own, and the town grows over the line. Dear: stops, trains, digging under the town and the power they draw.", brings: "Metro stop, metro train" }),
 
   // Trains
   row({ id: "tank", label: "Tank engine", branch: "trains", tier: 1, key: true, needs: [], price: { planks: 4 }, blurb: "Pulls 3 cars (a classic engine pulls 4), but gets going and stops in half the time.", brings: "Tank engine", feature: { label: "Tank engine (Trains tab)", icon: "🚂" } }),

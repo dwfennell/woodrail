@@ -31,6 +31,9 @@ const ENGINE_BODY = "#2d6b3f";
 const ENGINE_TRIM = "#c8442f";
 const SECOND_SCHEME: Readonly<Record<string, string>> = { [ENGINE_BODY]: "#b8432f", [ENGINE_TRIM]: "#1f3f73" };
 
+/** The metro train's colours over the electric engine's (red, cream) and the coach's (blue, cream): silver and red. */
+const METRO_SCHEME: Readonly<Record<string, string>> = { "#c8442f": "#c9ccd1", "#2f6db5": "#c9ccd1", "#f0ebe0": "#c8442f" };
+
 /** The rack engine's colours over the tank engine's (blue and red): claret and gold. */
 const RACK_SCHEME: Readonly<Record<string, string>> = { "#2f6db5": "#7a2a3a", "#c8442f": "#d9a93a" };
 
@@ -68,9 +71,11 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   if (kind === "carrier") return codeCarModel(mats, "carrier", buildCarCarrier, carCarrierBogies);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
   const rack = kind === "engine" && look === "rack";
-  const recolor = rack ? RACK_SCHEME : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
-  // (The rack engine is the tank engine's model in its own colours, with a cog under it.)
-  const model = blenderCar(kind, rack ? "tank" : look, mats, lamp, recolor, CAR_SLOTS[kind]);
+  const metro = look === "metro";
+  const recolor = rack ? RACK_SCHEME : metro ? METRO_SCHEME : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
+  // (The rack engine is the tank engine's model in its own colours, with a cog under it. The metro train is the
+  // electric engine and a coach in silver and red.)
+  const model = blenderCar(kind, rack ? "tank" : metro ? (kind === "engine" ? "electric" : "classic") : look, mats, lamp, recolor, CAR_SLOTS[kind]);
   if (rack) {
     const cog = rackCog(mats);
     model.root.add(cog);

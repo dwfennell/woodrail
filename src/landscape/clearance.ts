@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, isBridge, isPlainStraight, isTunnelMouth, TRAIN_HEADROOM, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, TRENCH_HALF, TRENCH_WALL, TUNNEL_COVER, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, isBridge, isPlainStraight, isTunnelMouth, METRO_KIT, TRAIN_HEADROOM, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, TRENCH_HALF, TRENCH_WALL, TUNNEL_COVER, type PieceTypeId, type Pose } from "../track";
 import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, type LandscapeGrid } from "./grid";
 import { smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
@@ -6,7 +6,7 @@ import { cutsHills, hillsOf, tunnelsOn } from "./hill-shape";
 import { pieceOf, turnOf } from "../roads/pieces";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip" | "dip-road" | "shallow" | "portal" | "mouth" | "daylight";
+export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom" | "trench" | "dip" | "dip-road" | "shallow" | "portal" | "mouth" | "daylight" | "metro";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -32,6 +32,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   portal: "Meet the hill's side square for a tunnel mouth",
   mouth: "A tunnel mouth goes on flat felt, its low end up to a hill's side or under the felt",
   daylight: "Only plain track goes in a tunnel: points, signals and stations need daylight",
+  metro: "A metro stop goes in a tunnel two levels under the felt",
   trench: "A bridge can't stand in an underpass's trench: put the line under the middle of a bridge one level up",
 };
 
@@ -60,6 +61,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   portal: { kind: "blocked", reason: "portal" },
   mouth: { kind: "blocked", reason: "mouth" },
   daylight: { kind: "blocked", reason: "daylight" },
+  metro: { kind: "blocked", reason: "metro" },
 };
 
 /** Track at most this high over a road meets it at a level crossing (higher, on a bridge or riser, it passes over). */
@@ -384,7 +386,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
 
 /** Track that may run in a tunnel: plain straights and curves (points, signals, stations and the rest need daylight). */
 export function tunnelTrack(type: PieceTypeId): boolean {
-  return isPlainStraight(type) || /^curve-|^s-curve/.test(type) || isTunnelMouth(type);
+  return type === METRO_KIT || isPlainStraight(type) || /^curve-|^s-curve/.test(type) || isTunnelMouth(type);
 }
 
 /** Could any ground near this pose (within `reach`) be two levels over track at `y`? A cheap test before sampling. */
@@ -486,6 +488,8 @@ function tunnelPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, p
   if (result !== CLEAR) return result;
   if (covered === 0) return y < -0.5 ? BLOCKED.shallow : null;
   if (!tunnelTrack(type)) return BLOCKED.daylight;
+  // (A metro stop: wholly in a tunnel two levels under the felt, or not at all.)
+  if (type === METRO_KIT && (open > 0 || y > -TUNNEL_COVER + 0.5)) return BLOCKED.metro;
   // Wholly in the tunnel: nothing over it matters. Partly: the open part by the usual rules (a hill's side is fine).
   return open === 0 ? CLEAR : null;
 }

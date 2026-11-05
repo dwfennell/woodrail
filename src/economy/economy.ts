@@ -1,4 +1,4 @@
-import { getPieceDef, isKit, LOOKOUT_KIT, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { getPieceDef, isKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -1007,7 +1007,7 @@ export class Economy {
     // are its stops too: no one gets off in the town they got on in.)
     if (this.isLookout(d)) {
       if (this.isLookout(this.depots[r.from])) return false;
-    } else if (this.townOf(r.from) === d.townId) return false;
+    } else if (this.quarterOf(r.from) === this.quarterOf(d.id)) return false;
     const route = this.routeOfCar(carId);
     return !route || this.dropsAt(route, d, null);
   }
@@ -1016,7 +1016,7 @@ export class Economy {
   private canBoard(d: DepotState, carId: number): boolean {
     if (d.role !== "town" || d.waiting <= 0 || !this.seatsOf) return false;
     const r = this.riders.get(carId);
-    if (r && (this.townOf(r.from) !== d.townId || r.count >= this.seatsOf(carId))) return false;
+    if (r && (this.quarterOf(r.from) !== this.quarterOf(d.id) || r.count >= this.seatsOf(carId))) return false;
     if (!r && this.seatsOf(carId) <= 0) return false;
     const route = this.routeOfCar(carId);
     return !route || this.picksAt(route, d, null);
@@ -1027,10 +1027,22 @@ export class Economy {
     return !!d && d.role === "town" && this.layout.getPiece(d.pieceId)?.type === LOOKOUT_KIT;
   }
 
-  /** The town a passenger stop (a station's depot, or a halt's) is for, by its depot id: −1 for none. */
-  private townOf(depotId: number): number {
-    return this.depots[depotId]?.townId ?? -1;
+  /** Is this a metro stop's depot (`METRO_KIT`): a quarter of its town of its own? */
+  isMetro(d: DepotState | undefined): boolean {
+    return !!d && d.role === "town" && this.layout.getPiece(d.pieceId)?.type === METRO_KIT;
   }
+
+  /**
+   * The part of a town a passenger stop serves, by its depot id: its town's id for its station and halts; a metro stop
+   * its own quarter (−2 − its id). Riders get off only in another quarter: across a city by metro pays a fare.
+   */
+  private quarterOf(depotId: number): number {
+    const d = this.depots[depotId];
+    if (!d) return -1;
+    return this.isMetro(d) ? -2 - d.id : d.townId;
+  }
+
+
 
   /**
    * Is this a halt: a town's passenger stop on a kit piece (Game mode's halts and small stations, `HALT_KITS`), not

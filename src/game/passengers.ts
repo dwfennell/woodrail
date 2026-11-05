@@ -4,6 +4,7 @@ import type { Progress } from "./progress";
 import { townStatus } from "./towns";
 import { growthOf } from "./town-life";
 import type { World } from "./world";
+import { METRO_QUARTERS, METRO_SLOWER } from "./metro";
 
 /**
  * Game mode's passengers: people wait at each town's station, more the bigger the town; coaches carry them to another
@@ -12,7 +13,7 @@ import type { World } from "./world";
  */
 
 /** Seats in a coach, by its look. */
-export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3 };
+export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3, metro: 8 };
 
 /** A first-class coach's riders pay this many times the fare. */
 export const FIRST_CLASS = 2;
@@ -44,32 +45,37 @@ export function riderSeconds(level: number, busy = false): number {
  * People turn up at towns' stations, `seconds` of play at a time. A town's arrivals are shared among its stops (its
  * station and any halts, every depot of role "town" with its `townId`), not added to: one clock and one cap per town,
  * each newcomer going to the stop with the fewest waiting (the earliest, its station, on a tie). So halts spread a
- * town's people out; they don't make more. `clock` holds each town's time since its last arrival, by town id (kept by
- * the caller between calls). Cheap: a few towns, called about once a second.
+ * town's people out; they don't make more. But a metro stop (the first `METRO_QUARTERS` of a town's) is a quarter of
+ * the town with its own clock and cap, at half its town's rate: those riders are new. `clock` holds each town's time
+ * since its last arrival, by town id (a quarter's by −2 − its depot id), kept by the caller between calls. Cheap: a few
+ * towns, called about once a second.
  */
 export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>): void {
   // No one waits for coaches that can't be made yet.
   if (!p.learned.has("passengers")) return;
   const cap = waitingCap(p);
   const busy = p.learned.has("stations");
-  // Each town's stops, in depot order (its station, added with the map, first).
+  // Each town's stops, in depot order (its station, added with the map, first); its metro stops apart, the first
+  // `METRO_QUARTERS` of them each a quarter of the town with riders of its own (metro.ts).
   const stops = new Map<number, DepotState[]>();
+  const quarters = new Map<number, DepotState[]>();
   for (const d of world.economy.allDepots()) {
     // (No one lives at a lookout: riders only get off there.)
     if (d.role !== "town" || !world.layout.getPiece(d.pieceId) || world.economy.isLookout(d)) continue;
-    const list = stops.get(d.townId);
+    const into = world.economy.isMetro(d) ? quarters : stops;
+    const list = into.get(d.townId);
     if (list) list.push(d);
-    else stops.set(d.townId, [d]);
+    else into.set(d.townId, [d]);
   }
-  for (const [townId, list] of stops) {
+  /** Riders turn up at `list` (sharing one clock, keyed `key`, and one cap) every `every` seconds. */
+  const arrive = (key: number, list: DepotState[], every: number) => {
     let waiting = 0;
     for (const d of list) waiting += d.waiting;
     if (waiting >= cap) {
-      clock.set(townId, 0);
-      continue;
+      clock.set(key, 0);
+      return;
     }
-    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy);
-    let t = (clock.get(townId) ?? 0) + seconds;
+    let t = (clock.get(key) ?? 0) + seconds;
     while (t >= every && waiting < cap) {
       t -= every;
       let to = list[0];
@@ -78,7 +84,13 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
       waiting++;
     }
     // A full town doesn't save up people for later.
-    clock.set(townId, waiting >= cap ? 0 : t);
+    clock.set(key, waiting >= cap ? 0 : t);
+  };
+  for (const [townId, list] of stops) arrive(townId, list, riderSeconds(townStatus(growthOf(world, townId)).level, busy));
+  for (const [townId, list] of quarters) {
+    const every = riderSeconds(townStatus(growthOf(world, townId)).level, busy) * METRO_SLOWER;
+    // (A quarter's clock is keyed by its depot: −2 − its id, apart from the towns' own.)
+    for (const d of list.slice(0, METRO_QUARTERS)) arrive(-2 - d.id, [d], every);
   }
 }
 

@@ -9,7 +9,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { METRO_KIT, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, placeGhost } from "../render/signal-marks-view";
@@ -3324,7 +3324,7 @@ export class Interaction {
     if (yard) return { reason: yard, risers: [] };
     const s = trackSupport(this.rules, type, flipped, pose, y, ignoreId);
     if (s.reason) return { reason: s.reason, risers: [] };
-    const site = this.siteRule?.(type, pose, ignoreId) ?? null;
+    const site = this.siteRule?.(type, pose, ignoreId, y) ?? null;
     if (site) {
       this.siteWhy = site;
       return { reason: "site", risers: [] };
@@ -3376,7 +3376,7 @@ export class Interaction {
    * as the message to show, or null. `ignoreId`: the piece being moved (it doesn't count against itself). Runs on
    * every move while a piece is held: keep it cheap.
    */
-  siteRule: ((type: PieceTypeId, pose: Pose, ignoreId: Ignore) => string | null) | null = null;
+  siteRule: ((type: PieceTypeId, pose: Pose, ignoreId: Ignore, y?: number) => string | null) | null = null;
   /** The message for the last "site" refusal. */
   private siteWhy = "";
   /**
@@ -3392,7 +3392,8 @@ export class Interaction {
    * own depots (they stand where the map put them). While a depot is held, the last answer is kept for its pose.
    */
   private yardBlock(type: PieceTypeId, pose: Pose, y: number, ignoreId: Ignore): YardBlock | null {
-    if (!hasFootprint(type)) return null;
+    // (A metro stop's footprint is its entrance, up on a town's green or street: its own rule, `metroTown`.)
+    if (!hasFootprint(type) || type === METRO_KIT) return null;
     const own = typeof ignoreId === "number" ? ignoreId : (ignoreId.values().next().value ?? -1);
     if (own !== -1 && this.fixedLabel(own) !== null) return null;
     const g = this.game;
