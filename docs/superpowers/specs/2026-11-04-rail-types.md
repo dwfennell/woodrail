@@ -353,8 +353,23 @@ entrance), digging (60🪙 a square, once, refused when short), payback. `npm ru
 390×844): Metro not researchable at the start; the line under a City ★ (digging paid, the toast); the tray (Metro stop,
 Metro train) and prices; two metro stops from the tray onto the line, each a metro stop of the town's; refused with its
 entrance on a house; a metro train carrying riders across the town, paid, drawing coal; a house may go over the line,
-not on an entrance; 0 idle frames. Pictures: `docs/agents/shots/metro-entrance.jpg`, `metro-stops.jpg`.
+not on an entrance; 0 idle frames. Pictures: `docs/agents/shots/metro-*.jpg`.
 
-**Not done:** the dashes painted over the line don't show on the town's streets, and the line isn't easy to see from
-above (Show the line on the stop's card, in the design, isn't built). Draw doesn't go under a town by itself: the
-line is laid as tunnels are. The entrance kiosk stands on a street square; road vehicles drive through it.
+**Fixed after review (coordinator, 2026-11-05):**
+- **Road vehicles and the entrance.** The entrance went on a street square, and the town's cars drove through it. Now it
+  goes only off the road: on a town's green, or on the grass within two squares of the town (diagonals too), with
+  nothing on it ("A metro stop's entrance goes on a town's green or the grass beside it, off the road"). The starter
+  towns are houses, streets and a station, with no greens, so in practice a stop is at the edge of a town, its line
+  running under the town between two such stops. Before: `docs/agents/shots/metro-entrance-before.jpg`; after:
+  `metro-entrance-after.jpg`.
+- **Seeing the line.** The dashes painted over a tunnel were drawn on the felt, under a street's top (4.3 mm up), so on
+  streets they didn't show. Over a road, a street or a town's paving they're painted on its top now (`PAVED_LIFT`).
+  And a tap on a metro stop's entrance opens its stop card (its town's) with **Show the line**: the stop's line (the
+  track two levels under the felt joined to it, and the mouths at its ends) drawn as a blue ribbon through everything
+  for 12 seconds (`MetroLineView`; built when asked, one mesh, nothing per frame). Before: `metro-line-before.jpg`;
+  after: `metro-card.jpg`, `metro-show-line-after.jpg`.
+- Tests: `metro.test.ts` (the entrance refused on a street; the line's pieces; dashes on a street's top), `e2e:metro`
+  21 checks (the dashes over the line not under a street's top; a tap on the entrance opens the card with Show the line;
+  the line drawn, shown with the card closed, gone after a while).
+
+**Not done:** Draw doesn't go under a town by itself: the line is laid as tunnels are.

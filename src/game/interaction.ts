@@ -2648,7 +2648,8 @@ export class Interaction {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
       // (A town's station upgraded to a big station's kit still opens its town's card.)
-      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId);
+      // (A metro stop opens its stop's card, with Show the line: its track is two levels down, out of sight.)
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type) && !g.economy.stationPieces.has(p.pieceId) && !g.economy.isMetro(depot);
       const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
       else if (ruin !== -1 && this.onRuinTap) {
@@ -2917,11 +2918,31 @@ export class Interaction {
     later();
   }
 
+  /** How long a metro line shows through the ground once asked (ms). */
+  private static readonly LINE_MS = 12000;
+  private lineTimer = 0;
+
+  /** Show the metro line through a stop (its card's Show the line) for a few seconds: built once, hidden after. */
+  showMetroLine(pieceId: number): void {
+    const g = this.game;
+    g.metroLine.show(g.layout, pieceId);
+    g.invalidate();
+    clearTimeout(this.lineTimer);
+    this.lineTimer = window.setTimeout(() => {
+      g.metroLine.hide();
+      g.invalidate();
+    }, Interaction.LINE_MS);
+  }
+
   private openDepot(depotId: number): void {
     this.clearSelection();
     this.selectedDepot = depotId;
     this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
+    const stop = this.game.economy.depot(depotId);
+    const metro = this.game.economy.isMetro(stop);
+    this.hud.setDepotLine(metro);
+    if (metro) this.hud.onShowLine = () => this.showMetroLine(stop!.pieceId);
     this.refreshDepotCard();
     this.keepClearOfCard(() => this.pieceCentre(this.game.economy.depot(depotId)?.pieceId ?? -1));
     // An industry the player placed moves too (select first, as anything else).
@@ -6011,6 +6032,8 @@ export class Interaction {
       if (kitPiece !== -1) {
         const road = signalRoadAt(g.layout, kitPiece, h.point.x, h.point.z);
         if (road !== -1) return { kind: "lever", pieceId: kitPiece, road };
+        // (A metro stop's entrance is all there is of it to see: a tap on it is a tap on the stop.)
+        if (g.layout.getPiece(kitPiece)?.type === METRO_KIT) return { kind: "piece", pieceId: kitPiece };
         continue;
       }
       // A level crossing's style (its barriers or gates) is its prop's.

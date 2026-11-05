@@ -126,6 +126,10 @@ const setup = await p.evaluate(async () => {
   // (Setup: the town a City ★, as its deliveries would make it.)
   w.economy.delivered.set(town.id, 48);
   w.economy.deliveredGoods.set(town.id, { flour: 18, stone: 10 });
+  // (It grows as it becomes one: a few seconds for its new streets and houses, then the game paused, so it doesn't grow
+  // over the squares picked below while the test runs. The sim and the economy are ticked by hand below.)
+  await new Promise((r) => setTimeout(r, 8000));
+  w.paused = true;
   const after = canResearch(progress, "metro");
   w.learn("metro");
   progress.coins += 5000;
@@ -139,11 +143,13 @@ const setup = await p.evaluate(async () => {
   const tally = {};
   const rows = [...new Set(town.cells.map((i) => g.rowOf(i)))].sort((a, b) => Math.abs(g.centreZ(a) - town.centre.z) - Math.abs(g.centreZ(b) - town.centre.z));
   for (const row of rows) {
+    // (Not along the station's row: its way in keeps houses off the squares there.)
+    if (town.cells.some((i) => g.rowOf(i) === row && g.feature[i] === 3)) continue;
     const cols = town.cells.filter((i) => g.rowOf(i) === row).map((i) => g.colOf(i));
     const z = g.centreZ(row);
     const minX = g.centreX(Math.min(...cols)) - 36;
     const maxX = g.centreX(Math.max(...cols)) + 36;
-    for (const margin of [36, 72, 108, 144, 180, 216, 252]) {
+    for (const margin of [36, 72, 108, 144, 180, 216, 252, 288, 324, 360, 396, 432]) {
       const W = Math.round((minX - margin - 288) / 18) * 18;
       const n = Math.ceil((maxX + margin - (W + 288)) / 216);
       const E = W + 288 + n * 216;
@@ -164,7 +170,7 @@ const setup = await p.evaluate(async () => {
       // Deep straights a metro stop could take the place of: its entrance on a free square of the town.
       const spots = deep.map((q, k) => ({ k, pose: q.pose, ok: metroTown(w.landscape, q.pose)?.id === town.id })).filter((s) => s.ok);
       const pair = spots.length >= 2 ? [spots[0], spots[spots.length - 1]] : null;
-      if (!pair || pair[1].k - pair[0].k < 2) {
+      if (!pair || pair[1].k - pair[0].k < 3) {
         tally[`spots:${spots.length}`] = (tally[`spots:${spots.length}`] ?? 0) + 1;
         continue;
       }
@@ -250,6 +256,26 @@ const putStop = async (pose) => {
   const stop = now.find((q) => q.type === "kit-metro-stop" && !was.some((o) => o.id === q.id));
   return { stop, held, said: await said() };
 };
+// (The town grows as it became a City ★: where an entrance may go is looked for now, over the line's straights.)
+const fresh = await p.evaluate(async ({ W, E, z, town }) => {
+  const w = window.woodrail;
+  const { metroTown } = await import("/src/game/world.ts");
+  const spots = [];
+  for (const id of w.layout.pieceIds()) {
+    const q = w.layout.getPiece(id);
+    if (q.type !== "straight-216" || q.y !== -96 || Math.abs(q.pose.z - z) > 1 || q.pose.x < W || q.pose.x > E) continue;
+    if (metroTown(w.landscape, q.pose)?.id === town.id) spots.push({ pose: q.pose });
+  }
+  spots.sort((a, b) => a.pose.x - b.pose.x);
+  const g = w.landscape.grid;
+  const deep = [...w.layout.pieceIds()].map((id) => w.layout.getPiece(id)).filter((q) => q.y === -96).map((q) => {
+    const i = g.cellAtWorld(q.pose.x + 108, q.pose.z);
+    return `${Math.round(q.pose.x)}:${metroTown(w.landscape, q.pose)?.id ?? "-"} f${g.feature[i]} s${g.surface[i]} r${g.road[i]} h${g.height[i]} town${w.landscape.towns.findIndex((t) => t.cells.includes(i))}`;
+  });
+  return spots.length >= 2 ? [spots[0], spots[spots.length - 1]] : { deep, W, E, z, town: town.id };
+}, setup);
+if (!Array.isArray(fresh)) throw new Error(`no room for two entrances any more: ${JSON.stringify(fresh)} setup pair ${JSON.stringify(setup.pair)}`);
+setup.pair = fresh;
 await tab("Industries");
 const one = await putStop(setup.pair[0].pose);
 const two = await putStop(setup.pair[1].pose);
@@ -274,7 +300,7 @@ const onHouse = await p.evaluate(async ({ town }) => {
   const pose = { x: g.centreX(g.colOf(house)) - k.x, z: g.centreZ(g.rowOf(house)) - k.z, heading: 0 };
   return w.interaction.siteRule?.("kit-metro-stop", pose, -1, -96) ?? null;
 }, setup);
-check("with its entrance on a house, a metro stop is refused, saying why", onHouse === "A metro stop's entrance goes on a free square of a town: a green or a street", `${onHouse}`);
+check("with its entrance on a house, a metro stop is refused, saying why", onHouse === "A metro stop's entrance goes on a town's green or the grass beside it, off the road", `${onHouse}`);
 // (Close on the first entrance, then the two stops and the line between.)
 const entrance = await p.evaluate(async (id) => {
   const w = window.woodrail;
@@ -292,6 +318,48 @@ await look(entrance.k.x, entrance.k.z, [0.3, 1.2, 1], 520, 0);
 await snap("metro-entrance.jpg");
 await look((setup.pair[0].pose.x + setup.pair[1].pose.x) / 2 + 108, setup.z, [0.05, 1.5, 1], 1200, 0);
 await snap("metro-stops.jpg");
+
+// The line from above: dashes painted over it, on the streets' top where it runs under one (not hidden under them).
+const dashes = await p.evaluate(({ W, E, z }) => {
+  const w = window.woodrail;
+  const g = w.landscape.grid;
+  const mine = w.tunnelsView.found.dashes.filter((d) => Math.abs(d.z0 - z) < 30 && d.x0 > W && d.x0 < E + 288);
+  const onStreet = mine.filter((d) => {
+    const i = g.cellAtWorld(d.x0, d.z0);
+    return i !== -1 && (g.surface[i] === 2 || g.road[i] !== 0);
+  });
+  return { n: mine.length, streets: onStreet.length, low: onStreet.filter((d) => d.y < 4.5).length };
+}, setup);
+check("dashes painted over the line, over the streets' top where it runs under one", dashes.n > 10 && dashes.low === 0, JSON.stringify(dashes));
+
+// The stop's card, by a tap on its entrance: Show the line draws the line through the ground for a while.
+const kiosk = await p.evaluate(async (id) => (await import("/src/game/world.ts")).kioskAt(window.woodrail.layout.getPiece(id).pose), one.stop.id);
+await look(kiosk.x, kiosk.z + 120, [0.1, 1.4, 1], 900, 0);
+await settle();
+const tapK = await screen(kiosk.x, 12, kiosk.z);
+
+await p.mouse.click(tapK[0], tapK[1]);
+await frames();
+await settle();
+const cardNow = await p.evaluate(() => ({ mode: window.woodrail.interaction.mode.kind, open: window.woodrail.hud.depotCardOpen, button: !document.querySelector(".depot-line")?.hidden, title: document.querySelector(".depot-card .card-title, .depot-card h2, .depot-card h3")?.textContent ?? null }));
+check("a tap on the entrance opens the stop's card, with Show the line", cardNow.open && cardNow.button, JSON.stringify(cardNow));
+await pressAt(".depot-line");
+await settle();
+const shown = await p.evaluate(() => ({ shown: window.woodrail.metroLine.shown, pieces: window.woodrail.metroLine.pieces.length }));
+check("Show the line draws the line through the ground: the stop, the track under the town, the mouths", shown.shown && shown.pieces >= setup.n + 2, JSON.stringify({ shown, n: setup.n }));
+await p.screenshot({ path: `${OUT}/metro-card.jpg`, type: "jpeg", quality: 80 });
+// (The card closed: the line stays drawn a while, the map in view.)
+await p.keyboard.press("Escape");
+await look((setup.pair[0].pose.x + setup.pair[1].pose.x) / 2 + 108, setup.z, [0.05, 1.6, 1], 1300, 0);
+await p.screenshot({ path: `${OUT}/metro-show-line.jpg`, type: "jpeg", quality: 80 });
+const stillShown = await p.evaluate(() => window.woodrail.metroLine.shown);
+check("…shown on the map once the card's closed", stillShown, `${stillShown}`);
+const gone = await p.evaluate(async () => {
+  await new Promise((r) => setTimeout(r, 13000));
+  return window.woodrail.metroLine.shown;
+});
+check("…for a few seconds, then it's gone", gone === false, `${gone}`);
+await p.keyboard.press("Escape");
 
 // 4. The metro train: riders across the town, paid; coal drawn.
 const ride = await p.evaluate(async ({ stops, pair, power }) => {
@@ -319,23 +387,26 @@ const ride = await p.evaluate(async ({ stops, pair, power }) => {
   const clock = new Map();
   const draw = new Map();
   const inUse = (await import("/src/game/progress.ts")).inUse(w.world, "look:metro");
+  let drawn = 0;
   for (let sec = 0; sec < 180; sec++) {
     for (let k = 0; k < SIM_HZ; k++) {
       w.sim.tick();
       w.economy.tick();
     }
     peopleArrive(w.world, progress, 1, clock);
+    const before = station.piles[CARGO.coal.index];
     metroDraw(w.world, 1, draw);
+    drawn += before - station.piles[CARGO.coal.index];
   }
   w.sim.setLever(engine, 0);
   for (let k = 0; k < 4 * SIM_HZ; k++) w.sim.tick();
   w.invalidate();
   const waiting = stops.map((s) => w.economy.depot(s.id).waiting);
-  return { riders: progress.riders - riders, coins: progress.coins - coins, coal: coal0 - station.piles[CARGO.coal.index], inUse, waiting, engine };
+  return { riders: progress.riders - riders, coins: progress.coins - coins, coal: coal0 - station.piles[CARGO.coal.index], drawn, inUse, waiting, engine };
 }, { stops, pair: setup.pair, power });
 check("a metro train carries riders across the town between the two stops, and they pay", ride.riders > 5 && ride.coins >= ride.riders, JSON.stringify(ride));
 check("…it's one metro train in use", ride.inUse === 1, JSON.stringify(ride));
-check("…and it draws coal from the power station as it runs (more than the station's own burn)", ride.coal >= 4, JSON.stringify(ride));
+check("…and it draws coal from the power station as it runs (on top of the station's own burn)", ride.drawn >= 1 && ride.coal > ride.drawn, JSON.stringify(ride));
 await look((setup.pair[0].pose.x + setup.pair[1].pose.x) / 2 + 108, setup.z, [0.4, 1.0, 1], 900, 0);
 await snap("metro-ghost.jpg");
 

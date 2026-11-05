@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { Economy } from "../economy";
-import { checkPlacement, setTunnels } from "../landscape";
+import { checkPlacement, setTunnels, SURF_ROAD } from "../landscape";
+import { lineOf } from "../render/metro-line-view";
+import { findTunnels } from "../render/tunnels-view";
 import { LandEditor } from "../landscape/edit";
 import { Sim, SIM_HZ, type CarKind, type CarLook } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, METRO_KIT, type PieceTypeId } from "../track";
@@ -152,7 +154,11 @@ describe("the metro: under a town", () => {
     const g = w.landscape.grid;
     const town = w.landscape.towns[0];
     // A free square of the town (no house, no station) to stand a kiosk on.
-    const free = town.cells.find((i) => g.feature[i] === 0)!;
+    // A square for a kiosk: a green of the town, or the grass beside it (the starter towns are houses and streets).
+    const beside = (i: number) => [g.index(g.colOf(i) + 1, g.rowOf(i)), g.index(g.colOf(i) - 1, g.rowOf(i)), g.index(g.colOf(i), g.rowOf(i) + 1), g.index(g.colOf(i), g.rowOf(i) - 1)];
+    const free =
+      town.cells.find((i) => g.feature[i] === 0 && g.surface[i] !== SURF_ROAD && g.road[i] === 0) ??
+      town.cells.flatMap(beside).find((i) => i !== -1 && !town.cells.includes(i) && g.feature[i] === 0 && g.surface[i] === 0 && g.road[i] === 0 && g.height[i] === 0 && w.landscape.towns.every((t) => t === town || !t.cells.includes(i)))!;
     return { w, g, town, free };
   }
 
@@ -180,6 +186,9 @@ describe("the metro: under a town", () => {
     const house = town.buildings[0].cells[0];
     const onHouse = { x: g.centreX(g.colOf(house)) - at.x, z: g.centreZ(g.rowOf(house)) - at.z, heading: 0 };
     expect(haltWhy(w.landscape, METRO_KIT, onHouse)).toBe(METRO_ENTRANCE);
+    // On a street: no (road vehicles drive there).
+    const street = town.cells.find((i) => g.surface[i] === SURF_ROAD || g.road[i] !== 0);
+    if (street !== undefined) expect(haltWhy(w.landscape, METRO_KIT, { x: g.centreX(g.colOf(street)) - at.x, z: g.centreZ(g.rowOf(street)) - at.z, heading: 0 })).toBe(METRO_ENTRANCE);
     // Laid: a stop of that town's, a metro stop.
     const id = w.layout.addPiece(METRO_KIT, pose, -96, false);
     syncIndustries(w, true);
@@ -281,5 +290,36 @@ describe("the metro: payback", { timeout: 120_000 }, () => {
     // over two and a half hours (the long part of a game runs 180 to 440 minutes).
     expect(payback.line).toBeGreaterThan(100);
     expect(payback.withResearch).toBeGreaterThan(150);
+  });
+});
+
+describe("the metro: showing the line", () => {
+  it("a stop's line is the track two levels under the felt joined to it, and the mouths at its ends; not past them", () => {
+    const layout = new Layout();
+    const s0 = layout.addPiece("straight-216", { x: -216, z: 0, heading: 0 });
+    const m0 = lay(layout, connectorRef(s0, 1), "tunnel-mouth");
+    const d0 = lay(layout, otherEnd(layout, m0), "straight-216");
+    const stop = lay(layout, otherEnd(layout, d0), METRO_KIT);
+    const d1 = lay(layout, otherEnd(layout, stop), "straight-216");
+    expect(layout.getPiece(stop)!.y).toBe(-96);
+    expect(new Set(lineOf(layout, stop))).toEqual(new Set([m0, d0, stop, d1]));
+  });
+});
+
+describe("the metro: dashes over a street", () => {
+  it("over a line under a town's street, the dashes are painted on the street's top, not hidden under it", () => {
+    const w = buildStarterWorld();
+    setTunnels(true);
+    const g = w.landscape.grid;
+    const town = w.landscape.towns[0];
+    const street = town.cells.find((i) => g.surface[i] === SURF_ROAD || g.road[i] !== 0)!;
+    const x = g.centreX(g.colOf(street));
+    const z = g.centreZ(g.rowOf(street));
+    w.layout.addPiece("straight-216", { x: x - 108, z, heading: 0 }, -96, false);
+    const { dashes } = findTunnels(w.layout, w.landscape);
+    const over = dashes.filter((d) => g.cellAtWorld(d.x0, d.z0) === street);
+    expect(over.length).toBeGreaterThan(0);
+    for (const d of over) expect(d.y).toBeGreaterThanOrEqual(4.5);
+    setTunnels(false);
   });
 });
