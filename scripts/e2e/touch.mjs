@@ -4129,7 +4129,11 @@ async function routeUx(ctx, p) {
     const scratch = new Layout();
     const o = S.oval(scratch);
     const ids = o.ids;
-    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500 });
+    // (On squares of the land, as a player lays it: past its edge, on the table, the view can't go far enough out over
+    // it to frame the route above the card (the director keeps what it looks at over the land, half a plot past its
+    // edge). After earlier groups the open ground found was past the edge: F5 failed, a glide's goal 713 mm past it.)
+    const land = (x, z) => ids.every((i) => { const q = scratch.getPiece(i).pose; return [0, 108, 216].every((d) => w.landscape.grid.cellAtWorld(x + q.x + d * Math.cos(q.heading), z + q.z + d * Math.sin(q.heading)) !== -1); });
+    const g = await window.__openGround(ids.map((i) => [scratch.getPiece(i).pose.x, scratch.getPiece(i).pose.z]), { pieceGap: 500, ok: land });
     if (!g) throw new Error("no open ground for the oval");
     const types = { 0: "depot-forest", 7: "depot-sawmill", 9: "depot-forest" };
     const placed = w.editor().placeRun(ids.map((i, k) => {
