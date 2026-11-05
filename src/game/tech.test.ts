@@ -62,7 +62,7 @@ describe("planks kept for the workshop (no route needed)", () => {
   it("never for research (a school takes its own goods): not for a ready blueprint, nor the goal's", () => {
     const p = Progress.fresh();
     p.learned.add("switches");
-    expect(ready(p, "signals") && ready(p, "bridges") && ready(p, "junctions")).toBe(true);
+    expect(ready(p, "routes") && ready(p, "bridges") && ready(p, "junctions")).toBe(true);
     expect(GOALS.find((g) => g.id === "build-bridge")!.blueprint).toBe("bridges");
     expect(orderPlanks(p)).toBe(0);
     expect(keepsForOrder(p, 0)).toBe(false);

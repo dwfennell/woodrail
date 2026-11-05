@@ -1,4 +1,4 @@
-import { connectorRef, isRack, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, pairLeverState, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
+import { type SignalMode, connectorRef, isRack, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, pairLeverState, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -1761,7 +1761,14 @@ export class Sim {
     return this.aspects.get(markKey(id)) ?? true;
   }
 
-  /** Hold a mark at red by hand, or let it go (a tap on it). Shown at once (even paused). */
+  /** Set how a mark works (its card: Auto, Always red, Always green). Shown at once (even paused). */
+  setMarkMode(id: number, mode: SignalMode): void {
+    if (!this.layout.getSignal(id)) return;
+    this.layout.setSignalMode(id, mode);
+    this.updateSignals(true);
+  }
+
+  /** Hold a mark at red by hand, or let it go (a tap on it: held, back to Auto). Shown at once (even paused). */
   toggleMark(id: number): void {
     const m = this.layout.getSignal(id);
     if (!m) return;
@@ -1772,12 +1779,12 @@ export class Sim {
   /**
    * The signals as the sim reads them (for the harness and reports): each one's key (`signalKey` for an old piece's
    * road, `markKey` for a mark), the piece trains come from and the end of it they leave by, crossing the joint it
-   * guards, whether it's at clear, and whether its block has points or a crossing in it (a path signal). Fresh as of the
-   * last tick.
+   * guards, whether it's at clear, whether its block has points or a crossing in it (a path signal), and whether it's set
+   * Always green. Fresh as of the last tick.
    */
-  signalList(): readonly { key: number; pieceId: number; exit: number; clear: boolean; junction: boolean }[] {
+  signalList(): readonly { key: number; pieceId: number; exit: number; clear: boolean; junction: boolean; forced: boolean }[] {
     this.findSignals();
-    return this.signals!.map((g) => ({ key: g.key, pieceId: g.pieceId, exit: g.exit, clear: this.aspects.get(g.key) ?? true, junction: g.junction }));
+    return this.signals!.map((g) => ({ key: g.key, pieceId: g.pieceId, exit: g.exit, clear: this.aspects.get(g.key) ?? true, junction: g.junction, forced: this.isForced(g) }));
   }
 
   /** The pieces of a signal's block (by key, as `signalList`), in the order they were found (the harness's checks). */
@@ -1939,6 +1946,16 @@ export class Sim {
   }
 
   /**
+   * Set Always green on its card (a mark's `forced`): never red for a train on its block or way. Safe all the same:
+   * trains keep their distance as on track with no signals (`followCap`: easing up behind one ahead, stopping short of
+   * it or of one met head on; `crossCap`: waiting at points or a crossing another is on), and the router's grants and
+   * locks still hold a train where they would (`gatedFor`, `pathLocks`).
+   */
+  private isForced(g: SignalAt): boolean {
+    return g.markId !== -1 && !!this.layout.getSignal(g.markId)?.forced;
+  }
+
+  /**
    * Each signal's aspect (signals spec §3.1, §8). A plain block's signal: red while it's held, or while any train stands
    * on its block. A path signal's (points in its block): red unless the train coming to it has its way through the block
    * free and the router's locks on it (`pathLocks`): worked out for each train coming to it (`pathFor`), shown as the
@@ -1977,7 +1994,7 @@ export class Sim {
       if (!this.layout.getPiece(g.pieceId) || this.layout.isLifted(g.pieceId)) continue;
       // (A path signal's aspect is the nearest train's: `showPathSignals`.)
       if (g.junction) continue;
-      const by = this.isHeld(g) ? -1 : this.blockOccupant(g, -1);
+      const by = this.isHeld(g) || this.isForced(g) ? -1 : this.blockOccupant(g, -1);
       this.blockBy.set(g.key, by);
       const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
       if (this.aspects.get(g.key) !== clear) {
@@ -2025,6 +2042,8 @@ export class Sim {
       const choice = this.pathChoice;
       choice.length = 0;
       r = { clear: true, by: -1 };
+      // (Always green: the way's trains aren't looked for, only the router's locks.)
+      const forced = this.isForced(g);
       const marks = this.marksAt.size > 0;
       let at = g.pieceId;
       let exit = g.exit;
@@ -2049,7 +2068,7 @@ export class Sim {
             pathStep.reversed = def.paths[way].to === indexOfRef(next);
           }
         }
-        const o = this.onPieces.get(id);
+        const o = forced ? undefined : this.onPieces.get(id);
         if (o && o.trainId !== train.id && (!pathsApart(def) || ((o.paths >> pathStep.pathIndex) & 1) === 1)) {
           r = { clear: false, by: o.trainId };
           break;

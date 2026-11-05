@@ -59,7 +59,7 @@ describe("the growth menu: pick one of three", { timeout: 30_000 }, () => {
     const p = researching();
     // With Signals (so a city's wagon card is an engine, and crates may hold one).
     p.learned.add("switches");
-    p.learned.add("signals");
+    p.learned.add("routes");
     const w = world({ school: true });
     const amount = (kind: GrowthCard["kind"], level: number) => {
       const c = cardFor(p, w, kind, level, rng(1));
@@ -83,7 +83,7 @@ describe("the growth menu: pick one of three", { timeout: 30_000 }, () => {
     expect(wagon.slice(2)).toEqual(["car:engine", "car:engine"]);
   });
 
-  it("a city's wagon card is an engine only once Signals are learned; before, a wagon as a smaller town's", () => {
+  it("a city's wagon card is an engine only once Signals and routes are learned; before, a wagon as a smaller town's", () => {
     const w = world({ school: true });
     for (let seed = 1; seed < 20; seed++) {
       for (const level of [3, 4]) {
@@ -92,14 +92,14 @@ describe("the growth menu: pick one of three", { timeout: 30_000 }, () => {
         expect(card?.kind).toBe("wagon");
         expect(["car:timber", "car:hopper"]).toContain(card?.kind === "wagon" ? card.id : null);
         p.learned.add("switches");
-        p.learned.add("signals");
+        p.learned.add("routes");
         expect(cardFor(p, w, "wagon", level, rng(seed))).toEqual({ kind: "wagon", id: "car:engine" });
       }
     }
     // A village or town never offers the engine, Signals or not.
     const q = researching();
     q.learned.add("switches");
-    q.learned.add("signals");
+    q.learned.add("routes");
     for (const level of [1, 2]) expect(cardFor(q, w, "wagon", level, rng(3))).not.toEqual({ kind: "wagon", id: "car:engine" });
   });
 
@@ -442,7 +442,7 @@ describe("crates and presents", { timeout: 30_000 }, () => {
     expect(crateFor(bare, 1, rng(1)).length).toBeGreaterThan(0); // timber wagons, turnbacks need no blueprint
   });
 
-  it("a crate holds no engine till Signals are learned; after, it can", () => {
+  it("a crate holds no engine till Signals and routes are learned; after, it can", () => {
     let engines = 0;
     // One world for every card: drawing one only reads it.
     const w = world();
@@ -455,7 +455,7 @@ describe("crates and presents", { timeout: 30_000 }, () => {
         // The crate card too.
         const card = cardFor(p, w, "crate", level, rng(seed));
         if (card?.kind === "crate") expect(card.things.map(([id]) => id)).not.toContain("car:engine");
-        p.learned.add("signals");
+        p.learned.add("routes");
         if (crateFor(p, level, rng(seed)).some(([id]) => id === "car:engine")) engines++;
       }
     }
@@ -481,12 +481,12 @@ describe("crates and presents", { timeout: 30_000 }, () => {
     expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "car:timber", "piece:depot-farm"]);
     expect(q.bestLevel).toBe(3);
     const r = Progress.fresh();
-    r.learned.add("signals");
+    r.learned.add("routes");
     r.bestLevel = 2;
     expect(firstTimeGift(r, 3).map(([id]) => id)).toEqual(["car:engine"]);
   });
 
-  it("the first city's present is never empty before Signals: a stand-in worth the engine takes its place (QA)", () => {
+  it("the first city's present is never empty before Signals and routes: a stand-in worth the engine takes its place (QA)", () => {
     // No industry known and no Signals: the present was empty and the news said only "Pick a reward".
     const p = Progress.fresh();
     p.bestLevel = 2;
@@ -508,33 +508,33 @@ describe("crates and presents", { timeout: 30_000 }, () => {
     const r = Progress.fresh();
     r.bestLevel = 2;
     r.learned.add("switches");
-    r.learned.add("signals");
+    r.learned.add("routes");
     expect(firstTimeGift(r, 3)).toEqual([["car:engine", 1]]);
   });
 
-  it("learning Signals brings a second engine, once, unless you've two", () => {
+  it("learning Signals and routes brings a second engine, once, unless you've two", () => {
     const p = Progress.fresh();
     expect(p.owned.get("car:engine")).toBe(1);
     expect(learnGift(p, "switches")).toEqual([]);
-    expect(learnGift(p, "signals")).toEqual([["car:engine", 1]]);
+    expect(learnGift(p, "routes")).toEqual([["car:engine", 1]]);
     expect(p.owned.get("car:engine")).toBe(2);
     // Two already (an old save's village present, or one made in the workshop): nothing more.
-    expect(learnGift(p, "signals")).toEqual([]);
+    expect(learnGift(p, "routes")).toEqual([]);
     expect(p.owned.get("car:engine")).toBe(2);
   });
 
-  it("researching Signals at the school brings the engine when the study is done (as the game's `learned` does)", () => {
+  it("researching Signals and routes at the school brings the engine when the study is done (as the game's `learned` does)", () => {
     const p = Progress.fresh();
     p.learned.add("switches");
     p.coins = 100;
-    expect(pick(p, "signals")).toBe("current");
-    deliver(p, "planks", 8);
+    expect(pick(p, "routes")).toBe("current");
+    deliver(p, "planks", 9);
     // Not before the study is done.
     expect(tick(p, 1)).toBeNull();
     expect(p.owned.get("car:engine")).toBe(1);
     let done: string | null = null;
     for (let s = 0; s < 120 && !done; s++) done = tick(p, 1);
-    expect(done).toBe("signals");
+    expect(done).toBe("routes");
     expect(learnGift(p, done!)).toEqual([["car:engine", 1]]);
     expect(p.owned.get("car:engine")).toBe(2);
     // The game: a finished research goes through `learned`, which gives the present.
@@ -562,9 +562,9 @@ describe("no ready-made trains in Game mode: everything comes as parts", () => {
     expect(p.owned.get("car:timber")).toBeGreaterThan(0);
   });
 
-  it("presents, crates, wagon cards and blueprint gifts give parts, and no engine beyond the first before Signals", () => {
+  it("presents, crates, wagon cards and blueprint gifts give parts, and no engine beyond the first before Signals and routes", () => {
     for (let seed = 1; seed < 16; seed++) {
-      for (const learned of [[], ["switches"], ["switches", "farming", "passengers", "mills"], ["switches", "signals", "passengers"]]) {
+      for (const learned of [[], ["switches"], ["switches", "farming", "passengers", "mills"], ["switches", "routes", "passengers"]]) {
         const p = Progress.fresh();
         for (const t of learned) p.learned.add(t);
         const w = world({ school: true });
@@ -577,9 +577,9 @@ describe("no ready-made trains in Game mode: everything comes as parts", () => {
           // Whichever card can be taken first: what it gives goes in the toy box.
           if (offer) for (let i = 0; i < offer.cards.length; i++) if (takeCard(p, w, p.offers.indexOf(offer), i)) break;
         }
-        for (const t of TECHS) if (t.id !== "signals") got.push(...learnGift(p, t.id).map(([id]) => id));
+        for (const t of TECHS) if (t.id !== "routes") got.push(...learnGift(p, t.id).map(([id]) => id));
         parts(got);
-        if (!p.learned.has("signals")) expect(p.owned.get("car:engine"), `seed ${seed} ${learned.join(",")}`).toBe(1);
+        if (!p.learned.has("routes")) expect(p.owned.get("car:engine"), `seed ${seed} ${learned.join(",")}`).toBe(1);
       }
     }
   });

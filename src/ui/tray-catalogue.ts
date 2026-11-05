@@ -140,7 +140,9 @@ const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i
 export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
-  { label: "Switch", items: [...pieces("switch", "switch-y", "switch-3way", "switch-3way-double", "crossover", "wye", "crossing", "crossing-45", "slip-single", "slip-double"), SIGNAL_ITEM] },
+  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "switch-3way-double", "crossover", "wye", "crossing", "crossing-45", "slip-single", "slip-double") },
+  // (Its own shelf, not the end of Switch: the user found it "very tucked away" there.)
+  { label: "Signals", items: [SIGNAL_ITEM] },
   { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser", "rack", "rack-short") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)

@@ -168,7 +168,7 @@ export function serializeWorld(world: World): SaveData {
     switches,
     joints: [...layout.joints()].map((j) => [pieceOfRef(j.a), indexOfRef(j.a), pieceOfRef(j.b), indexOfRef(j.b)] as [number, number, number, number]),
     ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
-    ...(layout.signalCount > 0 ? { signals: [...layout.signals()].map((m) => [pieceOfRef(m.at), indexOfRef(m.at), m.style, m.held] as [number, number, SignalStyle, boolean]) } : {}),
+    ...(layout.signalCount > 0 ? { signals: [...layout.signals()].map((m) => [pieceOfRef(m.at), indexOfRef(m.at), m.style, m.mode === "green" ? "green" : m.held] as [number, number, SignalStyle, boolean | "green"]) } : {}),
     ...(defaults ? { switchDefaults: defaults } : {}),
     wyeLevers: 3,
     trains,
@@ -351,7 +351,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   // An older save's joints past the tolerance (parted by seating afresh), joined again before the trains go on.
   const broughtBack = save.joints ? [] : layout.seatNearMisses();
   // (Marks go on joints: after every joint is back. One whose joint didn't come back is dropped.)
-  for (const [pieceId, index, style, held] of save.signals ?? []) layout.addSignal(connectorRef(pieceId, index), style, held);
+  for (const [pieceId, index, style, mode] of save.signals ?? []) layout.addSignal(connectorRef(pieceId, index), style, mode === "green" ? "green" : mode);
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);

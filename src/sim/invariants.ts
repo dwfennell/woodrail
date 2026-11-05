@@ -14,7 +14,7 @@
  * - **lockRun:** a train's front runs onto points locked for other trains only.
  * - **redRun:** a train's front axle crosses a signal's joint while it's red, unless it was past braking for it when it
  *   turned red (counted in `redLate`, not a break).
- * - **blockOne:** a plain signal's block has two trains in it that came in through its signal.
+ * - **blockOne:** a plain signal's block has two trains in it that came in through its signal (not one set Always green).
  *
  * Checks read state only: running them never changes how a train moves (trajectory hashes identical with them on).
  */
@@ -328,8 +328,9 @@ export class Invariants {
         if (late) this.redLate++;
         else this.break("redRun", `${nameOf(id)} ran past signal ${g.key} at red (piece ${g.pieceId} end ${g.exit})`, n?.engine, g.pieceId);
       }
-      // (A path signal's block may hold two trains on ways that don't meet: `blockOne` is for plain blocks.)
-      if (g.junction) continue;
+      // (A path signal's block may hold two trains on ways that don't meet: `blockOne` is for plain blocks. One set Always
+      // green lets a second in on purpose: they keep their distance by `followCap`, which `underTrain` checks.)
+      if (g.junction || g.forced) continue;
       let inBlock = this.entered.get(g.key);
       if (!inBlock) this.entered.set(g.key, (inBlock = new Set()));
       if (inBlock.size > 0 && !late) this.break("blockOne", `${nameOf(id)} came into signal ${g.key}'s block with ${[...inBlock].map(nameOf).join(",")} in it`, n?.engine, g.pieceId);

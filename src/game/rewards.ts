@@ -57,7 +57,7 @@ const isBuilding = (id: ThingId) => id.startsWith("piece:depot-");
  * piece of track, one of a car or furniture. Empty if you know nothing that costs anything yet.
  */
 export function crateFor(p: Progress, level: number, random: () => number, except?: ThingId): [ThingId, number][] {
-  // No engine before Routes and signals: on one line a second train only meets the first head on (it comes with them).
+  // No engine before Signals and routes: on one line a second train only meets the first head on (it comes with them).
   const engineOk = p.learned.has("routes");
   const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => id !== except && !isBuilding(id) && !isFree(id) && p.knows(id) && (engineOk || id !== "car:engine"));
   const out: [ThingId, number][] = [];
@@ -80,9 +80,9 @@ function plural(label: string): string {
 
 /**
  * The first time any of your towns reaches a level, a present: a timber wagon and a school for your first village, an
- * industry building for your first town, an engine (once Routes and signals are learned; before, two switches or wagons in its
+ * industry building for your first town, an engine (once Signals and routes are learned; before, two switches or wagons in its
  * place) and the grandest industry you know for your first city. Returns what was given (into the toy box), or empty if that level was reached before. (No second
- * engine before Routes and signals: on one line two trains only turn each other back. It comes with them: see `learnGift`.)
+ * engine before Signals and routes: on one line two trains only turn each other back. It comes with them: see `learnGift`.)
  */
 export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
   if (level <= p.bestLevel) return [];
@@ -94,7 +94,7 @@ export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
 }
 
 /**
- * A present for learning blueprint `id`: Routes and signals bring a second engine (a passing loop with signals is where two trains
+ * A present for learning blueprint `id`: Signals and routes bring a second engine (a passing loop with signals is where two trains
  * can share a line), unless you've two already. Returns what was given (into the toy box), or empty.
  */
 export function learnGift(p: Progress, id: string): [ThingId, number][] {
@@ -110,14 +110,14 @@ function giftFor(p: Progress, level: number): [ThingId, number][] {
   // The first village: a wagon, and a school to research blueprints at (beside a town).
   if (level === 1) return [["car:timber", 1], [SCHOOL, 1]];
   if (level === 2) return industries.length > 0 ? [[industries[0], 1], ["piece:buffer-turnback", 2]] : [["piece:depot-workshop", 1], ["piece:buffer-turnback", 2]];
-  // The first city: an engine only once Routes and signals are learned (till then it would only meet the first train head on);
+  // The first city: an engine only once Signals and routes are learned (till then it would only meet the first train head on);
   // before, a stand-in worth as much (QA: with no industry known yet, the present was empty).
   const engine: [ThingId, number] = p.learned.has("routes") ? ["car:engine", 1] : standIn(p);
   return [engine, ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
 }
 
 /**
- * The first city's present in the engine's place before Routes and signals, worth what it is (6 planks): two switches toward the
+ * The first city's present in the engine's place before Signals and routes, worth what it is (6 planks): two switches toward the
  * passing loop signals will need, once Switches are learned; till then two flatbed wagons (a longer train for the one
  * engine).
  */
@@ -201,7 +201,7 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
       return things.length > 0 ? { kind, things } : null;
     }
     case "wagon": {
-      // A city's is an engine, but only once Routes and signals are learned (before, a second train only meets the first head on).
+      // A city's is an engine, but only once Signals and routes are learned (before, a second train only meets the first head on).
       if (level >= 3 && p.learned.has("routes")) return { kind, id: "car:engine" };
       const known = wagonsKnown(p);
       return known.length > 0 ? { kind, id: known[Math.floor(random() * known.length)] } : null;

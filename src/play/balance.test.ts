@@ -317,7 +317,7 @@ const CITY_BAND = [60, 90] as const;
 const FAMINE_STOPS = 20;
 /**
  * P5 (h), off unless asked for (BALANCE_SECOND_GOODS=15): a line of this many stops (there and back) or more gets a
- * passing loop and a second goods train once Routes and signals are learned and its one goods train can't keep up with a good
+ * passing loop and a second goods train once Signals and routes are learned and its one goods train can't keep up with a good
  * (`goodsShort`), since one train brings only so much a pass round it. The loop's switches are left unpinned, so the sections count it as a passing place (pinned, with
  * BALANCE_LOOP_PIN=1, they don't, and the line deadlocks: spec §5 REPRO). Off by default (spec §5).
  */
@@ -537,7 +537,7 @@ class Player {
     this.happened++;
     this.learnedAt.push({ minute: +this.minute.toFixed(1), id, how, price });
     this.note(`BLUEPRINT ${techOf(id)!.label} (${how}${price ? `, ${price}` : ""})`);
-    // (As the game does: Routes and signals bring a second engine.)
+    // (As the game does: Signals and routes bring a second engine.)
     for (const [thing, n] of learnGift(this.progress, id)) this.note(`present: ${n} ${thing}`);
     applyCranes(this.w.economy, this.progress);
     // (College: the schools in towns study twice as fast.)
@@ -1522,7 +1522,7 @@ describe("the harness's footprints", () => {
 
 describe("signals and the goals (signals spec §11 step 6)", () => {
   it("Run two trains at once waits only for Switches: trains pass at a loop with no signals", () => {
-    // (Signals joined Train routes as one row, Routes and signals: only "Give a train a route" waits for that.)
+    // (Signals joined Train routes as one row, Signals and routes: only "Give a train a route" waits for that.)
     for (const g of GOALS) expect(g.needs ?? [], g.id).not.toContain("signals");
     expect(GOALS.find((g) => g.id === "two-trains")!.needs).toEqual(["switches"]);
   });
@@ -2298,7 +2298,7 @@ class Playthrough {
       } else this.why = `a bridge for the goal: ${why}`;
     }
 
-    // The second train: when the box has an engine again (Routes and signals' present), on the far half of the line.
+    // The second train: when the box has an engine again (Signals and routes' present), on the far half of the line.
     const engines = (s.owned.get("car:engine") ?? 0) - inUse(w, "car:engine");
     if (this.trains.size < 2 && engines > 0 && this.lifted === 0 && goal === "two-trains") {
       const cars: CarKind[] = s.learned.has("passengers") ? ["engine", "passenger", "passenger"] : ["engine", "timber"];
@@ -2563,7 +2563,7 @@ class Playthrough {
     }
     // A second goods train on a long line (P5 (h), only with BALANCE_SECOND_GOODS: see `SECOND_GOODS_STOPS`): one
     // train hauls only so much a pass round 15 stops or more, and the research and the towns wait on it. As the game
-    // has it, only with Routes and signals learned (their present is the
+    // has it, only with Signals and routes learned (their present is the
     // second engine) and a passing loop on the line, where trains running opposite ways can pass (laid first, halfway
     // along the line: two trains spaced half a lap apart on a line there and back meet about halfway); not again once
     // it has jammed the line. A sensible player adds it only when the one goods train can't keep up (`goodsShort`: a

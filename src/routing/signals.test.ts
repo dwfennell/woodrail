@@ -111,6 +111,53 @@ describe("signal marks: block working (step 1)", { timeout: 60_000 }, () => {
     expect(r.redLate).toBe(1);
   });
 
+  it("Always green: shown clear whatever is on its block, two trains share it, and they still keep their distance", () => {
+    let marks: number[] = [];
+    const scenario: Scenario = {
+      name: "oval, 2 trains, 3 marks, one Always green",
+      seconds: 0,
+      // (Both stand for a while behind the one held Always red, as the player asked: not a deadlock.)
+      maxStill: 200,
+      build: (layout) => {
+        const o = oval(layout);
+        // (The next one Always red, so a train stands on the green one's block: the other comes up behind it.)
+        marks = [signal(layout, o.ids[2], 1, { mode: "green" }), signal(layout, o.ids[6], 1, { mode: "red" }), signal(layout, o.ids[10], 1)];
+        return { trains: [{ pieceId: o.ids[1] }, { pieceId: o.ids[8] }] };
+      },
+    };
+    const run = new HarnessRun(new Layout(), scenario);
+    expect(run.layout.getSignal(marks[0])).toMatchObject({ mode: "green", forced: true, held: false });
+    const key = run.sim.signalList().find((g) => g.forced)!.key;
+    const block = new Set(run.sim.signalBlock(key));
+    let shared = 0;
+    let red = 0;
+    let reports: Report[] = [];
+    for (let s = 0; s < 120; s++) {
+      reports.push(run.run(1));
+      if (!run.sim.markClear(marks[0])) red++;
+      const inBlock = run.engines.filter((e) => run.sim.findCar(e)!.train.bogies.some((b) => block.has(b.pieceId)));
+      if (inBlock.length === 2) shared++;
+    }
+    expect(red).toBe(0);
+    // (Two trains on its block at once: what Auto never lets happen. The second stood behind the first, short of it.)
+    expect(shared).toBeGreaterThan(10);
+    const [a, b] = run.engines.map((e) => run.sim.findCar(e)!.train);
+    expect(a.speed + b.speed).toBe(0);
+    run.sim.setMarkMode(marks[1], "auto");
+    // No derailment, no train run into another (`underTrain`), no red run at the other marks; `blockOne` excuses it.
+    for (const r of reports) noBreaks(r);
+    for (const e of run.engines) expect(run.sim.findCar(e)!.train.derailed).toBe(false);
+    // Back to Auto: red again while a train is on its block, and only one comes in at a time.
+    run.sim.setMarkMode(marks[0], "auto");
+    reports = [];
+    for (let s = 0; s < 120; s++) reports.push(run.run(1));
+    for (const r of reports) noBreaks(r);
+    // Always red (as a tap's hold): the first train to reach it stands there.
+    run.sim.setMarkMode(marks[0], "red");
+    expect(run.layout.getSignal(marks[0])!.held).toBe(true);
+    expect(run.sim.markClear(marks[0])).toBe(false);
+  });
+
   it("the block ends at a mark facing either way, and at points (as an old signal piece's)", () => {
     const layout = new Layout();
     const ids = shuttleLine(layout, 6);

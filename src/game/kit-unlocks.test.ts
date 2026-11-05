@@ -12,7 +12,7 @@ import { buildStarterWorld, syncIndustries } from "./world";
 
 /** Game mode's railway kits and lineside furniture, by the blueprint that unlocks them: the table as decided. */
 const UNLOCKS: Record<string, ThingId[]> = {
-  signals: ["piece:signal", "piece:kit-semaphore-signal"],
+  routes: ["piece:signal", "piece:kit-semaphore-signal"],
   electricity: ["piece:depot-power", "piece:kit-colour-light-signal"],
   wind: ["prop:mech-wind-turbine"],
   junctions: ["piece:switch-3way", "piece:crossing", "piece:crossing-45", "piece:crossover", "piece:wye", "piece:double-straight", "piece:double-curve", "piece:balloon-loop", "piece:balloon-loop-small", "piece:kit-signal-gantry"],
@@ -75,7 +75,7 @@ describe("railway kits in Game mode", () => {
 
   it("their blueprints are built now (no longer coming soon), on their tiers; the viaduct and the lift bridge too (tech tree 5)", () => {
     for (const id of Object.keys(UNLOCKS)) expect(built(techOf(id)!), id).toBe(true);
-    expect([techOf("signals")!.tier, techOf("junctions")!.tier, techOf("engine-shed")!.tier, techOf("turntable")!.tier, techOf("scenery")!.tier]).toEqual([1, 1, 2, 2, 1]);
+    expect([techOf("routes")!.tier, techOf("junctions")!.tier, techOf("engine-shed")!.tier, techOf("turntable")!.tier, techOf("scenery")!.tier]).toEqual([2, 1, 2, 2, 1]);
     for (const id of ["viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeUndefined();
     const halts = techOf("halts")!;
     expect([halts.branch, halts.needs]).toEqual(["passengers", ["passengers"]]);

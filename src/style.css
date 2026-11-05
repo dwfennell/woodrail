@@ -185,6 +185,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A signal box's or lever frame's points and signals: chips a finger wide (44 px tall, two to a row where they fit,
    a long label wrapping inside its chip), the list scrolling past six or so (on phones the card scrolls as one). */
 .piece-card .lever-list { flex-wrap: wrap; justify-content: center; width: 340px; max-width: 100%; max-height: min(42vh, 260px); overflow-y: auto; overscroll-behavior: contain; }
+/* A signal's card: Auto, Always red, Always green, side by side; the one in use pressed. */
+.piece-card .signal-modes { display: flex; gap: 6px; }
+.piece-card .signal-modes .signal-mode { flex: 1 1 0; min-width: 0; height: auto; min-height: 52px; padding: 6px 4px; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.15; white-space: normal; text-align: center; }
+.piece-card .signal-modes .signal-mode-lamps { display: flex; gap: 3px; padding: 3px 4px; border-radius: 7px; background: #2e2a27; }
+.piece-card .signal-modes .signal-lamp { width: 11px; height: 11px; border-radius: 50%; }
+.piece-card .signal-modes .signal-lamp.red { background: radial-gradient(circle at 35% 35%, #ffb3a6, #ff3a24 60%); }
+.piece-card .signal-modes .signal-lamp.green { background: radial-gradient(circle at 35% 35%, #c8ffd6, #2fd85e 60%); }
+.piece-card .signal-modes .signal-mode-name { font-size: 13px; }
 .piece-card .lever-list .lever-chip { flex: 1 1 140px; height: auto; min-height: 44px; padding: 6px 10px; line-height: 1.2; white-space: normal; }
 .piece-card .lever-list .card-hint { margin-top: 0; }
 .piece-card .reach-list { flex-direction: column; align-items: stretch; gap: 6px; width: 340px; max-width: 100%; max-height: min(34vh, 220px); overflow-y: auto; overscroll-behavior: contain; }

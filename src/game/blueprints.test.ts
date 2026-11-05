@@ -54,8 +54,8 @@ describe("the blueprint catalogue", () => {
     const p = Progress.fresh();
     let seen = seenOf(p);
     expect(seen.get("switches")).toBe("shown");
-    expect(seen.get("routes")).toBe("shown"); // key (Routes and signals)
-    expect(seen.get("signal-boxes")).toBe("hint"); // after routes and signals
+    expect(seen.get("routes")).toBe("shown"); // key (Signals and routes)
+    expect(seen.get("signal-boxes")).toBe("hint"); // after signals and routes
     expect(seen.get("telegraph")).toBe("unseen"); // after signal boxes
     expect(seen.get("radio")).toBe("unseen");
     p.learned.add("switches");
@@ -80,9 +80,9 @@ describe("the blueprint catalogue", () => {
     expect("board" in p.toJSON()).toBe(false);
   });
 
-  it("an old save's Signals or Train routes comes back as Routes and signals, learned and in the research queue", () => {
+  it("an old save's Signals or Train routes comes back as Signals and routes, learned and in the research queue", () => {
     expect(techOf("signals")).toBeUndefined();
-    expect(techOf("routes")!.label).toBe("Routes and signals");
+    expect(techOf("routes")!.label).toBe("Signals and routes");
     expect(ruleOf("piece:signal")!.tech).toBe("routes");
     // Either learned: the merged row learned (its Signal known, the routes' engine card too).
     for (const learned of [["switches", "signals"], ["switches", "routes"], ["switches", "signals", "routes"]]) {

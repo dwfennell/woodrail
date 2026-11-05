@@ -112,7 +112,7 @@ import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { installSwipeGuard } from "./ui/swipe-guard";
 import { viewOf } from "./ui/controls-tutorial";
-import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
+import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, SIGNAL_ITEM, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
@@ -427,7 +427,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           ? [{ key: trayKey(item), kind: "piece" as const, type: item.type }]
           : item.kind === "train"
             ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
-            : [],
+            : item.kind === "signal"
+              ? [{ key: trayKey(item), kind: "signal" as const }]
+              : [],
       );
   const withPiece = (type: PieceTypeId) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : kitOf(type) ? game.kitView.model(type) : null);
   const drawThumbnails = (items: readonly TrayItem[], save = true, studio?: ThumbnailStudio): string[] => {
@@ -643,7 +645,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * piece once it's carved), and saved together at the end.
    */
   async function drawTrayThumbnails(): Promise<void> {
-    const items = [...TRACK_ITEMS, ...TRAIN_ITEMS].filter((item) => !thumbnails.has(trayKey(item)));
+    const items = [...TRACK_ITEMS, SIGNAL_ITEM, ...TRAIN_ITEMS].filter((item) => !thumbnails.has(trayKey(item)));
     if (items.length === 0) return;
     // A few at a time in one studio, each batch once its pieces are carved: each picture is read back from the
     // graphics card, which waits for what it's drawing, so pictures go in batches (one wait each). Preferably while

@@ -84,8 +84,8 @@ export interface Blueprint {
   /** What it brings, in words (the things it unlocks are listed from `THING_RULES` too). */
   readonly brings: string;
   /**
-   * Its name cut short for the pill and locked tiles, when cutting at " and " would say the wrong thing (Routes and
-   * signals: a locked Signal's "Research Routes" wouldn't). None: `shortLabel`'s rule.
+   * Its name cut short for the pill and locked tiles, when cutting at " and " would say too little (Signals and routes:
+   * "Research Signals" on the engine card's routes). None: `shortLabel`'s rule.
    */
   readonly short?: string;
   /** Blueprints to learn first. */
@@ -173,7 +173,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "switches", label: "Switches", branch: "track", tier: 1, key: true, needs: [], price: { planks: 3 }, blurb: "Branch a line in two.", brings: "Switch, Y switch" }),
   row({ id: "bridges", label: "Bridges and ramps", branch: "track", tier: 1, key: true, needs: [], price: { planks: 10 }, blurb: "Ramp up and over rivers and other lines, and raise track higher.", brings: "Ramps, bridges, risers" }),
   row({ id: "junctions", label: "Junctions and loops", branch: "track", tier: 1, key: true, needs: ["switches"], price: { planks: 6 }, blurb: "Three-ways, crossings, double track, and loops to turn a train round.", brings: "Crossings, wye, three-way, double track, balloon loops, signal gantry" }),
-  // Signal boxes (tech tree 4, S1): the signal box and lever frame move here from the Scenery kit, so Routes and signals
+  // Signal boxes (tech tree 4, S1): the signal box and lever frame move here from the Scenery kit, so Signals and routes
   // leads on.
   row({ id: "signal-boxes", label: "Signal boxes", branch: "track", tier: 2, needs: ["routes"], price: { planks: 4, coins: 80 }, blurb: "A signal box works the points and signals near it: tap it and throw them from one place.", brings: "Signal box, lever frame", how: "Put a signal box beside your points and signals, then tap it" }),
   row({ id: "tunnels", label: "Tunnels", branch: "track", tier: 2, needs: ["bridges"], price: { planks: 12, coins: 120 }, blurb: "Under a hill instead of over it, or under another line. Lay a straight up to a hill's side, or draw across it, and the line goes under.", brings: "Tunnel mouth, short tunnel mouth" }),
@@ -214,11 +214,11 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "circus-train", label: "Circus train", branch: "trains", tier: 3, plan: "later", needs: ["circus"], price: { planks: 20, coins: 80 }, blurb: "The circus tours your towns: crowds wherever it stops.", brings: "Circus train" }),
 
   // Logistics
-  // Routes and signals (the user, 2026-11-05: "probably signals and routes should be in the same tech tree item"): one
+  // Signals and routes (the user, 2026-11-05: "probably signals and routes should be in the same tech tree item"): one
   // row, so a player who starts routing trains has block control the same moment (without signals a network with no
   // passing place is one block, and routed trains wait for each other across the map: #29). Its price is the two old
   // rows' summed (Train routes 5 planks and 40 coins, Signals 4 planks). Old saves' "signals" is this row (`RENAMED`).
-  row({ id: "routes", label: "Routes and signals", short: "Routes and signals", branch: "logistics", tier: 2, key: true, needs: ["switches"], price: { planks: 9, coins: 40 }, blurb: "Give a train its stops: it sets the switches on its way. And signals to split a line into blocks, so trains follow each other closer: tap one to hold trains there.", brings: "Routes on the engine card, Signal", how: "Tap a train, then Plan a route", feature: { label: "Routes on the engine card", icon: "🗺️" } }),
+  row({ id: "routes", label: "Signals and routes", short: "Signals and routes", branch: "logistics", tier: 2, key: true, needs: ["switches"], price: { planks: 9, coins: 40 }, blurb: "Signals split a line into blocks, so trains follow each other closer and wait for each other at a loop. And routes: give a train its stops, and it sets the switches on its way.", brings: "Signal, routes on the engine card", how: "Tap a train, then Plan a route", feature: { label: "Routes on the engine card", icon: "🗺️" } }),
   row({ id: "warehouses", label: "Warehouses", branch: "logistics", tier: 2, key: true, needs: ["routes"], price: { planks: 8, coins: 80 }, blurb: "Keep goods for later: routed trains drop them off and pick them up.", brings: "Warehouse" }),
   // Depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md): the Goods yard planned here (a warehouse of three
   // sidings) is any crane industry's upgrade from its card: a warehouse with three tracks is that goods yard.
@@ -365,7 +365,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
 
 /**
  * Blueprint ids from older saves, and what they became (risers joined bridges; turning loops joined junctions; Signals
- * joined Train routes as Routes and signals).
+ * joined Train routes as Signals and routes).
  */
 export const RENAMED: Readonly<Record<string, string>> = { heights: "bridges", loops: "junctions", signals: "routes" };
 

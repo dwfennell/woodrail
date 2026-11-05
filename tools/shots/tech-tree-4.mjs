@@ -85,7 +85,7 @@ const select = (name) =>
   }, name);
 await board(true);
 for (const [name, file] of [
-  ["Routes and signals", "board-routes-signals"],
+  ["Signals and routes", "board-signals-routes"],
   ["College", "board-college"],
   ["Mines", "board-mines"],
   ["Carpenter's bench", "board-carpentry"],

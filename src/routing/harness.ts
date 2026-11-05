@@ -14,7 +14,7 @@
  *   (`savedPlace`/`restorePlace`), as `deserializeWorld` does.
  */
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
-import { connectorRef, type Layout, type SignalStyle } from "../track";
+import { connectorRef, type Layout, type SignalMode, type SignalStyle } from "../track";
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
@@ -654,8 +654,8 @@ export class HarnessRun implements InvariantWorld {
  * In a scenario's `build`: a signal mark on the joint at a piece's connector, guarding trains that cross it from that
  * piece (signals spec §10.1). Its id (for events: `holdSignal`, `turnSignal`, `removeSignal`).
  */
-export function signal(layout: Layout, pieceId: number, connector: number, opts: { held?: boolean; style?: SignalStyle } = {}): number {
-  const id = layout.addSignal(connectorRef(pieceId, connector), opts.style ?? "plain", !!opts.held);
+export function signal(layout: Layout, pieceId: number, connector: number, opts: { held?: boolean; style?: SignalStyle; mode?: SignalMode } = {}): number {
+  const id = layout.addSignal(connectorRef(pieceId, connector), opts.style ?? "plain", opts.mode ?? !!opts.held);
   if (id === -1) throw new Error(`signal: piece ${pieceId}'s end ${connector} is no joint (or has a signal that way)`);
   return id;
 }

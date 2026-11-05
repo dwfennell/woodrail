@@ -369,13 +369,13 @@ export class Editor {
     return id;
   }
 
-  /** Take a signal mark away, as one undo step (undone, it's back as it was, held or not). */
+  /** Take a signal mark away, as one undo step (undone, it's back as it was, its mode too). */
   removeSignal(id: number): boolean {
     const m = this.layout.getSignal(id);
     if (!m) return false;
     return this.run({
       do: () => void this.layout.removeSignal(id),
-      undo: () => void this.layout.addSignal(m.at, m.style, m.held, id),
+      undo: () => void this.layout.addSignal(m.at, m.style, m.mode, id),
       signals: true,
     });
   }
@@ -396,7 +396,7 @@ export class Editor {
     const move = (to: number) => {
       const now = this.layout.getSignal(id)!;
       this.layout.removeSignal(id);
-      this.layout.addSignal(to, now.style, now.held, id);
+      this.layout.addSignal(to, now.style, now.mode, id);
     };
     return this.run({ do: () => move(at), undo: () => move(from), signals: true });
   }

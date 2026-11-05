@@ -23,10 +23,19 @@ type Look = "plain" | "semaphore" | "colour-light" | "gantry";
 
 /** The signal piece's length: a model is drawn in its piece's frame, its far end (x = this) on the mark's joint. */
 const PIECE_LENGTH = 144;
-/** The old toy semaphore (a signal piece's, as TrackView draws it): where its post stands in the piece's frame. */
+/** The toy colour light: where its post stands in the piece's frame (the driver's right), and how tall it is. */
 const TOY_SIDE = TRACK_WIDTH / 2 + 9 + 4;
 const TOY_HEIGHT = 54;
-const TOY_RAISED = 0.75;
+/** Its head: deep (along the track), tall and wide; its lamps' radius and heights. */
+const HEAD_D = 7;
+const HEAD_H = 22;
+const HEAD_W = 11;
+const LENS_R = 3.6;
+const RED_Y = TOY_HEIGHT - 6;
+const GREEN_Y = TOY_HEIGHT - 16;
+/** The lit lamps: unlit by the sun, so they glow (one shader for both, as the block tint's). */
+const LIT_RED = new MeshBasicMaterial({ color: "#ff3a24" });
+const LIT_GREEN = new MeshBasicMaterial({ color: "#3dff6e" });
 /** The semaphore kit's arm raised at clear (as the kit's motion). */
 const SEMAPHORE_CLEAR = 0.7;
 /** How long an arm takes to glide between red and clear (s). */
@@ -85,6 +94,47 @@ export interface MarkModels {
 
 const KIT_OF: Record<Exclude<Look, "plain">, PieceTypeId> = { semaphore: "kit-semaphore-signal", "colour-light": "kit-colour-light-signal", gantry: "kit-signal-gantry" };
 
+/**
+ * The Signal's tray picture: the toy colour light alone, both lamps lit (it reads as a signal at a glance, not as
+ * track: the user's "signals look like tracks when placing"), turned to face the camera.
+ */
+export function signalThumbnail(mats: Materials): Group {
+  const g = new Group();
+  for (const p of toyLight(mats)) {
+    if (p.role === "fixed" && p.material !== mats.naturalWood && p.shadow === false) continue;
+    const mesh = new Mesh(p.geometry, p.material);
+    mesh.applyMatrix4(new Matrix4().makeTranslation(-(PIECE_LENGTH - 20), 0, -TOY_SIDE).multiply(p.frame));
+    g.add(mesh);
+  }
+  g.rotation.y = 2.3;
+  return g;
+}
+
+/**
+ * The toy colour light (the user: signals "should be green and red lights"): a wooden foot, a cream post and a dark
+ * head beside the track, its red lamp over its green, both lenses facing the trains it guards. The unlit lamps are dim
+ * glass (fixed); the lit one a bright lens just in front of its own (drawn only for the aspect shown, as a kit colour
+ * light's: a change only rewrites the instances).
+ */
+function toyLight(mats: Materials): Part[] {
+  const at = new Matrix4().makeTranslation(PIECE_LENGTH - 20, 0, TOY_SIDE);
+  const fixed = (geometry: BufferGeometry, material: Material, shadow = true): Part => ({ geometry, material, frame: at, role: "fixed", shadow });
+  const lit = (geometry: BufferGeometry, material: Material, role: "red" | "green"): Part => ({ geometry, material, frame: at, role, shadow: false });
+  // (A lens: a short disc, its face toward −x, where trains come from.)
+  const lens = (r: number, y: number, x: number) => new CylinderGeometry(r, r, 1.6, 16).rotateZ(Math.PI / 2).translate(x, y, 0);
+  const headX = -HEAD_D / 2;
+  return [
+    fixed(new CylinderGeometry(5, 6, 3, 16).translate(0, 1.5, 0), mats.naturalWood),
+    fixed(new CylinderGeometry(1.8, 2, TOY_HEIGHT - HEAD_H, 10).translate(0, (TOY_HEIGHT - HEAD_H) / 2, 0), mats.lacquer("#f6f1e6")),
+    fixed(new BoxGeometry(HEAD_D, HEAD_H, HEAD_W).translate(0, TOY_HEIGHT - HEAD_H / 2, 0), mats.lacquer("#2e2a27")),
+    fixed(new SphereGeometry(2.6, 14, 10).translate(0, TOY_HEIGHT + 1, 0), mats.naturalWood),
+    fixed(lens(LENS_R, RED_Y, headX - 0.4), mats.lacquer("#5b1d16"), false),
+    fixed(lens(LENS_R, GREEN_Y, headX - 0.4), mats.lacquer("#1b4424"), false),
+    lit(lens(LENS_R + 0.3, RED_Y, headX - 1.2), LIT_RED, "red"),
+    lit(lens(LENS_R + 0.3, GREEN_Y, headX - 1.2), LIT_GREEN, "green"),
+  ];
+}
+
 export class SignalMarksView {
   readonly group = new Group();
   /** Each look's parts, once its model is loaded (plain's at once). */
@@ -107,19 +157,9 @@ export class SignalMarksView {
     this.parts.set("plain", this.toyParts());
   }
 
-  /** The old toy semaphore, as a signal piece's: base, post and cap fixed; the arm and its stripe moving. */
+  /** The toy colour light's parts (`toyLight`). */
   private toyParts(): Part[] {
-    const at = new Matrix4().makeTranslation(PIECE_LENGTH - 20, 0, TOY_SIDE);
-    const pivot = new Matrix4().makeTranslation(PIECE_LENGTH - 20, TOY_HEIGHT - 8, TOY_SIDE);
-    const fixed = (geometry: BufferGeometry, material: Material): Part => ({ geometry, material, frame: at, role: "fixed", shadow: true });
-    const arm = (geometry: BufferGeometry, material: Material): Part => ({ geometry, material, frame: pivot, role: "arm", red: 0, clear: -TOY_RAISED, shadow: false });
-    return [
-      fixed(new CylinderGeometry(5, 6, 3, 16).translate(0, 1.5, 0), this.mats.naturalWood),
-      fixed(new CylinderGeometry(1.7, 1.9, TOY_HEIGHT, 10).translate(0, TOY_HEIGHT / 2, 0), this.mats.lacquer("#f6f1e6")),
-      fixed(new SphereGeometry(2.6, 14, 10).translate(0, TOY_HEIGHT + 1, 0), this.mats.magnet),
-      arm(new BoxGeometry(4.5, 3, 24).translate(0, 0, 12), this.mats.lacquer("#c8442f")),
-      arm(new BoxGeometry(4.8, 3.3, 3).translate(0, 0, 19), this.mats.lacquer("#f6f1e6")),
-    ];
+    return toyLight(this.mats);
   }
 
   /** A kit look's parts from the library (its model bare of moving parts, and those), or null till it's loaded. */
@@ -370,9 +410,10 @@ export class SignalMarksView {
 /** A mark in the hand: its post and head, and an arrow on the track the way it guards. */
 export function markGhost(mats: Materials): Group {
   const g = new Group();
+  // (As the toy colour light: a cream post, a dark head, its green lamp lit toward the trains it would guard.)
   g.add(new Mesh(new CylinderGeometry(2.2, 2.8, POST_H, 8).translate(0, POST_H / 2, 0), mats.lacquer("#f6f1e6")));
-  const head = new Mesh(new BoxGeometry(8, 11, 6).translate(0, POST_H + 3, 0), mats.lacquer("#39b04a"));
-  g.add(head);
+  g.add(new Mesh(new BoxGeometry(HEAD_D, HEAD_H, HEAD_W).translate(0, POST_H + HEAD_H / 2 - 4, 0), mats.lacquer("#2e2a27")));
+  g.add(new Mesh(new CylinderGeometry(LENS_R + 0.3, LENS_R + 0.3, 1.6, 12).rotateZ(Math.PI / 2).translate(-HEAD_D / 2 - 1, POST_H + 2, 0), LIT_GREEN));
   // (The arrow lies on the track, pointing the way trains it guards go: local +x, set by `placeGhost`.)
   const arrow = new Mesh(new ConeGeometry(9, 22, 3).rotateZ(-Math.PI / 2), new MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.9, depthTest: false }));
   arrow.name = "arrow";

@@ -15,7 +15,7 @@ import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, placeGhost } from "../render/signal-marks-view";
 import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
 import { topologyOf, trainLength } from "../economy/sections";
-import type { SignalStyle } from "../track";
+import { SIGNAL_MODES, type SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
 import { powerOf, WIND_TURBINE } from "./power";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -774,13 +774,26 @@ export class Interaction {
       return;
     }
     let id = m.moving;
-    if (id === -1) id = ed.addSignal(m.target);
-    else if (this.game.layout.getSignal(id)?.at !== m.target) ed.moveSignal(id, m.target);
-    if (id === -1) return;
+    if (id === -1) {
+      // (A new one: a pair, one each way on the joint (the user: lights "on both sides of the track"), as one undo step.)
+      const ids = ed.addSignals(this.pairOf(m.target));
+      id = ids[0] ?? -1;
+      if (id === -1) return;
+      this.hud.toast(ids.length > 1 ? "Signals placed, one each way" : "Signal placed", false, 2400);
+      return;
+    }
+    if (this.game.layout.getSignal(id)?.at !== m.target) ed.moveSignal(id, m.target);
     // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
-    this.hud.toast("Signal placed. Tap here to turn it round", false, 3600, () => {
+    this.hud.toast("Signal moved. Tap here to turn it round", false, 3600, () => {
       if (this.game.layout.getSignal(id) && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
     });
+  }
+
+  /** A joint end and its other end (one signal each way), each only if no signal faces that way there yet. */
+  private pairOf(at: number): number[] {
+    const layout = this.game.layout;
+    const other = layout.joinedConnector(at);
+    return [at, other].filter((a) => a !== -1 && !layout.signalAt(a));
   }
 
   /** The Signal tool on (tapped in the tray) or off. */
@@ -818,7 +831,7 @@ export class Interaction {
     return inTunnel(this.game.landscape, w.x, w.z, w.y);
   }
 
-  /** With the Signal tool: one on the joint nearest a tap on the track, facing away from the camera. */
+  /** With the Signal tool: a pair on the joint nearest a tap on the track, one each way (or the one way still free). */
   private placeSignalAt(x: number, y: number): void {
     const layout = this.game.layout;
     const ground = this.groundAt(x, y);
@@ -839,7 +852,7 @@ export class Interaction {
       this.hud.refuse(SIGNAL_DARK);
       return;
     }
-    this.editor().addSignal(at);
+    this.editor().addSignals(this.pairOf(at));
     this.game.invalidate();
   }
 
@@ -906,7 +919,7 @@ export class Interaction {
     this.game.invalidate();
   }
 
-  /** The Signal tool's drag let go: its signals put down (one undo step); hardly moved, a tap: one on the nearest joint. */
+  /** The Signal tool's drag let go: its signals put down, a pair at each joint (one undo step); hardly moved, a tap: a pair on the nearest joint. */
   private endSignalRun(m: Extract<Mode, { kind: "signal-run" }>, x: number, y: number): void {
     this.clearRun(m);
     this.mode = { kind: "idle" };
@@ -917,7 +930,7 @@ export class Interaction {
     }
     const ats = m.ats.filter((at) => !this.jointInTunnel(at));
     if (ats.length < m.ats.length) this.hud.toast(SIGNAL_DARK);
-    if (ats.length > 0) this.editor().addSignals(ats);
+    if (ats.length > 0) this.editor().addSignals(ats.flatMap((at) => this.pairOf(at)));
   }
 
   /** The signal mark whose post is under a screen point (CSS px), with a fingertip's slack on touch; −1: none. */
@@ -927,7 +940,7 @@ export class Interaction {
     return g.marksView.pick(x - r.left, y - r.top, g.camera, r.width, r.height, touch ? 20 : 8);
   }
 
-  /** A tap on a signal: held at red, or let go (the toy: signals spec §4, the user's decision 1). */
+  /** A tap on a signal: held at red (Always red), or let go (Auto) (the toy: signals spec §4, the user's decision 1). */
   private tapMark(id: number): void {
     if (!this.game.layout.getSignal(id)) return;
     this.game.sim.toggleMark(id);
@@ -946,9 +959,15 @@ export class Interaction {
 
   /** The styles a signal cycles through on its card, and their names. */
   private static readonly STYLES: readonly SignalStyle[] = ["plain", "semaphore", "colour-light"];
-  private static readonly STYLE_NAMES: Record<SignalStyle, string> = { plain: "Plain", semaphore: "Semaphore", "colour-light": "Colour light" };
+  private static readonly STYLE_NAMES: Record<SignalStyle, string> = { plain: "Lamps", semaphore: "Semaphore", "colour-light": "Colour light" };
+  /** A signal's modes on its card, in `SIGNAL_MODES`' order. */
+  private static readonly MODES: readonly { label: string; title: string; lamps: readonly ("red" | "green")[] }[] = [
+    { label: "Auto", title: "Red while a train is on the line ahead, else green", lamps: ["red", "green"] },
+    { label: "Always red", title: "Stop every train here (a tap on the signal does too)", lamps: ["red"] },
+    { label: "Always green", title: "Let trains past whatever is ahead. They still keep their distance and never bump", lamps: ["green"] },
+  ];
 
-  /** The open signal's card: guards which way, Turn round, Hold at red, Style, Remove; and if it's too short to wait at. */
+  /** The open signal's card: guards which way, its mode (Auto, Always red, Always green), Turn round, Style, Remove; and if it's too short to wait at. */
   private showMarkCard(): void {
     const g = this.game;
     const id = this.selectedMark;
@@ -959,16 +978,21 @@ export class Interaction {
       return;
     }
     this.hud.showPieceCard(false, "Signal: guards this way →", false, false, false, this.markWaits(m.at) ? "" : "Too short for a train to wait here");
+    // How it works (the user: "auto or forced on or off"): Auto, Always red (a tap holds it so too), Always green.
+    this.hud.showSignalModes(Interaction.MODES, SIGNAL_MODES.indexOf(m.mode), (i) => {
+      g.sim.setMarkMode(id, SIGNAL_MODES[i]);
+      this.onSwitched?.();
+      g.invalidate();
+      if (this.selectedMark === id) this.showMarkCard();
+    });
     this.hud.showLevers(
       [
         { label: "Turn round", title: "Guard trains going the other way" },
-        { label: m.held ? "Let go" : "Hold at red", title: m.held ? "Let trains past it again" : "Stop trains at it" },
-        { label: `Style: ${Interaction.STYLE_NAMES[m.style]}`, title: "Plain, semaphore or colour light" },
+        { label: `Style: ${Interaction.STYLE_NAMES[m.style]}`, title: "Lamps, semaphore or colour light" },
       ],
       (i) => {
         if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
-        if (i === 1) this.tapMark(id);
-        if (i === 2) {
+        if (i === 1) {
           const k = Interaction.STYLES.indexOf(m.style);
           this.editor().setSignalStyle(id, Interaction.STYLES[(k + 1) % Interaction.STYLES.length]);
         }

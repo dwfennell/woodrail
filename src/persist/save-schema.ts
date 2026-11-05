@@ -77,9 +77,10 @@ export const saveSchema = z.object({
   pinned: z.array(z.number().int().positive()).optional(),
   /**
    * Signal marks on joints (signals spec §9), each as the joint end it guards from (piece id, connector index), its
-   * style and whether it's held at red (optional: older saves have none).
+   * style and its mode: true held at red (Always red, or a tap), false Auto, "green" Always green (optional: older saves
+   * have none; before modes it was only held or not, so an old save's hold is Always red).
    */
-  signals: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.enum(["plain", "semaphore", "colour-light"]), z.boolean()])).optional(),
+  signals: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.enum(["plain", "semaphore", "colour-light"]), z.union([z.boolean(), z.literal("green")])])).optional(),
   /**
    * Points' defaults (the way the player last set them by hand, which routes put them back to), only where one differs
    * from how the switch is set (optional: older saves, and points not named, default to how they're set).
