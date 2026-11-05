@@ -8,6 +8,8 @@ import { STATION_CRANE_AT } from "../game/world";
 import { AUTO_HEIGHT, AUTO_LENGTH, AUTO_WIDTH, BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
+import { compactVertices } from "./compact-vertices";
+import { gpuOnly } from "./gpu-only";
 import { setCullBox, tileAt } from "./dressing/tiles";
 import type { Materials } from "./materials";
 import { TIMBER_DECK } from "./train-models";
@@ -966,6 +968,8 @@ export class DepotView {
     }
     // Yards reach about 250 mm from their track's middle.
     setCullBox(statics, sites.flatMap(({ at: p }) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
+    // Only drawn, and picked by a ray (a tap opens a depot): positions kept, the rest freed once on the GPU.
+    gpuOnly(statics, { pickable: true });
     this.group.add(statics);
     this.tiles.set(key, statics);
   }
@@ -977,7 +981,10 @@ export class DepotView {
     this.clockSink = (id, at) => clocks.push([id, at]);
     this.buildStatic(site, b, true, "instanced");
     this.clockSink = null;
-    return { parts: b.merged(), clocks };
+    // (Kept to merge each time its tile is built again: in compact vertices, as the tile's meshes are then too.)
+    const parts = b.merged();
+    for (const g of parts.values()) compactVertices(g);
+    return { parts, clocks };
   }
 
   /**
