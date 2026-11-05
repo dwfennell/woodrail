@@ -65,6 +65,10 @@ export const PROP_TABS: readonly PropTab[] = [
         label: "Farm & industry",
         assets: ["bldg-farmhouse", "bldg-red-barn", "bldg-silo", "bldg-windmill", "bldg-watermill", "bldg-dairy", "bldg-sawmill", "bldg-factory", "bldg-warehouse"],
       },
+      // Design assets (spec 2026-11-05): looks only, not in Game mode. A grand project at each build stage; the
+      // landmark a city puts up when it settles on its path.
+      { label: "Grand projects", assets: ["grand-exhibition", "grand-cathedral", "grand-royal-train", "grand-central", "grand-ferris-wheel"].flatMap((p) => [1, 2, 3].map((n) => `${p}-${n}`)) },
+      { label: "Town paths", assets: ["path-engine-works", "path-guildhall", "path-pier", "path-observatory", "path-customs-house"] },
     ],
   },
   {
@@ -91,6 +95,8 @@ export const PROP_TABS: readonly PropTab[] = [
       { label: "Rocks & water", assets: ["scene-rocks", "scene-mountain", "scene-cliff", "scene-waterfall", "scene-lily-pond", "scene-river-bend", "scene-beach"] },
       { label: "Farm", assets: ["scene-crop-rows", "scene-haystacks", "scene-scarecrow", "scene-beehives"] },
       { label: "Outdoors", assets: ["scene-tent", "scene-campfire", "scene-picnic", "scene-snowman"] },
+      // Secret sites (spec 2026-11-05): each before it's found and after.
+      { label: "Secrets", assets: ["secret-lost-mine", "secret-castle", "secret-lake", "secret-shipwreck", "secret-stones", "secret-footprint"].flatMap((id) => [`${id}-hidden`, id]) },
     ],
   },
   {

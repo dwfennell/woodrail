@@ -11,6 +11,10 @@ const FILES = {
   veh: () => import("./assets/vehicles"),
   life: () => import("./assets/life"),
   scene: () => import("./assets/scenery"),
+  // Design assets (spec 2026-11-05): Sandbox shelves only, not in Game mode.
+  grand: () => import("./assets/grand"),
+  secret: () => import("./assets/secrets"),
+  path: () => import("./assets/paths"),
 } as const;
 
 export type CatalogueFile = keyof typeof FILES;
