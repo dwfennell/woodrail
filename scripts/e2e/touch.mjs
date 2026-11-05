@@ -1286,10 +1286,12 @@ function openGroundScript() {
   };
   // `points`: the footprint, as [dx, dz] from the spot (no more than 216 mm apart along a run, so a hill between two
   // can't be missed). The first spot, outward from the view's target, where all are clear.
+  // (`from`: where to search outward from, instead of the view's target: a group that mustn't hang on where the steps
+  // before left the view.)
   window.__openGround = async (points, opts = {}) => {
     await ready();
     const w = window.woodrail;
-    const t = w.controls.target;
+    const t = opts.from ?? w.controls.target;
     const b = w.director.bounds;
     const reach = Math.max(...[[b.x0, b.z0], [b.x0, b.z1], [b.x1, b.z0], [b.x1, b.z1]].map(([x, z]) => Math.hypot(x - t.x, z - t.z)));
     for (let d = 0; d <= Math.min(reach, 40000); d += 54) {
@@ -3598,6 +3600,10 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     const scratch = [...L.pieceIds()].filter((id) => id !== gap);
     let g = null;
     let turn = 0;
+    // (Searched from the middle of where the view can go, not from wherever the groups before left the view: run after
+    // `routes`, the view elsewhere, the line went to the land's edge and the tray's straight didn't snap there, 2026-11-05.)
+    const bounds = w.director.bounds;
+    const from = { x: (bounds.x0 + bounds.x1) / 2, z: (bounds.z0 + bounds.z1) / 2 };
     const turned = (q, th) => ({ x: q.x * Math.cos(th) - q.z * Math.sin(th), z: q.x * Math.sin(th) + q.z * Math.cos(th), heading: q.heading + th });
     for (let k = 0; k < 4 && !g; k++) {
       turn = (k * Math.PI) / 2;
@@ -3610,7 +3616,7 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
           const c = checkPlacement(w.landscape, q.type, q.flipped, { x: x + t.x, z: z + t.z, heading: t.heading }, 0);
           return c.kind === "clear" || (id !== gap && c.reason === "off-mat");
         });
-      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(gap), ok });
+      g = await window.__openGround([...L.pieceIds()].flatMap(pts), { pieceGap: 450, propGap: 350, onLand: pts(gap), ok, from });
     }
     if (!g) throw new Error("no open ground for the line, its gap on the land");
     const at = (q) => { const t = turned(q, turn); return { x: g.x + t.x, z: g.z + t.z, heading: t.heading }; };
