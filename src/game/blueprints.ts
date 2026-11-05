@@ -217,9 +217,9 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   // Signals and routes (the user, 2026-11-05: "probably signals and routes should be in the same tech tree item"): one
   // row, so a player who starts routing trains has block control the same moment (without signals a network with no
   // passing place is one block, and routed trains wait for each other across the map: #29). Its price is about the two
-  // old rows' (Train routes 5 planks and 40 coins, Signals 4 planks), Signals' share in coins: planks are what the
-  // early game is short of (with 9 planks, 3 of the 9 balance seeds went 45 min with no planks into a town; at 5 and
-  // 60 coins, see the commit). Old saves' "signals" is this row (`RENAMED`).
+  // old rows' (Train routes 5 planks and 40 coins, Signals 4 planks) in value, in coins more than planks: planks are
+  // what the early game is short of. Balance seeds 1-29: 9 planks + 40 coins missed 3 of the first 9; 5 + 60, 1 of 9
+  // (and 5 of 20 more); 4 + 60, 3 of 29, as main (3 of 29). Old saves' "signals" is this row (`RENAMED`).
   row({ id: "routes", label: "Signals and routes", short: "Signals and routes", branch: "logistics", tier: 2, key: true, needs: ["switches"], price: { planks: 4, coins: 60 }, blurb: "Signals split a line into blocks, so trains follow each other closer and wait for each other at a loop. And routes: give a train its stops, and it sets the switches on its way.", brings: "Signal, routes on the engine card", how: "Tap a train, then Plan a route", feature: { label: "Routes on the engine card", icon: "🗺️" } }),
   row({ id: "warehouses", label: "Warehouses", branch: "logistics", tier: 2, key: true, needs: ["routes"], price: { planks: 8, coins: 80 }, blurb: "Keep goods for later: routed trains drop them off and pick them up.", brings: "Warehouse" }),
   // Depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md): the Goods yard planned here (a warehouse of three

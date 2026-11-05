@@ -17,7 +17,7 @@ describe("research costs", () => {
     // The passenger line: light on planks, and from tier 2 mostly coins (P5).
     expect(costOf("halts")).toEqual({ goods: { planks: 6 } });
     expect(costOf("express")).toEqual({ goods: { planks: 10 }, coins: 240 });
-    expect(costOf("routes")).toEqual({ goods: { planks: 5 }, coins: 60 });
+    expect(costOf("routes")).toEqual({ goods: { planks: 4 }, coins: 60 });
     expect(costOf("mills")).toEqual({ goods: { planks: 6, grain: 6 }, coins: 40 });
     expect(costOf("goods-engine")).toEqual({ goods: { planks: 6, flour: 6 }, coins: 80 });
     expect(costOf("electricity")).toEqual({ goods: { iron: 10, coal: 10 }, coins: 240 });
