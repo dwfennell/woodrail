@@ -51,15 +51,6 @@ function keepsOf(d: DepotState): { keeps?: Partial<Record<CargoKind, number>> } 
 
 /** A depot's landed goods, for its save entry (none: nothing). */
 /** A warehouse's store settings for its save: only what isn't the default (nothing listed, everything taken and given). */
-/** An industry's further tracks as saved (depot tracks): their pieces still on the map; nothing with none. */
-function tracksSaved(world: World, depotId: number): { tracks?: { roads: number[]; ends: number[]; ladder: number[] } } {
-  const t = world.economy.tracksOf(depotId);
-  if (!t) return {};
-  const on = (id: number) => !!world.layout.getPiece(id);
-  const roads = t.roads.map((r) => r.pieceId).filter(on);
-  return roads.length > 0 ? { tracks: { roads, ends: t.ends.filter(on), ladder: t.ladder.filter(on) } } : {};
-}
-
 function storeOf(d: DepotState): { modes?: Partial<Record<CargoKind, StoreMode>>; others?: StoreMode } {
   const modes: Partial<Record<CargoKind, StoreMode>> = {};
   let any = false;
@@ -79,6 +70,15 @@ function landedOf(world: World, depotId: number): { landed?: number[] } {
 }
 
 /** A station's van yard (roads spec D5), its goods riding the van counted too (they're back on the yard on loading). */
+/** An industry's further tracks as saved (depot tracks): their pieces still on the map; nothing with none. */
+function tracksSaved(world: World, depotId: number): { tracks?: { roads: number[]; ends: number[]; ladder: number[] } } {
+  const t = world.economy.tracksOf(depotId);
+  if (!t) return {};
+  const on = (id: number) => !!world.layout.getPiece(id);
+  const roads = t.roads.map((r) => r.pieceId).filter(on);
+  return roads.length > 0 ? { tracks: { roads, ends: t.ends.filter(on), ladder: t.ladder.filter(on) } } : {};
+}
+
 function vanYardOf(world: World, depotId: number): { vanYard?: Record<string, number> } {
   const y = world.economy.vanYard.get(depotId);
   return y && Object.values(y).some((n) => (n ?? 0) > 0) ? { vanYard: { ...y } as Record<string, number> } : {};

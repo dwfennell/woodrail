@@ -3,9 +3,9 @@ import { kindsOf } from "../economy/goods";
 import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
 import { ruleOf, type ThingId } from "./things";
-import { hasPostOffice, postLine, POST_TECH } from "./post";
 import { statusOf } from "./town-life";
 import { FULL_PAY, townLevel } from "./towns";
+import { hasPostOffice, postLine, POST_TECH } from "./post";
 import { DEPOT_NAMES, depotName, type World } from "./world";
 import { townLinks } from "../roads/graph";
 

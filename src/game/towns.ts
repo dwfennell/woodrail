@@ -102,7 +102,7 @@ export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit", 
 
 /**
  * Goods a town always buys at the full price, at any level, and never needs to grow: everyday food, building goods
- * (bricks), new cars, oil and water (Tank wagons), and the toy chain's flowers, paint and toys (2026-11-04), and the post. The town card's "Always buys …" line, the News's first-of-a-good milestone and pay read this.
+ * (bricks), new cars, oil and water (Tank wagons), the toy chain's flowers, paint and toys (2026-11-04), and the post. The town card's "Always buys …" line, the News's first-of-a-good milestone and pay read this.
  */
 export const FULL_PAY: ReadonlySet<CargoKind> = new Set([...FOODS, "bricks", "autos", "oil", "water", "flowers", "paint", "toys", "post"]);
 

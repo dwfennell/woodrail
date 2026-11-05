@@ -2,7 +2,7 @@ import type { CarKind } from "../sim";
 
 export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish" | "oil" | "water" | "sugar" | "jam" | "cocoa" | "chocolate" | "flowers" | "paint" | "toys" | "mail" | "post";
 
-/** Cargo kinds (in snapshot-index order; indices can leave gaps: `CARGO[k].index`, `CARGO_SLOTS`). */
+/** Cargo kinds by snapshot index. */
 export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys", "mail", "post"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
@@ -49,7 +49,7 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   paint: { index: 26, label: "Paint" },
   toys: { index: 27, label: "Toys" },
   // The post (Post office): sacks of letters a town posts, and the post a post office sorts of them for towns. (From
-  // 30: 19-27 are tank wagons' and the goods chains'; 28-29 are unused.)
+  // 30, the coordinator's range for it: 28-29 are unused.)
   mail: { index: 30, label: "Mail" },
   post: { index: 31, label: "Post" },
 };

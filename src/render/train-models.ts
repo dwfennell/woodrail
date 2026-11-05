@@ -1,4 +1,4 @@
-import { Box3, BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Material, type Object3D } from "three";
+import { Box3, BoxGeometry, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Material, type Object3D } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { CarKind, CarLook } from "../sim";
 import { TRACK_THICKNESS } from "../track";
@@ -46,6 +46,9 @@ export const LIVERY_SLOTS: Readonly<Partial<Record<CarLook, { body: readonly str
   diesel: { body: ["#e6b52c"], trim: [] },
   electric: { body: ["#c8442f"], trim: ["#f0ebe0"] },
   express: { body: ["#1f5aa6"], trim: ["#e6b52c"] },
+  // (The rack engine is the tank engine's model, the metro's the electric's: painted, their own schemes give way.)
+  rack: { body: ["#2f6db5"], trim: ["#c8442f"] },
+  metro: { body: ["#c8442f"], trim: ["#f0ebe0"] },
 };
 
 /** A livery's recolour map for an engine of `look` (body and trim to the livery's). */
@@ -56,6 +59,35 @@ export function liveryRecolor(look: CarLook, livery: { body: string; trim: strin
   for (const c of slots.body) out[c] = livery.body;
   for (const c of slots.trim) out[c] = livery.trim;
   return out;
+}
+
+/** The metro train's colours over the electric engine's (red, cream) and the coach's (blue, cream): silver and red. */
+const METRO_SCHEME: Readonly<Record<string, string>> = { "#c8442f": "#c9ccd1", "#2f6db5": "#c9ccd1", "#f0ebe0": "#c8442f" };
+
+/** The rack engine's colours over the tank engine's (blue and red): claret and gold. */
+const RACK_SCHEME: Readonly<Record<string, string>> = { "#2f6db5": "#7a2a3a", "#c8442f": "#d9a93a" };
+
+/** The rack engine's cog: a toothed wheel between its frames, low over the rack's strip (it turns with the wheels). */
+function rackCog(mats: Materials): Object3D {
+  const cog = new Group();
+  cog.name = "wheel_cog";
+  const metal = mats.lacquer("#2a2b2e");
+  const disc = new Mesh(new CylinderGeometry(6, 6, 5, 16), metal);
+  disc.rotation.x = Math.PI / 2;
+  cog.add(disc);
+  for (let k = 0; k < 10; k++) {
+    const tooth = new Mesh(new BoxGeometry(2.2, 3, 5), metal);
+    const a = (k / 10) * Math.PI * 2;
+    tooth.position.set(Math.cos(a) * 7, Math.sin(a) * 7, 0);
+    tooth.rotation.z = a;
+    cog.add(tooth);
+  }
+  // (Its lowest teeth just over the strip, 2.5 mm proud of the track's top.)
+  cog.position.set(0, TRACK_THICKNESS + 2.5 + 8.5, 0);
+  cog.traverse((o) => {
+    if ((o as Mesh).isMesh) (o as Mesh).castShadow = true;
+  });
+  return cog;
 }
 
 /** A body panel shorter or lower than this (mm) gets no stripe (a dome, a handrail, a lamp's box). */
@@ -120,9 +152,18 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   if (kind === "mailvan") return codeCarModel(mats, "mailvan", buildMailVan, mailVanBogies);
   if (kind === "sortvan") return codeCarModel(mats, "sortvan", buildSortingVan, mailVanBogies);
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
-  // (Painted at the paint shop: its livery; else the classic engine's second scheme on every other one.)
-  const recolor = kind === "engine" && livery ? liveryRecolor(look, livery) : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
-  const model = blenderCar(kind, look, mats, lamp, recolor, CAR_SLOTS[kind]);
+  const rack = kind === "engine" && look === "rack";
+  const metro = look === "metro";
+  // (Painted at the paint shop: its livery; else the classic engine's second scheme on every other one. The rack engine
+  // is the tank engine's model in its own colours, with a cog under it; the metro train is the electric engine and a
+  // coach in silver and red.)
+  const recolor = kind === "engine" && livery ? liveryRecolor(look, livery) : rack ? RACK_SCHEME : metro ? METRO_SCHEME : variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
+  const model = blenderCar(kind, rack ? "tank" : metro ? (kind === "engine" ? "electric" : "classic") : look, mats, lamp, recolor, CAR_SLOTS[kind]);
+  if (rack) {
+    const cog = rackCog(mats);
+    model.root.add(cog);
+    model.wheels.push(cog);
+  }
   // (A lined or rainbow livery: its stripe painted along the body's sides.)
   if (kind === "engine" && livery?.stripes?.length) addStripes(model.root, mats, LIVERY_SLOTS[look] ? [mats.lacquer(livery.body)] : [], livery.stripes);
   model.root.traverse((o) => (o.userData.carKind = kind));

@@ -1,5 +1,6 @@
 import { BoxGeometry, CylinderGeometry, ExtrudeGeometry, Matrix4, MeshBasicMaterial, Path, Shape, Vector2, Vector3, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import polygonClipping, { type Polygon } from "polygon-clipping";
 import { ADDITION, type Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import { CsgBrush, csgEvaluate } from "./csg-brush";
@@ -11,6 +12,7 @@ import {
   GIRDER_PIER,
   GROOVE_SPACING,
   isRamp,
+  isRack,
   isTunnelMouth,
   pathLength,
   RISER_HEIGHT,
@@ -303,6 +305,7 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
 
   // (`levels` for an underpass: its block's plinth down off a hill's edge.)
   if (def.type === "underpass") result = csgEvaluate(evaluator, result, trenchBrush(def, levels * RISER_HEIGHT), ADDITION);
+  if (isRack(def.type)) result = csgEvaluate(evaluator, result, brush(rackStrip(def), CUT), ADDITION);
   if (isTunnelMouth(def.type)) result = csgEvaluate(evaluator, result, mouthBrush(def), ADDITION);
 
   // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
@@ -344,6 +347,51 @@ function loopGeometry(def: PieceDef): BufferGeometry {
   const out = slotGroups(result);
   out.computeBoundingBox();
   out.computeBoundingSphere();
+  return out;
+}
+
+/** A rack's strip: this wide, standing this far proud of the track's top, its teeth this far apart (mm). */
+const RACK_HALF = 3.5;
+const RACK_PROUD = 1.2;
+const RACK_PITCH = 6;
+
+/**
+ * A rack's toothed strip down the middle of its track (between the grooves): a bar sunk a little into the top, with a
+ * row of teeth on it, following the slope. In the carved wood's darker shade (the grooves' slot).
+ */
+function rackStrip(def: PieceDef): BufferGeometry {
+  const geom = def.paths[0].geom;
+  const len = pathLength(geom);
+  const h = TRACK_THICKNESS;
+  const bar: ProfilePoint[] = [
+    { u: -RACK_HALF, v: h - 0.6, smooth: false },
+    { u: RACK_HALF, v: h - 0.6, smooth: false },
+    { u: RACK_HALF, v: h + RACK_PROUD, smooth: false },
+    { u: -RACK_HALF, v: h + RACK_PROUD, smooth: false },
+  ];
+  // (In from each end, so its pegs and holes stay clear.)
+  const inset = 14;
+  const frames = framesAlong(geom, 0, 0).filter((f) => f.s >= inset && f.s <= len - inset);
+  const parts: BufferGeometry[] = [nonIndexed(sweep(bar, frames))];
+  const p = createSample();
+  const q = createSample();
+  const m = new Matrix4();
+  for (let s = inset + RACK_PITCH / 2; s <= len - inset - RACK_PITCH / 2; s += RACK_PITCH) {
+    samplePath(geom, s, p);
+    samplePath(geom, Math.min(len, s + 1), q);
+    const pitch = Math.atan2(q.y - p.y, Math.hypot(q.x - p.x, q.z - p.z));
+    const tooth = new BoxGeometry(2.4, 1.6, RACK_HALF * 2 - 0.6);
+    // Box along x (the path), up y, across z; turned to the path's heading and slope, on the bar's top.
+    m.makeRotationZ(pitch);
+    tooth.applyMatrix4(m);
+    m.makeRotationY(-p.heading);
+    tooth.applyMatrix4(m);
+    tooth.translate(p.x, p.y + h + RACK_PROUD + 0.6, p.z);
+    parts.push(nonIndexed(tooth));
+  }
+  for (const g of parts) onlyCsgAttributes(g);
+  const out = mergeGeometries(parts);
+  for (const g of parts) g.dispose();
   return out;
 }
 

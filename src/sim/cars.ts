@@ -35,7 +35,7 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
   // The breakdown crane (Game mode's Breakdown crane): a red crane on a heavy wagon that lifts derailed or stuck trains.
   crane: { kind: "crane", index: 11, length: 88, bogieInset: 18, width: 32, mass: 2, powered: false },
   // A mail van (Game mode's Post office): the van's length and running gear, red, with a letter slot.
-  // (Index 15: 10-11 are tank wagons' and the crane; 12-14 are unused.)
+  // (Index 15, the coordinator's range for it: 12-14 are unused.)
   mailvan: { kind: "mailvan", index: 15, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
   // A sorting van (Game mode's Sorting van): a mail van with windows and a mail-bag arm, sorting its mail on the move.
   sortvan: { kind: "sortvan", index: 16, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
@@ -45,11 +45,11 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
  * How a car looks: the same car underneath (length, speed, what it carries), in a different body. Each kind's first
  * look is its usual one.
  */
-export type CarLook = "classic" | "tank" | "diesel" | "electric" | "dining" | "sleeper" | "double-decker" | "bay-window" | "express" | "first-class" | "goods";
+export type CarLook = "classic" | "tank" | "diesel" | "electric" | "dining" | "sleeper" | "double-decker" | "bay-window" | "express" | "first-class" | "goods" | "rack" | "metro";
 export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
-  engine: ["classic", "tank", "diesel", "electric", "express", "goods"],
+  engine: ["classic", "tank", "diesel", "electric", "express", "goods", "rack", "metro"],
   hopper: ["classic"],
-  passenger: ["classic", "dining", "sleeper", "double-decker", "first-class"],
+  passenger: ["classic", "dining", "sleeper", "double-decker", "first-class", "metro"],
   caboose: ["classic", "bay-window"],
   timber: ["classic"],
   van: ["classic"],
@@ -62,7 +62,7 @@ export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
   mailvan: ["classic"],
   sortvan: ["classic"],
 };
-export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods"];
+export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods", "rack", "metro"];
 
 /** In snapshot-index order. */
 export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner", "tanker", "reefer", "carrier", "oiltank", "crane", "mailvan", "sortvan"];
