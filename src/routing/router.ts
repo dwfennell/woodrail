@@ -40,6 +40,8 @@ export const OVERLAP = 30;
  * standing behind another doesn't lock points beyond it.
  */
 export const HAND_LOOK = 80;
+/** How far ahead (mm) a hand-run train giving way looks for points to take another road at (`giveWayRoad`). */
+export const GIVE_WAY_LOOK = 700;
 
 /**
  * Why a routed train waits short of points (§3.3): they're set for (or held by) the train `by` (an engine), or pinned
@@ -166,6 +168,8 @@ export class Router {
   handLooks = 0;
   handMs = 0;
   handWaits = 0;
+  /** Points thrown for a hand-run train giving way (`giveWayRoad`). */
+  gaveWayThrows = 0;
   /**
    * Ticks counted for the looks: one count for routed and hand-run trains alike, so both look on the same tick, the
    * routed first. (Counted apart, a hand-run train's look could come a few ticks before a routed one's just started:
@@ -822,6 +826,75 @@ export class Router {
       this.pending.delete(w.pieceId);
     }
     return null;
+  }
+
+  /**
+   * Giving way (economy/stalls.ts), for a hand-run train in a ring of waits: the facing points just ahead of it (within
+   * `GIVE_WAY_LOOK`, no train before them) thrown to another road, free (no train on it, none of `avoid`'s pieces) and
+   * long enough to hold it clear of them, so the train in its way can pass on theirs. Only points no train holds, locked
+   * by nobody and not pinned; their default is kept (the player's), and they go back to it once it has passed (it locks
+   * them as they lie, step 7). True if thrown. Asked only when a ring has held, so a short walk is cheap.
+   */
+  giveWayRoad(train: Train, avoid: ReadonlySet<number>): boolean {
+    const { layout, sim } = this.host;
+    const net = this.host.drive(train);
+    if (net === 0 || train.derailed || train.bogies.length === 0) return false;
+    const c: Cursor = { ...(net > 0 ? train.bogies[0] : train.bogies[train.bogies.length - 1]) };
+    if (net < 0) flipCursor(layout, c);
+    const piece = layout.getPiece(c.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
+    let exit = c.reversed ? path.from : (path.to ?? -1);
+    let at = c.pieceId;
+    let d = pathLength(path.geom) - c.s;
+    for (let k = 0; k < WALK && d <= GIVE_WAY_LOOK && exit >= 0; k++) {
+      const n = next(layout, at, exit);
+      if (!n || this.otherOn(n.pieceId, train.id) || avoid.has(n.pieceId)) return false;
+      const ways = waysFrom(layout, n.pieceId, n.entry);
+      if (ways.length === 0) return false;
+      if (ways.length > 1) {
+        if (!isPoints(layout, n.pieceId) || layout.isPinned(n.pieceId) || this.locks.has(n.pieceId) || sim.pointsHeld(n.pieceId)) return false;
+        const now = pointsWayFrom(layout, n.pieceId, n.entry, ways.length);
+        const need = trainLength(train) + 2 * STAND_SHORT;
+        for (const w of ways) {
+          if (w.option === now || !this.roadFree(n.pieceId, w.exit, need, train.id, avoid)) continue;
+          this.laid();
+          layout.setSwitchState(n.pieceId, pointsStateFor(layout, n.pieceId, n.entry, w.option));
+          this.gaveWayThrows++;
+          this.onSwitch?.(n.pieceId);
+          return true;
+        }
+        return false;
+      }
+      const p = layout.getPiece(n.pieceId)!;
+      d += pathLength(getPieceDef(p.type, p.flipped).paths[ways[0].path].geom);
+      at = n.pieceId;
+      exit = ways[0].exit;
+    }
+    return false;
+  }
+
+  /**
+   * Is the road out of these points by `exit` free for `need` mm (no train on it, none of `avoid`'s pieces), or up to
+   * the next points (beyond them it can go on)? A dead end shorter than `need` isn't: the train would stand on the points.
+   */
+  private roadFree(pieceId: number, exit: number, need: number, trainId: number, avoid: ReadonlySet<number>): boolean {
+    const layout = this.host.layout;
+    let at = pieceId;
+    let len = 0;
+    for (let k = 0; k < WALK && len < need; k++) {
+      const n = next(layout, at, exit);
+      if (!n) return false;
+      if (avoid.has(n.pieceId) || this.otherOn(n.pieceId, trainId)) return false;
+      const ways = waysFrom(layout, n.pieceId, n.entry);
+      if (ways.length === 0) return false;
+      if (ways.length > 1) return true;
+      const p = layout.getPiece(n.pieceId)!;
+      len += pathLength(getPieceDef(p.type, p.flipped).paths[ways[0].path].geom);
+      at = n.pieceId;
+      exit = ways[0].exit;
+    }
+    return len >= need;
   }
 
   /** Are these points locked for trains other than the one holding `h`? */
