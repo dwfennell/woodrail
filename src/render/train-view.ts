@@ -62,6 +62,8 @@ export class TrainView {
    * Cheap when no crane is at work (one size check).
    */
   hoistOf: (carId: number) => number = () => 0;
+  /** A car's hoist changed in the last `update` (a crane lifting it). */
+  hoisted = false;
   /** Each engine's livery from the paint shop (see `Sim.liveryOf`; null: as it came). */
   liveryOf: (carId: number) => { id: string; body: string; trim: string } | null = () => null;
   /** Each engine's name, painted on its plates (see `Sim.nameOf`). */
@@ -120,6 +122,7 @@ export class TrainView {
   /** Draw the cars where the sim has them. True while a derailed car is still toppling over. */
   update(snap: SimSnapshot, dt: number): boolean {
     let tipping = false;
+    this.hoisted = false;
     const seen = this.seen;
     seen.clear();
     for (let i = 0; i < snap.count; i++) {
@@ -179,7 +182,9 @@ export class TrainView {
       else entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
       if (Math.abs(targetTip - entry.tip) < 0.002) entry.tip = targetTip;
       else tipping = true;
-      if (hoist !== entry.hoist) tipping = true;
+      // (A car lifted higher by a crane: its loads follow it, but the frames are the crane's to ask for, where it's
+      // seen: `Game.poseCranes`.)
+      if (hoist !== entry.hoist) this.hoisted = true;
       entry.hoist = hoist;
       root.rotation.x = entry.tip * (Math.PI / 2) * (id % 2 ? 1 : -1);
       root.position.y = y + entry.tip * 12 + hoist * HOIST_HEIGHT;
