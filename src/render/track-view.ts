@@ -1073,7 +1073,7 @@ export class TrackView {
       const unseen = modelRails(type);
       const near = carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
       const far = Number(levels) === 0 && !unseen ? farGeometry(type, flipped === "1") : null;
-      const mesh = new InstancedMesh(near, unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
+      const mesh = new InstancedMesh(near, unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint, this.mats.viaductStone], ids.length);
       mesh.castShadow = !unseen;
       mesh.receiveShadow = !unseen;
       ids.forEach((id, i) => {

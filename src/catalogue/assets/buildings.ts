@@ -3,6 +3,7 @@ import type { Kit } from "../kit";
 import { catalogueModel, loadModelSet, modelOf } from "../../render/blender-models";
 import { scaleOf } from "../scale";
 import type { Asset } from "../types";
+import { buildObservatory } from "./observatory";
 
 /**
  * Stations & buildings: chunky toy architecture. Beech or lacquered walls, gloss roofs and doors, windows as dark
@@ -91,6 +92,14 @@ export const ASSETS: Asset[] = [
     tags: ["station", "mountain", "chalet", "snow", "alpine", "balcony"],
     notes: "A chalet station with a stone ground floor, timber upper storey and a snow-capped roof. Sits at the top of a climb; trains that reach it could earn a bonus for a hill route.",
     build: model("bldg-mountain-station"),
+  },
+  {
+    id: "bldg-observatory",
+    name: "Observatory",
+    category: CAT,
+    tags: ["observatory", "telescope", "dome", "stars", "hilltop", "station"],
+    notes: "A white tower under a silver dome, its telescope looking out, and a platform along the line. In Game mode, the Observatory research: a halt on a hilltop where stargazers ride to from any town, at three times the fare.",
+    build: (k) => buildObservatory(k),
   },
   {
     id: "bldg-harbour-station",

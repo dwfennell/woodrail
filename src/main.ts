@@ -48,7 +48,7 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, LOOKOUT_KIT, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
@@ -811,7 +811,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const haltReach = new HaltReachView(game.scene, HALT_REACH);
   interaction.onHeld = (type) => {
     heldChains(type);
-    const show = mode === "game" && type !== null && HALT_KITS.has(type) && type !== LOOKOUT_KIT && type !== METRO_KIT;
+    const show = mode === "game" && type !== null && HALT_KITS.has(type) && !isSightStop(type) && type !== METRO_KIT;
     if (show === haltReach.showing) return;
     if (show) haltReach.show(game.landscape);
     else haltReach.hide();

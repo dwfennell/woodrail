@@ -39,6 +39,8 @@ const UNLOCKS: Record<string, ThingId[]> = {
   "big-stations": ["piece:kit-two-platform-station", "piece:kit-grand-terminus"],
   "fun-track": ["piece:kit-train-lift", "piece:kit-loop-the-loop", "piece:kit-buffer-stop-lamp"],
   "fuel-stop": ["piece:kit-fuel-station"],
+  "lift-bridge": ["piece:kit-lift-bridge"],
+  observatory: ["piece:kit-observatory"],
   "loading-kits": ["piece:kit-log-loader", "piece:kit-grain-elevator", "piece:kit-drop-hopper", "piece:kit-goods-shed"],
   "big-cranes": ["piece:kit-gantry-crane", "piece:kit-magnet-crane", "piece:kit-harbour-crane", "piece:kit-cargo-conveyor", "piece:kit-tipping-dump", "piece:kit-coal-chute"],
 };
@@ -65,10 +67,10 @@ describe("railway kits in Game mode", () => {
     for (const id of kits) expect(Object.keys(UNLOCKS), id).toContain(ruleOf(id)!.tech);
   });
 
-  it("their blueprints are built now (no longer coming soon), on their tiers; the viaduct and the lift bridge still wait", () => {
+  it("their blueprints are built now (no longer coming soon), on their tiers; the viaduct and the lift bridge too (tech tree 5)", () => {
     for (const id of Object.keys(UNLOCKS)) expect(built(techOf(id)!), id).toBe(true);
     expect([techOf("signals")!.tier, techOf("junctions")!.tier, techOf("engine-shed")!.tier, techOf("turntable")!.tier, techOf("scenery")!.tier]).toEqual([1, 1, 2, 2, 1]);
-    for (const id of ["viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeDefined();
+    for (const id of ["viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeUndefined();
     const halts = techOf("halts")!;
     expect([halts.branch, halts.needs]).toEqual(["passengers", ["passengers"]]);
     expect(BLUEPRINTS.filter((b) => b.id === "halts")).toHaveLength(1);

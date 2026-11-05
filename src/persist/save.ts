@@ -7,7 +7,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { CAR_LOOKS, Sim } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, givesChoice, pilesOf, RECIPES, type CargoKind, type DepotState, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, pilesOf, RECIPES, type CargoKind, type DepotState, type StoreMode } from "../economy";
 
 import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, pieceOfRef, relaxJoints, pathLength, angleDiff, isLift, type SignalStyle, type Pose, type RelaxOptions } from "../track";
 import { joinSavedLine, LINE_COLOURS, MAX_VIAS, type SavedLine } from "../game/lines";
@@ -361,7 +361,9 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     }
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);
-    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capAt(state), d.piles[CARGO[kind].index] ?? 0) : 0;
+    // (A warehouse's piles may have stacked higher with Lift and load, set again with the research after the load.)
+    const cap = state.role === "warehouse" ? capAt(state) * LIFT_STACK : capAt(state);
+    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(cap, d.piles[CARGO[kind].index] ?? 0) : 0;
     state.timer = d.timer;
     if (d.role === "town") state.waiting = d.waiting ?? 0;
     if (d.role === "town" && d.vanYard) {

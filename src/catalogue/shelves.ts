@@ -25,6 +25,7 @@ export const PROP_TABS: readonly PropTab[] = [
         assets: [
           "bldg-country-halt",
           "bldg-mountain-station",
+          "bldg-observatory",
           "bldg-harbour-station",
           "bldg-signal-box",
           "bldg-ticket-booth",
@@ -247,6 +248,7 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-turntable",
           "mech-transfer-table",
           "mech-train-lift",
+          "mech-lift-bridge",
           // The buffer stop (a kit piece: the buffer's track, the model drawn on it), and crossing styles (props dropped
           // on a level crossing: src/landscape/crossing-styles.ts). (The signal skins are a Signal's styles now, on its
           // card: signals spec §4, §9. Their pieces in old saves still load and work.)
@@ -292,7 +294,6 @@ export const RAIL_HELD_BACK: readonly string[] = [
   "mech-rope-bridge",
   "mech-bascule-bridge",
   "mech-swing-bridge",
-  "mech-lift-bridge",
   "mech-road-over-rail",
   "mech-river-ford",
 ];

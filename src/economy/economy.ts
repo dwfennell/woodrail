@@ -1,4 +1,4 @@
-import { getPieceDef, isKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { getPieceDef, isKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, CARGO_SLOTS, canCarry, POSTAL, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -193,8 +193,12 @@ export const MAX_SHEDS = 3;
 
 /** How much each pile of this depot holds: its kind's, and its dock sheds' (a harbour's). */
 export function capAt(d: DepotState): number {
-  return capOf(d.role) + d.sheds * SHED_CAP;
+  return capOf(d.role) * (d.stack ?? 1) + d.sheds * SHED_CAP;
 }
+
+/** Lift and load (Game mode): a warehouse's piles stack this many times as high, and its crane lifts `LIFT_LOADS` a move. */
+export const LIFT_STACK = 3;
+export const LIFT_LOADS = 2;
 
 export function pilesOf(role: DepotRole): CargoKind[] {
   const r = RECIPES[role];
@@ -343,6 +347,8 @@ export interface DepotState {
   timer: number;
   /** How fast it makes things, against its recipe (an industry near fewer of its resource is slower; 0 stops it). */
   rate: number;
+  /** Its piles stack this many times as high (a warehouse with Lift and load: `LIFT_STACK`); 1 or unset otherwise. */
+  stack?: number;
   /** Where wagons stop for the crane: distance (mm) from the depot path's `from` end. */
   readonly craneAt: number;
   /** People waiting at a town's station for a coach (Game mode's passengers). */
@@ -369,6 +375,8 @@ export interface DepotState {
 export interface Riders {
   count: number;
   from: number;
+  /** They've been over a bridge or along a hilltop on this ride (an observation car's riders pay more: `markScenic`). */
+  scenic?: boolean;
 }
 
 export interface CarCargo {
@@ -796,6 +804,7 @@ export class Economy {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
     const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both", keeps: Array.from({ length: CARGO_SLOTS }, () => null) };
+    if (role === "warehouse" && this.liftLoad) d.stack = LIFT_STACK;
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
@@ -1175,7 +1184,17 @@ export class Economy {
   setRiders(carId: number, count: number, from: number): void {
     this.loadsVersion++;
     if (count <= 0) this.riders.delete(carId);
-    else this.riders.set(carId, { count, from });
+    else {
+      // (Riders getting off or on keep the view the coach has had: not saved, a load starts the ride's view afresh.)
+      const scenic = this.riders.get(carId)?.scenic;
+      this.riders.set(carId, scenic ? { count, from, scenic } : { count, from });
+    }
+  }
+
+  /** The people on this coach have had a view (over a bridge, along a hilltop): see `Riders.scenic`. */
+  markScenic(carId: number): void {
+    const r = this.riders.get(carId);
+    if (r && !r.scenic) r.scenic = true;
   }
 
   /**
@@ -1210,9 +1229,14 @@ export class Economy {
     return !route || this.picksAt(route, d, null);
   }
 
-  /** Is this a lookout halt's stop (`LOOKOUT_KIT`): a destination for riders from anywhere, where no one lives? */
+  /**
+   * Is this a lookout halt's stop (`LOOKOUT_KIT`), or an observatory's (`OBSERVATORY_KIT`): a destination for riders
+   * from anywhere, where no one lives?
+   */
   isLookout(d: DepotState | undefined): boolean {
-    return !!d && d.role === "town" && this.layout.getPiece(d.pieceId)?.type === LOOKOUT_KIT;
+    if (!d || d.role !== "town") return false;
+    const type = this.layout.getPiece(d.pieceId)?.type;
+    return type === LOOKOUT_KIT || type === OBSERVATORY_KIT;
   }
 
   /** Is this a metro stop's depot (`METRO_KIT`): a quarter of its town of its own? */
@@ -2409,8 +2433,9 @@ export class Economy {
         const r = this.riders.get(s.carId);
         if (alight) {
           const from = this.depots[r!.from];
-          this.setRiders(s.carId, r!.count - 1, r!.from);
+          // (Paid while still aboard: the fare reads what the coach's riders have had, `Riders.scenic`.)
           if (from) this.onAlight?.(from, d, s.carId);
+          this.setRiders(s.carId, r!.count - 1, r!.from);
           this.stationNote("off", d.pieceId, s.trainId, s.carId);
         } else {
           d.waiting--;
@@ -2441,7 +2466,8 @@ export class Economy {
         s.turnAt = this.ticksRun;
       }
       // A grab crane lifts more than one load a move (while there's more to move).
-      for (let n = 0; n < this.craneLoads; n++) {
+      const loads = this.craneLoads * (this.liftLoad && d.role === "warehouse" ? LIFT_LOADS : 1);
+      for (let n = 0; n < loads; n++) {
         if (this.canUnload(d, s.carId)) {
           this.events.push({ kind: "unloaded", depotId: d.id, cargo: this.cargoOf(s.carId).kind! });
           this.unloadOne(d, s.carId);
@@ -2641,6 +2667,21 @@ export class Economy {
   wagonCapacity = WAGON_CAPACITY;
   /** Loads a crane moves at once (grab cranes: two). */
   craneLoads = 1;
+
+  /**
+   * Lift and load (Game mode): every warehouse, and any built later, stacks its goods `LIFT_STACK` high and lifts
+   * `LIFT_LOADS` times as many a crane move: two wagons' worth while the one crane works. Not saved: set again as the
+   * game's research is (`applyCranes`).
+   */
+  get warehouseLift(): boolean {
+    return this.liftLoad;
+  }
+  setWarehouseLift(on: boolean): void {
+    if (on === this.liftLoad) return;
+    this.liftLoad = on;
+    for (const d of this.depots) if (d.role === "warehouse") d.stack = on ? LIFT_STACK : 1;
+  }
+  private liftLoad = false;
   /** Units of each good made at industries, by cargo index, since this economy began (counters for Game mode). */
   readonly made = new Int32Array(CARGO_SLOTS);
   /** Loads the cranes have moved, since this economy began. */

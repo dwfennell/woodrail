@@ -27,9 +27,9 @@ import {
 } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
-import { kitOf, Layout, LOOKOUT_KIT, METRO_KIOSK, METRO_KIT, RISER_HEIGHT, type PieceTypeId } from "../track";
+import { kitOf, Layout, LOOKOUT_KIT, METRO_KIOSK, METRO_KIT, OBSERVATORY_KIT, RISER_HEIGHT, type PieceTypeId } from "../track";
 
-export { LOOKOUT_KIT, METRO_KIT };
+export { LOOKOUT_KIT, METRO_KIT, OBSERVATORY_KIT };
 import { PropStore } from "../props/store";
 import { isTownLot, SCHOOL_REACH } from "./town-lots";
 import { addPlotExtras, addStartSites, type Extra } from "./map-sites";
@@ -223,9 +223,14 @@ export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   "kit-grand-terminus",
   // The rack's lookout: a stop of the nearest town's, however far, on a hilltop (`LOOKOUT_KIT`).
   "kit-lookout",
+  // The observatory (Tech tree 5): the lookout's kind of stop, for stargazers.
+  "kit-observatory",
   // A metro stop: a stop of the town over it (`metroTown`), its riders a quarter of their own (passengers.ts).
   "kit-metro-stop",
 ]);
+
+/** Stops on a hilltop where no one lives (riders only get off there): the lookout halt and the observatory. */
+export const isSightStop = (type: PieceTypeId): boolean => type === LOOKOUT_KIT || type === OBSERVATORY_KIT;
 
 /**
  * The lookout halt (Mountain railway): stands only on a hilltop `LOOKOUT_HEIGHT` up or more. No one lives there, so no
@@ -234,6 +239,7 @@ export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
  */
 export const LOOKOUT_HEIGHT = 2 * RISER_HEIGHT;
 export const LOOKOUT_LOW = "A lookout stands on a hilltop two levels up or more";
+export const OBSERVATORY_LOW = "An observatory stands on a hilltop two levels up or more";
 
 /** How far a halt may stand from a town's middle (mm): a plot's depth, about 23 squares. */
 export const HALT_REACH = PLOT_DEPTH;
@@ -260,7 +266,7 @@ export const HALT_TOO_FAR = `Build halts within ${Math.round(HALT_REACH / CELL)}
 
 /** Game mode's rule for a halt's place (`Interaction.siteRule`): near a town, or why not. */
 export function haltWhy(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): string | null {
-  if (type === LOOKOUT_KIT) return onHilltop(land, pose) ? null : LOOKOUT_LOW;
+  if (isSightStop(type)) return onHilltop(land, pose) ? null : type === LOOKOUT_KIT ? LOOKOUT_LOW : OBSERVATORY_LOW;
   if (type === METRO_KIT) return metroTown(land, pose) ? null : METRO_ENTRANCE;
   return HALT_KITS.has(type) && !haltTown(land, pose) ? HALT_TOO_FAR : null;
 }
@@ -268,7 +274,7 @@ export function haltWhy(land: Landscape, type: PieceTypeId, pose: { x: number; z
 /** The town a halt is a stop of: the nearest within `HALT_REACH`; a lookout's, the nearest however far. */
 export function stopTown(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): Landscape["towns"][number] | null {
   if (type === METRO_KIT) return metroTown(land, pose);
-  return haltTown(land, pose, type === LOOKOUT_KIT ? Infinity : HALT_REACH);
+  return haltTown(land, pose, isSightStop(type) ? Infinity : HALT_REACH);
 }
 
 /** Where a metro stop's entrance kiosk stands (plan), for a stop at `pose`. */

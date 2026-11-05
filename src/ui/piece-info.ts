@@ -65,6 +65,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "rack-short": p("Short rack", "A level up in half a ramp's length, for a rack engine."),
   bridge: p("Bridge", "Carries the line over a road or track."),
   "bridge-curve": p("Curved bridge", "A bend up high, over a road or track."),
+  viaduct: p("Stone viaduct", "A long stone bridge on four arches, across a valley or a river."),
   underpass: p("Underpass", "Dips the line so a bridge one level up fits over it."),
   "tunnel-mouth": p("Tunnel mouth", "Takes the line two levels down, under anything on the felt."),
   "tunnel-mouth-short": p("Short tunnel mouth", "Takes the line a level down, up to a hill's side to go under it."),
@@ -116,6 +117,7 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-mountain-station": p("Mountain station", "A station up in the hills."),
   "kit-metro-stop": p("Metro stop", "Under a town, its entrance by a green."),
   "kit-lookout": p("Lookout halt", "On a hilltop: riders come for the view, at twice the fare."),
+  "kit-observatory": p("Observatory", "On a hilltop: stargazers come by train, at three times the fare."),
   "kit-harbour-station": p("Harbour station", "A station by the water."),
   "kit-two-platform-station": p("Two-platform station", "A station on two lines."),
   "kit-grand-terminus": p("Grand terminus", "A big station at the end of the line."),
@@ -141,6 +143,7 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-turntable": p("Turntable", "Spins an engine round to face the other way."),
   "kit-transfer-table": p("Transfer table", "Slides an engine across to another line."),
   "kit-train-lift": p(LIFT_NAME, "Lifts a train up or down a level."),
+  "kit-lift-bridge": p("Lift bridge", "Over a river at the ground. Tap: up it goes for a boat."),
   "kit-train-wash": p("Train wash", "Trains roll through and come out clean."),
   "kit-semaphore-signal": p("Semaphore signal", "An arm signal. Tap it: trains stop at red."),
   "kit-colour-light-signal": p("Colour light signal", "A light signal. Tap it: trains stop at red."),
@@ -208,7 +211,8 @@ const CAR_DETAIL: Record<CarKind, string> = {
 
 const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
   dining: "Passengers eat on the way.",
-  sleeper: "Passengers sleep on long trips.",
+  sleeper: "Bunks: riders going a long way pay more.",
+  observation: "Glass all round: riders pay more over bridges and hills.",
   "double-decker": "Two floors of passengers.",
   "first-class": "Comfy seats for passengers.",
   "bay-window": "Goes at the back. Its windows look out to the sides.",

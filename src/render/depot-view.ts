@@ -428,6 +428,8 @@ const UPGRADE_SPOTS: Record<string, { t: number; l: number; turn?: number }> = {
   "upgrade-furnace": { t: 184, l: 42 },
   "upgrade-lathe": { t: 162, l: 38 },
   "upgrade-steam-hammer": { t: 162, l: 38 },
+  // Lift and load: the goods lift against the warehouse's near end, its cage toward the track.
+  "upgrade-goods-lift": { t: 104, l: 92 },
 };
 
 type Add = (m: Material, g: BufferGeometry, t: number, l: number, y: number) => void;
@@ -457,6 +459,19 @@ const CODE_MACHINES: Record<string, (add: Add, mats: Materials, t: number, l: nu
     add(m.lacquer("#2f6db5"), new RoundedBoxGeometry(8, 10, 10, 1, 1.5), t - 10, l, 17);
     add(m.lacquer("#2f6db5"), new RoundedBoxGeometry(5, 8, 8, 1, 1.2), t + 11, l, 16);
     add(m.blockWood, new CylinderGeometry(2, 2.6, 16, 10).rotateZ(Math.PI / 2), t, l, 17);
+  },
+  // Lift and load: a tall goods lift (a blue tower, a yellow cage half way up with crates in it, a red winding wheel on
+  // top) and two more storeys on the warehouse beside it, for goods stacked three high.
+  "upgrade-goods-lift": (add, m, t, l) => {
+    for (const dt of [-6, 6]) for (const dl of [-7, 7]) add(m.lacquer("#2f6db5"), new RoundedBoxGeometry(3, 82, 3, 1, 0.8), t + dt, l + dl, 41);
+    add(m.lacquer("#2f6db5"), new RoundedBoxGeometry(16, 4, 18, 1, 1), t, l, 83);
+    add(m.lacquer("#e6b52c"), new RoundedBoxGeometry(11, 12, 13, 1, 1.2), t, l, 44);
+    add(m.naturalWood, new RoundedBoxGeometry(7, 6, 8, 1, 1), t, l - 1, 41);
+    add(m.lacquer("#c8442f"), new CylinderGeometry(6, 6, 2.4, 16).rotateZ(Math.PI / 2).rotateY(Math.PI / 2), t, l, 91);
+    // The warehouse's upper storeys: brown, a red roof on top (over the old one), windows toward the track.
+    add(m.lacquer("#7a4a2a"), new RoundedBoxGeometry(86, 30, 38, 2, 3), t + 50, l, 58);
+    add(m.lacquer("#c8442f"), new RoundedBoxGeometry(92, 5, 43, 1, 2), t + 50, l, 75);
+    for (const dt of [-30, -10, 10, 30]) add(m.lacquer("#f0ebe0"), new RoundedBoxGeometry(8, 9, 1.5, 1, 0.6), t + 50 + dt, l - 19.5, 60);
   },
   // Tool works: a steam hammer, its frame over an anvil, and its little boiler.
   "upgrade-steam-hammer": (add, m, t, l) => {

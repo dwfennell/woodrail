@@ -103,6 +103,8 @@ export type KitTypeId = `kit-${string}`;
 
 /** The lookout halt (the rack's): a passenger stop on a hilltop, where riders from any town get off (see src/game/world.ts). */
 export const LOOKOUT_KIT: KitTypeId = "kit-lookout";
+/** The observatory (Tech tree 5): a lookout's kind of stop, for stargazers (see src/game/world.ts `SIGHT_FARES`). */
+export const OBSERVATORY_KIT: KitTypeId = "kit-observatory";
 
 /**
  * A metro stop: a platform in a tunnel two levels under a town (`METRO_DEPTH`), its entrance kiosk up on the town's
@@ -254,6 +256,19 @@ function trainLift(type: PieceTypeId): PieceDef {
   };
 }
 
+/** The lift bridge (Tech tree 5): its span's length, and how high it goes for a boat (a level and a half). */
+export const LIFT_BRIDGE_LENGTH = 216;
+export const LIFT_BRIDGE_RISE = 1.5 * RISER_HEIGHT;
+export const LIFT_BRIDGE_KIT: KitTypeId = "kit-lift-bridge";
+
+/**
+ * A lift bridge's track: a straight at the ground, one way for its span (`gated`, `drawbridge`): raised for a boat it
+ * joins nothing (see `Sim.raiseBridge`). It stands over a river (`checkPlacement`), its towers on the banks.
+ */
+function liftBridge(type: PieceTypeId): PieceDef {
+  return { ...straight(type, LIFT_BRIDGE_LENGTH), gated: true, drawbridge: { rise: LIFT_BRIDGE_RISE } };
+}
+
 /** Every kit, by piece type. */
 export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
   // A 216 straight with the furnished platform along its left (+l) side: passenger trains stop at it for 4 s.
@@ -308,6 +323,21 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     footprint: [
       { t: 108, l: beside(24), w: 216, d: 26 },
       { t: 103, l: 63, w: 90, d: 34 },
+    ],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  // The observatory: a halt on a hilltop two levels up or more, as the lookout is; stargazers from any town ride there
+  // and pay three times the fare. The model is drawn in the piece's frame, beside the track (src/catalogue/assets/observatory.ts).
+  "kit-observatory": {
+    asset: "bldg-observatory",
+    name: "observatory",
+    track: straight("kit-observatory", 216),
+    rails: "track",
+    place: { t: 108, l: TRACK_HALF + PLATFORM_GAP },
+    footprint: [
+      { t: 108, l: beside(24), w: 216, d: 26 },
+      { t: 108, l: TRACK_HALF + PLATFORM_GAP + 62, w: 54, d: 54 },
     ],
     splices: true,
     stop: PASSENGERS,
@@ -668,6 +698,23 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
       { t: LIFT_LENGTH / 2, l: 0, w: LIFT_LENGTH - 2 * LIFT_END_NOTCH, d: 2 * LIFT_BAND_IN },
       { ...LIFT_WEIGHT, overhead: true },
       { ...LIFT_WEIGHT, l: -LIFT_WEIGHT.l, overhead: true },
+    ],
+    moves: "state",
+  },
+  // A lift bridge: the line across a river at the ground, its span between two towers going straight up for a boat
+  // (a tap, or the water's hook `Sim.raiseBridge`), trains waiting at its ends meanwhile. The model draws the span's rails.
+  "kit-lift-bridge": {
+    asset: "mech-lift-bridge",
+    name: "lift bridge",
+    track: liftBridge("kit-lift-bridge"),
+    rails: "model",
+    place: { t: LIFT_BRIDGE_LENGTH / 2, l: 0 },
+    // Its towers' feet on the banks at each end (the span itself is over the water).
+    footprint: [
+      { t: 7, l: 30, w: 14, d: 14, trackPad: 2 },
+      { t: 7, l: -30, w: 14, d: 14, trackPad: 2 },
+      { t: LIFT_BRIDGE_LENGTH - 7, l: 30, w: 14, d: 14, trackPad: 2 },
+      { t: LIFT_BRIDGE_LENGTH - 7, l: -30, w: 14, d: 14, trackPad: 2 },
     ],
     moves: "state",
   },

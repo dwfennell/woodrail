@@ -172,7 +172,7 @@ describe("passengers", () => {
 describe("the passenger line of blueprints", () => {
   it("is researched, each once you've carried enough people, in order (nothing comes by itself)", () => {
     const line = TECHS.filter((t) => t.branch === "passengers" && t.requires.some((n) => n.kind === "count" && n.stat === "riders") && !t.plan);
-    expect(line.map((t) => t.id)).toEqual(["dining", "first-class", "stations", "double-decker", "express"]);
+    expect(line.map((t) => t.id)).toEqual(["dining", "first-class", "stations", "double-decker", "express", "sleeper", "observation"]);
     const p = Progress.fresh();
     p.riders = 500;
     expect(ready(p, "dining")).toBe(false);

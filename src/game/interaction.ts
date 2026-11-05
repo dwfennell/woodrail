@@ -3290,7 +3290,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     g.scene.add(mesh);
     g.trackView.setHidden(id, true);
@@ -3909,7 +3909,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     mesh.position.set(p.pose.x, p.y, p.pose.z);
     mesh.rotation.y = -p.pose.heading;
@@ -4070,7 +4070,7 @@ export class Interaction {
     });
     // Stand-ins lift and shrink away where the pieces were (a few, for a big sweep).
     for (const p of pieces.slice(0, 24)) {
-      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
       mesh.position.set(p.pose.x, p.y, p.pose.z);
       mesh.rotation.y = -p.pose.heading;
       g.scene.add(mesh);
@@ -4284,7 +4284,7 @@ export class Interaction {
     if (!this.editor().removeGroup(ids)) return;
     // Stand-ins lift and shrink away where the pieces were (a few, for a big group).
     for (const p of pieces.slice(0, 24)) {
-      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone], g.bridgeLevelsOf(p), g.archFloorsOf(p));
       mesh.position.set(p.pose.x, p.y, p.pose.z);
       mesh.rotation.y = -p.pose.heading;
       g.scene.add(mesh);
@@ -4921,7 +4921,7 @@ export class Interaction {
     // The stand-in stops sharing the held-piece material (the next piece picked up re-tints that): plain wood when
     // it's going down, see-through red when it's refused.
     const refused = final !== null || m.overTray;
-    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint];
+    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone];
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
@@ -5615,7 +5615,18 @@ export class Interaction {
     const piece = g.layout.getPiece(pieceId);
     const pd = piece && getPieceDef(piece.type, piece.flipped);
     if (pd?.signal) g.sim.toggleSignal(pieceId, road);
-    else if (pd?.isSwitch && !pd.gated) {
+    else if (pd?.drawbridge) {
+      // A lift bridge goes up for a while and comes down by itself; not with a train on it or coming in.
+      if (g.paused) {
+        this.hud.toast("The lift bridge works while the game's running");
+        return;
+      }
+      if (!g.sim.toggleSwitch(pieceId)) {
+        this.hud.toast(g.sim.bridgeRaised(pieceId) ? "The lift bridge is up: it comes down by itself" : "The lift bridge stays down while a train is on it or coming");
+        return;
+      }
+      this.hud.toast("Up goes the lift bridge, for a boat");
+    } else if (pd?.isSwitch && !pd.gated) {
       // Points: the router's gate. They never move under a train (it would split): they wait till it's off them. Set
       // for a routed train, they stay set for it (it keeps its route), and go the tapped way once it has passed.
       const r = g.economy.router.lever(pieceId, corner);
@@ -5667,6 +5678,14 @@ export class Interaction {
       this.hintPinHow();
     }
     this.onSwitched?.();
+  }
+
+  /** Is (x, z) on a lift bridge's span (within the track's width of its line), for a tap that raises it? */
+  private onSpan(pieceId: number, x: number, z: number): boolean {
+    const piece = this.game.layout.getPiece(pieceId);
+    if (!piece || !getPieceDef(piece.type, piece.flipped).drawbridge) return false;
+    const { x: px, z: pz, heading } = piece.pose;
+    return Math.abs(-(x - px) * Math.sin(heading) + (z - pz) * Math.cos(heading)) <= TRACK_WIDTH / 2 + 4;
   }
 
   /**
@@ -6155,6 +6174,8 @@ export class Interaction {
       // other kit's model is passed through, to the track or ground behind it.
       const kitPiece = g.kitView.pieceAt(h.object, h.batchId);
       if (kitPiece !== -1) {
+        // A lift bridge: a tap on its span sends it up for a boat (on its towers, its piece's: passed through).
+        if (this.onSpan(kitPiece, h.point.x, h.point.z)) return { kind: "piece", pieceId: kitPiece, deck: true };
         const road = signalRoadAt(g.layout, kitPiece, h.point.x, h.point.z);
         if (road !== -1) return { kind: "lever", pieceId: kitPiece, road };
         // (A metro stop's entrance is all there is of it to see: a tap on it is a tap on the stop.)
@@ -6167,6 +6188,7 @@ export class Interaction {
       const propId = g.propsView.propAt(h.object, h.batchId);
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
+      if (pieceId !== -1 && this.onSpan(pieceId, h.point.x, h.point.z)) return { kind: "piece", pieceId, deck: true, at: { x: h.point.x, z: h.point.z } };
       if (pieceId !== -1) return { kind: "piece", pieceId, at: { x: h.point.x, z: h.point.z } };
       // An old industry's ruin: its stub's (a tap opens its card; it stays put). One on land not yet bought: passed
       // through, to the ground.

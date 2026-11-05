@@ -351,7 +351,8 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
     const t = tunnelPlacement(land, type, flipped, pose, y);
     if (t) return t;
   }
-  const overRiver = isBridge(type);
+  // (A lift bridge crosses at the ground: its span is over the water, its towers on the banks.)
+  const overRiver = isBridge(type) || !!getPieceDef(type, flipped).drawbridge;
   // A ramp may cut into hills up to the height of its top end (see `HillShape` cuttings).
   const cutTop = cutsHills(type) ? y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y)) : -Infinity;
   let result = CLEAR;
