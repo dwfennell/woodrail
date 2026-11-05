@@ -11,7 +11,7 @@ describe("tray tabs", () => {
     expect(trayTabs("game").filter((t) => t.gameTech).map((t) => [t.id, t.gameTech])).toEqual([["roads", "roads"]]);
     expect(trayTabs("game")[0].props).toBeUndefined();
     // Props only as Game mode's lineside furniture (hidden till learned), on the Industries tab.
-    for (const tab of trayTabs("game")) for (const g of tab.groups) for (const item of g.items) if (item.kind === "prop") expect([tab.id, g.label, item.unlearned]).toEqual(["industries", "Lineside", "hide"]);
+    for (const tab of trayTabs("game")) for (const g of tab.groups) for (const item of g.items) if (item.kind === "prop") expect([tab.id, g.label, item.unlearned]).toEqual(["industries", item.asset === "mech-wind-turbine" ? "Industries" : "Lineside", "hide"]);
   });
 
   it("every shelf has items, and no item is on two shelves of one tab", () => {
@@ -121,7 +121,8 @@ describe("Game mode's railway kits on the tray", () => {
     // Learned: there they are.
     const water = (i: TrayItem) => trayKey(i) === "piece:kit-water-tower";
     expect(shownGroups(tab("industries").groups, water).map((g) => [g.label, g.items.length])).toEqual([
-      ["Industries", INDUSTRY_GROUPS[0].items.length],
+      // (Less the wind turbine: hidden till Wind farm is learned.)
+      ["Industries", INDUSTRY_GROUPS[0].items.length - 1],
       ["Railway", 1],
     ]);
   });

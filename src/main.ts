@@ -72,6 +72,7 @@ import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, lack
 import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pillKey, pillResearch, pillView, removedText, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
+import { canPower, POWERED_RATE, powerOf } from "./game/power";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -2084,10 +2085,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
     // (Props too: trees planted from Nature count for a harvester.)
-    const rateKey = `${key}#${game.landscape.grid.revision}#${game.world.props.version}#${mode === "game" ? upgradeKey(progress) : ""}`;
+    // (And powered yards, Game mode's sparks: a yard with one works `POWERED_RATE` times as fast.)
+    const grid = mode === "game" ? powerOf(game.world) : null;
+    const rateKey = `${key}#${game.landscape.grid.revision}#${game.world.props.version}#${mode === "game" ? upgradeKey(progress) : ""}#${grid ? [...grid.current.yardsOn].join(",") : ""}`;
     if (rateKey !== rateKeyShown) {
       rateKeyShown = rateKey;
-      if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
+      if (updateRates(game.world, grid ? (role, d) => boostOf(progress, role) * (grid.yardOn(d.id) ? POWERED_RATE : 1) : undefined)) game.invalidate();
     }
     hud.refreshTrayBadges();
     // A school placed (or taken up), or grown with its town: tier 3 may open, study may go faster, and the pill shows
@@ -2630,6 +2633,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else warnedHeavy.delete(id);
     }
     peopleArrive(game.world, progress, 1, peopleClock);
+    // Sparks: a power station's coal may have run out (or come), a train put on or away (src/game/power.ts).
+    syncPower();
     // A bus at a station's stop goes for the people waiting in its town off the line.
     if (mode === "game" && !game.paused) buses.update();
     // (Placed again only when what the towns have had or the land changed: a key compared, else nothing.)
@@ -2883,6 +2888,87 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave();
     });
     box.append(build);
+  }
+
+  /** The open depot card's power, as drawn (a key of its inputs), or "" for none. */
+  let powerShown = "";
+  /** The power grid's version last acted on (the yards' rates follow it). */
+  let powerVersion = -1;
+  /**
+   * Game mode's sparks (src/game/power.ts), once a second and after a tap: counted again, and the yards' rates set again
+   * if who has a spark changed.
+   */
+  function syncPower(): void {
+    if (mode !== "game") return;
+    const grid = powerOf(game.world);
+    grid.refresh(game.world);
+    if (grid.version === powerVersion) return;
+    powerVersion = grid.version;
+    industriesChanged();
+  }
+  /**
+   * A depot card's power (Game mode, once Electricity is learned): a power station's sparks, made and used; a yard's
+   * Power it, and whether it has a spark. Drawn again only when its key changes (cheap: a key a frame).
+   */
+  function showPower(): void {
+    const id = mode === "game" && hud.depotCardOpen ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    const learned = progress.learned.has("electricity");
+    const show = !!d && learned && (d.role === "power" || canPower(d));
+    const grid = show ? powerOf(game.world) : null;
+    const key = show && grid ? `${id}|${grid.version}|${d!.powerAsk}|${progress.learned.has("wind")}` : "";
+    const box = hud.depotPower;
+    if (key === powerShown && (key === "" || box.childElementCount > 0)) return;
+    powerShown = key;
+    box.innerHTML = "";
+    box.hidden = !show;
+    if (!show || !grid || !d) return;
+    const p = grid.current;
+    const line = (html: string) => {
+      const e = document.createElement("div");
+      e.className = "power-line";
+      e.innerHTML = html;
+      box.append(e);
+    };
+    if (d.role === "power") {
+      const wind = progress.learned.has("wind");
+      if (p.made === 0) line(wind ? "⚡ No sparks: bring coal, or put wind turbines on the hilltops" : "⚡ No sparks: bring coal");
+      else {
+        const meter = document.createElement("div");
+        meter.className = "power-meter";
+        meter.innerHTML = `<i class="coal" style="width:${(100 * p.fromCoal) / p.made}%"></i><i class="wind" style="width:${(100 * p.fromWind) / p.made}%"></i>`;
+        box.append(meter);
+        line(`⚡ <b>${p.made}</b> spark${p.made === 1 ? "" : "s"}: ${p.fromCoal} from coal${wind || p.fromWind > 0 ? `, ${p.fromWind} from the wind` : ""}`);
+      }
+      if (p.engines.length > 0) {
+        const slow = p.engines.length - p.enginesOn.size;
+        line(`🚂 Electric engines: <b>${p.engines.length}</b>${slow > 0 ? `, ${slow} at steam speed` : ", all powered"}`);
+      }
+      if (p.yards.length > 0) {
+        const waiting = p.yards.length - p.yardsOn.size;
+        line(`🏭 Powered yards: <b>${p.yardsOn.size}</b>${waiting > 0 ? `, ${waiting} waiting for a spark` : ""}`);
+      }
+      line(p.spare > 0 ? `<b>${p.spare}</b> spare: Power a yard on its card to speed it up` : p.made > 0 ? "No sparks spare" : "");
+      return;
+    }
+    // A yard: ask for a spark, or stop asking.
+    const on = grid.yardOn(d.id);
+    const asked = d.powerAsk > 0;
+    line(on ? `⚡ Powered: works ${POWERED_RATE}× as fast` : asked ? "⚡ Waiting for a spare spark of power" : `⚡ ${p.spare > 0 ? `${p.spare} spark${p.spare === 1 ? "" : "s"} spare` : "No sparks spare"}: a powered yard works ${POWERED_RATE}× as fast`);
+    const b = document.createElement("button");
+    b.className = asked ? "chip text" : "chip text primary";
+    b.dataset.power = asked ? "off" : "on";
+    b.textContent = asked ? "Stop powering it" : "⚡ Power this yard";
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      grid.ask(game.world, d, !asked);
+      syncPower();
+      if (!asked && !grid.yardOn(d.id)) hud.toast("No spark spare: it'll be powered when one is", false, 3200);
+      audio.chime();
+      scheduleSave();
+      showPower();
+    });
+    box.append(b);
   }
 
   /** The school's card's choice as drawn (its depot and setting), or "" for none: drawn again only when it changes. */
@@ -5456,6 +5542,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showFarm();
       showSawmill();
       showHarbour();
+      showPower();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     // Goals after the towns: a delivery that grows a town is announced (with its tick folded in) before the poll could

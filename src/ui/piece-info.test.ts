@@ -42,7 +42,7 @@ describe("piece names", () => {
 
   it("gives engines their numbers and wagons their loads", () => {
     const item = (label: string) => trayItems().find((i) => i.label === label)!;
-    expect(trayInfo(item("Electric")).detail).toBe("Pulls 6 cars, 1.4× as fast. Needs power on.");
+    expect(trayInfo(item("Electric")).detail).toBe("Pulls 6 cars, 1.4× as fast. Needs a spark of power.");
     expect(trayInfo(item("Tank engine")).detail).toContain("Pulls 3 cars");
     expect(trayInfo(item("Hopper")).detail).toBe("Carries grain, stone, coal and ore.");
   });
@@ -56,7 +56,7 @@ describe("the place card (a tray item ready to place)", () => {
     expect(placeCardInfo(engine("tank")).facts).toEqual(["Pulls 3 cars · steady", "Starts and stops in half the time."]);
     expect(placeCardInfo(engine("goods")).facts).toEqual(["Pulls 8 cars · slow", "Pulls the most cars, but slow to start."]);
     expect(placeCardInfo(engine("express")).facts[1]).toBe("The fastest engine.");
-    expect(placeCardInfo(engine("electric")).facts[1]).toBe("Runs only while a power station has coal.");
+    expect(placeCardInfo(engine("electric")).facts[1]).toBe("Needs a spark of power: at steam speed without.");
     expect(placeCardInfo(engine("diesel")).facts[1]).toBe("Pulls more than the Engine, and faster.");
   });
 

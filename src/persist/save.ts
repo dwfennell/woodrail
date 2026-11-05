@@ -143,6 +143,8 @@ const saveSchema = z.object({
       waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
       /** A harbour's dock sheds. */
       sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
+      /** Asked to be powered (Game mode's sparks): the nth ask. */
+      power: z.number().int().min(1).optional(),
       /**
        * A warehouse's listed goods and what it lets trains do with each (`StoreMode`), and with goods not listed
        * (`others`). Optional: absent (saves from before them, and a warehouse never set), it takes and gives everything.
@@ -337,7 +339,7 @@ export function serializeWorld(world: World): SaveData {
     wyeLevers: 3,
     trains,
     ids: sim.idCounters(),
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...storeOf(d), ...keepsOf(d), ...landedOf(world, d.id), ...vanYardOf(world, d.id) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...(d.powerAsk > 0 ? { power: d.powerAsk } : {}), ...storeOf(d), ...keepsOf(d), ...landedOf(world, d.id), ...vanYardOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
@@ -511,6 +513,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     state.waitFull = d.waitFull;
     state.takesAll = (d.role === "workshop" || d.role === "school") && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
+    state.powerAsk = d.power ?? 0;
     // A workshop's keep amounts (older saves have none: the game's own).
     if (d.role === "workshop") for (const kind of CARGO_KINDS) state.keeps[CARGO[kind].index] = d.keeps?.[kind] ?? null;
     // A warehouse's store settings (older saves have none: it takes and gives everything).

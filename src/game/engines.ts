@@ -1,4 +1,5 @@
 import { ENGINE_SPEED, type CarLook, type Train } from "../sim";
+import { powerOf } from "./power";
 import type { World } from "./world";
 
 /**
@@ -13,7 +14,7 @@ export interface EngineKind {
   readonly speed: number;
   /** How quickly it gets going and stops, against the classic engine's. */
   readonly quick: number;
-  /** Runs on electricity: only while a power station has coal. */
+  /** Runs on power: at its speed with a spark (src/game/power.ts), at `STEAM`'s without. */
   readonly electric?: boolean;
 }
 
@@ -28,13 +29,27 @@ export const ENGINES: Partial<Record<CarLook, EngineKind>> = {
 
 const engineOf = (world: World, carId: number): EngineKind => ENGINES[world.sim.lookOf(carId)] ?? ENGINES.classic!;
 
+/** An electric engine without a spark of power runs as this (the classic engine's speed and pace): slower, never stopped. */
+export const STEAM: EngineKind = { label: "electric engine", pulls: 6, speed: 1, quick: 1, electric: true };
+
+/** An engine as it runs now: an electric one without a spark at steam speed. */
+function runningAs(world: World, carId: number): EngineKind {
+  const e = engineOf(world, carId);
+  return e.electric && !powerOf(world).engineOn(world, carId) ? STEAM : e;
+}
+
+/** Is this electric engine short of power (running at steam speed)? False for any other engine. */
+export function shortOfPower(world: World, carId: number): boolean {
+  return !!engineOf(world, carId).electric && !powerOf(world).engineOn(world, carId);
+}
+
 /** What a train's engines can pull, how many cars it has (engines aside), and its engines. */
 export function load(world: World, train: Train): { pulls: number; cars: number; engines: EngineKind[] } {
   const engines = train.cars.filter((c) => c.kind === "engine").map((c) => engineOf(world, c.id));
   return { pulls: engines.reduce((n, e) => n + e.pulls, 0), cars: train.cars.length - engines.length, engines };
 }
 
-/** Is a power station working (it has coal)? Electric engines run only then. */
+/** Is a power station working (it has coal)? (Its sparks: src/game/power.ts.) */
 export function powered(world: World): boolean {
   for (const d of world.economy.allDepots()) if (d.role === "power" && world.layout.getPiece(d.pieceId) && world.economy.working(d)) return true;
   return false;
@@ -57,36 +72,40 @@ export function cabooseAtTail(train: Train): boolean {
 }
 
 /**
- * A train's top speed (mm/s): its slowest engine's, a tenth faster with a caboose at its tail, and a tenth again with
- * Better boilers learned (`boilers`); 0 if it's too heavy for its engines, or electric with no power.
+ * A train's top speed (mm/s): its slowest engine's (an electric one without a spark of power at steam speed), a tenth
+ * faster with a caboose at its tail, and a tenth again with Better boilers learned (`boilers`); 0 if it's too heavy
+ * for its engines.
  */
 export function topSpeed(world: World, train: Train, boilers = false): number {
   const l = load(world, train);
   if (l.engines.length === 0) return ENGINE_SPEED;
   if (l.cars > l.pulls) return 0;
-  if (l.engines.some((e) => e.electric) && !powered(world)) return 0;
-  return ENGINE_SPEED * Math.min(...l.engines.map((e) => e.speed)) * (cabooseAtTail(train) ? CABOOSE_BONUS : 1) * (boilers ? BOILERS_BONUS : 1);
+  let speed = Infinity;
+  for (const c of train.cars) if (c.kind === "engine") speed = Math.min(speed, runningAs(world, c.id).speed);
+  return ENGINE_SPEED * speed * (cabooseAtTail(train) ? CABOOSE_BONUS : 1) * (boilers ? BOILERS_BONUS : 1);
 }
 
-/** Why a train can't move at all (its top speed is 0): too heavy for its engines, or electric with no power; or null. */
+/**
+ * Why a train can't move at all (its top speed is 0): too heavy for its engines; or null. (Power never stops one: an
+ * electric engine without a spark runs at steam speed. "no-power" is kept for the status's old reason.)
+ */
 export function cantMove(world: World, train: Train): "too-heavy" | "no-power" | null {
   const l = load(world, train);
   if (l.engines.length === 0) return null;
   if (l.cars > l.pulls) return "too-heavy";
-  if (l.engines.some((e) => e.electric) && !powered(world)) return "no-power";
   return null;
 }
 
-/** How quickly a train gets going: its slowest engine's. */
+/** How quickly a train gets going: its slowest engine's (an electric one without a spark at steam's pace). */
 export function quickness(world: World, train: Train): number {
-  const l = load(world, train);
-  return l.engines.length === 0 ? 1 : Math.min(...l.engines.map((e) => e.quick));
+  let q = Infinity;
+  for (const c of train.cars) if (c.kind === "engine") q = Math.min(q, runningAs(world, c.id).quick);
+  return q === Infinity ? 1 : q;
 }
 
 /** "Too heavy: a tank engine pulls 3 cars, and this train has 5", or null if it can go. */
 export function tooHeavy(world: World, train: Train): string | null {
   const l = load(world, train);
-  if (l.engines.length > 0 && l.cars <= l.pulls && l.engines.some((e) => e.electric) && !powered(world)) return "No power: an electric engine runs while a power station has coal";
   if (l.engines.length === 0 || l.cars <= l.pulls) return null;
   const one = l.engines[0].label;
   const who = l.engines.length === 1 ? `${/^[aeiou]/.test(one) ? "an" : "a"} ${one} pulls ${l.pulls} cars` : `its engines pull ${l.pulls} cars`;

@@ -55,6 +55,7 @@ export const SUITES = {
   life: { script: "e2e:life", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge" },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
+  power: { script: "e2e:power", minutes: 6 },
 };
 
 /** What an unmapped path gets: the suites that touch the most of the game. */
@@ -117,6 +118,7 @@ export const RULES = [
   [["src/render/depot-view.ts", "src/render/industry-*", "src/render/touches-view.ts", "src/render/flourishes.ts"], ["life", "kits-game", "station-upgrade"]],
   [["src/render/road-vehicles-view.ts", "src/render/crossings-view.ts"], ["roads"]],
   ["src/render/ambient.ts", ["life", "roads"]],
+  ["src/render/turbines-view.ts", ["life"]],
   [["src/render/ruins-view.ts", "src/render/goal-marks.ts", "src/render/halt-reach-view.ts"], ["sites", "big-stations"]],
   ["src/render/thumbnails.ts", ["tray", "names"]],
   ["src/render/train-models.ts", ["train-parts", "train-summary", "hopper-load"]],
@@ -173,6 +175,8 @@ export const RULES = [
   [["src/game/journal.ts"], ["focus-ring", "stickers"]],
   ["src/game/piece-name.ts", ["names"]],
   ["src/game/dev-checks.ts", []],
+  // Power as sparks and the wind farm (late-game spec W1).
+  [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
 ];
 
 // A tiny glob: ** any depth, * within a path segment.

@@ -17,6 +17,7 @@ import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
 import { topologyOf, trainLength } from "../economy/sections";
 import type { SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
+import { powerOf, WIND_TURBINE } from "./power";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
 import { streetTown } from "./street-moves";
@@ -5488,6 +5489,9 @@ export class Interaction {
     const fp = scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
     if (m.blocked || !fp) {
       this.onRefused?.();
+      // (A tray's prop is carried quietly, its outline red where it can't go. A wind turbine's hilltop rule isn't one
+      // a player would guess: said when it's let go off one.)
+      if (m.blocked === "low") this.hud.toast(this.propMessage(m.blocked));
       g.propsChanged(-1);
       // A moved prop stays where it was, still selected (a town's house in Game mode is never selected).
       if (m.propId !== -1 && !m.town) this.selectProp(m.propId);
@@ -5529,7 +5533,10 @@ export class Interaction {
     this.clearSelection();
     this.selectedProp = id;
     this.propOutline.show(scaleFootprint(g.propLibrary.footprint(p.asset), p.scale) ?? null, p.x, p.y, p.z, p.heading);
-    this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
+    // (A wind turbine says what it makes, and the power in all: Game mode's sparks.)
+    const power = p.asset === WIND_TURBINE && !this.propsEditable ? powerOf(g.world).refresh(g.world) : null;
+    const detail = power ? `⚡ A spark of power. ${power.made} in all, ${power.spare} spare` : "";
+    this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false, true, false, detail);
     if (LEVER_PROPS.has(p.asset)) this.showLevers(id);
     this.hintDrag();
   }

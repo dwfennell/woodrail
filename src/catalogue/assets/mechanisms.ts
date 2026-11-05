@@ -1176,6 +1176,31 @@ const mechanisms: Asset[] = [
       part(root, "beam").rotation.y = t * 1.5;
     },
   },
+  {
+    id: "mech-wind-turbine",
+    name: "Wind turbine",
+    category: "Mechanisms",
+    tags: ["wind", "turbine", "power", "electricity", "hill", "animated"],
+    notes:
+      "A tall white turbine on a turned beech foot, three red-tipped blades on a red nose. On a hilltop in Game mode it makes a spark of power, with no coal: enough for an electric engine, or to speed up a yard.",
+    build: (k) => {
+      const white = k.paint(TOY.white);
+      const red = k.paint(TOY.red);
+      const g = k.group(k.cyl(k.wood, 20, 8, 0, 0, 0, 18), k.cyl(white, 7, 214, 0, 8, 0, 4, 16), k.cylX(white, 9, 26, -4, 222, 0, 16));
+      // The rotor: its hub on the nacelle's nose, facing +x, turned about x (the game turns it: `TURBINE_ROTOR`).
+      const blades = k.group(k.ball(red, 7, 0, 0, 0));
+      for (let i = 0; i < 3; i++) {
+        const blade = k.group(k.box(white, 3, 80, 10, 1.2, 0, 4, 0), k.box(red, 3.5, 16, 10.5, 1.2, 0, 84, 0));
+        blade.rotation.x = (i * 2 * Math.PI) / 3;
+        blades.add(blade);
+      }
+      g.add(pivot("rotor", 12, 222, 0, blades));
+      return g;
+    },
+    animate: (root, t) => {
+      part(root, "rotor").rotation.x = t * 1.2;
+    },
+  },
 ];
 
 // ——— Bridges & tunnels ———

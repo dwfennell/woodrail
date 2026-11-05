@@ -183,6 +183,7 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-carpenter", label: "Carpenter's yard" },
       { kind: "piece", type: "depot-smithy", label: "Smithy" },
       { kind: "piece", type: "depot-power", label: "Power station" },
+      { kind: "prop", asset: "mech-wind-turbine", label: "Wind turbine", unlearned: "hide" },
       { kind: "piece", type: "depot-harbour", label: "Harbour" },
       { kind: "piece", type: "depot-warehouse", label: "Warehouse" },
     ],
