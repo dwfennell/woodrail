@@ -138,31 +138,25 @@ const ENV: Record<string, string | undefined> = (globalThis as { process?: { env
 const SEEDS = Number(ENV.TOWN_FUZZ ?? 12);
 /**
  * Seeds where the route still stalls and all hand-run doesn't, and why (2026-11-05). On main (before giving way) 9 of
- * these 12 stalled all hand-run too, and 11 with the route; now all hand-run never does. Two fixes took most of the rest:
- * giving way (stalls.ts), and a stale wait in sections (`capOf`: a train in a section that `recover` let go stood held
- * by its last wait between looks: a hand-run train going round the ring stood for good once a train had crossed its
- * way). What's left:
+ * these 12 stalled all hand-run too, and 11 with the route; now all hand-run never does. Fixes since: giving way
+ * (stalls.ts); a stale wait in sections (`capOf`: a train a look let go stood held by its last wait between looks); a
+ * train on no line going round a ring isn't in a way it's clear of (`clearOfCircling`: the ring is one section, and it
+ * kept it for good). What's left, with no passing loop, is one class: their network (ring, line and points) is one
+ * section with no passing place, room for one train. The routed train waits in it for the sawmill line, where the
+ * hand-run one is and can only come out through it (or, given way on the ring, comes round against it). The card says
+ * "Add a passing loop here", and with one laid all but seed 9 run: asserted below (`loop`).
  */
-const KNOWN: Record<number, string> = {
-  // (Their network is one section, the ring, the line and the points: no passing place, room for one train. The routed
-  // train waits in it for the sawmill line, where the hand-run one is and can only come out through it. The card says
-  // "Add a passing loop here", and with one laid they run: asserted below, with `loop`.)
-  2: "no passing place (the card's fix, a loop, works)",
-  3: "no passing place (the card's fix, a loop, works)",
-  11: "no passing place (the card's fix, a loop, works)",
-  // (Short: said stuck a while, then they run on. Not looked into yet.)
-  4: "a short stall (17 s), then they run on",
-  9: "a short stall (7 s), then they run on",
-};
-/** Of those with no passing place: laid a loop, they never stall. */
-const LOOP_FIXES = [2, 3, 11];
+const NO_LOOP = "no passing place: the card's fix is a loop";
+const KNOWN: Record<number, string> = { 2: NO_LOOP, 3: NO_LOOP, 4: NO_LOOP, 9: NO_LOOP, 11: NO_LOOP };
+/** Of those: laid a loop, they never stall. */
+const LOOP_FIXES = [2, 3, 4, 11];
 /**
  * With a passing loop laid (`loop`), seeds that still stall (2026-11-05). Seed 9: the hand-run train goes round the ring
- * non-stop, and the ring is one section, so it's never free: the routed train waiting in the loop to go round it the
- * other way waits for good (said stuck after `STARVED_S`). Sections would have to count a train going round only where
- * it's on, or coming at, the other's way, not anywhere in the ring: a follow-up. 4 and 8: not looked into yet.
+ * non-stop, and the routed one's way round from the loop to its stops runs against it, so they'd meet head on: it waits,
+ * and is said stuck after `STARVED_S`. Only planning it the same way round would help: a follow-up. Seed 8: a 22 s stall,
+ * not looked into yet.
  */
-const KNOWN_LOOP: Record<number, string> = { 4: "a 1 s stall", 8: "a 22 s stall", 9: "a hand-run train going round the ring non-stop keeps the ring's one section: the routed one waiting to go round the other way starves" };
+const KNOWN_LOOP: Record<number, string> = { 8: "a 22 s stall, not looked into", 9: "its way round the ring runs against a hand-run train going round non-stop" };
 
 describe(`a route never makes it worse, with depots: ${SEEDS} town-ring layouts × 180 s`, () => {
   const deal = (seed: number, routed: boolean, loop = false) => {
