@@ -69,6 +69,24 @@ const openMenu = async () => {
   if (!open) await tap(".hud button[title='Menu'], button[aria-label='Menu']");
 };
 const menuItem = (text) => p.evaluate((t) => [...document.querySelectorAll(".menu-item")].find((e) => e.textContent.startsWith(t))?.textContent ?? null, text);
+/**
+ * Tap ☰'s "Crash reports" till it reads `want` (waited for, not slept on: under load a tap can land late or not at
+ * all; tapped again only if it never changed).
+ */
+const switchCrashReports = async (want) => {
+  const reads = () => p.waitForFunction((w) => [...document.querySelectorAll(".menu-item")].some((e) => e.textContent === w), want, { timeout: 8000 }).then(() => true, () => false);
+  for (let i = 0; i < 2; i++) {
+    await openMenu();
+    await tap(".menu-item", "Crash reports");
+    if (await reads()) return;
+  }
+};
+/** Wait for the next crash report to be posted (up to 20 s), then for it to be in `crashes`. */
+const nextCrash = async (n) => {
+  await p.waitForRequest((r) => r.url().endsWith("/crash"), { timeout: 20000 }).catch(() => {});
+  // (The route's handler records it a moment after the request.)
+  for (let i = 0; i < 40 && crashes.length < n; i++) await p.waitForTimeout(50);
+};
 await p.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
   localStorage.setItem("woodrail.stats.asked", "1");
@@ -211,19 +229,19 @@ await shot("3-lean");
 await openMenu();
 check("☰ says “Crash reports: on”", (await menuItem("Crash reports")) === "Crash reports: on");
 await shot("4-menu");
-await tap(".menu-item", "Crash reports");
+await switchCrashReports("Crash reports: off");
 check("…a tap: “Crash reports: off”, kept", (await menuItem("Crash reports")) === "Crash reports: off" && (await p.evaluate(() => localStorage.getItem("woodrail.crashReports"))) === "off");
 await p.keyboard.press("Escape");
 // (A new session: the once-a-session flag cleared.)
 await p.evaluate(() => { sessionStorage.removeItem("woodrail.crashSent"); setTimeout(() => { throw new Error("e2e: on purpose, off"); }); });
 await p.waitForTimeout(1500);
 check("off: an error sends nothing", crashes.length === 1, `${crashes.length} sent`);
-await openMenu();
-await tap(".menu-item", "Crash reports");
+await switchCrashReports("Crash reports: on");
 check("…on again", (await menuItem("Crash reports")) === "Crash reports: on");
 await p.keyboard.press("Escape");
+const posted = nextCrash(2);
 await p.evaluate(() => setTimeout(() => { throw new Error("e2e: on purpose, on"); }));
-await p.waitForTimeout(1500);
+await posted;
 const err = crashes[1] ? JSON.parse(crashes[1]) : null;
 check("on: an uncaught error sends one, its stack's links cut short", crashes.length === 2 && err?.kind === "error" && err.message.includes("on purpose, on") && !/https?:|localhost/.test(err.stack) && err.quality === "mobile-lean", crashes[1] ?? "");
 
