@@ -95,7 +95,7 @@ Industries: harvester, sawmill, workshop, farm yard, mill, quarry, warehouse, mi
 station, harbour (landward side), dairy, bakery, orchard, juice works, creamery, ice cream factory, brickworks, car
 factory; and
 those built alongside (QA 2026-11-05 #3): oil well, water pump, sugar beet field, jam kitchen, chocolate factory, flower
-field, dye works, toy workshop. Not a
+field, dye works, toy workshop; and batch H's post office. Not a
 town's station (Big stations), a school, a halt or Sandbox's loaders.
 
 ## 6. Saves
