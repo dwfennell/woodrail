@@ -36,7 +36,9 @@ export const AIRPORT_FARE = 12;
 export const VISITOR_BONUS = 1.5;
 
 /** Where a plane stands on the apron: past the yard's far side (depot coordinates t, l). */
-export const APRON = { t: 150, l: 150 };
+// (Its wings, 110 mm across, clear of the yard: the pad and the terminal reach 114 mm out. QA shot: at 150 a wing lay
+// over the terminal's roof.)
+export const APRON = { t: 150, l: 180 };
 /** How far off a plane comes in from (mm along the airport's line), and how high it flies there. */
 export const FLIGHT_FROM = 3200;
 export const FLIGHT_HEIGHT = 520;
