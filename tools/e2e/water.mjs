@@ -285,7 +285,13 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     await p.evaluate(() => window.woodrail.hud.hideCards());
     const sailing = await playUntil(() => [...window.woodrail.economy.boats.values()][0]?.docked === false, null, 30);
     check("it sets off down the river", !!sailing);
-    await p.waitForTimeout(3000);
+    await p.waitForTimeout(6000);
+    // (The camera on the tow, for its picture.)
+    const tow = await p.evaluate(() => {
+      const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
+      return o ? { x: o.position.x, z: o.position.z } : null;
+    });
+    if (tow) await look(tow, 1100);
     await shot("5-sailing");
     const delivered = await playUntil(
       async (B) => {
@@ -445,7 +451,9 @@ if (sea) {
         const back = g.cellAtWorld(pose.x - c * 216, pose.z - s * 216);
         const start = g.cellAtWorld(pose.x, pose.z);
         if (back === -1 || start === -1 || g.surface[start] === 5 || g.surface[back] === 5) continue;
-        if (slipWhy(w.world.landscape, pose) !== null) continue;
+        // (Room to spare: it still meets the sea dropped a square to either side, or a little along.)
+        const shifted = [[0, 0], [72, 0], [-72, 0], [0, 36], [0, -36]].map(([side, along]) => ({ x: pose.x - s * side + c * along, z: pose.z + c * side + s * along, heading }));
+        if (shifted.some((q) => slipWhy(w.world.landscape, q) !== null)) continue;
         if (w.interaction.placeWhy("kit-ferry-slip", pose, g.groundY(start), -1)) continue;
         if (w.interaction.placeWhy("straight-216", { x: pose.x - c * 216, z: pose.z - s * 216, heading }, g.groundY(back), -1)) continue;
         // (Clear of the harbour and its ship's way.)
