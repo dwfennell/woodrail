@@ -72,7 +72,7 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * coaches) joins the line once routes are learned, and the player lays it a passing loop (`peopleLine`; picked up when
  * stuck, it's put back on that loop once laid); BALANCE_PEOPLE_OWN=1 gives it a line of its own through the towns
  * instead, BALANCE_PEOPLE_HAND=1 runs it by hand (lever on, no route) as before. Two lines' trains stuck with no loop to
- * meet at, the card says "Add a passing loop here" and the player lays one there.
+ * meet at, the card says "Add a passing loop between them" and the player lays one there.
  *
  * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
  * `npm run balance:sweep` runs it over a range of BALANCE_SEEDs (0-200 by default; scripts/balance-sweep.mjs). The
@@ -1231,7 +1231,7 @@ function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0, avoid
         runs.push({ ids: run, mid: Math.abs(k + n / 2 - ids.length / 2), clear: k >= 3 && k + n <= ids.length - 3, fits: (n === 4 ? 576 : 360) >= longest + 12, off: near ? Math.hypot(q.x - near.x, q.z - near.z) : 0 });
       }
     }
-  // (`near`: where trains are stuck, the card saying "Add a passing loop here": the nearest run there that holds them.)
+  // (`near`: where trains are stuck, the card saying "Add a passing loop between them": the nearest run there that holds them.)
   runs.sort((a, b) => Number(b.fits) - Number(a.fits) || (near ? a.off - b.off : 0) || Number(b.clear) - Number(a.clear) || b.ids.length - a.ids.length || a.mid - b.mid);
   const rules = P.rules();
   /** The end joined to piece `id` other than by piece `not`. */
@@ -1922,7 +1922,7 @@ class Playthrough {
     // A train of the player's stuck (stalls.ts: nothing turns a train back now, routing §16 Q3), its card saying so and
     // "Move one of them": looked at once a minute, the player does, the newest first (as for a jam, below).
     const stuck = [...this.trains.keys()].find((e) => w.economy.stalls.stuckOf(e));
-    // (The card says "Add a passing loop here" (two lines' trains, or one on no line, with no loop to meet at): the
+    // (The card says "Add a passing loop between them" (two lines' trains, or one on no line, with no loop to meet at): the
     // player lays one on the line, as for a second train (`spliceLoop`), once the switches can be made, rather than
     // picking a train up. Still stuck with a loop there, the card says "Move one of them", and the player does, below.)
     const fix = stuck === undefined ? null : w.economy.stalls.stuckOf(stuck);
@@ -3412,7 +3412,7 @@ class Playthrough {
 
   /**
    * Does the player keep the people train running, laying it passing loops (`peopleLoop`, the stuck card's "Add a
-   * passing loop here")? Not the goals player: its planks go to the goals, and it puts the people train away when it's
+   * passing loop between them")? Not the goals player: its planks go to the goals, and it puts the people train away when it's
    * stuck or the planks stop, as before. Nor with BALANCE_PEOPLE_HAND (run by hand, as before).
    */
   keepsPeople(): boolean {

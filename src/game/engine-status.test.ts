@@ -497,7 +497,7 @@ describe("stuck for good (stalls.ts; routing §16 Q3: nothing turns a train back
       economy.tick();
     }
     const said = [red, blue].map((e) => engineStatus(sim, economy, e, () => "the stop"));
-    expect(said).toEqual(["Stuck: the train on the Blue line is in the way. Add a passing loop here", "Stuck: the train on the Red line is in the way. Add a passing loop here"]);
+    expect(said).toEqual(["Stuck: no place to pass the train on the Blue line. Add a passing loop between them", "Stuck: no place to pass the train on the Red line. Add a passing loop between them"]);
     for (const e of [red, blue]) expect(sim.findCar(e)!.train.lastTurn).toBeUndefined();
   });
 });
@@ -593,7 +593,7 @@ describe("who's in the way (the card's Show: blockerOf, blockerName)", () => {
     }
     expect(said).toContain("Waiting: the train stopped by Elder is in the way. Move it");
     // (In a ring it waits on this one too: the fix is a loop, as for two lines' trains.)
-    expect(said).toContain("Stuck: the train by Elder is in the way. Add a passing loop here");
+    expect(said).toContain("Stuck: no place to pass the train by Elder. Add a passing loop between them");
   });
 
   it("an engine on no line running ahead of it (lever on, under way): named by where it is, with no route", () => {

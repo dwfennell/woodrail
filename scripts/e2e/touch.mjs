@@ -3567,7 +3567,7 @@ async function followGap(ctx, p, tapSel) {
  *
  * `lines`: the same, the two trains on two lines (single-line working across lines, sections.ts): neither is held (each
  * line has room for its one train), each waits at its end of the line for the other's, both stuck in each other's way;
- * the first's card says so and that a passing loop lets them pass ("… Add a passing loop here"). The player lays the
+ * the first's card says so and that a passing loop lets them pass ("Stuck: no place to pass … Add a passing loop between them", its Show framing both and the track between). The player lays the
  * loop's missing straight from the tray, and the two lines' trains meet at the loop, pass, and both deliver.
  */
 /**
@@ -3706,7 +3706,7 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     window.woodrail.paused = true;
     window.woodrail.invalidate();
   });
-  const { tapOn } = mapHelpers(p);
+  const { tapOn, tapButton } = mapHelpers(p);
   await tapOn({ engine: setup.E[0] });
   await p.waitForFunction(() => /^Stuck/.test(document.querySelector(".engine-card .engine-status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
   // (Measured once the card has popped in: `card-in` scales it from 0.96, and under SwiftShader's slow frames a box
@@ -3723,12 +3723,33 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
     const r = s.getBoundingClientRect();
     return { said: s.textContent, lines: Math.round(r.height / lh), left: r.left, right: r.right, vw: innerWidth };
   });
-  const fixSaid = lines ? /^Stuck: (the train on the [A-Za-z]+ line|another train) is in the way\. Add a passing loop here$/.test(card.said) : card.said === "Stuck: this line has a train too many. Add a passing loop, or remove a train";
+  const fixSaid = lines ? /^Stuck: no place to pass (the train on the [A-Za-z]+ line|another train)\. Add a passing loop between them$/.test(card.said) : card.said === "Stuck: this line has a train too many. Add a passing loop, or remove a train";
   check(`${tag}: the first's card says it's stuck and the fix, in two lines at 360 px`, fixSaid && card.lines <= 2 && card.left >= 0 && card.right <= card.vw, JSON.stringify(card));
   // (The once-ever head-on tip, if it came with this stall: what works, a passing loop; no signals needed.)
   if (lines) {
     const tips = await p.evaluate(() => window.__stuckSaid.filter((m) => /^Trains met head on/.test(m)));
     check("stuck-lines: the head-on tip, if told, says a passing loop lets trains pass", tips.every((m) => m === "Trains met head on. A passing loop lets trains pass"), JSON.stringify(tips));
+  }
+  // Stuck for want of a passing place: the card's Show frames both trains and the track between them (the gap where the
+  // loop's straight is missing), above the card, where a loop would let them pass. (Then the view goes back to the gap,
+  // below, as before.)
+  if (lines) {
+    const titled = await p.evaluate(() => document.querySelector(".engine-card .show-blocker")?.title ?? null);
+    await tapButton(".engine-card .show-blocker");
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+    await frames(p);
+    const framed = await p.evaluate(([E, m]) => {
+      const w = window.woodrail;
+      const at = (q) => {
+        const v = new w.camera.position.constructor(q.x, q.y ?? 0, q.z).project(w.camera);
+        return [Math.round(((v.x + 1) / 2) * innerWidth), Math.round(((1 - v.y) / 2) * innerHeight)];
+      };
+      const card = document.querySelector(".engine-card");
+      return { trains: E.map((e) => at(w.sim.findCar(e).train.world[0])), gap: at(m), cardTop: Math.round(card.getBoundingClientRect().top), vw: innerWidth, open: !card.hidden };
+    }, [setup.E, setup.mid]);
+    const inView = ([x, y]) => x >= 0 && x <= framed.vw && y >= 0 && y < framed.cardTop;
+    check("stuck-lines: the card's Show frames both trains and the track between them, where a passing loop would go, above the card", titled === "Show where a passing loop would let them pass" && framed.open && framed.trains.every(inView) && inView(framed.gap), JSON.stringify({ titled, ...framed }));
+    if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/stuck-lines-show.jpg`, type: "jpeg", quality: 80 });
   }
   await p.keyboard.press("Escape");
   await p.evaluate(() => {

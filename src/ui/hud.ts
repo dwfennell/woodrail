@@ -1879,13 +1879,13 @@ export class Hud {
   /** The open engine's train is (or isn't) held at its stop for spacing: Go reads "Go now", and one tap sends it on. */
   /**
    * Something's in the open engine's way (`show`): Show takes the camera there. `what`: what Show shows ("train",
-   * "points"), for its title.
+   * "points", or "stretch": the track between the two, where a passing loop would let them pass), for its title.
    */
-  setBlocker(show: boolean, what: "train" | "points" = "train"): void {
+  setBlocker(show: boolean, what: "train" | "points" | "stretch" = "train"): void {
     if (this.blockerRow.hidden === !show && this.showBlockerBtn.dataset.what === what) return;
     this.blockerRow.hidden = !show;
     this.showBlockerBtn.dataset.what = what;
-    const title = what === "points" ? "Show the points it's waiting at" : "Show the train in the way";
+    const title = what === "points" ? "Show the points it's waiting at" : what === "stretch" ? "Show where a passing loop would let them pass" : "Show the train in the way";
     this.showBlockerBtn.title = title;
     this.showBlockerBtn.setAttribute("aria-label", title);
   }

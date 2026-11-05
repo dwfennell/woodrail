@@ -60,6 +60,7 @@ import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/featu
 import { copyLine, editLine, isRingLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, recolourLine, renameLine, restoreLines, reverseLine, sameLines, snapshotLines, stopLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
+import { stretchBetween } from "./routing/stretch";
 import { LinesView } from "./ui/lines-view";
 import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
@@ -3737,7 +3738,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       viewAddStop = view.addStop ?? -1;
     }
     const b = viewBlocker.shown;
-    hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
+    hud.setBlocker(!!b, b && b.car < 0 ? "points" : b?.stretch ? "stretch" : "train");
     // A line with a train too many: Remove beside the status (with the status it belongs to).
     if (status === latest) hud.setCrowded(!!view.crowded);
     // (A train in the way, and a crane train on the map to lift it off: Send the crane.)
@@ -3830,7 +3831,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /**
    * Show (the card of a train waiting or stuck): the camera glides to the train in its way (and the points it waits
-   * at, framing both), which flashes a moment (`flashBlocker`); the card stays open.
+   * at, framing both), which flashes a moment (`flashBlocker`); the card stays open. Stuck for want of a passing place
+   * (`Blocker.stretch`): it frames both trains and the track between them (`stretchBetween`), where a loop would go.
    */
   function showBlocker(): void {
     const engine = interaction.openEngineCarId;
@@ -3845,6 +3847,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const piece = b.points >= 0 ? game.layout.getPiece(b.points) : undefined;
     if (piece) pts.push(new Vector3(piece.pose.x, piece.y, piece.pose.z));
+    // (Stuck for want of a passing place: this train too, and the track between the two, where a loop would go.)
+    const by = b.stretch && b.car >= 0 ? game.sim.findCar(b.car)?.train : undefined;
+    if (found && by) {
+      for (const c of found.train.cars) {
+        const p = carAt(c.id, new Vector3());
+        if (p) pts.push(p);
+      }
+      for (const id of stretchBetween(game.layout, found.train, game.sim.piecesUnder(by.id)) ?? []) {
+        const at = game.layout.getPiece(id);
+        if (at) pts.push(new Vector3(at.pose.x, at.y, at.pose.z));
+      }
+    }
     if (pts.length === 0) return;
     const centre = new Vector3();
     for (const p of pts) centre.add(p);

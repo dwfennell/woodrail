@@ -272,7 +272,7 @@ with a hint toward the fix.
 | More trains than passing loops | Held, as today | "The line is full. Lay 1 more passing loop." (existing) |
 | A loop pinned so no one can pass | Held, as today | "Unpin the passing loop's switches so trains can pass." (existing) |
 | Waiting for points another train holds | Stops short and waits | "Waiting for the train on the Blue line to pass the points" |
-| Two lines' trains on single track with no passing loop (a ring) | Both stand, each at its end of the line (§16 Q3) | "Stuck: the train on the Blue line is in the way. Add a passing loop here" |
+| Two lines' trains on single track with no passing loop (a ring) | Both stand, each at its end of the line (§16 Q3) | "Stuck: no place to pass the train on the Blue line. Add a passing loop between them" (Show frames the track between them) |
 | Trains in each other's way for good, a loop there or one line's (a ring; nose to nose) | Both stand (§16 Q3) | "Stuck: the train on the Blue line is in the way. Put one away" |
 | A routed train and one with no route head on (a ring) | The one with no route turns round and goes another way (§5 rule 6, giving way) | Nothing to say: they run on |
 | Two routed trains head on, one with a way round to its stop the other way | That one turns round and goes round (§5 rule 6) | Nothing to say: they run on |

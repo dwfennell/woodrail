@@ -240,6 +240,8 @@ export interface Blocker {
   points: number;
   how: "line" | "running" | "stopped" | "parked";
   line: string;
+  /** Stuck for want of a passing place between the two (`Stuck.in-way.loop`): Show frames the track between them. */
+  stretch?: boolean;
 }
 
 /** The car a train is named by in waits (as sections and stalls name trains): its first engine, or its first car. */
@@ -275,7 +277,12 @@ export function blockerOf(sim: Sim, economy: Economy, s: TrainState): Blocker | 
     case "held-up":
       return blockerAt(sim, economy, s.by);
     case "stuck":
-      return s.why === "too-many" ? null : blockerAt(sim, economy, s.by);
+      if (s.why === "too-many") return null;
+      if (s.why === "in-way" && s.loop) {
+        const b = blockerAt(sim, economy, s.by);
+        return b && { ...b, stretch: true };
+      }
+      return blockerAt(sim, economy, s.by);
     case "points-wait":
       return blockerAt(sim, economy, s.by, s.points);
     case "red-switch":
@@ -474,8 +481,11 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // meet: one lets them pass. Else moving one is.)
       // (One with its lever on in a ring waits on this one too: named as running, not as "stopped".)
       if (who?.how === "parked") return `Stuck: ${inTheWay(who, place)}`;
+      // (No passing place between the two, said first, as it's the fix: Show frames the track between them, where a loop
+      // would let them pass. The main class of stall left once trains give way: town-ring fuzz, 2026-11-05.)
+      if (s.loop) return `Stuck: no place to pass ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"}. Add a passing loop between them`;
       // (The fix, not a button: a train with no route can be given one, or moved; two with routes, one moved.)
-      return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} is in the way. ${s.loop ? "Add a passing loop here" : who?.how === "line" ? "Move one of them" : "Move it or give it a route"}`;
+      return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} is in the way. ${who?.how === "line" ? "Move one of them" : "Move it or give it a route"}`;
     case "red-switch":
       return "A red switch is in the way. Tap and hold it to unpin";
     case "needs-loop":
