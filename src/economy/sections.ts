@@ -1103,9 +1103,18 @@ export class Sections {
   private wayOn(st: TrainState, info: LineInfo, start: { pieceId: number; entry: number }, firstPath = -1, short: ReadonlySet<number> | null = null, depth = 0): Way | null {
     const { layout } = this;
     const topo = info.topo;
-    const target = this.host.target(st.engine);
+    let target = this.host.target(st.engine);
     const keep = this.host.keep?.(st.engine);
     const loose = this.host.lineOf(st.engine) < 0;
+    // (Past its stop on the way (a stop in a section is called at inside the move), its way goes on toward the one
+    // after, as the router aims it, not as the points lie: 2026-11-06, a train at a mill in a section was taken on into
+    // the hopper shuttle's loop beyond it, which it never goes to, and waited there for good. Only where lines share
+    // track (`network`), where the road as the points lie is often another line's: on a line's own track, with trains
+    // on no line about, the way as they lie let it follow one going round a ring, as before. Making the two agree
+    // there too waits for planning a train the way the traffic goes (the town-ring fuzz with a loop: 4 of 29 seeds
+    // came to no stop).)
+    const aims = loose || !this.network().has(this.host.lineOf(st.engine)) ? null : (this.host.lap?.(st.engine) ?? null);
+    let aim = aims ? aims.indexOf(target) : -1;
     const steps: Step[] = [];
     const sections: number[] = [];
     const through: number[] = [];
@@ -1277,6 +1286,9 @@ export class Sections {
         w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target);
       }
       steps.push({ pieceId: at.pieceId, path: w.path, entry: at.entry });
+      // (The same place again next (a line's last stop and its first): on to the one after that.)
+      if (aims && aim >= 0 && aims.length > 1 && at.pieceId === target)
+        for (let k = 0; k < aims.length && target === at.pieceId; k++) target = aims[(aim = (aim + 1) % aims.length)];
       at = next(layout, at.pieceId, w.exit);
     }
     return null;
@@ -2223,9 +2235,13 @@ export class Sections {
     // work the single track with its own.)
     const net = this.network().get(lineId);
     const topo = net ? net.topo : topologyOf(this.layout, longest);
-    const loops = engines.length >= 2 || net || (this.shared && engines.length === 1 && this.sim.trainIds().length > 1) ? this.loopsOn(lineId, topo) : -1;
+    // (A line of one train with only signals' waiting points on its ways, sharing a network with a line managed here: it
+    // takes its turns with theirs (`turns`). Else it was a train not on their line, never asked to wait, and one of
+    // theirs whose way it kept crossing waited for good: 2026-11-06, a mill's hopper shuttle and a towns line.)
+    const turns = (l: number) => !!net && this.host.live(l).length === 1 && net.lines.some((x) => x !== l && this.loopsOn(x, topo) >= 0);
+    const loops = engines.length >= 2 || net || (this.shared && engines.length === 1 && this.sim.trainIds().length > 1) ? this.loopsOn(lineId, topo, turns(lineId)) : -1;
     const peers: number[] = [];
-    if (net && loops >= 0) for (const l of net.lines) if (l !== lineId && this.loopsOn(l, topo) >= 0) peers.push(...this.host.live(l));
+    if (net && loops >= 0) for (const l of net.lines) if (l !== lineId && this.loopsOn(l, topo, turns(l)) >= 0) peers.push(...this.host.live(l));
     // (Trains on no line with their levers on, on the network's slots and sections: they work its single track too.)
     const loose: number[] = [];
     const looseTrains: Train[] = [];
@@ -2727,10 +2743,13 @@ export class Sections {
     return this.loopCount.get(this.host.lineOf(engine))?.pinnedLoop ?? false;
   }
 
-  /** Passing loops on a line's ways between its stops (−1: none of its ways touch a slot: it's left alone). */
-  private loopsOn(lineId: number, topo: Topology): number {
+  /**
+   * Passing loops on a line's ways between its stops (−1: none of its ways touch a slot: it's left alone). `shared`:
+   * signals' waiting points count as slots too (a one-train line taking turns in a network: see `line`).
+   */
+  private loopsOn(lineId: number, topo: Topology, shared = false): number {
     const stops = this.host.stopPieces(lineId);
-    const key = `${stops.join(",")}|${this.layout.revision}:${topo.slots.length}`;
+    const key = `${stops.join(",")}|${this.layout.revision}:${topo.slots.length}:${shared ? 1 : 0}`;
     const hit = this.loopCount.get(lineId);
     // (The same topology too: pinning a loop's switches changes it, not the track's revision.)
     if (hit && hit.key === key && hit.topo === topo) return hit.n;
@@ -2741,7 +2760,8 @@ export class Sections {
       const s = topo.slotOf.get(piece);
       if (s === undefined) continue;
       // (A waiting point alone doesn't make a line managed: an oval with signals is the sim's block working, §3.4.)
-      if (topo.slots[s].kind !== "signal") slots++;
+      // (Sharing a network with other lines, signals' waiting points count too: it takes its turns with theirs.)
+      if (topo.slots[s].kind !== "signal" || shared) slots++;
       if (topo.slots[s].kind === "road") loops.add(topo.slots[s].loop);
     }
     const n = slots === 0 ? -1 : loops.size;
