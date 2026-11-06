@@ -127,7 +127,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-flowers": { label: "Flower field", cost: { planks: 6 }, coins: 150, tech: "paint" },
   "piece:depot-dyeworks": { label: "Dye works", cost: { planks: 10 }, coins: 240, tech: "paint" },
   // Grand projects (src/game/grand.ts): glass for the Cathedral's stained glass, of coal.
-  "piece:depot-glassworks": { label: "Glassworks", cost: { planks: 10, bricks: 4 }, coins: 300, tech: "glassworks" },
+  "piece:depot-glassworks": { label: "Glassworks", cost: { planks: 10, stone: 6 }, coins: 300, tech: "glassworks" },
   "piece:depot-toyworks": { label: "Toy workshop", cost: { planks: 14 }, coins: 440, tech: "toys" },
   "piece:depot-airport": { label: "Airport", cost: { planks: 16, iron: 8 }, coins: 450, tech: "airport" },
   "piece:depot-mast": { label: "Airship mast", cost: { planks: 8, iron: 4 }, coins: 250, tech: "airship" },

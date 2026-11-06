@@ -134,7 +134,8 @@ export function buildRoyalSaloon(k: Kit, opts: { crown?: boolean; balcony?: bool
       crown.add(k.ball(k.paint(GOLD), 1.8, Math.cos(a) * 7.4, 7, Math.sin(a) * 7.4));
     }
     crown.add(k.ball(k.paint("#b0283a"), 3.6, 0, 6, 0), k.box(k.paint(GOLD), 1.2, 5, 1.2, 0, 0, 9, 0));
-    g.add(k.at(crown, bx, deck + 40, 0));
+    // (Set down into the clerestory a little: the car keeps under track a level up, `TRAIN_HEADROOM`.)
+    g.add(k.at(crown, bx, deck + 37.5, 0));
   }
   return g;
 }

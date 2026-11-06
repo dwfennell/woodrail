@@ -10,7 +10,7 @@
 //  4. The payoff: finished, it's earned (✓ in the tab, a sticker), and every town grows a step: the smaller towns a
 //     level each, Larkfield a quarter of its next star.
 //  5. 0 frames idle with the finished hall in view; then a reload: the hall, the achievement and the growth all kept.
-//  6. The Royal Train in Larkfield, its Exhibition done, by taps and trains: finished, it's given into the toy box (its tray tile).
+//  6. The Royal Train in a second City ★, by taps and trains: finished, it's given into the toy box (its tray tile).
 //  7. The Cathedral in a third, glass among its goods: finished, every town needs a tenth fewer goods to grow.
 //  8. The World's Fair wheel in a fourth: finished, a month on its tickets pay 60 coins. Four achievements earned.
 //
@@ -199,10 +199,24 @@ const bring = async (kind, n, station = town.station) =>
       const at = w.layout.getPiece(station).pose;
       const c = Math.cos(at.heading);
       const s = Math.sin(at.heading);
-      const along = (k) => ({ x: at.x + c * 216 * k, z: at.z + s * 216 * k, heading: at.heading });
       window.__approach ??= {};
       if (window.__approach[station] === undefined) {
-        const before = [-6, -5, -4, -3, -2, -1].map((k) => w.layout.addPiece("straight-216", along(k)));
+        // (Laid on whichever side of the station is clear of track: behind it, or else ahead of it, turned round, so
+        // the train still runs into the station. A town between two others has the starter line on one side.)
+        const clear = (side) => {
+          for (let k = 1; k <= 6; k++) {
+            const x = at.x + side * c * 216 * k;
+            const z = at.z + side * s * 216 * k;
+            for (const id of w.layout.pieceIds()) {
+              const q = w.layout.getPiece(id).pose;
+              if (id !== station && Math.hypot(q.x - x, q.z - z) < 150) return false;
+            }
+          }
+          return true;
+        };
+        const side = clear(-1) ? -1 : 1;
+        const along = (k) => ({ x: at.x + side * c * 216 * k, z: at.z + side * s * 216 * k, heading: side < 0 ? at.heading : at.heading + Math.PI });
+        const before = [6, 5, 4, 3, 2, 1].map((k) => w.layout.addPiece("straight-216", along(k)));
         window.__approach[station] = before[before.length - 4];
         w.trackChanged();
       }
@@ -357,7 +371,8 @@ const buildByTrain = async (t, id, label) => {
     return plan ? { town: plan.townId, asset: prop?.asset, x: prop?.x, z: prop?.z } : null;
   }, id);
   check(`${label}: Build puts its plot up by ${t.name}`, plan0?.town === t.id && plan0?.asset === `grand-${id}-0`, JSON.stringify(plan0));
-  site = { x: plan0?.x ?? 0, z: plan0?.z ?? 0 };
+  if (!plan0) return;
+  site = { x: plan0.x ?? 0, z: plan0.z ?? 0 };
   await lookAtSite(1300);
   await shot(`${id}-stage-0`);
   const stagesOf = await p.evaluate(async (id) => (await import("/src/game/grand.ts")).grandOf(id).stages.map((s) => s.goods), id);
@@ -379,10 +394,9 @@ const buildByTrain = async (t, id, label) => {
   await closeSheets();
 };
 
-// 6. The Royal Train, in Larkfield again (its Exhibition's done: a city may start another): finished, it's in the toy
-//    box (a tray tile on the Trains tab), the only train in that look. (Not Elderwick: the line laid behind its station
-//    for these trains would run over the starter line to Larkfield.)
-const t1 = await cityStar(0);
+// 6. The Royal Train in Elderwick: finished, it's in the toy box (a tray tile on the Trains tab), the only train in that
+//    look.
+const t1 = await cityStar(1);
 await buildByTrain(t1, "royal-train", "6. Royal Train");
 const royal = await p.evaluate(() => {
   const w = window.woodrail;

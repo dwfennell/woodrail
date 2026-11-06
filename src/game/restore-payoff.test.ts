@@ -206,7 +206,7 @@ describe("restoring says what it's for", () => {
   it("what it makes, to lay track to its siding, and where its goods go, from the recipes", () => {
     expect(restoredText("farm")).toBe("The farm is working! It grows grain. Lay track to its siding and a train will take it to the mill.");
     expect(restoredText("quarry")).toBe("The quarry is working! It cuts stone. Lay track to its siding and a train will take it to a town or the brickworks.");
-    expect(restoredText("mine")).toBe("The mine is working! It digs up coal and ore. Lay track to its siding and a train will take them to the foundry, the brickworks or the power station.");
+    expect(restoredText("mine")).toBe("The mine is working! It digs up coal and ore. Lay track to its siding and a train will take them to the foundry, the brickworks, the glassworks or the power station.");
     expect(restoredText("harbour")).toBe("The harbour is working! Lay track to its siding and bring it goods by train. Boats take them away.");
     // Only the industries the player knows: never the brickworks before Brickworks is learned (a spoiler); a town
     // where towns take the good; and where it knows nothing that uses it, the school.
