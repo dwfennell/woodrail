@@ -105,3 +105,43 @@ B, with these borrowed from A and the fixes above:
 | `C2-needs-station.jpg` | A town with no station nearby: its ring is dashed red, and a tap says "Larkfield needs a station first". |
 
 These rings are drawn only while planning, and only where a place is in view. They would be built as world-space decals with the route's markers, not as per-frame DOM. A tap's hit test is the place's footprint (an industry's lot, a town's buildings), and a station within reach decides which stop it becomes.
+
+## Built: option B (the user's pick, 2026-11-06)
+
+The pick was B, with the recommended changes and the fixes for either option.
+
+**The line sheet** (`src/ui/line-sheet.ts`)
+- A bottom sheet at most 46% of the screen high, so the map above stays tappable. On a phone on its side it docks at the right.
+- **Stops tab:**
+  - A spine in the line's colour runs down the stops. Each stop shows its number, its name and its goods in and out.
+  - Tapping a stop opens it in place. It says what moves there in sentences ("Drops 🪵 logs from Forest yard 2 · Picks up planks for Workshop").
+  - Two wooden ticks, Drop and Pick up, sit under that. Unticking both makes the train pass by, shown as a "Passes by" row.
+  - The open stop also has Wait to fill, ↑ ↓ and Take off. Stops can be dragged by their ⠿ handle.
+- **Trains tab:** the line's trains, each with Show and Take off. Free trains that can reach the line are offered with "+ Add".
+- **Header:** the name is a real button (rename). The swatch opens a palette. Copy, Reverse, Show and Delete sit behind ⋯. Solid green is kept for Done.
+- **Numbers:** dark ink goes on light line colours (`inkOn`). The yellow line's numbers go from 1.9:1 to 8.3:1. Red (4.1:1) and green (4.5:1) stay just under or at 4.5:1 with either ink.
+
+**Lines without a train**
+- ☰ Lines → + New line opens the sheet with no line. The line is made at its first stop, and trains are added from its Trains tab.
+- A line stays when its last train leaves or is removed. It only goes when deleted.
+- Saves keep these lines, and old saves load as before.
+
+**The Lines list** (`src/ui/lines-view.ts`)
+- Reached from ☰ Lines and from the line's name on the engine card.
+- Each row shows:
+  - its colour and name;
+  - a small line diagram with its ends named;
+  - its trains and the goods it carries;
+  - a health pill: Moving, Waiting, "Stuck: needs you" or No trains;
+  - its loads a month, counted by the economy's `LineTally`.
+- Problem lines come first. Tapping a row opens its sheet.
+
+**Tapping a place** (C1, C2)
+- While planning, a tap on an industry's building or yard adds that industry, and a tap on a town's house adds its station.
+- A town with no station says "<town> needs a station first". An old industry's ruin says to restore it first.
+- A soft cream ring with a thin dark edge marks each place a tap can add. They are two instanced draws, only while planning.
+
+**Tests**
+- `npm run e2e:routes-ux`: 29 checks on a 390×844 phone by taps.
+- Unit tests: `lines-standalone`, `line-tally`, `line-health`, `line-sheet-text`.
+- Pictures: `docs/agents/shots/routes-ux-*.jpg`.

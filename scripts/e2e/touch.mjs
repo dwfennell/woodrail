@@ -4530,9 +4530,12 @@ async function routeUxMore(ctx, p) {
     const g = window.woodrail.scene.getObjectByName("all-lines");
     return { discs: g?.children.filter((c) => c.isSprite).length ?? 0, arrows: !!g?.children.find((c) => c.name === "route-chevrons"), rows: [...document.querySelectorAll(".lines-row")].map((b) => ({ t: b.querySelector(".lines-name")?.textContent, h: Math.round(b.getBoundingClientRect().height) })) };
   });
-  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and lists it as a row to tap (44 px or more)", all.discs >= 3 && all.arrows && all.rows.length === 1 && all.rows.every((a) => a.h >= 44), JSON.stringify(all));
+  // (Lines from the groups before stand in the list too: this one's row by its name.)
+  const mine = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, first);
+  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and lists it as a row to tap (44 px or more)", all.discs >= 3 && all.arrows && all.rows.some((r) => r.t === mine) && all.rows.every((a) => a.h >= 44), JSON.stringify({ all, mine }));
   // (A train added from the line's sheet: its row, its Trains tab, the free train nearest the line, + Add.)
-  await tapButton(".lines-row");
+  await p.evaluate((n) => [...document.querySelectorAll(".lines-row")].find((r) => r.querySelector(".lines-name")?.textContent === n)?.setAttribute("data-e2e-row", "1"), mine);
+  await tapButton(".lines-row[data-e2e-row='1']");
   await tapButton(".line-sheet .ls-tab[data-tab='trains']");
   await p.waitForFunction(() => !!document.querySelector(".ls-add-train"), null, { timeout: 30000 }).catch(() => {});
   await tapButton(".ls-add-train");
@@ -4869,7 +4872,9 @@ async function routeShare(ctx, p) {
     if (words === "Reverse") await tapButton(".line-sheet .route-plan.on");
   };
   await openLinesView();
-  await tapButton(".lines-row");
+  // (Its own row, by name: lines from the groups before stand in the list too.)
+  await p.evaluate((n) => [...document.querySelectorAll(".lines-row")].find((r) => r.querySelector(".lines-name")?.textContent === n)?.setAttribute("data-e2e-row", "1"), first.name);
+  await tapButton(".lines-row[data-e2e-row='1']");
   await tapButton(".line-sheet .ls-more");
   const acts = await p.evaluate(() => {
     const v = document.querySelector(".line-sheet").getBoundingClientRect();
@@ -5076,7 +5081,12 @@ async function routeRing(ctx, p) {
       await p.evaluate(() => document.querySelectorAll("[data-e2e-act]").forEach((b) => b.removeAttribute("data-e2e-act")));
       return;
     }
-    await tapButton(".lines-row");
+    // (Its own row, by name: lines from the groups before stand in the list too.)
+    await p.evaluate((n) => {
+      document.querySelectorAll("[data-e2e-row]").forEach((r) => r.removeAttribute("data-e2e-row"));
+      [...document.querySelectorAll(".lines-row")].find((r) => r.querySelector(".lines-name")?.textContent === n)?.setAttribute("data-e2e-row", "1");
+    }, line.name);
+    await tapButton(".lines-row[data-e2e-row='1']");
     if (words === "+ Train") {
       await tapButton(".line-sheet .ls-tab[data-tab='trains']");
       await p.waitForFunction(() => !!document.querySelector(".ls-add-train"), null, { timeout: 30000 }).catch(() => {});
@@ -5255,7 +5265,9 @@ async function step(name, p, fn) {
   try {
     await fn();
   } catch (e) {
-    check(`${name}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
+    // (With the line of this script it stopped at: a wait that timed out says which.)
+    const at = String(e?.stack ?? "").split("\n").find((l) => l.includes("touch.mjs") && !l.includes("mapHelpers"))?.trim() ?? "";
+    check(`${name}: ran to the end`, false, `${String(e?.message ?? e).split("\n")[0]} ${at}`);
   }
   await p.keyboard.press("Escape");
   const left = await p.evaluate((before) => {

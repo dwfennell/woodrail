@@ -321,7 +321,10 @@ export class LineSheet {
     const tick = (text: string, on: boolean, cls: string, tip: string, fn: () => void) => {
       const b = this.button("", `ls-tick ${cls}${on ? " on" : ""}`, tip, fn);
       b.setAttribute("aria-pressed", String(on));
-      b.append(el("span", "ls-box", on ? "✓" : ""), text);
+      // (The ✓ is drawn by CSS: the button's words are only its name, its state is aria-pressed.)
+      const box = el("span", "ls-box");
+      box.setAttribute("aria-hidden", "true");
+      b.append(box, text);
       return b;
     };
     const row = el("div", "ls-ticks");
