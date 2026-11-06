@@ -4,17 +4,18 @@ import { checkProp, TrackIndex, type Footprint } from "../props/placement";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { CATALOGUE } from "../catalogue/assets";
 import { kindsOf, total } from "../economy/goods";
-import { advanceGrands, achievements, earned, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteSpot, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
+import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteSpot, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
 import { RECIPES } from "../economy/economy";
 import { CARRIES } from "../economy/cargo";
 import { FULL_PAY } from "./towns";
 import { isGift, ruleOf } from "./things";
 import { fareFor, ROYAL_FARE, SEATS } from "./passengers";
-import { appendPiece, connectorRef } from "../track";
+import { appendPiece, connectorRef, getPieceDef } from "../track";
+import { startLine } from "./lines";
 import { Progress } from "./progress";
 import { growthOf, receivedBy, statusOf, TownLife, type TownLifeHost } from "./town-life";
 import { townLevel, townStatus, wantsWith } from "./towns";
-import { buildStarterWorld, type World } from "./world";
+import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { deliverByTrain } from "./workshop-testing";
 import type { Town } from "../landscape";
 
@@ -95,7 +96,7 @@ describe("the grand projects' table", () => {
       expect(g.stages.length, g.id).toBeGreaterThanOrEqual(3);
       expect(g.coins, g.id).toBeGreaterThan(0);
       expect(g.reward.length, g.id).toBeGreaterThan(10);
-      for (const s of g.stages) expect(total(s.goods), `${g.id} ${s.name}`).toBeGreaterThan(0);
+      for (const s of g.stages) expect(total(s.goods) + (s.riders ?? 0), `${g.id} ${s.name}`).toBeGreaterThan(0);
       for (let i = 0; i <= g.stages.length; i++) expect(ids.has(siteAsset(g, i)), siteAsset(g, i)).toBe(true);
     }
   });
@@ -376,5 +377,118 @@ describe("the World's Fair wheel", () => {
     expect(grandRiders(w, city.id, FAIR_MONTH)).toBe(FAIR_RIDERS - 1);
     expect(grandRiders(w, city.id, FAIR_MONTH + 1)).toBe(0);
     expect(fairTown(w, FAIR_MONTH)).toBe(city.id);
+  });
+});
+
+describe("Grand Central", () => {
+  /** Town 0 a City ★, Grand Central started on its card as main does it (its kit into the toy box). */
+  function central() {
+    const g = game();
+    const { w, life, p } = g;
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 1000;
+    const kit = grandOf("central")!.kits![0];
+    const r = startGrand(w, p, town, statusOf(w, town.id).level, "central", () => ({ ...town.station, y: 0 }), () => {
+      p.add(`piece:${kit}`, 1);
+      return -1;
+    });
+    expect(r).toBe("started");
+    return { ...g, town };
+  }
+
+  /** Its kit from the toy box put down by the city (a little way from its station, along the line), joined on. */
+  function place(w: World, town: Town): number {
+    const st = w.layout.getPiece(w.stations.get(town.id)!)!.pose;
+    const id = w.layout.addPiece("kit-grand-central-1", { x: st.x, z: st.z - 400, heading: st.heading });
+    syncIndustries(w, true);
+    return id;
+  }
+
+  it("is given into the toy box as it's started (a gift, never made), and goes on a line by its city as one of its stops", () => {
+    const { w, p, town } = central();
+    expect(p.owned.get("piece:kit-grand-central-1")).toBe(1);
+    expect(isGift("piece:kit-grand-central-1")).toBe(true);
+    const id = place(w, town);
+    expect(getPieceDef("kit-grand-central-1", false).paths).toHaveLength(3);
+    expect(getPieceDef("kit-grand-central-1", false).paths.every((pa) => pa.to !== null)).toBe(true);
+    const d = w.economy.depotAtPiece(id)!;
+    expect(d.role).toBe("town");
+    expect(d.townId).toBe(town.id);
+    // Only by its own city.
+    expect(centralWhy(w, "kit-grand-central-1", town)).toBeNull();
+    expect(centralWhy(w, "kit-grand-central-1", w.landscape.towns[1])).toContain(town.name);
+    expect(centralWhy(w, "kit-grand-terminus", w.landscape.towns[1])).toBeNull();
+    // Its kits per stage keep the same roads: retyped stage by stage with its joints kept.
+    for (const k of GRAND_CENTRAL_KITS) expect(w.layout.canRetype(id, k), k).toBe(true);
+  });
+
+  it("goods by train for its first two stages, then riders carried through its city; its kit moved on stage by stage", () => {
+    const { w, life, p, town } = central();
+    const id = place(w, town);
+    const kitOfStage = () => grandOf("central")!.kits![w.economy.grandPlans.get("central")!.stage];
+    bringStage(w, life, town, "central");
+    moveCentralKit(w, p, kitOfStage());
+    expect(w.layout.getPiece(id)!.type).toBe("kit-grand-central-2");
+    expect(p.owned.get("piece:kit-grand-central-1")).toBe(0);
+    expect(p.owned.get("piece:kit-grand-central-2")).toBe(1);
+    bringStage(w, life, town, "central");
+    moveCentralKit(w, p, kitOfStage());
+    expect(w.layout.getPiece(id)!.type).toBe("kit-grand-central-3");
+    const plan = w.economy.grandPlans.get("central")!;
+    expect(plan.stage).toBe(2);
+    // Goods take it no further: riders do, getting on or off in its city.
+    expect(advanceGrands(w, swap(w))).toEqual([]);
+    const other = w.landscape.towns[2].id;
+    expect(countRider(w, other, w.landscape.towns[3].id)).toBe(false);
+    for (let i = 0; i < 59; i++) expect(countRider(w, i % 2 ? town.id : other, i % 2 ? other : town.id)).toBe(true);
+    expect(advanceGrands(w, swap(w))).toEqual([]);
+    countRider(w, other, town.id);
+    expect(advanceGrands(w, swap(w))).toEqual([{ kind: "earned", id: "central" }]);
+    expect(earned(w, "central")).toBe(true);
+  });
+
+  it("not yet on the map, its stages move the kit in the toy box along", () => {
+    const { w, life, p, town } = central();
+    bringStage(w, life, town, "central");
+    moveCentralKit(w, p, grandOf("central")!.kits![1]);
+    expect(p.owned.get("piece:kit-grand-central-1")).toBe(0);
+    expect(p.owned.get("piece:kit-grand-central-2")).toBe(1);
+  });
+
+  it("finished, riders on a line through it pay a quarter more; off its lines, as ever", () => {
+    const { w, life, p, town } = central();
+    const id = place(w, town);
+    const C = w.economy.depotAtPiece(id)!;
+    const [, b, c] = w.landscape.towns;
+    const A = w.economy.depotAtPiece(w.stations.get(b.id)!)!;
+    const B = w.economy.depotAtPiece(w.stations.get(c.id)!)!;
+    let last = w.stations.get(b.id)!;
+    for (let i = 0; i < 3; i++) last = appendPiece(w.layout, "straight-216", false, connectorRef(last, 1));
+    const placed = w.sim.addTrain(["engine", "passenger"], { pieceId: last, pathIndex: 0, reversed: false, s: 200 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const [engine, coach] = w.sim.getTrain(placed.trainId)!.cars;
+    const plain = fareFor(w, A, B, coach.id);
+    for (let i = 0; i < 2; i++) bringStage(w, life, town, "central");
+    for (let i = 0; i < 60; i++) countRider(w, town.id, b.id);
+    advanceGrands(w, swap(w));
+    moveCentralKit(w, p, "kit-grand-central-3");
+    expect(earned(w, "central")).toBe(true);
+    expect(fareFor(w, A, B, coach.id)).toBe(plain);
+    startLine(w.economy, engine.id, [
+      { depotId: A.id, action: "both" },
+      { depotId: C.id, action: "both" },
+      { depotId: B.id, action: "both" },
+    ]);
+    expect(fareFor(w, A, B, coach.id)).toBe(Math.round(plain * HUB_FARE));
+    expect(hubFare(w, C, B, undefined)).toBe(HUB_FARE);
+  });
+
+  it("keeps its riders counted in a save", () => {
+    const { w, life, town } = central();
+    for (let i = 0; i < 2; i++) bringStage(w, life, town, "central");
+    for (let i = 0; i < 7; i++) countRider(w, town.id, w.landscape.towns[1].id);
+    const back = reload(w);
+    expect(back.economy.grandPlans.get("central")).toMatchObject({ stage: 2, riders: 7, prop: -1 });
   });
 });

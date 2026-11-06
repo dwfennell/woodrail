@@ -234,6 +234,10 @@ export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   // Big stations (a research): a stop on each road, or each road of the terminus, for the same town.
   "kit-two-platform-station",
   "kit-grand-terminus",
+  // Grand Central (a grand project): a city's station upgraded to three through roads, a stop on each.
+  "kit-grand-central-1",
+  "kit-grand-central-2",
+  "kit-grand-central-3",
   // The rack's lookout: a stop of the nearest town's, however far, on a hilltop (`LOOKOUT_KIT`).
   "kit-lookout",
   // The observatory (Tech tree 5): the lookout's kind of stop, for stargazers.

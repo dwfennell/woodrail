@@ -192,6 +192,32 @@ const bufferTrack = (type: PieceTypeId): PieceDef => ({
 /** Roads side by side along +t, `ROADS` apart, the first on the piece's own line (l 0), the rest to its left. */
 const sideBySide = (n: number): Pose[] => Array.from({ length: n }, (_, i) => pose(0, i * ROADS, 0));
 
+/**
+ * Grand Central at build stage `n` (its model `grand-central-<n>`: src/catalogue/assets/grand.ts, its tracks 72 apart,
+ * `CENTRAL_TRACKS`): three through roads, its model's middle on the middle road, its building past the third road (the
+ * side away from the town's houses: a city has no room on its own side). Its platforms run past the roads' ends.
+ */
+function grandCentral(n: 1 | 2 | 3): KitDef {
+  const type = `kit-grand-central-${n}` as const;
+  return {
+    asset: `grand-central-${n}`,
+    name: "Grand Central",
+    track: roads(type, sideBySide(3), 216, false),
+    rails: "track",
+    place: { t: 108, l: ROADS },
+    footprint: [
+      // The near platform and the shed's brick wall behind it (the town's side: as narrow as a plain station's).
+      { t: 108, l: -40, w: 216, d: 40 },
+      // The islands between the roads.
+      { t: 108, l: ROADS / 2, w: 216, d: 26 },
+      { t: 108, l: ROADS * 1.5, w: 216, d: 26 },
+      // The far platform, the station building and its clock tower, the forecourt before it (past the last road).
+      { t: 108, l: 2 * ROADS + 76, w: 222, d: 112 },
+    ],
+    stop: { at: 150, seconds: 4, who: "passengers" },
+  };
+}
+
 /** A roundhouse's stall roads: from the rim of a turntable's pit (radius 92), fanned an eighth of a turn apart. */
 const PIT = 92;
 const stalls = (angles: readonly number[]): Pose[] => angles.map((a) => pose(-PIT + PIT * Math.cos(a), PIT * Math.sin(a), a));
@@ -404,6 +430,13 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     ],
     stop: { at: 190, seconds: 4, who: "passengers" },
   },
+  // Grand Central (a grand project, src/game/grand.ts): a city's station upgraded in place to three through roads
+  // under a glass train shed, a stop on each, the station building alongside on the town's side. One kit per build
+  // stage (platforms laid, half built, finished), the same roads in each, so the station is retyped stage by stage with
+  // its trains, joints and routes kept.
+  "kit-grand-central-1": grandCentral(1),
+  "kit-grand-central-2": grandCentral(2),
+  "kit-grand-central-3": grandCentral(3),
   // Somewhere to park engines: two roads into a shed, ending at buffers. Its doors open as a train comes in and close
   // behind it.
   "kit-engine-shed": {

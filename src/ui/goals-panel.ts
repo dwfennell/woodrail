@@ -394,7 +394,7 @@ export class GoalsPanel {
             .map((st, i) => {
               const goods = kindsOf(st.goods)
                 .map((k) => `<span title="${escapeHtml(CARGO[k as CargoKind].label)}">${st.goods[k]} ${GOODS_ICON[k as CargoKind]}</span>`)
-                .join(" ");
+                .join(" ") + (st.riders ? ` <span>${st.riders} 🧑 riders</span>` : "");
               const cls = i < v.done ? "done" : i === v.done && v.town ? "now" : "";
               return `<li class="${cls}"><b>${i < v.done ? "✓ " : ""}${escapeHtml(st.name)}</b> <span class="ach-goods">${goods}</span></li>`;
             })

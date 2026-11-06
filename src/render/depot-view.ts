@@ -430,6 +430,9 @@ function acrossTheLine(layout: DepotLayout): DepotLayout {
 const UPGRADED_STATION: Readonly<Record<string, DepotLayout>> = {
   "kit-two-platform-station": acrossTheLine(DEPOT_LAYOUT.town),
   "kit-grand-terminus": acrossTheLine(DEPOT_LAYOUT.town),
+  "kit-grand-central-1": acrossTheLine(DEPOT_LAYOUT.town),
+  "kit-grand-central-2": acrossTheLine(DEPOT_LAYOUT.town),
+  "kit-grand-central-3": acrossTheLine(DEPOT_LAYOUT.town),
 };
 
 /**

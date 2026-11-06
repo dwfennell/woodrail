@@ -9,6 +9,7 @@ import { statusOf } from "./town-life";
 import type { World } from "./world";
 import { visitorFactor } from "./places";
 import { METRO_QUARTERS, METRO_SLOWER } from "./metro";
+import { hubFare } from "./grand";
 
 /**
  * Game mode's passengers: people wait at each town's station, more the bigger the town; coaches carry them to another
@@ -162,6 +163,8 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
     if (world.economy.ridersOf(carId).scenic && hasObservation(world, found.train.cars)) fare *= OBSERVATION;
     if (look === "royal") fare *= ROYAL_FARE;
+    // Grand Central finished: a quarter more on any line through it (src/game/grand.ts).
+    fare *= hubFare(world, from, to, found.train.cars.find((c) => c.kind === "engine")?.id);
   }
   if (from.role === "airport") fare *= VISITOR_BONUS;
   // Getting off at a town with a leisure place, from another town: a visitor, who pays more.

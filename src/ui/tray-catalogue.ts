@@ -285,7 +285,8 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
   },
   {
     label: "Stations",
-    items: [kit("kit-two-platform-station", "Two-platform station"), kit("kit-grand-terminus", "Terminus")],
+    // (Grand Central: a grand project's, given when it's started in a City ★, src/game/grand.ts.)
+    items: [kit("kit-two-platform-station", "Two-platform station"), kit("kit-grand-terminus", "Terminus"), kit("kit-grand-central-1", "Grand Central")],
   },
   {
     label: "Yard",

@@ -29,6 +29,8 @@ export interface GrandStage {
   readonly name: string;
   /** The goods it takes, brought by train to its city's station. */
   readonly goods: Bag;
+  /** Riders carried through its city's station (getting on or off there) it takes too (Grand Central's last stage). */
+  readonly riders?: number;
 }
 
 export interface Grand {
@@ -46,6 +48,11 @@ export interface Grand {
   readonly day: string;
   /** Drawn at this share of its model's size on the map (the models are big: a city's biggest thing). */
   readonly scale: number;
+  /**
+   * Built as a station of its own (Grand Central): a kit given into the toy box as it's started, put on a line by its
+   * city as one of its stops; `kits[stage]` is its kit with `stage` of its stages done (the one placed is retyped).
+   */
+  readonly kits?: readonly (typeof GRAND_CENTRAL_KITS)[number][];
 }
 
 /** A town's level a grand project needs: City ★ (0 a hamlet, 1 a village, 2 a town, 3 a city). */
@@ -57,6 +64,12 @@ export const EXHIBITION_SHARE = 0.25;
 export const CATHEDRAL_CUT = 0.1;
 /** The Cathedral's pilgrims: people come to its city's stations this many times as often. */
 export const PILGRIMS = 1.5;
+/** Grand Central's kits, one per build stage (platforms laid, half built, finished): the same three roads in each. */
+export const GRAND_CENTRAL_KITS = ["kit-grand-central-1", "kit-grand-central-2", "kit-grand-central-3"] as const;
+export const isGrandCentral = (type: string | undefined): boolean => !!type && type.startsWith("kit-grand-central-");
+
+/** Grand Central's reward: riders on a line through it (or getting on or off there) pay this many times the fare. */
+export const HUB_FARE = 1.25;
 /** The World's Fair wheel's fair week: in July, people come to its city's stations this many times as often. */
 export const FAIR_RIDERS = 3;
 /** The month of the fair (0 = January). */
@@ -113,6 +126,22 @@ export const GRANDS: readonly Grand[] = [
     scale: 1,
   },
   {
+    id: "central",
+    name: "Grand Central",
+    icon: "🚉",
+    asset: "grand-central",
+    stages: [
+      { name: "The platforms and shed", goods: { bricks: 16, iron: 12 } },
+      { name: "The clock tower", goods: { stone: 24 } },
+      { name: "Every line meets", goods: {}, riders: 60 },
+    ],
+    coins: 500,
+    reward: "A hub: its three roads stop three trains at once, and riders on lines through it pay a quarter more",
+    day: "Grand Central opens! Every line's trains meet under its clock, and riders through it pay a quarter more",
+    scale: 1,
+    kits: ["kit-grand-central-1", "kit-grand-central-2", "kit-grand-central-3", "kit-grand-central-3"],
+  },
+  {
     id: "ferris-wheel",
     name: "World's Fair wheel",
     icon: "🎡",
@@ -139,8 +168,10 @@ export interface GrandPlan {
   stage: number;
   /** The goods the stage under way has had, by kind. */
   got: Bag;
-  /** Its site's prop id (−1: none, on a save from before it had one). */
+  /** Its site's prop id (−1: none: Grand Central, built as its city's station). */
   prop: number;
+  /** Riders through its city's station since its stage that counts them began (Grand Central's last). */
+  riders?: number;
 }
 
 /** Is this plan's project finished (every stage done)? */
@@ -168,7 +199,78 @@ export function stageLacks(id: string, plan: GrandPlan, kind: CargoKind): number
 /** Has the stage under way had every good it wants? */
 export function stageFilled(id: string, plan: GrandPlan): boolean {
   const stage = grandOf(id)?.stages[plan.stage];
-  return !!stage && kindsOf(stage.goods).every((k) => stageLacks(id, plan, k) === 0);
+  return !!stage && kindsOf(stage.goods).every((k) => stageLacks(id, plan, k) === 0) && (plan.riders ?? 0) >= (stage.riders ?? 0);
+}
+
+/** Riders the stage under way of town `townId`'s project still wants through its station (0: none, or not that kind). */
+export function ridersLack(world: Pick<World, "economy">, townId: number): number {
+  for (const [id, plan] of world.economy.grandPlans) {
+    if (plan.townId !== townId || grandDone(id, plan)) continue;
+    const want = grandOf(id)?.stages[plan.stage]?.riders ?? 0;
+    if (want > (plan.riders ?? 0)) return want - (plan.riders ?? 0);
+  }
+  return 0;
+}
+
+/**
+ * A rider got off at `to`, having got on at `from` (town ids): one carried through a city whose project's stage counts
+ * riders (Grand Central's) counts toward it. Returns whether one was counted (its stage may be done: `advanceGrands`).
+ */
+export function countRider(world: Pick<World, "economy">, fromTown: number, toTown: number): boolean {
+  for (const [id, plan] of world.economy.grandPlans) {
+    if (plan.townId !== fromTown && plan.townId !== toTown) continue;
+    const want = grandOf(id)?.stages[plan.stage]?.riders ?? 0;
+    if (grandDone(id, plan) || (plan.riders ?? 0) >= want) continue;
+    plan.riders = (plan.riders ?? 0) + 1;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Grand Central's fare bonus (`HUB_FARE`), once it's finished: for a rider on a train whose line stops at its station,
+ * or who got on or off there. `engine` is the rider's train's engine (its line: `Economy.lineIdOf`); 1: no bonus.
+ */
+export function hubFare(world: Pick<World, "economy" | "layout">, from: { pieceId: number }, to: { pieceId: number }, engine: number | undefined): number {
+  const c = world.economy.grandPlans.get("central");
+  if (!c || !grandDone("central", c)) return 1;
+  const at = (pieceId: number) => isGrandCentral(world.layout.getPiece(pieceId)?.type);
+  if (at(from.pieceId) || at(to.pieceId)) return HUB_FARE;
+  const line = engine === undefined ? undefined : world.economy.lines.get(world.economy.lineIdOf.get(engine) ?? -1);
+  if (!line) return 1;
+  for (const s of line.stops) {
+    const d = world.economy.depot(s.depotId);
+    if (d && at(d.pieceId)) return HUB_FARE;
+  }
+  return 1;
+}
+
+/** Grand Central's piece on the map (its kit placed), or −1. */
+export function centralPiece(world: Pick<World, "layout">): number {
+  for (const id of world.layout.pieceIds()) if (isGrandCentral(world.layout.getPiece(id)!.type)) return id;
+  return -1;
+}
+
+/**
+ * Grand Central's stage done: its kit moves on to `kit` (the stage's), the placed one retyped with its trains and joints,
+ * or the one in the toy box swapped; the toy box's count moves along either way, so it's still one, never made.
+ */
+export function moveCentralKit(world: Pick<World, "layout">, p: Pick<Progress, "owned">, kit: (typeof GRAND_CENTRAL_KITS)[number]): void {
+  const id = centralPiece(world);
+  const from = id >= 0 ? (world.layout.getPiece(id)!.type as (typeof GRAND_CENTRAL_KITS)[number]) : GRAND_CENTRAL_KITS.find((k) => (p.owned.get(`piece:${k}`) ?? 0) > 0);
+  if (!from || from === kit) return;
+  if (id >= 0 && !world.layout.retype(id, kit)) return;
+  p.owned.set(`piece:${from}`, Math.max(0, (p.owned.get(`piece:${from}`) ?? 0) - 1));
+  p.owned.set(`piece:${kit}`, (p.owned.get(`piece:${kit}`) ?? 0) + 1);
+}
+
+/** Game mode's rule for Grand Central's place: by its own city (the halt's town), or why not (null: fine). */
+export function centralWhy(world: Pick<World, "economy" | "landscape">, type: string, town: { id: number } | null): string | null {
+  if (!isGrandCentral(type)) return null;
+  const c = world.economy.grandPlans.get("central");
+  const city = c && world.landscape.towns.find((t) => t.id === c.townId);
+  if (!city) return null;
+  return town?.id === city.id ? null : `Grand Central is ${city.name}'s: put it on a line by ${city.name}`;
 }
 
 /** How many of `kind` town `townId`'s project under way still wants for its stage (0: none). A lookup, per unit. */
@@ -282,7 +384,7 @@ export interface GrandTile {
   /** What its button or note says. */
   note: string;
   /** Under way here: the stage's name, its number and goods, and what it's had. */
-  stage?: { n: number; of: number; name: string; goods: Bag; got: Bag };
+  stage?: { n: number; of: number; name: string; goods: Bag; got: Bag; riders?: { want: number; got: number } };
 }
 
 /** One project's state for town `town` at `level`. */
@@ -315,7 +417,7 @@ export function grandRow(world: Pick<World, "economy">, p: Progress, town: Town,
     const tile: GrandTile = { id: g.id, name: g.name, icon: g.icon, reward: g.reward, state, coins: g.coins, note: NOTES[state](g) };
     if (state === "building" && plan) {
       const s = g.stages[plan.stage];
-      tile.stage = { n: plan.stage + 1, of: g.stages.length, name: s.name, goods: s.goods, got: { ...plan.got } };
+      tile.stage = { n: plan.stage + 1, of: g.stages.length, name: s.name, goods: s.goods, got: { ...plan.got }, ...(s.riders ? { riders: { want: s.riders, got: plan.riders ?? 0 } } : {}) };
     }
     return tile;
   });
@@ -326,7 +428,7 @@ export function grandRowKey(world: Pick<World, "economy">, p: Progress, townId: 
   let k = coinsShort(p) > 0 ? 1 : 0;
   for (const g of GRANDS) k = Math.imul(k, 31) + (p.coins >= g.coins ? 1 : 0);
   for (const [id, plan] of world.economy.grandPlans) {
-    k = Math.imul(k, 31) + id.length + plan.townId * 7 + plan.stage * 131 + (plan.townId === townId ? 1 : 0);
+    k = Math.imul(k, 31) + id.length + plan.townId * 7 + plan.stage * 131 + (plan.townId === townId ? 1 : 0) + (plan.riders ?? 0) * 977;
     for (const g in plan.got) k = Math.imul(k, 31) + (plan.got[g as CargoKind] ?? 0);
   }
   return k | 0;
@@ -413,7 +515,9 @@ export function advanceGrands(world: Pick<World, "economy">, swap: (prop: number
     while (plan.stage < g.stages.length && stageFilled(id, plan)) {
       plan.stage++;
       plan.got = {};
+      delete plan.riders;
       if (plan.prop >= 0) swap(plan.prop, siteAsset(g, plan.stage));
+      // (Grand Central: its city's station is the site, its kit swapped by the caller on the "stage" event.)
       out.push(plan.stage >= g.stages.length ? { kind: "earned", id: g.id } : { kind: "stage", id: g.id, stage: plan.stage });
     }
   }
