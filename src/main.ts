@@ -99,6 +99,9 @@ import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
 import { attachWater, type WaterControls } from "./ui/water-controls";
+import { attachSecrets, type SecretControls } from "./ui/secret-controls";
+import { secretOfStop } from "./game/secrets";
+import { isSecretKit } from "./track";
 import { drawPlaceRows } from "./ui/places-row";
 import { PaintSheet } from "./ui/paint-sheet";
 import { paintable } from "./render/train-models";
@@ -341,7 +344,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** What the open Research picker was last drawn from (`boardKey`). */
   let boardKeyShown = "";
   // Stations and depots never move (to take up joint play, or to close a near miss).
-  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values(), ...game.ruins.values()].includes(id);
+  // (And a found secret's halt: the game laid it, where the secret is. src/game/secrets.ts.)
+  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values(), ...game.ruins.values()].includes(id) || isSecretKit(game.layout.getPiece(id)?.type ?? "straight-216");
   /** Has the train lift's first-time tip been shown (on this device)? */
   let liftTipShown = liftTipSeen();
   /** An editor for the world's track and props (props-only edits skip the track's work). */
@@ -423,6 +427,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let interaction: Interaction;
   /** River barges on screen (made once the HUD and interaction are: `attachWater`). */
   let water: WaterControls | null = null;
+  let secrets: SecretControls | null = null;
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
@@ -1379,6 +1384,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function onChange(): void {
+    // Track laid to a secret finds it: its halt is laid, a stop from now on (src/game/secrets.ts).
+    secrets?.trackChanged();
     game.trackChanged();
     industriesChanged();
     // Game mode: squares of town newly dug under (a metro's tunnels) are paid for now they're down (checked first:
@@ -2803,6 +2810,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     saved: () => scheduleSave(),
     paid: () => scheduleSave("progress"),
   });
+  // Secrets on the map (Game mode): found by laying track to them, their cards, midsummer (src/ui/secret-controls.ts).
+  secrets = attachSecrets({
+    game,
+    hud,
+    interaction,
+    progress: () => progress,
+    found: () => {
+      audio.chime();
+      scheduleSave();
+    },
+  });
   function passengersOn(): void {
     peopleClock.clear();
     harbourTrade.reset();
@@ -2827,9 +2845,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         scheduleSave("progress");
         // (A rider through a city building Grand Central counts toward its last stage: src/game/grand.ts.)
         if (game.economy.grandPlans.size > 0 && countRider(game.world, from.townId, to.townId)) advanceGrand();
+        // (A tourist trip to a secret is counted on its site, in the land: saved with the world.)
+        if (secretOfStop(game.world, to)) scheduleSave();
       },
       // (Visitors' seasons go by the railway's calendar.)
       () => dateOf(game.simSeconds).month,
+      () => dateOf(game.simSeconds).year,
     );
   }
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
@@ -2929,6 +2950,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A town with a powered radio mast sends more: src/game/radio.ts. The towns counted again only when the power or
     // the props change.)
     peopleArrive(game.world, progress, gameSeconds, peopleClock, radioBoost());
+    // Secrets: midsummer at the stones, an open card's trips.
+    secrets?.tick();
     // The circus (late-game spec K1): a show opens where its train stands at a town, and closes after three months.
     if (mode === "game" && progress.learned.has("circus")) tickCircus();
     // The World's Fair wheel's tickets, each month, and its fair week (src/game/grand.ts).

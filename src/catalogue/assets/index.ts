@@ -6,10 +6,11 @@ import { ASSETS as life } from "./life";
 import { ASSETS as mechanisms } from "./mechanisms";
 import { ASSETS as royal } from "./royal-train";
 import { ASSETS as scenery } from "./scenery";
+import { ASSETS as secrets } from "./secrets";
 import { ASSETS as track } from "./track";
 import { ASSETS as trains } from "./trains";
 import { ASSETS as vehicles } from "./vehicles";
 import { ASSETS as water } from "./water";
 
 /** Every asset in the catalogue. */
-export const CATALOGUE: Asset[] = [...trains, ...track, ...buildings, ...mechanisms, ...vehicles, ...water, ...life, ...scenery, ...inGame, ...grand, ...royal];
+export const CATALOGUE: Asset[] = [...trains, ...track, ...buildings, ...mechanisms, ...vehicles, ...water, ...life, ...scenery, ...inGame, ...grand, ...royal, ...secrets];

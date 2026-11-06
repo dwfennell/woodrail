@@ -584,22 +584,8 @@ export function addStartSites(land: Landscape): Extra[] {
   const random = sitesStream(land.seed, region.px0, region.pz0, region.w, region.h);
   const out: Extra[] = [];
   land.sites ??= [];
-  const g = land.grid;
   const [a, b] = land.towns;
-  let keepOff: SiteOptions["keepOff"];
-  if (land.starter && a && b) {
-    const xs = [a.centre.x, b.centre.x, ...land.depots.map((d) => d.centre.x)];
-    const x0 = Math.min(...xs) - 6 * CELL;
-    const x1 = Math.max(...xs) + 6 * CELL;
-    // (And the sawmill's side of the line: the branch to it turns that way, and so do a player's first industries.)
-    const sawmill = land.depots.find((d) => d.kind === "sawmill");
-    const side = sawmill ? Math.sign(sawmill.centre.z - a.centre.z) : 0;
-    keepOff = (col, row) => {
-      const x = g.centreX(col);
-      const z = g.centreZ(row);
-      return (x > x0 && x < x1 && Math.abs(z - a.centre.z) < STARTER_KEEP_OFF * CELL) || (side !== 0 && Math.sign(z - a.centre.z) === side);
-    };
-  }
+  const keepOff = starterKeepOff(land);
   const near = a && b ? { x: (a.centre.x + b.centre.x) / 2, z: (a.centre.z + b.centre.z) / 2 } : a ? a.centre : { x: 0, z: 0 };
   const plotOf = (s: MapSite) => ({ px: Math.floor(s.centre.x / (PLOT_COLS * CELL)), pz: Math.floor(s.centre.z / (PLOT_ROWS * CELL)) });
   const farm = firstSite(land, region, ["farm"], random, { px: region.px0, pz: region.pz0 }, { keepOff, near }, out);
@@ -612,6 +598,28 @@ export function addStartSites(land: Landscape): Extra[] {
   const other = firstSite(land, region, second, random, { px: region.px0, pz: region.pz0 }, { keepOff, near }, out);
   if (other) other.plot = plotOf(other);
   return out;
+}
+
+/**
+ * On a starter map, the squares the start's extras keep off (its farm, its secret): the strip from the sawmill past the
+ * first two towns to the forest yard (`STARTER_KEEP_OFF` rows either side), and the sawmill's side of it altogether.
+ * Undefined on other maps.
+ */
+export function starterKeepOff(land: Landscape): ((col: number, row: number) => boolean) | undefined {
+  const [a, b] = land.towns;
+  if (!land.starter || !a || !b) return undefined;
+  const g = land.grid;
+  const xs = [a.centre.x, b.centre.x, ...land.depots.map((d) => d.centre.x)];
+  const x0 = Math.min(...xs) - 6 * CELL;
+  const x1 = Math.max(...xs) + 6 * CELL;
+  // (And the sawmill's side of the line: the branch to it turns that way, and so do a player's first industries.)
+  const sawmill = land.depots.find((d) => d.kind === "sawmill");
+  const side = sawmill ? Math.sign(sawmill.centre.z - a.centre.z) : 0;
+  return (col, row) => {
+    const x = g.centreX(col);
+    const z = g.centreZ(row);
+    return (x > x0 && x < x1 && Math.abs(z - a.centre.z) < STARTER_KEEP_OFF * CELL) || (side !== 0 && Math.sign(z - a.centre.z) === side);
+  };
 }
 
 /** Rows either side of the starter line kept free of the start's sites. */
@@ -766,9 +774,11 @@ export function describeLand(land: Landscape): string {
   if (water && sea === 0) parts.push("the coast");
   if (river) parts.push("a river");
   if (hills > g.cellCount * 0.25) parts.push("hills");
-  if (parts.length === 0) return "Open countryside.";
+  // (A secret: something in the mist, not what. src/game/secrets.ts.)
+  const hidden = (land.secrets ?? []).some((s) => !s.found) ? " ❔ Something lies hidden here." : "";
+  if (parts.length === 0) return `Open countryside.${hidden}`;
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
-  return list.charAt(0).toUpperCase() + list.slice(1) + ".";
+  return list.charAt(0).toUpperCase() + list.slice(1) + "." + hidden;
 }
 
 /** The standing ruin whose yard or stub (with a little to spare: its fence, its sign) is at plan point (x, z), or −1. */

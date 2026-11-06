@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
-import { appendPiece, connectorRef, isKit, kitOf, KITS, type PieceTypeId } from "../track";
+import { appendPiece, connectorRef, isKit, isSecretKit, kitOf, KITS, type PieceTypeId } from "../track";
 import { GAME_KIT_GROUPS, GAME_TRACK_KITS } from "../ui/tray-catalogue";
 import { BLUEPRINTS } from "./blueprints";
 import { craftNow, Crafting, lacking, workshopStock } from "./crafting";
@@ -91,6 +91,11 @@ describe("railway kits in Game mode", () => {
       // the later ones its kit retyped on the map: src/game/grand.ts.)
       if (isGift(pieceThing(type))) {
         expect(tray.has(type), type).toBe(type === "kit-grand-central-1");
+        continue;
+      }
+      // (A secret's halt is the game's to lay, when the secret's found: never on the tray, src/game/secrets.ts.)
+      if (isSecretKit(type)) {
+        expect(tray.has(type), type).toBe(false);
         continue;
       }
       expect(ruleOf(pieceThing(type))?.tech, type).toBeDefined();

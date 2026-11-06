@@ -14,7 +14,8 @@ import { BARGE_LOADS, isBulk, isDock, MAX_BOATS } from "../game/boats";
 import { joinSavedLine, LINE_COLOURS, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, serializeLandscape } from "./landscape-data";
-import { FEAT_NONE, FEAT_RUIN } from "../landscape";
+import { FEAT_NONE, FEAT_RUIN, planSecrets, ringOf } from "../landscape";
+import { findSecret, haltPieceOf } from "../game/secrets";
 
 export { SAVE_VERSION } from "./save-limits";
 
@@ -555,6 +556,14 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     landscape.sites = [];
     landscape.siteless = true;
   } else if (save.landscape.sites === undefined) addSitesToOldSave(world);
+  // A save from before secrets (a Game map's, `siteless` not set): they're planned now on land it doesn't have yet, so
+  // the land it buys from now on has them (src/landscape/secrets.ts). Kept from then on (saved with the land).
+  if (!landscape.siteless && !landscape.secretPlan) {
+    landscape.secretPlan = planSecrets(landscape.seed, landscape.coast ?? null, (px, pz) => landscape.grid.hasPlot(px, pz) || ringOf(px, pz) === 0);
+    landscape.secrets ??= [];
+  }
+  // A found secret's halt that isn't on the layout (it can't be taken up: a save from elsewhere) is laid again.
+  for (const s of landscape.secrets ?? []) if (s.found && haltPieceOf(layout, s) === undefined && landscape.grid.hasPlot(s.plot.px, s.plot.pz)) findSecret(world, s);
   return ok(world);
 }
 

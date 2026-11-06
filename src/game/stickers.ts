@@ -5,6 +5,7 @@ import { fixedPieces, type World } from "./world";
 import { largestNetwork, running } from "./goals";
 import type { DepotRole } from "../economy";
 import { earned as grandEarned, GRANDS } from "./grand";
+import { TOURIST_COUNT, TOURIST_TIERS } from "./secrets";
 
 /**
  * Stickers: the open-ended layer on top of the goals (spec 2026-10-31-achievements.md). Broad, optional, collected in
@@ -121,6 +122,13 @@ export const SEA_TRADER = 100;
 export const exported = (ctx: StickerContext) => count(ctx, "exported");
 /** Goods bought from harbour boats and landed on a quay (`HarbourTrade`, on a "bought" event with goods). */
 export const imported = (ctx: StickerContext) => count(ctx, "imported");
+
+/** The Exploring sticker's tiers, by `TOURIST_TIERS`: a ticket, the guide's flag, a suitcase with labels. */
+export const EXPLORING = [
+  { id: "day-tripper", title: "Day tripper", icon: "🎫" },
+  { id: "tour-guide", title: "Tour guide", icon: "🚩" },
+  { id: "grand-tourist", title: "Grand tourist", icon: "🧳" },
+] as const;
 
 export const STICKERS: readonly Sticker[] = [
   { id: "track-layer", title: "Track layer", how: `Lay ${TRACK_LAYER} pieces of track`, icon: "🛤️", theme: "building", deps: ["pieces"], check: (w) => ownTrack(w) >= TRACK_LAYER },
@@ -276,6 +284,18 @@ export const STICKERS: readonly Sticker[] = [
   ...GRANDS.map(
     (g): Sticker => ({ id: `grand-${g.id}`, title: g.name, how: `Finish the ${g.name}, a grand project in a City ★`, icon: g.icon, theme: "towns", deps: ["grand"], check: (w) => grandEarned(w, g.id) }),
   ),
+  // Exploring: tourist trips to the secrets found (riders off at their halts, all together: src/game/secrets.ts).
+  ...TOURIST_TIERS.map(
+    (n, i): Sticker => ({
+      id: EXPLORING[i].id,
+      title: EXPLORING[i].title,
+      how: `${n} tourist trips to secrets you've found`,
+      icon: EXPLORING[i].icon,
+      theme: "trains",
+      deps: ["counts"],
+      check: (_w, c) => count(c, TOURIST_COUNT) >= n,
+    }),
+  ),
 ];
 
 /** Civic pride's four places. */
@@ -295,7 +315,7 @@ export function depKeys(w: World, ctx: StickerContext, goalsDone: number): Recor
     pieces: `${w.layout.piecesVersion}:${w.layout.jointsVersion}`,
     towns: `${w.landscape.towns.length}:${towns}:${places}`,
     coins: String(ctx.coins),
-    counts: `${count(ctx, "loadsMoved")}:${count(ctx, "planksSawn")}:${count(ctx, "visitors")}`,
+    counts: `${count(ctx, "loadsMoved")}:${count(ctx, "planksSawn")}:${count(ctx, "visitors")}:${count(ctx, TOURIST_COUNT)}`,
     learned: String(ctx.learned.size),
     goals: String(goalsDone),
     land: String(w.landscape.grid.revision),

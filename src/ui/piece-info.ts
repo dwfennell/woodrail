@@ -7,7 +7,7 @@ import { speedWord } from "../game/train-summary";
 import { LIFT_NAME } from "../game/lift-notice";
 import { INDUSTRY_ROLE } from "../game/world";
 import type { CarKind, CarLook } from "../sim";
-import { isFit, isJoin, isKit, KITS, type KitTypeId, type PieceTypeId } from "../track";
+import { isFit, isJoin, isKit, KITS, SECRET_KINDS, SECRET_NAMES, secretKitOf, type KitTypeId, type PieceTypeId } from "../track";
 import type { TrayItem } from "./tray-catalogue";
 
 /**
@@ -123,6 +123,8 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-lookout": p("Lookout halt", "On a hilltop: riders come for the view, at twice the fare."),
   "kit-observatory": p("Observatory", "On a hilltop: stargazers come by train, at three times the fare."),
   "kit-harbour-station": p("Harbour station", "A station by the water."),
+  // The secrets' halts (src/game/secrets.ts): laid by the game when a secret is found.
+  ...Object.fromEntries(SECRET_KINDS.map((k) => [secretKitOf(k), p(`${SECRET_NAMES[k].name} halt`, "A secret found: tourists ride out at twice the fare.")])),
   "kit-landing": p("River landing", "Trains and barges leave goods here for each other."),
   "kit-ferry-slip": p("Ferry slip", "Trains ride the ferry abroad from here."),
   "kit-boatyard": p("Boatyard", "Builds tugs and barges from goods trains bring."),

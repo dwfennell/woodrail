@@ -94,6 +94,8 @@ export const PROP_TABS: readonly PropTab[] = [
       { label: "Rocks & water", assets: ["scene-rocks", "scene-mountain", "scene-cliff", "scene-waterfall", "scene-lily-pond", "scene-river-bend", "scene-beach"] },
       { label: "Farm", assets: ["scene-crop-rows", "scene-haystacks", "scene-scarecrow", "scene-beehives"] },
       { label: "Outdoors", assets: ["scene-big-top", "scene-tent", "scene-campfire", "scene-picnic", "scene-snowman"] },
+      // The secret sites (Game mode hides them on the map): each before it's found and after.
+      { label: "Secrets", assets: [...["secret-lost-mine", "secret-castle", "secret-lake", "secret-shipwreck", "secret-stones", "secret-footprint"].flatMap((id) => [`${id}-hidden`, id]), "secret-stones-midsummer"] },
     ],
   },
   {
