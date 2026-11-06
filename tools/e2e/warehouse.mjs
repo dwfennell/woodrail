@@ -15,6 +15,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { aimAt } from "../../scripts/e2e/lib/aim.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/warehouse";
@@ -75,16 +76,59 @@ const onScreen = async (what) => {
     return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
   }, v);
 };
-const showing = async (what, dist = 1300) => {
+const showing = async (what, dist = 1300, theta = null) => {
   const v = await worldAt(what);
-  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), dist, { duration: 0.2 }), [v, dist]);
+  await p.evaluate(([v, dist, theta]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), dist, { duration: 0.2, ...(theta === null ? {} : { theta }) }), [v, dist, theta]);
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
   await frames();
 };
-const tapOn = async (what) => {
+/**
+ * Tap a depot or an engine where the game's own hit test finds it (`aimAt`: a model in front of a depot's track middle,
+ * or the track under an engine, took a tap meant for it; 2026-11-06, a warehouse tap that opened no card). Nowhere from
+ * this side: the view turned a quarter round, as a player would, and asked again; then the old aim, its middle.
+ * `cars`: a car standing on the depot counts as it (a route's stop, while planning).
+ */
+const tapOn = async (what, cars = false) => {
+  // (A town grown by a delivery opens its "Pick one" sheet over the map: closed by its ✕ first, as a player would to
+  // get back to the map. It covered the mine's first tap: the reward isn't what's tested.)
+  if (await p.evaluate(() => [...document.querySelectorAll(".growth-sheet")].some((e) => !e.hidden && e.getBoundingClientRect().width > 0))) {
+    await tapButton(".growth-sheet:not([hidden]) .close");
+    await p.waitForFunction(() => ![...document.querySelectorAll(".growth-sheet")].some((e) => !e.hidden && e.getBoundingClientRect().width > 0), null, { timeout: 10000 });
+  }
   await showing(what);
-  const [x, y] = await onScreen(what);
+  let at = await aimAt(p, what, { cars });
+  for (let k = 1; k < 4 && at === null; k++) {
+    const theta = await p.evaluate((k) => {
+      const w = window.woodrail;
+      const o = w.camera.position.clone().sub(w.controls.target);
+      return Math.atan2(o.x, o.z) + (k * Math.PI) / 2;
+    }, k);
+    await showing(what, 1300, theta);
+    at = await aimAt(p, what, { cars });
+  }
+  const [x, y] = at ?? (await onScreen(what));
   await tapped(() => p.touchscreen.tap(x, y));
+};
+/**
+ * Open a depot's or an engine's card by taps: a tap, then its card waited for; a tap that missed (no card) tried again,
+ * a few times. False (said as a FAIL) if it never opened: never passed over quietly, so a missed tap isn't found later
+ * as a card button's timeout.
+ */
+const openCard = async (what, tries = 4) => {
+  const open = what.engine !== undefined ? () => window.woodrail.hud.engineCardOpen : () => window.woodrail.hud.depotCardOpen;
+  for (let k = 0; k < tries; k++) {
+    await tapOn(what);
+    const ok = await p.waitForFunction(open, null, { timeout: 8000 }).then(
+      () => true,
+      () => false,
+    );
+    if (ok) return true;
+    console.log(`(no card after a tap on ${JSON.stringify(what)}: tap ${k + 1} of ${tries}, again)`);
+    await p.keyboard.press("Escape");
+    await frames();
+  }
+  check(`the card of ${JSON.stringify(what)} opens by a tap`, false, `${tries} taps, no card`);
+  return false;
 };
 /** A card button, once it's drawn and has stood still past the card tap guard. */
 const tapButton = async (sel) => {
@@ -100,11 +144,9 @@ const tapButton = async (sel) => {
 const routeStops = (e) => p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, e);
 /** A route planned by taps: the engine, Plan a route, each place on the map, Done. */
 const planRoute = async (engine, places) => {
-  await tapOn({ engine });
-  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
-  if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine });
+  await openCard({ engine });
   await tapButton(".engine-extra .route-plan");
-  for (const d of places) await tapOn({ depot: d });
+  for (const d of places) await tapOn({ depot: d }, true);
   await tapButton(".engine-extra .route-plan.on");
 };
 
@@ -202,8 +244,7 @@ if (!setup.error && setup.engine !== -1) {
   await p.waitForFunction((t) => window.woodrail.hud.hasToast(t), STORE_NO_ROUTE, { timeout: 30000 }).catch(() => {});
   check("a hand-run train at the warehouse: a toast says why and what to do", await p.evaluate((t) => window.woodrail.hud.hasToast(t), STORE_NO_ROUTE));
   await shot("1-toast");
-  await tapOn({ engine });
-  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
+  await openCard({ engine });
   await settle();
   const status = await p.evaluate(() => document.querySelector(".engine-card .engine-status")?.textContent ?? [...document.querySelectorAll(".engine-card *")].map((e) => e.textContent).find((t) => /Warehouses trade/.test(t)) ?? null);
   check("…its engine card says it too", status === STORE_NO_ROUTE, JSON.stringify(status));
@@ -211,8 +252,7 @@ if (!setup.error && setup.engine !== -1) {
   await p.keyboard.press("Escape");
 
   // 4. The warehouse's own card: what it holds, and how to use it.
-  await tapOn({ depot: warehouse });
-  await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 20000 }).catch(() => {});
+  await openCard({ depot: warehouse });
   await settle();
   const storeCard = await p.evaluate(() => ({ open: window.woodrail.hud.depotCardOpen, stock: document.querySelector(".depot-stock")?.textContent, help: document.querySelector(".depot-help")?.textContent }));
   check("the warehouse's card: Empty, and how to use it", storeCard.open && storeCard.stock === "Empty" && /^Drop goods here to keep them for later/.test(storeCard.help ?? ""), JSON.stringify(storeCard));
@@ -275,8 +315,7 @@ if (!setup.error && setup.engine !== -1) {
   check("…and logs taken to the sawmill, planks loaded there", (run1.unloaded[`${sawmill}:log`] ?? 0) > 0 && (run1.loaded[`${sawmill}:planks`] ?? 0) > 0, JSON.stringify(run1));
   await p.evaluate((e) => window.woodrail.sim.setLever(e, 0), engine);
   await p.evaluate(() => window.__run(20));
-  await tapOn({ depot: warehouse });
-  await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 20000 }).catch(() => {});
+  await openCard({ depot: warehouse });
   await settle();
   const stockNow = await p.evaluate(() => document.querySelector(".depot-stock")?.textContent);
   const heldNow = await planks(warehouse);
@@ -306,15 +345,12 @@ if (!setup.error && setup.engine !== -1) {
   check("route 2 with planks Takes only: none picked up, none delivered", (run0.loaded[`${warehouse}:planks`] ?? 0) === 0 && (run0.unloaded[`${town}:planks`] ?? 0) === 0 && (await planks(warehouse)) === kept, JSON.stringify({ kept, run0 }));
 
   // Planks set back to Takes and gives, by taps on the warehouse's card.
-  await tapOn({ depot: warehouse });
-  await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 20000 }).catch(() => {});
+  await openCard({ depot: warehouse });
   await tapButton('.depot-store [data-kind="planks"][data-mode="both"]');
   const back = await p.evaluate(() => document.querySelector('.depot-store [data-kind="planks"][aria-pressed="true"]')?.dataset.mode);
   check("…planks set back to Takes and gives by a tap", back === "both", JSON.stringify(back));
   await p.keyboard.press("Escape");
-  await tapOn({ engine: engine2 });
-  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
-  if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine: engine2 });
+  await openCard({ engine: engine2 });
   await settle();
   const goods2 = await routeCard();
   check("…its stops show it: warehouse ⬆\uE000, town ⬇\uE000, and no warning", JSON.stringify(goods2.goods) === JSON.stringify(["⬆\uE000", "⬇\uE000"]) && goods2.warn.length === 0, JSON.stringify(goods2));
@@ -360,13 +396,8 @@ if (!setup.error && setup.engine !== -1) {
   }, engine2);
   check("setup: a mine on the line", !mineSetup.error, JSON.stringify(mineSetup));
   if (!mineSetup.error) {
-    // (The mine's piece is longer than a straight, its gantry off its middle: a tap along it till its card opens.)
-    for (const along of [108, 60, 160, 20, 220, 300]) {
-      await tapOn({ depot: mineSetup.mine, along });
-      await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 3000 }).catch(() => {});
-      if (await p.evaluate(() => window.woodrail.hud.depotCardOpen)) break;
-      await p.keyboard.press("Escape");
-    }
+    // (The mine's piece is longer than a straight, its gantry off its middle: aimed along it, `aimAt`.)
+    await openCard({ depot: mineSetup.mine });
     await settle();
     const rows0 = await p.evaluate(() => [...document.querySelectorAll(".depot-store .store-row")].map((r) => r.querySelector(".store-what").textContent));
     check("the mine's card: coal and ore, each Gives (and goes in a hopper)", rows0.length === 2 && /Coal.*Gives · 🚃 Hopper$/.test(rows0[0]) && /Ore.*Gives · 🚃 Hopper$/.test(rows0[1]), JSON.stringify(rows0));
@@ -393,12 +424,7 @@ if (!setup.error && setup.engine !== -1) {
     // hopper), coal switched off, then "Same for all wagons like this on this train". Run back past the mine: it
     // leaves with ore only.
     await p.evaluate((e) => (window.woodrail.sim.removeTrain(window.woodrail.sim.findCar(e).train.id), window.woodrail.invalidate()), mineSetup.engine);
-    for (const along of [108, 60, 160, 20, 220, 300]) {
-      await tapOn({ depot: mineSetup.mine, along });
-      await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 3000 }).catch(() => {});
-      if (await p.evaluate(() => window.woodrail.hud.depotCardOpen)) break;
-      await p.keyboard.press("Escape");
-    }
+    await openCard({ depot: mineSetup.mine });
     await tapButton('.depot-store [data-kind="ore"][data-mode="both"]');
     check("the mine set back to give ore too, by a tap", await p.evaluate((d) => window.woodrail.economy.depot(d).modes.every((m) => m === null || m === "both"), mineSetup.mine));
     await p.keyboard.press("Escape");
