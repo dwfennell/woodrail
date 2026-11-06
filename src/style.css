@@ -1545,7 +1545,9 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
   :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }
   /* (Its column a little tighter, so it all shows at 360 px tall: the rows 6 px apart, the main row 48 px, the status
      row only as tall as it needs.) */
-  :not(.planning) > .engine-card { gap: 6px; }
+  :not(.planning) > .engine-card { gap: 6px; width: min(400px, calc(56vw - 24px)); }
+  /* (Its own width, not the stops strip's: the strip scrolls, and the card's left edge stays past 40% of the screen, with
+     the map's room beside it.) */
   .engine-card .engine-status-row { min-height: 0; }
   .engine-card .engine-controls .chip:is(.go, .continue, .leave-now, .way) { height: 48px; }
   .engine-card .engine-extra.route { padding: 0 6px 4px; }
