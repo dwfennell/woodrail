@@ -54,7 +54,7 @@ function tile(t: GrandTile, on: GrandActions): HTMLElement {
     });
     box.append(b);
   } else if (t.state === "building" || t.state === "earned") {
-    const b = el("button", "place-stop grand-show", t.state === "earned" ? "🏆 Earned · Show me" : "Show me the site");
+    const b = el("button", "place-stop grand-show", t.state === "earned" ? "🥇 Earned · Show me" : "Show me the site");
     b.type = "button";
     b.addEventListener("click", (e) => {
       e.stopPropagation();

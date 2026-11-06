@@ -3185,8 +3185,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       giveExhibition(game.world, game.landscape, (townId) => statusOf(game.world, townId));
       townLife.rewardsChanged();
     }
-    note({ kind: "milestone", text: `🏆 ${g.day}`, place: at }, 6000, true);
-    hud.toast(`🏆 ${g.day}! (Achievements)`, true, 6000, () => goalsPanel.openAchievements(id));
+    note({ kind: "milestone", text: `🥇 ${g.day}`, place: at }, 6000, true);
+    hud.toast(`🥇 ${g.day}! (Achievements)`, true, 6000, () => goalsPanel.openAchievements(id));
     game.flourishes.add(game.landscapeView.flash(game.landscape.towns.map((t) => t.id)));
     if (at) flyTo(at);
     audio.chime();

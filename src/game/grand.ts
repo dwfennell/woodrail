@@ -214,7 +214,7 @@ export function grandState(world: Pick<World, "economy">, p: Progress, town: Tow
 }
 
 const NOTES: Record<GrandState, (g: Grand) => string> = {
-  earned: () => "🏆 Earned",
+  earned: () => "🥇 Earned",
   building: () => "Under way",
   build: (g) => `Build · ${g.coins} 🪙`,
   short: (g) => `Needs ${g.coins} 🪙`,

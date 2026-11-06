@@ -191,8 +191,8 @@ export class GoalsPanel {
     this.tabNews.append("News", this.newsBadge);
     this.tabStickers.textContent = "Stickers";
     this.tabStickers.hidden = true;
-    // (🏆 alone on a narrow phone: style.css hides the word.)
-    this.tabAch.innerHTML = `<span aria-hidden="true">🏆</span><span class="tab-word"> Achievements</span>`;
+    // (🥇 alone on a narrow phone: style.css hides the word.)
+    this.tabAch.innerHTML = `<span aria-hidden="true">🥇</span><span class="tab-word"> Achievements</span>`;
     this.tabAch.setAttribute("aria-label", "Achievements");
     this.tabAch.title = "Achievements";
     this.tabAch.hidden = true;
@@ -369,7 +369,7 @@ export class GoalsPanel {
 
   /** The grand projects as achievements (null: no tab yet). Cheap when unchanged: called with every goals check. */
   setAchievements(views: readonly AchievementView[] | null): void {
-    const key = views ? views.map((v) => `${v.id}:${v.done}:${v.town}`).join("|") : "";
+    const key = views ? views.map((v) => `${v.id}:${v.done}:${v.line}`).join("|") : "";
     if (key === this.achKey) return;
     this.achKey = key;
     this.ach = views;
@@ -402,7 +402,7 @@ export class GoalsPanel {
         : "";
       return `<div class="ach-item${v.earned ? " got" : ""}${open ? " open" : ""}"><button class="ach-row" data-id="${v.id}" aria-expanded="${open}"><span class="ach-icon" aria-hidden="true">${v.icon}</span><span class="ach-main"><b class="ach-name">${escapeHtml(v.name)}${v.earned ? ' <span class="ach-earned">✓ Earned</span>' : ""}</b><span class="ach-pips" title="${v.done} of ${v.of} stages">${achievementPips(v.done, v.of, !!v.town)}</span><span class="ach-reward">🎁 ${escapeHtml(v.reward)}</span><span class="ach-line">${escapeHtml(v.line)}</span></span></button>${stages}</div>`;
     });
-    this.achPane.innerHTML = `<p class="stickers-count">🏆 ${earned} / ${views.length} grand projects</p><p class="sticker-ticket hint">Big builds in a City ★: trains bring each stage's goods. Finish one for a reward that lasts.</p>${rows.join("")}`;
+    this.achPane.innerHTML = `<p class="stickers-count">🥇 ${earned} / ${views.length} grand projects</p><p class="sticker-ticket hint">Big builds in a City ★: trains bring each stage's goods. Finish one for a reward that lasts.</p>${rows.join("")}`;
   }
 
   /** The stickers earned and seen, and whether the tab shows yet (cheap when unchanged: called with every goals check). */

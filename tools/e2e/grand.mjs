@@ -1,7 +1,7 @@
 // End-to-end grand projects as achievements in Game mode (`npm run e2e:grand [-- <out dir>]`), on a phone at 390×844
 // with touch (spec 2026-11-05-character-and-goals.md, "Grand projects are achievements with a reward"):
 //  1. Larkfield a City ★ and the other towns smaller (deliveries written as trains would bring them: a setup shortcut,
-//     as e2e:civic). The Journal has an Achievements tab (🏆): the Great Exhibition, its reward said before it starts.
+//     as e2e:civic). The Journal has an Achievements tab (🥇): the Great Exhibition, its reward said before it starts.
 //  2. Larkfield's card has Grand projects: a tap on Build pays its coins, and its plot goes up on clear land by the
 //     city (a prop of the map). The tab says stage 1 of 4, in Larkfield.
 //  3. Each stage's goods by train to Larkfield's station (wagons standing at its crane): each stage moves the project
@@ -121,7 +121,7 @@ const levels = () =>
 const levels0 = await levels();
 check("1. Larkfield is a City ★", levels0.find((t) => t.id === town.id)?.level === 4, JSON.stringify(levels0));
 
-// The Journal: open it, then its 🏆 tab.
+// The Journal: open it, then its 🥇 tab.
 const openJournal = async () => {
   if (await p.evaluate(() => document.querySelector(".goals")?.classList.contains("collapsed"))) await tap(".goals-top > button");
 };
@@ -165,7 +165,9 @@ check("2. Build: it's under way in Larkfield, its 400 coins paid", started.plan?
 check("2. its plot stands on the map by the city", started.prop?.asset === "grand-exhibition-0", JSON.stringify(started.prop));
 const site = { x: started.prop?.x ?? 0, z: started.prop?.z ?? 0 };
 await p.waitForTimeout(600);
-check("2. the card says stage 1 of 4", /Stage 1 of 4/.test(await p.evaluate(() => document.querySelector('.grand-tile[data-grand="exhibition"]')?.textContent ?? "")));
+await shot("2-after-build");
+const card2 = await p.evaluate(() => ({ open: window.woodrail.hud.depotCardOpen, depot: window.woodrail.interaction.openDepotId, tile: document.querySelector('.grand-tile[data-grand="exhibition"]')?.textContent ?? null }));
+check("2. the card says stage 1 of 4", /Stage 1 of 4/.test(card2.tile ?? ""), JSON.stringify(card2));
 
 /** The camera on the site, from the south-east, a little above. */
 const lookAtSite = async (dist = 1100) => {
