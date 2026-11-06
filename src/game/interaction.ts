@@ -12,7 +12,7 @@ import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLe
 import { METRO_KIT, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
-import { markGhost, placeGhost } from "../render/signal-marks-view";
+import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
 import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
 import { topologyOf, trainLength } from "../economy/sections";
 import { SIGNAL_MODES, type SignalStyle } from "../track";
@@ -676,13 +676,17 @@ export class Interaction {
   /** How long (ms) each pointer move placing a signal took (its snap and its tint), latest last: for the e2e. */
   readonly signalMoveMs: number[] = [];
 
-  /** A signal in the hand: a new one from the tray (`moving` −1), or a placed one picked up (its mark's id). */
+  /**
+   * A signal in the hand: a new one from the tray (`moving` −1), or a placed one picked up (its mark's id), with its set
+   * partner (the one facing the other way on its joint): both picked up, both shown in the ghost.
+   */
   private signalDrag(pointerId: number, moving: number): Extract<Mode, { kind: "drag-signal" }> {
-    const ghost = markGhost(this.game.mats);
+    const ghost = markSetGhost(this.game.mats);
     ghost.visible = false;
     this.game.scene.add(ghost);
     if (moving !== -1) {
-      this.game.marksView.hidden = moving;
+      const partner = this.game.layout.signalPartner(moving);
+      this.game.marksView.hidden = partner ? [moving, partner.id] : [moving];
       this.onPickup?.();
     }
     this.game.controls.enabled = false;
@@ -717,8 +721,8 @@ export class Interaction {
         }
         if (m.dir === 0) m.dir = Math.cos(h - this.cameraHeading()) >= 0 ? 1 : -1;
         target = snapJoint(layout, near.cursor, m.dir);
-        const there = target === -1 ? undefined : layout.signalAt(target);
-        if (there && there.id !== m.moving) target = -1;
+        // (A new one goes where none faces that way; a placed one with its set, where both fit: `signalSetAt`.)
+        if (target !== -1 && (m.moving === -1 ? !!layout.signalAt(target) : !this.editor().signalSetAt(m.moving, target))) target = -1;
         // (Not in a tunnel: it couldn't be seen or tapped there.)
         this.signalDark = target !== -1 && this.jointInTunnel(target);
         if (this.signalDark) target = -1;
@@ -732,7 +736,9 @@ export class Interaction {
       m.target = target;
       m.ghost.visible = target !== -1;
       if (target !== -1) {
-        placeGhost(m.ghost, layout, target);
+        // (Both posts, as the drop will put them: a new pair where the other way's free, a set with its partner.)
+        const both = m.moving === -1 ? !layout.signalAt(layout.joinedConnector(target)) : !!layout.signalPartner(m.moving);
+        placeSetGhost(m.ghost, layout, target, both);
         this.showTint(target, m.moving);
       } else g.blockTint.hide();
       g.invalidate();
@@ -755,7 +761,7 @@ export class Interaction {
     g.director.setEdgePointer(null);
     g.scene.remove(m.ghost);
     disposeObject(m.ghost);
-    g.marksView.hidden = -1;
+    g.marksView.hidden = [];
     g.blockTint.hide();
     g.invalidate();
   }
@@ -769,7 +775,7 @@ export class Interaction {
     if (m.target === -1) {
       // (A placed one taken back to the tray: taken away.)
       if (m.overTray && m.moving !== -1) {
-        ed.removeSignal(m.moving);
+        ed.removeSignalSet(m.moving);
         this.hud.toast("Back in the box");
       } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : "Drop it onto the track");
       return;
@@ -784,6 +790,11 @@ export class Interaction {
       return;
     }
     if (this.game.layout.getSignal(id)?.at !== m.target) ed.moveSignal(id, m.target);
+    // (A set moved together: one each way, nothing to turn round.)
+    if (this.game.layout.signalPartner(id)) {
+      this.hud.toast("Signals moved, both together", false, 2400);
+      return;
+    }
     // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
     this.hud.toast("Signal moved. Tap here to turn it round", false, 3600, () => {
       if (this.game.layout.getSignal(id) && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
@@ -904,8 +915,9 @@ export class Interaction {
     const last = m.ats.length > 0 ? postAt(layout, m.ats[m.ats.length - 1]) : null;
     if (last && Math.hypot(last.x - j.x, last.z - j.z) < m.gap) return;
     m.ats.push(at);
-    const ghost = markGhost(g.mats);
-    placeGhost(ghost, layout, at);
+    // (Both posts of the pair each joint gets, the other only where that way's free.)
+    const ghost = markSetGhost(g.mats);
+    placeSetGhost(ghost, layout, at, !layout.signalAt(layout.joinedConnector(at)));
     g.scene.add(ghost);
     m.ghosts.push(ghost);
     g.invalidate();
@@ -3896,7 +3908,8 @@ export class Interaction {
       const id = this.selectedMark;
       this.clearSelection();
       this.hud.hideCards();
-      this.editor().removeSignal(id);
+      // (With its set partner: placed together, taken away together.)
+      this.editor().removeSignalSet(id);
       return;
     }
     if (this.roads.selected !== -1) {

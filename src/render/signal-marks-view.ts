@@ -143,8 +143,8 @@ export class SignalMarksView {
   private shown: MarkShown[] = [];
   private byId = new Map<number, MarkShown>();
   private key = "";
-  /** A mark not drawn (picked up, in the hand). */
-  hidden = -1;
+  /** Marks not drawn (picked up, in the hand: a signal and its set partner). */
+  hidden: readonly number[] = [];
   /** Loads asked for (a look's model is fetched once). */
   private readonly asked = new Set<Look>();
 
@@ -234,13 +234,13 @@ export class SignalMarksView {
    */
   sync(): boolean {
     const L = this.layout;
-    const key = `${L.signalsVersion}:${L.revision}:${this.sim.signalsVersion}:${this.hidden}:${L.signalCount}`;
+    const key = `${L.signalsVersion}:${L.revision}:${this.sim.signalsVersion}:${this.hidden.join(",")}:${L.signalCount}`;
     if (key === this.key) return false;
     this.key = key;
     const was = this.byId;
     this.shown = [];
     this.byId = new Map();
-    const marks = [...L.signals()].filter((m) => m.id !== this.hidden && !L.isLifted(pieceOfRef(m.at)));
+    const marks = [...L.signals()].filter((m) => !this.hidden.includes(m.id) && !L.isLifted(pieceOfRef(m.at)));
     const poses = new Map<number, JointPose>();
     for (const m of marks) {
       const j = jointPose(L, m.at);
@@ -420,6 +420,32 @@ export function markGhost(mats: Materials): Group {
   arrow.renderOrder = 3;
   g.add(arrow);
   return g;
+}
+
+/**
+ * A signal set in the hand (the user: "the preview when moving and placing should always include both"): two marks'
+ * ghosts, the second for the partner on the joint's other end (`placeSetGhost`).
+ */
+export function markSetGhost(mats: Materials): Group {
+  const g = new Group();
+  const a = markGhost(mats);
+  a.name = "post0";
+  const b = markGhost(mats);
+  b.name = "post1";
+  g.add(a, b);
+  return g;
+}
+
+/**
+ * Stand a set's ghost on a joint: its first post at joint end `at`, the second (when `both`) at the joint's other end,
+ * facing the other way. False if `at` is no joint end.
+ */
+export function placeSetGhost(ghost: Object3D, layout: Layout, at: number, both: boolean): boolean {
+  const [a, b] = [ghost.getObjectByName("post0"), ghost.getObjectByName("post1")];
+  if (!a || !b || !placeGhost(a, layout, at)) return false;
+  const other = both ? layout.joinedConnector(at) : -1;
+  b.visible = other !== -1 && placeGhost(b, layout, other);
+  return true;
 }
 
 /** Stand a mark's ghost at a joint end (its post on the right of the way it guards, the arrow on the track). */

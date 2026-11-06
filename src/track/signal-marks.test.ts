@@ -68,4 +68,51 @@ describe("signal marks", () => {
     expect(trackEdits).toBe(0);
     expect(signalEdits).toBe(7);
   });
+
+  it("a set (one each way on a joint) moves together to another joint, one each side, as one undo step", () => {
+    const { layout, ids } = line(6);
+    const editor = new Editor(layout, new Sim(layout), () => {});
+    const [a, b] = editor.addSignals([connectorRef(ids[1], 1), connectorRef(ids[2], 0)]);
+    layout.setSignalMode(b, "red");
+    expect(layout.signalPartner(a)!.id).toBe(b);
+    expect(layout.signalPartner(b)!.id).toBe(a);
+    // Moved by either: both go, the moved one to the end it was dropped on, its partner to that joint's other end.
+    expect(editor.moveSignal(b, connectorRef(ids[4], 0))).toBe(true);
+    expect([layout.getSignal(b)!.at, layout.getSignal(a)!.at]).toEqual([connectorRef(ids[4], 0), connectorRef(ids[3], 1)]);
+    expect(layout.getSignal(b)).toMatchObject({ mode: "red" });
+    expect(layout.signalCount).toBe(2);
+    editor.undo();
+    expect([layout.getSignal(a)!.at, layout.getSignal(b)!.at]).toEqual([connectorRef(ids[1], 1), connectorRef(ids[2], 0)]);
+    editor.redo();
+    expect(layout.getSignal(a)!.at).toBe(connectorRef(ids[3], 1));
+    // Not onto a joint with another signal on either end, nor onto an open end.
+    const c = editor.addSignal(connectorRef(ids[1], 1));
+    expect(editor.signalSetAt(a, connectorRef(ids[2], 0))).toBeNull();
+    expect(editor.moveSignal(a, connectorRef(ids[2], 0))).toBe(false);
+    expect(editor.moveSignal(a, connectorRef(ids[0], 0))).toBe(false);
+    // Onto its own joint the other way round: the set swaps sides.
+    expect(editor.moveSignal(a, connectorRef(ids[4], 0))).toBe(true);
+    expect([layout.getSignal(a)!.at, layout.getSignal(b)!.at]).toEqual([connectorRef(ids[4], 0), connectorRef(ids[3], 1)]);
+    expect(layout.getSignal(c)!.at).toBe(connectorRef(ids[1], 1));
+  });
+
+  it("a set is taken away together, as one undo step; a lone one (an old save's) moves and goes by itself", () => {
+    const { layout, ids } = line(6);
+    const editor = new Editor(layout, new Sim(layout), () => {});
+    const [a, b] = editor.addSignals([connectorRef(ids[1], 1), connectorRef(ids[2], 0)]);
+    layout.setSignalMode(a, "green");
+    expect(editor.removeSignalSet(b)).toBe(true);
+    expect(layout.signalCount).toBe(0);
+    editor.undo();
+    expect([layout.getSignal(a), layout.getSignal(b)]).toMatchObject([{ at: connectorRef(ids[1], 1), mode: "green" }, { at: connectorRef(ids[2], 0), mode: "auto" }]);
+    // A lone one, as an old save has (a mark facing one way only): no partner; it moves and goes by itself.
+    const lone = layout.addSignal(connectorRef(ids[3], 1), "plain", true);
+    expect(layout.signalPartner(lone)).toBeUndefined();
+    expect(editor.signalSetAt(lone, connectorRef(ids[4], 1))).toEqual({ ids: [lone], ats: [connectorRef(ids[4], 1)] });
+    expect(editor.moveSignal(lone, connectorRef(ids[4], 1))).toBe(true);
+    expect(layout.getSignal(lone)).toMatchObject({ at: connectorRef(ids[4], 1), mode: "red" });
+    expect(layout.signalCount).toBe(3);
+    expect(editor.removeSignalSet(lone)).toBe(true);
+    expect(layout.signalCount).toBe(2);
+  });
 });
