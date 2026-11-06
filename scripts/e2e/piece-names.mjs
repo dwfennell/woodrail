@@ -252,12 +252,18 @@ async function phone(viewport) {
       await p.waitForFunction(() => { const c = document.querySelector(".piece-card"); return c && !c.hidden; }, null, { timeout: 60000 }).catch(() => {});
       await frames(p);
       if (process.env.DEBUG) console.log("cards", JSON.stringify(await p.evaluate(([id, at]) => { const i = window.woodrail.interaction; return [window.__cards, window.__down, i.selectedPiece, i.withinReach(id), i.pick(at[0], at[1], true), i.drawing, i.erasing, i.picking, window.woodrail.camera.position.distanceTo(window.woodrail.controls.target)]; }, [placed[0], at])));
-      const card = await p.evaluate(() => {
+      const card = await p.evaluate(async () => {
         const c = document.querySelector(".piece-card");
+        // (Measured once the card has popped in: `card-in` scales it from 0.96 over 0.24 s, and a box read mid-way, two
+        // quick frames after it opened, gave its 44 px buttons as 43. As the sizes a finger meets. Bounded at 3 s.)
+        const sizes = () => [...c.querySelectorAll("button")].filter((x) => !x.hidden && x.getBoundingClientRect().width > 0 && !x.classList.contains("select-more")).map((x) => Math.round(x.getBoundingClientRect().height) + "x" + Math.round(x.getBoundingClientRect().width)).join(" ");
+        const early = sizes();
+        const running = c.getAnimations({ subtree: true }).length;
+        await Promise.race([Promise.all(c.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {}))), new Promise((r) => setTimeout(r, 3000))]);
         const d = c.querySelector(".piece-detail");
         const lh = parseFloat(getComputedStyle(d).lineHeight) || 1.3 * parseFloat(getComputedStyle(d).fontSize);
         const btns = [...c.querySelectorAll("button")].filter((x) => !x.hidden && x.getBoundingClientRect().width > 0 && !x.classList.contains("select-more")).map((x) => ({ t: x.textContent.trim(), h: Math.round(x.getBoundingClientRect().height), w: Math.round(x.getBoundingClientRect().width) }));
-        return { open: !c.hidden, title: c.querySelector(".card-title").textContent, detail: d.hidden ? null : d.textContent, lines: Math.round(d.getBoundingClientRect().height / lh), btns };
+        return { open: !c.hidden, title: c.querySelector(".card-title").textContent, detail: d.hidden ? null : d.textContent, lines: Math.round(d.getBoundingClientRect().height / lh), btns, popIn: { running, early } };
       });
       const why = card.open ? "" : " " + JSON.stringify(await p.evaluate(([id, at]) => { const i = window.woodrail.interaction; return { cards: window.__cards, events: window.__down, selected: i.selectedPiece, reach: i.withinReach(id), pick: i.pick(at[0], at[1], true), mode: i.mode.kind }; }, [placed[0], at]));
       check(`${tag}: tapping the placed piece opens its card named “Wide curve”`, card.open && card.title === "Wide curve", JSON.stringify(card) + why);

@@ -43,7 +43,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:buffer-turnback": { label: "Turnback", cost: { planks: 1 } },
   "piece:switch": { label: "Switch", cost: { planks: 3 }, tech: "switches" },
   "piece:switch-y": { label: "Y switch", cost: { planks: 3 }, tech: "switches" },
-  "piece:signal": { label: "Signal", cost: { planks: 2 }, tech: "signals" },
+  "piece:signal": { label: "Signal", cost: { planks: 2 }, tech: "routes" },
   "piece:switch-3way": { label: "Three-way", cost: { planks: 5 }, tech: "junctions" },
   "piece:crossing": { label: "Crossing", cost: { planks: 3 }, tech: "junctions" },
   "piece:crossing-45": { label: "45° crossing", cost: { planks: 3 }, tech: "junctions" },
@@ -125,6 +125,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-flowers": { label: "Flower field", cost: { planks: 6 }, coins: 150, tech: "paint" },
   "piece:depot-dyeworks": { label: "Dye works", cost: { planks: 10 }, coins: 240, tech: "paint" },
   "piece:depot-toyworks": { label: "Toy workshop", cost: { planks: 14 }, coins: 440, tech: "toys" },
+  "piece:depot-airport": { label: "Airport", cost: { planks: 16, iron: 8 }, coins: 450, tech: "airport" },
+  "piece:depot-mast": { label: "Airship mast", cost: { planks: 8, iron: 4 }, coins: 250, tech: "airship" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 15 }, coins: 480, tech: "foundry" },
@@ -149,7 +151,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // workshop; planks only (kits make the railway, not the economy). Sandbox's cargo loaders and unloaders are here
   // as looks only: in Game mode they're no depot (`syncIndustries`), so no endless heap and nothing vanishes.
   // Signals: the semaphore is the signal in a look of its own; the colour light needs electricity.
-  "piece:kit-semaphore-signal": { label: "Semaphore signal", cost: { planks: 3 }, tech: "signals" },
+  "piece:kit-semaphore-signal": { label: "Semaphore signal", cost: { planks: 3 }, tech: "routes" },
   "piece:kit-colour-light-signal": { label: "Colour-light signal", cost: { planks: 2, iron: 1 }, tech: "electricity" },
   // Junctions and loops: the gantry, a signal over each of two roads.
   "piece:kit-signal-gantry": { label: "Signal gantry", cost: { planks: 6 }, tech: "junctions" },

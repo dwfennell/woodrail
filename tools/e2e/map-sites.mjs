@@ -30,6 +30,7 @@ import { createServer } from "vite";
 import { shot as picture } from "../../scripts/e2e/lib/shot.mjs";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { groups } from "../../scripts/e2e/lib/groups.mjs";
+import { inFrames, testClockIn } from "../../scripts/e2e/lib/fast.mjs";
 import { printEvents, watchBrowser, watchServer } from "../../scripts/e2e/lib/page-watch.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -41,6 +42,9 @@ let PAGE = "";
 let b = null;
 /** The page steps 1–12 share (group "ruins"). */
 let p = null;
+// The phones' pages at a device scale of 1, not 2: what's checked is where badges, cards and the view are (CSS pixels
+// either way), not pixels, and a frame at 2 costs SwiftShader half as much again. E2E_PHONE_DPR=2: as before.
+const DPR = Number(process.env.E2E_PHONE_DPR ?? 1);
 const errors = [];
 async function boot() {
   if (b) return;
@@ -50,6 +54,8 @@ async function boot() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (The game's test clock: animations and the sim keep up with real time under SwiftShader. lib/fast.mjs.)
+  testClockIn(b);
   // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
   watchBrowser(b);
   watchServer(server);
@@ -132,7 +138,7 @@ const look = (x, z, dist, phi = 0.8) =>
 
 // 1. A new game: the starter map's ruins, the old farm in view from the start (or a short pull back).
 suite.add("ruins", async () => {
-  p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: DPR, hasTouch: true, isMobile: true });
   p.on("pageerror", (e) => errors.push(e.message));
   p.on("console", (m) => {
     if (m.type() === "error") errors.push(`console: ${m.text()}`);
@@ -562,7 +568,7 @@ await shot("r4-reloaded-farm");
 
 // 13. Sandbox (a fresh browser, its starter map): no sites, no ruins, none in the opening view or on the land for sale.
 suite.add("sandbox", async () => {
-const q = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+const q = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: DPR, hasTouch: true, isMobile: true });
 q.on("pageerror", (e) => errors.push(e.message));
 await q.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await q.goto(PAGE);
@@ -586,7 +592,7 @@ await picture(q, `${OUT}/08-sandbox-start.png`);
 // 14. A phone on its side (667×375, a fresh game): the ruin card's Restore and Clear stay in view, pinned at its foot
 // above the tray, and a tap on them lands (QA: they sat under the tray).
 suite.add("phone-side", async () => {
-const L = await b.newPage({ viewport: { width: 667, height: 375 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+const L = await b.newPage({ viewport: { width: 667, height: 375 }, deviceScaleFactor: DPR, hasTouch: true, isMobile: true });
 L.on("pageerror", (e) => errors.push(e.message));
 await L.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await L.goto(PAGE);
@@ -723,7 +729,7 @@ const overlaps = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
 // 15. The map view (390×844, a fresh game): the old farm's marker, locked; idle there costs nothing; Farming learned,
 // the lock goes; tapped, the ruin's card opens; restored, the marker goes.
 suite.add("map-view", async () => {
-const M = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+const M = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: DPR, hasTouch: true, isMobile: true });
 M.on("pageerror", (e) => errors.push(e.message));
 M.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
 await M.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
@@ -839,7 +845,7 @@ for (const [W, H] of [
   [667, 375],
   [844, 390],
 ]) {
-  const S = await b.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  const S = await b.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: DPR, hasTouch: true, isMobile: true });
   S.on("pageerror", (e) => errors.push(e.message));
   await S.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   await S.goto(PAGE);
@@ -902,7 +908,7 @@ for (const [W, H] of [
 // ruin on the land gets its badge on screen (QA: none of the harbours on the coast could be seen).
 suite.add("big-map", async () => {
 {
-  const G = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  const G = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: DPR, hasTouch: true, isMobile: true });
   G.on("pageerror", (e) => errors.push(e.message));
   await G.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   await G.goto(PAGE);
@@ -939,13 +945,13 @@ suite.add("big-map", async () => {
   const cdp = await G.context().newCDPSession(G);
   const drag = async (x0, y0, x1, y1) => {
     const steps = 12;
-    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x0, y: y0, id: 1 }] });
-    for (let k = 1; k <= steps; k++) {
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x0 + ((x1 - x0) * k) / steps, y: y0 + ((y1 - y0) * k) / steps, id: 1 }] });
-      await G.waitForTimeout(25);
-    }
+    // (A few moves to a frame, as a phone's screen delivers them (lib/fast.mjs), stamped 0.1 s apart: slow, so no
+    // fling, however quickly the frames come. The finger rests 0.2 s before it lifts.)
+    const t0 = Date.now() / 1000;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: t0, touchPoints: [{ x: x0, y: y0, id: 1 }] });
+    await inFrames(Array.from({ length: steps }, (_, i) => () => cdp.send("Input.dispatchTouchEvent", { type: "touchMove", timestamp: t0 + 0.1 * (i + 1), touchPoints: [{ x: x0 + ((x1 - x0) * (i + 1)) / steps, y: y0 + ((y1 - y0) * (i + 1)) / steps, id: 1 }] })));
     await G.waitForTimeout(200);
-    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", timestamp: Math.max(Date.now() / 1000, t0 + 0.1 * steps + 0.2), touchPoints: [] });
     await G.waitForTimeout(1300);
   };
   // A drag that starts on a town's label pans the map (QA: the labels cover much of the screen here, and a drag from

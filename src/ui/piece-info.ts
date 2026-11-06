@@ -105,6 +105,8 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-flowers": p("Flower field", "Rows of flowers, picked into crates for flatbeds."),
   "depot-dyeworks": p("Dye works", "Boils flowers into bright paint, in tins."),
   "depot-toyworks": p("Toy workshop", "Makes toys from planks and paint."),
+  "depot-airport": p("Airport", "Planes call by themselves: trains bring riders to fly."),
+  "depot-mast": p("Airship mast", "Riders brought here fly a tour over your railway."),
   "depot-power": p("Power station", "Burns coal for 4 sparks: electric engines, faster yards."),
   "depot-harbour": p("Harbour", "Ships bring and take goods here."),
   "depot-warehouse": p("Warehouse", "Keeps goods until a train takes them."),

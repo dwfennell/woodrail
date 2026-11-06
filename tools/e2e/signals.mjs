@@ -71,14 +71,14 @@ const glideTo = async (v, dist = 900) => {
   await frames();
 };
 /** A card's chip by its text, once drawn and still past the card tap guard. */
-const tapChip = async (text) => {
-  await p.waitForFunction((t) => [...document.querySelectorAll(".piece-card .lever-chip")].some((e) => e.getBoundingClientRect().width > 0 && e.textContent === t), text, { timeout: 20000 });
+const tapChip = async (text, sel = ".lever-chip") => {
+  await p.waitForFunction(([t, sel]) => [...document.querySelectorAll(`.piece-card ${sel}`)].some((e) => e.getBoundingClientRect().width > 0 && e.textContent === t), [text, sel], { timeout: 20000 });
   await frames();
   await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate((t) => {
-    const r = [...document.querySelectorAll(".piece-card .lever-chip")].find((e) => e.getBoundingClientRect().width > 0 && e.textContent === t).getBoundingClientRect();
+  const [x, y] = await p.evaluate(([t, sel]) => {
+    const r = [...document.querySelectorAll(`.piece-card ${sel}`)].find((e) => e.getBoundingClientRect().width > 0 && e.textContent === t).getBoundingClientRect();
     return [r.left + r.width / 2, r.top + r.height / 2];
-  }, text);
+  }, [text, sel]);
   await tapped(() => p.touchscreen.tap(x, y));
 };
 const tapAt = (x, y) => tapped(() => p.touchscreen.tap(x, y));
@@ -101,7 +101,7 @@ const dragSignal = async (joint) => {
   const shelf = await p.evaluate(() => {
     // (The shelf open already: the Signal's on the tray.)
     if (document.querySelector('.scroller .tray-item[data-key="signal"]')) return null;
-    const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Switch");
+    const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Signals");
     if (!g) return null;
     g.scrollIntoView({ inline: "center" });
     const r = g.getBoundingClientRect();
@@ -142,7 +142,7 @@ const setup = await p.evaluate(async () => {
   const { rulesFor } = await import("/src/play/rules.ts");
   const { connectorRef, pieceOfRef } = await import("/src/track/layout.ts");
   const w = window.woodrail;
-  for (const r of ["switches", "signals", "routes"]) w.learn(r);
+  for (const r of ["switches", "routes"]) w.learn(r);
   const town = w.world.landscape.towns[0].id;
   const station = w.world.stations.get(town);
   const forest = [...w.world.depots.values()].find((id) => w.layout.getPiece(id)?.type === "depot-forest");
@@ -184,16 +184,16 @@ if (!setup.error) {
   await settle();
   await shot("0-line");
 
-  // 1-2. The Signal dragged from the Switch shelf along the line the way trains go (toward the joint), and held there.
+  // 1-2. The Signal dragged from its own Signals shelf along the line the way trains go (toward the joint), and held there.
   const opened = await p.evaluate(() => {
     const groups = [...document.querySelectorAll(".scroller .tray-group")];
-    const g = groups.find((b) => b.querySelector(".label")?.textContent === "Switch");
+    const g = groups.find((b) => b.querySelector(".label")?.textContent === "Signals");
     if (!g) return null;
     g.scrollIntoView({ inline: "center" });
     const r = g.getBoundingClientRect();
     return [r.left + r.width / 2, r.top + r.height / 2];
   });
-  check("the Switch shelf is on the tray", !!opened);
+  check("the Signals shelf is on the tray", !!opened);
   if (opened) await tapAt(...opened);
   await p.evaluate(() => document.querySelector('.scroller .tray-item[data-key="signal"]')?.scrollIntoView({ inline: "center" }));
   await frames();
@@ -203,7 +203,15 @@ if (!setup.error) {
     const r = e.getBoundingClientRect();
     return [r.x + r.width / 2, r.y + r.height / 2];
   });
-  check("the Signal is on the Switch shelf", !!from, from ? "" : JSON.stringify(await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-item")].map((e) => e.dataset.key ?? e.querySelector(".label")?.textContent))));
+  // (Its picture is the signal (a post with red and green lamps), drawn as the pieces' are: not a track piece.)
+  const tile = await p.waitForFunction(() => {
+    const items = [...document.querySelectorAll(".scroller .tray-item:not(.tray-back)")];
+    const e = document.querySelector('.scroller .tray-item[data-key="signal"]');
+    return e && e.querySelector("img") ? { first: items[0] === e, src: e.querySelector("img").src.length } : null;
+  }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
+  check("the Signal is first on its own shelf, its picture drawn", !!tile?.first && tile.src > 100, JSON.stringify(tile));
+  await shot("0b-tray-signals");
+  check("the Signal is on the Signals shelf", !!from, from ? "" : JSON.stringify(await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-item")].map((e) => e.dataset.key ?? e.querySelector(".label")?.textContent))));
   // (On touch a held thing rides 56 px above the finger: the finger goes that far below the track.)
   const back = { x: joint.x - Math.cos(joint.heading) * 120, y: joint.y, z: joint.z - Math.sin(joint.heading) * 120 };
   const near = { x: joint.x - Math.cos(joint.heading) * 30, y: joint.y, z: joint.z - Math.sin(joint.heading) * 30 };
@@ -232,12 +240,18 @@ if (!setup.error) {
     await settle();
   }
 
-  // 3. Let go: on that joint, the tint gone.
+  // 3. Let go: a pair on that joint, one each way (the user: lights "on both sides of the track"), the tint gone.
   const placed = await marks();
-  check("let go: a signal on that joint", placed.length === 1 && placed[0].at === at, JSON.stringify(placed));
+  const other = await p.evaluate((at) => window.woodrail.layout.joinedConnector(at), at);
+  check("let go: a pair on that joint, one each way", placed.length === 2 && placed.some((m) => m.at === at) && placed.some((m) => m.at === other), JSON.stringify({ placed, at, other }));
+  const posts = await p.evaluate((ids) => ids.map((id) => window.woodrail.marksView.topOf(id)), placed.map((m) => m.id));
+  check("…their posts on both sides of the track", posts.every(Boolean) && Math.hypot(posts[0].x - posts[1].x, posts[0].z - posts[1].z) > 30, JSON.stringify(posts));
+  const lit = await p.evaluate((ids) => ids.map((id) => window.woodrail.marksView.shownOf(id)), placed.map((m) => m.id));
+  check("…drawn as lamps, lit green with the line clear", lit.every((l) => l?.look === "plain" && l.clear), JSON.stringify(lit));
   check("…and the tint is gone", !(await tintShown()));
   await shot("2-placed");
-  const id = placed[0]?.id;
+  const id = placed.find((m) => m.at === at)?.id;
+  const partner = placed.find((m) => m.at !== at)?.id;
   if (id !== undefined) {
     const post = async () => p.evaluate((id) => window.woodrail.marksView.topOf(id), id);
     const top0 = await post();
@@ -252,7 +266,51 @@ if (!setup.error) {
     const card = await p.evaluate(() => document.querySelector(".piece-card:not([hidden]) .card-title")?.textContent ?? null);
     check("a long press on its post opens its card", card === "Signal: guards this way →", JSON.stringify(card));
     check("…with its blocks tinted", await tintShown());
+    // Its modes (the user: "auto or forced on or off"): Auto pressed; Always red holds it, Always green lets trains by.
+    const modes = async () => p.evaluate((id) => ({ pressed: [...document.querySelectorAll(".piece-card:not([hidden]) .signal-mode")].map((b) => [b.querySelector(".signal-mode-name").textContent, b.getAttribute("aria-pressed")]), mode: window.woodrail.layout.getSignal(id)?.mode, clear: window.woodrail.sim.markClear(id) }), id);
+    const m0 = await modes();
+    check("its card: Auto, Always red and Always green, Auto pressed", JSON.stringify(m0.pressed) === JSON.stringify([["Auto", "true"], ["Always red", "false"], ["Always green", "false"]]) && m0.mode === "auto", JSON.stringify(m0));
     await shot("3-card");
+    await tapChip("Always red", ".signal-mode");
+    const m1 = await modes();
+    check("Always red: held, shown red, pressed", m1.mode === "red" && !m1.clear && m1.pressed[1][1] === "true" && (await p.evaluate((id) => window.woodrail.marksView.shownOf(id)?.clear === false, id)), JSON.stringify(m1));
+    await shot("3b-card-red");
+    await tapChip("Always green", ".signal-mode");
+    const m2 = await modes();
+    check("Always green: shown green, pressed", m2.mode === "green" && m2.clear && m2.pressed[2][1] === "true", JSON.stringify(m2));
+    await tapChip("Auto", ".signal-mode");
+    check("…and back to Auto", (await modes()).mode === "auto");
+    // The pair from the side this one faces (its lamps toward its trains): it held red, its partner beside it green.
+    // (Setup for the picture: the mode set as its card sets it, the card closed, the view turned round the joint.)
+    await p.evaluate((id) => {
+      const w = window.woodrail;
+      w.sim.setMarkMode(id, "red");
+      w.hud.hideCards?.();
+      w.interaction.clearSelection();
+      const t = w.controls.target;
+      w.__camWas = w.camera.position.clone();
+      w.camera.position.set(2 * t.x - w.camera.position.x, w.camera.position.y, 2 * t.z - w.camera.position.z);
+      w.camera.lookAt(t);
+      w.controls.update();
+      w.invalidate();
+    }, id);
+    await settle();
+    const pair = await p.evaluate((ids) => ids.map((i) => window.woodrail.marksView.shownOf(i)?.clear), [id, partner]);
+    check("the pair: one held red, the other green", pair[0] === false && pair[1] === true, JSON.stringify(pair));
+    await shot("3c-pair-red-green");
+    await p.evaluate((id) => {
+      const w = window.woodrail;
+      w.sim.setMarkMode(id, "auto");
+      w.camera.position.copy(w.__camWas);
+      w.camera.lookAt(w.controls.target);
+      w.controls.update();
+      w.interaction.selectMark(id);
+      w.invalidate();
+    }, id);
+    await settle();
+    // (Setup for Turn round, not what's tested: its partner taken away, so the other way is free.)
+    if (partner !== undefined) await p.evaluate((id) => window.woodrail.editor().removeSignal(id), partner);
+    await frames();
     // Turn round: it guards the other way (its post on the other side of the track), then back.
     await tapChip("Turn round");
     const turned = await marks();
@@ -303,7 +361,7 @@ if (!setup.error) {
     const [sx, sy] = await screenOf(second);
     await tapAt(sx, sy);
     await p.waitForTimeout(300);
-    check("…a tap on the track puts another signal down", (await marks()).length === 2, JSON.stringify(await marks()));
+    check("…a tap on the track puts another pair down", (await marks()).length === 3, JSON.stringify(await marks()));
     await shot("6-tool");
     // A drag along the track with the tool on: a signal at joints a train's length or more apart, one undo step.
     const run = await p.evaluate(async (s) => {
@@ -360,7 +418,7 @@ if (!setup.error) {
     });
     if (undo) await tapAt(...undo);
     await p.waitForTimeout(300);
-    check("Undo takes the last signal away", (await marks()).length === 1, JSON.stringify(await marks()));
+    check("Undo takes the last pair away", (await marks()).length === 1, JSON.stringify(await marks()));
   }
 }
 // 6. Idle with signals placed and the game paused: no frames drawn; and a few draws however many (signals spec §5).
@@ -567,6 +625,12 @@ if (!setup.error) {
     await tapAt(...del);
   }
   check("4. Delete on its card takes the signal away", await p.evaluate((at) => !window.woodrail.layout.signalAt(at), line.at));
+  // (Its partner, facing the other way, taken away too (setup, as a second Delete would): the line with no signal.)
+  await p.evaluate((at) => {
+    const w = window.woodrail;
+    const o = w.layout.signalAt(w.layout.joinedConnector(at));
+    if (o) w.editor().removeSignal(o.id);
+  }, line.at);
   await p.evaluate(() => window.__lineTrains());
   const without = await p.evaluate(() => window.__lineRun(240));
   const stops = (r) => (r.arrived[0] ?? 0) + (r.arrived[1] ?? 0);

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ALL_CAR_LOOKS, CAR_KINDS, type CarKind, type CarLook } from "../sim";
-import { CARGO_KINDS, CARGO_SLOTS, KIT_DEPOT_ROLES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type StoreMode } from "../economy";
+import { AIRPORT_LOUNGE, AIRSHIP_SEATS, CARGO_KINDS, CARGO_SLOTS, KIT_DEPOT_ROLES, MAX_SHEDS, MAX_WAGON_CAPACITY, STORE_MODES, type CargoKind, type StoreMode } from "../economy";
 import { MAX_CONNECTORS, PIECE_TYPES, type PieceTypeId } from "../track";
 import { MAX_VIAS } from "../game/lines";
 import { BARGE_LOADS, MAX_BARGES, MAX_BOATS } from "../game/boats";
@@ -77,9 +77,10 @@ export const saveSchema = z.object({
   pinned: z.array(z.number().int().positive()).optional(),
   /**
    * Signal marks on joints (signals spec §9), each as the joint end it guards from (piece id, connector index), its
-   * style and whether it's held at red (optional: older saves have none).
+   * style and its mode: true held at red (Always red, or a tap), false Auto, "green" Always green (optional: older saves
+   * have none; before modes it was only held or not, so an old save's hold is Always red).
    */
-  signals: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.enum(["plain", "semaphore", "colour-light"]), z.boolean()])).optional(),
+  signals: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.enum(["plain", "semaphore", "colour-light"]), z.union([z.boolean(), z.literal("green")])])).optional(),
   /**
    * Points' defaults (the way the player last set them by hand, which routes put them back to), only where one differs
    * from how the switch is set (optional: older saves, and points not named, default to how they're set).
@@ -98,7 +99,7 @@ export const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", "postoffice", "landing", "slip", "boatyard", "shipyard", ...KIT_DEPOT_ROLES]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", "postoffice", "landing", "slip", "boatyard", "shipyard", "airport", "mast", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -113,6 +114,8 @@ export const saveSchema = z.object({
       sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
       /** Asked to be powered (Game mode's sparks): the nth ask. */
       power: z.number().int().min(1).optional(),
+      /** Riders in an airport's lounge, waiting for a plane. */
+      flyers: z.number().int().min(0).max(Math.max(AIRPORT_LOUNGE, AIRSHIP_SEATS)).optional(),
       /**
        * A warehouse's listed goods and what it lets trains do with each (`StoreMode`), and with goods not listed
        * (`others`). Optional: absent (saves from before them, and a warehouse never set), it takes and gives everything.

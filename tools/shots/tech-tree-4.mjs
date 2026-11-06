@@ -52,7 +52,7 @@ const has = await p.evaluate(async () => {
   const st = (i) => w.world.stations.get(w.world.landscape.towns[i].id);
   play(w.world.layout, w.editor(), connectorRef(st(0), 1), connectorRef(st(1), 0), { blocked: rulesFor(w.world), maxPieces: 60, fiddle: 3 });
   schoolOn(w.world, w.editor(), new Set());
-  for (const id of ["switches", "bridges", "junctions", "signals", "routes", "passengers", "farming", "mills", "tank", "goods-engine", "quarries", "mines", "foundry", "carpentry", "scenery", "college", "warehouses"]) w.learn(id);
+  for (const id of ["switches", "bridges", "junctions", "routes", "passengers", "farming", "mills", "tank", "goods-engine", "quarries", "mines", "foundry", "carpentry", "scenery", "college", "warehouses"]) w.learn(id);
   const pr = w.progress();
   pr.coins = 5000;
   pr.counts.set("coalDug", 80);
@@ -85,7 +85,7 @@ const select = (name) =>
   }, name);
 await board(true);
 for (const [name, file] of [
-  ["Signals", "board-signals"],
+  ["Signals and routes", "board-signals-routes"],
   ["College", "board-college"],
   ["Mines", "board-mines"],
   ["Carpenter's bench", "board-carpentry"],

@@ -83,6 +83,11 @@ export interface Blueprint {
   readonly blurb: string;
   /** What it brings, in words (the things it unlocks are listed from `THING_RULES` too). */
   readonly brings: string;
+  /**
+   * Its name cut short for the pill and locked tiles, when cutting at " and " would say too little (Signals and routes:
+   * "Research Signals" on the engine card's routes). None: `shortLabel`'s rule.
+   */
+  readonly short?: string;
   /** Blueprints to learn first. */
   readonly needs: readonly string[];
   readonly price: Price;
@@ -168,14 +173,14 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "switches", label: "Switches", branch: "track", tier: 1, key: true, needs: [], price: { planks: 3 }, blurb: "Branch a line in two.", brings: "Switch, Y switch" }),
   row({ id: "bridges", label: "Bridges and ramps", branch: "track", tier: 1, key: true, needs: [], price: { planks: 10 }, blurb: "Ramp up and over rivers and other lines, and raise track higher.", brings: "Ramps, bridges, risers" }),
   row({ id: "junctions", label: "Junctions and loops", branch: "track", tier: 1, key: true, needs: ["switches"], price: { planks: 6 }, blurb: "Three-ways, crossings, double track, and loops to turn a train round.", brings: "Crossings, wye, three-way, double track, balloon loops, signal gantry" }),
-  row({ id: "signals", label: "Signals", branch: "track", tier: 1, key: true, needs: ["switches"], price: { planks: 4 }, blurb: "Place signals on any track to split it into blocks: trains follow each other closer. Tap one to hold trains there.", brings: "Signal" }),
-  // Signal boxes (tech tree 4, S1): the signal box and lever frame move here from the Scenery kit, so Signals leads on.
-  row({ id: "signal-boxes", label: "Signal boxes", branch: "track", tier: 2, needs: ["signals", "routes"], price: { planks: 4, coins: 80 }, blurb: "A signal box works the points and signals near it: tap it and throw them from one place.", brings: "Signal box, lever frame", how: "Put a signal box beside your points and signals, then tap it" }),
+  // Signal boxes (tech tree 4, S1): the signal box and lever frame move here from the Scenery kit, so Signals and routes
+  // leads on.
+  row({ id: "signal-boxes", label: "Signal boxes", branch: "track", tier: 2, needs: ["routes"], price: { planks: 4, coins: 80 }, blurb: "A signal box works the points and signals near it: tap it and throw them from one place.", brings: "Signal box, lever frame", how: "Put a signal box beside your points and signals, then tap it" }),
   row({ id: "tunnels", label: "Tunnels", branch: "track", tier: 2, needs: ["bridges"], price: { planks: 12, coins: 120 }, blurb: "Under a hill instead of over it, or under another line. Lay a straight up to a hill's side, or draw across it, and the line goes under.", brings: "Tunnel mouth, short tunnel mouth" }),
   row({ id: "engine-shed", label: "Engine shed", branch: "track", tier: 2, needs: ["junctions"], price: { planks: 10, coins: 100 }, blurb: "A shed to park engines in, and water and coal by the line: steam engines stop at them for a moment as they pass.", brings: "Engine shed, water tower, coal stage, water crane, coaling crane" }),
   row({ id: "turntable", label: "Turntable and roundhouse", branch: "track", tier: 2, needs: ["engine-shed"], price: { planks: 12, coins: 160 }, requires: [TOWN], blurb: "Turn an engine round on the spot, stable it in a roundhouse, or slide it across to another road.", brings: "Turntable, roundhouse, transfer table" }),
   row({ id: "double-three-way", label: "Double three-way", branch: "track", tier: 2, needs: ["junctions"], price: { planks: 6, coins: 60 }, blurb: "A three-way switch you can set with two levers.", brings: "Double three-way" }),
-  row({ id: "slips", label: "Slips", branch: "track", tier: 2, needs: ["junctions", "signals"], price: { planks: 8, coins: 120 }, blurb: "A crossing that can also turn.", brings: "Single slip, double slip" }),
+  row({ id: "slips", label: "Slips", branch: "track", tier: 2, needs: ["junctions", "routes"], price: { planks: 8, coins: 120 }, blurb: "A crossing that can also turn.", brings: "Single slip, double slip" }),
   row({ id: "turntable-controls", label: "Turntable controls", branch: "track", tier: 2, needs: ["turntable"], price: { planks: 4, coins: 80 }, blurb: "Tap a road and the turntable turns to it.", brings: "Tap a road to turn the deck to it", feature: { label: "Tap a road to turn a turntable to it", icon: "🎯" } }),
   row({ id: "landscaping", label: "Landscaping", branch: "track", tier: 2, needs: ["bridges"], price: { planks: 6, coins: 200 }, requires: [CITY], blurb: "Lower a hill a step at a time, from the Add land card. Dear: more for a higher hill.", brings: "Lower hills", feature: { label: "Lower hills (Add land card)", icon: "⛰️" } }),
   // Kits that were Sandbox's only, in Game mode as looks (tech-tree spec T1, T2): no new pieces, nothing in the sim.
@@ -208,7 +213,13 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "car-carrier", label: "Car carrier", branch: "trains", tier: 3, school: "college", needs: ["foundry"], price: { planks: 6, coins: 160 }, blurb: "A yellow wagon with two decks, for new cars. They ride in nothing else.", brings: "Car carrier" }),
 
   // Logistics
-  row({ id: "routes", label: "Train routes", branch: "logistics", tier: 2, key: true, needs: ["switches"], price: { planks: 5, coins: 40 }, blurb: "Give a train its stops: it sets the switches on its way.", brings: "Routes on the engine card", how: "Tap a train, then Plan a route", feature: { label: "Routes on the engine card", icon: "🗺️" } }),
+  // Signals and routes (the user, 2026-11-05: "probably signals and routes should be in the same tech tree item"): one
+  // row, so a player who starts routing trains has block control the same moment (without signals a network with no
+  // passing place is one block, and routed trains wait for each other across the map: #29). Its price is about the two
+  // old rows' (Train routes 5 planks and 40 coins, Signals 4 planks) in value, in coins more than planks: planks are
+  // what the early game is short of. Balance seeds 1-29: 9 planks + 40 coins missed 3 of the first 9; 5 + 60, 1 of 9
+  // (and 5 of 20 more); 4 + 60, 3 of 29, as main (3 of 29). Old saves' "signals" is this row (`RENAMED`).
+  row({ id: "routes", label: "Signals and routes", short: "Signals and routes", branch: "logistics", tier: 2, key: true, needs: ["switches"], price: { planks: 4, coins: 60 }, blurb: "Signals split a line into blocks, so trains follow each other closer and wait for each other at a loop. And routes: give a train its stops, and it sets the switches on its way.", brings: "Signal, routes on the engine card", how: "Tap a train, then Plan a route", feature: { label: "Routes on the engine card", icon: "🗺️" } }),
   row({ id: "warehouses", label: "Warehouses", branch: "logistics", tier: 2, key: true, needs: ["routes"], price: { planks: 8, coins: 80 }, blurb: "Keep goods for later: routed trains drop them off and pick them up.", brings: "Warehouse" }),
   // Depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md): the Goods yard planned here (a warehouse of three
   // sidings) is any crane industry's upgrade from its card: a warehouse with three tracks is that goods yard.
@@ -328,8 +339,10 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "ferry", label: "Train ferry", branch: "water", tier: 3, needs: ["shipyards", "junctions"], price: { planks: 12, coins: 160, goods: { iron: 10 } }, blurb: "A ferry slip on the shore, and a ferry built at your shipyard: a train routed there rides it abroad, its load sold at a town's full price, and comes back with goods from abroad.", brings: "Ferry slip, train ferry" }),
   row({ id: "lighthouse", label: "Lighthouse", branch: "water", tier: 3, needs: ["harbours"], price: { planks: 8, coins: 80, goods: { stone: 10 } }, blurb: "A lighthouse on the shore: ships call twice as often at a harbour near it.", brings: "Lighthouse" }),
   row({ id: "cargo-ships", label: "Cargo ships", branch: "water", tier: 3, needs: ["shipyards"], price: { planks: 10, coins: 200, goods: { iron: 10 } }, blurb: "Build a cargo ship at your shipyard and it calls at your harbours instead of rowing boats: each takes 24 loads and pays a town's full price for them.", brings: "Cargo ships at every harbour", feature: { label: "Cargo ships at every harbour", icon: "🚢" } }),
-  row({ id: "airport", label: "Airport", branch: "water", tier: 3, plan: "later", needs: ["electricity", "trade"], price: { planks: 40, coins: 300, goods: { iron: 30 } }, blurb: "Planes carry passengers between far cities; trains bring them to the terminal.", brings: "Airport, plane" }),
-  row({ id: "airship", label: "Airship", branch: "water", tier: 3, plan: "later", needs: ["airport"], price: { planks: 20, coins: 150 }, blurb: "A slow, grand airship over your railway.", brings: "Airship mast" }),
+  // The gateway (late-game spec A1): planes call by themselves; trains bring riders to fly and take visitors on.
+  row({ id: "airport", label: "Airport", branch: "water", tier: 3, school: "university", needs: ["electricity", "harbours"], price: { planks: 30, coins: 300, goods: { iron: 20 } }, requires: [count("riders", 400)], blurb: "Planes call by themselves: bring riders to fly away (12 coins each), and take their visitors on by train.", brings: "Airport, planes" }),
+  // The sightseeing tour (late-game spec B1): riders brought to a mast fly a loop over the railway.
+  row({ id: "airship", label: "Airship", branch: "water", tier: 3, school: "university", needs: ["airport"], price: { planks: 20, coins: 200 }, blurb: "Riders brought to its mast fly a loop over your railway: the more bridges, towns and trains to see, the more they pay.", brings: "Airship mast" }),
 
   // Passengers: researched, each once you've carried enough people. Light on planks (the towns need them), and from
   // tier 2 paid mostly in coins, which the passenger line earns (P5).
@@ -357,8 +370,11 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "launch", label: "Launch pad", branch: "ending", key: true, plan: "ending", needs: ["rocket"], requires: [place("all the rocket's parts")], blurb: "Launch day: every town comes to watch. The railway carries on after.", brings: "The launch" }),
 ];
 
-/** Blueprint ids from older saves, and what they became (risers joined bridges; turning loops joined junctions). */
-export const RENAMED: Readonly<Record<string, string>> = { heights: "bridges", loops: "junctions" };
+/**
+ * Blueprint ids from older saves, and what they became (risers joined bridges; turning loops joined junctions; Signals
+ * joined Train routes as Signals and routes).
+ */
+export const RENAMED: Readonly<Record<string, string>> = { heights: "bridges", loops: "junctions", signals: "routes" };
 
 const LEVEL_NAMES = ["", "a village", "a town", "a city", "a city ★"];
 

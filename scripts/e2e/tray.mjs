@@ -163,7 +163,7 @@ async function trackPieces() {
   check("track-pieces: tapped, the locked Single slip says to research Slips to unlock it", !!note, String(note));
   // Learned (setup: researching them is e2e:research's): unlocked.
   await p.evaluate(() => {
-    for (const id of ["switches", "junctions", "signals", "slips", "double-three-way"]) window.woodrail.learn(id);
+    for (const id of ["switches", "junctions", "routes", "slips", "double-three-way"]) window.woodrail.learn(id);
   });
   await p.keyboard.press("Escape");
   await p.waitForFunction(() => ["piece:slip-single", "piece:slip-double", "piece:switch-3way-double"].every((k) => { const e = document.querySelector(`.scroller .tray-item[data-key="${k}"]`); return !e || !e.classList.contains("locked"); }), null, { timeout: 10000 }).catch(() => {});

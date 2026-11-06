@@ -16,13 +16,27 @@ export const SIGNAL_STYLES: readonly SignalStyle[] = ["plain", "semaphore", "col
  * laid, facing one way. `at` is the joint's end on the approach piece (a connector ref): it guards trains crossing the
  * joint from that piece. A joint takes one signal each way.
  */
+/**
+ * How a signal works, set on its card: "auto" (red while a train is on its block ahead, else green), "red" (held at
+ * red by hand: a tap, or Always red) or "green" (Always green: never red for a train on its block. Trains still keep
+ * their distance as on track with no signals, easing up behind one ahead and stopping short of it, and wait at points
+ * another train is on; and a routed train still waits for its turn where the router holds it: `Sim.updateSignals`).
+ */
+export type SignalMode = "auto" | "red" | "green";
+export const SIGNAL_MODES: readonly SignalMode[] = ["auto", "red", "green"];
+
 export interface Signal {
   readonly id: number;
   readonly at: number;
   readonly style: SignalStyle;
-  /** Held at red by hand (a tap). */
+  readonly mode: SignalMode;
+  /** Held at red by hand (a tap, or Always red): `mode` "red". */
   readonly held: boolean;
+  /** Always green: `mode` "green". */
+  readonly forced: boolean;
 }
+
+const markOf = (id: number, at: number, style: SignalStyle, mode: SignalMode): Signal => ({ id, at, style, mode, held: mode === "red", forced: mode === "green" });
 
 export interface PlacedPiece {
   readonly id: number;
@@ -486,12 +500,14 @@ export class Layout {
    * Put a signal on a joint, guarding trains that cross it from `at`'s piece. Its id, or −1 when `at` isn't one end of
    * a joint (signals go on joints only) or a signal already faces that way there. `id`: as a save or undo had it.
    */
-  addSignal(at: number, style: SignalStyle = "plain", held = false, id?: number): number {
+  addSignal(at: number, style: SignalStyle = "plain", mode: SignalMode | boolean = "auto", id?: number): number {
+    // (A boolean: held or not, as saves and callers before modes had it.)
+    const m: SignalMode = mode === true ? "red" : mode === false ? "auto" : mode;
     if (!this.joinedTo.has(at) || this.signalByAt.has(at)) return -1;
     if (id !== undefined && this.signalMarks.has(id)) return -1;
     const sid = id ?? this.nextSignalId;
     if (sid >= this.nextSignalId) this.nextSignalId = sid + 1;
-    this.signalMarks.set(sid, { id: sid, at, style, held });
+    this.signalMarks.set(sid, markOf(sid, at, style, m));
     this.signalByAt.set(at, sid);
     this.stashedSignals.delete(at);
     this.signalsVersion++;
@@ -514,7 +530,7 @@ export class Layout {
     if (!s || other === undefined || this.signalByAt.has(other)) return false;
     this.signalByAt.delete(s.at);
     this.signalByAt.set(other, id);
-    this.signalMarks.set(id, { ...s, at: other });
+    this.signalMarks.set(id, markOf(id, other, s.style, s.mode));
     this.signalsVersion++;
     return true;
   }
@@ -522,14 +538,20 @@ export class Layout {
   setSignalStyle(id: number, style: SignalStyle): void {
     const s = this.signalMarks.get(id);
     if (!s || s.style === style) return;
-    this.signalMarks.set(id, { ...s, style });
+    this.signalMarks.set(id, markOf(id, s.at, style, s.mode));
     this.signalsVersion++;
   }
 
   /** Hold a signal at red by hand, or let it go (no version bump: the sim reads holds as it works out aspects). */
   setSignalHeld(id: number, held: boolean): void {
     const s = this.signalMarks.get(id);
-    if (s && s.held !== held) this.signalMarks.set(id, { ...s, held });
+    if (s && s.held !== held) this.signalMarks.set(id, markOf(id, s.at, s.style, held ? "red" : "auto"));
+  }
+
+  /** Set how a signal works (its card's Auto, Always red, Always green; no version bump, as `setSignalHeld`). */
+  setSignalMode(id: number, mode: SignalMode): void {
+    const s = this.signalMarks.get(id);
+    if (s && s.mode !== mode) this.signalMarks.set(id, markOf(id, s.at, s.style, mode));
   }
 
   /** A joint parted: its marks are put by, to come back if the same joint is made again. */

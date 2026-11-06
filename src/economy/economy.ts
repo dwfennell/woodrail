@@ -51,7 +51,17 @@ interface Service {
   turnAt?: number;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | "postoffice" | "landing" | "slip" | "boatyard" | "shipyard" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | "postoffice" | "landing" | "slip" | "boatyard" | "shipyard" | "airport" | "mast" | KitDepotRole;
+
+/** Most riders waiting in an airport's lounge for a plane (Game mode: src/game/airports.ts). Full, coaches keep them. */
+export const AIRPORT_LOUNGE = 12;
+/** Seats on the airship at a mooring mast (Game mode: src/game/airship.ts): riders board till it's full. */
+export const AIRSHIP_SEATS = 8;
+
+/** How many riders can wait at an airport or a mast (0: anything else). */
+export function loungeCap(d: Pick<DepotState, "role">): number {
+  return d.role === "airport" ? AIRPORT_LOUNGE : d.role === "mast" ? AIRSHIP_SEATS : 0;
+}
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -169,6 +179,11 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   power: { takes: ["coal"], gives: [], cycle: { uses: { coal: 1 }, makes: {}, seconds: 60 } },
   // A harbour (Game mode) takes any good onto its quay for the boats that call by themselves (`src/game/harbours.ts`).
   harbour: { takes: CARGO_KINDS.filter((k) => !POSTAL.has(k)), gives: [] },
+  // An airport (Game mode): a passenger stop, no goods. Riders brought there wait in its lounge for a plane; planes
+  // leave visitors there for a train to take on (`src/game/airports.ts`).
+  airport: { takes: [], gives: [] },
+  // A mooring mast (Game mode): riders brought there board the airship for a tour (`src/game/airship.ts`).
+  mast: { takes: [], gives: [] },
   // A school (Game mode's research): goods go into the research, not onto piles. What it takes is the mode's say
   // (`accepts`: only what the research still lacks); each unit is handed to `intoSink` as it lands.
   school: { takes: CARGO_KINDS.filter((k) => k !== "log" && !POSTAL.has(k)), gives: [], cap: WORKSHOP_CAP, sink: true },
@@ -371,8 +386,10 @@ export interface DepotState {
    * the order asked).
    */
   powerAsk: number;
-  /** People waiting at a town's station for a coach (Game mode's passengers). */
+  /** People waiting at a town's station for a coach (Game mode's passengers); an airport's: visitors off its planes. */
   waiting: number;
+  /** Riders in an airport's lounge, waiting for a plane (at most `AIRPORT_LOUNGE`); 0 for anything else. */
+  flyers: number;
   /** Dock sheds beside a harbour's quay (Game mode): each holds more of every good (see `capAt`). */
   sheds: number;
   /**
@@ -843,7 +860,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, powerAsk: 0, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both", keeps: Array.from({ length: CARGO_SLOTS }, () => null) };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, powerAsk: 0, craneAt: craneAt ?? len / 2, waiting: 0, flyers: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both", keeps: Array.from({ length: CARGO_SLOTS }, () => null) };
     if (role === "warehouse" && this.liftLoad) d.stack = LIFT_STACK;
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
@@ -1246,12 +1263,16 @@ export class Economy {
   /** Someone got off a coach at station `to`, having got on at `from` (Game mode pays their fare). */
   onAlight: ((from: DepotState, to: DepotState, carId: number) => void) | null = null;
 
-  /** Would someone on this coach get off here: a town's station other than where they got on (a stop to drop at)? */
+  /**
+   * Would someone on this coach get off here: a town's station other than where they got on (a stop to drop at), or
+   * an airport (where they wait for a plane) with room in its lounge?
+   */
   private canAlight(d: DepotState, carId: number): boolean {
     const r = this.riders.get(carId);
-    if (!r || d.role !== "town") return false;
+    if (!r || !riderStop(d)) return false;
+    if ((d.role === "airport" || d.role === "mast") && d.flyers >= loungeCap(d)) return false;
     // (A lookout takes riders from any town, its own too, for the view; none got on at a lookout. Else, a town's halts
-    // are its stops too: no one gets off in the town they got on in.)
+    // are its stops too: no one gets off in the town they got on in. An airport is a "town" of its own: `stopTown`.)
     if (this.isLookout(d)) {
       if (this.isLookout(this.depots[r.from])) return false;
     } else if (this.quarterOf(r.from) === this.quarterOf(d.id)) return false;
@@ -1261,7 +1282,7 @@ export class Economy {
 
   /** Would someone waiting here get on this coach: a free seat, and no one aboard bound from another town? */
   private canBoard(d: DepotState, carId: number): boolean {
-    if (d.role !== "town" || d.waiting <= 0 || !this.seatsOf) return false;
+    if (!riderStop(d) || d.waiting <= 0 || !this.seatsOf) return false;
     const r = this.riders.get(carId);
     if (r && (this.quarterOf(r.from) !== this.quarterOf(d.id) || r.count >= this.seatsOf(carId))) return false;
     if (!r && this.seatsOf(carId) <= 0) return false;
@@ -1291,7 +1312,8 @@ export class Economy {
   private quarterOf(depotId: number): number {
     const d = this.depots[depotId];
     if (!d) return -1;
-    return this.isMetro(d) ? -2 - d.id : d.townId;
+    // (An airport's riders are no town's: its own, as `stopTown`.)
+    return this.isMetro(d) ? -2 - d.id : stopTown(d);
   }
 
 
@@ -1964,7 +1986,7 @@ export class Economy {
       if (on) for (const k of RECIPES[d.role].takes) if ((!this.accepts || this.accepts(d, k)) && storeLetsIn(d, k)) mask |= 1 << CARGO[k].index;
       if (on && RECIPES[d.role].owed) for (const k of RECIPES[d.role].owed!) if (this.takesNow(d, k)) mask |= 1 << CARGO[k].index;
       takes.push(mask);
-      town.push(on && d.role === "town");
+      town.push(on && riderStop(d));
     }
     const at: Later[] = [];
     for (let i = 0; i < n; i++) {
@@ -2492,6 +2514,8 @@ export class Economy {
         if (alight) {
           const from = this.depots[r!.from];
           // (Paid while still aboard: the fare reads what the coach's riders have had, `Riders.scenic`.)
+          // (At an airport they wait in its lounge for a plane.)
+          if (d.role === "airport" || d.role === "mast") d.flyers++;
           if (from) this.onAlight?.(from, d, s.carId);
           this.setRiders(s.carId, r!.count - 1, r!.from);
           this.stationNote("off", d.pieceId, s.trainId, s.carId);
@@ -2515,8 +2539,14 @@ export class Economy {
         this.letCraneGo(s);
         continue;
       }
-      // (One crane for a depot's several tracks: it moves a unit for one train at a time, each in turn.)
-      if (s.ticks === 0 && this.tracks.has(d.id) && !this.craneTurn(s)) continue;
+      if (s.ticks === 0) {
+        // A train ahead on the same track still being served goes first, so it can leave and this one move up. While
+        // it only waits for a load, this one may unload (that may be what it waits for), not load.
+        const ahead = this.queuedBehind(s, train, d);
+        if (ahead === BEHIND || (ahead === UNLOAD_ONLY && !this.canUnload(d, s.carId))) continue;
+        // (One crane for a depot's several tracks: it moves a unit for one train at a time, each in turn.)
+        if (this.tracks.has(d.id) && !this.craneTurn(s)) continue;
+      }
       if (++s.ticks < this.craneTicks) continue;
       s.ticks = 0;
       if (this.craneBy.get(d.id) === s.trainId) {
@@ -2839,10 +2869,42 @@ export class Economy {
       if (at > mine || (at === mine && o.trainId > s.trainId)) continue;
       const t = this.sim.getTrain(o.trainId);
       if (!t || this.drive(t) === 0) continue;
-      if (this.canUnload(o.depot, o.carId) || this.loadKind(o.depot, o.carId) !== null) return false;
+      // (Not one queued behind a train on its own track: it isn't asking for the crane yet.)
+      const queued = this.queuedBehind(o, t, o.depot);
+      if (queued === BEHIND) continue;
+      if (this.canUnload(o.depot, o.carId) || (queued === FREE && this.loadKind(o.depot, o.carId) !== null)) return false;
     }
     this.craneBy.set(s.depotId, s.trainId);
     return true;
+  }
+
+  /**
+   * Is this halted train queued behind another on the same track of the depot (the user's two trains nose to tail at
+   * a mill)? The front one (furthest on in its direction of travel) is served first, so it can fill and leave and the
+   * one behind move up: `BEHIND` while a train ahead still has its visit going (halted for the crane or crawling up to
+   * its next wagon, its lever on); `UNLOAD_ONLY` while the only ones ahead are just waiting for a load (the goods this
+   * one brings may be what makes it); else `FREE`. Trains on other tracks of a depot aren't ahead (`craneTurn` shares
+   * the crane among those). Cheap: a pass over the services, no allocation, asked only as a crane move would start.
+   */
+  private queuedBehind(s: Service, train: Train, d: DepotState): number {
+    if (this.services.size < 2) return FREE;
+    const len = this.depotLength(d);
+    const k = leadOn(train, d.pieceId);
+    if (k < 0) return FREE;
+    const dir = train.bogies[k].reversed ? -1 : 1;
+    const mine = along(train.bogies[k], len);
+    let out = FREE;
+    for (const o of this.services.values()) {
+      if (o === s || o.depot !== d || o.phase === NONE) continue;
+      const t = this.sim.getTrain(o.trainId);
+      if (!t || t.derailed || this.drive(t) <= 0) continue;
+      const j = leadOn(t, d.pieceId);
+      if (j < 0 || (t.bogies[j].reversed ? -1 : 1) !== dir || (along(t.bogies[j], len) - mine) * dir <= 0) continue;
+      // Ahead of this one. Just waiting for goods to come (nothing for the crane to move for it now)?
+      if (o.phase === HALTED && !this.canUnload(d, o.carId) && this.loadKind(d, o.carId) === null && this.waitsForLoad(d, o.carId)) out = UNLOAD_ONLY;
+      else return BEHIND;
+    }
+    return out;
   }
 
   /** This train's wagon no longer has its depot's crane (it moves on to its next wagon, or stops). */
@@ -2943,9 +3005,30 @@ function cycleTicks(seconds: number, rate: number): number {
 /** A train braking to wait at its stop (auto-spacing) stops this far (mm) short of the stop's far end. */
 const STOP_SHORT = 6;
 
+/** `queuedBehind`'s answers. */
+const FREE = 0;
+const BEHIND = 1;
+const UNLOAD_ONLY = 2;
+
+/** The first (leading) bogie of a train on this piece, or −1. */
+function leadOn(train: Train, pieceId: number): number {
+  for (let k = 0; k < train.bogies.length; k++) if (train.bogies[k].pieceId === pieceId) return k;
+  return -1;
+}
+
 function along(c: Cursor, len: number): number {
   return c.reversed ? len - c.s : c.s;
 }
 
 /** A line's stops as a key (spacing starts afresh when they change). */
 const stopsKey = (line: Line): string => line.stops.map((s) => s.depotId).join(",");
+
+/** Is this a stop where riders get on and off: a town's station or halt, or an airport? */
+export function riderStop(d: Pick<DepotState, "role">): boolean {
+  return d.role === "town" || d.role === "airport" || d.role === "mast";
+}
+
+/** The "town" a rider stop is for: its town's id, or for an airport its own (no town's: −2 less its depot id). */
+function stopTown(d: Pick<DepotState, "role" | "townId" | "id">): number {
+  return d.role === "airport" || d.role === "mast" ? -2 - d.id : d.townId;
+}

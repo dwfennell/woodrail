@@ -612,7 +612,7 @@ suite.add(
     await pastLimit();
     const learnt = await c.evaluate(() => {
       const w = window.woodrail;
-      const id = ["switches", "bridges", "signals", "junctions"].find((t) => !w.progress().learned.has(t));
+      const id = ["switches", "bridges", "routes", "junctions"].find((t) => !w.progress().learned.has(t));
       w.learn(id);
       return id;
     });

@@ -315,7 +315,7 @@ async function slipDraw() {
   check("slip-draw: before Slips is learned, a stroke along the crossing's turn leaves it a crossing, and says why", refused?.type === "crossing-45" && said.some((m) => /slip/i.test(m) && /not learned/.test(m)), JSON.stringify({ refused, said, picked: stroke.picked, crossing: laid.crossing }));
   // 2. Learned (setup: the blueprint's research is e2e:research's), and a single slip in the box: the stroke makes it a slip.
   await p.evaluate(() => {
-    window.woodrail.learn("signals");
+    window.woodrail.learn("routes");
     window.woodrail.learn("slips");
     window.woodrail.progress().add("piece:slip-single");
   });

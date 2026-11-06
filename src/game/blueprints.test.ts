@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BLUEPRINTS, BRANCHES, describeNeed, describePrice, needTag } from "./blueprints";
 import { Progress } from "./progress";
-import { built, ready, seenOf, techOf, unlocksOf } from "./tech";
-import { THING_RULES } from "./things";
+import { built, ready, seenOf, TECHS, techOf, unlocksOf } from "./tech";
+import { queueOf } from "./research";
+import { ruleOf, THING_RULES } from "./things";
 
 describe("the blueprint catalogue", () => {
   it("has unique ids, real branches and real prerequisites, and no loops", () => {
@@ -53,8 +54,8 @@ describe("the blueprint catalogue", () => {
     const p = Progress.fresh();
     let seen = seenOf(p);
     expect(seen.get("switches")).toBe("shown");
-    expect(seen.get("signals")).toBe("shown"); // key
-    expect(seen.get("signal-boxes")).toBe("hint"); // after signals
+    expect(seen.get("routes")).toBe("shown"); // key (Signals and routes)
+    expect(seen.get("signal-boxes")).toBe("hint"); // after signals and routes
     expect(seen.get("telegraph")).toBe("unseen"); // after signal boxes
     expect(seen.get("radio")).toBe("unseen");
     p.learned.add("switches");
@@ -77,6 +78,32 @@ describe("the blueprint catalogue", () => {
     const p = Progress.fromJSON({ owned: [], learned: ["switches", "heights", "loops", "school", "library"], board: ["loops"] });
     expect([...p.learned].sort()).toEqual(["bridges", "junctions", "switches"]);
     expect("board" in p.toJSON()).toBe(false);
+  });
+
+  it("an old save's Signals or Train routes comes back as Signals and routes, learned and in the research queue", () => {
+    expect(techOf("signals")).toBeUndefined();
+    expect(techOf("routes")!.label).toBe("Signals and routes");
+    expect(ruleOf("piece:signal")!.tech).toBe("routes");
+    // Either learned: the merged row learned (its Signal known, the routes' engine card too).
+    for (const learned of [["switches", "signals"], ["switches", "routes"], ["switches", "signals", "routes"]]) {
+      const p = Progress.fromJSON({ owned: [], learned });
+      expect([...p.learned].sort(), learned.join()).toEqual(["routes", "switches"]);
+      expect(p.knows("piece:signal"), learned.join()).toBe(true);
+      expect(JSON.stringify(p.toJSON().learned)).not.toContain("signals");
+    }
+    // Signals in research (its goods given kept), Train routes queued after it: the one row, once.
+    const q = Progress.fromJSON({ owned: [], learned: ["switches"], research: { current: "signals", next: "routes", later: ["bridges", "signals"], got: [["planks", 3]], study: 0 } });
+    expect([q.research.current, ...queueOf(q.research)]).toEqual(["routes", "bridges"]);
+    expect(q.research.got).toEqual({ planks: 3 });
+    // Signals queued behind something else: the merged row in its place.
+    const r = Progress.fromJSON({ owned: [], learned: ["switches"], research: { current: "bridges", next: "signals", got: [], study: 0 } });
+    expect([r.research.current, ...queueOf(r.research)]).toEqual(["bridges", "routes"]);
+    // Signals learned, Train routes still in research: learned, and out of the queue.
+    const s = Progress.fromJSON({ owned: [], learned: ["switches", "signals"], research: { current: "routes", next: "bridges", got: [["planks", 2]], study: 0 } });
+    expect(s.learned.has("routes")).toBe(true);
+    expect([s.research.current, ...queueOf(s.research)].filter(Boolean)).toEqual(["bridges"]);
+    // Nothing needs the old id any more.
+    for (const t of TECHS) expect(t.needs, t.id).not.toContain("signals");
   });
 
   it("describes prices and requirements in words", () => {

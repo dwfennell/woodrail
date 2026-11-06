@@ -1,4 +1,4 @@
-import { connectorRef, isRack, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, pairLeverState, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
+import { type SignalMode, connectorRef, isRack, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, pairLeverState, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -79,6 +79,11 @@ const MAX_BLOCK = 64;
  */
 const CROSS_LOOK = 24;
 const CROSS_GAP = 4;
+/**
+ * A train coming up to facing points that another train has just left waits this long (s) once they're clear before it
+ * goes onto them: time for the player to throw them, so the two go different ways.
+ */
+export const POINTS_CLEAR_S = 0.5;
 /** A train that may not climb a rack stops with its nose this far (mm) short of the rack's joint. */
 const RACK_GAP = 6;
 /** A train with a rack engine runs this much slower on a rack (its cog clacking round). */
@@ -1442,6 +1447,8 @@ export class Sim {
    * and the tick it said so (good that tick and the next). See `crossCap`.
    */
   private readonly crossClaims = new Map<number, { key: number; tick: number }>();
+  /** Points a train coming up to them last saw another train on (`onPoints`), and when. */
+  private readonly pointsSeen = new Map<number, { key: number; tick: number }>();
   /**
    * Trains held where they stand by another train (`heldBy`): short of a piece where paths meet that it's on or coming
    * onto (`crossCap`), close behind it or nose to nose with it (`followCap`), or against its side; and the tick it was
@@ -1761,7 +1768,14 @@ export class Sim {
     return this.aspects.get(markKey(id)) ?? true;
   }
 
-  /** Hold a mark at red by hand, or let it go (a tap on it). Shown at once (even paused). */
+  /** Set how a mark works (its card: Auto, Always red, Always green). Shown at once (even paused). */
+  setMarkMode(id: number, mode: SignalMode): void {
+    if (!this.layout.getSignal(id)) return;
+    this.layout.setSignalMode(id, mode);
+    this.updateSignals(true);
+  }
+
+  /** Hold a mark at red by hand, or let it go (a tap on it: held, back to Auto). Shown at once (even paused). */
   toggleMark(id: number): void {
     const m = this.layout.getSignal(id);
     if (!m) return;
@@ -1772,12 +1786,12 @@ export class Sim {
   /**
    * The signals as the sim reads them (for the harness and reports): each one's key (`signalKey` for an old piece's
    * road, `markKey` for a mark), the piece trains come from and the end of it they leave by, crossing the joint it
-   * guards, whether it's at clear, and whether its block has points or a crossing in it (a path signal). Fresh as of the
-   * last tick.
+   * guards, whether it's at clear, whether its block has points or a crossing in it (a path signal), and whether it's set
+   * Always green. Fresh as of the last tick.
    */
-  signalList(): readonly { key: number; pieceId: number; exit: number; clear: boolean; junction: boolean }[] {
+  signalList(): readonly { key: number; pieceId: number; exit: number; clear: boolean; junction: boolean; forced: boolean }[] {
     this.findSignals();
-    return this.signals!.map((g) => ({ key: g.key, pieceId: g.pieceId, exit: g.exit, clear: this.aspects.get(g.key) ?? true, junction: g.junction }));
+    return this.signals!.map((g) => ({ key: g.key, pieceId: g.pieceId, exit: g.exit, clear: this.aspects.get(g.key) ?? true, junction: g.junction, forced: this.isForced(g) }));
   }
 
   /** The pieces of a signal's block (by key, as `signalList`), in the order they were found (the harness's checks). */
@@ -1939,6 +1953,16 @@ export class Sim {
   }
 
   /**
+   * Set Always green on its card (a mark's `forced`): never red for a train on its block or way. Safe all the same:
+   * trains keep their distance as on track with no signals (`followCap`: easing up behind one ahead, stopping short of
+   * it or of one met head on; `crossCap`: waiting at points or a crossing another is on), and the router's grants and
+   * locks still hold a train where they would (`gatedFor`, `pathLocks`).
+   */
+  private isForced(g: SignalAt): boolean {
+    return g.markId !== -1 && !!this.layout.getSignal(g.markId)?.forced;
+  }
+
+  /**
    * Each signal's aspect (signals spec §3.1, §8). A plain block's signal: red while it's held, or while any train stands
    * on its block. A path signal's (points in its block): red unless the train coming to it has its way through the block
    * free and the router's locks on it (`pathLocks`): worked out for each train coming to it (`pathFor`), shown as the
@@ -1977,7 +2001,7 @@ export class Sim {
       if (!this.layout.getPiece(g.pieceId) || this.layout.isLifted(g.pieceId)) continue;
       // (A path signal's aspect is the nearest train's: `showPathSignals`.)
       if (g.junction) continue;
-      const by = this.isHeld(g) ? -1 : this.blockOccupant(g, -1);
+      const by = this.isHeld(g) || this.isForced(g) ? -1 : this.blockOccupant(g, -1);
       this.blockBy.set(g.key, by);
       const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
       if (this.aspects.get(g.key) !== clear) {
@@ -2025,6 +2049,8 @@ export class Sim {
       const choice = this.pathChoice;
       choice.length = 0;
       r = { clear: true, by: -1 };
+      // (Always green: the way's trains aren't looked for, only the router's locks.)
+      const forced = this.isForced(g);
       const marks = this.marksAt.size > 0;
       let at = g.pieceId;
       let exit = g.exit;
@@ -2049,7 +2075,7 @@ export class Sim {
             pathStep.reversed = def.paths[way].to === indexOfRef(next);
           }
         }
-        const o = this.onPieces.get(id);
+        const o = forced ? undefined : this.onPieces.get(id);
         if (o && o.trainId !== train.id && (!pathsApart(def) || ((o.paths >> pathStep.pathIndex) & 1) === 1)) {
           r = { clear: false, by: o.trainId };
           break;
@@ -2593,6 +2619,17 @@ export class Sim {
       const piece = this.layout.getPiece(c.pieceId);
       if (!piece) break;
       const def = getPieceDef(piece.type, piece.flipped);
+      // Facing points ahead (a choice of way from the end it comes in by) with another train on them, or just off them:
+      // it stops short till they've been clear `POINTS_CLEAR_S`, so the player can throw them between the two (the user,
+      // 2026-11-05: "this will let the player toggle the switch if they want the trains to go different directions").
+      if (k > 0 && facingChoice(def, c)) {
+        const by = this.onPoints(train, c.pieceId);
+        if (by) {
+          const room = dist - inset - CROSS_GAP;
+          if (room < 0.5) this.holdBy(train, by, "follow");
+          return room < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (room - 0.5));
+        }
+      }
       const mask = crossMasks(def)[c.pathIndex] ?? 0;
       if (mask !== 0) {
         // (On it already: it goes on over, saying so.)
@@ -2623,6 +2660,29 @@ export class Sim {
       c.s = 0;
     }
     return Infinity;
+  }
+
+  /**
+   * Another train with an engine on these points, or one that was (seen by a train coming up to them) less than
+   * `POINTS_CLEAR_S` ago; else null. (Wagons with no engine on them aren't: an engine runs onto them and couples.)
+   */
+  private onPoints(train: Train, pieceId: number): Train | null {
+    for (const t of this.trains.values()) {
+      if (t === train || t.derailed || !hasEngine(t)) continue;
+      for (const b of t.bogies)
+        if (b.pieceId === pieceId) {
+          this.pointsSeen.set(pieceId, { key: trainKey(t), tick: this.ticks });
+          return t;
+        }
+    }
+    const seen = this.pointsSeen.get(pieceId);
+    if (!seen) return null;
+    if (this.ticks - seen.tick >= POINTS_CLEAR_S * SIM_HZ) {
+      this.pointsSeen.delete(pieceId);
+      return null;
+    }
+    const t = this.trainByKey(seen.key);
+    return t && t !== train && !t.derailed ? t : null;
   }
 
   /** Another train on, or coming onto, a piece by one of the paths in `mask` (a bit each), or null. */
@@ -2792,6 +2852,18 @@ const crossCache = new WeakMap<PieceDef, readonly number[]>();
  * train on the other (a crossing's two lines, a switch's roads by its stem). None on a deck or lift (a train has it
  * to itself), or on double track. Worked out once per piece def.
  */
+/** Does the cursor's path come onto its piece at an end with a choice of way (facing points; not a turntable's deck)? */
+function facingChoice(def: PieceDef, c: Cursor): boolean {
+  if (def.paths.length < 2 || def.gated) return false;
+  const path = def.paths[c.pathIndex];
+  if (!path) return false;
+  const entry = c.reversed ? path.to : path.from;
+  if (entry === null) return false;
+  let n = 0;
+  for (const p of def.paths) if ((p.from === entry && p.to !== null) || p.to === entry) n++;
+  return n > 1;
+}
+
 export function crossMasks(def: PieceDef): readonly number[] {
   let masks = crossCache.get(def);
   if (masks) return masks;

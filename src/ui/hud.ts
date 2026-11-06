@@ -285,6 +285,8 @@ export class Hud {
   private readonly pieceRow = el("div", "card-row");
   /** A signal box's or lever frame's card: the points and signals near it, each a chip to throw (see `showLevers`). */
   private readonly leverList = el("div", "card-row lever-list");
+  /** A signal's card: how it works, Auto, Always red or Always green, one pressed (see `showSignalModes`). */
+  private readonly signalModes = el("div", "card-row signal-modes");
   /** A signal box's card with the Telegraph: the trains in its reach, each with Call home (see `showReachTrains`). */
   private readonly reachList = el("div", "card-row reach-list");
   private readonly doneBtn: HTMLButtonElement;
@@ -763,7 +765,10 @@ export class Hud {
     this.groupRow.append(this.joinedBtn, this.doneBtn);
     this.leverList.hidden = true;
     this.reachList.hidden = true;
-    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.leverList, this.reachList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
+    this.signalModes.hidden = true;
+    this.signalModes.setAttribute("role", "group");
+    this.signalModes.setAttribute("aria-label", "How this signal works");
+    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.signalModes, this.leverList, this.reachList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -829,10 +834,10 @@ export class Hud {
       if (item.kind === "piece" && isKit(item.type)) missing.push(item);
       if (item.kind === "piece") return `<span class="thumb-icon" data-thumb="${key}">${pieceIcon(item.type)}</span>`;
       if (item.kind === "tool") return uiIcon(item.tool);
-      // (A signal mark: the old signal piece's picture.)
+      // (A signal mark: its toy colour light, drawn as the pieces are; the old signal piece's icon till then.)
       if (item.kind === "signal") {
-        const pic = this.thumbs.get("piece:signal");
-        return pic ? `<img src="${pic}" alt="" draggable="false">` : `<span class="thumb-icon" data-thumb="piece:signal">${pieceIcon("signal")}</span>`;
+        missing.push(item);
+        return `<span class="thumb-icon" data-thumb="${key}">${pieceIcon("signal")}</span>`;
       }
       if (item.kind === "road") return roadIcon(item.auto ? "auto" : item.piece);
       if (item.kind === "train") return `<span class="thumb-icon" data-thumb="${key}">${trainIcon(item.cars)}</span>`;
@@ -2062,6 +2067,7 @@ export class Hud {
     this.groupRow.hidden = true;
     this.leverList.hidden = true;
     this.reachList.hidden = true;
+    this.signalModes.hidden = true;
     this.pieceCard.classList.remove("group");
   }
 
@@ -2069,6 +2075,26 @@ export class Hud {
    * On the open piece card (a signal box or lever frame's): the points and signals near it, each a chip saying which
    * way it's set; a tap throws it (`onThrow` with its index). An empty list says there are none near.
    */
+  /**
+   * On a signal's card: its modes, each a chip (`modes`, the one `on` pressed); a tap on another calls `onPick` with its
+   * index. Built when the card is shown or changes, never per frame.
+   */
+  showSignalModes(modes: readonly { label: string; title: string; lamps: readonly ("red" | "green")[] }[], on: number, onPick: (i: number) => void): void {
+    this.signalModes.replaceChildren(
+      ...modes.map((m, i) => {
+        const b = button("", m.title, () => i !== on && onPick(i), `chip text signal-mode${i === on ? " active" : ""}`);
+        // (Its lamps as the signal shows them: round lights drawn in CSS, not emoji the font hasn't got.)
+        const lamps = el("span", "signal-mode-lamps");
+        lamps.append(...m.lamps.map((c) => el("span", `signal-lamp ${c}`)));
+        b.append(lamps, el("span", "signal-mode-name", m.label));
+        b.setAttribute("aria-pressed", String(i === on));
+        b.dataset.mode = String(i);
+        return b;
+      }),
+    );
+    this.signalModes.hidden = false;
+  }
+
   showLevers(levers: readonly { label: string; title: string }[], onThrow: (i: number) => void): void {
     this.leverList.replaceChildren(
       ...(levers.length === 0 ? [el("div", "card-hint", "No points or signals near: put it by a junction")] : levers.map((l, i) => button(l.label, l.title, () => onThrow(i), "chip text lever-chip"))),

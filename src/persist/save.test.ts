@@ -945,6 +945,33 @@ describe("kit pieces in saves", () => {
     ]);
   });
 
+  it("signal modes round-trip (Auto, Always red, Always green); an old save's hold is Always red", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const s1 = appendPiece(world.layout, "straight-216", false, connectorRef(station, 1));
+    const s2 = appendPiece(world.layout, "straight-216", false, connectorRef(s1, 1));
+    const m1 = world.layout.addSignal(connectorRef(s1, 1));
+    const m2 = world.layout.addSignal(connectorRef(s2, 0), "plain", "red");
+    appendPiece(world.layout, "straight-216", false, connectorRef(s2, 1));
+    const m3 = world.layout.addSignal(connectorRef(s2, 1), "plain", "green");
+    expect([m1, m2, m3].every((m) => m > 0)).toBe(true);
+    const data = serializeWorld(world);
+    // (Written as before for Auto and a hold, so a hold reads the same to an older game; "green" for Always green.)
+    expect(data.signals!.map((e) => e[3])).toEqual([false, true, "green"]);
+    const w = roundTripOf(world);
+    expect([...w.layout.signals()].map((m) => [m.mode, m.held, m.forced])).toEqual([
+      ["auto", false, false],
+      ["red", true, false],
+      ["green", false, true],
+    ]);
+    // An old save (held as a boolean, before modes): its held mark comes back Always red, the rest Auto.
+    const old = { ...data, signals: data.signals!.slice(0, 2).map((e) => [e[0], e[1], e[2], e[3] === true] as typeof e) };
+    const back = deserializeWorld(JSON.parse(JSON.stringify(old)));
+    if (!back.ok) throw new Error(back.error);
+    expect([...back.value.layout.signals()].map((m) => m.mode)).toEqual(["auto", "red"]);
+  });
+
   it("old saves load unchanged: a plain signal held at red, buffers, and the held-back signal and crossing models as props", () => {
     const world = buildStarterWorld();
     const [a] = world.landscape.towns;

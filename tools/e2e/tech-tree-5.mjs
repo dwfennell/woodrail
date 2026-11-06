@@ -142,7 +142,7 @@ const research = await p.evaluate(async (ROWS) => {
   const { canResearch } = await import("/src/game/research.ts");
   const progress = w.progress();
   const before = Object.fromEntries(ROWS.map((id) => [id, canResearch(progress, id)]));
-  for (const id of ["switches", "bridges", "junctions", "signals", "routes", "passengers", "halts", "dining", "first-class", "stations", "double-decker", "express", "farming", "mills", "tank", "goods-engine", "quarries", "mines", "foundry", "carpentry", "scenery", "college", "warehouses", "cranes1", "cranes2", "harbours", "signal-boxes", "telegraph", "university"]) w.learn(id);
+  for (const id of ["switches", "bridges", "junctions", "routes", "passengers", "halts", "dining", "first-class", "stations", "double-decker", "express", "farming", "mills", "tank", "goods-engine", "quarries", "mines", "foundry", "carpentry", "scenery", "college", "warehouses", "cranes1", "cranes2", "harbours", "signal-boxes", "telegraph", "university"]) w.learn(id);
   progress.riders = 500;
   // (Tier 3 is taught at a school beside a city: noted as the map would note it.)
   progress.landmarks.add("city-school");

@@ -2,7 +2,7 @@ import { SIGNAL_SKIN_ASSETS } from "../catalogue/shelves";
 import { describe, expect, it } from "vitest";
 import { ruleOf, THING_RULES, type ThingId } from "../game/things";
 import { isKit, kitForAsset, kitOf, KITS, type PieceTypeId } from "../track";
-import { DEFAULT_FAVOURITES, favouriteItems, INDUSTRY_GROUPS, propGroups, shelfItem, shownGroups, toggleFavourite, TRAY_TABS, trayKey, trayTabs, type TrayGroup, type TrayItem } from "./tray-catalogue";
+import { DEFAULT_FAVOURITES, favouriteItems, INDUSTRY_GROUPS, propGroups, shelfItem, shownGroups, SIGNAL_ITEM, toggleFavourite, TRAY_TABS, trayKey, trayTabs, type TrayGroup, type TrayItem } from "./tray-catalogue";
 
 describe("tray tabs", () => {
   it("Game mode shows the railway: track (bridges included), trains, industries and roads", () => {
@@ -84,7 +84,10 @@ describe("kit pieces on the catalogue shelves (Sandbox)", () => {
     const sandbox = trayTabs("sandbox");
     expect(sandbox.map((t) => t.id)).toEqual(["track", "trains", "industries", "buildings", "nature", "town", "vehicles", "life", "machines", "roads", "land"]);
     const track = sandbox.find((t) => t.id === "track")!;
-    expect(track.groups.map((g) => g.label)).toEqual(["Straight", "Curve", "Switch", "Ups & downs", "Ends", "Bridges"]);
+    expect(track.groups.map((g) => g.label)).toEqual(["Straight", "Curve", "Switch", "Signals", "Ups & downs", "Ends", "Bridges"]);
+    // The Signal on a shelf of its own, first there (the user found it "very tucked away" at the end of Switch).
+    expect(track.groups.find((g) => g.label === "Signals")!.items[0]).toBe(SIGNAL_ITEM);
+    expect(track.groups.find((g) => g.label === "Switch")!.items).not.toContain(SIGNAL_ITEM);
     for (const tab of sandbox) for (const g of tab.groups) for (const item of g.items) expect(item.kind === "piece" && isKit(item.type), `${tab.id}/${g.label}`).toBe(false);
     // Every kit is offered on a catalogue shelf.
     const shelved = new Set(sandbox.flatMap((t) => t.props ?? []).flatMap((s) => s.assets));
@@ -116,7 +119,7 @@ describe("Game mode's railway kits on the tray", () => {
     const industries = shownGroups(tab("industries").groups, nothing);
     // Only the industries: the tab opens straight onto them, as before.
     expect(industries.map((g) => g.label)).toEqual(["Industries"]);
-    expect(shownGroups(tab("track").groups, nothing).map((g) => g.label)).toEqual(["Straight", "Curve", "Switch", "Ups & downs", "Ends", "Bridges"]);
+    expect(shownGroups(tab("track").groups, nothing).map((g) => g.label)).toEqual(["Straight", "Curve", "Switch", "Signals", "Ups & downs", "Ends", "Bridges"]);
     // Pieces not learned yet that aren't kits still show (Locked), as before.
     expect(shownGroups(tab("track").groups, nothing).flatMap(keys)).toContain("piece:switch");
     expect(shownGroups(tab("trains").groups, nothing).flatMap(keys)).not.toContain("train:Track cleaner");

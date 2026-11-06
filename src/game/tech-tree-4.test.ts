@@ -112,8 +112,8 @@ describe("the Reading room", () => {
 });
 
 describe("Signal boxes and the Telegraph", () => {
-  it("Signals leads on: Signal boxes (the box and lever frame), then the Telegraph (its poles)", () => {
-    expect(techOf("signal-boxes")).toMatchObject({ branch: "track", tier: 2, needs: ["signals", "routes"] });
+  it("Signals and routes leads on: Signal boxes (the box and lever frame), then the Telegraph (its poles)", () => {
+    expect(techOf("signal-boxes")).toMatchObject({ branch: "track", tier: 2, needs: ["routes"] });
     expect(techOf("telegraph")).toMatchObject({ tier: 2, needs: ["signal-boxes"] });
     expect(techOf("telegraph")!.plan).toBeUndefined();
     expect(unlocksOf("signal-boxes").sort()).toEqual(["prop:bldg-signal-box", "prop:mech-lever-frame"]);
@@ -121,7 +121,6 @@ describe("Signal boxes and the Telegraph", () => {
     expect(unlocksOf("scenery")).not.toContain("prop:bldg-signal-box");
     const p = Progress.fresh();
     p.learned.add("switches");
-    p.learned.add("signals");
     expect(ready(p, "signal-boxes")).toBe(false);
     p.learned.add("routes");
     expect(ready(p, "signal-boxes")).toBe(true);
