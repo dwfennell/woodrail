@@ -96,3 +96,12 @@ B, with these borrowed from A and the fixes above:
 - Saves keep lines that no train runs. Old saves load as before, with each train's route as its line.
 - `Economy.lineLoadsLately(id)` counts loads a month, and `lineHealth` gives a line's health.
 - Tests are in `lines-standalone.test.ts`, `line-tally.test.ts` and `line-health.test.ts`.
+
+## Both options: tap a place's building to add it (the user's addition)
+
+| | |
+|---|---|
+| `C1-tap-places.jpg` | While you plan a route, every place a train can stop at gets a soft cream ring: industries' yards, and towns. Tapping the building (not just its station track) adds it as a stop. If it's already a stop, the tap picks that stop instead. The hint says so. |
+| `C2-needs-station.jpg` | A town with no station nearby: its ring is dashed red, and a tap says "Larkfield needs a station first". |
+
+These rings are drawn only while planning, and only where a place is in view. They would be built as world-space decals with the route's markers, not as per-frame DOM. A tap's hit test is the place's footprint (an industry's lot, a town's buildings), and a station within reach decides which stop it becomes.
