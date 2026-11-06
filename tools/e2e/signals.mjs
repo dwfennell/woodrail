@@ -286,10 +286,9 @@ if (!setup.error) {
     await tapChip("Auto", ".signal-mode");
     check("…and back to Auto", (await modes()).mode === "auto");
     // The set moved by a drag on its post (the user: "signal sets should move together"): both picked up, the preview
-    // showing both, and both put down on another joint, one each side; one Undo puts both back.
-    await p.evaluate(() => window.woodrail.hud.hideCards?.());
-    await p.evaluate(() => window.woodrail.interaction.clearSelection());
-    await frames();
+    // showing both, and both put down on another joint, one each side; one Undo puts both back. (On touch a drag moves a
+    // signal while its card is open, as it is here from the long press; else it pans.)
+    check("its card is open (a drag on its post then moves it)", await p.evaluate((id) => window.woodrail.interaction.selectedMark === id, id));
     const dest = await p.evaluate(async (at) => {
       const { jointPose } = await import("/src/game/signal-place.ts");
       const { connectorRef, pieceOfRef, indexOfRef } = await import("/src/track/layout.ts");
