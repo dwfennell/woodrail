@@ -113,7 +113,7 @@ const town = await p.evaluate(() => {
 const openCard = () => p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
 await openCard();
 await p.waitForTimeout(800);
-const tiles = () => p.evaluate(() => [...document.querySelectorAll(".places-sec:not(.treats) .place-tile")].map((t) => `${t.dataset.place}:${[...t.classList].find((c) => c !== "place-tile")}`));
+const tiles = () => p.evaluate(() => [...document.querySelectorAll(".places-sec:not(.treats):not(.grand-sec) .place-tile")].map((t) => `${t.dataset.place}:${[...t.classList].find((c) => c !== "place-tile")}`));
 check("1. the City's card has Places, with only a town hall to build", JSON.stringify(await tiles()) === JSON.stringify(["town-hall:build"]), JSON.stringify(await tiles()));
 check("1. its line says a town hall comes first", (await p.evaluate(() => document.querySelector(".places-sub")?.textContent ?? "")).includes("town hall"));
 const buildLabel = await p.evaluate(() => document.querySelector('.place-btn[data-place="town-hall"]')?.textContent ?? "");
@@ -214,7 +214,7 @@ check("3. the payoff: the town needs fewer planks to grow", (park.wants.planks ?
 await openCard();
 await p.waitForTimeout(800);
 check("3. the card says 1 smile, 5% fewer goods", (await p.evaluate(() => document.querySelector(".places-sub")?.textContent ?? "")).includes("5% fewer"));
-await p.evaluate(() => document.querySelector(".places-sec")?.scrollIntoView({ block: "start" }));
+await p.evaluate(() => document.querySelector(".places-sec:not(.treats):not(.grand-sec)")?.scrollIntoView({ block: "start" }));
 await p.waitForTimeout(400);
 await shot("3-places-with-park");
 
