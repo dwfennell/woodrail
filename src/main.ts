@@ -4165,7 +4165,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const line = game.economy.lines.get(sheetLine);
       routeEdit(() => stopLine(game.economy, engine));
       if (line) hud.toast(`${game.sim.nameOf(engine)} is off ${line.name}: it goes anywhere now`, false, 2500);
-      if (engine === sheetEngine) sheetEngine = -1;
+      // (The sheet stays its card's, if it came from one: Done goes back to that card.)
       linesChanged();
       showSheet();
     },
@@ -5660,8 +5660,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   function showRibbon(): void {
     showRings();
-    // The sheet open on a line no train of its own runs: the line alone.
-    if (planning && sheetEngine === -1) {
+    // The sheet open on a line no train of its own runs (or its card's train taken off it): the line alone.
+    if (planning && (sheetEngine === -1 || (sheetLine !== -1 && game.economy.lineIdOf.get(sheetEngine) !== sheetLine))) {
       showLineAlone();
       return;
     }
@@ -6605,6 +6605,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A line sheet with no train's card under it: Esc closes it, as it closes a card. A train's planning ends as its
     // card closes.)
     if (e.key === "Escape" && planning && sheetEngine === -1) setPlanning(false);
+    if (e.key === "Escape" && linesView.open) closeLines();
     if (e.key === " " && !title.shown && tag !== "BUTTON") {
       e.preventDefault();
       game.paused = !game.paused;

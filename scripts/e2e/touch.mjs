@@ -4419,12 +4419,14 @@ async function routeUx(ctx, p) {
   // F3 (lines stand alone, 2026-11-06): Take off, on the sheet's Trains tab, takes the train off its line and keeps the
   // line (run by no train now: the Lines list shows it); Undo puts the train back on it.
   await tapButton(".line-sheet .ls-tab[data-tab='trains']");
+  // (Lines from the groups before stand on the map too: counted against this.)
+  const lines0 = (await route()).lines;
   await tapButton(".line-sheet .ls-train-off");
   const gone = await route();
-  check("route-ux (F3): Take off: the train runs no line, the line is kept", gone.stops.length === 0 && gone.lines === 1, JSON.stringify(gone));
+  check("route-ux (F3): Take off: the train runs no line, the line is kept", gone.stops.length === 0 && gone.lines === lines0, JSON.stringify({ gone, lines0 }));
   await tapUndo();
   const restored = await route();
-  check("route-ux (F1): Undo puts the train back on the line, its three stops, the sawmill Only drop", restored.lines === 1 && restored.stops.length === 3 && restored.stops[1].a === "drop", JSON.stringify(restored));
+  check("route-ux (F1): Undo puts the train back on the line, its three stops, the sawmill Only drop", restored.lines === lines0 && restored.stops.length === 3 && restored.stops[1].a === "drop", JSON.stringify(restored));
   await tapButton(".line-sheet .route-plan.on").catch(() => {});
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 390, height: 844 });
