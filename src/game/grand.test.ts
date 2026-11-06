@@ -4,7 +4,13 @@ import { checkProp, TrackIndex, type Footprint } from "../props/placement";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { CATALOGUE } from "../catalogue/assets";
 import { kindsOf, total } from "../economy/goods";
-import { advanceGrands, achievements, earned, exhibitionGift, giveExhibition, GRAND_LEVEL, grandOf, grandRow, GRANDS, growthCut, siteAsset, siteSpot, stageLacks, startGrand, unionFootprint, type GrandId } from "./grand";
+import { advanceGrands, achievements, earned, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteSpot, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
+import { RECIPES } from "../economy/economy";
+import { CARRIES } from "../economy/cargo";
+import { FULL_PAY } from "./towns";
+import { isGift, ruleOf } from "./things";
+import { fareFor, ROYAL_FARE, SEATS } from "./passengers";
+import { appendPiece, connectorRef } from "../track";
 import { Progress } from "./progress";
 import { growthOf, receivedBy, statusOf, TownLife, type TownLifeHost } from "./town-life";
 import { townLevel, townStatus, wantsWith } from "./towns";
@@ -284,5 +290,91 @@ describe("the early game is as it was", () => {
       growTo(w, life, town.id, level);
       for (const g of GRANDS) expect(startGrand(w, p, town, statusOf(w, town.id).level, g.id, () => ({ x: 0, z: 0, heading: 0, y: 0 }), () => 0), `${g.id} at ${level}`).toBe("not-now");
     }
+  });
+});
+
+/** Finish project `id` in `town` by the player's path: Build, then every stage's goods by train. */
+function finish(w: World, life: TownLife, p: Progress, town: Town, id: GrandId) {
+  p.coins = Math.max(p.coins, grandOf(id)!.coins + 100);
+  expect(build(w, p, town, id), id).toBe("started");
+  const all = [];
+  for (let i = 0; i < grandOf(id)!.stages.length; i++) all.push(...bringStage(w, life, town, id));
+  expect(all.at(-1), id).toEqual({ kind: "earned", id });
+  return all;
+}
+
+describe("the Cathedral", () => {
+  it("built in four stages by train (glass from a glassworks among them), then every town needs a tenth fewer goods to grow", () => {
+    const { w, life, p } = game();
+    const [city, other] = w.landscape.towns;
+    growTo(w, life, city.id, GRAND_LEVEL);
+    growTo(w, life, other.id, 1);
+    const before = statusOf(w, other.id).wants.planks!;
+    finish(w, life, p, city, "cathedral");
+    expect(w.props.get(w.economy.grandPlans.get("cathedral")!.prop)!.asset).toBe("grand-cathedral-4");
+    expect(growthCut(w)).toBeCloseTo(0.1);
+    life.rewardsChanged();
+    expect(statusOf(w, other.id).wants.planks).toBe(Math.ceil(before * 0.9 - 1e-9));
+  });
+
+  it("brings pilgrims to its city (1.5× riders), none elsewhere", () => {
+    const { w, life, p } = game();
+    const [city, other] = w.landscape.towns;
+    growTo(w, life, city.id, GRAND_LEVEL);
+    expect(grandRiders(w, city.id)).toBe(0);
+    finish(w, life, p, city, "cathedral");
+    expect(grandRiders(w, city.id)).toBeCloseTo(PILGRIMS - 1);
+    expect(grandRiders(w, other.id)).toBe(0);
+  });
+});
+
+describe("the glassworks", () => {
+  it("makes glass of coal (its sand from its own pit: it needs no coast), and towns buy glass at the full price", () => {
+    expect(RECIPES.glassworks).toMatchObject({ takes: ["coal"], gives: ["glass"] });
+    expect(FULL_PAY.has("glass")).toBe(true);
+    expect(RECIPES.town.takes).toContain("glass");
+    expect(CARRIES.van).toContain("glass");
+    expect(ruleOf("piece:depot-glassworks")?.tech).toBe("glassworks");
+  });
+});
+
+describe("the Royal Train", () => {
+  it("finished, its engine and two saloons are a gift (never made), and its riders pay double", () => {
+    const { w, life, p } = game();
+    const city = w.landscape.towns[0];
+    growTo(w, life, city.id, GRAND_LEVEL);
+    finish(w, life, p, city, "royal-train");
+    for (const [thing, n] of ROYAL_GIFT) p.add(thing, n);
+    expect(isGift("look:royal")).toBe(true);
+    expect(p.owned.get("look:royal")).toBe(1);
+    const [a, b] = w.landscape.towns;
+    const A = w.economy.depotAtPiece(w.stations.get(a.id)!)!;
+    const B = w.economy.depotAtPiece(w.stations.get(b.id)!)!;
+    let last = w.stations.get(a.id)!;
+    for (let i = 0; i < 3; i++) last = appendPiece(w.layout, "straight-216", false, connectorRef(last, 1));
+    const placed = w.sim.addTrain(["engine", "passenger"], { pieceId: last, pathIndex: 0, reversed: false, s: 200 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const [, coach] = w.sim.getTrain(placed.trainId)!.cars;
+    const plain = fareFor(w, A, B, coach.id);
+    w.sim.setLook(coach.id, "royal");
+    expect(fareFor(w, A, B, coach.id)).toBe(plain * ROYAL_FARE);
+    expect(SEATS.royal).toBeGreaterThan(0);
+  });
+});
+
+describe("the World's Fair wheel", () => {
+  it("pays its tickets each month once finished, and July is fair week in its city (3× riders)", () => {
+    const { w, life, p } = game();
+    const city = w.landscape.towns[0];
+    growTo(w, life, city.id, GRAND_LEVEL);
+    expect(wheelTickets(w, 3, 5).coins).toBe(0);
+    finish(w, life, p, city, "ferris-wheel");
+    // (The first look this session pays nothing: the calendar is the session's.)
+    expect(wheelTickets(w, -1, 5)).toEqual({ coins: 0, paidTo: 5 });
+    expect(wheelTickets(w, 5, 7)).toEqual({ coins: 2 * WHEEL_COINS, paidTo: 7 });
+    expect(wheelTickets(w, 7, 7).coins).toBe(0);
+    expect(grandRiders(w, city.id, FAIR_MONTH)).toBe(FAIR_RIDERS - 1);
+    expect(grandRiders(w, city.id, FAIR_MONTH + 1)).toBe(0);
+    expect(fairTown(w, FAIR_MONTH)).toBe(city.id);
   });
 });

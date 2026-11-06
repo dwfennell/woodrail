@@ -26,7 +26,7 @@ import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
-import { dateOf, dateText } from "./game/calendar";
+import { dateOf, dateText, MONTH_S } from "./game/calendar";
 import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
@@ -104,7 +104,7 @@ import { PaintSheet } from "./ui/paint-sheet";
 import { paintable } from "./render/train-models";
 import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
-import { achievements, advanceGrands, giveExhibition, GRAND_LEVEL, grandOf, grandRow, grandRowKey, siteAsset, siteSpot, startGrand, unionFootprint, type GrandId } from "./game/grand";
+import { achievements, advanceGrands, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, siteAsset, siteSpot, startGrand, unionFootprint, type GrandId } from "./game/grand";
 import { drawGrandRow } from "./ui/grand-row";
 import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
@@ -2929,6 +2929,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     peopleArrive(game.world, progress, gameSeconds, peopleClock, radioBoost());
     // The circus (late-game spec K1): a show opens where its train stands at a town, and closes after three months.
     if (mode === "game" && progress.learned.has("circus")) tickCircus();
+    // The World's Fair wheel's tickets, each month, and its fair week (src/game/grand.ts).
+    if (mode === "game" && game.economy.grandPlans.size > 0) tickGrand();
     // Sparks: a power station's coal may have run out (or come), a train put on or away (src/game/power.ts).
     syncPower();
     // Metro trains draw power: a coal from a power station now and then, as they run (not while paused: they stand,
@@ -3185,6 +3187,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       giveExhibition(game.world, game.landscape, (townId) => statusOf(game.world, townId));
       townLife.rewardsChanged();
     }
+    // A tenth fewer goods for every town from now on (`growthCut`): wants are looked at again.
+    if (id === "cathedral") townLife.rewardsChanged();
+    // The Royal Train into the toy box: its look, its engine and two saloons (a gift, never made).
+    if (id === "royal-train") {
+      for (const [thing, n] of ROYAL_GIFT) progress.add(thing, n);
+      hud.refreshTrayBadges();
+    }
     note({ kind: "milestone", text: `🥇 ${g.day}`, place: at }, 6000, true);
     hud.toast(`🥇 ${g.day}! (Achievements)`, true, 6000, () => goalsPanel.openAchievements(id));
     game.flourishes.add(game.landscapeView.flash(game.landscape.towns.map((t) => t.id)));
@@ -3198,6 +3207,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     for (const plan of game.economy.grandPlans.values()) if (plan.prop === propId) return plan.townId;
     return -1;
   };
+
+  /** The last game month the wheel's tickets were paid for (−1: none yet this session: the calendar is the session's). */
+  let wheelPaidTo = -1;
+  /** The fair week told for this month (−1: none). */
+  let fairTold = -1;
+  /** A second of play with grand projects on the map: the wheel's tickets as a month passes, fair week in July. */
+  function tickGrand(): void {
+    const months = Math.floor(game.simSeconds / MONTH_S);
+    const t = wheelTickets(game.world, wheelPaidTo, months);
+    wheelPaidTo = t.paidTo;
+    if (t.coins > 0) {
+      progress.coins += t.coins;
+      hud.setCoins(progress.coins);
+      note({ kind: "event", key: "wheel", qty: t.coins, text: "", place: grandPlace("ferris-wheel") ?? undefined, format: (n) => `🎡 The wheel's tickets: +${n} coins` });
+      scheduleSave("progress");
+    }
+    const fair = fairTown(game.world, dateOf(game.simSeconds).month);
+    if (fair >= 0 && fairTold !== months) {
+      fairTold = months;
+      const t = game.landscape.towns.find((x) => x.id === fair);
+      if (t) note({ kind: "milestone", text: `🎡 Fair week in ${t.name}! Crowds come by train all July`, place: { x: t.centre.x, z: t.centre.z } }, 4200);
+    }
+  }
 
   /** The Journal's Achievements tab: shown once any town is a City (or a project's begun). */
   function showAchievements(): void {
@@ -3656,7 +3688,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const key = `${grid.version}|${game.world.props.version}`;
     if (key !== radioShown.key) radioShown = { key, towns: radioTowns(game.world, grid.current) };
     const towns = radioShown.towns;
-    return (townId) => radioRiders(towns, townId);
+    // (And a grand project's: the Cathedral's pilgrims, the wheel's fair week in July. Each adds to the base.)
+    const month = dateOf(game.simSeconds).month;
+    return (townId) => radioRiders(towns, townId) + grandRiders(game.world, townId, month);
   }
 
   /** The open depot card's power, as drawn (a key of its inputs), or "" for none. */
@@ -6039,7 +6073,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const lock = lockOf(item);
         return lock && unlockHow(progress, lock.tech);
       };
-      hud.trayKnown = (item) => (item.kind === "road" ? progress.learned.has(ROAD_TECH[item.piece]) : item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id)));
+      hud.trayKnown = (item) => (item.kind === "road" ? progress.learned.has(ROAD_TECH[item.piece]) : item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id) && (!isGift(id) || (progress.owned.get(id) ?? 0) > 0)));
       // A tab that needs a blueprint (Roads) shows once it's learned.
       hud.tabKnown = (tech) => progress.learned.has(tech);
       hud.refreshTabs();

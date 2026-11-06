@@ -10,6 +10,9 @@
 //  4. The payoff: finished, it's earned (✓ in the tab, a sticker), and every town grows a step: the smaller towns a
 //     level each, Larkfield a quarter of its next star.
 //  5. 0 frames idle with the finished hall in view; then a reload: the hall, the achievement and the growth all kept.
+//  6. The Royal Train in a second City ★, by taps and trains: finished, it's given into the toy box (its tray tile).
+//  7. The Cathedral in a third, glass among its goods: finished, every town needs a tenth fewer goods to grow.
+//  8. The World's Fair wheel in a fourth: finished, a month on its tickets pay 60 coins. Four achievements earned.
 //
 // Usage: npm run e2e:grand [-- <out dir>]   (default out: e2e-out/grand)
 import { existsSync, mkdirSync } from "node:fs";
@@ -163,7 +166,7 @@ const started = await p.evaluate(() => {
 });
 check("2. Build: it's under way in Larkfield, its 400 coins paid", started.plan?.townId === town.id && started.plan?.stage === 0 && started.coins === coins0 - 400, JSON.stringify(started));
 check("2. its plot stands on the map by the city", started.prop?.asset === "grand-exhibition-0", JSON.stringify(started.prop));
-const site = { x: started.prop?.x ?? 0, z: started.prop?.z ?? 0 };
+let site = { x: started.prop?.x ?? 0, z: started.prop?.z ?? 0 };
 await p.waitForTimeout(600);
 await shot("2-after-build");
 const card2 = await p.evaluate(() => ({ open: window.woodrail.hud.depotCardOpen, depot: window.woodrail.interaction.openDepotId, tile: document.querySelector('.grand-tile[data-grand="exhibition"]')?.textContent ?? null }));
@@ -187,7 +190,7 @@ await shot("3-stage-0");
  * box. The game's own sim and economy, ticked here with the game paused (as e2e:civic: SwiftShader draws too few
  * frames to run them in real time).
  */
-const bring = async (kind, n) =>
+const bring = async (kind, n, station = town.station) =>
   p.evaluate(
     async ({ station, kind, n }) => {
       const { CARRIES } = await import("/src/economy/cargo.ts");
@@ -197,9 +200,10 @@ const bring = async (kind, n) =>
       const c = Math.cos(at.heading);
       const s = Math.sin(at.heading);
       const along = (k) => ({ x: at.x + c * 216 * k, z: at.z + s * 216 * k, heading: at.heading });
-      if (window.__approach === undefined) {
+      window.__approach ??= {};
+      if (window.__approach[station] === undefined) {
         const before = [-6, -5, -4, -3, -2, -1].map((k) => w.layout.addPiece("straight-216", along(k)));
-        window.__approach = before[before.length - 4];
+        window.__approach[station] = before[before.length - 4];
         w.trackChanged();
       }
       const wagon = Object.entries(CARRIES).find(([car, kinds]) => car !== "passenger" && kinds.includes(kind))?.[0] ?? "van";
@@ -207,7 +211,7 @@ const bring = async (kind, n) =>
       let brought = 0;
       for (let left = n; left > 0; ) {
         const take = Math.min(left, cap * 4);
-        const placed = w.sim.addTrain(["engine", ...Array(Math.ceil(take / cap)).fill(wagon)], { pieceId: window.__approach, pathIndex: 0, reversed: false, s: 150 });
+        const placed = w.sim.addTrain(["engine", ...Array(Math.ceil(take / cap)).fill(wagon)], { pieceId: window.__approach[station], pathIndex: 0, reversed: false, s: 150 });
         if (placed.kind !== "placed") return { brought, why: placed.kind };
         const train = w.sim.getTrain(placed.trainId);
         const cars = train.cars.map((x) => x.id);
@@ -231,7 +235,7 @@ const bring = async (kind, n) =>
       }
       return { brought };
     },
-    { station: town.station, kind, n },
+    { station, kind, n },
   );
 
 const growthNow = () =>
@@ -312,6 +316,117 @@ const back = await p.evaluate(async () => {
 const levels2 = await levels();
 check("5. after a reload: the finished hall, earned", back.stage === 4 && back.asset === "grand-exhibition-4", JSON.stringify(back));
 check("5. after a reload: the towns as big as they grew", JSON.stringify(levels2.map((t) => t.level)) === JSON.stringify(levels1.map((t) => t.level)), `${JSON.stringify(levels1)} → ${JSON.stringify(levels2)}`);
+
+// ---- 6–8. The other grand projects, each in a City ★ of its own, by taps and trains --------------------------------
+/** Town `i` a City ★ (setup shortcut, as section 1), and its station. */
+const cityStar = async (i) => {
+  const t = await p.evaluate(async (i) => {
+    const { townLevel } = await import("/src/game/towns.ts");
+    const w = window.woodrail;
+    const t = w.world.landscape.towns[i];
+    const bag = {};
+    for (let k = 0; k < 4; k++) for (const [g, n] of Object.entries(townLevel(k).wants)) bag[g] = (bag[g] ?? 0) + n;
+    const had = w.economy.deliveredGoods.get(t.id) ?? {};
+    for (const [g, n] of Object.entries(had)) bag[g] = Math.max(bag[g] ?? 0, n);
+    w.economy.delivered.set(t.id, bag.planks ?? 0);
+    w.economy.deliveredGoods.set(t.id, bag);
+    w.invalidate();
+    return { id: t.id, name: t.name, station: w.world.stations.get(t.id), depot: w.world.economy.depotAtPiece(w.world.stations.get(t.id)).id };
+  }, i);
+  await p.waitForTimeout(2500);
+  await closeSheets();
+  return t;
+};
+/** Build project `id` from city `t`'s card by a tap, then every stage's goods by train: pictures of each stage. */
+const buildByTrain = async (t, id, label) => {
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.progress().coins = Math.max(w.progress().coins, 1500);
+    w.hud.setCoins(w.progress().coins);
+  });
+  await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), t.depot);
+  await p.waitForTimeout(900);
+  const state = await p.evaluate((id) => [...(document.querySelector(`.grand-tile[data-grand="${id}"]`)?.classList ?? [])].find((c) => !["place-tile", "grand-tile"].includes(c)) ?? null, id);
+  check(`${label}: ${t.name}'s card offers it`, state === "build", String(state));
+  await tap(`.grand-tile[data-grand="${id}"] .place-btn`);
+  await p.waitForFunction((id) => window.woodrail.world.economy.grandPlans.has(id), id, { timeout: 30000 }).catch(() => {});
+  const plan0 = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const plan = w.world.economy.grandPlans.get(id);
+    const prop = plan && w.world.props.get(plan.prop);
+    return plan ? { town: plan.townId, asset: prop?.asset, x: prop?.x, z: prop?.z } : null;
+  }, id);
+  check(`${label}: Build puts its plot up by ${t.name}`, plan0?.town === t.id && plan0?.asset === `grand-${id}-0`, JSON.stringify(plan0));
+  site = { x: plan0?.x ?? 0, z: plan0?.z ?? 0 };
+  await lookAtSite(1300);
+  await shot(`${id}-stage-0`);
+  const stagesOf = await p.evaluate(async (id) => (await import("/src/game/grand.ts")).grandOf(id).stages.map((s) => s.goods), id);
+  for (const [i, goods] of stagesOf.entries()) {
+    for (const [kind, n] of Object.entries(goods)) await bring(kind, n, t.station);
+    await p.waitForFunction(([id, s]) => (window.woodrail.world.economy.grandPlans.get(id)?.stage ?? 0) > s, [id, i], { timeout: 30000 }).catch(() => console.log(`(${id} stage ${i + 1} not done within 30 s)`));
+    await p.waitForTimeout(600);
+    await closeSheets();
+    const asset = await p.evaluate((id) => {
+      const w = window.woodrail;
+      return w.world.props.get(w.world.economy.grandPlans.get(id).prop)?.asset;
+    }, id);
+    check(`${label}: stage ${i + 1} of ${stagesOf.length} done by train, the site shows it`, asset === `grand-${id}-${i + 1}`, String(asset));
+    await lookAtSite(1300);
+    await shot(`${id}-stage-${i + 1}`);
+  }
+  await p.waitForTimeout(1500);
+  await closeSheets();
+};
+
+// 6. The Royal Train: finished, it's in the toy box (a tray tile on the Trains tab), the only train in that look.
+const t1 = await cityStar(1);
+await buildByTrain(t1, "royal-train", "6. Royal Train");
+const royal = await p.evaluate(() => {
+  const w = window.woodrail;
+  const pr = w.progress();
+  return { look: pr.owned.get("look:royal") ?? 0, tile: [...document.querySelectorAll(".tray-item, .tray button")].some((e) => /Royal Train/.test(e.getAttribute("aria-label") ?? e.textContent ?? "")) };
+});
+check("6. Royal Train: finished, it's given into the toy box", royal.look === 1, JSON.stringify(royal));
+const royalTile = await p.evaluate(async () => {
+  const { TRAIN_ITEMS } = await import("/src/ui/tray-catalogue.ts");
+  const item = TRAIN_ITEMS.find((x) => x.label === "Royal Train");
+  return !!item && window.woodrail.hud.trayKnown(item);
+});
+check("6. Royal Train: its tray tile shows now", royalTile);
+
+// 7. The Cathedral: glass among its goods (the Glassworks on the Industries shelf once learned); finished, every town
+//    needs a tenth fewer goods to grow.
+const t2 = await cityStar(2);
+await p.evaluate(() => window.woodrail.learn("glassworks"));
+const wantsBefore = await p.evaluate(async (id) => (await import("/src/game/town-life.ts")).statusOf(window.woodrail.world, id).wants, town.id);
+await buildByTrain(t2, "cathedral", "7. Cathedral");
+const wantsAfter = await p.evaluate(async (id) => (await import("/src/game/town-life.ts")).statusOf(window.woodrail.world, id).wants, town.id);
+const cut = Object.keys(wantsBefore).every((k) => wantsAfter[k] === Math.max(1, Math.ceil(wantsBefore[k] * 0.9 - 1e-9)));
+check("7. Cathedral: finished, Larkfield needs a tenth fewer of each good to grow", cut, `${JSON.stringify(wantsBefore)} → ${JSON.stringify(wantsAfter)}`);
+const glassTile = await p.evaluate(async () => {
+  const { trayTabs } = await import("/src/ui/tray-catalogue.ts");
+  return trayTabs("game").flatMap((t) => t.groups.flatMap((g) => g.items)).some((i) => i.kind === "piece" && i.type === "depot-glassworks");
+});
+check("7. the Glassworks is on the tray", glassTile);
+
+// 8. The World's Fair wheel: finished, its tickets pay 60 coins as a month passes.
+const t3 = await cityStar(3);
+await buildByTrain(t3, "ferris-wheel", "8. Ferris wheel");
+const coinsW0 = await p.evaluate(() => window.woodrail.progress().coins);
+await p.waitForTimeout(2500);
+await p.evaluate(async () => {
+  const { MONTH_S } = await import("/src/game/calendar.ts");
+  window.woodrail.simSeconds += MONTH_S;
+});
+await p.waitForTimeout(3000);
+const coinsW1 = await p.evaluate(() => window.woodrail.progress().coins);
+check("8. Ferris wheel: a month on, its tickets pay 60 coins", coinsW1 - coinsW0 >= 60, `${coinsW0} → ${coinsW1}`);
+await openJournal();
+await tap('.goals-tab[aria-label="Achievements"]');
+const earnedAll = await p.evaluate(() => [...document.querySelectorAll(".ach-item.got .ach-row")].map((r) => r.dataset.id));
+check("8. the Achievements tab: four earned", ["exhibition", "cathedral", "royal-train", "ferris-wheel"].every((id) => earnedAll.includes(id)), JSON.stringify(earnedAll));
+await shot("8-achievements");
+await p.evaluate(() => document.querySelector(".goals-close")?.click());
 check("no errors on the page", errors.length === 0, errors.slice(0, 3).join(" | "));
 
 console.log(`${checks - failures}/${checks} passed`);

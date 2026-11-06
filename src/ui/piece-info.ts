@@ -104,6 +104,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-chocolate": p("Chocolate factory", "Makes chocolate from cocoa and milk."),
   "depot-flowers": p("Flower field", "Rows of flowers, picked into crates for flatbeds."),
   "depot-dyeworks": p("Dye works", "Boils flowers into bright paint, in tins."),
+  "depot-glassworks": p("Glassworks", "Melts sand from its own pit with coal into panes of glass."),
   "depot-toyworks": p("Toy workshop", "Makes toys from planks and paint."),
   "depot-airport": p("Airport", "Planes call by themselves: trains bring riders to fly."),
   "depot-mast": p("Airship mast", "Riders brought here fly a tour over your railway."),
@@ -223,6 +224,7 @@ const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
   "double-decker": "Two floors of passengers.",
   "first-class": "Comfy seats for passengers.",
   "bay-window": "Goes at the back. Its windows look out to the sides.",
+  royal: "The Royal Train's saloon: its riders pay double.",
 };
 
 /** An engine's numbers, kid-clear: how many cars it pulls, how fast, and what it needs. */

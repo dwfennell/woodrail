@@ -57,6 +57,12 @@ export const EXHIBITION_SHARE = 0.25;
 export const CATHEDRAL_CUT = 0.1;
 /** The Cathedral's pilgrims: people come to its city's stations this many times as often. */
 export const PILGRIMS = 1.5;
+/** The World's Fair wheel's fair week: in July, people come to its city's stations this many times as often. */
+export const FAIR_RIDERS = 3;
+/** The month of the fair (0 = January). */
+export const FAIR_MONTH = 6;
+/** The wheel's tickets: coins it takes each game month. */
+export const WHEEL_COINS = 60;
 
 export const GRANDS: readonly Grand[] = [
   {
@@ -74,6 +80,52 @@ export const GRANDS: readonly Grand[] = [
     reward: "Every town grows a step: a level, or a quarter of a city's next star",
     day: "The Great Exhibition opens! Flags and bunting in every town, and every town grows",
     scale: 0.8,
+  },
+  {
+    id: "cathedral",
+    name: "Cathedral",
+    icon: "⛪",
+    asset: "grand-cathedral",
+    stages: [
+      { name: "The nave", goods: { stone: 30 } },
+      { name: "The walls and aisles", goods: { bricks: 14, stone: 10 } },
+      { name: "The roofs", goods: { planks: 20, tools: 8 } },
+      { name: "Stained glass", goods: { glass: 16, paint: 8 } },
+    ],
+    coins: 450,
+    reward: "Every town grows on a tenth fewer goods, and pilgrims come to its city (1.5× riders)",
+    day: "The Cathedral's bells ring! A wedding at its door, bunting in every town, and every town needs a tenth fewer goods to grow",
+    scale: 0.7,
+  },
+  {
+    id: "royal-train",
+    name: "Royal Train",
+    icon: "👑",
+    asset: "grand-royal-train",
+    stages: [
+      { name: "The frames", goods: { iron: 12, tools: 8 } },
+      { name: "The saloons", goods: { planks: 16, furniture: 10 } },
+      { name: "Claret and gold", goods: { paint: 12 } },
+    ],
+    coins: 300,
+    reward: "The Royal Train is yours: an engine and two saloons in the toy box. Its riders pay double",
+    day: "The Royal Train is finished! Claret and gold, in your toy box now: its riders pay double",
+    scale: 1,
+  },
+  {
+    id: "ferris-wheel",
+    name: "World's Fair wheel",
+    icon: "🎡",
+    asset: "grand-ferris-wheel",
+    stages: [
+      { name: "The legs", goods: { iron: 14, tools: 8 } },
+      { name: "The wheel", goods: { planks: 16, paint: 8 } },
+      { name: "The fair", goods: { icecream: 8, juice: 8, fish: 8 } },
+    ],
+    coins: 350,
+    reward: `Fair week every July (3× riders to its city), and ${WHEEL_COINS} coins a month in tickets`,
+    day: "The World's Fair wheel turns! Fair week every July, and its tickets pay every month",
+    scale: 0.85,
   },
 ];
 
@@ -164,11 +216,42 @@ export function exhibitionGift(level: number, wants: Bag, got: Bag): Bag {
   return out;
 }
 
-/** How much more often people come to town `townId`'s stations, from the projects (the Cathedral's pilgrims): 1, none. */
-export function grandRiders(world: Pick<World, "economy">, townId: number): number {
+/**
+ * How much more often people come to town `townId`'s stations from the projects, over plain (0: none): the Cathedral's
+ * pilgrims, and the wheel's fair week in July (`month`, 0 = January). Each adds to the base, as other boosts do: they
+ * don't multiply.
+ */
+export function grandRiders(world: Pick<World, "economy">, townId: number, month?: number): number {
+  let extra = 0;
   const c = world.economy.grandPlans.get("cathedral");
-  return c && c.townId === townId && grandDone("cathedral", c) ? PILGRIMS : 1;
+  if (c && c.townId === townId && grandDone("cathedral", c)) extra += PILGRIMS - 1;
+  const w = world.economy.grandPlans.get("ferris-wheel");
+  if (w && w.townId === townId && month === FAIR_MONTH && grandDone("ferris-wheel", w)) extra += FAIR_RIDERS - 1;
+  return extra;
 }
+
+/** Is it fair week at the wheel's city now (July, the wheel finished)? Its town's id, or −1. */
+export function fairTown(world: Pick<World, "economy">, month: number): number {
+  const w = world.economy.grandPlans.get("ferris-wheel");
+  return w && month === FAIR_MONTH && grandDone("ferris-wheel", w) ? w.townId : -1;
+}
+
+/**
+ * The wheel's tickets for months gone by: `WHEEL_COINS` for each month from `paidTo` (the last month paid, counted
+ * from the game's start; −1: none yet) to `month`, once the wheel's finished. Returns the coins and the month paid to.
+ */
+export function wheelTickets(world: Pick<World, "economy">, paidTo: number, month: number): { coins: number; paidTo: number } {
+  if (!earned(world, "ferris-wheel")) return { coins: 0, paidTo: month };
+  if (paidTo < 0 || month <= paidTo) return { coins: 0, paidTo: Math.max(paidTo, month) };
+  return { coins: WHEEL_COINS * (month - paidTo), paidTo: month };
+}
+
+/** The Royal Train's cars, given into the toy box when it's finished: its look (one train) and its engine and saloons. */
+export const ROYAL_GIFT: readonly [`look:royal` | "car:engine" | "car:passenger", number][] = [
+  ["look:royal", 1],
+  ["car:engine", 1],
+  ["car:passenger", 2],
+];
 
 // ---- the town card's row -------------------------------------------------------------------------------------
 
