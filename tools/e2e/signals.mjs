@@ -722,13 +722,17 @@ if (!setup.error) {
     check("4. Clear tapped on a post takes the set away, its track stays", !g3.here && !g3.other && track, JSON.stringify({ ...g3, track }));
     // (Clear put away, then Undo: a player's pause between taps.)
     await p.waitForTimeout(600);
-    await tapAt(...clearBtn);
-    await p.waitForTimeout(600);
-    const clearOn = await p.evaluate(() => window.woodrail.interaction.erasing ?? null);
+    // (Clear put away by a tap on it, again if the first didn't take, as a player would see it still lit.)
+    for (let k = 0; k < 2 && (await p.evaluate(() => window.woodrail.interaction.isErasing)); k++) {
+      await tapAt(...clearBtn);
+      await p.waitForTimeout(600);
+    }
+    const before = await p.evaluate(() => ({ erasing: window.woodrail.interaction.isErasing, mode: window.woodrail.interaction.mode.kind }));
+    check("4. Clear put away", !before.erasing, JSON.stringify(before));
     await tapAt(...undoBtn);
     await p.waitForTimeout(600);
     const g4 = await gone();
-    if (!g4.here) console.log("(after Clear's Undo:", JSON.stringify({ clearOn, history: await p.evaluate(() => document.querySelector('button[aria-label="Undo (Ctrl+Z)"]')?.disabled) }), ")");
+    if (!g4.here) console.log("(after Clear's Undo:", JSON.stringify({ before, mode: await p.evaluate(() => window.woodrail.interaction.mode.kind), history: await p.evaluate(() => document.querySelector('button[aria-label="Undo (Ctrl+Z)"]')?.disabled) }), ")");
     check("4. …one Undo brings both back", g4.here && g4.other, JSON.stringify(g4));
   } else check("4. the tray's Clear", false);
   del = await openCard();
