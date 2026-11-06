@@ -1,5 +1,5 @@
 import { STUCK_S } from "../economy/stalls";
-import { RECIPES, type Economy } from "../economy";
+import { canCarry, RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import { kitOf, type Layout } from "../track";
 import { storeSkipText } from "./warehouse-text";
@@ -379,12 +379,17 @@ export function engineView(
       // (Not a stop on its line: the card offers to add it, one tap. Audit F15.)
       return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id), held), blocker: null, ...(kept.why === "not-stop" ? { addStop: kept.depot.id } : {}) };
     }
-    // (Sandbox's chain hints: beside goods it won't load, because no wagon of its carries them or it doesn't stop here.)
-    if (loadHints && s.kind !== "starting") {
+    // Beside goods it won't load: no wagon of its carries them ("Needs a hopper for stone", in both modes: a player
+    // with log flatbeds at a quarry wasn't told why nothing happened), or (Sandbox's chain hints) it doesn't stop here
+    // or its wagons are set to Off for them.
+    if (s.kind !== "starting" && found.train.cars.some((c) => c.kind !== "engine")) {
       const route = economy.routeOfTrain(found.train);
       const hint = loadHint(found.train, (id) => economy.depotAtPiece(id), route ? route.stops.map((x) => x.depotId) : null, (car, kind) => economy.carTakes(car, kind));
       // (Not a stop on its line: the card offers to add it, as for "Not dropping…".)
-      if (hint) return { status: loadHintText(hint, nameOf(hint.depot.id)), blocker: null, ...(hint.why === "not-stop" ? { addStop: hint.depot.id } : {}) };
+      // (Outside the chain hints, only wrong wagons, and only for a goods train standing at an industry with nothing
+      // else to do there: not a coach train passing, nor one unloading at a town that also gives mail.)
+      const plainly = hint?.why === "wagon" && s.kind !== "running" && hint.depot.role !== "town" && found.train.cars.some((c) => canCarry(c.kind)) && !economy.hasWorkAt(found.train.id, hint.depot);
+      if (hint && (loadHints || plainly)) return { status: loadHintText(hint, nameOf(hint.depot.id)), blocker: null, ...(hint.why === "not-stop" ? { addStop: hint.depot.id } : {}) };
     }
   }
   const blocker = blockerOf(sim, economy, s);

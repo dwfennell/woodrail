@@ -1,4 +1,5 @@
 import { CARGO, GOODS_ICON, STORE_MODES, type CargoKind, type StoreMode } from "../economy";
+import { wagonTag } from "../economy/wagons";
 import { GIVES_MODE_ICON, GIVES_MODE_WORDS, GIVES_MODES, WAGON_MODE_ICON, WAGON_MODE_WORDS, WAGON_MODES, STORE_ADD, STORE_MODE_ICON, STORE_MODE_WORDS, STORE_OTHERS } from "../game/warehouse-text";
 
 /** One good on a warehouse's card: how many it holds, what it lets trains do with it, and whether it's on its list. */
@@ -52,7 +53,10 @@ function row(c: Choices, kind: CargoKind | "", name: string, sub: string, mode: 
 /** The warehouse's goods rows, "Any other goods", and "+ Add a good" (with its picker open: the goods to add). */
 export function storeHtml(v: StoreView, adding: boolean): string {
   const c = v.wagon ? WAGON : v.gives ? GIVES : STORE;
-  const rows = v.rows.map((r) => row(c, r.kind, `${GOODS_ICON[r.kind]} ${CARGO[r.kind].label}`, `${r.cap > 0 ? `${r.count}/${r.cap} · ` : ""}${c.words[r.mode]}`, r.mode, c === STORE && r.listed && r.count === 0)).join("");
+  // (A warehouse's or industry's row says which wagon carries the good, on its line of words: "3/12 · Gives · 🚃
+  // Hopper". Not a wagon's own card, which is that wagon.)
+  const wagon = (k: CargoKind) => (v.wagon ? "" : wagonTag(k) ? ` · ${wagonTag(k)}` : "");
+  const rows = v.rows.map((r) => row(c, r.kind, `${GOODS_ICON[r.kind]} ${CARGO[r.kind].label}`, `${r.cap > 0 ? `${r.count}/${r.cap} · ` : ""}${c.words[r.mode]}${wagon(r.kind)}`, r.mode, c === STORE && r.listed && r.count === 0)).join("");
   const others = v.others === null ? "" : row(c, "", STORE_OTHERS, STORE_MODE_WORDS[v.others], v.others, false);
   const add = v.addable.length
     ? `<button class="chip text store-add${adding ? " active" : ""}" data-add aria-expanded="${adding}">${STORE_ADD}</button>` +

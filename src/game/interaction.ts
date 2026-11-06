@@ -56,6 +56,9 @@ import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
+import { loadHint } from "./chains";
+import { canCarry as carCarries } from "../economy/cargo";
+import { needsWagonText, wagonTag, wagonWords } from "../economy/wagons";
 import { progressOf, YARD_COSTS } from "./yards";
 import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, isStore, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode, type YardBuild, type YardOrder } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestKnob, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
@@ -2943,7 +2946,35 @@ export class Interaction {
     return this.hud.depotCardOpen ? this.selectedDepot : -1;
   }
   /** What the open depot card last showed. */
-  private readonly shownDepot = { id: -1, piles: -1, auto: false, wait: false, delivered: -1 };
+  private readonly shownDepot = { id: -1, piles: -1, auto: false, wait: false, delivered: -1, warn: "" };
+  /** When the open depot card last looked for a train standing there with the wrong wagons (`wrongWagonsAt`), ms. */
+  private wagonCheckAt = -Infinity;
+  private wagonWarn = "";
+
+  /**
+   * A goods train standing at depot `d` that can't take what's there because none of its wagons carries it: "A train
+   * here needs a hopper for stone" (the player's case: flatbeds at a quarry, nothing happening). "" for none. Asked at
+   * most twice a second while the card is open (a lookup per train's bogie; nothing when no train is there).
+   */
+  private wrongWagonsAt(d: DepotState): string {
+    const now = performance.now();
+    if (now - this.wagonCheckAt < 500) return this.wagonWarn;
+    this.wagonCheckAt = now;
+    const { sim, economy } = this.game;
+    let warn = "";
+    for (const id of sim.trainIds()) {
+      const t = sim.getTrain(id);
+      if (!t || t.speed > 1 || !t.bogies.some((b) => economy.depotAtPiece(b.pieceId) === d) || !t.cars.some((c) => carCarries(c.kind))) continue;
+      const h = loadHint(t, (pieceId) => economy.depotAtPiece(pieceId), null);
+      if (h && h.depot === d && h.why === "wagon") {
+        const need = needsWagonText(h.kind);
+        warn = `A train here ${need[0].toLowerCase()}${need.slice(1)}`;
+        break;
+      }
+    }
+    this.wagonWarn = warn;
+    return warn;
+  }
 
   private depotTitle(depotId: number): string {
     const d = this.game.economy.depot(depotId);
@@ -3092,7 +3123,11 @@ export class Interaction {
     // this per-frame check.
     let pileKey = 0;
     for (let k = 0; k < d.piles.length; k++) pileKey = (Math.imul(pileKey, 0x01000193) ^ (d.piles[k] + 1)) | 0;
-    if (shown.id === d.id && shown.piles === pileKey && shown.auto === d.auto && shown.wait === d.waitFull && shown.delivered === delivered0) return;
+    // (A town's card is its ledger; a store's and a school's have rows of their own: only an industry's goods line says
+    // what a train standing there lacks.)
+    const warn = d.role === "town" || d.role === "school" || isStore(d.role) || RECIPES[d.role].gives.length === 0 ? "" : this.wrongWagonsAt(d);
+    if (shown.id === d.id && shown.piles === pileKey && shown.auto === d.auto && shown.wait === d.waitFull && shown.delivered === delivered0 && shown.warn === warn) return;
+    shown.warn = warn;
     shown.id = d.id;
     shown.piles = pileKey;
     shown.auto = d.auto;
@@ -3109,7 +3144,7 @@ export class Interaction {
     // (A workshop's stone, taken only while a price needs it: listed while it holds some or some is owed.)
     let piles = pilesOf(d.role)
       .filter((kind) => !owed?.includes(kind) || d.piles[CARGO[kind].index] > 0 || (economy.owes?.(kind) ?? 0) > 0)
-      .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
+      .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d), wagon: wagonTag(kind) }));
     // A harbour's quay takes any good: it lists only what's there. (So does a town's card in Sandbox, which has no
     // ledger: a row for each of the nine goods a town takes was a wall of "0/12". Its chain rows say what can come.)
     if (d.role === "harbour" || d.role === "town") piles = piles.filter((p) => p.count > 0);
@@ -3117,7 +3152,7 @@ export class Interaction {
     // read 0 while the card says what's still to come).
     const building = (d.role === "boatyard" || d.role === "shipyard") && economy.yardOrders.get(d.id);
     if (building)
-      piles = Object.entries(YARD_COSTS[building.build]).map(([k, n]) => ({ label: `${GOODS_ICON[k as CargoKind]} ${CARGO[k as CargoKind].label}`, count: Math.min(n ?? 0, building.got[k as CargoKind] ?? 0), cap: n ?? 0 }));
+      piles = Object.entries(YARD_COSTS[building.build]).map(([k, n]) => ({ label: `${GOODS_ICON[k as CargoKind]} ${CARGO[k as CargoKind].label}`, count: Math.min(n ?? 0, building.got[k as CargoKind] ?? 0), cap: n ?? 0, wagon: wagonTag(k as CargoKind) }));
     // A warehouse: how to use it, and a row for each good it holds or lists (its count, and what it lets trains do with
     // it), "Any other goods", and "+ Add a good" (goods the map makes, not shown yet). "Empty" while it holds nothing.
     if (isStore(d.role)) {
@@ -3149,7 +3184,7 @@ export class Interaction {
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     const note = d.role === "town" ? `Delivered ${delivered}` : d.role === "harbour" && piles.length === 0 ? "Nothing on the quay: drop goods here for the boats" : "";
     // A workshop: how its planks get there (a train on a route drops them only at its stops).
-    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note, false, d.role === "workshop" ? SHOP_HELP : "");
+    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note, false, d.role === "workshop" ? SHOP_HELP : "", warn);
   }
 
   toggleDepotAuto(): void {
@@ -3228,7 +3263,7 @@ export class Interaction {
     } else {
       this.onRefused?.();
       // (A refusal, as for a piece put down where it can't go: at once, and said once while it's up.)
-      this.hud.refuse(m.cargo === "log" ? "Logs go on a flatbed wagon or the sawmill's log pile" : m.cargo === "planks" ? "Planks go on a flatbed wagon or a station's goods pile" : "That goes on a wagon that carries it, or a pile that takes it");
+      this.hud.refuse(m.cargo === "log" ? "Logs go on a flatbed wagon or the sawmill's log pile" : m.cargo === "planks" ? "Planks go on a flatbed wagon or a station's goods pile" : `${CARGO[m.cargo].label} ${CARGO[m.cargo].label.endsWith("s") ? "go" : "goes"} on ${wagonWords(m.cargo) ? `a ${wagonWords(m.cargo).toLowerCase()}` : "a wagon that carries it"}, or a pile that takes it`);
     }
   }
 

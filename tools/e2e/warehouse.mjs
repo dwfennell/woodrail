@@ -369,10 +369,10 @@ if (!setup.error && setup.engine !== -1) {
     }
     await settle();
     const rows0 = await p.evaluate(() => [...document.querySelectorAll(".depot-store .store-row")].map((r) => r.querySelector(".store-what").textContent));
-    check("the mine's card: coal and ore, each Gives", rows0.length === 2 && /Coal.*Gives$/.test(rows0[0]) && /Ore.*Gives$/.test(rows0[1]), JSON.stringify(rows0));
+    check("the mine's card: coal and ore, each Gives (and goes in a hopper)", rows0.length === 2 && /Coal.*Gives · 🚃 Hopper$/.test(rows0[0]) && /Ore.*Gives · 🚃 Hopper$/.test(rows0[1]), JSON.stringify(rows0));
     await tapButton('.depot-store [data-kind="ore"][data-mode="off"]');
     const rows1 = await p.evaluate(() => ({ rows: [...document.querySelectorAll(".depot-store .store-row")].map((r) => r.querySelector(".store-what").textContent), small: Math.min(...[...document.querySelectorAll(".depot-store button")].map((b) => Math.min(b.getBoundingClientRect().width, b.getBoundingClientRect().height))) }));
-    check("…ore set to Doesn't give by a tap (44 px choices)", /Ore.*Doesn't give$/.test(rows1.rows[1] ?? "") && rows1.small >= 44, JSON.stringify(rows1));
+    check("…ore set to Doesn't give by a tap (44 px choices)", /Ore.*Doesn't give · 🚃 Hopper$/.test(rows1.rows[1] ?? "") && rows1.small >= 44, JSON.stringify(rows1));
     await shot("8-mine-coal-only");
     await p.keyboard.press("Escape");
     mineSetup.engine = await p.evaluate(() => window.__hoppers());

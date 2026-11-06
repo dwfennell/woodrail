@@ -44,7 +44,13 @@ describe("piece names", () => {
     const item = (label: string) => trayItems().find((i) => i.label === label)!;
     expect(trayInfo(item("Electric")).detail).toBe("Pulls 6 cars, 1.4× as fast. Needs a spark of power.");
     expect(trayInfo(item("Tank engine")).detail).toContain("Pulls 3 cars");
-    expect(trayInfo(item("Hopper")).detail).toBe("Carries grain, stone, coal and ore.");
+    expect(trayInfo(item("Hopper")).detail).toBe("Carries 🌾 grain, 🪨 stone, ⚫ coal, ⛏️ ore.");
+    // Every good a goods van carries, none left out as "more": its icons in the detail, by name on its place card.
+    expect(trayInfo(item("Goods van")).detail.split(" ")).toHaveLength(14);
+    const names = placeCardInfo(item("Goods van")).facts.join(", ");
+    expect(names.split(", ")).toHaveLength(13);
+    expect(names).toContain("🍞 flour");
+    expect(names).toContain("🧸 toys");
   });
 });
 

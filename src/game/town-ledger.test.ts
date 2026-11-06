@@ -20,7 +20,7 @@ describe("the town ledger (Game mode's town card)", () => {
     const v = townLedger(w, d, ctx())!;
     expect(v.name).toBe(town.name);
     expect([v.level, v.next, v.have, v.need]).toEqual(["Hamlet", "Village", 0, 4]);
-    expect(v.goods).toEqual([{ kind: "planks", icon: "\uE000", label: "Planks", have: 0, need: 4 }]);
+    expect(v.goods).toEqual([{ kind: "planks", icon: "\uE000", label: "Planks", wagon: "🚃 Flatbed", have: 0, need: 4 }]);
     expect(v.holding).toBeNull();
     expect(v.school).toBeNull();
     expect(v.market).toBe(1);

@@ -1,4 +1,5 @@
 import { CARGO, GOODS_ICON, RECIPES, type CargoKind, type DepotRole, type DepotState } from "../economy";
+import { wagonTag } from "../economy/wagons";
 import { kindsOf } from "../economy/goods";
 import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
@@ -18,6 +19,8 @@ export interface LedgerGood {
   kind: CargoKind;
   icon: string;
   label: string;
+  /** The wagon that carries it to the town: "🚃 Flatbed" (`wagonTag`). */
+  wagon: string;
   have: number;
   need: number;
 }
@@ -121,7 +124,7 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
   const town = world.landscape.towns.find((t) => t.id === d.townId);
   if (!town) return null;
   const status = statusOf(world, town.id);
-  const goods = kindsOf(status.wants).map((kind) => ({ kind, icon: GOODS_ICON[kind], label: CARGO[kind].label, have: status.got[kind] ?? 0, need: status.wants[kind]! }));
+  const goods = kindsOf(status.wants).map((kind) => ({ kind, icon: GOODS_ICON[kind], label: CARGO[kind].label, wagon: wagonTag(kind), have: status.got[kind] ?? 0, need: status.wants[kind]! }));
   const have = goods.reduce((t, g) => t + g.have, 0);
   const need = goods.reduce((t, g) => t + g.need, 0);
   // What's holding it back, plainly: a good it still needs that nothing on the map makes yet.
