@@ -315,6 +315,11 @@ export interface Line {
   colour: string;
   name: string;
   readonly stops: RouteStopDef[];
+  /**
+   * Made for one errand, not by the player's planning (a telegraph's call home): forgotten once no train runs it.
+   * Every other line stays without trains (in the Lines list, to put trains on later) till the player deletes it.
+   */
+  transient?: boolean;
 }
 
 /** What the economy's intent rules read of a car's line (see `lineOfCar`). */
@@ -2966,10 +2971,11 @@ export class Economy {
     for (const id of this.cargo.keys()) if (!this.sim.findCar(id)) this.cargo.delete(id);
     for (const id of this.riders.keys()) if (!this.sim.findCar(id)) this.riders.delete(id);
     for (const id of this.routes.keys()) if (!this.sim.findCar(id)) this.routes.delete(id);
-    // An engine gone: off its line; a line no train runs is forgotten.
+    // An engine gone: off its line. A line no train runs stays (lines are the player's, with or without trains), but
+    // for a transient one (a call home), which is forgotten.
     for (const id of this.lineIdOf.keys()) if (!this.routes.has(id)) this.lineIdOf.delete(id);
     const run = new Set(this.lineIdOf.values());
-    for (const id of this.lines.keys()) if (!run.has(id)) this.lines.delete(id);
+    for (const [id, line] of this.lines) if (line.transient && !run.has(id)) this.lines.delete(id);
     this.spacing.prune(run, new Set(this.lineIdOf.keys()));
     this.sections.prune(new Set(this.lineIdOf.keys()));
     this.stalls.prune();

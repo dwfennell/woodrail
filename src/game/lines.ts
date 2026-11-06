@@ -27,7 +27,7 @@ export function lineOf(economy: Economy, engineCarId: number): Line | undefined 
 }
 
 /** A new line's colour and name: the first colour no line has (then round again). */
-function nextColour(economy: Economy): { colour: string; name: string } {
+export function nextColour(economy: Economy): { colour: string; name: string } {
   const used = new Set([...economy.lines.values()].map((l) => l.colour));
   const free = LINE_COLOURS.find((c) => !used.has(c.colour));
   return free ?? LINE_COLOURS[economy.lines.size % LINE_COLOURS.length];
@@ -40,6 +40,28 @@ export function startLine(economy: Economy, engineCarId: number, stops: RouteSto
   economy.lineIdOf.set(engineCarId, id);
   economy.setRoute(engineCarId, line.stops.length > 0 ? { stops: line.stops, next: 0 } : null);
   return line;
+}
+
+/**
+ * A line of its own, no train running it yet (made from the Lines list, or kept when its last train left): these stops,
+ * the next free colour. Trains are put on it later (`joinLine`).
+ */
+export function createLine(economy: Economy, stops: readonly RouteStopDef[], look = nextColour(economy), id = nextLineId(economy)): Line {
+  const line: Line = { id, colour: look.colour, name: `${look.name} line`, stops: stops.map(copyStop) };
+  economy.lines.set(id, line);
+  return line;
+}
+
+/**
+ * A line gone, by the player's hand (the Lines list's Delete): its trains run no line now (they go anywhere again), and
+ * it's forgotten. (Taking a line's last train off it keeps the line: `stopLine`.)
+ */
+export function deleteLine(economy: Economy, id: number): void {
+  for (const engine of trainsOn(economy, id)) {
+    economy.lineIdOf.delete(engine);
+    economy.setRoute(engine, null);
+  }
+  economy.lines.delete(id);
 }
 
 function nextLineId(economy: Economy): number {
@@ -61,8 +83,17 @@ export function trainsOn(economy: Economy, id: number): number[] {
  * No stops left: the line's gone, and its trains go anywhere again.
  */
 export function editLine(economy: Economy, engineCarId: number, edit: (stops: RouteStopDef[]) => void): Line | null {
-  let line = lineOf(economy, engineCarId);
-  if (!line) line = startLine(economy, engineCarId, []);
+  const line = lineOf(economy, engineCarId) ?? startLine(economy, engineCarId, []);
+  return editLineById(economy, line.id, edit);
+}
+
+/**
+ * Change line `id`'s stops (`editLine`, by the line rather than one of its trains: a line no train runs is edited so
+ * too). No stops left: the line's gone, and its trains (if any) go anywhere again. Null too for no such line.
+ */
+export function editLineById(economy: Economy, id: number, edit: (stops: RouteStopDef[]) => void): Line | null {
+  const line = economy.lines.get(id);
+  if (!line) return null;
   const had = line.stops.length;
   const trains = trainsOn(economy, line.id).map((engine) => {
     const route = economy.routeOf(engine);
@@ -70,7 +101,7 @@ export function editLine(economy: Economy, engineCarId: number, edit: (stops: Ro
   });
   edit(line.stops);
   if (line.stops.length === 0) {
-    for (const t of trains) stopLine(economy, t.engine);
+    deleteLine(economy, line.id);
     return null;
   }
   for (const t of trains) {
@@ -159,12 +190,15 @@ export function recolourLine(economy: Economy, id: number, colour: string): void
   line.colour = colour;
 }
 
-/** This engine runs no line now (goes anywhere, works at every stop); a line no train runs is forgotten. */
+/**
+ * This engine runs no line now (goes anywhere, works at every stop). Its line stays, run by no train if this was its
+ * last (the Lines list shows it, to put a train on again), but for a transient one (a call home), which is forgotten.
+ */
 export function stopLine(economy: Economy, engineCarId: number): void {
   const id = economy.lineIdOf.get(engineCarId);
   economy.lineIdOf.delete(engineCarId);
   economy.setRoute(engineCarId, null);
-  if (id !== undefined && ![...economy.lineIdOf.values()].includes(id)) economy.lines.delete(id);
+  if (id !== undefined && economy.lines.get(id)?.transient && ![...economy.lineIdOf.values()].includes(id)) economy.lines.delete(id);
 }
 
 /** Move a stop from `from` to `to` in a stop list (for reordering), in place. */
@@ -219,7 +253,28 @@ export interface SavedLine {
   id: number;
   colour: string;
   name: string;
+  transient?: true;
   stops: ([number, RouteStopDef["action"], boolean] | [number, RouteStopDef["action"], boolean, number[]])[];
+}
+
+/** A saved line made afresh, its stops at depots no longer on the map left out (none left: null, not made). */
+function lineFromSave(economy: Economy, spec: SavedLine): Line | null {
+  const stops = spec.stops
+    .filter(([d]) => economy.depot(d))
+    .map(([depotId, action, waitFill, vias]): RouteStopDef => ({ depotId, action, ...(waitFill ? { waitFill } : {}), ...(vias && vias.length > 0 ? { via: [...vias] } : {}) }));
+  if (stops.length === 0) return null;
+  const line: Line = { id: spec.id, colour: spec.colour, name: spec.name, stops, ...(spec.transient ? { transient: true } : {}) };
+  economy.lines.set(spec.id, line);
+  return line;
+}
+
+/**
+ * Loading a save: every saved line, before the trains (which then join theirs, `joinSavedLine`), so a line no train
+ * runs comes back too. (Saves from before lines could stand alone listed only lines their trains ran: the same.) A
+ * transient line comes back only with a train on it.
+ */
+export function loadSavedLines(economy: Economy, saved: readonly SavedLine[]): void {
+  for (const spec of saved) if (!spec.transient && !economy.lines.has(spec.id)) lineFromSave(economy, spec);
 }
 
 /**
@@ -227,16 +282,11 @@ export interface SavedLine {
  * stop `next`. Stops at depots no longer on the map are left out; a line left with none isn't run.
  */
 export function joinSavedLine(economy: Economy, saved: readonly SavedLine[], engineCarId: number, id: number, next: number, via = 0): void {
-  let line = economy.lines.get(id);
+  let line = economy.lines.get(id) ?? null;
   if (!line) {
     const spec = saved.find((l) => l.id === id);
-    if (!spec) return;
-    const stops = spec.stops
-      .filter(([d]) => economy.depot(d))
-      .map(([depotId, action, waitFill, vias]): RouteStopDef => ({ depotId, action, ...(waitFill ? { waitFill } : {}), ...(vias && vias.length > 0 ? { via: [...vias] } : {}) }));
-    if (stops.length === 0) return;
-    line = { id, colour: spec.colour, name: spec.name, stops };
-    economy.lines.set(id, line);
+    line = spec ? lineFromSave(economy, spec) : null;
+    if (!line) return;
   }
   economy.lineIdOf.set(engineCarId, id);
   const at = Math.min(next, line.stops.length - 1);
@@ -291,8 +341,8 @@ export function sameLines(a: LinesSnapshot, b: LinesSnapshot): boolean {
  * Put the lines back as `to` has them (a route edit undone or redone): their stops, names and colours, which train
  * runs which. A train still where `from` (the state the edit left, or the undo before) had it on its line goes back to
  * where `to` had it (it heads where it did before the edit); one that has run on since keeps heading for its stop where
- * that's still on the line, else for the stop it comes to first. Trains no longer on the map are left out, and a line
- * none of its trains is left to run is gone.
+ * that's still on the line, else for the stop it comes to first. Trains no longer on the map are left out; a line no
+ * train runs stays (but for a transient one).
  */
 export function restoreLines(economy: Economy, to: LinesSnapshot, from: LinesSnapshot): void {
   // Where each train is now, and whether that's still as `from` left it.
@@ -309,7 +359,7 @@ export function restoreLines(economy: Economy, to: LinesSnapshot, from: LinesSna
   // The lines: each stop object as it was, in its place.
   for (const id of [...economy.lines.keys()]) if (!to.lines.some((l) => l.line.id === id)) economy.lines.delete(id);
   for (const l of to.lines) {
-    if (!to.runs.some((r) => r.line === l.line.id && onMap(r.engine))) {
+    if (l.line.transient && !to.runs.some((r) => r.line === l.line.id && onMap(r.engine))) {
       economy.lines.delete(l.line.id);
       continue;
     }
